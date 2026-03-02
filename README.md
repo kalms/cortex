@@ -4,13 +4,17 @@
 
 Single Go binary. No Docker, no external databases, no API keys. One command to install, say *"Index this project"* — done.
 
-Parses source code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), extracts functions, classes, modules, call relationships, and cross-service HTTP links. Exposes the graph through 14 MCP tools for use with Claude Code, Codex CLI, Cursor, Windsurf, or any MCP-compatible client. Also includes a **CLI mode** for direct tool invocation from the shell — no MCP client needed.
+Parses source code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), extracts functions, classes, modules, call relationships, and cross-service HTTP links. Exposes the graph through 12 MCP tools for use with Claude Code, Codex CLI, Cursor, Windsurf, or any MCP-compatible client. Also includes a **CLI mode** for direct tool invocation from the shell — no MCP client needed.
 
 ## Features
 
 - **35 languages**: Python, Go, JavaScript, TypeScript, TSX, Rust, Java, C++, C#, C, PHP, Lua, Scala, Kotlin, Ruby, Bash, Zig, Elixir, Haskell, OCaml, Objective-C, Swift, Dart, Perl, Groovy, Erlang, R, HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile
+- **Architecture overview**: `get_architecture` returns languages, packages, entry points, routes, hotspots, boundaries, layers, and clusters in a single call — instant codebase orientation
+- **Architecture Decision Records**: `manage_adr` persists architectural decisions (PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY) across sessions with section filtering and validation
+- **Louvain community detection**: Discovers hidden functional modules across packages by clustering CALLS, HTTP_CALLS, and ASYNC_CALLS edges
 - **Git diff impact mapping**: `detect_changes` maps uncommitted changes to affected graph symbols + blast radius with risk classification (CRITICAL/HIGH/MEDIUM/LOW)
 - **Risk-classified tracing**: `trace_call_path` with `risk_labels=true` adds impact classification to every node in the call chain
+- **Case-insensitive search**: `search_graph` and `search_code` are case-insensitive by default — set `case_sensitive=true` for exact matching
 - **One-command install**: `codebase-memory-mcp install` auto-detects Claude Code, Codex CLI, Cursor, and Windsurf, registers the MCP server, and installs task-specific skills
 - **Self-update**: `codebase-memory-mcp update` downloads the latest release, verifies checksums, and atomically swaps the binary
 - **Task-specific skills**: 4 skills (exploring, tracing, quality, reference) that prescribe exact tool sequences — Claude Code automatically uses graph tools instead of defaulting to grep
@@ -239,7 +243,7 @@ Add the MCP server to your project's `.mcp.json` (per-project, recommended) or `
 }
 ```
 
-Restart Claude Code after adding the config. Verify with `/mcp` — you should see `codebase-memory-mcp` listed with 14 tools.
+Restart Claude Code after adding the config. Verify with `/mcp` — you should see `codebase-memory-mcp` listed with 12 tools.
 
 </details>
 
@@ -331,22 +335,22 @@ The CLI uses the same SQLite database as the MCP server (`~/.cache/codebase-memo
 
 | Tool | Key Parameters | Description |
 |------|---------------|-------------|
-| `search_graph` | `label`, `name_pattern`, `project`, `file_pattern`, `relationship`, `direction`, `min_degree`, `max_degree`, `exclude_entry_points`, `limit` (default 100), `offset` | Structured search with filters. Use `project` to scope to a single repo when multiple are indexed. Supports pagination via `limit`/`offset` — response includes `has_more` and `total`. |
+| `search_graph` | `label`, `name_pattern`, `project`, `file_pattern`, `relationship`, `direction`, `min_degree`, `max_degree`, `exclude_entry_points`, `case_sensitive`, `limit` (default 100), `offset` | Structured search with filters. **Case-insensitive by default** (set `case_sensitive=true` for exact case). Use `project` to scope to a single repo when multiple are indexed. Supports pagination via `limit`/`offset` — response includes `has_more` and `total`. |
 | `trace_call_path` | `function_name` (required), `direction` (inbound/outbound/both), `depth` (1-5, default 3), `risk_labels` (boolean) | BFS traversal from/to a function (exact name match). Returns call chains with signatures, constants, and edge types. Capped at 200 nodes. With `risk_labels=true`, adds CRITICAL/HIGH/MEDIUM/LOW classification and `impact_summary`. |
 | `detect_changes` | `scope` (unstaged/staged/all/branch), `base_branch`, `depth` (1-5, default 3) | Map git diff to affected graph symbols + blast radius. Returns changed files, changed symbols, and impacted callers with risk classification. Requires git in PATH. |
-| `query_graph` | `query` (required) | Execute Cypher-like graph queries (read-only). See [Supported Cypher Subset](#supported-cypher-subset) for what's supported. |
+| `query_graph` | `query` (required) | Execute Cypher-like graph queries (read-only). String matching in WHERE is case-sensitive by default — use `(?i)` flag for case-insensitive regex. See [Supported Cypher Subset](#supported-cypher-subset). |
 | `get_graph_schema` | — | Node/edge counts, relationship patterns, sample names. Run this first to understand what's in the graph. |
 | `get_code_snippet` | `qualified_name` (required) | Read source code for a function by its qualified name (reads from disk). See [Qualified Names](#qualified-names) for the format. |
+| `get_architecture` | `aspects` (array, default `["all"]`), `project` | Codebase architecture overview computed from the code graph. Aspects: `languages`, `packages`, `entry_points`, `routes`, `hotspots`, `boundaries`, `services`, `layers` (heuristic), `clusters` (Louvain community detection), `file_tree`, `adr` (stored Architecture Decision Record). Call with `["all"]` for full orientation. |
+| `manage_adr` | `mode` (required: `get`/`store`/`update`/`delete`), `project`, `content`, `sections` | CRUD for Architecture Decision Records. `get`: retrieve ADR with parsed sections. `store`: create/replace full ADR (max 8000 chars). `update`: patch specific sections (unmentioned preserved). `delete`: remove ADR. Fixed sections: PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY. |
 
 ### File Access
 
-> **Note**: These tools require at least one indexed project. They resolve relative paths against indexed project roots. Index a project first with `index_repository`.
+> **Note**: File reading and directory listing are handled natively by your coding agent (Claude Code `Read` tool, Codex CLI `cat`/`ls`, etc.). The tools below provide text search within indexed project files.
 
 | Tool | Key Parameters | Description |
 |------|---------------|-------------|
-| `search_code` | `pattern` (required), `file_pattern`, `regex`, `max_results` (default 100), `offset` | Grep-like text search within indexed project files. Supports pagination via `max_results`/`offset`. |
-| `read_file` | `path`, `start_line`, `end_line` | Read any file from an indexed project. Path can be absolute or relative to project root. |
-| `list_directory` | `path`, `pattern` | List files/directories with optional glob filtering (e.g. `*.go`, `*.py`). |
+| `search_code` | `pattern` (required), `file_pattern`, `regex`, `case_sensitive`, `max_results` (default 100), `offset` | Grep-like text search within indexed project files. **Case-insensitive by default** (set `case_sensitive=true` for exact case). Supports pagination via `max_results`/`offset`. |
 
 ## Usage Examples
 
@@ -356,10 +360,64 @@ The CLI uses the same SQLite database as the MCP server (`~/.cache/codebase-memo
 index_repository(repo_path="/path/to/your/project")
 ```
 
-### Find all functions matching a pattern
+### Get codebase architecture overview
 
 ```
-search_graph(label="Function", name_pattern=".*Handler")
+get_architecture(aspects=["all"])
+# → languages, packages, entry points, routes, hotspots, boundaries, services, layers, clusters, file tree
+
+get_architecture(aspects=["languages", "packages"])
+# → quick orientation — just language breakdown and top packages
+
+get_architecture(aspects=["hotspots", "boundaries", "clusters"])
+# → dependency analysis — most-called functions, cross-package calls, community detection
+```
+
+### Manage Architecture Decision Records (ADR)
+
+```
+# Store a new ADR
+manage_adr(mode="store", content="## PURPOSE\nOrder processing service\n\n## STACK\n- Go: speed\n- SQLite: embedded storage")
+
+# Update specific sections (others preserved)
+manage_adr(mode="update", sections={"PATTERNS": "- Pipeline pattern\n- Repository pattern"})
+
+# Retrieve the full ADR with parsed sections
+manage_adr(mode="get")
+
+# View ADR via architecture overview
+get_architecture(aspects=["adr"])
+
+# Delete the ADR
+manage_adr(mode="delete")
+```
+
+### Find all functions matching a pattern
+
+Search is **case-insensitive by default** — no need for `(?i)`:
+
+```
+search_graph(label="Function", name_pattern=".*handler")
+# → matches "Handler", "handler", "HANDLER", "RequestHandler", etc.
+
+# Use regex alternatives for broad matching:
+search_graph(name_pattern="auth|authenticate|authorization")
+
+# Opt in to exact case matching when needed:
+search_graph(name_pattern=".*Handler", case_sensitive=true)
+```
+
+### Search code (text search)
+
+```
+search_code(pattern="TODO")
+# → case-insensitive by default, matches "TODO", "Todo", "todo"
+
+search_code(pattern="TODO|FIXME|HACK", regex=true)
+# → find all issue markers
+
+search_code(pattern="TODO", case_sensitive=true)
+# → exact case match only
 ```
 
 ### Trace what a function calls
@@ -416,6 +474,11 @@ search_graph(label="Route")
 
 ```
 query_graph(query="MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = 'main' RETURN g.name, g.qualified_name LIMIT 20")
+```
+
+```
+# Case-insensitive regex in Cypher (use (?i) flag):
+query_graph(query="MATCH (f:Function) WHERE f.name =~ '(?i).*handler.*' RETURN f.name LIMIT 20")
 ```
 
 ```
@@ -589,7 +652,7 @@ make install  # go install
 |---------|-------|-----|
 | `/mcp` doesn't show the server | Config not loaded or binary not found | Check `.mcp.json` path is absolute and correct. Restart Claude Code. Verify binary runs: `/path/to/codebase-memory-mcp` should output JSON. |
 | `index_repository` fails | Missing `repo_path` or path doesn't exist | Pass an absolute path: `index_repository(repo_path="/absolute/path")` |
-| `read_file` / `list_directory` returns error | No project indexed yet | Run `index_repository` first. These tools resolve paths against indexed project roots. |
+| `get_architecture` returns empty sections | No project indexed or project has few nodes | Run `index_repository` first. Some aspects (routes, hotspots, clusters) require enough graph data to produce meaningful results. |
 | `get_code_snippet` returns "node not found" | Wrong qualified name format | Use `search_graph` first to find the exact `qualified_name`, then pass it to `get_code_snippet`. See [Qualified Names](#qualified-names). |
 | `trace_call_path` returns 0 results | Exact name match — no fuzzy matching | Use `search_graph(name_pattern=".*PartialName.*")` to discover the exact function name first. |
 | Queries return results from wrong project | Multiple projects indexed, no filter | Add `project="your-project-name"` to `search_graph`. Use `list_projects` to see indexed project names. |
@@ -617,17 +680,18 @@ See [`BENCHMARK.md`](BENCHMARK.md) for the full 35-language benchmark with per-q
 ```
 cmd/codebase-memory-mcp/  Entry point (MCP stdio server + CLI mode + install/update commands)
 internal/
-  store/                  SQLite graph storage (nodes, edges, traversal, search)
+  store/                  SQLite graph storage (nodes, edges, traversal, search, architecture, Louvain clustering)
   lang/                   Language specs (35 languages, tree-sitter node types)
   parser/                 Tree-sitter grammar loading and AST parsing
-  pipeline/               4-pass indexing (structure -> definitions -> calls -> HTTP links)
+  pipeline/               Multi-pass indexing (structure → definitions → calls → HTTP links → communities → tests)
   httplink/               Cross-service HTTP route/call-site matching
   cypher/                 Cypher query lexer, parser, planner, executor
   selfupdate/             GitHub release checking, version comparison, asset download
-  tools/                  MCP tool handlers (14 tools) + CLI dispatch
+  tools/                  MCP tool handlers (12 tools) + CLI dispatch
   watcher/                Background auto-sync (mtime+size polling, adaptive intervals)
   discover/               File discovery with .cgrignore support
   fqn/                    Qualified name computation
+  traces/                 OpenTelemetry trace ingestion for HTTP_CALLS validation
 ```
 
 ## License
