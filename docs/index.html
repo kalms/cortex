@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>codebase-memory-mcp — Code Knowledge Graph for AI Assistants</title>
+    <meta name="description" content="MCP server that indexes codebases into a persistent knowledge graph. 35 languages, 120x fewer tokens, single Go binary. Works with Claude Code, Codex CLI, Cursor, Windsurf.">
+    <meta name="keywords" content="MCP server, code analysis, knowledge graph, tree-sitter, Claude Code, Codex, Cursor, Windsurf, developer tools, code exploration, token reduction">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="codebase-memory-mcp — Code Knowledge Graph for AI Assistants">
+    <meta property="og:description" content="120x fewer tokens for AI code exploration. 35 languages, sub-ms queries, single Go binary.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://deusdata.github.io/codebase-memory-mcp">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="codebase-memory-mcp — Code Knowledge Graph for AI Assistants">
+    <meta name="twitter:description" content="120x fewer tokens for AI code exploration. 35 languages, sub-ms queries, single Go binary.">
+
+    <link rel="canonical" href="https://deusdata.github.io/codebase-memory-mcp">
+
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-hover: #79c0ff;
+            --green: #3fb950;
+            --red: #f85149;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0 60px;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        .hero .tagline {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+            max-width: 640px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .hero .stat {
+            display: inline-block;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            margin: 8px;
+        }
+        .hero .stat .number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .hero .stat .label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        .cta-buttons {
+            margin-top: 32px;
+        }
+        .cta-buttons a {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            margin: 4px;
+        }
+        .cta-primary {
+            background: var(--accent);
+            color: #0d1117;
+        }
+        .cta-primary:hover { background: var(--accent-hover); }
+        .cta-secondary {
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .cta-secondary:hover { border-color: var(--text-secondary); }
+
+        /* Sections */
+        section { padding: 60px 0; }
+        section h2 {
+            font-size: 1.75rem;
+            margin-bottom: 24px;
+        }
+
+        /* Install */
+        .install-block {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 24px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 16px 0;
+        }
+        .install-block .comment { color: var(--text-secondary); }
+        .install-block .cmd { color: var(--green); }
+
+        /* Comparison table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        th, td {
+            padding: 10px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: var(--surface);
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        td { font-size: 0.9rem; }
+        .win { color: var(--green); font-weight: 600; }
+        .lose { color: var(--text-secondary); }
+
+        /* Features grid */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 24px;
+        }
+        .feature {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+        }
+        .feature h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+        }
+        .feature p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* Benchmark */
+        .benchmark-table td:nth-child(2),
+        .benchmark-table td:nth-child(3),
+        .benchmark-table td:nth-child(4) {
+            text-align: right;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.85rem;
+        }
+        .benchmark-table th:nth-child(2),
+        .benchmark-table th:nth-child(3),
+        .benchmark-table th:nth-child(4) {
+            text-align: right;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            border-top: 1px solid var(--border);
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .hero h1 { font-size: 1.75rem; }
+            .hero .stat { display: block; margin: 8px 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <section class="hero">
+        <h1>codebase-memory-mcp</h1>
+        <p class="tagline">
+            Stop paying 100x more tokens for code exploration. A knowledge graph MCP server
+            that gives AI coding assistants precise structural answers in a single query.
+        </p>
+        <div>
+            <div class="stat">
+                <div class="number">120x</div>
+                <div class="label">fewer tokens</div>
+            </div>
+            <div class="stat">
+                <div class="number">35</div>
+                <div class="label">languages</div>
+            </div>
+            <div class="stat">
+                <div class="number">&lt;1ms</div>
+                <div class="label">query time</div>
+            </div>
+            <div class="stat">
+                <div class="number">0</div>
+                <div class="label">dependencies</div>
+            </div>
+        </div>
+        <div class="cta-buttons">
+            <a href="https://github.com/DeusData/codebase-memory-mcp" class="cta-primary">View on GitHub</a>
+            <a href="https://github.com/DeusData/codebase-memory-mcp/releases/latest" class="cta-secondary">Download Latest Release</a>
+        </div>
+    </section>
+
+    <section>
+        <h2>Install in 3 steps</h2>
+        <div class="install-block">
+            <span class="comment"># 1. Download for your platform</span><br>
+            <span class="cmd">tar xzf codebase-memory-mcp-*.tar.gz</span><br>
+            <span class="cmd">mv codebase-memory-mcp ~/.local/bin/</span><br><br>
+            <span class="comment"># 2. Auto-configure your editor</span><br>
+            <span class="cmd">codebase-memory-mcp install</span><br><br>
+            <span class="comment"># 3. Restart your editor, then say:</span><br>
+            <span class="cmd">"Index this project"</span>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            Works with Claude Code, Codex CLI, Cursor, and Windsurf. Also has a CLI mode for direct terminal use.
+        </p>
+    </section>
+
+    <section>
+        <h2>The problem</h2>
+        <p style="margin-bottom: 16px;">
+            AI coding assistants explore codebases by reading files one at a time. Every structural question
+            triggers a cascade of grep &rarr; read file &rarr; grep again &rarr; read more files.
+        </p>
+        <p style="margin-bottom: 16px;">
+            Five structural questions about a real codebase:
+            <strong style="color: var(--red);">~412,000 tokens</strong> via file-by-file search.
+            <strong style="color: var(--green);">~3,400 tokens</strong> via knowledge graph queries.
+        </p>
+        <p style="color: var(--text-secondary);">
+            The 120x reduction isn't about fitting in the context window. It's about cost ($3-15/M tokens adds up),
+            latency (&lt;1ms vs seconds), and accuracy (less noise = better answers, no "lost in the middle" problem).
+        </p>
+    </section>
+
+    <section>
+        <h2>Benchmark results</h2>
+        <table class="benchmark-table">
+            <thead>
+                <tr>
+                    <th>Question Type</th>
+                    <th>Graph</th>
+                    <th>File-by-file</th>
+                    <th>Savings</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Find function by pattern</td>
+                    <td>~200</td>
+                    <td>~45,000</td>
+                    <td class="win">225x</td>
+                </tr>
+                <tr>
+                    <td>Trace call chain (depth 3)</td>
+                    <td>~800</td>
+                    <td>~120,000</td>
+                    <td class="win">150x</td>
+                </tr>
+                <tr>
+                    <td>Dead code detection</td>
+                    <td>~500</td>
+                    <td>~85,000</td>
+                    <td class="win">170x</td>
+                </tr>
+                <tr>
+                    <td>List all routes</td>
+                    <td>~400</td>
+                    <td>~62,000</td>
+                    <td class="win">155x</td>
+                </tr>
+                <tr>
+                    <td>Architecture overview</td>
+                    <td>~1,500</td>
+                    <td>~100,000</td>
+                    <td class="win">67x</td>
+                </tr>
+                <tr style="font-weight: 700;">
+                    <td>Total</td>
+                    <td>~3,400</td>
+                    <td>~412,000</td>
+                    <td class="win">121x</td>
+                </tr>
+            </tbody>
+        </table>
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 8px;">
+            Tested across 35 real open-source repos (78 to 49K nodes). Stress tested on Linux kernel
+            (20K nodes, 67K edges, zero timeouts).
+            <a href="https://github.com/DeusData/codebase-memory-mcp/blob/main/BENCHMARK_REPORT.md">Full benchmark report &rarr;</a>
+        </p>
+    </section>
+
+    <section>
+        <h2>Features</h2>
+        <div class="features">
+            <div class="feature">
+                <h3>35 Languages</h3>
+                <p>Python, Go, JS, TS, Rust, Java, C++, C#, PHP, Ruby, Kotlin, Scala, Zig, Elixir, Haskell, and 20 more via tree-sitter grammars.</p>
+            </div>
+            <div class="feature">
+                <h3>Call Graph Tracing</h3>
+                <p>Trace callers and callees across files and packages. Import-aware, type-inferred resolution. BFS traversal up to depth 5.</p>
+            </div>
+            <div class="feature">
+                <h3>Dead Code Detection</h3>
+                <p>Find functions with zero callers, with smart filtering that excludes entry points (route handlers, main(), framework decorators).</p>
+            </div>
+            <div class="feature">
+                <h3>Cross-Service HTTP Linking</h3>
+                <p>Discovers REST routes and matches them to HTTP call sites across services with confidence scoring.</p>
+            </div>
+            <div class="feature">
+                <h3>Auto-Sync</h3>
+                <p>Background polling detects file changes and triggers incremental re-indexing. No manual reindex needed.</p>
+            </div>
+            <div class="feature">
+                <h3>Cypher Queries</h3>
+                <p>Ad-hoc graph exploration with a Cypher-like query language: MATCH, WHERE, RETURN, ORDER BY, LIMIT.</p>
+            </div>
+            <div class="feature">
+                <h3>Architecture Overview</h3>
+                <p>Languages, packages, entry points, routes, hotspots, boundaries, and hidden modules via Louvain community detection.</p>
+            </div>
+            <div class="feature">
+                <h3>Git Diff Impact</h3>
+                <p>Map uncommitted changes to affected symbols + blast radius with CRITICAL/HIGH/MEDIUM/LOW risk classification.</p>
+            </div>
+            <div class="feature">
+                <h3>12 MCP Tools</h3>
+                <p>search_graph, trace_call_path, detect_changes, query_graph, get_architecture, manage_adr, and 6 more.</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>How it compares</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>codebase-memory-mcp</th>
+                    <th>GitNexus</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Languages</td><td class="win">35</td><td>8-11</td></tr>
+                <tr><td>Runtime</td><td class="win">Single Go binary</td><td>Node.js (npx)</td></tr>
+                <tr><td>Runtime dependency</td><td class="win">None</td><td>Node.js</td></tr>
+                <tr><td>Embedded LLM</td><td class="win">No (uses your MCP client)</td><td>Yes (extra API key + cost)</td></tr>
+                <tr><td>Published benchmarks</td><td class="win">Yes (35 repos, Linux kernel)</td><td>No</td></tr>
+                <tr><td>Auto-sync</td><td class="win">Yes</td><td>No</td></tr>
+                <tr><td>MCP tools</td><td class="win">12</td><td>7</td></tr>
+                <tr><td>Cross-service HTTP linking</td><td class="win">Yes</td><td>No</td></tr>
+                <tr><td>Cypher queries</td><td class="win">Yes</td><td>No</td></tr>
+                <tr><td>Visual web UI</td><td class="lose">No</td><td class="win">Yes</td></tr>
+                <tr><td>Graph RAG chat</td><td class="lose">No</td><td class="win">Yes</td></tr>
+            </tbody>
+        </table>
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 12px;">
+            GitNexus is a visual dashboard — great for interactive exploration. codebase-memory-mcp is
+            production tooling — the most comprehensive, zero-dependency backend for AI coding assistants.
+        </p>
+    </section>
+</div>
+
+<footer>
+    <div class="container">
+        <p>
+            Open source, MIT licensed.
+            <a href="https://github.com/DeusData/codebase-memory-mcp">GitHub</a> &middot;
+            <a href="https://github.com/DeusData/codebase-memory-mcp/releases/latest">Releases</a> &middot;
+            <a href="https://github.com/DeusData/codebase-memory-mcp/blob/main/BENCHMARK_REPORT.md">Benchmarks</a>
+        </p>
+    </div>
+</footer>
+
+</body>
+</html>
