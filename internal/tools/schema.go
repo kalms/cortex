@@ -32,11 +32,14 @@ func (s *Server) handleGetGraphSchema(_ context.Context, req *mcp.CallToolReques
 	}
 
 	type projectSchema struct {
-		Project string            `json:"project"`
-		Schema  *store.SchemaInfo `json:"schema"`
+		Project    string            `json:"project"`
+		Schema     *store.SchemaInfo `json:"schema"`
+		ADRPresent bool              `json:"adr_present"`
 	}
 
+	adr, _ := st.GetADR(projName)
+
 	return jsonResult(map[string]any{
-		"projects": []projectSchema{{Project: projName, Schema: schema}},
+		"projects": []projectSchema{{Project: projName, Schema: schema, ADRPresent: adr != nil}},
 	}), nil
 }

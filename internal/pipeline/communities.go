@@ -9,7 +9,7 @@ import (
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
-// passCommunities runs Leiden-style community detection on the CALLS graph
+// passCommunities runs Louvain community detection on the CALLS graph
 // and creates Community nodes + MEMBER_OF edges.
 func (p *Pipeline) passCommunities() {
 	slog.Info("pass.communities")
@@ -37,7 +37,7 @@ func (p *Pipeline) passCommunities() {
 		adj[e.TargetID][e.SourceID] = true
 	}
 
-	// Run Louvain/Leiden community detection
+	// Run Louvain community detection
 	communities := louvainCommunities(adj, allNodes)
 
 	// Create Community nodes + MEMBER_OF edges

@@ -22,6 +22,7 @@ func (s *Server) handleListProjects(_ context.Context, _ *mcp.CallToolRequest) (
 		Nodes            int    `json:"nodes"`
 		Edges            int    `json:"edges"`
 		DBPath           string `json:"db_path"`
+		ADRPresent       bool   `json:"adr_present"`
 		IsSessionProject bool   `json:"is_session_project,omitempty"`
 	}
 
@@ -43,13 +44,16 @@ func (s *Server) handleListProjects(_ context.Context, _ *mcp.CallToolRequest) (
 			rootPath = proj.RootPath
 		}
 
+		adr, _ := st.GetADR(info.Name)
+
 		entry := projectEntry{
-			Name:      info.Name,
-			RootPath:  rootPath,
-			IndexedAt: indexedAt,
-			Nodes:     nc,
-			Edges:     ec,
-			DBPath:    info.DBPath,
+			Name:       info.Name,
+			RootPath:   rootPath,
+			IndexedAt:  indexedAt,
+			Nodes:      nc,
+			Edges:      ec,
+			DBPath:     info.DBPath,
+			ADRPresent: adr != nil,
 		}
 		if info.Name == s.sessionProject {
 			entry.IsSessionProject = true

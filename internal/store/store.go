@@ -237,6 +237,16 @@ func (s *Store) initSchema() error {
 		return err
 	}
 
+	// Migration: project_summaries table for ADR storage.
+	_, _ = s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS project_summaries (
+			project TEXT PRIMARY KEY,
+			summary TEXT NOT NULL,
+			source_hash TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`)
+
 	// Migration: add url_path generated column to edges table.
 	// Generated columns require SQLite 3.31.0+ (mattn/go-sqlite3 supports this).
 	// We check if the column already exists to make this idempotent.

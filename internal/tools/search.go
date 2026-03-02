@@ -27,6 +27,7 @@ func (s *Server) handleSearchGraph(_ context.Context, req *mcp.CallToolRequest) 
 		Offset:             getIntArg(args, "offset", 0),
 		ExcludeEntryPoints: getBoolArg(args, "exclude_entry_points"),
 		IncludeConnected:   getBoolArg(args, "include_connected"),
+		CaseSensitive:      getBoolArg(args, "case_sensitive"),
 	}
 
 	// Parse exclude_labels array; default to excluding Community nodes

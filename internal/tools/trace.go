@@ -252,7 +252,7 @@ func (s *Server) findSimilarNodes(name, project string, limit int) []*store.Node
 	}
 	params := &store.SearchParams{
 		Project:       projName,
-		NamePattern:   "(?i)" + regexp.QuoteMeta(name),
+		NamePattern:   regexp.QuoteMeta(name),
 		Limit:         limit,
 		MinDegree:     -1,
 		MaxDegree:     -1,

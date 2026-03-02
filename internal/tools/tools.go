@@ -366,10 +366,65 @@ func (s *Server) ToolNames() []string {
 
 func (s *Server) registerTools() {
 	s.registerGraphTools()
-	s.registerFileTools()
 	s.registerProjectTools()
 	s.registerTraceTools()
 	s.registerDetectChanges()
+	s.registerArchitectureTools()
+}
+
+func (s *Server) registerArchitectureTools() {
+	s.addTool(&mcp.Tool{
+		Name:        "get_architecture",
+		Description: "Get codebase architecture overview. Returns structural analysis computed from the code graph. Call with aspects=['all'] for full orientation or select specific aspects for targeted queries. Available aspects: languages (language breakdown), packages (top packages with fan-in/out), entry_points (main/init functions), routes (HTTP endpoints with handlers), hotspots (most-called functions), boundaries (cross-package call volumes), services (cross-service HTTP/async links), layers (package-level layer classification — heuristic), clusters (community detection via Louvain algorithm on CALLS + HTTP_CALLS + ASYNC_CALLS — reveals hidden functional modules across packages and services), file_tree (condensed directory structure), adr (stored Architecture Decision Record — use manage_adr to create/update). Recommended: call this first when exploring an unfamiliar codebase.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"aspects": {
+					"type": "array",
+					"items": {"type": "string", "enum": ["all", "languages", "packages", "entry_points", "routes", "hotspots", "boundaries", "services", "layers", "clusters", "file_tree", "adr"]},
+					"description": "Which architecture aspects to return. Default: ['all']. Use specific aspects to reduce output: ['languages', 'packages'] for quick orientation, ['hotspots', 'boundaries'] for dependency analysis, ['clusters'] for community detection across CALLS/HTTP/ASYNC edges."
+				},
+				"project": {
+					"type": "string",
+					"description": "Project to analyze. Defaults to session project."
+				}
+			}
+		}`),
+	}, s.handleGetArchitecture)
+
+	s.addTool(&mcp.Tool{
+		Name:        "manage_adr",
+		Description: "Manage the Architecture Decision Record (ADR) for a project. CRUD operations for a persistent, section-based architectural summary. Modes: get (retrieve full ADR or specific sections via include filter), store (create or fully replace — all 6 sections required), update (patch specific sections — only canonical keys accepted, unmentioned sections preserved), delete (remove ADR). Fixed sections in canonical order: PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY. Max 8000 chars total. Validation: store rejects content missing any section; update rejects non-canonical keys. Use include=['STACK','PATTERNS'] with get to fetch only needed sections (saves tokens). PLAN ALIGNMENT: Before finalizing any implementation plan, fetch the ADR and validate the plan against it — check ARCHITECTURE for structural fit, PATTERNS for convention compliance, STACK for technology alignment, PHILOSOPHY for principle adherence. Flag conflicts before proceeding. For creating/replacing: explore the codebase first using get_architecture and graph tools, then enter plan mode to draft the ADR collaboratively with the user. Store only after user approval.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"mode": {
+					"type": "string",
+					"enum": ["get", "store", "update", "delete"],
+					"description": "Operation: 'get' retrieves ADR, 'store' creates/replaces (all 6 sections required), 'update' patches sections (canonical keys only), 'delete' removes."
+				},
+				"project": {
+					"type": "string",
+					"description": "Project name. Defaults to session project."
+				},
+				"content": {
+					"type": "string",
+					"description": "Full ADR markdown (required for mode='store'). Must contain all 6 ## SECTION headers: PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY. Missing sections will be rejected."
+				},
+				"sections": {
+					"type": "object",
+					"additionalProperties": {"type": "string"},
+					"description": "Section updates (required for mode='update'). Keys must be canonical section names (PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY). Non-canonical keys are rejected. Values are new content. Unmentioned sections preserved."
+				},
+				"include": {
+					"type": "array",
+					"items": {"type": "string", "enum": ["PURPOSE", "STACK", "ARCHITECTURE", "PATTERNS", "TRADEOFFS", "PHILOSOPHY"]},
+					"description": "Section filter for mode='get'. Returns only the listed sections instead of the full ADR. Example: ['STACK', 'PATTERNS'] returns ~800 chars instead of ~8000. Omit to get all sections."
+				}
+			},
+			"required": ["mode"]
+		}`),
+	}, s.handleManageADR)
 }
 
 // registerGraphTools registers tools for graph querying, searching, and tracing.
@@ -466,7 +521,7 @@ func (s *Server) registerSchemaAndSnippetTools() {
 func (s *Server) registerSearchTools() {
 	s.addTool(&mcp.Tool{
 		Name:        "search_graph",
-		Description: "Search the code knowledge graph for functions, classes, modules, routes, and other code elements. Returns nodes matching the criteria with their connectivity (in/out degree). Results are sorted by relevance by default (exact match first, prefix match second, then by connectivity). Community nodes are excluded by default. Pass exclude_labels: [] to include them. Best practice: Chain with trace_call_path and get_code_snippet for complete answers. Example workflow: search_graph(name_pattern='.*Order.*') → trace_call_path(function_name='processOrder') → get_code_snippet(qualified_name='...'). Returns 10 results per page (use offset to paginate, has_more indicates more pages). name_pattern and qn_pattern support full Go regex — one precise regex replaces multiple literal searches. See parameter descriptions for patterns. For dead code: use relationship='CALLS', direction='inbound', max_degree=0, exclude_entry_points=true. For fan-out: use relationship='CALLS', direction='outbound', min_degree=N. Route nodes: properties.handler contains the actual handler function name. Prefer this over query_graph for counting — no row cap. IMPORTANT: The 'relationship' filter counts how many edges of that type each node has (degree filtering) — it does NOT return the actual edges. To list cross-service HTTP_CALLS or ASYNC_CALLS edges with their properties, use query_graph with Cypher instead. Relationship types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, CONTAINS_FILE, CONTAINS_FOLDER, CONTAINS_PACKAGE, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
+		Description: "Search the code knowledge graph for functions, classes, modules, routes, and other code elements. Search is case-insensitive by default (set case_sensitive=true for exact case). Best practice: use regex alternatives for broad matching — include abbreviations ('handler|hdlr|ctrl'), word forms ('sponsor|sponsoring|sponsored'), and synonyms ('delete|remove|drop'). One broad regex replaces multiple narrow searches. Returns nodes matching the criteria with their connectivity (in/out degree). Results are sorted by relevance by default (exact match first, prefix match second, then by connectivity). Community nodes are excluded by default. Pass exclude_labels: [] to include them. Best practice: Chain with trace_call_path and get_code_snippet for complete answers. Example workflow: search_graph(name_pattern='.*Order.*') → trace_call_path(function_name='processOrder') → get_code_snippet(qualified_name='...'). Returns 10 results per page (use offset to paginate, has_more indicates more pages). name_pattern and qn_pattern support full Go regex — one precise regex replaces multiple literal searches. See parameter descriptions for patterns. For dead code: use relationship='CALLS', direction='inbound', max_degree=0, exclude_entry_points=true. For fan-out: use relationship='CALLS', direction='outbound', min_degree=N. Route nodes: properties.handler contains the actual handler function name. Prefer this over query_graph for counting — no row cap. IMPORTANT: The 'relationship' filter counts how many edges of that type each node has (degree filtering) — it does NOT return the actual edges. To list cross-service HTTP_CALLS or ASYNC_CALLS edges with their properties, use query_graph with Cypher instead. Relationship types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, CONTAINS_FILE, CONTAINS_FOLDER, CONTAINS_PACKAGE, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -480,11 +535,11 @@ func (s *Server) registerSearchTools() {
 				},
 				"name_pattern": {
 					"type": "string",
-					"description": "Regex pattern matched against the short node name only. Supports full Go regex: '.*Handler$' (suffix), '(?i)auth' (case-insensitive), 'get|set|delete' (alternatives), '^on[A-Z]' (prefix+char class). Does NOT match against file paths or qualified names — use qn_pattern for path scoping."
+					"description": "Regex pattern matched against the short node name. Case-insensitive by default. Supports full Go regex: '.*Handler$' (suffix), 'get|set|delete' (alternatives — no backslash before pipe), '^on[A-Z]' (prefix+char class). Best practice: include word variations in alternatives — 'auth|authenticate|authorization' (word forms), 'handler|hdlr|ctrl' (abbreviations), 'create|new|init' (synonyms). One regex with | replaces multiple separate searches."
 				},
 				"qn_pattern": {
 					"type": "string",
-					"description": "Regex pattern matched against the qualified name (full module path). Use to scope searches to directories/modules: '.*services\\.order\\..*' (order service), '.*tests\\..*' (test files only), '(?i).*controller.*\\.handle.*' (handler methods in controllers). Combine with name_pattern for precise cross-cutting queries."
+					"description": "Regex pattern matched against the qualified name (full module path). Case-insensitive by default. Use to scope searches to directories/modules: '.*services\\.order\\..*' (order service), '.*tests\\..*' (test files only), '.*controller.*\\.handle.*' (handler methods in controllers). Combine with name_pattern for precise cross-cutting queries."
 				},
 				"file_pattern": {
 					"type": "string",
@@ -532,6 +587,10 @@ func (s *Server) registerSearchTools() {
 					"type": "string",
 					"enum": ["relevance", "name", "degree"],
 					"description": "Sort order. Default: relevance (exact match first, prefix match second, then by connectivity)"
+				},
+				"case_sensitive": {
+					"type": "boolean",
+					"description": "Match patterns case-sensitively. Default: false (case-insensitive). Set true for exact case matching."
 				}
 			}
 		}`),
@@ -539,13 +598,13 @@ func (s *Server) registerSearchTools() {
 
 	s.addTool(&mcp.Tool{
 		Name:        "search_code",
-		Description: "Search for text in source code files (like grep, scoped to indexed project). Returns matching lines with file path, line number, and context. Returns 10 matches per page — use offset to paginate, has_more indicates more pages. Use for: string literals, error messages, TODO comments, config values, import statements. With regex=true, supports full Go regex — see pattern parameter for examples. Prefer search_graph for finding functions/classes by name — search_code is for text content that isn't in the graph.",
+		Description: "Search for text in source code files (like grep, scoped to indexed project). Search is case-insensitive by default (set case_sensitive=true for exact case). With regex=true, use alternatives for broad matching: 'TODO|FIXME|HACK|WORKAROUND' (issue markers), 'sponsor|sponsoring|sponsored' (word forms), 'import|require|include' (cross-language patterns). Returns matching lines with file path, line number, and context. Returns 10 matches per page — use offset to paginate, has_more indicates more pages. Use for: string literals, error messages, TODO comments, config values, import statements. Prefer search_graph for finding functions/classes by name — search_code is for text content that isn't in the graph.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"pattern": {
 					"type": "string",
-					"description": "Text to search for. Literal string by default; with regex=true supports full Go regex (e.g. 'err != nil', 'TODO|FIXME', '(?i)deprecated')"
+					"description": "Text to search for. Case-insensitive by default. Literal string match unless regex=true. With regex=true: Go regex syntax (no backslash before pipe). Best practice: use alternatives for word form variance — 'deprecat|obsolete|legacy' catches 'deprecated', 'deprecating', 'obsolete', etc. A partial stem with alternatives is more effective than an exact word."
 				},
 				"file_pattern": {
 					"type": "string",
@@ -563,6 +622,10 @@ func (s *Server) registerSearchTools() {
 					"type": "integer",
 					"description": "Skip N matches for pagination (default: 0). Check has_more in response."
 				},
+				"case_sensitive": {
+					"type": "boolean",
+					"description": "Match case-sensitively. Default: false (case-insensitive). Set true for exact case matching."
+				},
 				"project": {
 					"type": "string",
 					"description": "Project to search in. Defaults to session project."
@@ -576,7 +639,7 @@ func (s *Server) registerSearchTools() {
 func (s *Server) registerQueryTool() {
 	s.addTool(&mcp.Tool{
 		Name:        "query_graph",
-		Description: "Execute a Cypher-like graph query. WARNING: 200-row cap applies BEFORE aggregation — COUNT queries on large codebases silently undercount. For fan-out/fan-in counting, use search_graph with min_degree/max_degree instead. Best for: relationship patterns, filtered joins, path queries, and edge property filtering. Supports WHERE on edge properties: r.url_path CONTAINS 'orders', r.confidence >= 0.6, r.method = 'POST', r.confidence_band = 'high', r.validated_by_trace = true, r.coupling_score >= 0.5. This is the correct tool for listing cross-service edges — use MATCH (a)-[r:HTTP_CALLS]->(b) RETURN a.name, b.name, r.url_path, r.confidence, r.confidence_band to see HTTP links with URLs and confidence scores (bands: high>=0.7, medium>=0.45, speculative>=0.25), or MATCH (a)-[r:ASYNC_CALLS]->(b) for async dispatch edges. For change coupling: MATCH (a)-[r:FILE_CHANGES_WITH]->(b) RETURN a.name, b.name, r.coupling_score, r.co_change_count. For interface method overrides: MATCH (s)-[r:OVERRIDE]->(i) to find struct methods implementing interface methods. For read references (callbacks, variable assignments): MATCH (a)-[r:USAGE]->(b). Always use LIMIT. Edge types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
+		Description: "Execute a Cypher-like graph query. String matching in WHERE is case-sensitive by default. For case-insensitive regex: use (?i) flag — WHERE f.name =~ '(?i)handler'. CONTAINS and STARTS WITH are always case-sensitive — use =~ with (?i) for case-insensitive substring matching: WHERE f.name =~ '(?i).*order.*'. Best practice: use regex alternatives for word form variance — WHERE f.name =~ '(?i)sponsor|sponsoring|sponsored'. Tip: prefer search_graph for simple name searches (case-insensitive by default) — use query_graph only when you need Cypher's relationship patterns or edge properties. WARNING: 200-row cap applies BEFORE aggregation — COUNT queries on large codebases silently undercount. For fan-out/fan-in counting, use search_graph with min_degree/max_degree instead. Best for: relationship patterns, filtered joins, path queries, and edge property filtering. Supports WHERE on edge properties: r.url_path CONTAINS 'orders', r.confidence >= 0.6, r.method = 'POST', r.confidence_band = 'high', r.validated_by_trace = true, r.coupling_score >= 0.5. This is the correct tool for listing cross-service edges — use MATCH (a)-[r:HTTP_CALLS]->(b) RETURN a.name, b.name, r.url_path, r.confidence, r.confidence_band to see HTTP links with URLs and confidence scores (bands: high>=0.7, medium>=0.45, speculative>=0.25), or MATCH (a)-[r:ASYNC_CALLS]->(b) for async dispatch edges. For change coupling: MATCH (a)-[r:FILE_CHANGES_WITH]->(b) RETURN a.name, b.name, r.coupling_score, r.co_change_count. For interface method overrides: MATCH (s)-[r:OVERRIDE]->(i) to find struct methods implementing interface methods. For read references (callbacks, variable assignments): MATCH (a)-[r:USAGE]->(b). Always use LIMIT. Edge types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -592,54 +655,6 @@ func (s *Server) registerQueryTool() {
 			"required": ["query"]
 		}`),
 	}, s.handleQueryGraph)
-}
-
-// registerFileTools registers tools for file and directory operations.
-func (s *Server) registerFileTools() {
-	s.addTool(&mcp.Tool{
-		Name:        "read_file",
-		Description: "Read any file from the indexed project. Supports line range selection for large files. Use for reading config files (Dockerfile, go.mod, requirements.txt), source code, or any text file.",
-		InputSchema: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"path": {
-					"type": "string",
-					"description": "File path (absolute, or relative to project root)"
-				},
-				"start_line": {
-					"type": "integer",
-					"description": "Start reading from this line (1-based, optional)"
-				},
-				"end_line": {
-					"type": "integer",
-					"description": "Stop reading at this line (inclusive, optional)"
-				}
-			},
-			"required": ["path"]
-		}`),
-	}, s.handleReadFile)
-
-	s.addTool(&mcp.Tool{
-		Name:        "list_directory",
-		Description: "List files and subdirectories in a directory. Supports glob patterns for filtering. Use for exploring project structure.",
-		InputSchema: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"path": {
-					"type": "string",
-					"description": "Directory path (absolute, or relative to project root). Empty for project root."
-				},
-				"pattern": {
-					"type": "string",
-					"description": "Glob pattern to filter entries (e.g. '*.go', '*.py')"
-				},
-				"project": {
-					"type": "string",
-					"description": "Project name to resolve root from. Defaults to session project."
-				}
-			}
-		}`),
-	}, s.handleListDirectory)
 }
 
 // registerProjectTools registers tools for project management.
@@ -741,6 +756,25 @@ func getIntArg(args map[string]any, key string, defaultVal int) int {
 		return defaultVal
 	}
 	return int(f)
+}
+
+// getMapStringArg extracts a map[string]string argument from parsed args.
+func getMapStringArg(args map[string]any, key string) map[string]string {
+	v, ok := args[key]
+	if !ok {
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string, len(m))
+	for k, val := range m {
+		if s, ok := val.(string); ok {
+			result[k] = s
+		}
+	}
+	return result
 }
 
 // getBoolArg extracts a boolean argument from parsed args.

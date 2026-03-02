@@ -21,13 +21,14 @@ type codeMatch struct {
 
 // searchCodeParams holds parsed parameters for a code search request.
 type searchCodeParams struct {
-	pattern    string
-	fileGlob   string
-	maxResults int
-	offset     int
-	isRegex    bool
-	re         *regexp.Regexp
-	project    string
+	pattern       string
+	fileGlob      string
+	maxResults    int
+	offset        int
+	isRegex       bool
+	caseSensitive bool
+	re            *regexp.Regexp
+	project       string
 }
 
 // parseSearchCodeParams extracts and validates search_code parameters from the request.
@@ -38,12 +39,13 @@ func parseSearchCodeParams(req *mcp.CallToolRequest) (*searchCodeParams, *mcp.Ca
 	}
 
 	p := &searchCodeParams{
-		pattern:    getStringArg(args, "pattern"),
-		fileGlob:   getStringArg(args, "file_pattern"),
-		maxResults: getIntArg(args, "max_results", 10),
-		offset:     getIntArg(args, "offset", 0),
-		isRegex:    getBoolArg(args, "regex"),
-		project:    getStringArg(args, "project"),
+		pattern:       getStringArg(args, "pattern"),
+		fileGlob:      getStringArg(args, "file_pattern"),
+		maxResults:    getIntArg(args, "max_results", 10),
+		offset:        getIntArg(args, "offset", 0),
+		isRegex:       getBoolArg(args, "regex"),
+		caseSensitive: getBoolArg(args, "case_sensitive"),
+		project:       getStringArg(args, "project"),
 	}
 
 	if p.pattern == "" {
@@ -51,10 +53,17 @@ func parseSearchCodeParams(req *mcp.CallToolRequest) (*searchCodeParams, *mcp.Ca
 	}
 
 	if p.isRegex {
-		p.re, err = regexp.Compile(p.pattern)
+		pattern := p.pattern
+		if !p.caseSensitive && !strings.HasPrefix(pattern, "(?i)") {
+			pattern = "(?i)" + pattern
+		}
+		p.re, err = regexp.Compile(pattern)
 		if err != nil {
 			return nil, errResult(fmt.Sprintf("invalid regex: %v", err))
 		}
+	} else if !p.caseSensitive {
+		// For literal mode, lowercase the pattern; matching done case-insensitively
+		p.pattern = strings.ToLower(p.pattern)
 	}
 
 	return p, nil
@@ -83,7 +92,7 @@ func (s *Server) handleSearchCode(_ context.Context, req *mcp.CallToolRequest) (
 		}
 
 		absPath := filepath.Join(root, relPath)
-		fileMatches := searchFile(absPath, relPath, params.pattern, params.re, params.isRegex, fetchLimit-len(allMatches))
+		fileMatches := searchFile(absPath, relPath, params.pattern, params.re, params.isRegex, params.caseSensitive, fetchLimit-len(allMatches))
 		allMatches = append(allMatches, fileMatches...)
 	}
 
@@ -155,7 +164,7 @@ func (s *Server) collectSearchFilePaths(fileGlob, project string) []string {
 	return filePaths
 }
 
-func searchFile(absPath, relPath, pattern string, re *regexp.Regexp, isRegex bool, limit int) []codeMatch {
+func searchFile(absPath, relPath, pattern string, re *regexp.Regexp, isRegex, caseSensitive bool, limit int) []codeMatch {
 	f, err := os.Open(absPath)
 	if err != nil {
 		return nil
@@ -172,10 +181,14 @@ func searchFile(absPath, relPath, pattern string, re *regexp.Regexp, isRegex boo
 		line := scanner.Text()
 
 		var found bool
-		if isRegex {
+		switch {
+		case isRegex:
 			found = re.MatchString(line)
-		} else {
+		case caseSensitive:
 			found = strings.Contains(line, pattern)
+		default:
+			// pattern already lowercased in parseSearchCodeParams
+			found = strings.Contains(strings.ToLower(line), pattern)
 		}
 
 		if found {

@@ -24,6 +24,7 @@ type SearchParams struct {
 	IncludeConnected   bool     // when true, load connected node names (expensive, off by default)
 	ExcludeLabels      []string // labels to exclude from results
 	SortBy             string   // "relevance" (default), "name", "degree"
+	CaseSensitive      bool     // false (zero value) = case-insensitive by default
 }
 
 // SearchResult is a node with edge degree info.
@@ -125,7 +126,7 @@ func buildSearchConditions(params *SearchParams) (conditions []string, args []an
 	// pre-filtering. This drastically reduces the rows Go needs to regex-match.
 	// The full regex is still applied in Go for correctness.
 	if params.NamePattern != "" {
-		if cond, condArgs := buildLikeHintCondition(params.NamePattern, "n.name"); cond != "" {
+		if cond, condArgs := buildLikeHintCondition(params.NamePattern, "n.name", params.CaseSensitive); cond != "" {
 			nameHasLikeHints = true
 			conditions = append(conditions, cond)
 			args = append(args, condArgs...)
@@ -134,7 +135,7 @@ func buildSearchConditions(params *SearchParams) (conditions []string, args []an
 
 	// QN pattern: same LIKE hint optimization but against qualified_name only
 	if params.QNPattern != "" {
-		if cond, condArgs := buildLikeHintCondition(params.QNPattern, "n.qualified_name"); cond != "" {
+		if cond, condArgs := buildLikeHintCondition(params.QNPattern, "n.qualified_name", params.CaseSensitive); cond != "" {
 			qnHasLikeHints = true
 			conditions = append(conditions, cond)
 			args = append(args, condArgs...)
@@ -146,15 +147,22 @@ func buildSearchConditions(params *SearchParams) (conditions []string, args []an
 
 // buildLikeHintCondition extracts literal substrings from a regex pattern and returns
 // a SQL condition with LIKE clauses for pre-filtering. Returns empty string if no hints.
-func buildLikeHintCondition(pattern, column string) (condition string, args []any) {
-	hints := extractLikeHints(pattern)
+// When caseSensitive is false, appends COLLATE NOCASE to each LIKE clause.
+func buildLikeHintCondition(pattern, column string, caseSensitive bool) (condition string, args []any) {
+	// Strip (?i) prefix before extracting hints — metacharacters confuse extractLikeHints
+	cleanPattern := stripCaseFlag(pattern)
+	hints := extractLikeHints(cleanPattern)
 	if len(hints) == 0 {
 		return "", nil
+	}
+	collate := ""
+	if !caseSensitive {
+		collate = " COLLATE NOCASE"
 	}
 	likeParts := make([]string, 0, len(hints))
 	for _, hint := range hints {
 		likeVal := "%" + hint + "%"
-		likeParts = append(likeParts, column+" LIKE ?")
+		likeParts = append(likeParts, column+" LIKE ?"+collate)
 		args = append(args, likeVal)
 	}
 	return "(" + strings.Join(likeParts, " AND ") + ")", args
@@ -214,13 +222,21 @@ func (s *Store) executeSearchQuery(where string, args []any, sqlLimit int) ([]*N
 func applyPatternFilters(nodes []*Node, params *SearchParams) ([]*Node, error) {
 	var err error
 	if params.NamePattern != "" {
-		nodes, err = filterByNamePattern(nodes, params.NamePattern)
+		pattern := params.NamePattern
+		if !params.CaseSensitive {
+			pattern = ensureCaseInsensitive(pattern)
+		}
+		nodes, err = filterByNamePattern(nodes, pattern)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if params.QNPattern != "" {
-		nodes, err = filterByQNPattern(nodes, params.QNPattern)
+		pattern := params.QNPattern
+		if !params.CaseSensitive {
+			pattern = ensureCaseInsensitive(pattern)
+		}
+		nodes, err = filterByQNPattern(nodes, pattern)
 		if err != nil {
 			return nil, err
 		}
@@ -526,6 +542,19 @@ func filterByNamePattern(nodes []*Node, pattern string) ([]*Node, error) {
 		}
 	}
 	return filtered, nil
+}
+
+// ensureCaseInsensitive prepends (?i) to a regex pattern if not already present.
+func ensureCaseInsensitive(pattern string) string {
+	if strings.HasPrefix(pattern, "(?i)") {
+		return pattern
+	}
+	return "(?i)" + pattern
+}
+
+// stripCaseFlag removes a leading (?i) prefix from a regex pattern.
+func stripCaseFlag(pattern string) string {
+	return strings.TrimPrefix(pattern, "(?i)")
 }
 
 // filterByQNPattern filters nodes by a regex pattern against the qualified name.

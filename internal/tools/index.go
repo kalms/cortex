@@ -63,10 +63,19 @@ func (s *Server) handleIndexRepository(ctx context.Context, req *mcp.CallToolReq
 		indexedAt = proj.IndexedAt
 	}
 
-	return jsonResult(map[string]any{
+	result := map[string]any{
 		"project":    projectName,
 		"nodes":      nodeCount,
 		"edges":      edgeCount,
 		"indexed_at": indexedAt,
-	}), nil
+	}
+
+	// Check for ADR presence and suggest creation if missing
+	adr, _ := st.GetADR(projectName)
+	result["adr_present"] = adr != nil
+	if adr == nil {
+		result["adr_hint"] = "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='store') to persist architectural insights across sessions."
+	}
+
+	return jsonResult(result), nil
 }
