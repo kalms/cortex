@@ -5,6 +5,16 @@ import (
 	"sync"
 )
 
+// ResolutionResult carries the resolved QN plus quality metadata.
+// Initial confidence values are estimates — recalibrate after measuring
+// precision per strategy on real repos.
+type ResolutionResult struct {
+	QualifiedName  string
+	Strategy       string  // "import_map", "import_map_suffix", "same_module", "unique_name", "suffix_match", "fuzzy", "type_dispatch"
+	Confidence     float64 // 0.0–1.0
+	CandidateCount int     // how many candidates were considered
+}
+
 // FunctionRegistry indexes all Function, Method, and Class nodes by qualified
 // name and simple name for fast call resolution.
 type FunctionRegistry struct {
@@ -47,7 +57,7 @@ func (r *FunctionRegistry) Register(name, qualifiedName, nodeLabel string) {
 //  2. Same-module match
 //  3. Project-wide single match by simple name
 //  4. Suffix match with import distance scoring
-func (r *FunctionRegistry) Resolve(calleeName, moduleQN string, importMap map[string]string) string {
+func (r *FunctionRegistry) Resolve(calleeName, moduleQN string, importMap map[string]string) ResolutionResult {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -59,25 +69,25 @@ func (r *FunctionRegistry) Resolve(calleeName, moduleQN string, importMap map[st
 		suffix = parts[1]
 	}
 
-	if result := r.resolveViaImportMap(prefix, suffix, importMap); result != "" {
+	if result := r.resolveViaImportMap(prefix, suffix, importMap); result.QualifiedName != "" {
 		return result
 	}
 
-	if result := r.resolveViaSameModule(calleeName, suffix, moduleQN); result != "" {
+	if result := r.resolveViaSameModule(calleeName, suffix, moduleQN); result.QualifiedName != "" {
 		return result
 	}
 
-	return r.resolveViaNameLookup(calleeName, suffix, moduleQN)
+	return r.resolveViaNameLookup(calleeName, suffix, moduleQN, importMap)
 }
 
 // resolveViaImportMap tries to resolve a callee using the import map (Strategy 1).
-func (r *FunctionRegistry) resolveViaImportMap(prefix, suffix string, importMap map[string]string) string {
+func (r *FunctionRegistry) resolveViaImportMap(prefix, suffix string, importMap map[string]string) ResolutionResult {
 	if importMap == nil {
-		return ""
+		return ResolutionResult{}
 	}
 	resolved, ok := importMap[prefix]
 	if !ok {
-		return ""
+		return ResolutionResult{}
 	}
 	var candidate string
 	if suffix != "" {
@@ -86,78 +96,122 @@ func (r *FunctionRegistry) resolveViaImportMap(prefix, suffix string, importMap 
 		candidate = resolved
 	}
 	if _, exists := r.exact[candidate]; exists {
-		return candidate
+		return ResolutionResult{QualifiedName: candidate, Strategy: "import_map", Confidence: 0.95, CandidateCount: 1}
 	}
 	if suffix != "" {
 		for qn := range r.exact {
 			if strings.HasPrefix(qn, resolved+".") && strings.HasSuffix(qn, "."+suffix) {
-				return qn
+				return ResolutionResult{QualifiedName: qn, Strategy: "import_map_suffix", Confidence: 0.85, CandidateCount: 1}
 			}
 		}
 	}
-	return ""
+	return ResolutionResult{}
 }
 
 // resolveViaSameModule tries to resolve a callee within the same module (Strategy 2).
-func (r *FunctionRegistry) resolveViaSameModule(calleeName, suffix, moduleQN string) string {
+func (r *FunctionRegistry) resolveViaSameModule(calleeName, suffix, moduleQN string) ResolutionResult {
 	sameModule := moduleQN + "." + calleeName
 	if _, exists := r.exact[sameModule]; exists {
-		return sameModule
+		return ResolutionResult{QualifiedName: sameModule, Strategy: "same_module", Confidence: 0.90, CandidateCount: 1}
 	}
 	if suffix != "" {
 		sameModuleQualified := moduleQN + "." + suffix
 		if _, exists := r.exact[sameModuleQualified]; exists {
-			return sameModuleQualified
+			return ResolutionResult{QualifiedName: sameModuleQualified, Strategy: "same_module", Confidence: 0.90, CandidateCount: 1}
 		}
 	}
-	return ""
+	return ResolutionResult{}
 }
 
 // resolveViaNameLookup tries project-wide name lookup and suffix matching (Strategies 3+4).
-func (r *FunctionRegistry) resolveViaNameLookup(calleeName, suffix, moduleQN string) string {
+func (r *FunctionRegistry) resolveViaNameLookup(calleeName, suffix, moduleQN string, importMap map[string]string) ResolutionResult {
 	lookupName := calleeName
 	if suffix != "" {
 		lookupName = suffix
 	}
 	simple := simpleName(lookupName)
 	candidates := r.byName[simple]
+
+	// Strategy 3: unique name — single candidate project-wide
 	if len(candidates) == 1 {
-		return candidates[0]
+		conf := 0.75
+		if importMap != nil && !isImportReachable(candidates[0], importMap) {
+			conf *= 0.5
+		}
+		return ResolutionResult{QualifiedName: candidates[0], Strategy: "unique_name", Confidence: conf, CandidateCount: 1}
 	}
 
+	// Strategy 4: suffix match with import distance scoring
 	if suffix != "" {
-		var matches []string
-		for _, qn := range candidates {
-			if strings.HasSuffix(qn, "."+calleeName) {
-				return qn
-			}
-			if strings.HasSuffix(qn, "."+suffix) {
-				matches = append(matches, qn)
-			}
-		}
-		if len(matches) == 1 {
-			return matches[0]
-		}
-		if len(matches) > 1 {
-			return bestByImportDistance(matches, moduleQN)
+		if res := r.resolveSuffixMatch(calleeName, suffix, moduleQN, importMap, candidates); res.QualifiedName != "" {
+			return res
 		}
 	}
 
-	if len(candidates) > 1 {
-		return bestByImportDistance(candidates, moduleQN)
-	}
+	return pickBestCandidate(candidates, moduleQN, importMap)
+}
 
-	return ""
+// resolveSuffixMatch handles Strategy 4 — suffix-based matching among multiple candidates.
+func (r *FunctionRegistry) resolveSuffixMatch(calleeName, suffix, moduleQN string, importMap map[string]string, candidates []string) ResolutionResult {
+	var matches []string
+	for _, qn := range candidates {
+		if strings.HasSuffix(qn, "."+calleeName) {
+			conf := importAdjustedConfidence(0.55, qn, importMap)
+			return ResolutionResult{QualifiedName: qn, Strategy: "suffix_match", Confidence: conf, CandidateCount: len(candidates)}
+		}
+		if strings.HasSuffix(qn, "."+suffix) {
+			matches = append(matches, qn)
+		}
+	}
+	if importMap != nil {
+		matches = filterImportReachable(matches, importMap)
+	}
+	if len(matches) == 1 {
+		return ResolutionResult{QualifiedName: matches[0], Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(candidates)}
+	}
+	if len(matches) > 1 {
+		best := bestByImportDistance(matches, moduleQN)
+		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(matches)}
+	}
+	return ResolutionResult{}
+}
+
+// pickBestCandidate selects the best match from multiple candidates with import filtering.
+func pickBestCandidate(candidates []string, moduleQN string, importMap map[string]string) ResolutionResult {
+	if len(candidates) <= 1 {
+		return ResolutionResult{}
+	}
+	filtered := candidates
+	if importMap != nil {
+		filtered = filterImportReachable(candidates, importMap)
+	}
+	if len(filtered) == 0 {
+		best := bestByImportDistance(candidates, moduleQN)
+		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55 * 0.5, CandidateCount: len(candidates)}
+	}
+	if len(filtered) == 1 {
+		return ResolutionResult{QualifiedName: filtered[0], Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(candidates)}
+	}
+	best := bestByImportDistance(filtered, moduleQN)
+	return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(filtered)}
+}
+
+// importAdjustedConfidence halves confidence when a candidate is not import-reachable.
+func importAdjustedConfidence(base float64, candidateQN string, importMap map[string]string) float64 {
+	if importMap != nil && !isImportReachable(candidateQN, importMap) {
+		return base * 0.5
+	}
+	return base
 }
 
 // FuzzyResolve attempts a loose match when Resolve() returns "".
 // It searches for any registered function whose simple name matches the callee's
-// last name segment. Returns the best match (by import distance) and true,
-// or "" and false if no match is found.
+// last name segment. Returns the best match (by import distance) with confidence,
+// or an empty result and false if no match is found.
 //
 // Unlike Resolve(), this does not require prefix/import agreement — it purely
-// matches on the function name. Results should be marked as "fuzzy" resolution.
-func (r *FunctionRegistry) FuzzyResolve(calleeName, moduleQN string) (string, bool) {
+// matches on the function name.
+func (r *FunctionRegistry) FuzzyResolve(calleeName, moduleQN string, importMap map[string]string) (ResolutionResult, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -166,21 +220,51 @@ func (r *FunctionRegistry) FuzzyResolve(calleeName, moduleQN string) (string, bo
 	candidates := r.byName[lookupName]
 
 	if len(candidates) == 0 {
-		return "", false
+		return ResolutionResult{}, false
 	}
 
 	// If there's exactly one candidate, use it
 	if len(candidates) == 1 {
-		return candidates[0], true
+		conf := 0.40
+		if importMap != nil && !isImportReachable(candidates[0], importMap) {
+			conf *= 0.5
+		}
+		return ResolutionResult{
+			QualifiedName: candidates[0], Strategy: "fuzzy",
+			Confidence: conf, CandidateCount: 1,
+		}, true
 	}
 
-	// Multiple candidates: pick best by import distance
-	best := bestByImportDistance(candidates, moduleQN)
-	if best != "" {
-		return best, true
+	// Multiple candidates: filter by import reachability, then pick best by distance
+	filtered := candidates
+	if importMap != nil {
+		filtered = filterImportReachable(candidates, importMap)
 	}
-
-	return "", false
+	if len(filtered) == 0 {
+		// No import-reachable candidates — use original with penalty
+		best := bestByImportDistance(candidates, moduleQN)
+		if best == "" {
+			return ResolutionResult{}, false
+		}
+		return ResolutionResult{
+			QualifiedName: best, Strategy: "fuzzy",
+			Confidence: 0.30 * 0.5, CandidateCount: len(candidates),
+		}, true
+	}
+	if len(filtered) == 1 {
+		return ResolutionResult{
+			QualifiedName: filtered[0], Strategy: "fuzzy",
+			Confidence: 0.40, CandidateCount: len(candidates),
+		}, true
+	}
+	best := bestByImportDistance(filtered, moduleQN)
+	if best == "" {
+		return ResolutionResult{}, false
+	}
+	return ResolutionResult{
+		QualifiedName: best, Strategy: "fuzzy",
+		Confidence: 0.30, CandidateCount: len(filtered),
+	}, true
 }
 
 // LabelOf returns the node label for a qualified name, or "" if not registered.
@@ -269,4 +353,51 @@ func commonPrefixLen(a, b string) int {
 		count++
 	}
 	return count
+}
+
+// modulePrefix extracts the module portion of a QN (everything before the last dot segment).
+func modulePrefix(qn string) string {
+	if idx := strings.LastIndex(qn, "."); idx >= 0 {
+		return qn[:idx]
+	}
+	return qn
+}
+
+// isImportReachable checks if the candidate's module prefix appears anywhere
+// in the caller's import map values.
+func isImportReachable(candidateQN string, importMap map[string]string) bool {
+	candidateModule := modulePrefix(candidateQN)
+	for _, importedQN := range importMap {
+		if strings.HasPrefix(candidateModule, importedQN) || strings.HasPrefix(importedQN, candidateModule) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterImportReachable returns only candidates reachable via the import map.
+// Returns the original slice if importMap is nil or filtering eliminates everything.
+func filterImportReachable(candidates []string, importMap map[string]string) []string {
+	if importMap == nil {
+		return candidates
+	}
+	var filtered []string
+	for _, c := range candidates {
+		if isImportReachable(c, importMap) {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+// confidenceBand returns a human-readable band label for a confidence score.
+func confidenceBand(score float64) string {
+	switch {
+	case score >= 0.7:
+		return "high"
+	case score >= 0.45:
+		return "medium"
+	default:
+		return "speculative"
+	}
 }

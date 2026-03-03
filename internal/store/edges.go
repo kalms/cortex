@@ -12,7 +12,7 @@ func (s *Store) InsertEdge(e *Edge) (int64, error) {
 	res, err := s.q.Exec(`
 		INSERT INTO edges (project, source_id, target_id, type, properties)
 		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=excluded.properties`,
+		ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=json_patch(properties, excluded.properties)`,
 		e.Project, e.SourceID, e.TargetID, e.Type, marshalProps(e.Properties))
 	if err != nil {
 		return 0, fmt.Errorf("insert edge: %w", err)
@@ -162,7 +162,7 @@ func (s *Store) insertEdgeChunk(batch []*Edge) error {
 		sb.WriteString("(?,?,?,?,?)")
 		args = append(args, e.Project, e.SourceID, e.TargetID, e.Type, marshalProps(e.Properties))
 	}
-	sb.WriteString(` ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=excluded.properties`)
+	sb.WriteString(` ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=json_patch(properties, excluded.properties)`)
 
 	_, err := s.q.Exec(sb.String(), args...)
 	if err == nil {
@@ -176,7 +176,7 @@ func (s *Store) insertEdgeChunk(batch []*Edge) error {
 		if _, err2 := s.q.Exec(`
 			INSERT INTO edges (project, source_id, target_id, type, properties)
 			VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=excluded.properties`,
+			ON CONFLICT(source_id, target_id, type) DO UPDATE SET properties=json_patch(properties, excluded.properties)`,
 			e.Project, e.SourceID, e.TargetID, e.Type, marshalProps(e.Properties)); err2 != nil {
 			skipped++
 		}
@@ -301,6 +301,48 @@ func (s *Store) FindEdgesByTargetIDs(targetIDs []int64, edgeTypes []string) (map
 		}
 	}
 	return result, nil
+}
+
+// NodeDegree returns inbound and outbound CALLS edge counts for a node.
+func (s *Store) NodeDegree(nodeID int64) (inbound, outbound int) {
+	_ = s.q.QueryRow("SELECT COUNT(*) FROM edges WHERE target_id=? AND type='CALLS'", nodeID).Scan(&inbound)
+	_ = s.q.QueryRow("SELECT COUNT(*) FROM edges WHERE source_id=? AND type='CALLS'", nodeID).Scan(&outbound)
+	return
+}
+
+// NodeNeighborNames returns the names of callers and callees for a node,
+// considering CALLS, HTTP_CALLS, and ASYNC_CALLS edge types.
+func (s *Store) NodeNeighborNames(nodeID int64, limit int) (callerNames, calleeNames []string) {
+	callerNames = queryNeighborNames(s.q,
+		`SELECT DISTINCT n.name FROM edges e JOIN nodes n ON e.source_id = n.id
+		 WHERE e.target_id = ? AND e.type IN ('CALLS','HTTP_CALLS','ASYNC_CALLS')
+		 ORDER BY n.name LIMIT ?`, nodeID, limit)
+	calleeNames = queryNeighborNames(s.q,
+		`SELECT DISTINCT n.name FROM edges e JOIN nodes n ON e.target_id = n.id
+		 WHERE e.source_id = ? AND e.type IN ('CALLS','HTTP_CALLS','ASYNC_CALLS')
+		 ORDER BY n.name LIMIT ?`, nodeID, limit)
+	return
+}
+
+// queryNeighborNames runs a query returning a single name column.
+func queryNeighborNames(q Querier, query string, args ...any) []string {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil
+	}
+	return names
 }
 
 func scanEdges(rows *sql.Rows) ([]*Edge, error) {

@@ -4,6 +4,11 @@ import (
 	"log/slog"
 	"strings"
 
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	"github.com/DeusData/codebase-memory-mcp/internal/fqn"
+	"github.com/DeusData/codebase-memory-mcp/internal/lang"
+	"github.com/DeusData/codebase-memory-mcp/internal/parser"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -19,20 +24,41 @@ type ifaceInfo struct {
 	methods []ifaceMethodInfo
 }
 
-// passImplements detects Go interface satisfaction and creates IMPLEMENTS edges.
-// A struct implements an interface if it has methods matching all interface methods.
+// passImplements detects interface satisfaction and creates IMPLEMENTS edges.
+// Supports Go (implicit, method-set matching) and explicit implements for
+// TypeScript, Java, C#, Kotlin, Scala, and Rust.
 func (p *Pipeline) passImplements() {
 	slog.Info("pass5.implements")
 
+	var linkCount, overrideCount int
+
+	// Go: implicit interface satisfaction (existing)
+	l, o := p.implementsGo()
+	linkCount += l
+	overrideCount += o
+
+	// Explicit implements/extends (TS, Java, C#, Kotlin, Scala)
+	l, o = p.implementsExplicit()
+	linkCount += l
+	overrideCount += o
+
+	// Rust: impl Trait for Struct
+	l, o = p.implementsRust()
+	linkCount += l
+	overrideCount += o
+
+	slog.Info("pass5.implements.done", "links", linkCount, "overrides", overrideCount)
+}
+
+// implementsGo handles Go's implicit interface satisfaction via method sets.
+func (p *Pipeline) implementsGo() (linkCount, overrideCount int) {
 	ifaces := p.collectGoInterfaces()
 	if len(ifaces) == 0 {
-		return
+		return 0, 0
 	}
 
 	structMethods, structQNPrefix := p.collectStructMethods()
-	linkCount, overrideCount := p.matchImplements(ifaces, structMethods, structQNPrefix)
-
-	slog.Info("pass5.implements.done", "links", linkCount, "overrides", overrideCount)
+	return p.matchImplements(ifaces, structMethods, structQNPrefix)
 }
 
 // collectGoInterfaces returns Go interfaces with their method names.
@@ -222,4 +248,325 @@ func satisfies(ifaceMethods []ifaceMethodInfo, structMethodSet map[string]bool) 
 		}
 	}
 	return true
+}
+
+// --- Explicit implements (TS, Java, C#, Kotlin, Scala) ---
+
+// explicitImplementsLangs maps languages to the extensions to check.
+var explicitImplementsExts = map[lang.Language]string{
+	lang.TypeScript: ".ts",
+	lang.TSX:        ".tsx",
+	lang.Java:       ".java",
+	lang.CSharp:     ".cs",
+	lang.Kotlin:     ".kt",
+	lang.Scala:      ".scala",
+	lang.PHP:        ".php",
+}
+
+// implementsExplicit walks ASTs for TS/Java/C#/Kotlin/Scala files and detects
+// explicit `implements`/`extends` clauses.
+func (p *Pipeline) implementsExplicit() (linkCount, overrideCount int) {
+	for relPath, cached := range p.astCache {
+		ext, isExplicit := explicitImplementsExts[cached.Language]
+		if !isExplicit {
+			continue
+		}
+		if !strings.HasSuffix(relPath, ext) && cached.Language != lang.TSX {
+			continue
+		}
+
+		moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
+		importMap := p.importMaps[moduleQN]
+		root := cached.Tree.RootNode()
+
+		parser.Walk(root, func(node *tree_sitter.Node) bool {
+			if !isClassDeclaration(node.Kind(), cached.Language) {
+				return true
+			}
+
+			nameNode := node.ChildByFieldName("name")
+			if nameNode == nil {
+				return false
+			}
+			className := parser.NodeText(nameNode, source(cached))
+
+			classQN := fqn.Compute(p.ProjectName, relPath, className)
+			classNode, _ := p.Store.FindNodeByQN(p.ProjectName, classQN)
+			if classNode == nil {
+				return false
+			}
+
+			// Extract implemented interface names
+			ifaceNames := extractImplementsClause(node, cached.Source, cached.Language)
+			for _, ifaceName := range ifaceNames {
+				ifaceQN := resolveAsClass(ifaceName, p.registry, moduleQN, importMap)
+				if ifaceQN == "" {
+					continue
+				}
+				ifaceNode, _ := p.Store.FindNodeByQN(p.ProjectName, ifaceQN)
+				if ifaceNode == nil {
+					continue
+				}
+
+				_, _ = p.Store.InsertEdge(&store.Edge{
+					Project:  p.ProjectName,
+					SourceID: classNode.ID,
+					TargetID: ifaceNode.ID,
+					Type:     "IMPLEMENTS",
+				})
+				linkCount++
+
+				// Create OVERRIDE edges for matching methods
+				overrideCount += p.createOverrideEdgesExplicit(classNode, ifaceNode)
+			}
+
+			return false
+		})
+	}
+	return
+}
+
+// source is a helper to get cached source bytes.
+func source(c *cachedAST) []byte { return c.Source }
+
+// isClassDeclaration checks if a node kind is a class declaration for the given language.
+// Language-aware to prevent cross-language false positives.
+func isClassDeclaration(kind string, language lang.Language) bool {
+	// Common across many languages
+	switch kind {
+	case "class_declaration", "class_definition":
+		return true
+	}
+
+	// Language-specific node types
+	switch language {
+	case lang.TypeScript, lang.TSX:
+		switch kind {
+		case "abstract_class_declaration", "interface_declaration":
+			return true
+		}
+	case lang.Java:
+		switch kind {
+		case "interface_declaration", "enum_declaration",
+			"annotation_type_declaration", "record_declaration":
+			return true
+		}
+	case lang.CSharp:
+		switch kind {
+		case "struct_declaration", "interface_declaration", "enum_declaration":
+			return true
+		}
+	case lang.Scala:
+		switch kind {
+		case "object_definition", "trait_definition":
+			return true
+		}
+	case lang.Kotlin:
+		switch kind {
+		case "object_declaration", "companion_object":
+			return true
+		}
+	case lang.PHP:
+		switch kind {
+		case "trait_declaration", "interface_declaration", "enum_declaration":
+			return true
+		}
+	}
+	return false
+}
+
+// extractImplementsClause extracts interface/trait names from a class declaration.
+func extractImplementsClause(classNode *tree_sitter.Node, src []byte, language lang.Language) []string {
+	var names []string
+
+	for i := uint(0); i < classNode.ChildCount(); i++ {
+		child := classNode.Child(i)
+		if child == nil {
+			continue
+		}
+		kind := child.Kind()
+
+		switch kind {
+		case "implements_clause", "interfaces", "super_interfaces",
+			"base_list", "delegation_specifiers", "extends_clause",
+			"class_interface_clause":
+			names = append(names, extractTypeListNames(child, src)...)
+		}
+	}
+
+	// Some languages put it in a specific field
+	if len(names) == 0 {
+		switch language {
+		case lang.TypeScript, lang.TSX:
+			if clause := findDescendantByKind(classNode, "implements_clause"); clause != nil {
+				names = extractTypeListNames(clause, src)
+			}
+		case lang.Java:
+			if clause := findChildByKind(classNode, "super_interfaces"); clause != nil {
+				names = extractTypeListNames(clause, src)
+			}
+		case lang.PHP:
+			if clause := findChildByKind(classNode, "class_interface_clause"); clause != nil {
+				names = extractTypeListNames(clause, src)
+			}
+		}
+	}
+
+	return names
+}
+
+// extractTypeListNames extracts type identifier names from a type list clause.
+func extractTypeListNames(clause *tree_sitter.Node, src []byte) []string {
+	var names []string
+	for i := uint(0); i < clause.NamedChildCount(); i++ {
+		child := clause.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		switch child.Kind() {
+		case "type_identifier", "identifier", "simple_identifier", "name":
+			names = append(names, parser.NodeText(child, src))
+		case "qualified_name":
+			// PHP qualified names: extract last segment
+			text := parser.NodeText(child, src)
+			names = append(names, lastBackslashOrDotSegment(text))
+		case "generic_type":
+			if child.NamedChildCount() > 0 {
+				nameNode := child.NamedChild(0)
+				if nameNode != nil {
+					names = append(names, parser.NodeText(nameNode, src))
+				}
+			}
+		case "delegation_specifier", "annotated_delegation_specifier":
+			// Kotlin wraps each type in a delegation_specifier
+			ident := findDescendantByKind(child, "simple_identifier")
+			if ident == nil {
+				ident = findDescendantByKind(child, "identifier")
+			}
+			if ident != nil {
+				names = append(names, parser.NodeText(ident, src))
+			}
+		default:
+			// Recurse into type_list or interface_type_list
+			if child.NamedChildCount() > 0 {
+				names = append(names, extractTypeListNames(child, src)...)
+			}
+		}
+	}
+	return names
+}
+
+// createOverrideEdgesExplicit creates OVERRIDE edges by matching method names
+// between a class and an interface.
+func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node) int {
+	// Get interface methods
+	ifaceEdges, err := p.Store.FindEdgesBySourceAndType(ifaceNode.ID, "DEFINES_METHOD")
+	if err != nil || len(ifaceEdges) == 0 {
+		return 0
+	}
+
+	// Get class methods
+	classEdges, err := p.Store.FindEdgesBySourceAndType(classNode.ID, "DEFINES_METHOD")
+	if err != nil || len(classEdges) == 0 {
+		return 0
+	}
+
+	// Build class method name -> node ID map
+	classMethodByName := make(map[string]int64)
+	for _, e := range classEdges {
+		methodNode, _ := p.Store.FindNodeByID(e.TargetID)
+		if methodNode != nil {
+			classMethodByName[methodNode.Name] = methodNode.ID
+		}
+	}
+
+	count := 0
+	for _, e := range ifaceEdges {
+		ifaceMethodNode, _ := p.Store.FindNodeByID(e.TargetID)
+		if ifaceMethodNode == nil {
+			continue
+		}
+		classMethodID, ok := classMethodByName[ifaceMethodNode.Name]
+		if !ok {
+			continue
+		}
+
+		_, _ = p.Store.InsertEdge(&store.Edge{
+			Project:  p.ProjectName,
+			SourceID: classMethodID,
+			TargetID: ifaceMethodNode.ID,
+			Type:     "OVERRIDE",
+		})
+		count++
+	}
+	return count
+}
+
+// --- Rust: impl Trait for Struct ---
+
+// implementsRust walks Rust ASTs for `impl Trait for Struct` patterns.
+func (p *Pipeline) implementsRust() (linkCount, overrideCount int) {
+	for relPath, cached := range p.astCache {
+		if cached.Language != lang.Rust {
+			continue
+		}
+
+		moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
+		importMap := p.importMaps[moduleQN]
+		root := cached.Tree.RootNode()
+
+		parser.Walk(root, func(node *tree_sitter.Node) bool {
+			if node.Kind() != "impl_item" {
+				return true
+			}
+
+			// impl_item has "trait" and "type" fields when it's an impl Trait for Type
+			traitNode := node.ChildByFieldName("trait")
+			typeNode := node.ChildByFieldName("type")
+			if traitNode == nil || typeNode == nil {
+				return false
+			}
+
+			traitName := parser.NodeText(traitNode, cached.Source)
+			structName := parser.NodeText(typeNode, cached.Source)
+
+			traitQN := resolveAsClass(traitName, p.registry, moduleQN, importMap)
+			if traitQN == "" {
+				return false
+			}
+			structQN := resolveAsClass(structName, p.registry, moduleQN, importMap)
+			if structQN == "" {
+				return false
+			}
+
+			traitDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, traitQN)
+			structDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, structQN)
+			if traitDBNode == nil || structDBNode == nil {
+				return false
+			}
+
+			_, _ = p.Store.InsertEdge(&store.Edge{
+				Project:  p.ProjectName,
+				SourceID: structDBNode.ID,
+				TargetID: traitDBNode.ID,
+				Type:     "IMPLEMENTS",
+			})
+			linkCount++
+
+			overrideCount += p.createOverrideEdgesExplicit(structDBNode, traitDBNode)
+			return false
+		})
+	}
+	return
+}
+
+// lastBackslashOrDotSegment returns the last segment of a name separated by \ or .
+func lastBackslashOrDotSegment(name string) string {
+	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
+		return name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }

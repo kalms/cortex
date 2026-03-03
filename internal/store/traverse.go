@@ -20,9 +20,10 @@ type NodeHop struct {
 
 // EdgeInfo is a simplified edge for output.
 type EdgeInfo struct {
-	FromName string
-	ToName   string
-	Type     string
+	FromName   string
+	ToName     string
+	Type       string
+	Confidence float64
 }
 
 // BFS performs breadth-first traversal following edges of given types using a
@@ -115,7 +116,8 @@ func (s *Store) BFS(startNodeID int64, direction string, edgeTypes []string, max
 			JOIN edges e ON e.%s = b.node_id AND e.type IN (%s)
 			WHERE b.hop < ?
 		)
-		SELECT DISTINCT src.name, tgt.name, e.type
+		SELECT DISTINCT src.name, tgt.name, e.type,
+			COALESCE(json_extract(e.properties, '$.confidence'), 0) as confidence
 		FROM bfs b
 		JOIN edges e ON e.%s = b.node_id AND e.type IN (%s)
 		JOIN nodes src ON src.id = e.source_id
@@ -140,7 +142,7 @@ func (s *Store) BFS(startNodeID int64, direction string, edgeTypes []string, max
 
 	for edgeRows.Next() {
 		var ei EdgeInfo
-		if err := edgeRows.Scan(&ei.FromName, &ei.ToName, &ei.Type); err != nil {
+		if err := edgeRows.Scan(&ei.FromName, &ei.ToName, &ei.Type, &ei.Confidence); err != nil {
 			return nil, err
 		}
 		result.Edges = append(result.Edges, ei)

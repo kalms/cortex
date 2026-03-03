@@ -38,6 +38,8 @@ type Pipeline struct {
 	registry *FunctionRegistry
 	// importMaps stores per-module import maps: moduleQN -> localName -> resolvedQN
 	importMaps map[string]map[string]string
+	// returnTypes maps function QN -> return type QN for return-type-based type inference
+	returnTypes ReturnTypeMap
 }
 
 type cachedAST struct {
@@ -201,6 +203,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	}
 
 	t = time.Now()
+	p.buildReturnTypeMap()
 	p.passCalls()
 	slog.Info("pass.timing", "pass", "calls", "elapsed", time.Since(t))
 	if err := p.checkCancel(); err != nil {
@@ -214,21 +217,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 		return err
 	}
 
-	t = time.Now()
-	p.passUsesType() // USES_TYPE edges (signatures + body)
-	slog.Info("pass.timing", "pass", "usestype", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passThrows() // THROWS/RAISES edges
-	slog.Info("pass.timing", "pass", "throws", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passReadsWrites() // READS/WRITES edges
-	slog.Info("pass.timing", "pass", "readwrite", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passConfigures() // CONFIGURES edges
-	slog.Info("pass.timing", "pass", "configures", "elapsed", time.Since(t))
+	p.runSemanticEdgePasses()
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -268,6 +257,25 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	p.logEdgeCounts()
 
 	return nil
+}
+
+// runSemanticEdgePasses runs the semantic edge passes (USES_TYPE, THROWS, READS/WRITES, CONFIGURES).
+func (p *Pipeline) runSemanticEdgePasses() {
+	t := time.Now()
+	p.passUsesType()
+	slog.Info("pass.timing", "pass", "usestype", "elapsed", time.Since(t))
+
+	t = time.Now()
+	p.passThrows()
+	slog.Info("pass.timing", "pass", "throws", "elapsed", time.Since(t))
+
+	t = time.Now()
+	p.passReadsWrites()
+	slog.Info("pass.timing", "pass", "readwrite", "elapsed", time.Since(t))
+
+	t = time.Now()
+	p.passConfigures()
+	slog.Info("pass.timing", "pass", "configures", "elapsed", time.Since(t))
 }
 
 // logEdgeCounts logs the count of each edge type for observability.
@@ -353,6 +361,7 @@ func (p *Pipeline) runIncrementalPasses(
 	}
 
 	// Re-resolve calls + usages for changed + dependent files
+	p.buildReturnTypeMap()
 	p.passCallsForFiles(filesToResolve)
 	p.passUsagesForFiles(filesToResolve)
 	if err := p.checkCancel(); err != nil {
@@ -1711,6 +1720,42 @@ func (p *Pipeline) buildRegistry() {
 	slog.Info("registry.built", "entries", p.registry.Size())
 }
 
+// buildReturnTypeMap builds a map from function QN to its return type QN.
+// Uses the "return_types" property stored on Function/Method nodes during pass2.
+func (p *Pipeline) buildReturnTypeMap() {
+	p.returnTypes = make(ReturnTypeMap)
+	for _, label := range []string{"Function", "Method"} {
+		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
+		if err != nil {
+			continue
+		}
+		for _, n := range nodes {
+			retTypes, ok := n.Properties["return_types"]
+			if !ok {
+				continue
+			}
+			// return_types is stored as []any (JSON round-trip) containing type name strings
+			typeList, ok := retTypes.([]any)
+			if !ok || len(typeList) == 0 {
+				continue
+			}
+			// Use the first return type — most functions return a single type
+			firstType, ok := typeList[0].(string)
+			if !ok || firstType == "" {
+				continue
+			}
+			// Resolve the type name to a class QN
+			classQN := resolveAsClass(firstType, p.registry, "", nil)
+			if classQN != "" {
+				p.returnTypes[n.QualifiedName] = classQN
+			}
+		}
+	}
+	if len(p.returnTypes) > 0 {
+		slog.Info("return_types.built", "entries", len(p.returnTypes))
+	}
+}
+
 // resolvedEdge represents an edge resolved during parallel call/usage resolution,
 // stored as QN pairs to be converted to ID-based edges in the batch write stage.
 type resolvedEdge struct {
@@ -1779,7 +1824,7 @@ func (p *Pipeline) resolveFileCalls(relPath string, cached *cachedAST) []resolve
 	importMap := p.importMaps[moduleQN]
 
 	// Infer variable types for method dispatch
-	typeMap := inferTypes(root, cached.Source, cached.Language, p.registry, moduleQN, importMap)
+	typeMap := inferTypes(root, cached.Source, cached.Language, p.registry, moduleQN, importMap, p.returnTypes)
 
 	var edges []resolvedEdge
 
@@ -1813,22 +1858,40 @@ func (p *Pipeline) resolveFileCalls(relPath string, cached *cachedAST) []resolve
 		// Go receiver scoping
 		localTypeMap := p.extendTypeMapWithReceiver(node, cached, typeMap, spec, moduleQN, importMap)
 
-		targetQN := p.resolveCallWithTypes(calleeName, moduleQN, importMap, localTypeMap)
-		if targetQN == "" {
-			if fuzzyQN, ok := p.registry.FuzzyResolve(calleeName, moduleQN); ok {
+		result := p.resolveCallWithTypes(calleeName, moduleQN, importMap, localTypeMap)
+		if result.QualifiedName == "" {
+			if fuzzyResult, ok := p.registry.FuzzyResolve(calleeName, moduleQN, importMap); ok {
 				edges = append(edges, resolvedEdge{
-					CallerQN:   callerQN,
-					TargetQN:   fuzzyQN,
-					Type:       "CALLS",
-					Properties: map[string]any{"resolution_mode": "fuzzy"},
+					CallerQN: callerQN,
+					TargetQN: fuzzyResult.QualifiedName,
+					Type:     "CALLS",
+					Properties: map[string]any{
+						"confidence":          fuzzyResult.Confidence,
+						"confidence_band":     confidenceBand(fuzzyResult.Confidence),
+						"resolution_strategy": fuzzyResult.Strategy,
+					},
 				})
 			}
 			return false
 		}
 
-		edges = append(edges, resolvedEdge{CallerQN: callerQN, TargetQN: targetQN, Type: "CALLS"})
+		edges = append(edges, resolvedEdge{
+			CallerQN: callerQN,
+			TargetQN: result.QualifiedName,
+			Type:     "CALLS",
+			Properties: map[string]any{
+				"confidence":          result.Confidence,
+				"confidence_band":     confidenceBand(result.Confidence),
+				"resolution_strategy": result.Strategy,
+			},
+		})
 		return false
 	})
+
+	// TSX/JSX: extract component references from JSX elements
+	if cached.Language == lang.TSX || cached.Language == lang.JavaScript {
+		edges = append(edges, p.extractJSXComponentRefs(root, cached.Source, moduleQN, importMap, relPath, spec)...)
+	}
 
 	return edges
 }
@@ -1850,6 +1913,107 @@ func (p *Pipeline) processFileCalls(relPath string, cached *cachedAST, _ *lang.L
 			})
 		}
 	}
+}
+
+// extractJSXComponentRefs extracts component references from JSX elements.
+// In JSX, <Component /> is semantically equivalent to calling the component function.
+// Only uppercase names are considered components (lowercase = HTML intrinsics like <div>).
+func (p *Pipeline) extractJSXComponentRefs(
+	root *tree_sitter.Node,
+	source []byte,
+	moduleQN string,
+	importMap map[string]string,
+	relPath string,
+	spec *lang.LanguageSpec,
+) []resolvedEdge {
+	var edges []resolvedEdge
+
+	parser.Walk(root, func(node *tree_sitter.Node) bool {
+		switch node.Kind() {
+		case "jsx_self_closing_element":
+			nameNode := node.ChildByFieldName("name")
+			if nameNode == nil {
+				return false
+			}
+			componentName := parser.NodeText(nameNode, source)
+			if edge := p.resolveJSXComponent(node, componentName, source, moduleQN, importMap, relPath, spec); edge != nil {
+				edges = append(edges, *edge)
+			}
+			return false
+		case "jsx_opening_element":
+			nameNode := node.ChildByFieldName("name")
+			if nameNode == nil {
+				return false
+			}
+			componentName := parser.NodeText(nameNode, source)
+			if edge := p.resolveJSXComponent(node, componentName, source, moduleQN, importMap, relPath, spec); edge != nil {
+				edges = append(edges, *edge)
+			}
+			return false
+		}
+		return true
+	})
+
+	return edges
+}
+
+func (p *Pipeline) resolveJSXComponent(
+	node *tree_sitter.Node,
+	componentName string,
+	source []byte,
+	moduleQN string,
+	importMap map[string]string,
+	relPath string,
+	spec *lang.LanguageSpec,
+) *resolvedEdge {
+	if componentName == "" {
+		return nil
+	}
+	// Filter HTML intrinsics: lowercase names are DOM elements, not components
+	if !isUpperFirst(componentName) {
+		return nil
+	}
+	// Strip member expressions: <Foo.Bar /> → resolve "Foo" (the import)
+	baseName := componentName
+	if idx := strings.Index(componentName, "."); idx > 0 {
+		baseName = componentName[:idx]
+	}
+
+	callerQN := findEnclosingFunction(node, source, p.ProjectName, relPath, spec)
+	if callerQN == "" {
+		callerQN = moduleQN
+	}
+
+	// Try to resolve via import map first
+	result := p.resolveCallWithTypes(baseName, moduleQN, importMap, nil)
+	if result.QualifiedName != "" {
+		return &resolvedEdge{
+			CallerQN: callerQN,
+			TargetQN: result.QualifiedName,
+			Type:     "CALLS",
+			Properties: map[string]any{
+				"confidence":          result.Confidence,
+				"confidence_band":     confidenceBand(result.Confidence),
+				"resolution_strategy": "jsx_component",
+			},
+		}
+	}
+
+	// Fuzzy resolve
+	if fuzzyResult, ok := p.registry.FuzzyResolve(baseName, moduleQN, importMap); ok {
+		return &resolvedEdge{
+			CallerQN: callerQN,
+			TargetQN: fuzzyResult.QualifiedName,
+			Type:     "CALLS",
+			Properties: map[string]any{
+				"confidence":          fuzzyResult.Confidence,
+				"confidence_band":     confidenceBand(fuzzyResult.Confidence),
+				"resolution_strategy": "jsx_component",
+			},
+		}
+	}
+
+	return nil
 }
 
 // flushResolvedEdges converts QN-based resolved edges to ID-based edges and batch-inserts them.
@@ -1939,7 +2103,7 @@ func (p *Pipeline) resolveCallWithTypes(
 	calleeName, moduleQN string,
 	importMap map[string]string,
 	typeMap TypeMap,
-) string {
+) ResolutionResult {
 	// First, try type-based method dispatch for qualified calls like obj.method()
 	if strings.Contains(calleeName, ".") {
 		parts := strings.SplitN(calleeName, ".", 2)
@@ -1950,7 +2114,7 @@ func (p *Pipeline) resolveCallWithTypes(
 		if classQN, ok := typeMap[objName]; ok {
 			candidate := classQN + "." + methodName
 			if p.registry.Exists(candidate) {
-				return candidate
+				return ResolutionResult{QualifiedName: candidate, Strategy: "type_dispatch", Confidence: 0.90, CandidateCount: 1}
 			}
 		}
 	}
@@ -1990,7 +2154,8 @@ func extractCalleeFromFunctionField(node *tree_sitter.Node, source []byte) strin
 	switch funcNode.Kind() {
 	case "identifier", "simple_identifier",
 		"selector_expression", "attribute", "member_expression",
-		"field_expression", "dot", "function":
+		"field_expression", "dot", "function", "dotted_identifier",
+		"member_access_expression", "scoped_identifier", "qualified_identifier":
 		return parser.NodeText(funcNode, source)
 	}
 	return ""
@@ -2009,7 +2174,9 @@ func extractCalleeFromMethodField(node *tree_sitter.Node, source []byte) string 
 }
 
 // extractCalleeLanguageSpecific handles language-specific callee extraction
-// for ObjC, Erlang, Perl, and Kotlin.
+// for ObjC, Erlang, Perl, Kotlin, Haskell, OCaml, and Elixir.
+//
+//nolint:cyclop // WHY: inherent complexity from multi-language AST dispatch
 func extractCalleeLanguageSpecific(node *tree_sitter.Node, source []byte, language lang.Language) string {
 	switch language {
 	case lang.ObjectiveC:
@@ -2022,6 +2189,44 @@ func extractCalleeLanguageSpecific(node *tree_sitter.Node, source []byte, langua
 		return extractErlangCallee(node, source)
 	case lang.Perl:
 		return extractPerlCallee(node, source)
+	case lang.Rust:
+		return extractRustCallee(node, source)
+	case lang.Zig:
+		return extractZigCallee(node, source)
+	case lang.PHP:
+		return extractPHPCallee(node, source)
+	case lang.Scala:
+		return extractScalaCallee(node, source)
+	case lang.Haskell:
+		return extractHaskellCallee(node, source)
+	case lang.OCaml:
+		return extractOCamlCallee(node, source)
+	case lang.Elixir:
+		return extractElixirCallee(node, source)
+	}
+
+	// HCL: function_call → first child identifier
+	if language == lang.HCL && node.Kind() == "function_call" {
+		if first := node.NamedChild(0); first != nil && first.Kind() == "identifier" {
+			return parser.NodeText(first, source)
+		}
+	}
+
+	// SQL: invocation/function_call → object_reference → identifier[name]
+	if language == lang.SQL && (node.Kind() == "function_call" || node.Kind() == "invocation") {
+		if objRef := findChildByKind(node, "object_reference"); objRef != nil {
+			if nameNode := objRef.ChildByFieldName("name"); nameNode != nil {
+				return parser.NodeText(nameNode, source)
+			}
+		}
+		if first := node.NamedChild(0); first != nil {
+			return parser.NodeText(first, source)
+		}
+	}
+
+	// Dart: selector → callee is preceding sibling identifier
+	if language == lang.Dart && node.Kind() == "selector" {
+		return extractDartCallee(node, source)
 	}
 
 	// Kotlin call_expression / navigation_expression
@@ -2031,6 +2236,299 @@ func extractCalleeLanguageSpecific(node *tree_sitter.Node, source []byte, langua
 			case "identifier", "navigation_expression", "simple_identifier":
 				return parser.NodeText(first, source)
 			}
+		}
+	}
+	return ""
+}
+
+// extractDartCallee extracts the callee from Dart selector nodes.
+// In Dart, a call like `print('hello')` parses as:
+//
+//	expression_statement → identifier("print") + selector("('hello')")
+//
+// The callee is the preceding sibling(s) of the selector node.
+// For chained calls like `list.add(1)`: identifier("list") + selector(".add") + selector("(1)")
+func extractDartCallee(node *tree_sitter.Node, source []byte) string {
+	// Only extract from selectors that represent actual calls (have argument_part)
+	if findChildByKind(node, "argument_part") == nil {
+		return ""
+	}
+
+	parent := node.Parent()
+	if parent == nil {
+		return ""
+	}
+	nodeIdx := findNodeIndex(parent, node)
+	if nodeIdx <= 0 {
+		return ""
+	}
+	// Walk backwards collecting the callee parts (identifiers and member selectors)
+	var parts []string
+	for j := nodeIdx - 1; j >= 0; j-- {
+		prev := parent.Child(uint(j))
+		if prev == nil {
+			break
+		}
+		kind := prev.Kind()
+		switch kind {
+		case "identifier", "type_identifier":
+			parts = append([]string{parser.NodeText(prev, source)}, parts...)
+			return joinDartCalleeParts(parts)
+		case "selector":
+			// Chained member access like .add — extract identifier from child
+			if uas := findChildByKind(prev, "unconditional_assignable_selector"); uas != nil {
+				if id := findChildByKind(uas, "identifier"); id != nil {
+					parts = append([]string{parser.NodeText(id, source)}, parts...)
+					continue
+				}
+			}
+			// Selector with argument_part is a preceding call in the chain — stop here.
+			// The callee is just the immediate method name (e.g., "toList" not "items.where.toList")
+			if len(parts) > 0 {
+				return joinDartCalleeParts(parts)
+			}
+			return ""
+		default:
+			return ""
+		}
+	}
+	if len(parts) > 0 {
+		return joinDartCalleeParts(parts)
+	}
+	return ""
+}
+
+func joinDartCalleeParts(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	result := parts[0]
+	for _, p := range parts[1:] {
+		result += "." + p
+	}
+	return result
+}
+
+// extractHaskellCallee extracts the callee from Haskell apply/infix nodes.
+func extractHaskellCallee(node *tree_sitter.Node, source []byte) string {
+	switch node.Kind() {
+	case "apply":
+		// Function application: recurse through nested apply nodes to get the
+		// actual function name (not "map show" but just "map")
+		if fn := node.ChildByFieldName("function"); fn != nil {
+			if fn.Kind() == "apply" {
+				return extractHaskellCallee(fn, source)
+			}
+			return parser.NodeText(fn, source)
+		}
+		if first := node.NamedChild(0); first != nil {
+			if first.Kind() == "apply" {
+				return extractHaskellCallee(first, source)
+			}
+			return parser.NodeText(first, source)
+		}
+	case "infix":
+		// Infix application: left_operand op right_operand
+		// The operator is the callee (e.g., f $ x, x <> y)
+		if op := node.ChildByFieldName("operator"); op != nil {
+			return parser.NodeText(op, source)
+		}
+		// Fallback: the function in f `op` x is the first child
+		if first := node.NamedChild(0); first != nil {
+			return parser.NodeText(first, source)
+		}
+	}
+	return ""
+}
+
+// extractOCamlCallee extracts the callee from OCaml application/infix_expression nodes.
+//
+//nolint:gocognit,nestif // WHY: inherent complexity from OCaml AST node type dispatch
+func extractOCamlCallee(node *tree_sitter.Node, source []byte) string {
+	switch node.Kind() {
+	case "application_expression":
+		// Function application: first named child is the function
+		if first := node.NamedChild(0); first != nil {
+			return parser.NodeText(first, source)
+		}
+	case "infix_expression":
+		// Pipe operator: x |> f or f @@ x → callee depends on operator
+		if op := node.ChildByFieldName("operator"); op != nil {
+			opText := parser.NodeText(op, source)
+			switch opText {
+			case "|>":
+				// x |> f → callee is right operand
+				// If right is application_expression (e.g., List.map show), extract just the function
+				if right := node.ChildByFieldName("right"); right != nil {
+					if right.Kind() == "application_expression" {
+						if first := right.NamedChild(0); first != nil {
+							return parser.NodeText(first, source)
+						}
+					}
+					return parser.NodeText(right, source)
+				}
+			case "@@":
+				// f @@ x → callee is left operand
+				if left := node.ChildByFieldName("left"); left != nil {
+					return parser.NodeText(left, source)
+				}
+			}
+		}
+		// Fallback: try positional children for infix operators
+		if node.NamedChildCount() >= 3 {
+			op := node.NamedChild(1)
+			if op != nil {
+				switch opText := parser.NodeText(op, source); opText {
+				case "|>":
+					if right := node.NamedChild(2); right != nil {
+						if right.Kind() == "application_expression" {
+							if first := right.NamedChild(0); first != nil {
+								return parser.NodeText(first, source)
+							}
+						}
+						return parser.NodeText(right, source)
+					}
+				case "@@":
+					if left := node.NamedChild(0); left != nil {
+						return parser.NodeText(left, source)
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// elixirKeywords are Elixir framework/kernel calls that should be filtered from callees.
+var elixirKeywords = map[string]bool{
+	"def": true, "defp": true, "defmodule": true, "defmacro": true, "defmacrop": true,
+	"defstruct": true, "defprotocol": true, "defimpl": true, "defguard": true,
+	"defdelegate": true, "defexception": true, "defoverridable": true,
+	"use": true, "import": true, "alias": true, "require": true,
+	"with": true, "for": true, "if": true, "unless": true, "case": true, "cond": true,
+}
+
+// extractElixirCallee extracts the callee from Elixir call/dot/binary_operator nodes.
+//
+//nolint:gocognit,nestif,cyclop // WHY: inherent complexity from Elixir AST node type dispatch
+func extractElixirCallee(node *tree_sitter.Node, source []byte) string {
+	switch node.Kind() {
+	case "binary_operator":
+		if op := node.ChildByFieldName("operator"); op != nil {
+			if parser.NodeText(op, source) == "|>" {
+				if right := node.ChildByFieldName("right"); right != nil {
+					// Extract just the function name from the pipe target
+					if right.Kind() == "call" {
+						if first := right.NamedChild(0); first != nil {
+							if first.Kind() == "dot" {
+								return parser.NodeText(first, source)
+							}
+							return parser.NodeText(first, source)
+						}
+					}
+					return parser.NodeText(right, source)
+				}
+			}
+		}
+		return "" // non-pipe binary_operator, skip
+	case "dot":
+		// Module.function — skip if parent is call (parent call extracts the dot child)
+		if p := node.Parent(); p != nil && p.Kind() == "call" {
+			return ""
+		}
+		return parser.NodeText(node, source)
+	case "call":
+		if p := node.Parent(); p != nil {
+			// Skip call nodes that are arguments to keyword calls (def f(x) — f is not a call).
+			// The tree is: call[def] → arguments → call[f(x)], so check grandparent too.
+			keywordParent := p
+			if p.Kind() == "arguments" {
+				keywordParent = p.Parent()
+			}
+			if keywordParent != nil && keywordParent.Kind() == "call" {
+				if kFirst := keywordParent.NamedChild(0); kFirst != nil && elixirKeywords[parser.NodeText(kFirst, source)] {
+					return ""
+				}
+			}
+			// Skip call nodes that are the right operand of a pipe (already extracted by binary_operator)
+			if p.Kind() == "binary_operator" {
+				if op := p.ChildByFieldName("operator"); op != nil && parser.NodeText(op, source) == "|>" {
+					if right := p.ChildByFieldName("right"); right != nil && right.Id() == node.Id() {
+						return ""
+					}
+				}
+			}
+		}
+		// Check if the call's first child is a "dot" node (qualified call like IO.puts)
+		if first := node.NamedChild(0); first != nil {
+			if first.Kind() == "dot" {
+				return parser.NodeText(first, source)
+			}
+			name := parser.NodeText(first, source)
+			if elixirKeywords[name] {
+				return ""
+			}
+			return name
+		}
+	}
+	return ""
+}
+
+// extractRustCallee handles Rust macro_invocation nodes.
+func extractRustCallee(node *tree_sitter.Node, source []byte) string {
+	if node.Kind() == "macro_invocation" {
+		if first := node.NamedChild(0); first != nil && first.Kind() == "identifier" {
+			return parser.NodeText(first, source) + "!"
+		}
+		if first := node.NamedChild(0); first != nil && first.Kind() == "scoped_identifier" {
+			return parser.NodeText(first, source) + "!"
+		}
+	}
+	return ""
+}
+
+// extractZigCallee handles Zig builtin_function nodes (e.g., @intCast).
+func extractZigCallee(node *tree_sitter.Node, source []byte) string {
+	if node.Kind() == "builtin_function" {
+		// The first child of builtin_function is the @name token
+		if fn := node.ChildByFieldName("function"); fn != nil {
+			return parser.NodeText(fn, source)
+		}
+		// Fallback: return full text (e.g., "@intCast")
+		text := parser.NodeText(node, source)
+		// Strip arguments if present
+		if idx := strings.Index(text, "("); idx > 0 {
+			return text[:idx]
+		}
+		return text
+	}
+	return ""
+}
+
+// extractPHPCallee handles PHP function_call_expression nodes.
+func extractPHPCallee(node *tree_sitter.Node, source []byte) string {
+	if node.Kind() == "function_call_expression" {
+		if nameNode := node.ChildByFieldName("function"); nameNode != nil {
+			return parser.NodeText(nameNode, source)
+		}
+	}
+	return ""
+}
+
+// extractScalaCallee handles Scala field_expression and infix_expression nodes.
+// Standalone field_expression (e.g., list.head) is a property access that acts as
+// a call in Scala. Skip if parent is call_expression (already handled by function field).
+func extractScalaCallee(node *tree_sitter.Node, source []byte) string {
+	switch node.Kind() {
+	case "field_expression":
+		if p := node.Parent(); p != nil && p.Kind() == "call_expression" {
+			return "" // parent call_expression already extracts via function field
+		}
+		return parser.NodeText(node, source)
+	case "infix_expression":
+		// Infix call: items map f → operator is the callee
+		if op := node.ChildByFieldName("operator"); op != nil {
+			return parser.NodeText(op, source)
 		}
 	}
 	return ""
@@ -2052,14 +2550,15 @@ func extractErlangCallee(node *tree_sitter.Node, source []byte) string {
 }
 
 func extractPerlCallee(node *tree_sitter.Node, source []byte) string {
-	if node.Kind() != "ambiguous_function_call_expression" && node.Kind() != "function_call_expression" {
-		return ""
-	}
-	if fn := node.ChildByFieldName("function"); fn != nil {
-		return parser.NodeText(fn, source)
-	}
-	if first := node.NamedChild(0); first != nil {
-		return parser.NodeText(first, source)
+	switch node.Kind() {
+	case "ambiguous_function_call_expression", "function_call_expression", "func1op_call_expression":
+		// Try function field first (func1op_call_expression uses this)
+		if fn := node.ChildByFieldName("function"); fn != nil {
+			return parser.NodeText(fn, source)
+		}
+		if first := node.NamedChild(0); first != nil {
+			return parser.NodeText(first, source)
+		}
 	}
 	return ""
 }
@@ -2635,6 +3134,7 @@ func (p *Pipeline) passImports() {
 			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetQN)
 			if targetNode == nil {
 				// Try common suffixes: module QN might need .__init__ or similar
+				logImportDrop(moduleQN, localName, targetQN)
 				continue
 			}
 			_, _ = p.Store.InsertEdge(&store.Edge{

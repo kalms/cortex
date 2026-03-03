@@ -14,10 +14,16 @@ import (
 // Key: variable name, Value: class/type QN in the registry.
 type TypeMap map[string]string
 
+// ReturnTypeMap maps function QN → return type QN (class/struct the function returns).
+type ReturnTypeMap map[string]string
+
 // inferTypes walks the AST looking for variable assignments where the value
 // is a constructor call (class instantiation) and builds a mapping from
 // variable name to the class QN. This enables resolving method calls like
 // `obj.method()` to `ClassName.method`.
+//
+// If returnTypes is non-nil, also infers types from calls to functions with
+// known return types (Phase 2: return type propagation).
 func inferTypes(
 	root *tree_sitter.Node,
 	source []byte,
@@ -25,6 +31,7 @@ func inferTypes(
 	registry *FunctionRegistry,
 	moduleQN string,
 	importMap map[string]string,
+	returnTypes ReturnTypeMap,
 ) TypeMap {
 	types := make(TypeMap)
 
@@ -33,9 +40,169 @@ func inferTypes(
 		inferPythonTypes(root, source, registry, moduleQN, importMap, types)
 	case lang.Go:
 		inferGoTypes(root, source, registry, moduleQN, importMap, types)
+	// Tier 1: statically typed languages
+	case lang.TypeScript, lang.TSX:
+		inferTypeScriptTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Java:
+		inferJavaTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.CSharp:
+		inferCSharpTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Kotlin:
+		inferKotlinTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Scala:
+		inferScalaTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Rust:
+		inferRustTypes(root, source, registry, moduleQN, importMap, types)
+	// Tier 2: dynamic/mixed languages
+	case lang.CPP:
+		inferCPPTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.PHP:
+		inferPHPTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Ruby:
+		inferRubyTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.JavaScript:
+		inferJavaScriptTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Zig:
+		inferZigTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.Elixir:
+		inferElixirTypes(root, source, registry, moduleQN, importMap, types)
+	case lang.C:
+		inferCTypes(root, source, registry, moduleQN, importMap, types)
+	}
+
+	// Phase 2: return type propagation — for assignments where RHS is a call
+	// to a function with known return type, map the variable to that type
+	if len(returnTypes) > 0 {
+		inferReturnTypes(root, source, language, registry, moduleQN, importMap, returnTypes, types)
 	}
 
 	return types
+}
+
+// inferReturnTypes augments the type map with return-type-based inference.
+// For assignments like `result = someFunc()` where `someFunc` has a known
+// return type, maps `result` to the return type QN.
+func inferReturnTypes(
+	root *tree_sitter.Node,
+	source []byte,
+	language lang.Language,
+	registry *FunctionRegistry,
+	moduleQN string,
+	importMap map[string]string,
+	returnTypes ReturnTypeMap,
+	types TypeMap,
+) {
+	callTypes := map[string]bool{
+		"call": true, "call_expression": true, "function_call": true,
+		"method_invocation": true, "invocation_expression": true,
+	}
+	assignTypes := map[string]bool{
+		"assignment": true, "short_var_declaration": true,
+		"variable_declarator": true, "local_variable_declaration": true,
+		"let_declaration": true, "property_declaration": true,
+		"val_definition": true,
+	}
+
+	parser.Walk(root, func(node *tree_sitter.Node) bool {
+		if !assignTypes[node.Kind()] {
+			return true
+		}
+
+		varName := extractAssignmentVarName(node, source, language)
+		if varName == "" || types[varName] != "" {
+			return false // already inferred by constructor matching
+		}
+
+		// Find the call expression on the RHS
+		callNode := findCallOnRHS(node, source, callTypes)
+		if callNode == nil {
+			return false
+		}
+
+		calleeName := extractCalleeForTypeInfer(callNode, source)
+		if calleeName == "" {
+			return false
+		}
+
+		// Resolve the callee to a function QN
+		result := registry.Resolve(calleeName, moduleQN, importMap)
+		if result.QualifiedName == "" {
+			return false
+		}
+
+		// Check if this function has a known return type
+		if retTypeQN, ok := returnTypes[result.QualifiedName]; ok {
+			types[varName] = retTypeQN
+		}
+
+		return false
+	})
+}
+
+// extractAssignmentVarName extracts the variable name from an assignment node.
+func extractAssignmentVarName(node *tree_sitter.Node, source []byte, language lang.Language) string {
+	switch node.Kind() {
+	case "assignment":
+		leftNode := node.ChildByFieldName("left")
+		if leftNode != nil && leftNode.Kind() == "identifier" {
+			return parser.NodeText(leftNode, source)
+		}
+	case "short_var_declaration":
+		leftNode := node.ChildByFieldName("left")
+		if leftNode != nil {
+			return extractFirstIdentifier(leftNode, source)
+		}
+	case "variable_declarator":
+		nameNode := node.ChildByFieldName("name")
+		if nameNode != nil && (nameNode.Kind() == "identifier" || nameNode.Kind() == "simple_identifier") {
+			return parser.NodeText(nameNode, source)
+		}
+	case "let_declaration":
+		patNode := node.ChildByFieldName("pattern")
+		if patNode != nil {
+			return parser.NodeText(patNode, source)
+		}
+	case "val_definition":
+		patNode := node.ChildByFieldName("pattern")
+		if patNode != nil {
+			return parser.NodeText(patNode, source)
+		}
+	case "property_declaration":
+		varDecl := findChildByKind(node, "variable_declaration")
+		if varDecl != nil {
+			ident := findChildByKind(varDecl, "simple_identifier")
+			if ident == nil {
+				ident = findChildByKind(varDecl, "identifier")
+			}
+			if ident != nil {
+				return parser.NodeText(ident, source)
+			}
+		}
+	}
+	_ = language
+	return ""
+}
+
+// findCallOnRHS finds a call expression on the right-hand side of an assignment.
+func findCallOnRHS(node *tree_sitter.Node, source []byte, callTypes map[string]bool) *tree_sitter.Node {
+	// Try standard field names
+	for _, field := range []string{"right", "value"} {
+		rhs := node.ChildByFieldName(field)
+		if rhs != nil {
+			if callTypes[rhs.Kind()] {
+				return rhs
+			}
+			// Go expression_list wrapper
+			if rhs.Kind() == "expression_list" && rhs.NamedChildCount() > 0 {
+				first := rhs.NamedChild(0)
+				if first != nil && callTypes[first.Kind()] {
+					return first
+				}
+			}
+		}
+	}
+	_ = source
+	return nil
 }
 
 // inferPythonTypes handles Python patterns like:
@@ -195,15 +362,15 @@ func inferGoVarDecl(
 
 // resolveAsClass checks if a name refers to a Class/Type node in the registry.
 func resolveAsClass(name string, registry *FunctionRegistry, moduleQN string, importMap map[string]string) string {
-	qn := registry.Resolve(name, moduleQN, importMap)
-	if qn == "" {
+	result := registry.Resolve(name, moduleQN, importMap)
+	if result.QualifiedName == "" {
 		return ""
 	}
 
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 
-	label, exists := registry.exact[qn]
+	label, exists := registry.exact[result.QualifiedName]
 	if !exists {
 		return ""
 	}
@@ -211,7 +378,7 @@ func resolveAsClass(name string, registry *FunctionRegistry, moduleQN string, im
 	// Only return if it's a class-like node
 	switch label {
 	case "Class", "Type", "Interface", "Enum":
-		return qn
+		return result.QualifiedName
 	}
 	return ""
 }

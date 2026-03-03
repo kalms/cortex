@@ -313,7 +313,31 @@ func (l *Linker) linkHandlerToRoute(handlerNode *store.Node, routeID int64, rout
 	}
 }
 
+// isTestNode returns true if the node is from a test file.
+// Checks the is_test property set during pipeline pass 1, with a file path heuristic fallback.
+func isTestNode(n *store.Node) bool {
+	if isTest, ok := n.Properties["is_test"].(bool); ok && isTest {
+		return true
+	}
+	// Fallback: common test path patterns
+	fp := filepath.ToSlash(n.FilePath)
+	return containsTestSegment(fp, "test") ||
+		containsTestSegment(fp, "tests") ||
+		containsTestSegment(fp, "__tests__") ||
+		strings.Contains(fp, "_test.") ||
+		strings.Contains(fp, ".test.") ||
+		strings.Contains(fp, ".spec.")
+}
+
+// containsTestSegment checks if a path contains a directory segment named seg.
+// Matches both "seg/..." (at start) and ".../seg/..." (mid-path).
+func containsTestSegment(fp, seg string) bool {
+	return strings.HasPrefix(fp, seg+"/") || strings.Contains(fp, "/"+seg+"/")
+}
+
 // discoverRoutes finds route handler registrations from Function nodes.
+//
+//nolint:gocognit // WHY: inherent complexity from multi-framework route discovery
 func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 	var routes []RouteHandler
 
@@ -334,6 +358,11 @@ func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 	phpFilesWithFuncs := map[string]bool{}
 
 	for _, f := range funcs {
+		// Skip test files — test fixtures should not produce Route nodes
+		if isTestNode(f) {
+			continue
+		}
+
 		// Python: check decorators property
 		routes = append(routes, extractPythonRoutes(f)...)
 
@@ -371,6 +400,11 @@ func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 	}
 
 	for _, m := range modules {
+		// Skip test files
+		if isTestNode(m) {
+			continue
+		}
+
 		isPHP := strings.HasSuffix(m.FilePath, ".php")
 		isJSTS := strings.HasSuffix(m.FilePath, ".js") ||
 			strings.HasSuffix(m.FilePath, ".ts") ||

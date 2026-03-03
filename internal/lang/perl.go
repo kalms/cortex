@@ -10,7 +10,7 @@ func init() {
 		ClassNodeTypes:  []string{},
 		FieldNodeTypes:  []string{},
 		ModuleNodeTypes: []string{"source_file"},
-		CallNodeTypes:   []string{"ambiguous_function_call_expression", "function_call_expression"},
+		CallNodeTypes:   []string{"ambiguous_function_call_expression", "function_call_expression", "func1op_call_expression"},
 		ImportNodeTypes: []string{"use_statement", "require_statement"},
 		BranchingNodeTypes: []string{
 			"if_statement", "unless_statement", "for_statement",

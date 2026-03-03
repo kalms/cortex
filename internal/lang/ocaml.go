@@ -13,7 +13,7 @@ func init() {
 			"module_definition", // module M = struct ... end
 		},
 		ModuleNodeTypes: []string{"compilation_unit"},
-		CallNodeTypes:   []string{"application", "infix_expression"},
+		CallNodeTypes:   []string{"application_expression", "infix_expression"},
 		ImportNodeTypes: []string{"open_module"},
 
 		BranchingNodeTypes: []string{

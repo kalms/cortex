@@ -745,22 +745,22 @@ func TestFunctionRegistry(t *testing.T) {
 	}
 
 	// Resolve same-module
-	qn := r.Resolve("Foo", "proj.pkg", nil)
-	if qn != "proj.pkg.Foo" {
-		t.Errorf("expected proj.pkg.Foo, got %s", qn)
+	res := r.Resolve("Foo", "proj.pkg", nil)
+	if res.QualifiedName != "proj.pkg.Foo" {
+		t.Errorf("expected proj.pkg.Foo, got %s", res.QualifiedName)
 	}
 
 	// Resolve via import map
 	imports := map[string]string{"other": "proj.other"}
-	qn = r.Resolve("other.Foo", "proj.pkg", imports)
-	if qn != "proj.other.Foo" {
-		t.Errorf("expected proj.other.Foo, got %s", qn)
+	res = r.Resolve("other.Foo", "proj.pkg", imports)
+	if res.QualifiedName != "proj.other.Foo" {
+		t.Errorf("expected proj.other.Foo, got %s", res.QualifiedName)
 	}
 
 	// Resolve unique name
-	qn = r.Resolve("Bar", "proj.unrelated", nil)
-	if qn != "proj.pkg.Bar" {
-		t.Errorf("expected proj.pkg.Bar, got %s", qn)
+	res = r.Resolve("Bar", "proj.unrelated", nil)
+	if res.QualifiedName != "proj.pkg.Bar" {
+		t.Errorf("expected proj.pkg.Bar, got %s", res.QualifiedName)
 	}
 }
 

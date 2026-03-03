@@ -12,7 +12,7 @@ func init() {
 		},
 		ClassNodeTypes:  []string{}, // handled by custom extraction (defmodule)
 		ModuleNodeTypes: []string{"source"},
-		CallNodeTypes:   []string{"call", "dot"},
+		CallNodeTypes:   []string{"call", "dot", "binary_operator"},
 		ImportNodeTypes: []string{"call"},
 
 		BranchingNodeTypes: []string{

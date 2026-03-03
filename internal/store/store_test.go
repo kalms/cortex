@@ -900,6 +900,137 @@ func TestFindNodesByFileOverlap(t *testing.T) {
 	}
 }
 
+func TestFindNodesByQNSuffix_Single(t *testing.T) {
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "HandleRequest", QualifiedName: "test.cmd.server.main.HandleRequest"})
+
+	nodes, err := s.FindNodesByQNSuffix("test", "main.HandleRequest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(nodes))
+	}
+	if nodes[0].Name != "HandleRequest" {
+		t.Errorf("expected HandleRequest, got %s", nodes[0].Name)
+	}
+}
+
+func TestFindNodesByQNSuffix_NoMatch(t *testing.T) {
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "Foo", QualifiedName: "test.main.Foo"})
+
+	nodes, err := s.FindNodesByQNSuffix("test", "main.Bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 0 {
+		t.Fatalf("expected 0 matches, got %d", len(nodes))
+	}
+}
+
+func TestFindNodesByQNSuffix_Multiple(t *testing.T) {
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "Run", QualifiedName: "test.cmd.server.Run"})
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "Run", QualifiedName: "test.cmd.worker.Run"})
+
+	// Suffix "Run" should match both (both end with ".Run")
+	nodes, err := s.FindNodesByQNSuffix("test", "Run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(nodes))
+	}
+}
+
+func TestFindNodesByQNSuffix_DotBoundary(t *testing.T) {
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "HandleRequest", QualifiedName: "test.main.HandleRequest"})
+	_, _ = s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "MyHandleRequestHelper", QualifiedName: "test.main.MyHandleRequestHelper"})
+
+	// Should only match the one with ".HandleRequest" suffix, not partial word
+	nodes, err := s.FindNodesByQNSuffix("test", "HandleRequest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 match (dot-boundary), got %d", len(nodes))
+	}
+	if nodes[0].Name != "HandleRequest" {
+		t.Errorf("expected HandleRequest, got %s", nodes[0].Name)
+	}
+}
+
+func TestNodeDegree(t *testing.T) {
+	s, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+
+	idA, _ := s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "A", QualifiedName: "test.A"})
+	idB, _ := s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "B", QualifiedName: "test.B"})
+	idC, _ := s.UpsertNode(&Node{Project: "test", Label: "Function", Name: "C", QualifiedName: "test.C"})
+
+	// A -> B (CALLS), A -> C (CALLS), B -> C (CALLS), A -> C (USAGE — not counted)
+	_, _ = s.InsertEdge(&Edge{Project: "test", SourceID: idA, TargetID: idB, Type: "CALLS"})
+	_, _ = s.InsertEdge(&Edge{Project: "test", SourceID: idA, TargetID: idC, Type: "CALLS"})
+	_, _ = s.InsertEdge(&Edge{Project: "test", SourceID: idB, TargetID: idC, Type: "CALLS"})
+	_, _ = s.InsertEdge(&Edge{Project: "test", SourceID: idA, TargetID: idC, Type: "USAGE"})
+
+	inA, outA := s.NodeDegree(idA)
+	if inA != 0 || outA != 2 {
+		t.Errorf("A: in=%d out=%d, want in=0 out=2", inA, outA)
+	}
+
+	inB, outB := s.NodeDegree(idB)
+	if inB != 1 || outB != 1 {
+		t.Errorf("B: in=%d out=%d, want in=1 out=1", inB, outB)
+	}
+
+	inC, outC := s.NodeDegree(idC)
+	if inC != 2 || outC != 0 {
+		t.Errorf("C: in=%d out=%d, want in=2 out=0", inC, outC)
+	}
+}
+
 func TestBFSWithRiskLabels(t *testing.T) {
 	s, err := OpenMemory()
 	if err != nil {

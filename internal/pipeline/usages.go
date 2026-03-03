@@ -182,21 +182,21 @@ func (p *Pipeline) resolveFileUsages(relPath string, cached *cachedAST) []resolv
 			callerQN = moduleQN
 		}
 
-		targetQN := p.registry.Resolve(refName, moduleQN, importMap)
-		if targetQN == "" {
+		targetResult := p.registry.Resolve(refName, moduleQN, importMap)
+		if targetResult.QualifiedName == "" {
 			return false
 		}
 
 		// Skip Variable targets — handled by passReadsWrites (READS/WRITES edges)
-		if p.registry.LabelOf(targetQN) == "Variable" {
+		if p.registry.LabelOf(targetResult.QualifiedName) == "Variable" {
 			return false
 		}
 
-		if targetQN == callerQN {
+		if targetResult.QualifiedName == callerQN {
 			return false
 		}
 
-		edges = append(edges, resolvedEdge{CallerQN: callerQN, TargetQN: targetQN, Type: "USAGE"})
+		edges = append(edges, resolvedEdge{CallerQN: callerQN, TargetQN: targetResult.QualifiedName, Type: "USAGE"})
 		return false
 	})
 	return edges

@@ -60,6 +60,19 @@ func (s *Store) FindNodesByName(project, name string) ([]*Node, error) {
 	return scanNodes(rows)
 }
 
+// FindNodesByQNSuffix finds nodes whose qualified_name ends with "."+suffix.
+// Matches at QN segment boundaries to prevent partial word matches.
+func (s *Store) FindNodesByQNSuffix(project, suffix string) ([]*Node, error) {
+	rows, err := s.q.Query(`SELECT id, project, label, name, qualified_name, file_path, start_line, end_line, properties
+		FROM nodes WHERE project=? AND qualified_name LIKE ?`,
+		project, "%."+suffix)
+	if err != nil {
+		return nil, fmt.Errorf("find by qn suffix: %w", err)
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // FindNodesByLabel finds all nodes with a given label in a project.
 func (s *Store) FindNodesByLabel(project, label string) ([]*Node, error) {
 	rows, err := s.q.Query(`SELECT id, project, label, name, qualified_name, file_path, start_line, end_line, properties

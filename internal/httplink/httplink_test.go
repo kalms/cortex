@@ -1441,3 +1441,30 @@ Route::get('/api/orders/{id}', [OrderController::class, 'show']);
 		}
 	}
 }
+
+func TestIsTestNodeFiltering(t *testing.T) {
+	tests := []struct {
+		filePath string
+		isTest   bool
+		expected bool
+	}{
+		{"src/routes/api.js", false, false},
+		{"test/app.get.js", false, true},
+		{"__tests__/routes.test.ts", false, true},
+		{"src/routes/api.js", true, true},
+		{"lib/router/index.js", false, false},
+		{"tests/fixtures/server.js", false, true},
+		{"app/controllers/orders_controller.rb", false, false},
+	}
+
+	for _, tt := range tests {
+		n := &store.Node{
+			FilePath:   tt.filePath,
+			Properties: map[string]any{"is_test": tt.isTest},
+		}
+		got := isTestNode(n)
+		if got != tt.expected {
+			t.Errorf("isTestNode(%q, is_test=%v) = %v, want %v", tt.filePath, tt.isTest, got, tt.expected)
+		}
+	}
+}

@@ -35,6 +35,7 @@ func (s *Server) handleTraceCallPath(_ context.Context, req *mcp.CallToolRequest
 	}
 
 	riskLabels := getBoolArg(args, "risk_labels")
+	minConfidence := getFloatArg(args, "min_confidence", 0)
 
 	project := getStringArg(args, "project")
 	effectiveProject := s.resolveProjectName(project)
@@ -57,7 +58,8 @@ func (s *Server) handleTraceCallPath(_ context.Context, req *mcp.CallToolRequest
 				}
 			}
 			return jsonResult(map[string]any{
-				"error":       fmt.Sprintf("function not found: %s", funcName),
+				"status":      "not_found",
+				"message":     fmt.Sprintf("function not found: %s — use a name from the suggestions below", funcName),
 				"suggestions": suggList,
 			}), nil
 		}
@@ -72,7 +74,7 @@ func (s *Server) handleTraceCallPath(_ context.Context, req *mcp.CallToolRequest
 
 	edgeTypes := []string{"CALLS", "HTTP_CALLS", "ASYNC_CALLS"}
 
-	allVisited, allEdges, bfsErr := runTraceBFS(st, rootNode.ID, direction, edgeTypes, depth)
+	allVisited, allEdges, bfsErr := runTraceBFS(st, rootNode.ID, direction, edgeTypes, depth, minConfidence)
 	if bfsErr != nil {
 		return errResult(fmt.Sprintf("bfs err: %v", bfsErr)), nil
 	}
@@ -100,7 +102,7 @@ func (s *Server) handleTraceCallPath(_ context.Context, req *mcp.CallToolRequest
 	return result, nil
 }
 
-func runTraceBFS(st *store.Store, rootID int64, direction string, edgeTypes []string, depth int) ([]*store.NodeHop, []store.EdgeInfo, error) {
+func runTraceBFS(st *store.Store, rootID int64, direction string, edgeTypes []string, depth int, minConfidence float64) ([]*store.NodeHop, []store.EdgeInfo, error) {
 	if direction == "both" {
 		var allVisited []*store.NodeHop
 		var allEdges []store.EdgeInfo
@@ -114,13 +116,32 @@ func runTraceBFS(st *store.Store, rootID int64, direction string, edgeTypes []st
 			allVisited = append(allVisited, inResult.Visited...)
 			allEdges = append(allEdges, inResult.Edges...)
 		}
+		if minConfidence > 0 {
+			allEdges = filterEdgesByConfidence(allEdges, minConfidence)
+		}
 		return allVisited, allEdges, nil
 	}
 	result, err := st.BFS(rootID, direction, edgeTypes, depth, 200)
 	if err != nil {
 		return nil, nil, err
 	}
-	return result.Visited, result.Edges, nil
+	edges := result.Edges
+	if minConfidence > 0 {
+		edges = filterEdgesByConfidence(edges, minConfidence)
+	}
+	return result.Visited, edges, nil
+}
+
+// filterEdgesByConfidence removes edges below the threshold.
+// Edges with confidence=0 (no confidence set, e.g. HTTP_CALLS) are kept.
+func filterEdgesByConfidence(edges []store.EdgeInfo, minConfidence float64) []store.EdgeInfo {
+	filtered := make([]store.EdgeInfo, 0, len(edges))
+	for _, e := range edges {
+		if e.Confidence == 0 || e.Confidence >= minConfidence {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
 }
 
 func buildTraceResponse(st *store.Store, rootNode *store.Node, project string, hops []hopEntry, visited []*store.NodeHop, edges []store.EdgeInfo) map[string]any {
@@ -272,11 +293,15 @@ func (s *Server) findSimilarNodes(name, project string, limit int) []*store.Node
 func buildEdgeList(edges []store.EdgeInfo) []map[string]any {
 	result := make([]map[string]any, 0, len(edges))
 	for _, e := range edges {
-		result = append(result, map[string]any{
+		entry := map[string]any{
 			"from": e.FromName,
 			"to":   e.ToName,
 			"type": e.Type,
-		})
+		}
+		if e.Confidence > 0 {
+			entry["confidence"] = e.Confidence
+		}
+		result = append(result, entry)
 	}
 	return result
 }

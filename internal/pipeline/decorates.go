@@ -53,11 +53,11 @@ func (p *Pipeline) processNodeDecorators(n *store.Node) int {
 			continue
 		}
 
-		targetQN := p.registry.Resolve(funcName, moduleQN, importMap)
-		if targetQN == "" {
+		targetResult := p.registry.Resolve(funcName, moduleQN, importMap)
+		if targetResult.QualifiedName == "" {
 			continue
 		}
-		targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetQN)
+		targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetResult.QualifiedName)
 		if targetNode == nil {
 			continue
 		}

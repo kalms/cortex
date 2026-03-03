@@ -129,6 +129,19 @@ func extractParamTypeGroovy(node *tree_sitter.Node, source []byte, addType func(
 	return false
 }
 
+func extractParamTypeOCaml(node *tree_sitter.Node, source []byte, addType func(string)) bool {
+	if node.Kind() != "parameter" {
+		return true
+	}
+	// OCaml: parameter → typed_pattern → type field
+	if tp := findChildByKind(node, "typed_pattern"); tp != nil {
+		if typeNode := tp.ChildByFieldName("type"); typeNode != nil {
+			addType(cleanTypeName(parser.NodeText(typeNode, source)))
+		}
+	}
+	return false
+}
+
 // noParamTypes is used for languages without parameter type annotations.
 func noParamTypes(_ *tree_sitter.Node, _ []byte, _ func(string)) bool {
 	return false
@@ -153,7 +166,7 @@ var paramTypeExtractors = map[lang.Language]paramTypeExtractorFn{
 	lang.Dart:       extractParamTypeDart,
 	lang.Groovy:     extractParamTypeGroovy,
 	lang.Swift:      extractParamTypeField([]string{"parameter"}),
-	lang.OCaml:      extractParamTypeField([]string{"parameter"}),
+	lang.OCaml:      extractParamTypeOCaml,
 	lang.Haskell:    noParamTypes,
 	lang.Ruby:       noParamTypes,
 	lang.Perl:       noParamTypes,
@@ -362,6 +375,7 @@ func extractPythonBases(node *tree_sitter.Node, source []byte) []string {
 	return bases
 }
 
+//nolint:gocognit,nestif // WHY: inherent complexity from Java AST hierarchy traversal
 func extractJavaBases(node *tree_sitter.Node, source []byte) []string {
 	var bases []string
 	if superNode := node.ChildByFieldName("superclass"); superNode != nil {
@@ -373,13 +387,27 @@ func extractJavaBases(node *tree_sitter.Node, source []byte) []string {
 		}
 	}
 	if implNode := node.ChildByFieldName("interfaces"); implNode != nil {
+		// interfaces field contains a type_list with individual type_identifier children
+		// Walk into type_list to get each interface name separately
 		for i := uint(0); i < implNode.NamedChildCount(); i++ {
 			child := implNode.NamedChild(i)
 			if child == nil {
 				continue
 			}
-			if name := cleanTypeName(parser.NodeText(child, source)); name != "" {
-				bases = append(bases, name)
+			if child.Kind() == "type_list" {
+				for j := uint(0); j < child.NamedChildCount(); j++ {
+					typeChild := child.NamedChild(j)
+					if typeChild == nil {
+						continue
+					}
+					if name := cleanTypeName(parser.NodeText(typeChild, source)); name != "" {
+						bases = append(bases, name)
+					}
+				}
+			} else {
+				if name := cleanTypeName(parser.NodeText(child, source)); name != "" {
+					bases = append(bases, name)
+				}
 			}
 		}
 	}
@@ -836,6 +864,17 @@ func extractRustAttributes(node *tree_sitter.Node, source []byte) []string {
 
 func extractSwiftAttributes(node *tree_sitter.Node, source []byte) []string {
 	var decorators []string
+	// Swift attributes live inside a "modifiers" child node
+	mods := findChildByKind(node, "modifiers")
+	if mods != nil {
+		for i := uint(0); i < mods.ChildCount(); i++ {
+			child := mods.Child(i)
+			if child != nil && child.Kind() == "attribute" {
+				decorators = append(decorators, parser.NodeText(child, source))
+			}
+		}
+	}
+	// Also check direct children (some node types may have attributes directly)
 	for i := uint(0); i < node.ChildCount(); i++ {
 		child := node.Child(i)
 		if child != nil && child.Kind() == "attribute" {
@@ -920,7 +959,13 @@ func isBuiltinType(name string) bool {
 		"number", "bigint", "symbol", "undefined", "null",
 		"char", "short", "long", "i8", "i16", "i32", "i64",
 		"u8", "u16", "u32", "u64", "f32", "f64", "usize", "isize",
-		"self", "Self", "cls", "type":
+		"self", "Self", "cls", "type",
+		// Uppercase variants (Kotlin, Swift, Scala, Dart)
+		"Int", "Int8", "Int16", "Int32", "Int64",
+		"UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+		"Float", "Double", "String", "Bool", "Boolean",
+		"Byte", "Short", "Long", "Char", "Unit", "Void",
+		"Any", "Nothing", "Dynamic":
 		return true
 	}
 	return false

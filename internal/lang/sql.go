@@ -10,7 +10,7 @@ func init() {
 		},
 		ClassNodeTypes:  []string{},
 		FieldNodeTypes:  []string{"column_definition"},
-		CallNodeTypes:   []string{"function_call"},
+		CallNodeTypes:   []string{"function_call", "invocation"},
 		ImportNodeTypes: []string{},
 		VariableNodeTypes: []string{
 			"create_table",

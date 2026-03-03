@@ -23,7 +23,7 @@ import (
 )
 
 // Version is the current release version, referenced by MCP handshake and update checker.
-const Version = "0.3.1"
+const Version = "0.3.2"
 
 // releaseURL is the GitHub API endpoint for latest release. Package-level var for test injection.
 var releaseURL = "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
@@ -473,6 +473,10 @@ func (s *Server) registerIndexAndTraceTool() {
 					"type": "boolean",
 					"description": "Add risk classification (CRITICAL/HIGH/MEDIUM/LOW) based on hop depth. Hop 1=CRITICAL, 2=HIGH, 3=MEDIUM, 4+=LOW. Includes impact_summary with counts. Default false."
 				},
+				"min_confidence": {
+					"type": "number",
+					"description": "Minimum confidence threshold (0.0-1.0) for CALLS edges. Filters out low-confidence fuzzy matches. Bands: high (>=0.7), medium (>=0.45), speculative (<0.45). Default 0 (no filter)."
+				},
 				"project": {
 					"type": "string",
 					"description": "Project to trace in. Defaults to session project."
@@ -500,17 +504,25 @@ func (s *Server) registerSchemaAndSnippetTools() {
 
 	s.addTool(&mcp.Tool{
 		Name:        "get_code_snippet",
-		Description: "Retrieve source code for a function/class by qualified name. Reads directly from disk using the stored file path and line range. Returns the source code with line numbers.",
+		Description: "Retrieve source code for a function/class by name with rich metadata. Accepts exact qualified name ('myproject.cmd.server.main.HandleRequest'), partial QN suffix ('main.HandleRequest'), or short name ('HandleRequest'). Returns source code, signature, return type, complexity, decorators, docstring, and caller/callee counts. Returns suggestions with status='ambiguous' when multiple matches found (no 'error' key in disambiguation responses). Use auto_resolve=true to let the tool pick the best match from <=2 candidates (returns alternatives for correction). Use include_neighbors=true to get caller/callee names alongside counts.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"qualified_name": {
 					"type": "string",
-					"description": "Fully qualified name of the node (e.g. 'myproject.cmd.server.main.HandleRequest')"
+					"description": "Name or qualified name of the function/class. Exact QN for precision, short name for discovery. Returns suggestions if ambiguous."
 				},
 				"project": {
 					"type": "string",
 					"description": "Project to search in. Defaults to session project."
+				},
+				"auto_resolve": {
+					"type": "boolean",
+					"description": "When true and <=2 ambiguous candidates exist, auto-pick the best match (highest degree, prefer non-test). Returns source with match_method='auto_best' and alternatives list. Default: false."
+				},
+				"include_neighbors": {
+					"type": "boolean",
+					"description": "When true, include caller_names and callee_names arrays (up to 10 each) alongside the counts. Default: false."
 				}
 			},
 			"required": ["qualified_name"]
@@ -778,6 +790,19 @@ func getMapStringArg(args map[string]any, key string) map[string]string {
 }
 
 // getBoolArg extracts a boolean argument from parsed args.
+// getFloatArg extracts a float64 argument with a default value.
+func getFloatArg(args map[string]any, key string, defaultVal float64) float64 {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	f, ok := v.(float64)
+	if !ok {
+		return defaultVal
+	}
+	return f
+}
+
 func getBoolArg(args map[string]any, key string) bool {
 	v, ok := args[key]
 	if !ok {
@@ -822,38 +847,4 @@ func (s *Server) findNodeAcrossProjects(name string, projectFilter ...string) (*
 		}
 	}
 	return nil, "", fmt.Errorf("node not found: %s", name)
-}
-
-// findNodeByQNAcrossProjects searches for a node by qualified name in the specified project.
-// Falls back to the session project if no filter is given.
-func (s *Server) findNodeByQNAcrossProjects(qn string, projectFilter ...string) (*store.Node, string, error) {
-	filter := s.sessionProject
-	if len(projectFilter) > 0 && projectFilter[0] != "" {
-		if projectFilter[0] == "*" || projectFilter[0] == "all" {
-			return nil, "", fmt.Errorf("cross-project queries are not supported; use list_projects to find a specific project name, or omit the project parameter to use the current session project")
-		}
-		filter = projectFilter[0]
-	}
-	if filter == "" {
-		return nil, "", fmt.Errorf("no project specified and no session project detected")
-	}
-	if !s.router.HasProject(filter) {
-		return nil, "", fmt.Errorf("project %q not found; use list_projects to see available projects", filter)
-	}
-
-	st, err := s.router.ForProject(filter)
-	if err != nil {
-		return nil, "", err
-	}
-	projects, _ := st.ListProjects()
-	for _, p := range projects {
-		node, findErr := st.FindNodeByQN(p.Name, qn)
-		if findErr != nil {
-			continue
-		}
-		if node != nil {
-			return node, p.Name, nil
-		}
-	}
-	return nil, "", fmt.Errorf("node not found: %s", qn)
 }

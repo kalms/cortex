@@ -301,9 +301,107 @@ var astDumpCases = []struct {
 	{"sql_func_call", lang.SQL, "SELECT count(*), upper(name) FROM users;\n"},
 	{"sql_view", lang.SQL, "CREATE VIEW active_users AS SELECT * FROM users WHERE active = true;\n"},
 
+	// === C# call AST diagnostics ===
+	{"csharp_member_call", lang.CSharp, "class A {\n\tvoid F() {\n\t\t_context.SaveChangesAsync(token);\n\t\tentity.AddDomainEvent(new Event());\n\t\tvar x = _identityService.GetUserNameAsync(userId);\n\t}\n}\n"},
+	{"csharp_static_call", lang.CSharp, "class A {\n\tvoid F() {\n\t\tConsole.WriteLine(\"hello\");\n\t\tstring.IsNullOrEmpty(s);\n\t}\n}\n"},
+	{"csharp_simple_call", lang.CSharp, "class A {\n\tvoid F() {\n\t\tDoWork();\n\t\tawait SaveAsync();\n\t}\n}\n"},
+	{"csharp_await_call", lang.CSharp, "class A {\n\tasync Task F() {\n\t\tawait _context.SaveChangesAsync(token);\n\t\tvar result = await next();\n\t}\n}\n"},
+	{"csharp_new_object", lang.CSharp, "class A {\n\tvoid F() {\n\t\tvar e = new TodoItem();\n\t\tvar list = new List<string>();\n\t}\n}\n"},
+
+	// === Ruby call AST diagnostics ===
+	{"ruby_method_call", lang.Ruby, "class A\n  def f\n    name.to_s\n    @items.each { |i| puts i }\n    response.status = 200\n  end\nend\n"},
+	{"ruby_bare_call", lang.Ruby, "class A\n  def f\n    puts 'hello'\n    greet('world')\n    render json: data\n  end\nend\n"},
+	{"ruby_chain_call", lang.Ruby, "class A\n  def f\n    users.where(active: true).order(:name).limit(10)\n  end\nend\n"},
+
 	// === New languages: Dockerfile ===
 	{"dockerfile_from", lang.Dockerfile, "FROM golang:1.22-alpine AS builder\nWORKDIR /app\nCOPY . .\nRUN go build -o main .\n"},
 	{"dockerfile_env", lang.Dockerfile, "ENV APP_PORT=8080\nARG VERSION=latest\nEXPOSE 8080\n"},
+
+	// =====================================================================
+	// v0.5 Documentation Cases — Complex patterns for extraction planning
+	// =====================================================================
+
+	// === Framework Patterns: Express/Gin/Chi routes ===
+	{"js_express_route", lang.JavaScript, "app.get('/users/:id', async (req, res) => {\n  const user = await db.findUser(req.params.id);\n  res.json(user);\n});\n"},
+	{"js_express_middleware", lang.JavaScript, "app.use('/api', authMiddleware, rateLimit({ max: 100 }));\n"},
+	{"ts_express_typed_route", lang.TypeScript, "router.post('/orders', validate(OrderSchema), async (req: Request, res: Response) => {\n  const order = await orderService.create(req.body);\n  res.status(201).json(order);\n});\n"},
+	{"go_chi_route", lang.Go, "package main\nfunc routes(r chi.Router) {\n\tr.Get(\"/users/{id}\", getUser)\n\tr.Post(\"/users\", createUser)\n\tr.Route(\"/admin\", func(r chi.Router) {\n\t\tr.Use(adminOnly)\n\t\tr.Get(\"/stats\", getStats)\n\t})\n}\n"},
+
+	// === Framework Patterns: Spring/Django/Laravel annotations ===
+	{"java_spring_controller", lang.Java, "@RestController\n@RequestMapping(\"/api/users\")\nclass UserController {\n\t@Autowired\n\tprivate UserService userService;\n\t@GetMapping(\"/{id}\")\n\tpublic User getUser(@PathVariable Long id) {\n\t\treturn userService.findById(id);\n\t}\n}\n"},
+	{"java_spring_service", lang.Java, "@Service\nclass UserService {\n\t@Transactional\n\tpublic User createUser(CreateUserRequest req) {\n\t\tUser user = new User(req.getName());\n\t\treturn repository.save(user);\n\t}\n}\n"},
+	{"php_laravel_route", lang.PHP, "<?php\nRoute::middleware('auth')->group(function () {\n\tRoute::get('/dashboard', [DashboardController::class, 'index']);\n\tRoute::resource('posts', PostController::class);\n});\n"},
+
+	// === Framework Patterns: Ruby Sinatra/Rails DSL ===
+	{"ruby_sinatra_route", lang.Ruby, "class App < Sinatra::Base\n  get '/users/:id' do\n    user = User.find(params[:id])\n    json user\n  end\n\n  post '/users' do\n    user = User.create(params)\n    status 201\n    json user\n  end\nend\n"},
+	{"ruby_rails_model", lang.Ruby, "class User < ApplicationRecord\n  has_many :posts, dependent: :destroy\n  belongs_to :organization\n  validates :email, presence: true, uniqueness: true\n  scope :active, -> { where(active: true) }\nend\n"},
+
+	// === Framework Patterns: Elixir Phoenix ===
+	{"elixir_phoenix_router", lang.Elixir, "defmodule MyAppWeb.Router do\n  use MyAppWeb, :router\n  pipeline :api do\n    plug :accepts, [\"json\"]\n  end\n  scope \"/api\", MyAppWeb do\n    pipe_through :api\n    resources \"/users\", UserController\n  end\nend\n"},
+
+	// === Async Patterns ===
+	{"ts_async_await", lang.TypeScript, "async function fetchData(): Promise<User[]> {\n  const response = await fetch('/api/users');\n  if (!response.ok) throw new Error('Failed');\n  return await response.json();\n}\n"},
+	{"rust_async_await", lang.Rust, "async fn fetch_user(id: u64) -> Result<User, Error> {\n\tlet resp = client.get(format!(\"/users/{}\", id)).send().await?;\n\tlet user: User = resp.json().await?;\n\tOk(user)\n}\n"},
+	{"python_async_gather", lang.Python, "async def fetch_all(ids):\n    tasks = [fetch_user(id) for id in ids]\n    results = await asyncio.gather(*tasks)\n    return results\n"},
+	{"kotlin_coroutine", lang.Kotlin, "suspend fun fetchUsers(): List<User> {\n\treturn withContext(Dispatchers.IO) {\n\t\tval response = api.getUsers()\n\t\tresponse.body() ?: emptyList()\n\t}\n}\n"},
+	{"go_goroutine_channel", lang.Go, "package main\nfunc process(ctx context.Context, items []Item) error {\n\terrCh := make(chan error, len(items))\n\tfor _, item := range items {\n\t\tgo func(it Item) {\n\t\t\terrCh <- handle(ctx, it)\n\t\t}(item)\n\t}\n\tfor range items {\n\t\tif err := <-errCh; err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n"},
+
+	// === Error Handling Patterns ===
+	{"ts_try_catch_finally", lang.TypeScript, "async function safeFetch(url: string): Promise<Data | null> {\n  try {\n    const res = await fetch(url);\n    return await res.json();\n  } catch (err) {\n    logger.error('fetch failed', { url, err });\n    return null;\n  } finally {\n    metrics.recordFetch(url);\n  }\n}\n"},
+	{"rust_question_mark_chain", lang.Rust, "fn process(path: &str) -> Result<Config, Error> {\n\tlet data = std::fs::read_to_string(path)?;\n\tlet config: Config = serde_json::from_str(&data)?;\n\tconfig.validate()?;\n\tOk(config)\n}\n"},
+	{"go_error_wrap", lang.Go, "package main\nimport \"fmt\"\nfunc loadConfig(path string) (*Config, error) {\n\tdata, err := os.ReadFile(path)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read config: %w\", err)\n\t}\n\tvar cfg Config\n\tif err := json.Unmarshal(data, &cfg); err != nil {\n\t\treturn nil, fmt.Errorf(\"parse config: %w\", err)\n\t}\n\treturn &cfg, nil\n}\n"},
+	{"python_exception_chain", lang.Python, "def process(data):\n    try:\n        result = validate(data)\n    except ValidationError as e:\n        raise ProcessingError(f'invalid: {e}') from e\n    except TimeoutError:\n        raise RetryableError('timeout') from None\n"},
+	{"java_multi_catch", lang.Java, "class A {\n\tvoid process() {\n\t\ttry {\n\t\t\triskyOperation();\n\t\t} catch (IOException | SQLException e) {\n\t\t\tlogger.error(\"Operation failed\", e);\n\t\t\tthrow new ServiceException(e);\n\t\t} finally {\n\t\t\tcleanup();\n\t\t}\n\t}\n}\n"},
+	{"elixir_with_error", lang.Elixir, "defmodule A do\n  def process(params) do\n    with {:ok, user} <- find_user(params.id),\n         {:ok, order} <- create_order(user, params),\n         :ok <- send_notification(user, order) do\n      {:ok, order}\n    else\n      {:error, :not_found} -> {:error, \"user not found\"}\n      {:error, reason} -> {:error, reason}\n    end\n  end\nend\n"},
+
+	// === Generic/Template Patterns ===
+	{"ts_generic_class", lang.TypeScript, "class Repository<T extends Entity> {\n  constructor(private readonly db: Database) {}\n  async findById(id: string): Promise<T | null> {\n    return this.db.collection<T>().findOne({ id });\n  }\n}\n"},
+	{"java_generic_method", lang.Java, "class A {\n\t<T extends Comparable<T>> List<T> sort(List<T> items) {\n\t\treturn items.stream().sorted().collect(Collectors.toList());\n\t}\n}\n"},
+	{"rust_generic_impl", lang.Rust, "impl<T: Clone + Send + 'static> From<Vec<T>> for Collection<T> {\n\tfn from(items: Vec<T>) -> Self {\n\t\tSelf { items, len: items.len() }\n\t}\n}\n"},
+	{"cpp_template_class", lang.CPP, "template<typename T, typename Alloc = std::allocator<T>>\nclass Vector {\npublic:\n\tvoid push_back(const T& value) { data_.push_back(value); }\n\tT& operator[](size_t index) { return data_[index]; }\nprivate:\n\tstd::vector<T, Alloc> data_;\n};\n"},
+	{"scala_type_bounds", lang.Scala, "object A {\n\tdef process[T <: Serializable : Ordering](items: List[T]): List[T] = {\n\t\titems.sorted.distinct\n\t}\n}\n"},
+
+	// === Destructuring Patterns ===
+	{"js_object_destructure", lang.JavaScript, "const { name, age, address: { city } } = getUserInfo();\nconst [first, ...rest] = getItems();\n"},
+	{"ts_function_destructure", lang.TypeScript, "function processUser({ id, name, roles = [] }: UserInput): Result {\n  return { id, displayName: name, isAdmin: roles.includes('admin') };\n}\n"},
+	{"python_unpack", lang.Python, "first, *middle, last = get_items()\n(x, y), z = get_coords()\nname, age = user_info.values()\n"},
+	{"rust_pattern_match", lang.Rust, "fn handle(msg: Message) {\n\tmatch msg {\n\t\tMessage::Quit => println!(\"quit\"),\n\t\tMessage::Move { x, y } => move_to(x, y),\n\t\tMessage::Write(text) => println!(\"{}\", text),\n\t\tMessage::Color(r, g, b) => set_color(r, g, b),\n\t}\n}\n"},
+	{"kotlin_destructure", lang.Kotlin, "fun process(pair: Pair<String, Int>) {\n\tval (name, age) = pair\n\tval (first, second, third) = Triple(1, 2, 3)\n}\n"},
+
+	// === Metaprogramming/Dynamic Patterns ===
+	{"python_decorator_stack", lang.Python, "@app.route('/users', methods=['GET'])\n@login_required\n@cache(timeout=300)\ndef list_users():\n    return User.query.all()\n"},
+	{"ruby_method_missing", lang.Ruby, "class DynamicProxy\n  def method_missing(name, *args, &block)\n    if target.respond_to?(name)\n      target.send(name, *args, &block)\n    else\n      super\n    end\n  end\nend\n"},
+	{"python_dunder_methods", lang.Python, "class Vector:\n    def __init__(self, x, y):\n        self.x = x\n        self.y = y\n    def __add__(self, other):\n        return Vector(self.x + other.x, self.y + other.y)\n    def __repr__(self):\n        return f'Vector({self.x}, {self.y})'\n"},
+	{"ts_mapped_types", lang.TypeScript, "type Readonly<T> = { readonly [P in keyof T]: T[P] };\ntype Optional<T> = { [P in keyof T]?: T[P] };\ntype Pick<T, K extends keyof T> = { [P in K]: T[P] };\n"},
+
+	// === Pipe/Composition Patterns ===
+	{"elixir_pipe_complex", lang.Elixir, "defmodule A do\n  def process(data) do\n    data\n    |> Enum.filter(&(&1.active))\n    |> Enum.map(&transform/1)\n    |> Enum.sort_by(& &1.priority)\n    |> Enum.take(10)\n  end\nend\n"},
+	{"haskell_composition", lang.Haskell, "processAll = map (show . succ . abs)\n"},
+	{"ocaml_pipe_complex", lang.OCaml, "let process items =\n  items\n  |> List.filter (fun x -> x > 0)\n  |> List.map (fun x -> x * 2)\n  |> List.sort compare\n"},
+
+	// === Interface/Trait Implementation Patterns ===
+	{"rust_trait_impl", lang.Rust, "trait Handler {\n\tfn handle(&self, req: &Request) -> Response;\n}\nstruct ApiHandler { db: Database }\nimpl Handler for ApiHandler {\n\tfn handle(&self, req: &Request) -> Response {\n\t\tself.db.query(req.path())\n\t}\n}\n"},
+	{"go_interface_impl", lang.Go, "package main\ntype Handler interface {\n\tHandle(ctx context.Context, req *Request) (*Response, error)\n}\ntype APIHandler struct{ db *DB }\nfunc (h *APIHandler) Handle(ctx context.Context, req *Request) (*Response, error) {\n\treturn h.db.Query(ctx, req.Path)\n}\n"},
+	{"csharp_interface_impl", lang.CSharp, "interface IHandler {\n\tTask<Response> HandleAsync(Request req);\n}\nclass ApiHandler : IHandler {\n\tprivate readonly IDb _db;\n\tpublic async Task<Response> HandleAsync(Request req) {\n\t\treturn await _db.QueryAsync(req.Path);\n\t}\n}\n"},
+	{"kotlin_interface_impl", lang.Kotlin, "interface Handler {\n\tsuspend fun handle(req: Request): Response\n}\nclass ApiHandler(private val db: Database) : Handler {\n\toverride suspend fun handle(req: Request): Response {\n\t\treturn db.query(req.path)\n\t}\n}\n"},
+
+	// === Closure/Lambda Patterns ===
+	{"go_closure_capture", lang.Go, "package main\nfunc makeCounter() func() int {\n\tcount := 0\n\treturn func() int {\n\t\tcount++\n\t\treturn count\n\t}\n}\n"},
+	{"rust_closure_move", lang.Rust, "fn spawn_task(data: Vec<u8>) {\n\ttokio::spawn(async move {\n\t\tprocess(&data).await;\n\t\tprintln!(\"done\");\n\t});\n}\n"},
+	{"java_lambda_stream", lang.Java, "class A {\n\tList<String> process(List<User> users) {\n\t\treturn users.stream()\n\t\t\t.filter(u -> u.isActive())\n\t\t\t.map(User::getName)\n\t\t\t.sorted()\n\t\t\t.collect(Collectors.toList());\n\t}\n}\n"},
+
+	// === Erlang OTP Patterns ===
+	{"erlang_gen_server", lang.Erlang, "-module(counter).\n-behaviour(gen_server).\n-export([start_link/0, init/1, handle_call/3]).\nstart_link() -> gen_server:start_link(?MODULE, 0, []).\ninit(Count) -> {ok, Count}.\nhandle_call(increment, _From, Count) -> {reply, Count + 1, Count + 1}.\n"},
+	{"erlang_supervisor", lang.Erlang, "-module(my_sup).\n-behaviour(supervisor).\n-export([start_link/0, init/1]).\nstart_link() -> supervisor:start_link({local, ?MODULE}, ?MODULE, []).\ninit([]) -> {ok, {{one_for_one, 5, 10}, [{worker, {my_worker, start_link, []}, permanent, 5000, worker, [my_worker]}]}}.\n"},
+
+	// === Haskell Type Classes ===
+	{"haskell_typeclass_def", lang.Haskell, "class Container f where\n  empty :: f a\n  insert :: a -> f a -> f a\n  member :: Eq a => a -> f a -> Bool\n"},
+	{"haskell_instance_impl", lang.Haskell, "instance Show Color where\n  show Red = \"red\"\n  show Green = \"green\"\n  show Blue = \"blue\"\n"},
+
+	// === Complex OOP Patterns ===
+	{"csharp_generic_constraint", lang.CSharp, "class Repository<T> where T : class, IEntity, new() {\n\tpublic T FindById(int id) {\n\t\treturn _context.Set<T>().Find(id);\n\t}\n}\n"},
+	{"scala_sealed_trait", lang.Scala, "sealed trait Shape\ncase class Circle(radius: Double) extends Shape\ncase class Rectangle(w: Double, h: Double) extends Shape\nobject Shape {\n\tdef area(s: Shape): Double = s match {\n\t\tcase Circle(r) => math.Pi * r * r\n\t\tcase Rectangle(w, h) => w * h\n\t}\n}\n"},
+	{"php_trait_usage", lang.PHP, "<?php\ntrait Timestampable {\n\tpublic function touch(): void {\n\t\t$this->updatedAt = new DateTime();\n\t}\n}\nclass Post implements JsonSerializable {\n\tuse Timestampable;\n\tpublic function jsonSerialize(): mixed {\n\t\treturn ['title' => $this->title];\n\t}\n}\n"},
 }
 
 func TestDumpAST(t *testing.T) {
