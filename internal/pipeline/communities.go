@@ -45,18 +45,22 @@ func (p *Pipeline) passCommunities() {
 	slog.Info("pass.communities.done", "communities", communityCount, "member_of", memberOfCount)
 }
 
-// louvainCommunities implements a simplified Louvain algorithm for community detection.
+// louvainCommunities implements the Louvain algorithm for community detection.
+// Uses per-community degree accumulators for O(m) per iteration instead of O(N^2).
 // Returns a map of community_id → []node_id.
 func louvainCommunities(adj map[int64]map[int64]bool, allNodes map[int64]bool) map[int][]int64 {
 	nodeCommunity := make(map[int64]int, len(allNodes))
-	communityID := 0
+	commID := 0
 	for nodeID := range allNodes {
-		nodeCommunity[nodeID] = communityID
-		communityID++
+		nodeCommunity[nodeID] = commID
+		commID++
 	}
 
+	// Pre-compute node degrees
+	nodeDegree := make(map[int64]float64, len(allNodes))
 	totalEdges := 0
-	for _, neighbors := range adj {
+	for nodeID, neighbors := range adj {
+		nodeDegree[nodeID] = float64(len(neighbors))
 		totalEdges += len(neighbors)
 	}
 	m := float64(totalEdges) / 2.0
@@ -64,62 +68,74 @@ func louvainCommunities(adj map[int64]map[int64]bool, allNodes map[int64]bool) m
 		m = 1
 	}
 
+	// Per-community accumulator: sum of degrees of all members.
+	// Updated incrementally when nodes move between communities.
+	commSumTot := make(map[int]float64, len(allNodes))
+	for nodeID, comm := range nodeCommunity {
+		commSumTot[comm] = nodeDegree[nodeID]
+	}
+
 	improved := true
 	for iteration := 0; improved && iteration < 50; iteration++ {
-		improved = louvainIteration(adj, allNodes, nodeCommunity, m)
+		improved = louvainIteration(adj, nodeCommunity, nodeDegree, commSumTot, m)
 	}
 
 	return groupAndFilter(nodeCommunity)
 }
 
 // louvainIteration runs one pass of greedy modularity optimization.
-// Returns true if any node changed community.
-func louvainIteration(adj map[int64]map[int64]bool, allNodes map[int64]bool, nodeCommunity map[int64]int, m float64) bool {
+// For each node, computes modularity gain for neighboring communities in O(degree)
+// using pre-maintained commSumTot accumulators. Returns true if any node moved.
+func louvainIteration(
+	adj map[int64]map[int64]bool,
+	nodeCommunity map[int64]int,
+	nodeDegree map[int64]float64,
+	commSumTot map[int]float64,
+	m float64,
+) bool {
 	improved := false
-	for nodeID := range allNodes {
-		currentComm := nodeCommunity[nodeID]
+	m2 := 2.0 * m * m
 
-		neighborComms := make(map[int]bool)
-		for neighborID := range adj[nodeID] {
-			neighborComms[nodeCommunity[neighborID]] = true
+	for nodeID, neighbors := range adj {
+		currentComm := nodeCommunity[nodeID]
+		ki := nodeDegree[nodeID]
+
+		// Aggregate edges to each neighboring community: O(degree)
+		edgesToComm := make(map[int]float64, len(neighbors))
+		for neighborID := range neighbors {
+			edgesToComm[nodeCommunity[neighborID]]++
 		}
 
-		bestComm, bestGain := currentComm, 0.0
-		ki := float64(len(adj[nodeID]))
+		// Remove self from current community for fair comparison
+		commSumTot[currentComm] -= ki
+		kiInCurrent := edgesToComm[currentComm]
+		removeCost := kiInCurrent/m - ki*commSumTot[currentComm]/m2
 
-		for comm := range neighborComms {
+		bestComm := currentComm
+		bestGain := 0.0
+
+		for comm, kiIn := range edgesToComm {
 			if comm == currentComm {
 				continue
 			}
-			gain := modularityGain(nodeID, comm, adj, nodeCommunity, ki, m)
+			gain := kiIn/m - ki*commSumTot[comm]/m2 - removeCost
 			if gain > bestGain {
 				bestGain = gain
 				bestComm = comm
 			}
 		}
 
+		// Restore / update accumulator
 		if bestComm != currentComm && bestGain > 1e-10 {
 			nodeCommunity[nodeID] = bestComm
+			commSumTot[bestComm] += ki
+			// currentComm already had ki subtracted
 			improved = true
+		} else {
+			commSumTot[currentComm] += ki // restore
 		}
 	}
 	return improved
-}
-
-// modularityGain calculates the gain from moving nodeID to targetComm.
-func modularityGain(nodeID int64, targetComm int, adj map[int64]map[int64]bool, nodeCommunity map[int64]int, ki, m float64) float64 {
-	kiIn := 0.0
-	sumTot := 0.0
-	for otherID, otherComm := range nodeCommunity {
-		if otherComm != targetComm {
-			continue
-		}
-		if adj[nodeID][otherID] {
-			kiIn++
-		}
-		sumTot += float64(len(adj[otherID]))
-	}
-	return kiIn/m - ki*sumTot/(2*m*m)
 }
 
 // groupAndFilter groups nodes by community and filters out singletons.
