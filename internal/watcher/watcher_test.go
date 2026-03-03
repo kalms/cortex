@@ -19,6 +19,7 @@ func newTestRouter(t *testing.T, projectName, rootPath string) *store.StoreRoute
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(r.CloseAll)
 	if projectName != "" {
 		st, err := r.ForProject(projectName)
 		if err != nil {

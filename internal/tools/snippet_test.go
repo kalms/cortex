@@ -47,6 +47,7 @@ func Run() {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(router.CloseAll)
 
 	projName := "test-project"
 	st, err := router.ForProject(projName)
