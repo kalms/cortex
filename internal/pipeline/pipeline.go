@@ -12,17 +12,17 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/zeebo/xxh3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/cbm"
 	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/fqn"
 	"github.com/DeusData/codebase-memory-mcp/internal/httplink"
 	"github.com/DeusData/codebase-memory-mcp/internal/lang"
-	"github.com/DeusData/codebase-memory-mcp/internal/parser"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -32,8 +32,12 @@ type Pipeline struct {
 	Store       *store.Store
 	RepoPath    string
 	ProjectName string
-	// astCache maps file rel_path -> (tree, source, language) for pass 3
-	astCache map[string]*cachedAST
+	Mode        discover.IndexMode
+	// buf holds all nodes/edges in memory during full-index passes 1-14.
+	// nil during incremental mode and post-flush passes 15-18.
+	buf *GraphBuffer
+	// extractionCache maps file rel_path -> CBM extraction result for all post-definition passes
+	extractionCache map[string]*cachedExtraction
 	// registry indexes all Function/Method/Class nodes for call resolution
 	registry *FunctionRegistry
 	// importMaps stores per-module import maps: moduleQN -> localName -> resolvedQN
@@ -42,23 +46,21 @@ type Pipeline struct {
 	returnTypes ReturnTypeMap
 }
 
-type cachedAST struct {
-	Tree     *tree_sitter.Tree
-	Source   []byte
-	Language lang.Language
-}
-
 // New creates a new Pipeline.
-func New(ctx context.Context, s *store.Store, repoPath string) *Pipeline {
+func New(ctx context.Context, s *store.Store, repoPath string, mode discover.IndexMode) *Pipeline {
+	if mode == "" {
+		mode = discover.ModeFull
+	}
 	projectName := ProjectNameFromPath(repoPath)
 	return &Pipeline{
-		ctx:         ctx,
-		Store:       s,
-		RepoPath:    repoPath,
-		ProjectName: projectName,
-		astCache:    make(map[string]*cachedAST),
-		registry:    NewFunctionRegistry(),
-		importMaps:  make(map[string]map[string]string),
+		ctx:             ctx,
+		Store:           s,
+		RepoPath:        repoPath,
+		ProjectName:     projectName,
+		Mode:            mode,
+		extractionCache: make(map[string]*cachedExtraction),
+		registry:        NewFunctionRegistry(),
+		importMaps:      make(map[string]map[string]string),
 	}
 }
 
@@ -82,17 +84,92 @@ func (p *Pipeline) checkCancel() error {
 	return p.ctx.Err()
 }
 
+// --- Bridge methods: dispatch to in-memory buffer or SQLite store ---
+
+func (p *Pipeline) upsertNode(n *store.Node) error {
+	if p.buf != nil {
+		p.buf.UpsertNode(n)
+		return nil
+	}
+	_, err := p.Store.UpsertNode(n)
+	return err
+}
+
+func (p *Pipeline) upsertNodeBatch(nodes []*store.Node) (map[string]int64, error) {
+	if p.buf != nil {
+		return p.buf.UpsertNodeBatch(nodes), nil
+	}
+	return p.Store.UpsertNodeBatch(nodes)
+}
+
+func (p *Pipeline) insertEdge(e *store.Edge) error {
+	if p.buf != nil {
+		p.buf.InsertEdge(e)
+		return nil
+	}
+	_, err := p.Store.InsertEdge(e)
+	return err
+}
+
+func (p *Pipeline) insertEdgeBatch(edges []*store.Edge) error {
+	if p.buf != nil {
+		p.buf.InsertEdgeBatch(edges)
+		return nil
+	}
+	return p.Store.InsertEdgeBatch(edges)
+}
+
+func (p *Pipeline) findNodesByLabel(project, label string) ([]*store.Node, error) {
+	if p.buf != nil {
+		return p.buf.FindNodesByLabel(label), nil
+	}
+	return p.Store.FindNodesByLabel(project, label)
+}
+
+func (p *Pipeline) findNodeByQN(project, qn string) (*store.Node, error) {
+	if p.buf != nil {
+		return p.buf.FindNodeByQN(qn), nil
+	}
+	return p.Store.FindNodeByQN(project, qn)
+}
+
+func (p *Pipeline) findNodeByID(id int64) (*store.Node, error) {
+	if p.buf != nil {
+		return p.buf.FindNodeByID(id), nil
+	}
+	return p.Store.FindNodeByID(id)
+}
+
+func (p *Pipeline) findNodeIDsByQNs(project string, qns []string) (map[string]int64, error) {
+	if p.buf != nil {
+		return p.buf.FindNodeIDsByQNs(qns), nil
+	}
+	return p.Store.FindNodeIDsByQNs(project, qns)
+}
+
+func (p *Pipeline) findEdgesBySourceAndType(sourceID int64, edgeType string) ([]*store.Edge, error) {
+	if p.buf != nil {
+		return p.buf.FindEdgesBySourceAndType(sourceID, edgeType), nil
+	}
+	return p.Store.FindEdgesBySourceAndType(sourceID, edgeType)
+}
+
 // Run executes the full 3-pass pipeline within a single transaction.
 // If file hashes from a previous run exist, only changed files are re-processed.
 func (p *Pipeline) Run() error {
-	slog.Info("pipeline.start", "project", p.ProjectName, "path", p.RepoPath)
+	runStart := time.Now()
+	slog.Info("pipeline.start", "project", p.ProjectName, "path", p.RepoPath, "mode", string(p.Mode))
 
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
 
 	// Discover source files (filesystem, no DB — runs outside transaction)
-	files, err := discover.Discover(p.ctx, p.RepoPath, nil)
+	discoverOpts := &discover.Options{Mode: p.Mode}
+	if p.Mode == discover.ModeFast {
+		discoverOpts.MaxFileSize = 512 * 1024 // 512KB cutoff in fast mode
+	}
+	files, err := discover.Discover(p.ctx, p.RepoPath, discoverOpts)
 	if err != nil {
 		return fmt.Errorf("discover: %w", err)
 	}
@@ -124,7 +201,7 @@ func (p *Pipeline) Run() error {
 
 	nc, _ := p.Store.CountNodes(p.ProjectName)
 	ec, _ := p.Store.CountEdges(p.ProjectName)
-	slog.Info("pipeline.done", "nodes", nc, "edges", ec)
+	slog.Info("pipeline.done", "nodes", nc, "edges", ec, "total_elapsed", time.Since(runStart))
 	return nil
 }
 
@@ -157,6 +234,10 @@ func (p *Pipeline) runPasses(files []discover.FileInfo) (bool, error) {
 
 // runFullPasses runs the complete pipeline (no incremental optimization).
 func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
+	// Initialize in-memory graph buffer for passes 1-14.
+	// All node/edge writes go to RAM; flushed to SQLite after pass 14.
+	p.buf = newGraphBuffer(p.ProjectName)
+
 	t := time.Now()
 	if err := p.passStructure(files); err != nil {
 		return fmt.Errorf("pass1 structure: %w", err)
@@ -222,8 +303,21 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 		return err
 	}
 
+	// passImplements needs extractionCache for Rust impl traits,
+	// so it must run before cleanupASTCache.
+	t = time.Now()
+	p.passImplements()
+	slog.Info("pass.timing", "pass", "implements", "elapsed", time.Since(t))
+
 	p.cleanupASTCache()
 
+	// Flush in-memory buffer to SQLite with deferred index creation.
+	if err := p.buf.FlushTo(p.ctx, p.Store); err != nil {
+		return fmt.Errorf("graph_buffer flush: %w", err)
+	}
+	p.buf = nil
+
+	// Post-flush passes use Store directly (need indexes).
 	t = time.Now()
 	p.passTests() // TESTS/TESTS_FILE edges (DB-only)
 	slog.Info("pass.timing", "pass", "tests", "elapsed", time.Since(t))
@@ -240,10 +334,6 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 		slog.Warn("pass.httplink.err", "err", err)
 	}
 	slog.Info("pass.timing", "pass", "httplinks", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passImplements()
-	slog.Info("pass.timing", "pass", "implements", "elapsed", time.Since(t))
 
 	t = time.Now()
 	p.passGitHistory()
@@ -517,32 +607,42 @@ func (p *Pipeline) loadImportMapFromDB(moduleQN string) map[string]string {
 	return result
 }
 
-// passCallsForFiles resolves calls only for the specified files.
+// passCallsForFiles resolves calls only for the specified files (incremental).
 func (p *Pipeline) passCallsForFiles(files []discover.FileInfo) {
 	slog.Info("pass3.calls.incremental", "files", len(files))
 	for _, f := range files {
 		if p.ctx.Err() != nil {
 			return
 		}
-		cached, ok := p.astCache[f.RelPath]
+		ext, ok := p.extractionCache[f.RelPath]
 		if !ok {
-			// File not in AST cache — need to parse it
+			// File not in extraction cache — need to extract it
 			source, err := os.ReadFile(f.Path)
 			if err != nil {
 				continue
 			}
-			tree, err := parser.Parse(f.Language, source)
+			source = stripBOM(source)
+			cbmResult, err := cbm.ExtractFile(source, f.Language, p.ProjectName, f.RelPath)
 			if err != nil {
 				continue
 			}
-			cached = &cachedAST{Tree: tree, Source: source, Language: f.Language}
-			p.astCache[f.RelPath] = cached
+			ext = &cachedExtraction{Result: cbmResult, Language: f.Language}
+			p.extractionCache[f.RelPath] = ext
 		}
-		spec := lang.ForLanguage(cached.Language)
-		if spec == nil {
-			continue
+		edges := p.resolveFileCallsCBM(f.RelPath, ext)
+		for _, re := range edges {
+			callerNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.CallerQN)
+			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.TargetQN)
+			if callerNode != nil && targetNode != nil {
+				_, _ = p.Store.InsertEdge(&store.Edge{
+					Project:    p.ProjectName,
+					SourceID:   callerNode.ID,
+					TargetID:   targetNode.ID,
+					Type:       re.Type,
+					Properties: re.Properties,
+				})
+			}
 		}
-		p.processFileCalls(f.RelPath, cached, spec)
 	}
 }
 
@@ -566,10 +666,8 @@ func (p *Pipeline) removeDeletedFiles(currentFiles []discover.FileInfo) {
 }
 
 func (p *Pipeline) cleanupASTCache() {
-	for _, cached := range p.astCache {
-		cached.Tree.Close()
-	}
-	p.astCache = nil
+	// Release extraction cache (Go GC handles the cbm.FileResult structs)
+	p.extractionCache = nil
 }
 
 func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
@@ -747,7 +845,7 @@ func (p *Pipeline) buildFileNodesEdges(files []discover.FileInfo) ([]*store.Node
 }
 
 func (p *Pipeline) batchWriteStructure(nodes []*store.Node, edges []pendingEdge) error {
-	idMap, err := p.Store.UpsertNodeBatch(nodes)
+	idMap, err := p.upsertNodeBatch(nodes)
 	if err != nil {
 		return fmt.Errorf("pass1 batch upsert: %w", err)
 	}
@@ -767,7 +865,7 @@ func (p *Pipeline) batchWriteStructure(nodes []*store.Node, edges []pendingEdge)
 		}
 	}
 
-	if err := p.Store.InsertEdgeBatch(realEdges); err != nil {
+	if err := p.insertEdgeBatch(realEdges); err != nil {
 		return fmt.Errorf("pass1 batch edges: %w", err)
 	}
 	return nil
@@ -792,16 +890,15 @@ type pendingEdge struct {
 // parseResult holds the output of a pure file parse (no DB access).
 type parseResult struct {
 	File         discover.FileInfo
-	Tree         *tree_sitter.Tree
-	Source       []byte
 	Nodes        []*store.Node
 	PendingEdges []pendingEdge
 	ImportMap    map[string]string
+	CBMResult    *cbm.FileResult // CBM extraction result (nil when using legacy AST path)
 	Err          error
 }
 
-// passDefinitions parses each file and extracts function/class/method/module nodes.
-// Uses parallel parsing (Stage 1) followed by sequential batch DB writes (Stage 2).
+// passDefinitions extracts definitions from each file via CBM (C extraction library).
+// Uses parallel extraction (Stage 1) followed by sequential batch DB writes (Stage 2).
 func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 	slog.Info("pass2.definitions")
 
@@ -824,27 +921,51 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 		return
 	}
 
-	// Stage 1: Parallel parse (CPU-bound, no DB, no shared state)
+	// Stage 1: Parallel CBM extraction (I/O + CPU, no DB, no shared state)
+	// Adaptive pool auto-tunes concurrency via AIMD throughput feedback.
+	t1 := time.Now()
 	results := make([]*parseResult, len(parseableFiles))
-	numWorkers := runtime.NumCPU()
-	if numWorkers > len(parseableFiles) {
-		numWorkers = len(parseableFiles)
-	}
 
-	g, gctx := errgroup.WithContext(p.ctx)
-	g.SetLimit(numWorkers)
+	// Start readahead prefetcher to warm page cache ahead of workers
+	pf := newPrefetcher(parseableFiles, 100)
+	go pf.run(p.ctx)
+	defer pf.stop()
+
+	pool := newAdaptivePool(runtime.NumCPU())
+	go pool.monitor(p.ctx)
+
+	var wg sync.WaitGroup
 	for i, f := range parseableFiles {
-		g.Go(func() error {
-			if gctx.Err() != nil {
-				return gctx.Err()
+		pool.acquire()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer pool.releaseBytes(f.Size)
+			if p.ctx.Err() != nil {
+				return
 			}
-			results[i] = parseFileAST(p.ProjectName, f)
-			return nil
-		})
+			results[i] = cbmParseFile(p.ProjectName, f)
+			pf.advance(i + 1)
+		}()
 	}
-	_ = g.Wait()
+	wg.Wait()
+	pool.stop()
+	slog.Info("pass2.stage1.extract", "files", len(parseableFiles), "elapsed", time.Since(t1))
+
+	// Log C-side parse vs extraction breakdown
+	profile := cbm.GetProfile()
+	if profile.Files > 0 {
+		slog.Info("pass2.stage1.profile",
+			"files", profile.Files,
+			"parse_total", time.Duration(profile.ParseNs),
+			"extract_total", time.Duration(profile.ExtractNs),
+			"parse_avg_us", profile.ParseNs/profile.Files/1000,
+			"extract_avg_us", profile.ExtractNs/profile.Files/1000,
+		)
+	}
 
 	// Stage 2: Sequential cache population + batch DB writes
+	t2 := time.Now()
 	var allNodes []*store.Node
 	var allPendingEdges []pendingEdge
 
@@ -856,11 +977,12 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 			slog.Warn("pass2.file.err", "path", r.File.RelPath, "err", r.Err)
 			continue
 		}
-		// Populate AST cache (sequential, map writes)
-		p.astCache[r.File.RelPath] = &cachedAST{
-			Tree:     r.Tree,
-			Source:   r.Source,
-			Language: r.File.Language,
+		// Populate extraction cache for use by later passes
+		if r.CBMResult != nil {
+			p.extractionCache[r.File.RelPath] = &cachedExtraction{
+				Result:   r.CBMResult,
+				Language: r.File.Language,
+			}
 		}
 		// Store import map
 		moduleQN := fqn.ModuleQN(p.ProjectName, r.File.RelPath)
@@ -871,14 +993,19 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 		allPendingEdges = append(allPendingEdges, r.PendingEdges...)
 	}
 
+	slog.Info("pass2.stage2.collect", "nodes", len(allNodes), "edges", len(allPendingEdges), "elapsed", time.Since(t2))
+
 	// Batch insert all nodes
-	idMap, err := p.Store.UpsertNodeBatch(allNodes)
+	t3 := time.Now()
+	idMap, err := p.upsertNodeBatch(allNodes)
 	if err != nil {
 		slog.Warn("pass2.batch_upsert.err", "err", err)
 		return
 	}
+	slog.Info("pass2.stage3.upsert_nodes", "nodes", len(allNodes), "elapsed", time.Since(t3))
 
 	// Resolve pending edges to real edges using the ID map
+	t4 := time.Now()
 	edges := make([]*store.Edge, 0, len(allPendingEdges))
 	for _, pe := range allPendingEdges {
 		srcID, srcOK := idMap[pe.SourceQN]
@@ -894,814 +1021,10 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 		}
 	}
 
-	if err := p.Store.InsertEdgeBatch(edges); err != nil {
+	if err := p.insertEdgeBatch(edges); err != nil {
 		slog.Warn("pass2.batch_edges.err", "err", err)
 	}
-}
-
-// parseFileAST is a pure function that reads a file, parses its AST,
-// and extracts all nodes and edges as data. No DB access, no shared state mutation.
-func parseFileAST(projectName string, f discover.FileInfo) *parseResult {
-	result := &parseResult{File: f}
-
-	source, err := os.ReadFile(f.Path)
-	if err != nil {
-		result.Err = err
-		return result
-	}
-
-	// Strip UTF-8 BOM if present (common in C#/Windows-generated files)
-	source = stripBOM(source)
-
-	tree, err := parser.Parse(f.Language, source)
-	if err != nil {
-		slog.Warn("parse.file.err", "path", f.RelPath, "lang", f.Language, "err", err)
-		result.Err = err
-		return result
-	}
-
-	result.Tree = tree
-	result.Source = source
-
-	moduleQN := fqn.ModuleQN(projectName, f.RelPath)
-	spec := lang.ForLanguage(f.Language)
-	if spec == nil {
-		return result
-	}
-
-	// Module node
-	moduleNode := &store.Node{
-		Project:       projectName,
-		Label:         "Module",
-		Name:          filepath.Base(f.RelPath),
-		QualifiedName: moduleQN,
-		FilePath:      f.RelPath,
-	}
-	result.Nodes = append(result.Nodes, moduleNode)
-
-	// Extract definitions by walking the AST
-	root := tree.RootNode()
-	funcTypes := toSet(spec.FunctionNodeTypes)
-	classTypes := toSet(spec.ClassNodeTypes)
-
-	var constants []string
-
-	// C/C++ macro tracking: extract macro definitions
-	isCPP := f.Language == lang.CPP
-	macroNames := make(map[string]bool) // track macro names for call site resolution
-
-	isElixir := f.Language == lang.Elixir
-
-	parser.Walk(root, func(node *tree_sitter.Node) bool {
-		kind := node.Kind()
-
-		// Elixir: all definitions are `call` nodes — classify by callee name
-		if isElixir && kind == "call" {
-			return handleElixirCall(node, source, f, projectName, moduleQN, spec, result)
-		}
-
-		if funcTypes[kind] {
-			extractFunctionDef(node, source, f, projectName, moduleQN, spec, result)
-			return false
-		}
-
-		// Rust impl blocks: extract methods and record trait implementation
-		if kind == "impl_item" {
-			extractRustImplBlock(node, source, f, projectName, moduleQN, spec, result)
-			return false
-		}
-
-		if classTypes[kind] {
-			extractClassDef(node, source, f, projectName, moduleQN, spec, result)
-			return false
-		}
-
-		// Macro definitions (C/C++ only)
-		if isCPP && kind == "preproc_function_def" {
-			extractMacroDef(node, source, f, projectName, moduleQN, macroNames, result)
-			return false
-		}
-
-		if isConstantNode(node, f.Language) {
-			c := extractConstant(node, source)
-			if c != "" && len(c) > 1 {
-				constants = append(constants, c)
-			}
-		}
-
-		return true
-	})
-
-	enrichModuleNode(moduleNode, macroNames, constants, root, source, f, projectName, moduleQN, spec, result)
-
-	return result
-}
-
-// enrichModuleNode populates module node properties: macros, constants, exports, variables, symbols.
-func enrichModuleNode(
-	moduleNode *store.Node, macroNames map[string]bool, constants []string,
-	root *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	if moduleNode.Properties == nil {
-		moduleNode.Properties = make(map[string]any)
-	}
-
-	// Store macro names for call resolution
-	if len(macroNames) > 0 {
-		macroList := make([]string, 0, len(macroNames))
-		for name := range macroNames {
-			macroList = append(macroList, name)
-		}
-		moduleNode.Properties["macros"] = macroList
-	}
-
-	// Merge interpolated/concatenated string constants
-	constants = mergeResolvedConstants(constants, root, source, f.Language)
-	if len(constants) > 0 {
-		moduleNode.Properties["constants"] = constants
-	}
-
-	moduleNode.Properties["is_test"] = isTestFile(f.RelPath, f.Language)
-
-	// exports: collect exported symbol names
-	var exports []string
-	for _, n := range result.Nodes {
-		if n.QualifiedName == moduleQN {
-			continue
-		}
-		if exp, ok := n.Properties["is_exported"].(bool); ok && exp {
-			exports = append(exports, n.Name)
-		}
-	}
-	if len(exports) > 0 {
-		moduleNode.Properties["exports"] = exports
-	}
-
-	// Extract module-level variables
-	extractVariables(root, source, f, projectName, moduleQN, spec, result)
-
-	if globalVars := extractGlobalVarNames(root, source, f, spec); len(globalVars) > 0 {
-		moduleNode.Properties["global_vars"] = globalVars
-	}
-
-	if symbols := buildSymbolSummary(result.Nodes, moduleQN); len(symbols) > 0 {
-		moduleNode.Properties["symbols"] = symbols
-	}
-
-	result.ImportMap = parseImports(root, source, f.Language, projectName, f.RelPath)
-	moduleNode.Properties["imports_count"] = len(result.ImportMap)
-}
-
-// mergeResolvedConstants adds interpolated string constants to the existing list.
-func mergeResolvedConstants(constants []string, root *tree_sitter.Node, source []byte, language lang.Language) []string {
-	resolved := resolveModuleStrings(root, source, language)
-	seen := make(map[string]bool, len(constants))
-	for _, c := range constants {
-		seen[c] = true
-	}
-	for name, value := range resolved {
-		if value == "" {
-			continue
-		}
-		entry := name + " = " + value
-		if !seen[entry] {
-			seen[entry] = true
-			constants = append(constants, entry)
-		}
-	}
-	return constants
-}
-
-// resolveFuncNameNode resolves the name node for a function, handling
-// language-specific quirks (Lua anonymous assigns, R assignment, OCaml let, etc).
-// Returns nil if the node should be skipped (e.g., Haskell signature).
-func resolveFuncNameNode(node *tree_sitter.Node, language lang.Language) *tree_sitter.Node {
-	// Haskell: skip signature nodes — they're type declarations, not function definitions
-	if language == lang.Haskell && node.Kind() == "signature" {
-		return nil
-	}
-
-	nameNode := funcNameNode(node)
-
-	// R: name <- function(...) — name lives on parent binary_operator lhs field
-	if language == lang.R && node.Kind() == "function_definition" {
-		nameNode = rFuncAssignName(node)
-	}
-
-	if nameNode != nil {
-		return nameNode
-	}
-
-	// Lua: anonymous function assignment
-	if language == lang.Lua && node.Kind() == "function_definition" {
-		return luaFuncAssignName(node)
-	}
-
-	// OCaml: value_definition → let_binding with pattern field for name
-	if language == lang.OCaml && node.Kind() == "value_definition" {
-		return ocamlFuncName(node)
-	}
-
-	// Zig: test_declaration — name is in a string child, not name field
-	if language == lang.Zig && node.Kind() == "test_declaration" {
-		if strNode := findChildByKind(node, "string"); strNode != nil {
-			if content := findChildByKind(strNode, "string_content"); content != nil {
-				return content
-			}
-		}
-	}
-
-	// JS/TS/TSX: const X = () => {} — name lives on parent variable_declarator
-	if node.Kind() == "arrow_function" {
-		if p := node.Parent(); p != nil && p.Kind() == "variable_declarator" {
-			return p.ChildByFieldName("name")
-		}
-	}
-
-	return nil
-}
-
-// extractFunctionDef extracts a function/method node and DEFINES edge as data (no DB).
-func extractFunctionDef(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	nameNode := resolveFuncNameNode(node, f.Language)
-	if nameNode == nil {
-		return
-	}
-	name := parser.NodeText(nameNode, source)
-	if name == "" || name == "function" {
-		return
-	}
-
-	funcQN := fqn.Compute(projectName, f.RelPath, name)
-
-	label := "Function"
-	props := map[string]any{}
-
-	paramsNode := node.ChildByFieldName("parameters")
-	if paramsNode != nil {
-		props["signature"] = parser.NodeText(paramsNode, source)
-		if paramTypes := extractParamTypes(paramsNode, source, f.Language); len(paramTypes) > 0 {
-			props["param_types"] = paramTypes
-		}
-	}
-
-	for _, field := range []string{"result", "return_type", "type"} {
-		rtNode := node.ChildByFieldName(field)
-		if rtNode != nil {
-			rtText := parser.NodeText(rtNode, source)
-			props["return_type"] = rtText
-			if returnTypes := extractReturnTypes(rtNode, source, f.Language); len(returnTypes) > 0 {
-				props["return_types"] = returnTypes
-			}
-			break
-		}
-	}
-
-	recvNode := node.ChildByFieldName("receiver")
-	if recvNode != nil {
-		props["receiver"] = parser.NodeText(recvNode, source)
-		label = "Method"
-	}
-
-	props["is_exported"] = isExported(name, f.Language)
-
-	// JS/TS: detect actual `export` keyword — mark as entry point
-	// export function foo() {} → parent is export_statement
-	// export const x = () => {} → ancestor chain: variable_declarator → lexical_declaration → export_statement
-	// module.exports = { foo } → handled separately via module.exports detection
-	if f.Language == lang.JavaScript || f.Language == lang.TypeScript || f.Language == lang.TSX {
-		if hasAncestorKind(node, "export_statement", 4) {
-			props["is_entry_point"] = true
-		}
-	}
-
-	// Decorator extraction (Python, Java, TS/JS)
-	decorators := extractAllDecorators(node, source, f.Language, spec)
-	if len(decorators) > 0 {
-		props["decorators"] = decorators
-		if hasFrameworkDecorator(decorators) {
-			props["is_entry_point"] = true
-		}
-	}
-
-	if name == "main" {
-		props["is_entry_point"] = true
-	}
-
-	if doc := extractDocstring(node, source, f.Language); doc != "" {
-		props["docstring"] = doc
-	}
-
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	// Enrichment: function body line count
-	lines := endLine - startLine + 1
-	if lines > 0 {
-		props["lines"] = lines
-	}
-
-	// Enrichment: complexity (branching node count)
-	if spec != nil && len(spec.BranchingNodeTypes) > 0 {
-		complexity := countBranchingNodes(node, spec.BranchingNodeTypes)
-		if complexity > 0 {
-			props["complexity"] = complexity
-		}
-	}
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project:       projectName,
-		Label:         label,
-		Name:          name,
-		QualifiedName: funcQN,
-		FilePath:      f.RelPath,
-		StartLine:     startLine,
-		EndLine:       endLine,
-		Properties:    props,
-	})
-
-	edgeType := "DEFINES"
-	if label == "Method" {
-		edgeType = "DEFINES_METHOD"
-	}
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN,
-		TargetQN: funcQN,
-		Type:     edgeType,
-	})
-}
-
-// extractRustImplBlock handles Rust `impl Trait for Type` and `impl Type` blocks.
-// It extracts methods inside the impl block and associates them with the implementing type.
-// For `impl Trait for Type`, it records a pending IMPLEMENTS edge.
-func extractRustImplBlock(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, _ string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	// Get the implementing type name
-	typeNode := node.ChildByFieldName("type")
-	if typeNode == nil {
-		return
-	}
-	typeName := parser.NodeText(typeNode, source)
-	if typeName == "" {
-		return
-	}
-
-	typeQN := fqn.Compute(projectName, f.RelPath, typeName)
-
-	// Extract methods inside the impl block and attach to the type
-	extractClassMethodDefs(node, source, f, projectName, typeQN, spec, result)
-
-	// If this is `impl Trait for Type`, record IMPLEMENTS edge
-	traitNode := node.ChildByFieldName("trait")
-	if traitNode != nil {
-		traitName := parser.NodeText(traitNode, source)
-		if traitName != "" {
-			traitQN := fqn.Compute(projectName, f.RelPath, traitName)
-			result.PendingEdges = append(result.PendingEdges, pendingEdge{
-				SourceQN: typeQN,
-				TargetQN: traitQN,
-				Type:     "IMPLEMENTS",
-			})
-		}
-	}
-}
-
-// extractClassDef extracts a class/type node and its methods as data (no DB).
-func extractClassDef(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	// HCL block: name is composed from identifier + string_lit children
-	if f.Language == lang.HCL && node.Kind() == "block" {
-		extractHCLBlock(node, source, f, projectName, moduleQN, result)
-		return
-	}
-
-	nameNode := node.ChildByFieldName("name")
-	// ObjC: class_interface/class_implementation don't use a "name" field —
-	// the class name is the first identifier child.
-	if nameNode == nil && f.Language == lang.ObjectiveC {
-		nameNode = findChildByKind(node, "identifier")
-	}
-	if nameNode == nil {
-		return
-	}
-	name := parser.NodeText(nameNode, source)
-	if name == "" {
-		return
-	}
-
-	classQN := fqn.Compute(projectName, f.RelPath, name)
-	label := classLabelForKind(node.Kind())
-
-	if node.Kind() == "type_spec" {
-		if typeNode := node.ChildByFieldName("type"); typeNode != nil {
-			switch typeNode.Kind() {
-			case "interface_type":
-				label = "Interface"
-			case "struct_type":
-				label = "Class"
-			}
-		}
-	}
-
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	classProps := map[string]any{"is_exported": isExported(name, f.Language)}
-
-	// Enrichment: base classes (for INHERITS edges in Phase 2)
-	if baseClasses := extractBaseClasses(node, source, f.Language); len(baseClasses) > 0 {
-		classProps["base_classes"] = baseClasses
-	}
-
-	// Enrichment: is_abstract
-	if isAbstractClass(node, f.Language) {
-		classProps["is_abstract"] = true
-	}
-
-	// Enrichment: decorators for class-level (Java annotations, TS decorators)
-	if spec != nil {
-		decorators := extractAllDecorators(node, source, f.Language, spec)
-		if len(decorators) > 0 {
-			classProps["decorators"] = decorators
-		}
-	}
-
-	if doc := extractDocstring(node, source, f.Language); doc != "" {
-		classProps["docstring"] = doc
-	}
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project:       projectName,
-		Label:         label,
-		Name:          name,
-		QualifiedName: classQN,
-		FilePath:      f.RelPath,
-		StartLine:     startLine,
-		EndLine:       endLine,
-		Properties:    classProps,
-	})
-
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN,
-		TargetQN: classQN,
-		Type:     "DEFINES",
-	})
-
-	// Extract methods inside the class
-	extractClassMethodDefs(node, source, f, projectName, classQN, spec, result)
-
-	// Extract fields inside the class/struct
-	extractClassFieldDefs(node, source, f, projectName, classQN, spec, result)
-
-	// Enrichment: method_count and field_count (count from extracted nodes)
-	var methodCount, fieldCount int
-	for _, pe := range result.PendingEdges {
-		if pe.SourceQN == classQN {
-			switch pe.Type {
-			case "DEFINES_METHOD":
-				methodCount++
-			case "DEFINES":
-				fieldCount++
-			}
-		}
-	}
-	if methodCount > 0 {
-		classProps["method_count"] = methodCount
-	}
-	if fieldCount > 0 {
-		classProps["field_count"] = fieldCount
-	}
-}
-
-// resolveMethodName resolves the name node for a method, including arrow function
-// class properties where the name lives on the parent field_definition.
-// Returns the name node and the field definition node (nil for regular methods).
-func resolveMethodName(child *tree_sitter.Node) (nameNode, fieldDef *tree_sitter.Node) {
-	if mn := funcNameNode(child); mn != nil {
-		return mn, nil
-	}
-	// Arrow functions as class properties: the name lives on the parent
-	// field_definition (JS) or public_field_definition (TS/TSX).
-	if child.Kind() != "arrow_function" {
-		return nil, nil
-	}
-	p := child.Parent()
-	if p == nil {
-		return nil, nil
-	}
-	switch p.Kind() {
-	case "field_definition":
-		nameNode = p.ChildByFieldName("property")
-	case "public_field_definition":
-		nameNode = p.ChildByFieldName("name")
-	default:
-		return nil, nil
-	}
-	return nameNode, p
-}
-
-// buildMethodProps builds the properties map for a class method node.
-func buildMethodProps(
-	child *tree_sitter.Node, fieldDefNode *tree_sitter.Node,
-	source []byte, f discover.FileInfo, spec *lang.LanguageSpec,
-) map[string]any {
-	props := map[string]any{}
-
-	paramsNode := child.ChildByFieldName("parameters")
-	if paramsNode != nil {
-		props["signature"] = parser.NodeText(paramsNode, source)
-	}
-
-	extractMethodReturnType(child, fieldDefNode, source, props)
-
-	// Decorator extraction for class methods
-	if spec != nil {
-		decorators := extractAllDecorators(child, source, f.Language, spec)
-		if len(decorators) > 0 {
-			props["decorators"] = decorators
-			if hasFrameworkDecorator(decorators) {
-				props["is_entry_point"] = true
-			}
-		}
-	}
-
-	if paramsNode != nil {
-		if paramTypes := extractParamTypes(paramsNode, source, f.Language); len(paramTypes) > 0 {
-			props["param_types"] = paramTypes
-		}
-	}
-
-	if doc := extractDocstring(child, source, f.Language); doc != "" {
-		props["docstring"] = doc
-	}
-
-	if spec != nil && len(spec.BranchingNodeTypes) > 0 {
-		if complexity := countBranchingNodes(child, spec.BranchingNodeTypes); complexity > 0 {
-			props["complexity"] = complexity
-		}
-	}
-
-	return props
-}
-
-// extractMethodReturnType extracts the return type from a method or arrow function field.
-func extractMethodReturnType(
-	child *tree_sitter.Node, fieldDefNode *tree_sitter.Node,
-	source []byte, props map[string]any,
-) {
-	// For arrow function properties, extract the type annotation from the field
-	if fieldDefNode != nil {
-		if typeNode := fieldDefNode.ChildByFieldName("type"); typeNode != nil {
-			txt := parser.NodeText(typeNode, source)
-			txt = strings.TrimPrefix(txt, ": ")
-			txt = strings.TrimPrefix(txt, ":")
-			txt = strings.TrimSpace(txt)
-			if txt != "" {
-				props["return_type"] = txt
-			}
-		}
-	}
-	for _, field := range []string{"result", "return_type", "type"} {
-		if rtNode := child.ChildByFieldName(field); rtNode != nil {
-			props["return_type"] = parser.NodeText(rtNode, source)
-			break
-		}
-	}
-}
-
-// extractClassMethodDefs walks a class AST node and extracts Method nodes (no DB).
-func extractClassMethodDefs(
-	classNode *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, classQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	funcTypes := toSet(spec.FunctionNodeTypes)
-	parser.Walk(classNode, func(child *tree_sitter.Node) bool {
-		if child.Id() == classNode.Id() {
-			return true
-		}
-		if !funcTypes[child.Kind()] {
-			return true
-		}
-
-		mn, fieldDefNode := resolveMethodName(child)
-		if mn == nil {
-			return false
-		}
-		methodName := parser.NodeText(mn, source)
-		if methodName == "" {
-			return false
-		}
-
-		props := buildMethodProps(child, fieldDefNode, source, f, spec)
-		props["is_exported"] = isExported(methodName, f.Language)
-
-		// Use field definition span when available (covers name + type + body)
-		spanNode := child
-		if fieldDefNode != nil {
-			spanNode = fieldDefNode
-		}
-
-		result.Nodes = append(result.Nodes, &store.Node{
-			Project:       projectName,
-			Label:         "Method",
-			Name:          methodName,
-			QualifiedName: classQN + "." + methodName,
-			FilePath:      f.RelPath,
-			StartLine:     safeRowToLine(spanNode.StartPosition().Row),
-			EndLine:       safeRowToLine(spanNode.EndPosition().Row),
-			Properties:    props,
-		})
-		result.PendingEdges = append(result.PendingEdges, pendingEdge{
-			SourceQN: classQN,
-			TargetQN: classQN + "." + methodName,
-			Type:     "DEFINES_METHOD",
-		})
-		return false
-	})
-}
-
-// extractClassFieldDefs walks a class/struct AST node and extracts Field nodes (no DB).
-func extractClassFieldDefs(
-	classNode *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, classQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	if len(spec.FieldNodeTypes) == 0 {
-		return
-	}
-	fieldTypes := toSet(spec.FieldNodeTypes)
-	funcTypes := toSet(spec.FunctionNodeTypes)
-
-	parser.Walk(classNode, func(child *tree_sitter.Node) bool {
-		if child.Id() == classNode.Id() {
-			return true
-		}
-		// Skip nested class/method definitions — they have their own extraction
-		if funcTypes[child.Kind()] {
-			return false
-		}
-		if !fieldTypes[child.Kind()] {
-			return true
-		}
-
-		fieldName := extractFieldName(child, source, f.Language)
-		if fieldName == "" {
-			return false
-		}
-
-		fieldQN := classQN + "." + fieldName
-		props := map[string]any{}
-
-		// Extract type annotation if present
-		fieldType := extractFieldType(child, source, f.Language)
-		if fieldType != "" {
-			props["type"] = fieldType
-		}
-
-		startLine := safeRowToLine(child.StartPosition().Row)
-		endLine := safeRowToLine(child.EndPosition().Row)
-
-		result.Nodes = append(result.Nodes, &store.Node{
-			Project:       projectName,
-			Label:         "Field",
-			Name:          fieldName,
-			QualifiedName: fieldQN,
-			FilePath:      f.RelPath,
-			StartLine:     startLine,
-			EndLine:       endLine,
-			Properties:    props,
-		})
-		result.PendingEdges = append(result.PendingEdges, pendingEdge{
-			SourceQN: classQN,
-			TargetQN: fieldQN,
-			Type:     "DEFINES_FIELD",
-		})
-		return false
-	})
-}
-
-// extractFieldName extracts the name from a field declaration node.
-func extractFieldName(node *tree_sitter.Node, source []byte, l lang.Language) string {
-	// Go: field_declaration has named children, first identifier is the name
-	// C++/Java: field_declaration has a "declarator" field
-	// Rust: field_declaration has a "name" field
-
-	// Try "name" field first (Rust, some others)
-	if nameNode := node.ChildByFieldName("name"); nameNode != nil {
-		return parser.NodeText(nameNode, source)
-	}
-
-	// Try "declarator" field (C++, Java)
-	if declNode := node.ChildByFieldName("declarator"); declNode != nil {
-		// The declarator might be a pointer_declarator, array_declarator, etc.
-		// Walk to find the identifier
-		name := extractIdentifierFromDeclarator(declNode, source)
-		if name != "" {
-			return name
-		}
-	}
-
-	// Go struct fields: first child that is an identifier (field_identifier)
-	if l == lang.Go {
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			if child != nil && (child.Kind() == "field_identifier" || child.Kind() == "identifier") {
-				return parser.NodeText(child, source)
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractIdentifierFromDeclarator walks a declarator subtree to find the identifier name.
-func extractIdentifierFromDeclarator(node *tree_sitter.Node, source []byte) string {
-	if node == nil {
-		return ""
-	}
-	switch node.Kind() {
-	case "identifier", "field_identifier":
-		return parser.NodeText(node, source)
-	case "pointer_declarator", "reference_declarator", "array_declarator":
-		if declNode := node.ChildByFieldName("declarator"); declNode != nil {
-			return extractIdentifierFromDeclarator(declNode, source)
-		}
-		// Fall through to child walk
-	}
-	// Walk children
-	for i := uint(0); i < node.ChildCount(); i++ {
-		child := node.Child(i)
-		if child != nil && (child.Kind() == "identifier" || child.Kind() == "field_identifier") {
-			return parser.NodeText(child, source)
-		}
-	}
-	return ""
-}
-
-// extractFieldType extracts the type annotation from a field declaration.
-func extractFieldType(node *tree_sitter.Node, source []byte, _ lang.Language) string {
-	// Try "type" field (Go, Rust, Java)
-	if typeNode := node.ChildByFieldName("type"); typeNode != nil {
-		return parser.NodeText(typeNode, source)
-	}
-	return ""
-}
-
-// extractMacroDef extracts a Macro node from a C/C++ preprocessor definition.
-func extractMacroDef(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, macroNames map[string]bool, result *parseResult,
-) {
-	nameNode := node.ChildByFieldName("name")
-	if nameNode == nil {
-		return
-	}
-	name := parser.NodeText(nameNode, source)
-	if name == "" {
-		return
-	}
-
-	macroNames[name] = true
-
-	isFunctionLike := node.Kind() == "preproc_function_def"
-	macroQN := moduleQN + "::macro::" + name
-
-	props := map[string]any{
-		"is_function_like": isFunctionLike,
-	}
-
-	if isFunctionLike {
-		if paramsNode := node.ChildByFieldName("parameters"); paramsNode != nil {
-			props["parameter_count"] = paramsNode.ChildCount()
-		}
-	}
-
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project:       projectName,
-		Label:         "Macro",
-		Name:          name,
-		QualifiedName: macroQN,
-		FilePath:      f.RelPath,
-		StartLine:     startLine,
-		EndLine:       endLine,
-		Properties:    props,
-	})
-
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN,
-		TargetQN: macroQN,
-		Type:     "DEFINES",
-	})
+	slog.Info("pass2.stage4.insert_edges", "edges", len(edges), "elapsed", time.Since(t4))
 }
 
 // buildRegistry populates the FunctionRegistry from all Function, Method,
@@ -1709,7 +1032,7 @@ func extractMacroDef(
 func (p *Pipeline) buildRegistry() {
 	labels := []string{"Function", "Method", "Class", "Type", "Interface", "Enum", "Macro", "Variable"}
 	for _, label := range labels {
-		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
+		nodes, err := p.findNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -1725,7 +1048,7 @@ func (p *Pipeline) buildRegistry() {
 func (p *Pipeline) buildReturnTypeMap() {
 	p.returnTypes = make(ReturnTypeMap)
 	for _, label := range []string{"Function", "Method"} {
-		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
+		nodes, err := p.findNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -1770,15 +1093,15 @@ type resolvedEdge struct {
 func (p *Pipeline) passCalls() {
 	slog.Info("pass3.calls")
 
-	// Collect files to process
+	// Collect files to process from extraction cache
 	type fileEntry struct {
 		relPath string
-		cached  *cachedAST
+		ext     *cachedExtraction
 	}
 	var files []fileEntry
-	for relPath, cached := range p.astCache {
-		if lang.ForLanguage(cached.Language) != nil {
-			files = append(files, fileEntry{relPath, cached})
+	for relPath, ext := range p.extractionCache {
+		if lang.ForLanguage(ext.Language) != nil {
+			files = append(files, fileEntry{relPath, ext})
 		}
 	}
 
@@ -1786,7 +1109,7 @@ func (p *Pipeline) passCalls() {
 		return
 	}
 
-	// Stage 1: Parallel per-file call resolution
+	// Stage 1: Parallel per-file call resolution using CBM data
 	results := make([][]resolvedEdge, len(files))
 	numWorkers := runtime.NumCPU()
 	if numWorkers > len(files) {
@@ -1800,7 +1123,7 @@ func (p *Pipeline) passCalls() {
 			if gctx.Err() != nil {
 				return gctx.Err()
 			}
-			results[i] = p.resolveFileCalls(fe.relPath, fe.cached)
+			results[i] = p.resolveFileCallsCBM(fe.relPath, fe.ext)
 			return nil
 		})
 	}
@@ -1808,212 +1131,6 @@ func (p *Pipeline) passCalls() {
 
 	// Stage 2: Batch QN→ID resolution + batch edge insert
 	p.flushResolvedEdges(results)
-}
-
-// resolveFileCalls resolves all call targets in a single file. Returns resolved edges as QN pairs.
-// Thread-safe: reads from registry (RLock), importMaps (read-only), and AST cache (read-only).
-func (p *Pipeline) resolveFileCalls(relPath string, cached *cachedAST) []resolvedEdge {
-	spec := lang.ForLanguage(cached.Language)
-	if spec == nil {
-		return nil
-	}
-
-	callTypes := toSet(spec.CallNodeTypes)
-	moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
-	root := cached.Tree.RootNode()
-	importMap := p.importMaps[moduleQN]
-
-	// Infer variable types for method dispatch
-	typeMap := inferTypes(root, cached.Source, cached.Language, p.registry, moduleQN, importMap, p.returnTypes)
-
-	var edges []resolvedEdge
-
-	parser.Walk(root, func(node *tree_sitter.Node) bool {
-		if !callTypes[node.Kind()] {
-			return true
-		}
-
-		calleeName := extractCalleeName(node, cached.Source, cached.Language)
-		if calleeName == "" {
-			return false
-		}
-
-		callerQN := findEnclosingFunction(node, cached.Source, p.ProjectName, relPath, spec)
-		if callerQN == "" {
-			callerQN = moduleQN
-		}
-
-		// Python self.method() resolution
-		if cached.Language == lang.Python && strings.HasPrefix(calleeName, "self.") {
-			classQN := findEnclosingClassQN(node, cached.Source, p.ProjectName, relPath)
-			if classQN != "" {
-				candidate := classQN + "." + calleeName[5:]
-				if p.registry.Exists(candidate) {
-					edges = append(edges, resolvedEdge{CallerQN: callerQN, TargetQN: candidate, Type: "CALLS"})
-					return false
-				}
-			}
-		}
-
-		// Go receiver scoping
-		localTypeMap := p.extendTypeMapWithReceiver(node, cached, typeMap, spec, moduleQN, importMap)
-
-		result := p.resolveCallWithTypes(calleeName, moduleQN, importMap, localTypeMap)
-		if result.QualifiedName == "" {
-			if fuzzyResult, ok := p.registry.FuzzyResolve(calleeName, moduleQN, importMap); ok {
-				edges = append(edges, resolvedEdge{
-					CallerQN: callerQN,
-					TargetQN: fuzzyResult.QualifiedName,
-					Type:     "CALLS",
-					Properties: map[string]any{
-						"confidence":          fuzzyResult.Confidence,
-						"confidence_band":     confidenceBand(fuzzyResult.Confidence),
-						"resolution_strategy": fuzzyResult.Strategy,
-					},
-				})
-			}
-			return false
-		}
-
-		edges = append(edges, resolvedEdge{
-			CallerQN: callerQN,
-			TargetQN: result.QualifiedName,
-			Type:     "CALLS",
-			Properties: map[string]any{
-				"confidence":          result.Confidence,
-				"confidence_band":     confidenceBand(result.Confidence),
-				"resolution_strategy": result.Strategy,
-			},
-		})
-		return false
-	})
-
-	// TSX/JSX: extract component references from JSX elements
-	if cached.Language == lang.TSX || cached.Language == lang.JavaScript {
-		edges = append(edges, p.extractJSXComponentRefs(root, cached.Source, moduleQN, importMap, relPath, spec)...)
-	}
-
-	return edges
-}
-
-// processFileCalls is the legacy sequential entry point for incremental re-indexing.
-// It resolves calls for a single file and writes edges to DB immediately.
-func (p *Pipeline) processFileCalls(relPath string, cached *cachedAST, _ *lang.LanguageSpec) {
-	edges := p.resolveFileCalls(relPath, cached)
-	for _, re := range edges {
-		callerNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.CallerQN)
-		targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.TargetQN)
-		if callerNode != nil && targetNode != nil {
-			_, _ = p.Store.InsertEdge(&store.Edge{
-				Project:    p.ProjectName,
-				SourceID:   callerNode.ID,
-				TargetID:   targetNode.ID,
-				Type:       re.Type,
-				Properties: re.Properties,
-			})
-		}
-	}
-}
-
-// extractJSXComponentRefs extracts component references from JSX elements.
-// In JSX, <Component /> is semantically equivalent to calling the component function.
-// Only uppercase names are considered components (lowercase = HTML intrinsics like <div>).
-func (p *Pipeline) extractJSXComponentRefs(
-	root *tree_sitter.Node,
-	source []byte,
-	moduleQN string,
-	importMap map[string]string,
-	relPath string,
-	spec *lang.LanguageSpec,
-) []resolvedEdge {
-	var edges []resolvedEdge
-
-	parser.Walk(root, func(node *tree_sitter.Node) bool {
-		switch node.Kind() {
-		case "jsx_self_closing_element":
-			nameNode := node.ChildByFieldName("name")
-			if nameNode == nil {
-				return false
-			}
-			componentName := parser.NodeText(nameNode, source)
-			if edge := p.resolveJSXComponent(node, componentName, source, moduleQN, importMap, relPath, spec); edge != nil {
-				edges = append(edges, *edge)
-			}
-			return false
-		case "jsx_opening_element":
-			nameNode := node.ChildByFieldName("name")
-			if nameNode == nil {
-				return false
-			}
-			componentName := parser.NodeText(nameNode, source)
-			if edge := p.resolveJSXComponent(node, componentName, source, moduleQN, importMap, relPath, spec); edge != nil {
-				edges = append(edges, *edge)
-			}
-			return false
-		}
-		return true
-	})
-
-	return edges
-}
-
-func (p *Pipeline) resolveJSXComponent(
-	node *tree_sitter.Node,
-	componentName string,
-	source []byte,
-	moduleQN string,
-	importMap map[string]string,
-	relPath string,
-	spec *lang.LanguageSpec,
-) *resolvedEdge {
-	if componentName == "" {
-		return nil
-	}
-	// Filter HTML intrinsics: lowercase names are DOM elements, not components
-	if !isUpperFirst(componentName) {
-		return nil
-	}
-	// Strip member expressions: <Foo.Bar /> → resolve "Foo" (the import)
-	baseName := componentName
-	if idx := strings.Index(componentName, "."); idx > 0 {
-		baseName = componentName[:idx]
-	}
-
-	callerQN := findEnclosingFunction(node, source, p.ProjectName, relPath, spec)
-	if callerQN == "" {
-		callerQN = moduleQN
-	}
-
-	// Try to resolve via import map first
-	result := p.resolveCallWithTypes(baseName, moduleQN, importMap, nil)
-	if result.QualifiedName != "" {
-		return &resolvedEdge{
-			CallerQN: callerQN,
-			TargetQN: result.QualifiedName,
-			Type:     "CALLS",
-			Properties: map[string]any{
-				"confidence":          result.Confidence,
-				"confidence_band":     confidenceBand(result.Confidence),
-				"resolution_strategy": "jsx_component",
-			},
-		}
-	}
-
-	// Fuzzy resolve
-	if fuzzyResult, ok := p.registry.FuzzyResolve(baseName, moduleQN, importMap); ok {
-		return &resolvedEdge{
-			CallerQN: callerQN,
-			TargetQN: fuzzyResult.QualifiedName,
-			Type:     "CALLS",
-			Properties: map[string]any{
-				"confidence":          fuzzyResult.Confidence,
-				"confidence_band":     confidenceBand(fuzzyResult.Confidence),
-				"resolution_strategy": "jsx_component",
-			},
-		}
-	}
-
-	return nil
 }
 
 // flushResolvedEdges converts QN-based resolved edges to ID-based edges and batch-inserts them.
@@ -2038,7 +1155,7 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 	for qn := range qnSet {
 		qns = append(qns, qn)
 	}
-	qnToID, err := p.Store.FindNodeIDsByQNs(p.ProjectName, qns)
+	qnToID, err := p.findNodeIDsByQNs(p.ProjectName, qns)
 	if err != nil {
 		slog.Warn("pass3.resolve_ids.err", "err", err)
 		return
@@ -2062,39 +1179,9 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 		}
 	}
 
-	if err := p.Store.InsertEdgeBatch(edges); err != nil {
+	if err := p.insertEdgeBatch(edges); err != nil {
 		slog.Warn("pass3.batch_edges.err", "err", err)
 	}
-}
-
-// extendTypeMapWithReceiver augments the type map with the Go receiver variable
-// from the enclosing method declaration, if applicable.
-func (p *Pipeline) extendTypeMapWithReceiver(
-	node *tree_sitter.Node, cached *cachedAST, typeMap TypeMap,
-	spec *lang.LanguageSpec, moduleQN string, importMap map[string]string,
-) TypeMap {
-	if cached.Language != lang.Go {
-		return typeMap
-	}
-	funcTypes := toSet(spec.FunctionNodeTypes)
-	enclosing := findEnclosingFuncNode(node, funcTypes)
-	if enclosing == nil {
-		return typeMap
-	}
-	varName, typeName := parseGoReceiverType(enclosing, cached.Source)
-	if varName == "" || typeName == "" {
-		return typeMap
-	}
-	classQN := resolveAsClass(typeName, p.registry, moduleQN, importMap)
-	if classQN == "" {
-		return typeMap
-	}
-	localTypeMap := make(TypeMap, len(typeMap)+1)
-	for k, v := range typeMap {
-		localTypeMap[k] = v
-	}
-	localTypeMap[varName] = classQN
-	return localTypeMap
 }
 
 // resolveCallWithTypes resolves a callee name using the registry, import maps,
@@ -2121,928 +1208,6 @@ func (p *Pipeline) resolveCallWithTypes(
 
 	// Delegate to the registry's resolution strategy
 	return p.registry.Resolve(calleeName, moduleQN, importMap)
-}
-
-// === Helper functions ===
-
-func extractCalleeName(node *tree_sitter.Node, source []byte, language lang.Language) string {
-	// Try function field (most languages)
-	if name := extractCalleeFromFunctionField(node, source); name != "" {
-		return name
-	}
-
-	// Try name field (Java method_invocation)
-	if nameNode := node.ChildByFieldName("name"); nameNode != nil {
-		return parser.NodeText(nameNode, source)
-	}
-
-	// Ruby: call node has "method" field
-	if name := extractCalleeFromMethodField(node, source); name != "" {
-		return name
-	}
-
-	// Language-specific extraction
-	return extractCalleeLanguageSpecific(node, source, language)
-}
-
-// extractCalleeFromFunctionField extracts the callee name from a "function" field.
-func extractCalleeFromFunctionField(node *tree_sitter.Node, source []byte) string {
-	funcNode := node.ChildByFieldName("function")
-	if funcNode == nil {
-		return ""
-	}
-	switch funcNode.Kind() {
-	case "identifier", "simple_identifier",
-		"selector_expression", "attribute", "member_expression",
-		"field_expression", "dot", "function", "dotted_identifier",
-		"member_access_expression", "scoped_identifier", "qualified_identifier":
-		return parser.NodeText(funcNode, source)
-	}
-	return ""
-}
-
-// extractCalleeFromMethodField extracts the callee from Ruby-style method+receiver fields.
-func extractCalleeFromMethodField(node *tree_sitter.Node, source []byte) string {
-	methodNode := node.ChildByFieldName("method")
-	if methodNode == nil {
-		return ""
-	}
-	if receiver := node.ChildByFieldName("receiver"); receiver != nil {
-		return parser.NodeText(receiver, source) + "." + parser.NodeText(methodNode, source)
-	}
-	return parser.NodeText(methodNode, source)
-}
-
-// extractCalleeLanguageSpecific handles language-specific callee extraction
-// for ObjC, Erlang, Perl, Kotlin, Haskell, OCaml, and Elixir.
-//
-//nolint:cyclop // WHY: inherent complexity from multi-language AST dispatch
-func extractCalleeLanguageSpecific(node *tree_sitter.Node, source []byte, language lang.Language) string {
-	switch language {
-	case lang.ObjectiveC:
-		if node.Kind() == "message_expression" {
-			if methodField := findChildByKindField(node, "method"); methodField != nil {
-				return parser.NodeText(methodField, source)
-			}
-		}
-	case lang.Erlang:
-		return extractErlangCallee(node, source)
-	case lang.Perl:
-		return extractPerlCallee(node, source)
-	case lang.Rust:
-		return extractRustCallee(node, source)
-	case lang.Zig:
-		return extractZigCallee(node, source)
-	case lang.PHP:
-		return extractPHPCallee(node, source)
-	case lang.Scala:
-		return extractScalaCallee(node, source)
-	case lang.Haskell:
-		return extractHaskellCallee(node, source)
-	case lang.OCaml:
-		return extractOCamlCallee(node, source)
-	case lang.Elixir:
-		return extractElixirCallee(node, source)
-	}
-
-	// HCL: function_call → first child identifier
-	if language == lang.HCL && node.Kind() == "function_call" {
-		if first := node.NamedChild(0); first != nil && first.Kind() == "identifier" {
-			return parser.NodeText(first, source)
-		}
-	}
-
-	// SQL: invocation/function_call → object_reference → identifier[name]
-	if language == lang.SQL && (node.Kind() == "function_call" || node.Kind() == "invocation") {
-		if objRef := findChildByKind(node, "object_reference"); objRef != nil {
-			if nameNode := objRef.ChildByFieldName("name"); nameNode != nil {
-				return parser.NodeText(nameNode, source)
-			}
-		}
-		if first := node.NamedChild(0); first != nil {
-			return parser.NodeText(first, source)
-		}
-	}
-
-	// Dart: selector → callee is preceding sibling identifier
-	if language == lang.Dart && node.Kind() == "selector" {
-		return extractDartCallee(node, source)
-	}
-
-	// Kotlin call_expression / navigation_expression
-	if node.Kind() == "call_expression" || node.Kind() == "navigation_expression" {
-		if first := node.NamedChild(0); first != nil {
-			switch first.Kind() {
-			case "identifier", "navigation_expression", "simple_identifier":
-				return parser.NodeText(first, source)
-			}
-		}
-	}
-	return ""
-}
-
-// extractDartCallee extracts the callee from Dart selector nodes.
-// In Dart, a call like `print('hello')` parses as:
-//
-//	expression_statement → identifier("print") + selector("('hello')")
-//
-// The callee is the preceding sibling(s) of the selector node.
-// For chained calls like `list.add(1)`: identifier("list") + selector(".add") + selector("(1)")
-func extractDartCallee(node *tree_sitter.Node, source []byte) string {
-	// Only extract from selectors that represent actual calls (have argument_part)
-	if findChildByKind(node, "argument_part") == nil {
-		return ""
-	}
-
-	parent := node.Parent()
-	if parent == nil {
-		return ""
-	}
-	nodeIdx := findNodeIndex(parent, node)
-	if nodeIdx <= 0 {
-		return ""
-	}
-	// Walk backwards collecting the callee parts (identifiers and member selectors)
-	var parts []string
-	for j := nodeIdx - 1; j >= 0; j-- {
-		prev := parent.Child(uint(j))
-		if prev == nil {
-			break
-		}
-		kind := prev.Kind()
-		switch kind {
-		case "identifier", "type_identifier":
-			parts = append([]string{parser.NodeText(prev, source)}, parts...)
-			return joinDartCalleeParts(parts)
-		case "selector":
-			// Chained member access like .add — extract identifier from child
-			if uas := findChildByKind(prev, "unconditional_assignable_selector"); uas != nil {
-				if id := findChildByKind(uas, "identifier"); id != nil {
-					parts = append([]string{parser.NodeText(id, source)}, parts...)
-					continue
-				}
-			}
-			// Selector with argument_part is a preceding call in the chain — stop here.
-			// The callee is just the immediate method name (e.g., "toList" not "items.where.toList")
-			if len(parts) > 0 {
-				return joinDartCalleeParts(parts)
-			}
-			return ""
-		default:
-			return ""
-		}
-	}
-	if len(parts) > 0 {
-		return joinDartCalleeParts(parts)
-	}
-	return ""
-}
-
-func joinDartCalleeParts(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	result := parts[0]
-	for _, p := range parts[1:] {
-		result += "." + p
-	}
-	return result
-}
-
-// extractHaskellCallee extracts the callee from Haskell apply/infix nodes.
-func extractHaskellCallee(node *tree_sitter.Node, source []byte) string {
-	switch node.Kind() {
-	case "apply":
-		// Function application: recurse through nested apply nodes to get the
-		// actual function name (not "map show" but just "map")
-		if fn := node.ChildByFieldName("function"); fn != nil {
-			if fn.Kind() == "apply" {
-				return extractHaskellCallee(fn, source)
-			}
-			return parser.NodeText(fn, source)
-		}
-		if first := node.NamedChild(0); first != nil {
-			if first.Kind() == "apply" {
-				return extractHaskellCallee(first, source)
-			}
-			return parser.NodeText(first, source)
-		}
-	case "infix":
-		// Infix application: left_operand op right_operand
-		// The operator is the callee (e.g., f $ x, x <> y)
-		if op := node.ChildByFieldName("operator"); op != nil {
-			return parser.NodeText(op, source)
-		}
-		// Fallback: the function in f `op` x is the first child
-		if first := node.NamedChild(0); first != nil {
-			return parser.NodeText(first, source)
-		}
-	}
-	return ""
-}
-
-// extractOCamlCallee extracts the callee from OCaml application/infix_expression nodes.
-//
-//nolint:gocognit,nestif // WHY: inherent complexity from OCaml AST node type dispatch
-func extractOCamlCallee(node *tree_sitter.Node, source []byte) string {
-	switch node.Kind() {
-	case "application_expression":
-		// Function application: first named child is the function
-		if first := node.NamedChild(0); first != nil {
-			return parser.NodeText(first, source)
-		}
-	case "infix_expression":
-		// Pipe operator: x |> f or f @@ x → callee depends on operator
-		if op := node.ChildByFieldName("operator"); op != nil {
-			opText := parser.NodeText(op, source)
-			switch opText {
-			case "|>":
-				// x |> f → callee is right operand
-				// If right is application_expression (e.g., List.map show), extract just the function
-				if right := node.ChildByFieldName("right"); right != nil {
-					if right.Kind() == "application_expression" {
-						if first := right.NamedChild(0); first != nil {
-							return parser.NodeText(first, source)
-						}
-					}
-					return parser.NodeText(right, source)
-				}
-			case "@@":
-				// f @@ x → callee is left operand
-				if left := node.ChildByFieldName("left"); left != nil {
-					return parser.NodeText(left, source)
-				}
-			}
-		}
-		// Fallback: try positional children for infix operators
-		if node.NamedChildCount() >= 3 {
-			op := node.NamedChild(1)
-			if op != nil {
-				switch opText := parser.NodeText(op, source); opText {
-				case "|>":
-					if right := node.NamedChild(2); right != nil {
-						if right.Kind() == "application_expression" {
-							if first := right.NamedChild(0); first != nil {
-								return parser.NodeText(first, source)
-							}
-						}
-						return parser.NodeText(right, source)
-					}
-				case "@@":
-					if left := node.NamedChild(0); left != nil {
-						return parser.NodeText(left, source)
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// elixirKeywords are Elixir framework/kernel calls that should be filtered from callees.
-var elixirKeywords = map[string]bool{
-	"def": true, "defp": true, "defmodule": true, "defmacro": true, "defmacrop": true,
-	"defstruct": true, "defprotocol": true, "defimpl": true, "defguard": true,
-	"defdelegate": true, "defexception": true, "defoverridable": true,
-	"use": true, "import": true, "alias": true, "require": true,
-	"with": true, "for": true, "if": true, "unless": true, "case": true, "cond": true,
-}
-
-// extractElixirCallee extracts the callee from Elixir call/dot/binary_operator nodes.
-//
-//nolint:gocognit,nestif,cyclop // WHY: inherent complexity from Elixir AST node type dispatch
-func extractElixirCallee(node *tree_sitter.Node, source []byte) string {
-	switch node.Kind() {
-	case "binary_operator":
-		if op := node.ChildByFieldName("operator"); op != nil {
-			if parser.NodeText(op, source) == "|>" {
-				if right := node.ChildByFieldName("right"); right != nil {
-					// Extract just the function name from the pipe target
-					if right.Kind() == "call" {
-						if first := right.NamedChild(0); first != nil {
-							if first.Kind() == "dot" {
-								return parser.NodeText(first, source)
-							}
-							return parser.NodeText(first, source)
-						}
-					}
-					return parser.NodeText(right, source)
-				}
-			}
-		}
-		return "" // non-pipe binary_operator, skip
-	case "dot":
-		// Module.function — skip if parent is call (parent call extracts the dot child)
-		if p := node.Parent(); p != nil && p.Kind() == "call" {
-			return ""
-		}
-		return parser.NodeText(node, source)
-	case "call":
-		if p := node.Parent(); p != nil {
-			// Skip call nodes that are arguments to keyword calls (def f(x) — f is not a call).
-			// The tree is: call[def] → arguments → call[f(x)], so check grandparent too.
-			keywordParent := p
-			if p.Kind() == "arguments" {
-				keywordParent = p.Parent()
-			}
-			if keywordParent != nil && keywordParent.Kind() == "call" {
-				if kFirst := keywordParent.NamedChild(0); kFirst != nil && elixirKeywords[parser.NodeText(kFirst, source)] {
-					return ""
-				}
-			}
-			// Skip call nodes that are the right operand of a pipe (already extracted by binary_operator)
-			if p.Kind() == "binary_operator" {
-				if op := p.ChildByFieldName("operator"); op != nil && parser.NodeText(op, source) == "|>" {
-					if right := p.ChildByFieldName("right"); right != nil && right.Id() == node.Id() {
-						return ""
-					}
-				}
-			}
-		}
-		// Check if the call's first child is a "dot" node (qualified call like IO.puts)
-		if first := node.NamedChild(0); first != nil {
-			if first.Kind() == "dot" {
-				return parser.NodeText(first, source)
-			}
-			name := parser.NodeText(first, source)
-			if elixirKeywords[name] {
-				return ""
-			}
-			return name
-		}
-	}
-	return ""
-}
-
-// extractRustCallee handles Rust macro_invocation nodes.
-func extractRustCallee(node *tree_sitter.Node, source []byte) string {
-	if node.Kind() == "macro_invocation" {
-		if first := node.NamedChild(0); first != nil && first.Kind() == "identifier" {
-			return parser.NodeText(first, source) + "!"
-		}
-		if first := node.NamedChild(0); first != nil && first.Kind() == "scoped_identifier" {
-			return parser.NodeText(first, source) + "!"
-		}
-	}
-	return ""
-}
-
-// extractZigCallee handles Zig builtin_function nodes (e.g., @intCast).
-func extractZigCallee(node *tree_sitter.Node, source []byte) string {
-	if node.Kind() == "builtin_function" {
-		// The first child of builtin_function is the @name token
-		if fn := node.ChildByFieldName("function"); fn != nil {
-			return parser.NodeText(fn, source)
-		}
-		// Fallback: return full text (e.g., "@intCast")
-		text := parser.NodeText(node, source)
-		// Strip arguments if present
-		if idx := strings.Index(text, "("); idx > 0 {
-			return text[:idx]
-		}
-		return text
-	}
-	return ""
-}
-
-// extractPHPCallee handles PHP function_call_expression nodes.
-func extractPHPCallee(node *tree_sitter.Node, source []byte) string {
-	if node.Kind() == "function_call_expression" {
-		if nameNode := node.ChildByFieldName("function"); nameNode != nil {
-			return parser.NodeText(nameNode, source)
-		}
-	}
-	return ""
-}
-
-// extractScalaCallee handles Scala field_expression and infix_expression nodes.
-// Standalone field_expression (e.g., list.head) is a property access that acts as
-// a call in Scala. Skip if parent is call_expression (already handled by function field).
-func extractScalaCallee(node *tree_sitter.Node, source []byte) string {
-	switch node.Kind() {
-	case "field_expression":
-		if p := node.Parent(); p != nil && p.Kind() == "call_expression" {
-			return "" // parent call_expression already extracts via function field
-		}
-		return parser.NodeText(node, source)
-	case "infix_expression":
-		// Infix call: items map f → operator is the callee
-		if op := node.ChildByFieldName("operator"); op != nil {
-			return parser.NodeText(op, source)
-		}
-	}
-	return ""
-}
-
-func extractErlangCallee(node *tree_sitter.Node, source []byte) string {
-	if node.Kind() != "call" {
-		return ""
-	}
-	if remote := node.ChildByFieldName("expr"); remote != nil && remote.Kind() == "remote" {
-		if funNode := remote.ChildByFieldName("fun"); funNode != nil {
-			return parser.NodeText(funNode, source)
-		}
-	}
-	if first := node.NamedChild(0); first != nil && first.Kind() == "atom" {
-		return parser.NodeText(first, source)
-	}
-	return ""
-}
-
-func extractPerlCallee(node *tree_sitter.Node, source []byte) string {
-	switch node.Kind() {
-	case "ambiguous_function_call_expression", "function_call_expression", "func1op_call_expression":
-		// Try function field first (func1op_call_expression uses this)
-		if fn := node.ChildByFieldName("function"); fn != nil {
-			return parser.NodeText(fn, source)
-		}
-		if first := node.NamedChild(0); first != nil {
-			return parser.NodeText(first, source)
-		}
-	}
-	return ""
-}
-
-// findChildByKindField finds a child node that has a specific field name.
-func findChildByKindField(node *tree_sitter.Node, fieldName string) *tree_sitter.Node {
-	for i := uint(0); i < node.ChildCount(); i++ {
-		child := node.Child(i)
-		if child == nil {
-			continue
-		}
-		name := node.FieldNameForChild(uint32(i))
-		if name == fieldName {
-			return child
-		}
-	}
-	return nil
-}
-
-// funcNameNode returns the name node for a function/method node.
-// Handles C++ where the name is inside function_declarator.
-func funcNameNode(node *tree_sitter.Node) *tree_sitter.Node {
-	nameNode := node.ChildByFieldName("name")
-	if nameNode == nil {
-		// C++: name is inside function_declarator
-		if declNode := node.ChildByFieldName("declarator"); declNode != nil {
-			nameNode = declNode.ChildByFieldName("declarator")
-			if nameNode == nil {
-				nameNode = findChildByKind(declNode, "identifier")
-			}
-		}
-	}
-	// Groovy: function_definition uses "function" field for name
-	if nameNode == nil {
-		nameNode = node.ChildByFieldName("function")
-	}
-	// Dart: method_signature wraps function_signature — name is nested
-	if nameNode == nil && node.Kind() == "method_signature" {
-		if fs := findChildByKind(node, "function_signature"); fs != nil {
-			nameNode = fs.ChildByFieldName("name")
-		}
-	}
-	// ObjC: method_definition has identifier children without field names
-	if nameNode == nil && node.Kind() == "method_definition" {
-		nameNode = findChildByKind(node, "identifier")
-	}
-	// SQL: create_function → object_reference → identifier[field="name"]
-	if nameNode == nil && node.Kind() == "create_function" {
-		if objRef := findChildByKind(node, "object_reference"); objRef != nil {
-			nameNode = objRef.ChildByFieldName("name")
-		}
-	}
-	return nameNode
-}
-
-// hasAncestorKind walks up to maxDepth parents and returns true if any has the given kind.
-func hasAncestorKind(node *tree_sitter.Node, kind string, maxDepth int) bool {
-	p := node.Parent()
-	for i := 0; i < maxDepth && p != nil; i++ {
-		if p.Kind() == kind {
-			return true
-		}
-		p = p.Parent()
-	}
-	return false
-}
-
-// luaFuncAssignName extracts the identifier node for a Lua function_definition
-// from its parent assignment context. Handles:
-//
-//	local name = function(...) end   → variable_declaration > assignment_statement > expression_list > function_definition
-//	name = function(...)             → assignment_statement > expression_list > function_definition
-func luaFuncAssignName(node *tree_sitter.Node) *tree_sitter.Node {
-	// function_definition sits inside expression_list; walk up to assignment_statement
-	parent := node.Parent()
-	if parent == nil {
-		return nil
-	}
-	// parent is expression_list; go one more level up to assignment_statement
-	if parent.Kind() == "expression_list" {
-		parent = parent.Parent()
-	}
-	if parent == nil {
-		return nil
-	}
-	if parent.Kind() != "assignment_statement" {
-		return nil
-	}
-	// assignment_statement: first named child is variable_list with the target identifier(s)
-	for i := uint(0); i < parent.NamedChildCount(); i++ {
-		child := parent.NamedChild(i)
-		if child.Kind() == "variable_list" {
-			return findLastIdentifier(child)
-		}
-	}
-	return nil
-}
-
-// extractHCLBlock extracts a Terraform/HCL block as a Class node.
-// AST: block → identifier("resource") string_lit("aws_instance") string_lit("web") { body }
-// Name format: "resource.aws_instance.web"
-func extractHCLBlock(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, result *parseResult,
-) {
-	var parts []string
-	for i := uint(0); i < node.ChildCount(); i++ {
-		child := node.Child(i)
-		if child == nil {
-			continue
-		}
-		switch child.Kind() {
-		case "identifier":
-			parts = append(parts, parser.NodeText(child, source))
-		case "string_lit":
-			// Extract text content from string_lit → template_literal
-			if tl := findChildByKind(child, "template_literal"); tl != nil {
-				parts = append(parts, parser.NodeText(tl, source))
-			}
-		case "block_start", "block_end", "body":
-			// stop collecting name parts
-		}
-	}
-	if len(parts) == 0 {
-		return
-	}
-
-	name := strings.Join(parts, ".")
-	classQN := fqn.Compute(projectName, f.RelPath, name)
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	label := "Class"
-	blockType := parts[0]
-	if blockType == "variable" || blockType == "output" || blockType == "locals" {
-		label = "Variable"
-	}
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project: projectName, Label: label, Name: name,
-		QualifiedName: classQN, FilePath: f.RelPath,
-		StartLine: startLine, EndLine: endLine,
-		Properties: map[string]any{
-			"block_type":  blockType,
-			"is_exported": true,
-		},
-	})
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN, TargetQN: classQN, Type: "DEFINES",
-	})
-}
-
-// ocamlFuncName extracts the name from an OCaml value_definition.
-// AST: value_definition → let_binding (child) → pattern field has the name.
-func ocamlFuncName(node *tree_sitter.Node) *tree_sitter.Node {
-	lb := findChildByKind(node, "let_binding")
-	if lb == nil {
-		return nil
-	}
-	return lb.ChildByFieldName("pattern")
-}
-
-// rFuncAssignName extracts the identifier node for an R function_definition
-// from its parent assignment context.
-//
-//	name <- function(...) { ... }   → binary_operator > function_definition (rhs)
-//	name = function(...)            → binary_operator > function_definition (rhs)
-func rFuncAssignName(node *tree_sitter.Node) *tree_sitter.Node {
-	parent := node.Parent()
-	if parent == nil || parent.Kind() != "binary_operator" {
-		return nil
-	}
-	// The lhs field contains the identifier name
-	if lhs := parent.ChildByFieldName("lhs"); lhs != nil && lhs.Kind() == "identifier" {
-		return lhs
-	}
-	return nil
-}
-
-// handleElixirCall classifies an Elixir `call` AST node by inspecting the callee name.
-// Elixir is homoiconic — def, defp, defmodule, import, use are all macro calls.
-// Returns true to continue walking children (for defmodule which has nested defs).
-func handleElixirCall(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, spec *lang.LanguageSpec, result *parseResult,
-) bool {
-	callee := elixirCallTarget(node, source)
-	switch callee {
-	case "def", "defp", "defmacro", "defmacrop":
-		extractElixirFunctionDef(node, source, f, projectName, moduleQN, spec, result)
-		return false
-	case "defmodule":
-		extractElixirModuleDef(node, source, f, projectName, moduleQN, spec, result)
-		return false // we walk the body ourselves
-	case "import", "use", "require", "alias":
-		return false // skip import-like calls
-	case "test", "describe":
-		// ExUnit test macros — extract as function
-		extractElixirFunctionDef(node, source, f, projectName, moduleQN, spec, result)
-		return false
-	case "if", "unless", "case", "cond", "for", "with", "receive":
-		return true // control flow — walk children for nested defs
-	}
-	return true // unknown call — continue walking
-}
-
-// elixirCallTarget returns the callee name of an Elixir call node.
-// AST: call → identifier[target="def"] or call → identifier[target="defmodule"]
-func elixirCallTarget(node *tree_sitter.Node, source []byte) string {
-	target := node.ChildByFieldName("target")
-	if target == nil {
-		return ""
-	}
-	return parser.NodeText(target, source)
-}
-
-// extractElixirFunctionDef extracts a function from an Elixir def/defp/defmacro call.
-// AST: call[target=def] → arguments → call[target=greet] → arguments → (params)
-func extractElixirFunctionDef(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, _ *lang.LanguageSpec, result *parseResult,
-) {
-	args := findChildByKind(node, "arguments")
-	if args == nil {
-		return
-	}
-	// The first child of arguments is a call node with the function name
-	nameCall := findChildByKind(args, "call")
-	if nameCall == nil {
-		// Simple form: def greet, do: ... (identifier directly in arguments)
-		if id := findChildByKind(args, "identifier"); id != nil {
-			name := parser.NodeText(id, source)
-			if name == "" {
-				return
-			}
-			funcQN := fqn.Compute(projectName, f.RelPath, name)
-			startLine := safeRowToLine(node.StartPosition().Row)
-			endLine := safeRowToLine(node.EndPosition().Row)
-			result.Nodes = append(result.Nodes, &store.Node{
-				Project: projectName, Label: "Function", Name: name,
-				QualifiedName: funcQN, FilePath: f.RelPath,
-				StartLine: startLine, EndLine: endLine,
-				Properties: map[string]any{"is_exported": isExported(name, f.Language)},
-			})
-			result.PendingEdges = append(result.PendingEdges, pendingEdge{
-				SourceQN: moduleQN, TargetQN: funcQN, Type: "DEFINES",
-			})
-		}
-		return
-	}
-
-	// Get function name from the inner call's target
-	name := elixirCallTarget(nameCall, source)
-	if name == "" {
-		return
-	}
-
-	funcQN := fqn.Compute(projectName, f.RelPath, name)
-	props := map[string]any{"is_exported": isExported(name, f.Language)}
-
-	// Extract parameters from the inner call's arguments
-	innerArgs := findChildByKind(nameCall, "arguments")
-	if innerArgs != nil {
-		props["signature"] = parser.NodeText(innerArgs, source)
-	}
-
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	// Line count
-	lines := endLine - startLine + 1
-	if lines > 0 {
-		props["lines"] = lines
-	}
-
-	callee := elixirCallTarget(node, source)
-	if callee == "defp" || callee == "defmacrop" {
-		props["is_exported"] = false
-	}
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project: projectName, Label: "Function", Name: name,
-		QualifiedName: funcQN, FilePath: f.RelPath,
-		StartLine: startLine, EndLine: endLine,
-		Properties: props,
-	})
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN, TargetQN: funcQN, Type: "DEFINES",
-	})
-}
-
-// extractElixirModuleDef extracts a module (Class) from an Elixir defmodule call.
-// AST: call[target=defmodule] → arguments → alias[name=MyApp]
-// Then walks the do_block body for nested def/defp/defmodule calls.
-func extractElixirModuleDef(
-	node *tree_sitter.Node, source []byte, f discover.FileInfo,
-	projectName, moduleQN string, spec *lang.LanguageSpec, result *parseResult,
-) {
-	args := findChildByKind(node, "arguments")
-	if args == nil {
-		return
-	}
-	// Module name is an alias node inside arguments
-	aliasNode := findChildByKind(args, "alias")
-	if aliasNode == nil {
-		return
-	}
-	name := parser.NodeText(aliasNode, source)
-	if name == "" {
-		return
-	}
-
-	classQN := fqn.Compute(projectName, f.RelPath, name)
-	startLine := safeRowToLine(node.StartPosition().Row)
-	endLine := safeRowToLine(node.EndPosition().Row)
-
-	result.Nodes = append(result.Nodes, &store.Node{
-		Project: projectName, Label: "Class", Name: name,
-		QualifiedName: classQN, FilePath: f.RelPath,
-		StartLine: startLine, EndLine: endLine,
-		Properties: map[string]any{"is_exported": true},
-	})
-	result.PendingEdges = append(result.PendingEdges, pendingEdge{
-		SourceQN: moduleQN, TargetQN: classQN, Type: "DEFINES",
-	})
-
-	// Walk do_block body for nested defs
-	doBlock := findChildByKind(node, "do_block")
-	if doBlock == nil {
-		return
-	}
-	parser.Walk(doBlock, func(child *tree_sitter.Node) bool {
-		if child.Id() == doBlock.Id() {
-			return true
-		}
-		if child.Kind() == "call" {
-			callee := elixirCallTarget(child, source)
-			switch callee {
-			case "def", "defp", "defmacro", "defmacrop", "test", "describe":
-				extractElixirFunctionDef(child, source, f, projectName, classQN, spec, result)
-				return false
-			case "defmodule":
-				extractElixirModuleDef(child, source, f, projectName, classQN, spec, result)
-				return false
-			}
-		}
-		return true
-	})
-}
-
-// findLastIdentifier returns the deepest identifier in a node tree.
-// For dot_index_expression (a.b.c) returns the last field identifier.
-func findLastIdentifier(node *tree_sitter.Node) *tree_sitter.Node {
-	if node.Kind() == "identifier" {
-		return node
-	}
-	if node.Kind() == "dot_index_expression" {
-		// field is the rightmost identifier
-		if field := node.ChildByFieldName("field"); field != nil {
-			return field
-		}
-	}
-	for i := uint(0); i < node.NamedChildCount(); i++ {
-		child := node.NamedChild(i)
-		if child.Kind() == "identifier" {
-			return child
-		}
-	}
-	return nil
-}
-
-func findEnclosingFunction(node *tree_sitter.Node, source []byte, project, relPath string, spec *lang.LanguageSpec) string {
-	funcTypes := toSet(spec.FunctionNodeTypes)
-	classTypes := toSet(spec.ClassNodeTypes)
-	current := node.Parent()
-	for current != nil {
-		if funcTypes[current.Kind()] {
-			qn, _ := computeFuncQN(current, source, project, relPath, classTypes)
-			if qn != "" {
-				return qn
-			}
-		}
-		current = current.Parent()
-	}
-	return ""
-}
-
-func isConstantNode(node *tree_sitter.Node, language lang.Language) bool {
-	parent := node.Parent()
-	if parent == nil {
-		return false
-	}
-	return isConstantForLanguage(node.Kind(), parent, language)
-}
-
-// constantPattern defines which node kinds at which parent kinds are constants.
-type constantPattern struct {
-	parentKinds []string
-	nodeKinds   []string
-}
-
-// constantPatterns maps languages to their constant-detection patterns.
-// Languages with complex logic (JS/TS) are handled separately.
-var constantPatterns = map[lang.Language]constantPattern{
-	lang.Go:     {parentKinds: []string{"source_file"}, nodeKinds: []string{"const_declaration", "var_declaration"}},
-	lang.Python: {parentKinds: []string{"module"}, nodeKinds: []string{"expression_statement"}},
-	lang.Rust:   {parentKinds: []string{"source_file"}, nodeKinds: []string{"const_item", "let_declaration"}},
-	lang.PHP:    {parentKinds: []string{"program"}, nodeKinds: []string{"expression_statement"}},
-	lang.Scala:  {parentKinds: []string{"compilation_unit", "template_body"}, nodeKinds: []string{"val_definition"}},
-	lang.CPP:    {parentKinds: []string{"translation_unit"}, nodeKinds: []string{"preproc_def", "declaration"}},
-	lang.Lua:    {parentKinds: []string{"chunk"}, nodeKinds: []string{"variable_declaration"}},
-	lang.Erlang: {parentKinds: []string{"source_file"}, nodeKinds: []string{"pp_define", "record_decl"}},
-	lang.SQL:    {parentKinds: []string{"statement"}, nodeKinds: []string{"create_table", "create_view"}},
-}
-
-func isConstantForLanguage(kind string, parent *tree_sitter.Node, language lang.Language) bool {
-	// JS/TS/TSX have complex grandparent logic
-	if language == lang.JavaScript || language == lang.TypeScript || language == lang.TSX {
-		return isJSConstantNode(kind, parent.Kind(), parent)
-	}
-
-	pat, ok := constantPatterns[language]
-	if !ok {
-		return false
-	}
-
-	parentKind := parent.Kind()
-	parentMatch := false
-	for _, pk := range pat.parentKinds {
-		if parentKind == pk {
-			parentMatch = true
-			break
-		}
-	}
-	if !parentMatch {
-		return false
-	}
-	for _, nk := range pat.nodeKinds {
-		if kind == nk {
-			return true
-		}
-	}
-	return false
-}
-
-func isJSConstantNode(kind, parentKind string, parent *tree_sitter.Node) bool {
-	if kind != "lexical_declaration" {
-		return false
-	}
-	if parentKind == "program" {
-		return true
-	}
-	// export const X = ... → program → export_statement → lexical_declaration
-	if parentKind == "export_statement" {
-		gp := parent.Parent()
-		return gp != nil && gp.Kind() == "program"
-	}
-	return false
-}
-
-func extractConstant(node *tree_sitter.Node, source []byte) string {
-	text := parser.NodeText(node, source)
-	// Take just the first line (name = value)
-	if idx := strings.Index(text, "\n"); idx > 0 {
-		text = text[:idx]
-	}
-	return strings.TrimSpace(text)
-}
-
-func extractDecorators(node *tree_sitter.Node, source []byte) []string {
-	// In Python, decorators are siblings before the function_definition.
-	// They show up as decorator children of a decorated_definition parent.
-	parent := node.Parent()
-	if parent == nil || parent.Kind() != "decorated_definition" {
-		return nil
-	}
-	var decorators []string
-	for i := uint(0); i < parent.ChildCount(); i++ {
-		child := parent.Child(i)
-		if child != nil && child.Kind() == "decorator" {
-			decorators = append(decorators, parser.NodeText(child, source))
-		}
-	}
-	return decorators
 }
 
 // frameworkDecoratorPrefixes are decorator prefixes that indicate a function
@@ -3081,63 +1246,24 @@ func hasFrameworkDecorator(decorators []string) bool {
 	return false
 }
 
-func isExported(name string, language lang.Language) bool {
-	if name == "" {
-		return false
-	}
-	switch language {
-	case lang.Go:
-		return name[0] >= 'A' && name[0] <= 'Z'
-	case lang.Python:
-		return !strings.HasPrefix(name, "_")
-	case lang.Java, lang.CSharp, lang.Kotlin:
-		return name[0] >= 'A' && name[0] <= 'Z' // heuristic
-	default:
-		return true // assume exported
-	}
-}
-
-func classLabelForKind(kind string) string {
-	switch kind {
-	case "interface_declaration", "trait_item", "trait_definition", "trait_declaration":
-		return "Interface"
-	case "enum_declaration", "enum_item", "enum_specifier":
-		return "Enum"
-	case "type_declaration", "type_alias_declaration", "type_item", "type_spec", "type_alias":
-		return "Type"
-	case "union_specifier", "union_item":
-		return "Union"
-	default:
-		return "Class"
-	}
-}
-
-func toSet(items []string) map[string]bool {
-	m := make(map[string]bool, len(items))
-	for _, item := range items {
-		m[item] = true
-	}
-	return m
-}
-
 // passImports creates IMPORTS edges from the import maps built during pass 2.
 func (p *Pipeline) passImports() {
 	slog.Info("pass2b.imports")
 	count := 0
 	for moduleQN, importMap := range p.importMaps {
-		moduleNode, _ := p.Store.FindNodeByQN(p.ProjectName, moduleQN)
+		moduleNode, _ := p.findNodeByQN(p.ProjectName, moduleQN)
 		if moduleNode == nil {
 			continue
 		}
 		for localName, targetQN := range importMap {
 			// Try to find the target as a Module node first
-			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetQN)
+			targetNode, _ := p.findNodeByQN(p.ProjectName, targetQN)
 			if targetNode == nil {
 				// Try common suffixes: module QN might need .__init__ or similar
 				logImportDrop(moduleQN, localName, targetQN)
 				continue
 			}
-			_, _ = p.Store.InsertEdge(&store.Edge{
+			_ = p.insertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: moduleNode.ID,
 				TargetID: targetNode.ID,
@@ -3359,7 +1485,7 @@ func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
 	}
 
 	moduleQN := fqn.ModuleQN(p.ProjectName, f.RelPath)
-	_, err = p.Store.UpsertNode(&store.Node{
+	err = p.upsertNode(&store.Node{
 		Project:       p.ProjectName,
 		Label:         "Module",
 		Name:          filepath.Base(f.RelPath),
@@ -3425,14 +1551,6 @@ func stripBOM(source []byte) []byte {
 		return source[3:]
 	}
 	return source
-}
-
-func safeRowToLine(row uint) int {
-	const maxInt = int(^uint(0) >> 1) // math.MaxInt equivalent without importing math
-	if row > uint(maxInt-1) {
-		return maxInt
-	}
-	return int(row) + 1
 }
 
 func fileHash(path string) (string, error) {

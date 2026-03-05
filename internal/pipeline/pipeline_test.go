@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -66,7 +67,7 @@ func TestPipelineRun(t *testing.T) {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, repoDir)
+	p := New(context.Background(), s, repoDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -150,7 +151,7 @@ class DataProcessor:
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -205,7 +206,7 @@ func run() {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -269,7 +270,7 @@ def process():
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -335,7 +336,7 @@ def run():
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -404,7 +405,7 @@ type ID = string
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -473,7 +474,7 @@ type (
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -532,7 +533,7 @@ object Config {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -605,7 +606,7 @@ end
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -661,7 +662,7 @@ public class UsersController {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -712,7 +713,7 @@ func TestBOMStripping(t *testing.T) {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -778,7 +779,7 @@ func TestPipelineRunCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel
 
-	p := New(ctx, s, repoDir)
+	p := New(ctx, s, repoDir, discover.ModeFull)
 	err = p.Run()
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)

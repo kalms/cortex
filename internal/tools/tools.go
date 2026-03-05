@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/pipeline"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 	"github.com/DeusData/codebase-memory-mcp/internal/watcher"
@@ -86,7 +87,7 @@ func (s *Server) syncProject(ctx context.Context, projectName, rootPath string) 
 	if err != nil {
 		return fmt.Errorf("store for %s: %w", projectName, err)
 	}
-	p := pipeline.New(ctx, st, rootPath)
+	p := pipeline.New(ctx, st, rootPath, discover.ModeFull)
 	return p.Run()
 }
 
@@ -209,7 +210,7 @@ func (s *Server) startAutoIndex() {
 			slog.Warn("autoindex.store.err", "err", err)
 			return
 		}
-		p := pipeline.New(context.Background(), st, s.sessionRoot)
+		p := pipeline.New(context.Background(), st, s.sessionRoot, discover.ModeFull)
 		if err := p.Run(); err != nil {
 			slog.Warn("autoindex.err", "err", err)
 			return
@@ -438,13 +439,18 @@ func (s *Server) registerGraphTools() {
 func (s *Server) registerIndexAndTraceTool() {
 	s.addTool(&mcp.Tool{
 		Name:        "index_repository",
-		Description: "Index a repository into the code graph. Parses source files, extracts functions/classes/modules, resolves call relationships (CALLS), read references (USAGE), interface implementations (IMPLEMENTS + OVERRIDE), HTTP/async cross-service links, and git history change coupling (FILE_CHANGES_WITH). Supports incremental reindex via content hashing. Auto-sync keeps the graph fresh after initial indexing. If repo_path is omitted, uses the auto-detected session project root.",
+		Description: "Index a repository into the code graph. Parses source files, extracts functions/classes/modules, resolves call relationships (CALLS), read references (USAGE), interface implementations (IMPLEMENTS + OVERRIDE), HTTP/async cross-service links, and git history change coupling (FILE_CHANGES_WITH). Supports incremental reindex via content hashing. Auto-sync keeps the graph fresh after initial indexing. If repo_path is omitted, uses the auto-detected session project root. Use mode='fast' for large repos (>50K files) — skips generated code, test fixtures, large files (>512KB), and non-source files for 30-50% faster indexing at the cost of some coverage.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"repo_path": {
 					"type": "string",
 					"description": "Absolute path to the repository to index. If omitted, uses the auto-detected session project root."
+				},
+				"mode": {
+					"type": "string",
+					"enum": ["full", "fast"],
+					"description": "Indexing mode. 'full' (default): parse all supported files. 'fast': aggressive filtering — skips generated code, test fixtures, docs, large files (>512KB), and non-source assets for faster indexing of large repos."
 				}
 			}
 		}`),

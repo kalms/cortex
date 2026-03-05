@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -729,7 +730,7 @@ services:
       - "80:80"
 `)
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	err = s.WithTransaction(context.Background(), func(txStore *store.Store) error {
 		p.Store = txStore
 		_ = txStore.UpsertProject(p.ProjectName, tmpDir)
@@ -803,7 +804,7 @@ func TestPassInfraFilesIdempotent(t *testing.T) {
 EXPOSE 8080
 `)
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	err = s.WithTransaction(context.Background(), func(txStore *store.Store) error {
 		p.Store = txStore
 		_ = txStore.UpsertProject(p.ProjectName, tmpDir)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -246,7 +247,7 @@ func BenchmarkPipelineRun(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		p := New(context.Background(), s, repoDir)
+		p := New(context.Background(), s, repoDir, discover.ModeFull)
 		if err := p.Run(); err != nil {
 			b.Fatalf("Pipeline.Run: %v", err)
 		}
@@ -265,7 +266,7 @@ func BenchmarkPipelineReindex(b *testing.B) {
 	defer s.Close()
 
 	// Initial index
-	p := New(context.Background(), s, repoDir)
+	p := New(context.Background(), s, repoDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		b.Fatalf("initial index: %v", err)
 	}
@@ -274,7 +275,7 @@ func BenchmarkPipelineReindex(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		p := New(context.Background(), s, repoDir)
+		p := New(context.Background(), s, repoDir, discover.ModeFull)
 		if err := p.Run(); err != nil {
 			b.Fatalf("reindex %d: %v", i, err)
 		}
@@ -322,7 +323,7 @@ func (s *Struct%d) Method%d() int {
 				if err != nil {
 					b.Fatal(err)
 				}
-				p := New(context.Background(), s, dir)
+				p := New(context.Background(), s, dir, discover.ModeFull)
 				if err := p.Run(); err != nil {
 					b.Fatalf("Pipeline.Run: %v", err)
 				}

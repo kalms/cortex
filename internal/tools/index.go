@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/pipeline"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -22,6 +23,18 @@ func (s *Server) handleIndexRepository(ctx context.Context, req *mcp.CallToolReq
 	}
 	if repoPath == "" {
 		return errResult("repo_path is required (no session root detected)"), nil
+	}
+
+	// Parse and validate mode parameter
+	modeStr := getStringArg(args, "mode")
+	mode := discover.ModeFull
+	if modeStr != "" {
+		switch discover.IndexMode(modeStr) {
+		case discover.ModeFull, discover.ModeFast:
+			mode = discover.IndexMode(modeStr)
+		default:
+			return errResult(fmt.Sprintf("invalid mode %q: must be \"full\" or \"fast\"", modeStr)), nil
+		}
 	}
 
 	// Resolve to absolute path
@@ -43,7 +56,7 @@ func (s *Server) handleIndexRepository(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	// Run the indexing pipeline
-	p := pipeline.New(ctx, st, absPath)
+	p := pipeline.New(ctx, st, absPath, mode)
 	if err := p.Run(); err != nil {
 		return errResult(fmt.Sprintf("indexing failed: %v", err)), nil
 	}
@@ -65,6 +78,7 @@ func (s *Server) handleIndexRepository(ctx context.Context, req *mcp.CallToolReq
 
 	result := map[string]any{
 		"project":    projectName,
+		"mode":       string(mode),
 		"nodes":      nodeCount,
 		"edges":      edgeCount,
 		"indexed_at": indexedAt,

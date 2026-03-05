@@ -15,7 +15,7 @@ func (p *Pipeline) passDecorates() {
 
 	count := 0
 	for _, label := range []string{"Function", "Method", "Class"} {
-		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
+		nodes, err := p.findNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -57,12 +57,12 @@ func (p *Pipeline) processNodeDecorators(n *store.Node) int {
 		if targetResult.QualifiedName == "" {
 			continue
 		}
-		targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetResult.QualifiedName)
+		targetNode, _ := p.findNodeByQN(p.ProjectName, targetResult.QualifiedName)
 		if targetNode == nil {
 			continue
 		}
 
-		_, _ = p.Store.InsertEdge(&store.Edge{
+		_ = p.insertEdge(&store.Edge{
 			Project:    p.ProjectName,
 			SourceID:   n.ID,
 			TargetID:   targetNode.ID,
@@ -96,7 +96,7 @@ func (p *Pipeline) collectDecoratedNodes() (nodes []taggedNode, wordCount map[st
 	wordCount = map[string]int{}
 
 	for _, label := range []string{"Function", "Method", "Class"} {
-		found, err := p.Store.FindNodesByLabel(p.ProjectName, label)
+		found, err := p.findNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -166,7 +166,7 @@ func (p *Pipeline) passDecoratorTags() {
 			}
 		}
 
-		node, err := p.Store.FindNodeByQN(p.ProjectName, tn.qn)
+		node, err := p.findNodeByQN(p.ProjectName, tn.qn)
 		if err != nil || node == nil {
 			continue
 		}
@@ -175,7 +175,7 @@ func (p *Pipeline) passDecoratorTags() {
 			// Remove stale tags from previous runs
 			if _, hasTags := node.Properties["decorator_tags"]; hasTags {
 				delete(node.Properties, "decorator_tags")
-				_, _ = p.Store.UpsertNode(node)
+				_ = p.upsertNode(node)
 			}
 			continue
 		}
@@ -185,7 +185,7 @@ func (p *Pipeline) passDecoratorTags() {
 			node.Properties = map[string]any{}
 		}
 		node.Properties["decorator_tags"] = tags
-		_, _ = p.Store.UpsertNode(node)
+		_ = p.upsertNode(node)
 		tagged++
 	}
 

@@ -72,6 +72,28 @@ var testFilePatterns = map[lang.Language]testFilePattern{
 		prefixes: []string{"test_"},
 		testDirs: []string{"spec"},
 	},
+	lang.Julia: {
+		testDirs: []string{"test"},
+	},
+	lang.FSharp: {
+		stripExtSuffixes: []string{"Test", "Tests"},
+		testDirs:         []string{"tests"},
+	},
+	lang.Elm: {
+		testDirs: []string{"tests"},
+	},
+	lang.Fortran: {
+		prefixes: []string{"test_"},
+		testDirs: []string{"test", "tests"},
+	},
+	lang.CUDA: {
+		stripExtSuffixes: []string{"_test"},
+		testDirs:         []string{"test", "tests"},
+	},
+	lang.Verilog: {
+		suffixes: []string{"_tb.v", "_tb.sv"},
+		testDirs: []string{"testbench", "tb"},
+	},
 }
 
 // isTestFile returns true if the file path indicates a test file for the given language.
@@ -118,60 +140,54 @@ func containsTestDir(dir string, patterns ...string) bool {
 	return false
 }
 
+// testFuncPrefixes maps language → accepted test function name prefixes.
+var testFuncPrefixes = map[lang.Language][]string{
+	lang.Go:      {"Test", "Benchmark", "Example"},
+	lang.Python:  {"test_", "Test"},
+	lang.Java:    {"test"},
+	lang.Rust:    {"test_", "Test"},
+	lang.CPP:     {"Test", "test_"},
+	lang.CSharp:  {"Test"},
+	lang.PHP:     {"test", "Test"},
+	lang.Scala:   {"test"},
+	lang.Kotlin:  {"test"},
+	lang.Lua:     {"test_", "test"},
+	lang.FSharp:  {"test"},
+	lang.Fortran: {"test_", "Test"},
+	lang.CUDA:    {"Test", "test_"},
+}
+
+// testFuncSuffixes maps language → accepted test function name suffixes.
+var testFuncSuffixes = map[lang.Language][]string{
+	lang.Java:   {"Test"},
+	lang.Scala:  {"Spec"},
+	lang.CSharp: {"Test"},
+	lang.Kotlin: {"Test"},
+	lang.FSharp: {"Test"},
+}
+
 // isTestFunction returns true if the function name indicates a test entry point
 // (as opposed to a test helper). Used by passTests to gate TESTS edge creation.
 func isTestFunction(funcName string, language lang.Language) bool {
+	for _, p := range testFuncPrefixes[language] {
+		if strings.HasPrefix(funcName, p) {
+			return true
+		}
+	}
+	for _, s := range testFuncSuffixes[language] {
+		if strings.HasSuffix(funcName, s) {
+			return true
+		}
+	}
+	// Special cases not covered by simple prefix/suffix rules.
 	switch language {
-	case lang.Go:
-		return strings.HasPrefix(funcName, "Test") ||
-			strings.HasPrefix(funcName, "Benchmark") ||
-			strings.HasPrefix(funcName, "Example")
-
-	case lang.Python:
-		return strings.HasPrefix(funcName, "test_") ||
-			strings.HasPrefix(funcName, "Test")
-
 	case lang.JavaScript, lang.TypeScript, lang.TSX:
-		// Jest/Vitest test entry functions
 		switch funcName {
 		case "describe", "it", "test", "beforeAll", "afterAll", "beforeEach", "afterEach":
 			return true
 		}
-		return false
-
-	case lang.Java:
-		// JUnit test methods often annotated; name heuristic as fallback
-		return strings.HasPrefix(funcName, "test") ||
-			strings.HasSuffix(funcName, "Test")
-
-	case lang.Rust:
-		return strings.HasPrefix(funcName, "test_") ||
-			strings.HasPrefix(funcName, "Test")
-
-	case lang.CPP:
-		return strings.HasPrefix(funcName, "Test") ||
-			strings.HasPrefix(funcName, "test_")
-
-	case lang.PHP:
-		return strings.HasPrefix(funcName, "test") ||
-			strings.HasPrefix(funcName, "Test")
-
-	case lang.Scala:
-		return strings.HasPrefix(funcName, "test") ||
-			strings.HasSuffix(funcName, "Spec")
-
-	case lang.CSharp:
-		return strings.HasPrefix(funcName, "Test") ||
-			strings.HasSuffix(funcName, "Test")
-
-	case lang.Kotlin:
-		return strings.HasPrefix(funcName, "test") ||
-			strings.HasSuffix(funcName, "Test")
-
-	case lang.Lua:
-		return strings.HasPrefix(funcName, "test_") ||
-			strings.HasPrefix(funcName, "test")
+	case lang.Julia:
+		return funcName == "@testset" || funcName == "@test"
 	}
-
 	return false
 }

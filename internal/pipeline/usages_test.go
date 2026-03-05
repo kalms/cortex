@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DeusData/codebase-memory-mcp/internal/lang"
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -43,7 +43,7 @@ func Register() {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func Main() {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -137,36 +137,6 @@ func Main() {
 	}
 }
 
-func TestIsKeywordOrBuiltin(t *testing.T) {
-	tests := []struct {
-		name     string
-		language string
-		want     bool
-	}{
-		{"if", "go", true},
-		{"self", "python", true},
-		{"nil", "go", true},
-		{"make", "go", true},
-		{"print", "python", true},
-		{"MyFunction", "go", false},
-		{"processOrder", "python", false},
-		{"x", "go", true}, // single char
-	}
-	for _, tt := range tests {
-		var l lang.Language
-		switch tt.language {
-		case "go":
-			l = lang.Go
-		case "python":
-			l = lang.Python
-		}
-		got := isKeywordOrBuiltin(tt.name, l)
-		if got != tt.want {
-			t.Errorf("isKeywordOrBuiltin(%q, %s) = %v, want %v", tt.name, tt.language, got, tt.want)
-		}
-	}
-}
-
 func TestPassUsagesKotlinCreatesEdges(t *testing.T) {
 	// Create a Kotlin file that defines two functions, where one references
 	// the other as a variable (callback) rather than calling it.
@@ -190,7 +160,7 @@ fun register() {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +204,7 @@ fun main() {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, tmpDir)
+	p := New(context.Background(), s, tmpDir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatal(err)
 	}

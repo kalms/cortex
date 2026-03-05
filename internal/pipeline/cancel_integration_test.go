@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
-// TestGracefulShutdownLargeRepo indexes a real 300MB repo with a 2s timeout.
+// TestGracefulShutdownLargeRepo indexes a real repo with a short timeout to
+// verify context cancellation propagates correctly through the pipeline.
 // Skipped if /tmp/bench/erlang does not exist.
 func TestGracefulShutdownLargeRepo(t *testing.T) {
 	repoPath := "/tmp/bench/erlang"
@@ -24,11 +26,13 @@ func TestGracefulShutdownLargeRepo(t *testing.T) {
 	}
 	defer st.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// 50ms fires during the definitions pass (which takes ~60ms for this repo),
+	// ensuring cancellation is tested without depending on repo size.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
-	p := New(ctx, st, repoPath)
+	p := New(ctx, st, repoPath, discover.ModeFull)
 	err = p.Run()
 	elapsed := time.Since(start)
 
@@ -41,8 +45,8 @@ func TestGracefulShutdownLargeRepo(t *testing.T) {
 
 	t.Logf("PASS: cancelled after %v with %v", elapsed, err)
 
-	// Ensure it stopped reasonably fast (within 5s of the 2s deadline)
-	if elapsed > 7*time.Second {
-		t.Errorf("cancellation took too long: %v (expected <7s)", elapsed)
+	// Ensure it stopped reasonably fast (within 2s of the 50ms deadline)
+	if elapsed > 2*time.Second {
+		t.Errorf("cancellation took too long: %v (expected <2s)", elapsed)
 	}
 }

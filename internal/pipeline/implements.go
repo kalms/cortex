@@ -2,13 +2,11 @@ package pipeline
 
 import (
 	"log/slog"
+	"path/filepath"
 	"strings"
-
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/DeusData/codebase-memory-mcp/internal/fqn"
 	"github.com/DeusData/codebase-memory-mcp/internal/lang"
-	"github.com/DeusData/codebase-memory-mcp/internal/parser"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -37,8 +35,8 @@ func (p *Pipeline) passImplements() {
 	linkCount += l
 	overrideCount += o
 
-	// Explicit implements/extends (TS, Java, C#, Kotlin, Scala)
-	l, o = p.implementsExplicit()
+	// Explicit implements/extends via CBM base_classes data
+	l, o = p.implementsExplicitCBM()
 	linkCount += l
 	overrideCount += o
 
@@ -63,7 +61,7 @@ func (p *Pipeline) implementsGo() (linkCount, overrideCount int) {
 
 // collectGoInterfaces returns Go interfaces with their method names.
 func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
-	interfaces, findErr := p.Store.FindNodesByLabel(p.ProjectName, "Interface")
+	interfaces, findErr := p.findNodesByLabel(p.ProjectName, "Interface")
 	if findErr != nil || len(interfaces) == 0 {
 		return nil
 	}
@@ -74,14 +72,14 @@ func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
 			continue
 		}
 
-		edges, edgeErr := p.Store.FindEdgesBySourceAndType(iface.ID, "DEFINES_METHOD")
+		edges, edgeErr := p.findEdgesBySourceAndType(iface.ID, "DEFINES_METHOD")
 		if edgeErr != nil || len(edges) == 0 {
 			continue
 		}
 
 		var methods []ifaceMethodInfo
 		for _, e := range edges {
-			methodNode, _ := p.Store.FindNodeByID(e.TargetID)
+			methodNode, _ := p.findNodeByID(e.TargetID)
 			if methodNode != nil {
 				methods = append(methods, ifaceMethodInfo{
 					name:          methodNode.Name,
@@ -100,7 +98,7 @@ func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
 // collectStructMethods builds maps of receiver type -> method names and QN prefixes
 // from Go methods with receiver properties.
 func (p *Pipeline) collectStructMethods() (structMethods map[string]map[string]bool, structQNPrefix map[string]string) {
-	methodNodes, findErr := p.Store.FindNodesByLabel(p.ProjectName, "Method")
+	methodNodes, findErr := p.findNodesByLabel(p.ProjectName, "Method")
 	if findErr != nil {
 		return nil, nil
 	}
@@ -157,7 +155,7 @@ func (p *Pipeline) matchImplements(
 				continue
 			}
 
-			_, _ = p.Store.InsertEdge(&store.Edge{
+			_ = p.insertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: structNode.ID,
 				TargetID: iface.node.ID,
@@ -184,19 +182,18 @@ func (p *Pipeline) createOverrideEdges(
 
 	count := 0
 	for _, im := range ifaceMethods {
-		// prefix already includes the type name (e.g., "pkg.FileReader" from "pkg.FileReader.Read")
 		structMethodQN := prefix + "." + im.name
-		structMethodNode, _ := p.Store.FindNodeByQN(p.ProjectName, structMethodQN)
+		structMethodNode, _ := p.findNodeByQN(p.ProjectName, structMethodQN)
 		if structMethodNode == nil {
 			continue
 		}
 
-		ifaceMethodNode, _ := p.Store.FindNodeByQN(p.ProjectName, im.qualifiedName)
+		ifaceMethodNode, _ := p.findNodeByQN(p.ProjectName, im.qualifiedName)
 		if ifaceMethodNode == nil {
 			continue
 		}
 
-		_, _ = p.Store.InsertEdge(&store.Edge{
+		_ = p.insertEdge(&store.Edge{
 			Project:  p.ProjectName,
 			SourceID: structMethodNode.ID,
 			TargetID: ifaceMethodNode.ID,
@@ -211,12 +208,12 @@ func (p *Pipeline) createOverrideEdges(
 func (p *Pipeline) findStructNode(typeName string, structQNPrefix map[string]string) *store.Node {
 	if prefix, ok := structQNPrefix[typeName]; ok {
 		structQN := prefix + "." + typeName
-		if n, _ := p.Store.FindNodeByQN(p.ProjectName, structQN); n != nil {
+		if n, _ := p.findNodeByQN(p.ProjectName, structQN); n != nil {
 			return n
 		}
 	}
 
-	classes, _ := p.Store.FindNodesByLabel(p.ProjectName, "Class")
+	classes, _ := p.findNodesByLabel(p.ProjectName, "Class")
 	for _, c := range classes {
 		if c.Name == typeName && strings.HasSuffix(c.FilePath, ".go") {
 			return c
@@ -250,9 +247,9 @@ func satisfies(ifaceMethods []ifaceMethodInfo, structMethodSet map[string]bool) 
 	return true
 }
 
-// --- Explicit implements (TS, Java, C#, Kotlin, Scala) ---
+// --- Explicit implements via CBM base_classes data ---
 
-// explicitImplementsLangs maps languages to the extensions to check.
+// explicitImplementsExts maps languages to the extensions to check.
 var explicitImplementsExts = map[lang.Language]string{
 	lang.TypeScript: ".ts",
 	lang.TSX:        ".tsx",
@@ -263,210 +260,82 @@ var explicitImplementsExts = map[lang.Language]string{
 	lang.PHP:        ".php",
 }
 
-// implementsExplicit walks ASTs for TS/Java/C#/Kotlin/Scala files and detects
-// explicit `implements`/`extends` clauses.
-func (p *Pipeline) implementsExplicit() (linkCount, overrideCount int) {
-	for relPath, cached := range p.astCache {
-		ext, isExplicit := explicitImplementsExts[cached.Language]
-		if !isExplicit {
+// implementsExplicitCBM detects explicit implements/extends relationships
+// using CBM-extracted base_classes data from Class/Interface nodes.
+func (p *Pipeline) implementsExplicitCBM() (linkCount, overrideCount int) {
+	for _, label := range []string{"Class", "Interface"} {
+		nodes, err := p.findNodesByLabel(p.ProjectName, label)
+		if err != nil {
 			continue
 		}
-		if !strings.HasSuffix(relPath, ext) && cached.Language != lang.TSX {
-			continue
+		for _, classNode := range nodes {
+			lc, oc := p.processExplicitBases(classNode)
+			linkCount += lc
+			overrideCount += oc
 		}
-
-		moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
-		importMap := p.importMaps[moduleQN]
-		root := cached.Tree.RootNode()
-
-		parser.Walk(root, func(node *tree_sitter.Node) bool {
-			if !isClassDeclaration(node.Kind(), cached.Language) {
-				return true
-			}
-
-			nameNode := node.ChildByFieldName("name")
-			if nameNode == nil {
-				return false
-			}
-			className := parser.NodeText(nameNode, source(cached))
-
-			classQN := fqn.Compute(p.ProjectName, relPath, className)
-			classNode, _ := p.Store.FindNodeByQN(p.ProjectName, classQN)
-			if classNode == nil {
-				return false
-			}
-
-			// Extract implemented interface names
-			ifaceNames := extractImplementsClause(node, cached.Source, cached.Language)
-			for _, ifaceName := range ifaceNames {
-				ifaceQN := resolveAsClass(ifaceName, p.registry, moduleQN, importMap)
-				if ifaceQN == "" {
-					continue
-				}
-				ifaceNode, _ := p.Store.FindNodeByQN(p.ProjectName, ifaceQN)
-				if ifaceNode == nil {
-					continue
-				}
-
-				_, _ = p.Store.InsertEdge(&store.Edge{
-					Project:  p.ProjectName,
-					SourceID: classNode.ID,
-					TargetID: ifaceNode.ID,
-					Type:     "IMPLEMENTS",
-				})
-				linkCount++
-
-				// Create OVERRIDE edges for matching methods
-				overrideCount += p.createOverrideEdgesExplicit(classNode, ifaceNode)
-			}
-
-			return false
-		})
 	}
 	return
 }
 
-// source is a helper to get cached source bytes.
-func source(c *cachedAST) []byte { return c.Source }
-
-// isClassDeclaration checks if a node kind is a class declaration for the given language.
-// Language-aware to prevent cross-language false positives.
-func isClassDeclaration(kind string, language lang.Language) bool {
-	// Common across many languages
-	switch kind {
-	case "class_declaration", "class_definition":
-		return true
+// processExplicitBases links one class/interface node to all its base types.
+func (p *Pipeline) processExplicitBases(classNode *store.Node) (linkCount, overrideCount int) {
+	ext := strings.ToLower(filepath.Ext(classNode.FilePath))
+	fileLang, hasLang := lang.LanguageForExtension(ext)
+	if !hasLang {
+		return
+	}
+	if _, isExplicit := explicitImplementsExts[fileLang]; !isExplicit {
+		return
 	}
 
-	// Language-specific node types
-	switch language {
-	case lang.TypeScript, lang.TSX:
-		switch kind {
-		case "abstract_class_declaration", "interface_declaration":
-			return true
-		}
-	case lang.Java:
-		switch kind {
-		case "interface_declaration", "enum_declaration",
-			"annotation_type_declaration", "record_declaration":
-			return true
-		}
-	case lang.CSharp:
-		switch kind {
-		case "struct_declaration", "interface_declaration", "enum_declaration":
-			return true
-		}
-	case lang.Scala:
-		switch kind {
-		case "object_definition", "trait_definition":
-			return true
-		}
-	case lang.Kotlin:
-		switch kind {
-		case "object_declaration", "companion_object":
-			return true
-		}
-	case lang.PHP:
-		switch kind {
-		case "trait_declaration", "interface_declaration", "enum_declaration":
-			return true
-		}
+	baseClasses, ok := classNode.Properties["base_classes"]
+	if !ok {
+		return
 	}
-	return false
-}
+	baseList, ok := baseClasses.([]any)
+	if !ok {
+		return
+	}
 
-// extractImplementsClause extracts interface/trait names from a class declaration.
-func extractImplementsClause(classNode *tree_sitter.Node, src []byte, language lang.Language) []string {
-	var names []string
+	moduleQN := fqn.ModuleQN(p.ProjectName, classNode.FilePath)
+	importMap := p.importMaps[moduleQN]
 
-	for i := uint(0); i < classNode.ChildCount(); i++ {
-		child := classNode.Child(i)
-		if child == nil {
+	for _, bc := range baseList {
+		baseName, ok := bc.(string)
+		if !ok || baseName == "" {
 			continue
 		}
-		kind := child.Kind()
-
-		switch kind {
-		case "implements_clause", "interfaces", "super_interfaces",
-			"base_list", "delegation_specifiers", "extends_clause",
-			"class_interface_clause":
-			names = append(names, extractTypeListNames(child, src)...)
-		}
-	}
-
-	// Some languages put it in a specific field
-	if len(names) == 0 {
-		switch language {
-		case lang.TypeScript, lang.TSX:
-			if clause := findDescendantByKind(classNode, "implements_clause"); clause != nil {
-				names = extractTypeListNames(clause, src)
-			}
-		case lang.Java:
-			if clause := findChildByKind(classNode, "super_interfaces"); clause != nil {
-				names = extractTypeListNames(clause, src)
-			}
-		case lang.PHP:
-			if clause := findChildByKind(classNode, "class_interface_clause"); clause != nil {
-				names = extractTypeListNames(clause, src)
-			}
-		}
-	}
-
-	return names
-}
-
-// extractTypeListNames extracts type identifier names from a type list clause.
-func extractTypeListNames(clause *tree_sitter.Node, src []byte) []string {
-	var names []string
-	for i := uint(0); i < clause.NamedChildCount(); i++ {
-		child := clause.NamedChild(i)
-		if child == nil {
+		ifaceQN := resolveAsClass(baseName, p.registry, moduleQN, importMap)
+		if ifaceQN == "" {
 			continue
 		}
-		switch child.Kind() {
-		case "type_identifier", "identifier", "simple_identifier", "name":
-			names = append(names, parser.NodeText(child, src))
-		case "qualified_name":
-			// PHP qualified names: extract last segment
-			text := parser.NodeText(child, src)
-			names = append(names, lastBackslashOrDotSegment(text))
-		case "generic_type":
-			if child.NamedChildCount() > 0 {
-				nameNode := child.NamedChild(0)
-				if nameNode != nil {
-					names = append(names, parser.NodeText(nameNode, src))
-				}
-			}
-		case "delegation_specifier", "annotated_delegation_specifier":
-			// Kotlin wraps each type in a delegation_specifier
-			ident := findDescendantByKind(child, "simple_identifier")
-			if ident == nil {
-				ident = findDescendantByKind(child, "identifier")
-			}
-			if ident != nil {
-				names = append(names, parser.NodeText(ident, src))
-			}
-		default:
-			// Recurse into type_list or interface_type_list
-			if child.NamedChildCount() > 0 {
-				names = append(names, extractTypeListNames(child, src)...)
-			}
+		ifaceNode, _ := p.findNodeByQN(p.ProjectName, ifaceQN)
+		if ifaceNode == nil {
+			continue
 		}
+		_ = p.insertEdge(&store.Edge{
+			Project:  p.ProjectName,
+			SourceID: classNode.ID,
+			TargetID: ifaceNode.ID,
+			Type:     "IMPLEMENTS",
+		})
+		linkCount++
+		overrideCount += p.createOverrideEdgesExplicit(classNode, ifaceNode)
 	}
-	return names
+	return
 }
 
 // createOverrideEdgesExplicit creates OVERRIDE edges by matching method names
 // between a class and an interface.
 func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node) int {
 	// Get interface methods
-	ifaceEdges, err := p.Store.FindEdgesBySourceAndType(ifaceNode.ID, "DEFINES_METHOD")
+	ifaceEdges, err := p.findEdgesBySourceAndType(ifaceNode.ID, "DEFINES_METHOD")
 	if err != nil || len(ifaceEdges) == 0 {
 		return 0
 	}
 
 	// Get class methods
-	classEdges, err := p.Store.FindEdgesBySourceAndType(classNode.ID, "DEFINES_METHOD")
+	classEdges, err := p.findEdgesBySourceAndType(classNode.ID, "DEFINES_METHOD")
 	if err != nil || len(classEdges) == 0 {
 		return 0
 	}
@@ -474,7 +343,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 	// Build class method name -> node ID map
 	classMethodByName := make(map[string]int64)
 	for _, e := range classEdges {
-		methodNode, _ := p.Store.FindNodeByID(e.TargetID)
+		methodNode, _ := p.findNodeByID(e.TargetID)
 		if methodNode != nil {
 			classMethodByName[methodNode.Name] = methodNode.ID
 		}
@@ -482,7 +351,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 
 	count := 0
 	for _, e := range ifaceEdges {
-		ifaceMethodNode, _ := p.Store.FindNodeByID(e.TargetID)
+		ifaceMethodNode, _ := p.findNodeByID(e.TargetID)
 		if ifaceMethodNode == nil {
 			continue
 		}
@@ -491,7 +360,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 			continue
 		}
 
-		_, _ = p.Store.InsertEdge(&store.Edge{
+		_ = p.insertEdge(&store.Edge{
 			Project:  p.ProjectName,
 			SourceID: classMethodID,
 			TargetID: ifaceMethodNode.ID,
@@ -504,48 +373,36 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 
 // --- Rust: impl Trait for Struct ---
 
-// implementsRust walks Rust ASTs for `impl Trait for Struct` patterns.
+// implementsRust detects `impl Trait for Struct` from CBM extraction data.
 func (p *Pipeline) implementsRust() (linkCount, overrideCount int) {
-	for relPath, cached := range p.astCache {
-		if cached.Language != lang.Rust {
+	for relPath, ext := range p.extractionCache {
+		if ext.Language != lang.Rust || ext.Result == nil {
+			continue
+		}
+		if len(ext.Result.ImplTraits) == 0 {
 			continue
 		}
 
 		moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
 		importMap := p.importMaps[moduleQN]
-		root := cached.Tree.RootNode()
 
-		parser.Walk(root, func(node *tree_sitter.Node) bool {
-			if node.Kind() != "impl_item" {
-				return true
-			}
-
-			// impl_item has "trait" and "type" fields when it's an impl Trait for Type
-			traitNode := node.ChildByFieldName("trait")
-			typeNode := node.ChildByFieldName("type")
-			if traitNode == nil || typeNode == nil {
-				return false
-			}
-
-			traitName := parser.NodeText(traitNode, cached.Source)
-			structName := parser.NodeText(typeNode, cached.Source)
-
-			traitQN := resolveAsClass(traitName, p.registry, moduleQN, importMap)
+		for _, it := range ext.Result.ImplTraits {
+			traitQN := resolveAsClass(it.TraitName, p.registry, moduleQN, importMap)
 			if traitQN == "" {
-				return false
+				continue
 			}
-			structQN := resolveAsClass(structName, p.registry, moduleQN, importMap)
+			structQN := resolveAsClass(it.StructName, p.registry, moduleQN, importMap)
 			if structQN == "" {
-				return false
+				continue
 			}
 
-			traitDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, traitQN)
-			structDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, structQN)
+			traitDBNode, _ := p.findNodeByQN(p.ProjectName, traitQN)
+			structDBNode, _ := p.findNodeByQN(p.ProjectName, structQN)
 			if traitDBNode == nil || structDBNode == nil {
-				return false
+				continue
 			}
 
-			_, _ = p.Store.InsertEdge(&store.Edge{
+			_ = p.insertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: structDBNode.ID,
 				TargetID: traitDBNode.ID,
@@ -554,19 +411,7 @@ func (p *Pipeline) implementsRust() (linkCount, overrideCount int) {
 			linkCount++
 
 			overrideCount += p.createOverrideEdgesExplicit(structDBNode, traitDBNode)
-			return false
-		})
+		}
 	}
 	return
-}
-
-// lastBackslashOrDotSegment returns the last segment of a name separated by \ or .
-func lastBackslashOrDotSegment(name string) string {
-	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
-		return name[idx+1:]
-	}
-	if idx := strings.LastIndex(name, "."); idx >= 0 {
-		return name[idx+1:]
-	}
-	return name
 }

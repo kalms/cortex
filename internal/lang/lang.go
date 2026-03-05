@@ -17,8 +17,6 @@ const (
 	Lua        Language = "lua"
 	Scala      Language = "scala"
 	Kotlin     Language = "kotlin"
-	JSON       Language = "json" // Not in AllLanguages(); no LanguageSpec or tree-sitter grammar
-
 	// Programming languages (Tier 1)
 	Ruby       Language = "ruby"
 	C          Language = "c"
@@ -35,6 +33,19 @@ const (
 	Erlang     Language = "erlang"
 	R          Language = "r"
 
+	Clojure    Language = "clojure"
+	FSharp     Language = "fsharp"
+	Julia      Language = "julia"
+	VimScript  Language = "vimscript"
+	Nix        Language = "nix"
+	CommonLisp Language = "commonlisp"
+	Elm        Language = "elm"
+	Fortran    Language = "fortran"
+	CUDA       Language = "cuda"
+	COBOL      Language = "cobol"
+	Verilog    Language = "verilog"
+	EmacsLisp  Language = "emacslisp"
+
 	// Helper languages (Tier 2)
 	HTML       Language = "html"
 	CSS        Language = "css"
@@ -44,6 +55,18 @@ const (
 	HCL        Language = "hcl"
 	SQL        Language = "sql"
 	Dockerfile Language = "dockerfile"
+	JSON       Language = "json"
+	XML        Language = "xml"
+	Markdown   Language = "markdown"
+	Makefile   Language = "makefile"
+	CMake      Language = "cmake"
+	Protobuf   Language = "protobuf"
+	GraphQL    Language = "graphql"
+	Vue        Language = "vue"
+	Svelte     Language = "svelte"
+	Meson      Language = "meson"
+	GLSL       Language = "glsl"
+	INI        Language = "ini"
 )
 
 // AllLanguages returns all supported languages.
@@ -52,7 +75,11 @@ func AllLanguages() []Language {
 		Python, JavaScript, TypeScript, TSX, Go, Rust, Java, CPP, CSharp, PHP, Lua, Scala, Kotlin,
 		Ruby, C, Bash, Zig, Elixir, Haskell, OCaml, ObjectiveC,
 		Swift, Dart, Perl, Groovy, Erlang, R,
+		Clojure, FSharp, Julia, VimScript, Nix, CommonLisp, Elm, Fortran,
+		CUDA, COBOL, Verilog, EmacsLisp,
 		HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile,
+		JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL,
+		Vue, Svelte, Meson, GLSL, INI,
 	}
 }
 
@@ -119,4 +146,23 @@ func LanguageForExtension(ext string) (Language, bool) {
 		return "", false
 	}
 	return spec.Language, true
+}
+
+// filenameToLanguage maps exact filenames to languages (for extensionless files).
+var filenameToLanguage = map[string]Language{
+	"Makefile":          Makefile,
+	"GNUmakefile":       Makefile,
+	"makefile":          Makefile,
+	"CMakeLists.txt":    CMake,
+	"Dockerfile":        Dockerfile,
+	"meson.build":       Meson,
+	"meson.options":     Meson,
+	"meson_options.txt": Meson,
+	".vimrc":            VimScript,
+}
+
+// LanguageForFilename returns the Language for an exact filename match.
+func LanguageForFilename(name string) (Language, bool) {
+	l, ok := filenameToLanguage[name]
+	return l, ok
 }

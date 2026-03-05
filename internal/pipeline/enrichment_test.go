@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -98,7 +99,7 @@ def special():
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}
@@ -175,7 +176,7 @@ class OwnerController {
 	}
 	defer s.Close()
 
-	p := New(context.Background(), s, dir)
+	p := New(context.Background(), s, dir, discover.ModeFull)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Pipeline.Run: %v", err)
 	}

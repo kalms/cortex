@@ -8,7 +8,7 @@ Parses source code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/
 
 ## Features
 
-- **35 languages**: Python, Go, JavaScript, TypeScript, TSX, Rust, Java, C++, C#, C, PHP, Lua, Scala, Kotlin, Ruby, Bash, Zig, Elixir, Haskell, OCaml, Objective-C, Swift, Dart, Perl, Groovy, Erlang, R, HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile
+- **59 languages**: Python, Go, JavaScript, TypeScript, TSX, Rust, Java, C++, C#, C, PHP, Lua, Scala, Kotlin, Ruby, Bash, Zig, Elixir, Haskell, OCaml, Objective-C, Swift, Dart, Perl, Groovy, Erlang, R, Clojure, F#, Julia, Vim Script, Nix, Common Lisp, Elm, Fortran, CUDA, COBOL, Verilog, Emacs Lisp, HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile, JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL, Vue, Svelte, Meson, GLSL, INI
 - **Architecture overview**: `get_architecture` returns languages, packages, entry points, routes, hotspots, boundaries, layers, and clusters in a single call — instant codebase orientation
 - **Architecture Decision Records**: `manage_adr` persists architectural decisions (PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY) across sessions with section filtering and validation
 - **Louvain community detection**: Discovers hidden functional modules across packages by clustering CALLS, HTTP_CALLS, and ASYNC_CALLS edges
@@ -57,7 +57,7 @@ Claude Code formats and explains the results.
 
 **Why no built-in LLM?** Other code graph tools embed an LLM to translate natural language into graph queries. This means extra API keys, extra cost per query, and another model to configure. With MCP, the AI assistant you're already talking to *is* the query translator — no duplication needed.
 
-**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 35 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**.
+**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 35 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**. All 59 supported languages use the same efficient graph backend.
 
 ## Performance
 
@@ -663,13 +663,14 @@ make install  # go install
 
 ## Language Benchmark
 
-Benchmarked against 35 real open-source repositories (78 to 49K nodes). 12 standardized questions per language, up to 5 retry attempts each. Grading: PASS (1.0) / PARTIAL (0.5) / FAIL (0.0). Overall: **91.8%** weighted score.
+59 languages supported. Benchmarked against 35 real open-source repositories (78 to 49K nodes). 12 standardized questions per language, up to 5 retry attempts each. Grading: PASS (1.0) / PARTIAL (0.5) / FAIL (0.0). Overall: **91.8%** weighted score across benchmarked languages.
 
 | Tier | Score | Languages |
 |------|-------|-----------|
 | **Tier 1 — Excellent** | >= 90% | Lua, Kotlin, C++, Perl, Objective-C, Groovy, C, Bash, Zig, Swift, CSS, YAML, TOML, HTML, SCSS, HCL, Dockerfile |
 | **Tier 2 — Good** | 75–89% | Python, TypeScript, TSX, Go, Rust, Java, R, Dart, JavaScript, Erlang, Elixir, Scala, Ruby, PHP, C#, SQL |
 | **Tier 3 — Functional** | < 75% | OCaml (72%), Haskell (62%) |
+| **Not yet benchmarked** | — | Clojure, F#, Julia, Vim Script, Nix, Common Lisp, Elm, Fortran, CUDA, COBOL, Verilog, Emacs Lisp, JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL, Vue, Svelte, Meson, GLSL, INI |
 
 **Stress test**: Linux kernel `drivers/net/ethernet/intel/` — 20K nodes, 67K edges, 129K-char deep traces, zero timeouts.
 
@@ -681,7 +682,7 @@ See [`BENCHMARK.md`](BENCHMARK.md) for the full 35-language benchmark with per-q
 cmd/codebase-memory-mcp/  Entry point (MCP stdio server + CLI mode + install/update commands)
 internal/
   store/                  SQLite graph storage (nodes, edges, traversal, search, architecture, Louvain clustering)
-  lang/                   Language specs (35 languages, tree-sitter node types)
+  lang/                   Language specs (59 languages, tree-sitter node types)
   parser/                 Tree-sitter grammar loading and AST parsing
   pipeline/               Multi-pass indexing (structure → definitions → calls → HTTP links → communities → tests)
   httplink/               Cross-service HTTP route/call-site matching
