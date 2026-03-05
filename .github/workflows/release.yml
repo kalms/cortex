@@ -70,6 +70,9 @@ jobs:
             -o codebase-memory-mcp \
             ./cmd/codebase-memory-mcp/
 
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh ./codebase-memory-mcp
+
       - name: Create archive
         run: tar -czf codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz codebase-memory-mcp
 
@@ -108,6 +111,10 @@ jobs:
             -ldflags "-X main.version=${{ inputs.version }}" \
             -o codebase-memory-mcp.exe \
             ./cmd/codebase-memory-mcp/
+
+      - name: Smoke test
+        shell: msys2 {0}
+        run: bash scripts/smoke-test.sh ./codebase-memory-mcp.exe
 
       - name: Create archive
         shell: pwsh
