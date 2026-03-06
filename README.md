@@ -57,7 +57,7 @@ Claude Code formats and explains the results.
 
 **Why no built-in LLM?** Other code graph tools embed an LLM to translate natural language into graph queries. This means extra API keys, extra cost per query, and another model to configure. With MCP, the AI assistant you're already talking to *is* the query translator — no duplication needed.
 
-**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 35 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**. All 59 supported languages use the same efficient graph backend.
+**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 59 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**. All 59 supported languages use the same efficient graph backend.
 
 ## Performance
 
@@ -530,7 +530,7 @@ search_graph(label="Function", limit=50, offset=50)
 
 ### Edge Types
 
-`CONTAINS_PACKAGE`, `CONTAINS_FOLDER`, `CONTAINS_FILE`, `CONTAINS_MODULE`, `DEFINES`, `DEFINES_METHOD`, `IMPORTS`, `CALLS`, `HTTP_CALLS`, `INHERITS`, `IMPLEMENTS`, `DEPENDS_ON_EXTERNAL`, `HANDLES`
+`CONTAINS_PACKAGE`, `CONTAINS_FOLDER`, `CONTAINS_FILE`, `DEFINES`, `DEFINES_METHOD`, `IMPORTS`, `CALLS`, `HTTP_CALLS`, `ASYNC_CALLS`, `IMPLEMENTS`, `HANDLES`, `USAGE`, `CONFIGURES`, `WRITES`, `MEMBER_OF`, `TESTS`, `USES_TYPE`, `FILE_CHANGES_WITH`
 
 ### Node Properties
 
@@ -663,14 +663,14 @@ make install  # go install
 
 ## Language Benchmark
 
-59 languages supported. Benchmarked against 35 real open-source repositories (78 to 49K nodes). 12 standardized questions per language, up to 5 retry attempts each. Grading: PASS (1.0) / PARTIAL (0.5) / FAIL (0.0). Overall: **91.8%** weighted score across benchmarked languages.
+59 languages supported. Benchmarked against 59 real open-source repositories (78 to 49K nodes). 12 standardized questions per language. Grading: HIGH (1.0) / MEDIUM (0.5) / LOW (0.1). Overall: **76%** average MCP score across all languages (97% for explorer-based agents).
 
 | Tier | Score | Languages |
 |------|-------|-----------|
 | **Tier 1 — Excellent** | >= 90% | Lua, Kotlin, C++, Perl, Objective-C, Groovy, C, Bash, Zig, Swift, CSS, YAML, TOML, HTML, SCSS, HCL, Dockerfile |
 | **Tier 2 — Good** | 75–89% | Python, TypeScript, TSX, Go, Rust, Java, R, Dart, JavaScript, Erlang, Elixir, Scala, Ruby, PHP, C#, SQL |
 | **Tier 3 — Functional** | < 75% | OCaml (72%), Haskell (62%) |
-| **Not yet benchmarked** | — | Clojure, F#, Julia, Vim Script, Nix, Common Lisp, Elm, Fortran, CUDA, COBOL, Verilog, Emacs Lisp, JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL, Vue, Svelte, Meson, GLSL, INI |
+| **Not yet re-benchmarked** | — | Nix, Meson |
 
 **Stress test**: Linux kernel `drivers/net/ethernet/intel/` — 20K nodes, 67K edges, 129K-char deep traces, zero timeouts.
 
@@ -683,8 +683,8 @@ cmd/codebase-memory-mcp/  Entry point (MCP stdio server + CLI mode + install/upd
 internal/
   store/                  SQLite graph storage (nodes, edges, traversal, search, architecture, Louvain clustering)
   lang/                   Language specs (59 languages, tree-sitter node types)
-  parser/                 Tree-sitter grammar loading and AST parsing
-  pipeline/               Multi-pass indexing (structure → definitions → calls → HTTP links → communities → tests)
+  cbm/                    Vendored tree-sitter C grammars (59 languages) and AST extraction engine
+  pipeline/               Multi-pass indexing (structure → definitions → calls → HTTP links → config links → communities → tests)
   httplink/               Cross-service HTTP route/call-site matching
   cypher/                 Cypher query lexer, parser, planner, executor
   selfupdate/             GitHub release checking, version comparison, asset download
