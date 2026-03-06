@@ -64,9 +64,11 @@ jobs:
         run: go test ./...
 
       - name: Build binary
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           CGO_ENABLED=1 go build \
-            -ldflags "-X main.version=${{ inputs.version }}" \
+            -ldflags "-X main.version=$VERSION" \
             -o codebase-memory-mcp \
             ./cmd/codebase-memory-mcp/
 
@@ -106,9 +108,11 @@ jobs:
 
       - name: Build binary
         shell: msys2 {0}
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           CGO_ENABLED=1 CC=gcc go build \
-            -ldflags "-X main.version=${{ inputs.version }}" \
+            -ldflags "-X main.version=$VERSION" \
             -o codebase-memory-mcp.exe \
             ./cmd/codebase-memory-mcp/
 
@@ -142,14 +146,17 @@ jobs:
 
       - name: Delete existing release
         if: ${{ inputs.replace }}
-        run: gh release delete "${{ inputs.version }}" --yes --cleanup-tag || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: gh release delete "$VERSION" --yes --cleanup-tag || true
 
       - name: Create tag
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          git tag -f ${{ inputs.version }}
-          git push origin ${{ inputs.version }} --force
+          git tag -f "$VERSION"
+          git push origin "$VERSION" --force
 
       - uses: softprops/action-gh-release@v2
         with:

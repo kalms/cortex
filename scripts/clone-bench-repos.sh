@@ -61,11 +61,11 @@ clone perl        "mojolicious/mojo"
 clone groovy      "spockframework/spock"
 clone r           "tidyverse/dplyr"
 clone clojure     "clojure/clojure"
-clone fsharp      "fsprojects/Paket"
-clone julia       "JuliaLang/julia"
-clone vimscript   "vim/vim"
+clone fsharp      "giraffe-fsharp/Giraffe"
+clone julia       "SciML/DifferentialEquations.jl"
+clone vimscript   "SpaceVim/SpaceVim"
 clone nix         "NixOS/nixpkgs"
-clone commonlisp  "sbcl/sbcl"
+clone commonlisp  "lem-project/lem"
 clone elm         "elm/compiler"
 clone fortran     "cp2k/cp2k"
 clone cobol       "OCamlPro/gnucobol"
@@ -89,12 +89,12 @@ symlink html      javascript    # Express views contain HTML
 symlink css       tsx           # shadcn-ui styles
 symlink toml      rust          # meilisearch Cargo.toml + config
 symlink sql       java          # spring-petclinic SQL schemas
-symlink cuda      cpp           # CUDA extends C++ grammar
+clone cuda        "NVIDIA/cuda-samples"
 symlink json      typescript    # trpc JSON configs
 symlink xml       java          # spring-petclinic XML configs
 symlink markdown  python        # httpie docs
 symlink makefile  c             # redis Makefile
-symlink glsl      c             # GLSL uses C-like grammar
+clone glsl        "repalash/Open-Shaders"
 symlink ini       python        # httpie .cfg/.ini files
 
 echo ""
