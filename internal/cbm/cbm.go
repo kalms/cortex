@@ -205,6 +205,11 @@ var languageToC = map[lang.Language]C.CBMLanguage{
 	lang.Meson:      C.CBM_LANG_MESON,
 	lang.GLSL:       C.CBM_LANG_GLSL,
 	lang.INI:        C.CBM_LANG_INI,
+	// Scientific/math languages
+	lang.MATLAB: C.CBM_LANG_MATLAB,
+	lang.Lean:   C.CBM_LANG_LEAN,
+	lang.FORM:   C.CBM_LANG_FORM,
+	lang.Magma:  C.CBM_LANG_MAGMA,
 }
 
 // ParseTimeoutMicros is the default per-file parse timeout (10 seconds).

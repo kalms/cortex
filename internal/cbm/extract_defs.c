@@ -207,6 +207,36 @@ static TSNode resolve_func_name(TSNode node, CBMLanguage lang, const char* sourc
         return null_node;
     }
 
+    // MATLAB: function_definition — name via "name" field
+    if (lang == CBM_LANG_MATLAB && strcmp(kind, "function_definition") == 0) {
+        // MATLAB grammar: function [ret] = name(args)
+        // The "name" field should be set; fallback to first identifier child
+        if (!ts_node_is_null(name)) return name;
+        return cbm_find_child_by_kind(node, "identifier");
+    }
+
+    // Lean: def/theorem/instance/abbrev — name via declId field
+    if (lang == CBM_LANG_LEAN) {
+        // Lean grammar uses "declId" field for the name (6 chars)
+        TSNode decl_id = ts_node_child_by_field_name(node, "declId", 6);
+        if (!ts_node_is_null(decl_id)) {
+            // declId contains an identifier
+            TSNode id = cbm_find_child_by_kind(decl_id, "ident");
+            if (!ts_node_is_null(id)) return id;
+            // Fallback: first named child of declId
+            if (ts_node_named_child_count(decl_id) > 0)
+                return ts_node_named_child(decl_id, 0);
+            return decl_id;
+        }
+        // Fallback: look for "name" field or first identifier
+        if (!ts_node_is_null(name)) return name;
+        return cbm_find_child_by_kind(node, "ident");
+    }
+
+    // FORM: procedure_definition — name via "name" field (standard)
+    // Magma: function/procedure/intrinsic_definition — name via "name" field (standard)
+    // Both use standard "name" field which is handled above at line 33
+
     // C/C++/CUDA/GLSL: function_definition — name is inside the declarator chain
     // C grammar: function_definition{declarator:function_declarator{declarator:identifier}}
     if ((lang == CBM_LANG_C || lang == CBM_LANG_CPP || lang == CBM_LANG_CUDA ||

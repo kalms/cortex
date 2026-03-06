@@ -3,9 +3,11 @@ package discover
 import (
 	"bufio"
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/DeusData/codebase-memory-mcp/internal/lang"
@@ -206,6 +208,39 @@ func hasIgnoredSuffix(path string) bool {
 	return false
 }
 
+// Objective-C markers adapted from GitHub Linguist heuristics.yml
+var objcMarkers = regexp.MustCompile(`@interface|@implementation|@protocol|@property|#import\s+[<"]|@selector|@encode|@synthesize|@dynamic`)
+
+// MATLAB markers adapted from GitHub Linguist heuristics.yml
+var matlabMarkers = regexp.MustCompile(`(?m)^\s*function\b|^\s*classdef\b|^\s*%%|^\s*%[^{]`)
+
+// disambiguateM determines whether a .m file is MATLAB or Objective-C.
+// Returns the detected language and true, or ("", false) if undetermined.
+func disambiguateM(path string) (lang.Language, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return lang.MATLAB, true // default to MATLAB on error
+	}
+	defer f.Close()
+
+	// Read first 4KB for heuristics
+	buf := make([]byte, 4096)
+	n, err := io.ReadAtLeast(f, buf, 1)
+	if err != nil && n == 0 {
+		return lang.MATLAB, true
+	}
+	head := string(buf[:n])
+
+	if objcMarkers.MatchString(head) {
+		return lang.ObjectiveC, true
+	}
+	if matlabMarkers.MatchString(head) {
+		return lang.MATLAB, true
+	}
+	// Default to MATLAB (more common for .m in scientific codebases)
+	return lang.MATLAB, true
+}
+
 // classifyFile checks if a file is a supported source file and returns its FileInfo.
 // Returns nil if the file should be skipped.
 func classifyFile(path, rel string, info os.FileInfo, opts *Options) *FileInfo {
@@ -217,6 +252,20 @@ func classifyFile(path, rel string, info os.FileInfo, opts *Options) *FileInfo {
 	}
 
 	ext := filepath.Ext(path)
+
+	// .m files are ambiguous: MATLAB vs Objective-C
+	if ext == ".m" {
+		ml, ok := disambiguateM(path)
+		if ok {
+			return &FileInfo{
+				Path:     path,
+				RelPath:  filepath.ToSlash(rel),
+				Language: ml,
+				Size:     info.Size(),
+			}
+		}
+	}
+
 	l, ok := lang.LanguageForExtension(ext)
 	if !ok {
 		l, ok = lang.LanguageForFilename(info.Name())

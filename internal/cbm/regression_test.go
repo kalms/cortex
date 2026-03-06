@@ -931,3 +931,103 @@ func TestVimScriptFunction_Regression(t *testing.T) {
 	}
 	// If len(fns) == 0, VimScript extraction is broken — tracked by TestVimScriptFunctionExtraction
 }
+
+// =====================================================================
+// Group H: Scientific/Math Languages
+// =====================================================================
+
+// --- MATLAB ---
+func TestMATLABFunction_Regression(t *testing.T) {
+	src := []byte("function result = factorial(n)\n  if n <= 1\n    result = 1;\n  else\n    result = n * factorial(n - 1);\n  end\nend\n")
+	r, err := ExtractFile(src, lang.MATLAB, "t", "factorial.matlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns := defsWithLabel(r, "Function")
+	if len(fns) > 0 {
+		assertHasName(t, fns, "factorial")
+	}
+}
+
+func TestMATLABParse_Regression(t *testing.T) {
+	src := []byte("x = 1;\ny = x + 2;\n")
+	_, err := ExtractFile(src, lang.MATLAB, "t", "simple.matlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Lean 4 ---
+func TestLeanDef_Regression(t *testing.T) {
+	src := []byte("def hello : String := \"Hello\"\n")
+	r, err := ExtractFile(src, lang.Lean, "t", "Hello.lean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns := defsWithLabel(r, "Function")
+	if len(fns) > 0 {
+		assertHasName(t, fns, "hello")
+	}
+}
+
+func TestLeanParse_Regression(t *testing.T) {
+	src := []byte("theorem add_comm (a b : Nat) : a + b = b + a := by omega\n")
+	_, err := ExtractFile(src, lang.Lean, "t", "Comm.lean")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- FORM ---
+func TestFORMProcedure_Regression(t *testing.T) {
+	src := []byte("#procedure myproc(x)\n  id `x' = 0;\n#endprocedure\n")
+	r, err := ExtractFile(src, lang.FORM, "t", "calc.frm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns := defsWithLabel(r, "Function")
+	if len(fns) > 0 {
+		assertHasName(t, fns, "myproc")
+	}
+}
+
+func TestFORMParse_Regression(t *testing.T) {
+	src := []byte("Symbols x, y;\nLocal F = x + y;\nPrint;\n.end\n")
+	_, err := ExtractFile(src, lang.FORM, "t", "example.frm")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Magma ---
+func TestMagmaFunction_Regression(t *testing.T) {
+	src := []byte("function Factorial(n)\n  if n le 1 then\n    return 1;\n  end if;\n  return n * Factorial(n - 1);\nend function;\n")
+	r, err := ExtractFile(src, lang.Magma, "t", "fact.mag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns := defsWithLabel(r, "Function")
+	if len(fns) > 0 {
+		assertHasName(t, fns, "Factorial")
+	}
+}
+
+func TestMagmaProcedure_Regression(t *testing.T) {
+	src := []byte("procedure PrintHello()\n  print \"Hello\";\nend procedure;\n")
+	r, err := ExtractFile(src, lang.Magma, "t", "hello.mag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns := defsWithLabel(r, "Function")
+	if len(fns) > 0 {
+		assertHasName(t, fns, "PrintHello")
+	}
+}
+
+func TestMagmaParse_Regression(t *testing.T) {
+	src := []byte("x := 42;\ny := x + 1;\n")
+	_, err := ExtractFile(src, lang.Magma, "t", "simple.mag")
+	if err != nil {
+		t.Fatal(err)
+	}
+}

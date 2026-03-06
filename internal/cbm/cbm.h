@@ -69,6 +69,11 @@ typedef enum {
     CBM_LANG_MESON,
     CBM_LANG_GLSL,
     CBM_LANG_INI,
+    // Scientific/math languages
+    CBM_LANG_MATLAB,
+    CBM_LANG_LEAN,
+    CBM_LANG_FORM,
+    CBM_LANG_MAGMA,
     CBM_LANG_COUNT
 } CBMLanguage;
 
