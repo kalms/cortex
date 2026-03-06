@@ -17,6 +17,8 @@ import (
 var version = "dev"
 
 func main() {
+	tools.SetVersion(version)
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version":

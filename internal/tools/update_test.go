@@ -37,7 +37,16 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
+func withTestVersion(t *testing.T, v string) {
+	t.Helper()
+	old := Version
+	Version = v
+	t.Cleanup(func() { Version = old })
+}
+
 func TestCheckForUpdate_NewerAvailable(t *testing.T) {
+	withTestVersion(t, "1.0.0")
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"tag_name": "v99.0.0"}`)
 	}))
@@ -63,6 +72,8 @@ func TestCheckForUpdate_NewerAvailable(t *testing.T) {
 }
 
 func TestCheckForUpdate_AlreadyCurrent(t *testing.T) {
+	withTestVersion(t, "1.0.0")
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"tag_name": "v%s"}`, Version)
 	}))
@@ -82,6 +93,8 @@ func TestCheckForUpdate_AlreadyCurrent(t *testing.T) {
 }
 
 func TestCheckForUpdate_OlderAvailable(t *testing.T) {
+	withTestVersion(t, "1.0.0")
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"tag_name": "v0.0.1"}`)
 	}))

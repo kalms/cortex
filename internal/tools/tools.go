@@ -24,8 +24,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Version is the current release version, referenced by MCP handshake and update checker.
-const Version = "0.4.3"
+// Version is the current release version, set from main.version via SetVersion().
+// Defaults to "dev" for local builds.
+var Version = "dev"
+
+// SetVersion sets the package version from the build-injected main.version.
+func SetVersion(v string) { Version = v }
 
 // releaseURL is the GitHub API endpoint for latest release. Package-level var for test injection.
 var releaseURL = "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
