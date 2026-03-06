@@ -360,6 +360,8 @@ static const char* yaml_var_types[] = {"block_mapping_pair",NULL};
 
 // ==================== TOML ====================
 static const char* toml_module_types[] = {"document",NULL};
+static const char* toml_class_types[] = {"table","table_array_element",NULL};
+static const char* toml_var_types[] = {"pair",NULL};
 
 // ==================== HCL ====================
 static const char* hcl_class_types[] = {"block",NULL};
@@ -441,6 +443,7 @@ static const char* nix_branch_types[] = {"if_expression",NULL};
 static const char* nix_var_types[] = {"binding",NULL};
 
 // ==================== COMMON LISP ====================
+static const char* commonlisp_func_types[] = {"defun",NULL};
 static const char* commonlisp_module_types[] = {"source",NULL};
 static const char* commonlisp_call_types[] = {"list_lit",NULL};
 
@@ -488,14 +491,18 @@ static const char* elisp_call_types[] = {"list",NULL};
 
 // ==================== JSON ====================
 static const char* json_module_types[] = {"document",NULL};
+static const char* json_var_types[] = {"pair",NULL};
 
 // ==================== XML ====================
 static const char* xml_module_types[] = {"document",NULL};
+static const char* xml_class_types[] = {"element",NULL};
 
 // ==================== MARKDOWN ====================
 static const char* markdown_module_types[] = {"document",NULL};
+static const char* markdown_class_types[] = {"atx_heading","setext_heading",NULL};
 
 // ==================== MAKEFILE ====================
+static const char* makefile_func_types[] = {"rule",NULL};
 static const char* makefile_module_types[] = {"makefile",NULL};
 static const char* makefile_call_types[] = {"function_call",NULL};
 static const char* makefile_import_types[] = {"include_directive",NULL};
@@ -535,6 +542,8 @@ static const char* meson_var_types[] = {"assignment_statement",NULL};
 
 // ==================== INI ====================
 static const char* ini_module_types[] = {"document",NULL};
+static const char* ini_class_types[] = {"section",NULL};
+static const char* ini_var_types[] = {"setting",NULL};
 
 // ==================== NEW LANG ENV ACCESS ====================
 static const char* julia_env_funcs[] = {"ENV",NULL};
@@ -701,8 +710,8 @@ static const CBMLangSpec lang_specs[CBM_LANG_COUNT] = {
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_TOML
-    {CBM_LANG_TOML, empty_types, empty_types, empty_types, toml_module_types, empty_types,
-     empty_types, empty_types, empty_types, empty_types, empty_types,
+    {CBM_LANG_TOML, empty_types, toml_class_types, empty_types, toml_module_types, empty_types,
+     empty_types, empty_types, empty_types, toml_var_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_HCL
@@ -746,7 +755,7 @@ static const CBMLangSpec lang_specs[CBM_LANG_COUNT] = {
      empty_types, NULL, empty_types, nix_env_funcs, NULL},
 
     // CBM_LANG_COMMONLISP
-    {CBM_LANG_COMMONLISP, empty_types, empty_types, empty_types, commonlisp_module_types, commonlisp_call_types,
+    {CBM_LANG_COMMONLISP, commonlisp_func_types, empty_types, empty_types, commonlisp_module_types, commonlisp_call_types,
      empty_types, empty_types, empty_types, empty_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
@@ -782,21 +791,21 @@ static const CBMLangSpec lang_specs[CBM_LANG_COUNT] = {
 
     // CBM_LANG_JSON
     {CBM_LANG_JSON, empty_types, empty_types, empty_types, json_module_types, empty_types,
-     empty_types, empty_types, empty_types, empty_types, empty_types,
+     empty_types, empty_types, empty_types, json_var_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_XML
-    {CBM_LANG_XML, empty_types, empty_types, empty_types, xml_module_types, empty_types,
+    {CBM_LANG_XML, empty_types, xml_class_types, empty_types, xml_module_types, empty_types,
      empty_types, empty_types, empty_types, empty_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_MARKDOWN
-    {CBM_LANG_MARKDOWN, empty_types, empty_types, empty_types, markdown_module_types, empty_types,
+    {CBM_LANG_MARKDOWN, empty_types, markdown_class_types, empty_types, markdown_module_types, empty_types,
      empty_types, empty_types, empty_types, empty_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_MAKEFILE
-    {CBM_LANG_MAKEFILE, empty_types, empty_types, empty_types, makefile_module_types, makefile_call_types,
+    {CBM_LANG_MAKEFILE, makefile_func_types, empty_types, empty_types, makefile_module_types, makefile_call_types,
      makefile_import_types, empty_types, empty_types, makefile_var_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 
@@ -836,8 +845,8 @@ static const CBMLangSpec lang_specs[CBM_LANG_COUNT] = {
      empty_types, NULL, empty_types, NULL, NULL},
 
     // CBM_LANG_INI
-    {CBM_LANG_INI, empty_types, empty_types, empty_types, ini_module_types, empty_types,
-     empty_types, empty_types, empty_types, empty_types, empty_types,
+    {CBM_LANG_INI, empty_types, ini_class_types, empty_types, ini_module_types, empty_types,
+     empty_types, empty_types, empty_types, ini_var_types, empty_types,
      empty_types, NULL, empty_types, NULL, NULL},
 };
 

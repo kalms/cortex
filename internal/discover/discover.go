@@ -3,6 +3,7 @@ package discover
 import (
 	"bufio"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,6 +206,41 @@ func hasIgnoredSuffix(path string) bool {
 	return false
 }
 
+// classifyFile checks if a file is a supported source file and returns its FileInfo.
+// Returns nil if the file should be skipped.
+func classifyFile(path, rel string, info os.FileInfo, opts *Options) *FileInfo {
+	if hasIgnoredSuffix(path) {
+		return nil
+	}
+	if shouldSkipFile(info.Name(), path, info.Size(), opts) {
+		return nil
+	}
+
+	ext := filepath.Ext(path)
+	l, ok := lang.LanguageForExtension(ext)
+	if !ok {
+		l, ok = lang.LanguageForFilename(info.Name())
+	}
+	if !ok {
+		return nil
+	}
+
+	if l == lang.JSON && isIgnoredJSON(info.Name()) {
+		return nil
+	}
+	if l == lang.JSON && info.Size() > 100*1024 {
+		slog.Warn("discover.skip_large_json", "path", rel, "size", info.Size())
+		return nil
+	}
+
+	return &FileInfo{
+		Path:     path,
+		RelPath:  filepath.ToSlash(rel),
+		Language: l,
+		Size:     info.Size(),
+	}
+}
+
 // Discover walks a repository and returns all source files.
 func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, error) {
 	repoPath, err := filepath.Abs(repoPath)
@@ -212,12 +248,10 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 		return nil, err
 	}
 
-	// Check cancellation before starting walk
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	// Load .cgrignore patterns if present
 	var extraIgnore []string
 	if opts != nil && opts.IgnoreFile != "" {
 		extraIgnore, _ = loadIgnoreFile(opts.IgnoreFile)
@@ -234,11 +268,9 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 	}
 
 	err = filepath.Walk(repoPath, func(path string, info os.FileInfo, walkErr error) error {
-		// Check context cancellation periodically during walk
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
 		if walkErr != nil {
 			return filepath.SkipDir
 		}
@@ -252,35 +284,8 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 			return nil
 		}
 
-		// Skip ignored suffixes (both modes)
-		if hasIgnoredSuffix(path) {
-			return nil
-		}
-
-		// Mode-aware file filtering
-		if shouldSkipFile(info.Name(), path, info.Size(), opts) {
-			return nil
-		}
-
-		// Check if we support this language
-		ext := filepath.Ext(path)
-		l, ok := lang.LanguageForExtension(ext)
-		if !ok {
-			// Try filename-based detection for extensionless files
-			l, ok = lang.LanguageForFilename(info.Name())
-		}
-		if ok {
-			// Skip ignored JSON files
-			if l == lang.JSON && isIgnoredJSON(info.Name()) {
-				return nil
-			}
-			files = append(files, FileInfo{
-				Path:     path,
-				RelPath:  filepath.ToSlash(rel),
-				Language: l,
-				Size:     info.Size(),
-			})
-			return nil
+		if fi := classifyFile(path, rel, info, opts); fi != nil {
+			files = append(files, *fi)
 		}
 		return nil
 	})

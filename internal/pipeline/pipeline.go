@@ -336,6 +336,10 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	slog.Info("pass.timing", "pass", "httplinks", "elapsed", time.Since(t))
 
 	t = time.Now()
+	p.passConfigLinker()
+	slog.Info("pass.timing", "pass", "configlinker", "elapsed", time.Since(t))
+
+	t = time.Now()
 	p.passGitHistory()
 	slog.Info("pass.timing", "pass", "githistory", "elapsed", time.Since(t))
 
@@ -488,10 +492,11 @@ func (p *Pipeline) runIncrementalPasses(
 		return err
 	}
 
-	// HTTP linking and implements always run fully (they clean up first)
+	// HTTP linking, config linking, and implements always run fully (they clean up first)
 	if err := p.passHTTPLinks(); err != nil {
 		slog.Warn("pass.httplink.err", "err", err)
 	}
+	p.passConfigLinker()
 	p.passImplements()
 	p.passGitHistory()
 
@@ -902,7 +907,8 @@ type parseResult struct {
 func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 	slog.Info("pass2.definitions")
 
-	// Separate JSON files (processed sequentially, they're fast and few)
+	// Enrich JSON files with URL constants (for HTTP linking), then include
+	// them in normal CBM extraction so they also get Variable/Class nodes.
 	parseableFiles := make([]discover.FileInfo, 0, len(files))
 	for _, f := range files {
 		if f.Language == lang.JSON {
@@ -912,7 +918,6 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 			if err := p.processJSONFile(f); err != nil {
 				slog.Warn("pass2.json.err", "path", f.RelPath, "err", err)
 			}
-			continue
 		}
 		parseableFiles = append(parseableFiles, f)
 	}

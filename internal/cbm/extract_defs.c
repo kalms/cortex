@@ -119,6 +119,120 @@ static TSNode resolve_func_name(TSNode node, CBMLanguage lang, const char* sourc
         }
     }
 
+    // VimScript: function_definition — name is inside function_declaration child
+    // Both function_definition and function_declaration have production_id=0 (no field names)
+    if (lang == CBM_LANG_VIMSCRIPT && strcmp(kind, "function_definition") == 0) {
+        TSNode decl = cbm_find_child_by_kind(node, "function_declaration");
+        if (!ts_node_is_null(decl)) {
+            // function_declaration: first named child is the identifier/name
+            uint32_t nc = ts_node_named_child_count(decl);
+            if (nc > 0) return ts_node_named_child(decl, 0);
+        }
+        // Fallback: first named child of function_definition directly
+        {
+            uint32_t nc = ts_node_named_child_count(node);
+            if (nc > 0) return ts_node_named_child(node, 0);
+        }
+    }
+
+    // Julia: function_definition — no field names defined (production_id=0)
+    // Name is inside first named child: identifier or call_expression(identifier, params)
+    if (lang == CBM_LANG_JULIA && strcmp(kind, "function_definition") == 0) {
+        TSNode current = node;
+        for (int depth = 0; depth < 4; depth++) {
+            uint32_t nc = ts_node_named_child_count(current);
+            if (nc == 0) break;
+            TSNode first = ts_node_named_child(current, 0);
+            const char* fk = ts_node_type(first);
+            if (strcmp(fk, "identifier") == 0 || strcmp(fk, "operator_identifier") == 0) {
+                return first;
+            }
+            current = first;
+        }
+        TSNode null_node = {0};
+        return null_node;
+    }
+
+    // CommonLisp: defun — name via function_name field (defun grammar uses field_function_name)
+    if (lang == CBM_LANG_COMMONLISP && strcmp(kind, "defun") == 0) {
+        TSNode fn = ts_node_child_by_field_name(node, "function_name", 13);
+        if (!ts_node_is_null(fn)) return fn;
+        // Fallback: traverse defun_header -> first sym_lit child
+        TSNode header = cbm_find_child_by_kind(node, "defun_header");
+        if (!ts_node_is_null(header)) {
+            return cbm_find_child_by_kind(header, "sym_lit");
+        }
+    }
+
+    // Makefile: rule — name is first word in the targets group
+    if (lang == CBM_LANG_MAKEFILE && strcmp(kind, "rule") == 0) {
+        TSNode targets = cbm_find_child_by_kind(node, "targets");
+        if (!ts_node_is_null(targets)) {
+            uint32_t nc = ts_node_named_child_count(targets);
+            if (nc > 0) return ts_node_named_child(targets, 0);
+        }
+        // Fallback: first word child directly on rule
+        return cbm_find_child_by_kind(node, "word");
+    }
+
+    // Haskell: function — prod_id 151/152 has inherited field_name (handled above),
+    // prod_id 77 (no-argument function like `main = ...`) has NO field_name.
+    // Fallback: first named child of first child contains the variable name.
+    if (lang == CBM_LANG_HASKELL && strcmp(kind, "function") == 0) {
+        // func_name_node already returned null — prod_id 77 path
+        if (ts_node_named_child_count(node) > 0) {
+            TSNode head = ts_node_named_child(node, 0);
+            const char* hk = ts_node_type(head);
+            // Direct variable (function name without patterns)
+            if (strcmp(hk, "variable") == 0 || strcmp(hk, "name") == 0) return head;
+            // Function head node: first named child is the variable
+            if (ts_node_named_child_count(head) > 0) {
+                TSNode v = ts_node_named_child(head, 0);
+                const char* vk = ts_node_type(v);
+                if (strcmp(vk, "variable") == 0 || strcmp(vk, "name") == 0) return v;
+            }
+        }
+        TSNode null_node = {0};
+        return null_node;
+    }
+
+    // Elm: value_declaration — name is inside functionDeclarationLeft child (field 22 chars)
+    if (lang == CBM_LANG_ELM && strcmp(kind, "value_declaration") == 0) {
+        TSNode fdl = ts_node_child_by_field_name(node, "functionDeclarationLeft", 22);
+        if (ts_node_is_null(fdl))
+            fdl = cbm_find_child_by_kind(node, "function_declaration_left");
+        if (!ts_node_is_null(fdl) && ts_node_named_child_count(fdl) > 0)
+            return ts_node_named_child(fdl, 0);
+        TSNode null_node = {0};
+        return null_node;
+    }
+
+    // C/C++/CUDA/GLSL: function_definition — name is inside the declarator chain
+    // C grammar: function_definition{declarator:function_declarator{declarator:identifier}}
+    if ((lang == CBM_LANG_C || lang == CBM_LANG_CPP || lang == CBM_LANG_CUDA ||
+         lang == CBM_LANG_GLSL) && strcmp(kind, "function_definition") == 0) {
+        TSNode decl = ts_node_child_by_field_name(node, "declarator", 10);
+        for (int depth = 0; depth < 8 && !ts_node_is_null(decl); depth++) {
+            const char* dk = ts_node_type(decl);
+            if (strcmp(dk, "identifier") == 0) return decl;
+            // C++ qualified name: Namespace::Function
+            if (strcmp(dk, "qualified_identifier") == 0 ||
+                strcmp(dk, "scoped_identifier") == 0) {
+                TSNode id = cbm_find_child_by_kind(decl, "identifier");
+                if (!ts_node_is_null(id)) return id;
+                break;
+            }
+            // Unwrap pointer_declarator, reference_declarator, function_declarator, etc.
+            TSNode inner = ts_node_child_by_field_name(decl, "declarator", 10);
+            if (ts_node_is_null(inner) && ts_node_named_child_count(decl) > 0)
+                inner = ts_node_named_child(decl, 0);
+            if (ts_node_is_null(inner)) break;
+            decl = inner;
+        }
+        TSNode null_node = {0};
+        return null_node;
+    }
+
     TSNode null_node = {0};
     return null_node;
 }
@@ -577,6 +691,164 @@ static void extract_class_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec
     CBMArena* a = ctx->arena;
     const char* kind = ts_node_type(node);
 
+    // Config language class extraction (TOML tables, INI sections, XML elements, Markdown headings)
+    if (ctx->language == CBM_LANG_TOML &&
+        (strcmp(kind, "table") == 0 || strcmp(kind, "table_array_element") == 0)) {
+        // TOML table: name from first bare_key/dotted_key/quoted_key child,
+        // or from the nested key within a bracket header
+        char* name = NULL;
+        uint32_t nc = ts_node_child_count(node);
+        for (uint32_t i = 0; i < nc && !name; i++) {
+            TSNode child = ts_node_child(node, i);
+            const char* ck = ts_node_type(child);
+            if (strcmp(ck, "bare_key") == 0 || strcmp(ck, "dotted_key") == 0 ||
+                strcmp(ck, "quoted_key") == 0 || strcmp(ck, "key") == 0) {
+                name = cbm_node_text(a, child, ctx->source);
+            }
+        }
+        if (!name || !name[0]) return;
+        CBMDefinition def;
+        memset(&def, 0, sizeof(def));
+        def.name = name;
+        def.qualified_name = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+        def.label = "Class";
+        def.file_path = ctx->rel_path;
+        def.start_line = ts_node_start_point(node).row + 1;
+        def.end_line = ts_node_end_point(node).row + 1;
+        def.is_exported = true;
+        cbm_defs_push(&ctx->result->defs, a, def);
+        return;
+    }
+
+    if (ctx->language == CBM_LANG_INI && strcmp(kind, "section") == 0) {
+        // INI section: name from section_name child
+        char* name = NULL;
+        uint32_t nc = ts_node_child_count(node);
+        for (uint32_t i = 0; i < nc && !name; i++) {
+            TSNode child = ts_node_child(node, i);
+            const char* ck = ts_node_type(child);
+            if (strcmp(ck, "section_name") == 0) {
+                name = cbm_node_text(a, child, ctx->source);
+            }
+        }
+        if (!name || !name[0]) return;
+        CBMDefinition def;
+        memset(&def, 0, sizeof(def));
+        def.name = name;
+        def.qualified_name = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+        def.label = "Class";
+        def.file_path = ctx->rel_path;
+        def.start_line = ts_node_start_point(node).row + 1;
+        def.end_line = ts_node_end_point(node).row + 1;
+        def.is_exported = true;
+        cbm_defs_push(&ctx->result->defs, a, def);
+        return;
+    }
+
+    if (ctx->language == CBM_LANG_XML && strcmp(kind, "element") == 0) {
+        // XML element: name from start_tag > tag_name or self_closing_tag > tag_name
+        char* name = NULL;
+        uint32_t nc = ts_node_child_count(node);
+        for (uint32_t i = 0; i < nc && !name; i++) {
+            TSNode child = ts_node_child(node, i);
+            const char* ck = ts_node_type(child);
+            if (strcmp(ck, "start_tag") == 0 || strcmp(ck, "self_closing_tag") == 0 ||
+                strcmp(ck, "STag") == 0 || strcmp(ck, "EmptyElemTag") == 0) {
+                // Find Name or tag_name child
+                uint32_t tnc = ts_node_child_count(child);
+                for (uint32_t j = 0; j < tnc; j++) {
+                    TSNode tag = ts_node_child(child, j);
+                    const char* tk = ts_node_type(tag);
+                    if (strcmp(tk, "tag_name") == 0 || strcmp(tk, "Name") == 0) {
+                        name = cbm_node_text(a, tag, ctx->source);
+                        break;
+                    }
+                }
+            }
+        }
+        // Fallback: try "Name" field directly for some XML grammars
+        if (!name) {
+            TSNode name_child = cbm_find_child_by_kind(node, "Name");
+            if (!ts_node_is_null(name_child)) {
+                name = cbm_node_text(a, name_child, ctx->source);
+            }
+        }
+        if (!name || !name[0]) return;
+        CBMDefinition def;
+        memset(&def, 0, sizeof(def));
+        def.name = name;
+        def.qualified_name = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+        def.label = "Class";
+        def.file_path = ctx->rel_path;
+        def.start_line = ts_node_start_point(node).row + 1;
+        def.end_line = ts_node_end_point(node).row + 1;
+        def.is_exported = true;
+        cbm_defs_push(&ctx->result->defs, a, def);
+        return;
+    }
+
+    if (ctx->language == CBM_LANG_MARKDOWN &&
+        (strcmp(kind, "atx_heading") == 0 || strcmp(kind, "setext_heading") == 0)) {
+        // Markdown heading: extract text content as name, use "Section" label
+        // For atx_heading: children are atx_h[1-6]_marker + inline content
+        // For setext_heading: children are paragraph + setext_h[12]_underline
+        char* name = NULL;
+        if (strcmp(kind, "atx_heading") == 0) {
+            // Find heading_content or inline child (skip the marker)
+            uint32_t nc = ts_node_child_count(node);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode child = ts_node_child(node, i);
+                const char* ck = ts_node_type(child);
+                if (strcmp(ck, "heading_content") == 0 || strcmp(ck, "inline") == 0) {
+                    name = cbm_node_text(a, child, ctx->source);
+                    break;
+                }
+            }
+            // Fallback: extract everything after the # marker
+            if (!name) {
+                char* full = cbm_node_text(a, node, ctx->source);
+                if (full) {
+                    // Skip leading # and space
+                    char* p = full;
+                    while (*p == '#') p++;
+                    while (*p == ' ') p++;
+                    if (*p) name = cbm_arena_strdup(a, p);
+                }
+            }
+        } else {
+            // setext_heading: first child is the heading text (paragraph)
+            if (ts_node_child_count(node) > 0) {
+                TSNode first = ts_node_child(node, 0);
+                const char* fk = ts_node_type(first);
+                if (strcmp(fk, "paragraph") == 0 || strcmp(fk, "heading_content") == 0 ||
+                    strcmp(fk, "inline") == 0) {
+                    name = cbm_node_text(a, first, ctx->source);
+                } else {
+                    name = cbm_node_text(a, first, ctx->source);
+                }
+            }
+        }
+        if (!name || !name[0]) return;
+        // Trim trailing whitespace/newlines
+        size_t len = strlen(name);
+        while (len > 0 && (name[len-1] == '\n' || name[len-1] == '\r' || name[len-1] == ' ')) {
+            name[len-1] = '\0';
+            len--;
+        }
+        if (!name[0]) return;
+        CBMDefinition def;
+        memset(&def, 0, sizeof(def));
+        def.name = name;
+        def.qualified_name = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+        def.label = "Section";  // NOT "Class" — avoids polluting class queries
+        def.file_path = ctx->rel_path;
+        def.start_line = ts_node_start_point(node).row + 1;
+        def.end_line = ts_node_end_point(node).row + 1;
+        def.is_exported = true;
+        cbm_defs_push(&ctx->result->defs, a, def);
+        return;
+    }
+
     // HCL blocks need special handling
     if (ctx->language == CBM_LANG_HCL && strcmp(kind, "block") == 0) {
         // Simple: use first identifier child as name
@@ -691,8 +963,12 @@ static TSNode resolve_method_name(TSNode child, CBMLanguage lang) {
 
     const char* ck = ts_node_type(child);
 
-    // Groovy: function_definition has identifier child (no "name" field)
+    // Groovy: function_definition uses field_function for the method name (not field_name).
+    // e.g., "String greet()" → {field_type:String, field_function:greet, ...}
+    // Using the first identifier would pick up the return type instead of the name.
     if (lang == CBM_LANG_GROOVY && strcmp(ck, "function_definition") == 0) {
+        TSNode fn = ts_node_child_by_field_name(child, "function", 8);
+        if (!ts_node_is_null(fn)) return fn;
         return cbm_find_child_by_kind(child, "identifier");
     }
 
@@ -1306,6 +1582,89 @@ static void extract_var_names(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec
             }
             break;
         }
+        case CBM_LANG_TOML: {
+            // pair: first child is bare_key/dotted_key/quoted_key
+            uint32_t nc = ts_node_child_count(node);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode child = ts_node_child(node, i);
+                const char* ck = ts_node_type(child);
+                if (strcmp(ck, "bare_key") == 0 || strcmp(ck, "dotted_key") == 0 ||
+                    strcmp(ck, "quoted_key") == 0 || strcmp(ck, "key") == 0) {
+                    push_var_def(ctx, cbm_node_text(a, child, ctx->source), node);
+                    break;
+                }
+            }
+            break;
+        }
+        case CBM_LANG_JSON: {
+            // pair: "key" field is a string node, extract unquoted text
+            TSNode key_node = ts_node_child_by_field_name(node, "key", 3);
+            if (!ts_node_is_null(key_node)) {
+                char* raw = cbm_node_text(a, key_node, ctx->source);
+                if (raw) {
+                    // Strip surrounding quotes if present
+                    size_t rlen = strlen(raw);
+                    if (rlen >= 2 && raw[0] == '"' && raw[rlen-1] == '"') {
+                        raw[rlen-1] = '\0';
+                        raw++;
+                    }
+                    push_var_def(ctx, raw, node);
+                }
+            }
+            break;
+        }
+        case CBM_LANG_INI: {
+            // setting: first non-whitespace child before "=" is the key name
+            uint32_t nc = ts_node_child_count(node);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode child = ts_node_child(node, i);
+                const char* ck = ts_node_type(child);
+                if (strcmp(ck, "setting_name") == 0 || strcmp(ck, "name") == 0) {
+                    char* name = cbm_node_text(a, child, ctx->source);
+                    // Trim whitespace
+                    if (name) {
+                        while (*name == ' ' || *name == '\t') name++;
+                        size_t nlen = strlen(name);
+                        while (nlen > 0 && (name[nlen-1] == ' ' || name[nlen-1] == '\t')) {
+                            name[nlen-1] = '\0';
+                            nlen--;
+                        }
+                    }
+                    push_var_def(ctx, name, node);
+                    break;
+                }
+            }
+            // Fallback: try first child text (some INI grammars use different structure)
+            if (nc > 0) {
+                TSNode first = ts_node_child(node, 0);
+                const char* fk = ts_node_type(first);
+                if (strcmp(fk, "setting_name") != 0 && strcmp(fk, "name") != 0) {
+                    // Check if we already pushed (avoid duplicate)
+                    // Only try if no setting_name was found above
+                    bool found_name = false;
+                    for (uint32_t i = 0; i < nc; i++) {
+                        const char* ck = ts_node_type(ts_node_child(node, i));
+                        if (strcmp(ck, "setting_name") == 0 || strcmp(ck, "name") == 0) {
+                            found_name = true;
+                            break;
+                        }
+                    }
+                    if (!found_name) {
+                        char* name = cbm_node_text(a, first, ctx->source);
+                        if (name) {
+                            while (*name == ' ' || *name == '\t') name++;
+                            size_t nlen = strlen(name);
+                            while (nlen > 0 && (name[nlen-1] == ' ' || name[nlen-1] == '\t')) {
+                                name[nlen-1] = '\0';
+                                nlen--;
+                            }
+                        }
+                        push_var_def(ctx, name, node);
+                    }
+                }
+            }
+            break;
+        }
         case CBM_LANG_ERLANG: {
             // pp_define / record_decl: name from atom/var/macro_lhs child
             if (strcmp(kind, "pp_define") == 0 || strcmp(kind, "record_decl") == 0) {
@@ -1404,9 +1763,10 @@ static void extract_var_names(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec
     }
 }
 
-// Recursive variable walker for languages with deeply nested module structure (YAML, etc.)
+// Recursive variable walker for languages with deeply nested module structure.
+// Used by YAML, TOML, INI, JSON (config languages with nested containers).
 static void walk_variables_rec(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, int depth) {
-    if (depth > 6) return; // safety limit
+    if (depth > 8) return; // safety limit
     uint32_t count = ts_node_child_count(node);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(node, i);
@@ -1415,13 +1775,21 @@ static void walk_variables_rec(CBMExtractCtx* ctx, TSNode node, const CBMLangSpe
             if (cbm_is_module_level(child, ctx->language)) {
                 extract_var_names(ctx, child, spec);
             }
-        } else {
-            // Recurse into structural nodes
-            const char* ck = ts_node_type(child);
-            if (strcmp(ck, "document") == 0 || strcmp(ck, "block_node") == 0 ||
-                strcmp(ck, "block_mapping") == 0 || strcmp(ck, "stream") == 0) {
-                walk_variables_rec(ctx, child, spec, depth + 1);
-            }
+        }
+        // Always recurse into structural container nodes
+        const char* ck = ts_node_type(child);
+        if (strcmp(ck, "document") == 0 || strcmp(ck, "block_node") == 0 ||
+            strcmp(ck, "block_mapping") == 0 || strcmp(ck, "stream") == 0 ||
+            // TOML containers
+            strcmp(ck, "table") == 0 || strcmp(ck, "table_array_element") == 0 ||
+            // INI containers
+            strcmp(ck, "section") == 0 ||
+            // JSON/TOML containers (pair can contain nested objects)
+            strcmp(ck, "object") == 0 || strcmp(ck, "array") == 0 ||
+            strcmp(ck, "pair") == 0 ||
+            // XML containers
+            strcmp(ck, "element") == 0 || strcmp(ck, "content") == 0) {
+            walk_variables_rec(ctx, child, spec, depth + 1);
         }
     }
 }
@@ -1429,8 +1797,9 @@ static void walk_variables_rec(CBMExtractCtx* ctx, TSNode node, const CBMLangSpe
 static void extract_variables(CBMExtractCtx* ctx, TSNode root, const CBMLangSpec* spec) {
     if (!spec->variable_node_types || !spec->variable_node_types[0]) return;
 
-    // YAML: deeply nested structure, need recursive walk
-    if (ctx->language == CBM_LANG_YAML) {
+    // Config languages with nested structure: use recursive walk
+    if (ctx->language == CBM_LANG_YAML || ctx->language == CBM_LANG_TOML ||
+        ctx->language == CBM_LANG_INI || ctx->language == CBM_LANG_JSON) {
         walk_variables_rec(ctx, root, spec, 0);
         return;
     }
@@ -1510,6 +1879,15 @@ static void walk_defs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) 
     // Class types
     if (cbm_kind_in_set(node, spec->class_node_types)) {
         extract_class_def(ctx, node, spec);
+        // Config languages have nested classes (XML elements, TOML tables)
+        // — continue recursing instead of returning
+        if (ctx->language == CBM_LANG_XML || ctx->language == CBM_LANG_TOML ||
+            ctx->language == CBM_LANG_INI || ctx->language == CBM_LANG_MARKDOWN) {
+            uint32_t nc = ts_node_child_count(node);
+            for (uint32_t ci = 0; ci < nc; ci++) {
+                walk_defs(ctx, ts_node_child(node, ci), spec);
+            }
+        }
         return;
     }
 

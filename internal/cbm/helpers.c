@@ -434,8 +434,11 @@ static const char* module_parents_elixir[] = {"source",NULL};
 static const char* module_parents_html[] = {"document",NULL};
 static const char* module_parents_css[] = {"stylesheet",NULL};
 static const char* module_parents_sql[] = {"source_file","program","statement",NULL};
-static const char* module_parents_toml[] = {"document",NULL};
+static const char* module_parents_toml[] = {"document","table","table_array_element",NULL};
+static const char* module_parents_config[] = {"document","table","table_array_element","section","object","element","array",NULL};
 static const char* module_parents_hcl[] = {"config_file",NULL};
+static const char* module_parents_makefile[] = {"makefile",NULL};
+static const char* module_parents_commonlisp[] = {"source",NULL};
 
 bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
     TSNode parent = ts_node_parent(node);
@@ -505,11 +508,17 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
         case CBM_LANG_SQL:      parents = module_parents_sql; break;
         case CBM_LANG_TOML:     parents = module_parents_toml; break;
         case CBM_LANG_HCL:      parents = module_parents_hcl; break;
+        case CBM_LANG_JSON:
+        case CBM_LANG_INI:
+        case CBM_LANG_XML:
+        case CBM_LANG_MARKDOWN: parents = module_parents_config; break;
         case CBM_LANG_SWIFT:    parents = module_parents_zig; break;  // source_file
         case CBM_LANG_DART:     parents = module_parents_php; break;  // program
         case CBM_LANG_PERL:     parents = module_parents_zig; break;  // source_file
         case CBM_LANG_GROOVY:   parents = module_parents_zig; break;  // source_file
         case CBM_LANG_R:        parents = module_parents_php; break;  // program
+        case CBM_LANG_MAKEFILE: parents = module_parents_makefile; break;
+        case CBM_LANG_COMMONLISP: parents = module_parents_commonlisp; break;
         default:                return false;
     }
     if (parents) {

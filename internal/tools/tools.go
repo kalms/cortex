@@ -561,7 +561,7 @@ func (s *Server) registerSearchTools() {
 				},
 				"file_pattern": {
 					"type": "string",
-					"description": "Glob pattern for file path within the project (e.g. '**/services/**', '*.py')"
+					"description": "Glob pattern for file path within the project. Use to filter by directory ('**/services/**'), file extension ('*.py', '*.yaml'), or filename ('**/Makefile'). Essential for shared-repo projects where multiple languages coexist — e.g., use '*.html' to find only HTML files in a JavaScript project."
 				},
 				"relationship": {
 					"type": "string",
@@ -626,7 +626,7 @@ func (s *Server) registerSearchTools() {
 				},
 				"file_pattern": {
 					"type": "string",
-					"description": "Glob pattern to filter files (e.g. '*.go', '*.py')"
+					"description": "Glob pattern to filter files (e.g. '*.go', '*.py', '*.toml'). Use to focus search on specific file types or directories."
 				},
 				"regex": {
 					"type": "boolean",

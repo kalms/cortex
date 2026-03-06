@@ -1,6 +1,6 @@
 package store
 
-import "math/rand"
+import "math/rand" // WHY: graph algorithm randomness — not cryptographic use, math/rand is correct here
 
 // louvainEdge represents an edge for the Louvain algorithm.
 type louvainEdge struct {

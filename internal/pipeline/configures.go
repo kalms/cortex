@@ -2,9 +2,12 @@ package pipeline
 
 import (
 	"log/slog"
+	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/fqn"
+	"github.com/DeusData/codebase-memory-mcp/internal/store"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -61,15 +64,9 @@ func (p *Pipeline) passConfigures() {
 	slog.Info("pass.configures.done", "edges", total)
 }
 
-// buildEnvIndex creates a mapping from env var key → module QN
-// by scanning Module node constants for KEY = VALUE patterns.
-func (p *Pipeline) buildEnvIndex() map[string]string {
-	modules, err := p.findNodesByLabel(p.ProjectName, "Module")
-	if err != nil {
-		return nil
-	}
-
-	index := make(map[string]string)
+// extractModuleConstants scans Module node constants for KEY = VALUE patterns
+// and adds env-var-like keys to the index.
+func extractModuleConstants(modules []*store.Node, index map[string]string) {
 	for _, m := range modules {
 		constants, ok := m.Properties["constants"]
 		if !ok {
@@ -93,6 +90,41 @@ func (p *Pipeline) buildEnvIndex() map[string]string {
 			}
 		}
 	}
+}
+
+// buildEnvIndex creates a mapping from env var key → module QN
+// by scanning Module node constants and config Variable nodes.
+func (p *Pipeline) buildEnvIndex() map[string]string {
+	modules, err := p.findNodesByLabel(p.ProjectName, "Module")
+	if err != nil {
+		return nil
+	}
+
+	index := make(map[string]string)
+	extractModuleConstants(modules, index)
+
+	// Also scan config Variable nodes for env-var-like names.
+	// Only add if key not already in index — existing Module constants
+	// (which carry URL values for HTTP linking) always take priority.
+	variables, err := p.findNodesByLabel(p.ProjectName, "Variable")
+	if err == nil {
+		added := 0
+		for _, v := range variables {
+			ext := filepath.Ext(v.FilePath)
+			if !configExtensions[ext] {
+				continue
+			}
+			if isEnvVarName(v.Name) && index[v.Name] == "" {
+				moduleQN := fqn.ModuleQN(p.ProjectName, v.FilePath)
+				index[v.Name] = moduleQN
+				added++
+			}
+		}
+		if added > 0 {
+			slog.Info("pass.configures.env_vars_from_config", "added", added)
+		}
+	}
+
 	return index
 }
 
