@@ -1,7 +1,7 @@
 package cbm
 
 /*
-#cgo CFLAGS: -std=c11 -O2 -Wall -Ivendored/ts_runtime/include
+#cgo CFLAGS: -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Ivendored/ts_runtime/include
 #include "cbm.h"
 #include "helpers.h"
 #include "lang_specs.h"
