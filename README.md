@@ -8,7 +8,7 @@ Parses source code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/
 
 ## Features
 
-- **63 languages**: Python, Go, JavaScript, TypeScript, TSX, Rust, Java, C++, C#, C, PHP, Lua, Scala, Kotlin, Ruby, Bash, Zig, Elixir, Haskell, OCaml, Objective-C, Swift, Dart, Perl, Groovy, Erlang, R, Clojure, F#, Julia, Vim Script, Nix, Common Lisp, Elm, Fortran, CUDA, COBOL, Verilog, Emacs Lisp, MATLAB, Lean 4, FORM, Magma, HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile, JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL, Vue, Svelte, Meson, GLSL, INI
+- **64 languages**: Python, Go, JavaScript, TypeScript, TSX, Rust, Java, C++, C#, C, PHP, Lua, Scala, Kotlin, Ruby, Bash, Zig, Elixir, Haskell, OCaml, Objective-C, Swift, Dart, Perl, Groovy, Erlang, R, Clojure, F#, Julia, Vim Script, Nix, Common Lisp, Elm, Fortran, CUDA, COBOL, Verilog, Emacs Lisp, MATLAB, Lean 4, FORM, Magma, Wolfram, HTML, CSS, SCSS, YAML, TOML, HCL, SQL, Dockerfile, JSON, XML, Markdown, Makefile, CMake, Protobuf, GraphQL, Vue, Svelte, Meson, GLSL, INI
 - **Architecture overview**: `get_architecture` returns languages, packages, entry points, routes, hotspots, boundaries, layers, and clusters in a single call — instant codebase orientation
 - **Architecture Decision Records**: `manage_adr` persists architectural decisions (PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY) across sessions with section filtering and validation
 - **Louvain community detection**: Discovers hidden functional modules across packages by clustering CALLS, HTTP_CALLS, and ASYNC_CALLS edges
@@ -57,7 +57,7 @@ Claude Code formats and explains the results.
 
 **Why no built-in LLM?** Other code graph tools embed an LLM to translate natural language into graph queries. This means extra API keys, extra cost per query, and another model to configure. With MCP, the AI assistant you're already talking to *is* the query translator — no duplication needed.
 
-**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 63 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**. All 63 supported languages use the same efficient graph backend.
+**Token efficiency**: Compared to having an AI agent grep through your codebase file by file, graph queries return precise results in a single tool call. In benchmarks across 64 real-world repos (78 to 49K nodes), five structural queries consumed ~3,400 tokens via codebase-memory-mcp versus ~412,000 tokens via file-by-file exploration — a **99.2% reduction**. All 64 supported languages use the same efficient graph backend.
 
 ## Performance
 
@@ -663,7 +663,7 @@ make install  # go install
 
 ## Language Benchmark
 
-63 languages supported. Benchmarked against 63 real open-source repositories (78 to 49K nodes). 12 standardized questions per language. Grading: HIGH (1.0) / MEDIUM (0.5) / LOW (0.1). Overall: **76%** average MCP score across all languages (97% for explorer-based agents).
+64 languages supported. Benchmarked against 64 real open-source repositories (78 to 49K nodes). 12 standardized questions per language. Grading: HIGH (1.0) / MEDIUM (0.5) / LOW (0.1). Overall: **76%** average MCP score across all languages (97% for explorer-based agents).
 
 | Tier | Score | Languages |
 |------|-------|-----------|
@@ -682,8 +682,8 @@ See [`BENCHMARK.md`](BENCHMARK.md) for the full 35-language benchmark with per-q
 cmd/codebase-memory-mcp/  Entry point (MCP stdio server + CLI mode + install/update commands)
 internal/
   store/                  SQLite graph storage (nodes, edges, traversal, search, architecture, Louvain clustering)
-  lang/                   Language specs (63 languages, tree-sitter node types)
-  cbm/                    Vendored tree-sitter C grammars (63 languages) and AST extraction engine
+  lang/                   Language specs (64 languages, tree-sitter node types)
+  cbm/                    Vendored tree-sitter C grammars (64 languages) and AST extraction engine
   pipeline/               Multi-pass indexing (structure → definitions → calls → HTTP links → config links → communities → tests)
   httplink/               Cross-service HTTP route/call-site matching
   cypher/                 Cypher query lexer, parser, planner, executor
