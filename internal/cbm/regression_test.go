@@ -1031,3 +1031,34 @@ func TestMagmaParse_Regression(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMagmaImport_Regression(t *testing.T) {
+	src := []byte("load \"utils.mag\";\nload \"lib/helpers.mag\";\n")
+	r, err := ExtractFile(src, lang.Magma, "t", "main.mag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Imports) < 2 {
+		t.Fatalf("expected at least 2 imports, got %d", len(r.Imports))
+	}
+}
+
+func TestMagmaCall_Regression(t *testing.T) {
+	src := []byte("function Foo(x)\n  y := Bar(x);\n  return y;\nend function;\n")
+	r, err := ExtractFile(src, lang.Magma, "t", "calls.mag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Calls) == 0 {
+		t.Fatal("expected calls to be extracted, got 0")
+	}
+	found := false
+	for _, c := range r.Calls {
+		if c.CalleeName == "Bar" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected call to 'Bar', got calls: %v", r.Calls)
+	}
+}

@@ -1270,7 +1270,13 @@ func (p *Pipeline) passImports() {
 			// Try to find the target as a Module node first
 			targetNode, _ := p.findNodeByQN(p.ProjectName, targetQN)
 			if targetNode == nil {
-				// Try common suffixes: module QN might need .__init__ or similar
+				// Try treating import path as a relative file path (e.g. "utils.mag", "lib/helpers.h")
+				resolvedQN := fqn.ModuleQN(p.ProjectName, targetQN)
+				if resolvedQN != targetQN {
+					targetNode, _ = p.findNodeByQN(p.ProjectName, resolvedQN)
+				}
+			}
+			if targetNode == nil {
 				logImportDrop(moduleQN, localName, targetQN)
 				continue
 			}
