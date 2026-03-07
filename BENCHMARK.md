@@ -2,7 +2,7 @@
 
 ## Methodology
 
-- **35 languages** (27 programming + 8 config/markup), 12 questions each (4 for config languages)
+- **63 languages** (27 programming + 8 config/markup), 12 questions each (4 for config languages)
 - **Up to 5 attempts** per question with escalating retry strategies
 - **Real open-source repos** (medium to large: 78--49K nodes)
 - **Grading**: PASS (1.0) / PARTIAL (0.5) / FAIL (0.0), N/A excluded from denominator
@@ -847,7 +847,7 @@ The tool handles 20K-node kernel subsystems without timeouts. Deep traces on wel
 ## Cross-Cutting Findings
 
 ### Strengths
-1. **Zero indexing failures** across 35 repos of all sizes (78 to 49K nodes)
+1. **Zero indexing failures** across 63 repos of all sizes (78 to 49K nodes)
 2. **100% on 17 languages** -- half the languages achieved perfect scores
 3. **No language below 62%** -- even the weakest performs core operations
 4. **Massive codebases handled**: Django (49K nodes), Laravel (38K nodes), neovim (24K nodes) -- no performance issues
