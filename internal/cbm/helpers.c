@@ -202,6 +202,8 @@ bool cbm_is_test_file(const char* rel_path, CBMLanguage lang) {
         case CBM_LANG_C:
             return has_suffix(base, "_test.c") || has_suffix(base, "_test.cc") ||
                    has_suffix(base, "_test.cpp") || has_prefix(base, "test_");
+        case CBM_LANG_MATLAB:
+            return has_prefix(base, "test_") || has_prefix(base, "Test");
         default:
             return false;
     }
@@ -284,6 +286,10 @@ static const char* func_kinds_zig[] = {"function_declaration","test_declaration"
 static const char* func_kinds_bash[] = {"function_definition",NULL};
 static const char* func_kinds_erlang[] = {"function_clause",NULL};
 static const char* func_kinds_csharp[] = {"method_declaration","constructor_declaration",NULL};
+static const char* func_kinds_matlab[] = {"function_definition",NULL};
+static const char* func_kinds_lean[] = {"def","theorem","instance","abbrev",NULL};
+static const char* func_kinds_form[] = {"procedure_definition",NULL};
+static const char* func_kinds_magma[] = {"function_definition","procedure_definition","intrinsic_definition",NULL};
 static const char* func_kinds_generic[] = {"function_declaration","function_definition","method_declaration","method_definition",NULL};
 
 static const char** func_kinds_for_lang(CBMLanguage lang) {
@@ -309,6 +315,10 @@ static const char** func_kinds_for_lang(CBMLanguage lang) {
         case CBM_LANG_BASH:       return func_kinds_bash;
         case CBM_LANG_ERLANG:     return func_kinds_erlang;
         case CBM_LANG_CSHARP:     return func_kinds_csharp;
+        case CBM_LANG_MATLAB:     return func_kinds_matlab;
+        case CBM_LANG_LEAN:       return func_kinds_lean;
+        case CBM_LANG_FORM:       return func_kinds_form;
+        case CBM_LANG_MAGMA:      return func_kinds_magma;
         default:                  return func_kinds_generic;
     }
 }
@@ -439,6 +449,9 @@ static const char* module_parents_config[] = {"document","table","table_array_el
 static const char* module_parents_hcl[] = {"config_file",NULL};
 static const char* module_parents_makefile[] = {"makefile",NULL};
 static const char* module_parents_commonlisp[] = {"source",NULL};
+static const char* module_parents_matlab[] = {"source_file",NULL};
+static const char* module_parents_form[] = {"source_file",NULL};
+static const char* module_parents_magma[] = {"source_file",NULL};
 
 bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
     TSNode parent = ts_node_parent(node);
@@ -519,6 +532,10 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
         case CBM_LANG_R:        parents = module_parents_php; break;  // program
         case CBM_LANG_MAKEFILE: parents = module_parents_makefile; break;
         case CBM_LANG_COMMONLISP: parents = module_parents_commonlisp; break;
+        case CBM_LANG_MATLAB:     parents = module_parents_matlab; break;
+        case CBM_LANG_LEAN:       parents = module_parents_zig; break;  // source_file
+        case CBM_LANG_FORM:       parents = module_parents_form; break;
+        case CBM_LANG_MAGMA:      parents = module_parents_magma; break;
         default:                return false;
     }
     if (parents) {

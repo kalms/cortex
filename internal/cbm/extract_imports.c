@@ -609,6 +609,15 @@ void cbm_extract_imports(CBMExtractCtx* ctx) {
         case CBM_LANG_DART:
             parse_generic_imports(ctx, "import_declaration");
             break;
+        case CBM_LANG_LEAN:
+            parse_generic_imports(ctx, "import");
+            break;
+        case CBM_LANG_FORM:
+            parse_generic_imports(ctx, "include_directive");
+            break;
+        case CBM_LANG_MAGMA:
+            parse_generic_imports(ctx, "load_statement");
+            break;
         default:
             break;
     }
