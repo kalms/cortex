@@ -37,7 +37,7 @@ golangci-lint run ./...
 ```
 cmd/codebase-memory-mcp/  Entry point (MCP server + CLI + install/update)
 internal/
-  lang/                   Language specs (35 languages, tree-sitter node types)
+  lang/                   Language specs (63 languages, tree-sitter node types)
   parser/                 Tree-sitter grammar loading
   pipeline/               Multi-pass indexing pipeline
   httplink/               Cross-service HTTP route matching

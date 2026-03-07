@@ -186,7 +186,7 @@ module.exports = grammar({
 
     load_statement: $ => seq(
       'load',
-      $._expression,
+      field('path', $._expression),
       ';',
     ),
 
