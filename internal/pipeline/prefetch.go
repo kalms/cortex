@@ -3,7 +3,9 @@ package pipeline
 import (
 	"context"
 	"os"
+	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/DeusData/codebase-memory-mcp/internal/discover"
 )
@@ -53,11 +55,12 @@ func (pf *prefetcher) run(ctx context.Context) {
 				return // all done
 			}
 			// Wait for workers to advance before prefetching more.
-			// Yield to avoid busy-spin.
 			select {
 			case <-ctx.Done():
 				return
 			default:
+				runtime.Gosched()
+				time.Sleep(500 * time.Microsecond)
 			}
 			continue
 		}

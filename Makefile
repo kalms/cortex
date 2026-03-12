@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install check
+.PHONY: build test lint clean install check bench-memory
 
 BINARY=codebase-memory-mcp
 MODULE=github.com/DeusData/codebase-memory-mcp
@@ -19,3 +19,6 @@ clean:
 
 install:
 	go install ./cmd/codebase-memory-mcp/
+
+bench-memory:  ## Run memory stability benchmark
+	go test -run TestMemoryStability -v -count=1 -timeout=5m ./internal/pipeline/

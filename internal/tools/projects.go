@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"time"
 
@@ -157,6 +158,31 @@ func (s *Server) handleIndexStatus(_ context.Context, req *mcp.CallToolRequest) 
 		result["index_type"] = "none"
 	} else {
 		result["index_type"] = "incremental"
+	}
+
+	// Add edge type breakdown
+	if edgeTypes, err := st.EdgeCountsByType(projectName); err == nil && len(edgeTypes) > 0 {
+		result["edges_by_type"] = edgeTypes
+	}
+
+	// Add LSP coverage metrics for CALLS edges
+	if stats, err := st.CallsResolutionStats(projectName); err == nil && len(stats) > 0 {
+		totalCalls := 0
+		lspCalls := 0
+		for strategy, count := range stats {
+			totalCalls += count
+			if len(strategy) >= 4 && strategy[:4] == "lsp_" {
+				lspCalls += count
+			}
+		}
+		lspPct := 0.0
+		if totalCalls > 0 {
+			lspPct = float64(lspCalls) / float64(totalCalls) * 100
+		}
+		result["calls_total"] = totalCalls
+		result["calls_lsp"] = lspCalls
+		result["calls_lsp_pct"] = math.Round(lspPct*10) / 10
+		result["calls_by_strategy"] = stats
 	}
 
 	// If this is the session project and indexing is in progress

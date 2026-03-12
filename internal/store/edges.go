@@ -95,6 +95,51 @@ func (s *Store) CountEdgesByType(project, edgeType string) (int, error) {
 	return count, err
 }
 
+// EdgeCountsByType returns edge counts grouped by edge type.
+func (s *Store) EdgeCountsByType(project string) (map[string]int, error) {
+	rows, err := s.q.Query(`SELECT type, COUNT(*) FROM edges WHERE project=? GROUP BY type ORDER BY COUNT(*) DESC`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var edgeType string
+		var count int
+		if err := rows.Scan(&edgeType, &count); err != nil {
+			return nil, err
+		}
+		result[edgeType] = count
+	}
+	return result, rows.Err()
+}
+
+// CallsResolutionStats returns CALLS edge counts grouped by resolution_strategy.
+func (s *Store) CallsResolutionStats(project string) (map[string]int, error) {
+	rows, err := s.q.Query(`
+		SELECT json_extract(properties, '$.resolution_strategy') AS strategy, COUNT(*) AS cnt
+		FROM edges WHERE project=? AND type='CALLS'
+		GROUP BY strategy ORDER BY cnt DESC`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var strategy sql.NullString
+		var count int
+		if err := rows.Scan(&strategy, &count); err != nil {
+			return nil, err
+		}
+		key := strategy.String
+		if key == "" {
+			key = "unset"
+		}
+		result[key] = count
+	}
+	return result, rows.Err()
+}
+
 // DeleteEdgesByType deletes all edges of a given type for a project.
 func (s *Store) DeleteEdgesByType(project, edgeType string) error {
 	_, err := s.q.Exec("DELETE FROM edges WHERE project=? AND type=?", project, edgeType)

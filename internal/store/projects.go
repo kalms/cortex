@@ -56,36 +56,38 @@ func (s *Store) DeleteProject(name string) error {
 	return err
 }
 
-// FileHash represents a stored file content hash for incremental reindex.
+// FileHash represents a stored file content hash with stat metadata for incremental reindex.
 type FileHash struct {
 	Project string
 	RelPath string
 	SHA256  string
+	MtimeNs int64 // file mtime in nanoseconds (for stat pre-filter)
+	Size    int64 // file size in bytes (for stat pre-filter)
 }
 
-// UpsertFileHash stores a file's content hash.
-func (s *Store) UpsertFileHash(project, relPath, sha256 string) error {
+// UpsertFileHash stores a file's content hash with stat metadata.
+func (s *Store) UpsertFileHash(project, relPath, sha256 string, mtimeNs, size int64) error {
 	_, err := s.q.Exec(`
-		INSERT INTO file_hashes (project, rel_path, sha256) VALUES (?, ?, ?)
-		ON CONFLICT(project, rel_path) DO UPDATE SET sha256=excluded.sha256`,
-		project, relPath, sha256)
+		INSERT INTO file_hashes (project, rel_path, sha256, mtime_ns, size) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(project, rel_path) DO UPDATE SET sha256=excluded.sha256, mtime_ns=excluded.mtime_ns, size=excluded.size`,
+		project, relPath, sha256, mtimeNs, size)
 	return err
 }
 
-// GetFileHashes returns all file hashes for a project.
-func (s *Store) GetFileHashes(project string) (map[string]string, error) {
-	rows, err := s.q.Query("SELECT rel_path, sha256 FROM file_hashes WHERE project=?", project)
+// GetFileHashes returns all file hashes with stat metadata for a project.
+func (s *Store) GetFileHashes(project string) (map[string]FileHash, error) {
+	rows, err := s.q.Query("SELECT rel_path, sha256, mtime_ns, size FROM file_hashes WHERE project=?", project)
 	if err != nil {
 		return nil, fmt.Errorf("get file hashes: %w", err)
 	}
 	defer rows.Close()
-	result := make(map[string]string)
+	result := make(map[string]FileHash)
 	for rows.Next() {
-		var path, hash string
-		if err := rows.Scan(&path, &hash); err != nil {
+		var fh FileHash
+		if err := rows.Scan(&fh.RelPath, &fh.SHA256, &fh.MtimeNs, &fh.Size); err != nil {
 			return nil, err
 		}
-		result[path] = hash
+		result[fh.RelPath] = fh
 	}
 	return result, rows.Err()
 }
@@ -108,8 +110,8 @@ func (s *Store) ListFilesForProject(project string) ([]string, error) {
 	return result, rows.Err()
 }
 
-// fileHashBatchSize is the max rows per batch INSERT for file hashes (3 cols × 200 = 600 vars < 999).
-const fileHashBatchSize = 200
+// fileHashBatchSize is the max rows per batch INSERT for file hashes (5 cols × 190 = 950 vars < 999).
+const fileHashBatchSize = 190
 
 // UpsertFileHashBatch inserts or updates multiple file hashes in batched multi-row INSERTs.
 func (s *Store) UpsertFileHashBatch(hashes []FileHash) error {
@@ -131,17 +133,17 @@ func (s *Store) UpsertFileHashBatch(hashes []FileHash) error {
 
 func (s *Store) upsertFileHashChunk(batch []FileHash) error {
 	var sb strings.Builder
-	sb.WriteString(`INSERT INTO file_hashes (project, rel_path, sha256) VALUES `)
+	sb.WriteString(`INSERT INTO file_hashes (project, rel_path, sha256, mtime_ns, size) VALUES `)
 
-	args := make([]any, 0, len(batch)*3)
+	args := make([]any, 0, len(batch)*5)
 	for i, h := range batch {
 		if i > 0 {
 			sb.WriteByte(',')
 		}
-		sb.WriteString("(?,?,?)")
-		args = append(args, h.Project, h.RelPath, h.SHA256)
+		sb.WriteString("(?,?,?,?,?)")
+		args = append(args, h.Project, h.RelPath, h.SHA256, h.MtimeNs, h.Size)
 	}
-	sb.WriteString(` ON CONFLICT(project, rel_path) DO UPDATE SET sha256=excluded.sha256`)
+	sb.WriteString(` ON CONFLICT(project, rel_path) DO UPDATE SET sha256=excluded.sha256, mtime_ns=excluded.mtime_ns, size=excluded.size`)
 
 	if _, err := s.q.Exec(sb.String(), args...); err != nil {
 		return fmt.Errorf("upsert file hash batch: %w", err)

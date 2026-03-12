@@ -530,6 +530,108 @@ static char* clean_type_name(CBMArena* a, const char* raw) {
     return result;
 }
 
+// Extract param_names from a parameter list node.
+// Returns NULL-terminated arena-allocated array.
+static const char** extract_param_names(CBMArena* a, TSNode params, const char* source, CBMLanguage lang) {
+    if (ts_node_is_null(params)) return NULL;
+
+    const char* names[32];
+    int count = 0;
+
+    uint32_t nc = ts_node_child_count(params);
+    for (uint32_t i = 0; i < nc && count < 31; i++) {
+        TSNode param = ts_node_child(params, i);
+        if (ts_node_is_null(param) || !ts_node_is_named(param)) continue;
+
+        const char* pk = ts_node_type(param);
+        char* name_text = NULL;
+
+        // Go: parameter_declaration has "name" field
+        if (strcmp(pk, "parameter_declaration") == 0) {
+            TSNode nm = ts_node_child_by_field_name(param, "name", 4);
+            if (!ts_node_is_null(nm)) name_text = cbm_node_text(a, nm, source);
+        }
+        // Generic: try "name" field on parameter nodes
+        else if (strcmp(pk, "formal_parameter") == 0 || strcmp(pk, "parameter") == 0 ||
+                 strcmp(pk, "required_parameter") == 0 || strcmp(pk, "optional_parameter") == 0 ||
+                 strcmp(pk, "simple_parameter") == 0 || strcmp(pk, "typed_parameter") == 0) {
+            TSNode nm = ts_node_child_by_field_name(param, "name", 4);
+            if (ts_node_is_null(nm)) nm = ts_node_child_by_field_name(param, "pattern", 7);
+            if (!ts_node_is_null(nm)) {
+                if (strcmp(ts_node_type(nm), "identifier") == 0 ||
+                    strcmp(ts_node_type(nm), "simple_identifier") == 0) {
+                    name_text = cbm_node_text(a, nm, source);
+                }
+            }
+        }
+
+        if (name_text && name_text[0]) {
+            names[count++] = name_text;
+        }
+    }
+
+    if (count == 0) return NULL;
+
+    const char** result = (const char**)cbm_arena_alloc(a, (count + 1) * sizeof(const char*));
+    for (int i = 0; i < count; i++) result[i] = names[i];
+    result[count] = NULL;
+    return result;
+}
+
+// Extract return_types from a return type node.
+// Parses Go-style multi-return (T1, T2) and single return types.
+// Returns NULL-terminated arena-allocated array.
+static const char** extract_return_types(CBMArena* a, TSNode rt_node, const char* source, CBMLanguage lang) {
+    if (ts_node_is_null(rt_node)) return NULL;
+
+    const char* types[16];
+    int count = 0;
+
+    const char* kind = ts_node_type(rt_node);
+
+    // Go: parameter_list as result type means multi-return
+    if (strcmp(kind, "parameter_list") == 0) {
+        uint32_t nc = ts_node_child_count(rt_node);
+        for (uint32_t i = 0; i < nc && count < 15; i++) {
+            TSNode child = ts_node_child(rt_node, i);
+            if (ts_node_is_null(child) || !ts_node_is_named(child)) continue;
+            const char* ck = ts_node_type(child);
+            if (strcmp(ck, "parameter_declaration") == 0) {
+                // Get the type from the parameter_declaration
+                TSNode tn = ts_node_child_by_field_name(child, "type", 4);
+                if (!ts_node_is_null(tn)) {
+                    char* type_text = cbm_node_text(a, tn, source);
+                    if (type_text && type_text[0]) {
+                        char* cleaned = clean_type_name(a, type_text);
+                        if (cleaned && cleaned[0]) types[count++] = cleaned;
+                    }
+                }
+            } else {
+                // Bare type in result list
+                char* type_text = cbm_node_text(a, child, source);
+                if (type_text && type_text[0]) {
+                    char* cleaned = clean_type_name(a, type_text);
+                    if (cleaned && cleaned[0]) types[count++] = cleaned;
+                }
+            }
+        }
+    } else {
+        // Single return type
+        char* type_text = cbm_node_text(a, rt_node, source);
+        if (type_text && type_text[0]) {
+            char* cleaned = clean_type_name(a, type_text);
+            if (cleaned && cleaned[0]) types[count++] = cleaned;
+        }
+    }
+
+    if (count == 0) return NULL;
+
+    const char** result = (const char**)cbm_arena_alloc(a, (count + 1) * sizeof(const char*));
+    for (int i = 0; i < count; i++) result[i] = types[i];
+    result[count] = NULL;
+    return result;
+}
+
 // Extract param_types from a parameter list node.
 // Returns NULL-terminated arena-allocated array.
 static const char** extract_param_types(CBMArena* a, TSNode params, const char* source, CBMLanguage lang) {
@@ -684,6 +786,7 @@ static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec*
     TSNode params = ts_node_child_by_field_name(node, "parameters", 10);
     if (!ts_node_is_null(params)) {
         def.signature = cbm_node_text(a, params, ctx->source);
+        def.param_names = extract_param_names(a, params, ctx->source, ctx->language);
         def.param_types = extract_param_types(a, params, ctx->source, ctx->language);
     }
 
@@ -693,6 +796,7 @@ static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec*
         TSNode rt = ts_node_child_by_field_name(node, *f, (uint32_t)strlen(*f));
         if (!ts_node_is_null(rt)) {
             def.return_type = cbm_node_text(a, rt, ctx->source);
+            def.return_types = extract_return_types(a, rt, ctx->source, ctx->language);
             break;
         }
     }

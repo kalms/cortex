@@ -2,6 +2,7 @@
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "lsp/go_lsp.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -96,6 +97,11 @@ void cbm_typeassign_push(CBMTypeAssignArray* arr, CBMArena* a, CBMTypeAssign ta)
 void cbm_impltrait_push(CBMImplTraitArray* arr, CBMArena* a, CBMImplTrait it) {
     GROW_ARRAY(arr, a, CBMImplTrait);
     arr->items[arr->count++] = it;
+}
+
+void cbm_resolvedcall_push(CBMResolvedCallArray* arr, CBMArena* a, CBMResolvedCall rc) {
+    GROW_ARRAY(arr, a, CBMResolvedCall);
+    arr->items[arr->count++] = rc;
 }
 
 // --- String input reader (for parse_with_options) ---
@@ -260,6 +266,11 @@ CBMFileResult* cbm_extract_file(
     cbm_extract_definitions(&ctx);
     cbm_extract_imports(&ctx);
     cbm_extract_unified(&ctx);
+
+    // LSP type-aware call resolution (Go only for now)
+    if (language == CBM_LANG_GO) {
+        cbm_run_go_lsp(a, result, source, source_len, root);
+    }
 
     uint64_t t2 = now_ns();
 

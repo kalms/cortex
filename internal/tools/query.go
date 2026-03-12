@@ -24,7 +24,7 @@ func (s *Server) handleQueryGraph(_ context.Context, req *mcp.CallToolRequest) (
 		return errResult(fmt.Sprintf("resolve store: %v", err)), nil
 	}
 
-	exec := &cypher.Executor{Store: st}
+	exec := &cypher.Executor{Store: st, MaxRows: getIntArg(args, "max_rows", 0)}
 	result, err := exec.Execute(query)
 	if err != nil {
 		return errResult(fmt.Sprintf("query error: %v", err)), nil

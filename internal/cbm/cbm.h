@@ -94,6 +94,7 @@ typedef struct {
     const char* parent_class;   // enclosing class QN for methods (NULL if none)
     const char** decorators;    // NULL-terminated array (NULL if none)
     const char** base_classes;  // NULL-terminated array (NULL if none)
+    const char** param_names;   // NULL-terminated array (NULL if none)
     const char** param_types;   // NULL-terminated array (NULL if none)
     const char** return_types;  // NULL-terminated array (NULL if none)
     int          complexity;    // cyclomatic complexity
@@ -151,6 +152,21 @@ typedef struct {
     const char* trait_name;        // trait name (raw text)
     const char* struct_name;       // struct/type name (raw text)
 } CBMImplTrait;
+
+// LSP-resolved call: high-confidence type-aware call resolution
+typedef struct {
+    const char* caller_qn;         // enclosing function QN
+    const char* callee_qn;         // resolved target QN (fully qualified)
+    const char* strategy;          // "lsp_type_dispatch", "lsp_direct", etc.
+    float       confidence;        // 0.90-0.95
+    const char* reason;            // diagnostic label for unresolved calls (NULL if resolved)
+} CBMResolvedCall;
+
+typedef struct {
+    CBMResolvedCall* items;
+    int count;
+    int cap;
+} CBMResolvedCallArray;
 
 // Growable arrays used during extraction.
 typedef struct {
@@ -227,6 +243,7 @@ typedef struct {
     CBMEnvAccessArray  env_accesses;
     CBMTypeAssignArray type_assigns;
     CBMImplTraitArray  impl_traits;   // Rust: impl Trait for Struct pairs
+    CBMResolvedCallArray resolved_calls; // LSP-resolved calls (high confidence)
 
     const char*    module_qn;    // module qualified name
     const char**   exports;      // NULL-terminated (NULL if none)
@@ -310,6 +327,7 @@ void cbm_typerefs_push(CBMTypeRefArray* arr, CBMArena* a, CBMTypeRef tr);
 void cbm_envaccess_push(CBMEnvAccessArray* arr, CBMArena* a, CBMEnvAccess ea);
 void cbm_typeassign_push(CBMTypeAssignArray* arr, CBMArena* a, CBMTypeAssign ta);
 void cbm_impltrait_push(CBMImplTraitArray* arr, CBMArena* a, CBMImplTrait it);
+void cbm_resolvedcall_push(CBMResolvedCallArray* arr, CBMArena* a, CBMResolvedCall rc);
 
 // --- Sub-extractor entry points ---
 

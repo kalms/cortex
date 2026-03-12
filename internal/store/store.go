@@ -85,7 +85,6 @@ func OpenPath(dbPath string) (*Store, error) {
 		"&_busy_timeout=5000" +
 		"&_foreign_keys=1" +
 		"&_synchronous=NORMAL" +
-		"&_cache_size=-65536" + // 64 MB
 		"&_txlock=immediate"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
@@ -98,7 +97,12 @@ func OpenPath(dbPath string) (*Store, error) {
 	// PRAGMAs not supported in mattn DSN — set via Exec after Open.
 	ctx := context.Background()
 	_, _ = db.ExecContext(ctx, "PRAGMA temp_store = MEMORY")
-	_, _ = db.ExecContext(ctx, "PRAGMA mmap_size = 1073741824") // 1 GB
+	_, _ = db.ExecContext(ctx, "PRAGMA mmap_size = 268435456") // 256 MB
+
+	// Adaptive cache: 10% of DB file size, clamped to 2-64 MB.
+	cacheMB := adaptiveCacheMB(dbPath)
+	cacheKB := cacheMB * 1024
+	_, _ = db.ExecContext(ctx, fmt.Sprintf("PRAGMA cache_size = -%d", cacheKB))
 
 	s := &Store{db: db, dbPath: dbPath}
 	s.q = s.db
@@ -106,7 +110,26 @@ func OpenPath(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	slog.Debug("store.open", "path", dbPath, "cache_mb", cacheMB)
 	return s, nil
+}
+
+// adaptiveCacheMB returns a cache size in MB proportional to the DB file size.
+// 10% of DB size, clamped to [2, 64] MB. Returns 2 for missing/small files.
+func adaptiveCacheMB(dbPath string) int {
+	fi, err := os.Stat(dbPath)
+	if err != nil {
+		return 2
+	}
+	dbSizeMB := int(fi.Size() / (1 << 20))
+	cacheMB := dbSizeMB / 10
+	if cacheMB < 2 {
+		return 2
+	}
+	if cacheMB > 64 {
+		return 64
+	}
+	return cacheMB
 }
 
 // OpenMemory opens an in-memory SQLite database (for testing).
@@ -153,18 +176,46 @@ func (s *Store) Checkpoint(ctx context.Context) {
 	_, _ = s.db.ExecContext(ctx, "PRAGMA optimize")
 }
 
+// WALSize returns the current WAL file size in bytes, or -1 if unavailable.
+// Useful for diagnosing memory bloat from un-checkpointed WAL files.
+func (s *Store) WALSize() int64 {
+	walPath := s.dbPath + "-wal"
+	fi, err := os.Stat(walPath)
+	if err != nil {
+		return -1
+	}
+	return fi.Size()
+}
+
 // BeginBulkWrite switches to MEMORY journal mode for faster bulk writes.
-// Call EndBulkWrite when done to restore WAL mode.
-// MEMORY mode is rollback-safe on crash (unlike journal_mode=OFF).
+// Also boosts cache to 64 MB for write throughput.
+// Call EndBulkWrite when done to restore WAL mode and adaptive cache.
 func (s *Store) BeginBulkWrite(ctx context.Context) {
 	_, _ = s.db.ExecContext(ctx, "PRAGMA journal_mode = MEMORY")
 	_, _ = s.db.ExecContext(ctx, "PRAGMA synchronous = OFF")
+	_, _ = s.db.ExecContext(ctx, "PRAGMA cache_size = -65536") // 64 MB
 }
 
-// EndBulkWrite restores WAL journal mode and NORMAL synchronous after bulk writes.
+// EndBulkWrite restores WAL journal mode, NORMAL synchronous, and adaptive cache.
 func (s *Store) EndBulkWrite(ctx context.Context) {
 	_, _ = s.db.ExecContext(ctx, "PRAGMA synchronous = NORMAL")
 	_, _ = s.db.ExecContext(ctx, "PRAGMA journal_mode = WAL")
+	s.restoreDefaultCache(ctx)
+}
+
+// WithLargeCache temporarily boosts the page cache to 64 MB for heavy read operations
+// (e.g. GetSchema, Louvain clustering), then restores the adaptive default.
+func (s *Store) WithLargeCache(ctx context.Context, fn func() error) error {
+	_, _ = s.db.ExecContext(ctx, "PRAGMA cache_size = -65536") // 64 MB
+	defer s.restoreDefaultCache(ctx)
+	return fn()
+}
+
+// restoreDefaultCache recalculates and applies the adaptive cache size from DB file size.
+func (s *Store) restoreDefaultCache(ctx context.Context) {
+	cacheMB := adaptiveCacheMB(s.dbPath)
+	cacheKB := cacheMB * 1024
+	_, _ = s.db.ExecContext(ctx, fmt.Sprintf("PRAGMA cache_size = -%d", cacheKB))
 }
 
 // Close closes the database connection.
@@ -195,6 +246,8 @@ func (s *Store) initSchema() error {
 		project TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,
 		rel_path TEXT NOT NULL,
 		sha256 TEXT NOT NULL,
+		mtime_ns INTEGER NOT NULL DEFAULT 0,
+		size INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, rel_path)
 	);
 
@@ -262,6 +315,14 @@ func (s *Store) initSchema() error {
 
 	// Index on generated column (safe to CREATE IF NOT EXISTS)
 	_, _ = s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_edges_url_path ON edges(project, url_path_gen)`)
+
+	// Migration: add mtime_ns and size columns to file_hashes for stat pre-filtering.
+	var mtimeCol int
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_xinfo('file_hashes') WHERE name='mtime_ns'`).Scan(&mtimeCol)
+	if mtimeCol == 0 {
+		_, _ = s.db.ExecContext(ctx, `ALTER TABLE file_hashes ADD COLUMN mtime_ns INTEGER NOT NULL DEFAULT 0`)
+		_, _ = s.db.ExecContext(ctx, `ALTER TABLE file_hashes ADD COLUMN size INTEGER NOT NULL DEFAULT 0`)
+	}
 
 	return nil
 }

@@ -16,18 +16,28 @@ import (
 	"github.com/DeusData/codebase-memory-mcp/internal/lang"
 )
 
+// ResolvedCall represents a high-confidence type-aware call resolution from LSP.
+type ResolvedCall struct {
+	CallerQN   string
+	CalleeQN   string
+	Strategy   string
+	Confidence float32
+	Reason     string // diagnostic label for unresolved calls (empty if resolved)
+}
+
 // FileResult holds the extraction results from one file.
 type FileResult struct {
-	Definitions []Definition
-	Calls       []Call
-	Imports     []Import
-	Usages      []Usage
-	Throws      []Throw
-	ReadWrites  []ReadWrite
-	TypeRefs    []TypeRef
-	EnvAccesses []EnvAccess
-	TypeAssigns []TypeAssign
-	ImplTraits  []ImplTrait
+	Definitions   []Definition
+	Calls         []Call
+	Imports       []Import
+	Usages        []Usage
+	Throws        []Throw
+	ReadWrites    []ReadWrite
+	TypeRefs      []TypeRef
+	EnvAccesses   []EnvAccess
+	TypeAssigns   []TypeAssign
+	ImplTraits    []ImplTrait
+	ResolvedCalls []ResolvedCall
 
 	ModuleQN    string
 	IsTestFile  bool
@@ -55,7 +65,9 @@ type Definition struct {
 	ParentClass   string
 	Decorators    []string
 	BaseClasses   []string
+	ParamNames    []string
 	ParamTypes    []string
+	ReturnTypes   []string
 	Complexity    int
 	Lines         int
 	IsExported    bool
@@ -279,7 +291,9 @@ func convertResult(r *C.CBMFileResult) *FileResult {
 				ParentClass:   goStringOrEmpty(d.parent_class),
 				Decorators:    goStringSlice(d.decorators),
 				BaseClasses:   goStringSlice(d.base_classes),
-				ParamTypes:    goStringSlice(d.param_types),
+				ParamNames:    goStringSlice(d.param_names),
+			ParamTypes:    goStringSlice(d.param_types),
+			ReturnTypes:   goStringSlice(d.return_types),
 				Complexity:    int(d.complexity),
 				Lines:         int(d.lines),
 				IsExported:    bool(d.is_exported),
@@ -396,6 +410,21 @@ func convertResult(r *C.CBMFileResult) *FileResult {
 			fr.ImplTraits[i] = ImplTrait{
 				TraitName:  C.GoString(it.trait_name),
 				StructName: C.GoString(it.struct_name),
+			}
+		}
+	}
+
+	// ResolvedCalls (LSP)
+	if r.resolved_calls.count > 0 {
+		fr.ResolvedCalls = make([]ResolvedCall, r.resolved_calls.count)
+		rcs := unsafe.Slice(r.resolved_calls.items, r.resolved_calls.count)
+		for i, rc := range rcs {
+			fr.ResolvedCalls[i] = ResolvedCall{
+				CallerQN:   C.GoString(rc.caller_qn),
+				CalleeQN:   C.GoString(rc.callee_qn),
+				Strategy:   C.GoString(rc.strategy),
+				Confidence: float32(rc.confidence),
+				Reason:     goStringOrEmpty(rc.reason),
 			}
 		}
 	}

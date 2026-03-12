@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"math"
 	"strings"
 	"sync"
 )
@@ -156,7 +157,7 @@ func (r *FunctionRegistry) resolveSuffixMatch(calleeName, suffix, moduleQN strin
 	var matches []string
 	for _, qn := range candidates {
 		if strings.HasSuffix(qn, "."+calleeName) {
-			conf := importAdjustedConfidence(0.55, qn, importMap)
+			conf := candidateCountPenalty(importAdjustedConfidence(0.55, qn, importMap), len(candidates))
 			return ResolutionResult{QualifiedName: qn, Strategy: "suffix_match", Confidence: conf, CandidateCount: len(candidates)}
 		}
 		if strings.HasSuffix(qn, "."+suffix) {
@@ -167,11 +168,11 @@ func (r *FunctionRegistry) resolveSuffixMatch(calleeName, suffix, moduleQN strin
 		matches = filterImportReachable(matches, importMap)
 	}
 	if len(matches) == 1 {
-		return ResolutionResult{QualifiedName: matches[0], Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(candidates)}
+		return ResolutionResult{QualifiedName: matches[0], Strategy: "suffix_match", Confidence: candidateCountPenalty(0.55, len(candidates)), CandidateCount: len(candidates)}
 	}
 	if len(matches) > 1 {
 		best := bestByImportDistance(matches, moduleQN)
-		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(matches)}
+		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: candidateCountPenalty(0.55, len(matches)), CandidateCount: len(matches)}
 	}
 	return ResolutionResult{}
 }
@@ -187,13 +188,13 @@ func pickBestCandidate(candidates []string, moduleQN string, importMap map[strin
 	}
 	if len(filtered) == 0 {
 		best := bestByImportDistance(candidates, moduleQN)
-		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55 * 0.5, CandidateCount: len(candidates)}
+		return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: candidateCountPenalty(0.55*0.5, len(candidates)), CandidateCount: len(candidates)}
 	}
 	if len(filtered) == 1 {
-		return ResolutionResult{QualifiedName: filtered[0], Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(candidates)}
+		return ResolutionResult{QualifiedName: filtered[0], Strategy: "suffix_match", Confidence: candidateCountPenalty(0.55, len(candidates)), CandidateCount: len(candidates)}
 	}
 	best := bestByImportDistance(filtered, moduleQN)
-	return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: 0.55, CandidateCount: len(filtered)}
+	return ResolutionResult{QualifiedName: best, Strategy: "suffix_match", Confidence: candidateCountPenalty(0.55, len(filtered)), CandidateCount: len(filtered)}
 }
 
 // importAdjustedConfidence halves confidence when a candidate is not import-reachable.
@@ -202,6 +203,17 @@ func importAdjustedConfidence(base float64, candidateQN string, importMap map[st
 		return base * 0.5
 	}
 	return base
+}
+
+// candidateCountPenalty scales confidence inversely with candidate count.
+// Common method names (String, Get, Add, Close) have many candidates project-wide,
+// making random selection unreliable. Penalty: base * min(1.0, 3.0/count).
+// 1-3 candidates: full confidence. 6: halved. 30: 1/10th.
+func candidateCountPenalty(base float64, count int) float64 {
+	if count <= 3 {
+		return base
+	}
+	return base * math.Min(1.0, 3.0/float64(count))
 }
 
 // FuzzyResolve attempts a loose match when Resolve() returns "".
@@ -248,13 +260,13 @@ func (r *FunctionRegistry) FuzzyResolve(calleeName, moduleQN string, importMap m
 		}
 		return ResolutionResult{
 			QualifiedName: best, Strategy: "fuzzy",
-			Confidence: 0.30 * 0.5, CandidateCount: len(candidates),
+			Confidence: candidateCountPenalty(0.30*0.5, len(candidates)), CandidateCount: len(candidates),
 		}, true
 	}
 	if len(filtered) == 1 {
 		return ResolutionResult{
 			QualifiedName: filtered[0], Strategy: "fuzzy",
-			Confidence: 0.40, CandidateCount: len(candidates),
+			Confidence: candidateCountPenalty(0.40, len(candidates)), CandidateCount: len(candidates),
 		}, true
 	}
 	best := bestByImportDistance(filtered, moduleQN)
@@ -263,7 +275,7 @@ func (r *FunctionRegistry) FuzzyResolve(calleeName, moduleQN string, importMap m
 	}
 	return ResolutionResult{
 		QualifiedName: best, Strategy: "fuzzy",
-		Confidence: 0.30, CandidateCount: len(filtered),
+		Confidence: candidateCountPenalty(0.30, len(filtered)), CandidateCount: len(filtered),
 	}, true
 }
 

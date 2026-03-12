@@ -231,7 +231,7 @@ func TestFileHashes(t *testing.T) {
 	}
 
 	// Upsert
-	if err := s.UpsertFileHash("test", "main.go", "abc123"); err != nil {
+	if err := s.UpsertFileHash("test", "main.go", "abc123", 1000000, 512); err != nil {
 		t.Fatalf("UpsertFileHash: %v", err)
 	}
 
@@ -240,17 +240,26 @@ func TestFileHashes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFileHashes: %v", err)
 	}
-	if hashes["main.go"] != "abc123" {
-		t.Errorf("expected abc123, got %s", hashes["main.go"])
+	if hashes["main.go"].SHA256 != "abc123" {
+		t.Errorf("expected abc123, got %s", hashes["main.go"].SHA256)
+	}
+	if hashes["main.go"].MtimeNs != 1000000 {
+		t.Errorf("expected mtime_ns 1000000, got %d", hashes["main.go"].MtimeNs)
+	}
+	if hashes["main.go"].Size != 512 {
+		t.Errorf("expected size 512, got %d", hashes["main.go"].Size)
 	}
 
 	// Update
-	if err := s.UpsertFileHash("test", "main.go", "def456"); err != nil {
+	if err := s.UpsertFileHash("test", "main.go", "def456", 2000000, 1024); err != nil {
 		t.Fatalf("UpsertFileHash update: %v", err)
 	}
 	hashes, _ = s.GetFileHashes("test")
-	if hashes["main.go"] != "def456" {
-		t.Errorf("expected def456, got %s", hashes["main.go"])
+	if hashes["main.go"].SHA256 != "def456" {
+		t.Errorf("expected def456, got %s", hashes["main.go"].SHA256)
+	}
+	if hashes["main.go"].MtimeNs != 2000000 {
+		t.Errorf("expected mtime_ns 2000000, got %d", hashes["main.go"].MtimeNs)
 	}
 }
 
@@ -648,13 +657,15 @@ func TestUpsertFileHashBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create 250 file hashes (triggers two batches: 200 + 50)
+	// Create 250 file hashes (triggers two batches: 190 + 60)
 	hashes := make([]FileHash, 250)
 	for i := range hashes {
 		hashes[i] = FileHash{
 			Project: "test",
 			RelPath: fmt.Sprintf("file_%d.go", i),
 			SHA256:  fmt.Sprintf("hash_%d", i),
+			MtimeNs: int64(i * 1000),
+			Size:    int64(i * 100),
 		}
 	}
 
@@ -672,14 +683,18 @@ func TestUpsertFileHashBatch(t *testing.T) {
 
 	// Verify values
 	for _, h := range hashes {
-		if stored[h.RelPath] != h.SHA256 {
-			t.Errorf("hash mismatch for %s: got %s, want %s", h.RelPath, stored[h.RelPath], h.SHA256)
+		if stored[h.RelPath].SHA256 != h.SHA256 {
+			t.Errorf("hash mismatch for %s: got %s, want %s", h.RelPath, stored[h.RelPath].SHA256, h.SHA256)
+		}
+		if stored[h.RelPath].MtimeNs != h.MtimeNs {
+			t.Errorf("mtime mismatch for %s: got %d, want %d", h.RelPath, stored[h.RelPath].MtimeNs, h.MtimeNs)
 		}
 	}
 
 	// Update hashes (should not duplicate)
 	for i := range hashes {
 		hashes[i].SHA256 = fmt.Sprintf("updated_%d", i)
+		hashes[i].MtimeNs = int64(i * 2000)
 	}
 	if err := s.UpsertFileHashBatch(hashes); err != nil {
 		t.Fatal(err)
@@ -688,8 +703,8 @@ func TestUpsertFileHashBatch(t *testing.T) {
 	if len(stored) != 250 {
 		t.Errorf("expected 250 after update, got %d", len(stored))
 	}
-	if stored["file_0.go"] != "updated_0" {
-		t.Errorf("expected updated hash, got %s", stored["file_0.go"])
+	if stored["file_0.go"].SHA256 != "updated_0" {
+		t.Errorf("expected updated hash, got %s", stored["file_0.go"].SHA256)
 	}
 }
 
