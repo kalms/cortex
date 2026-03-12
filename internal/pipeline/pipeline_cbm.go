@@ -135,8 +135,14 @@ func cbmDefToNode(def *cbm.Definition, projectName, moduleQN string) (*store.Nod
 	if len(def.BaseClasses) > 0 {
 		props["base_classes"] = def.BaseClasses
 	}
+	if len(def.ParamNames) > 0 {
+		props["param_names"] = def.ParamNames
+	}
 	if len(def.ParamTypes) > 0 {
 		props["param_types"] = def.ParamTypes
+	}
+	if len(def.ReturnTypes) > 0 {
+		props["return_types"] = def.ReturnTypes
 	}
 	if def.Complexity > 0 {
 		props["complexity"] = def.Complexity
@@ -231,64 +237,145 @@ func (p *Pipeline) resolveFileCallsCBM(relPath string, ext *cachedExtraction) []
 	moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
 	importMap := p.importMaps[moduleQN]
 
+	// Cross-file LSP resolution for Go files
+	p.runGoLSPCrossFileResolution(ext, moduleQN, relPath, importMap)
+
 	// Build type map from CBM type assignments
 	typeMap := inferTypesCBM(ext.Result.TypeAssigns, p.registry, moduleQN, importMap)
 
-	var edges []resolvedEdge
+	// LSP-resolved calls take priority (high confidence, type-aware).
+	edges, lspCallerMethods := collectLSPResolvedEdges(ext.Result.ResolvedCalls)
 
+	// Resolve remaining calls via registry + fuzzy matching
 	for _, call := range ext.Result.Calls {
-		calleeName := call.CalleeName
-		callerQN := call.EnclosingFuncQN
-		if calleeName == "" {
-			continue
+		if edge, ok := p.resolveCallEdge(call, moduleQN, importMap, typeMap, lspCallerMethods); ok {
+			edges = append(edges, edge)
 		}
-		if callerQN == "" {
-			callerQN = moduleQN
-		}
-
-		// Python self.method() resolution
-		if strings.HasPrefix(calleeName, "self.") {
-			classQN := extractClassFromMethodQN(callerQN)
-			if classQN != "" {
-				candidate := classQN + "." + calleeName[5:]
-				if p.registry.Exists(candidate) {
-					edges = append(edges, resolvedEdge{CallerQN: callerQN, TargetQN: candidate, Type: "CALLS"})
-					continue
-				}
-			}
-		}
-
-		// Type-based method dispatch for qualified calls like obj.method()
-		result := p.resolveCallWithTypes(calleeName, moduleQN, importMap, typeMap)
-		if result.QualifiedName == "" {
-			if fuzzyResult, ok := p.registry.FuzzyResolve(calleeName, moduleQN, importMap); ok {
-				edges = append(edges, resolvedEdge{
-					CallerQN: callerQN,
-					TargetQN: fuzzyResult.QualifiedName,
-					Type:     "CALLS",
-					Properties: map[string]any{
-						"confidence":          fuzzyResult.Confidence,
-						"confidence_band":     confidenceBand(fuzzyResult.Confidence),
-						"resolution_strategy": fuzzyResult.Strategy,
-					},
-				})
-			}
-			continue
-		}
-
-		edges = append(edges, resolvedEdge{
-			CallerQN: callerQN,
-			TargetQN: result.QualifiedName,
-			Type:     "CALLS",
-			Properties: map[string]any{
-				"confidence":          result.Confidence,
-				"confidence_band":     confidenceBand(result.Confidence),
-				"resolution_strategy": result.Strategy,
-			},
-		})
 	}
 
 	return edges
+}
+
+// runGoLSPCrossFileResolution re-runs LSP with cross-file definitions from imported packages.
+func (p *Pipeline) runGoLSPCrossFileResolution(ext *cachedExtraction, moduleQN, relPath string, importMap map[string]string) {
+	if ext.Language != lang.Go || p.goLSPIdx == nil {
+		return
+	}
+	crossDefs := p.goLSPIdx.collectCrossFileDefs(importMap)
+	if len(crossDefs) == 0 {
+		return
+	}
+	source := readFileSource(p.RepoPath, relPath)
+	if len(source) == 0 {
+		return
+	}
+	fileDefs := cbm.DefsToLSPDefs(ext.Result.Definitions, moduleQN)
+	resolved := cbm.RunGoLSPCrossFile(source, moduleQN, fileDefs, crossDefs, ext.Result.Imports)
+	if len(resolved) > 0 {
+		ext.Result.ResolvedCalls = resolved
+	}
+}
+
+// collectLSPResolvedEdges converts LSP-resolved calls to edges and builds a caller+method dedup set.
+func collectLSPResolvedEdges(resolvedCalls []cbm.ResolvedCall) (edges []resolvedEdge, lspCallerMethods map[string]bool) {
+	lspResolved := make(map[string]bool)
+	lspCallerMethods = make(map[string]bool)
+
+	for _, rc := range resolvedCalls {
+		if rc.CallerQN == "" || rc.CalleeQN == "" || rc.Confidence == 0 {
+			continue
+		}
+		key := rc.CallerQN + "\x00" + rc.CalleeQN
+		if lspResolved[key] {
+			continue
+		}
+		lspResolved[key] = true
+		edges = append(edges, resolvedEdge{
+			CallerQN: rc.CallerQN,
+			TargetQN: rc.CalleeQN,
+			Type:     "CALLS",
+			Properties: map[string]any{
+				"confidence":          float64(rc.Confidence),
+				"confidence_band":     confidenceBand(float64(rc.Confidence)),
+				"resolution_strategy": rc.Strategy,
+			},
+		})
+
+		shortName := rc.CalleeQN
+		if idx := strings.LastIndex(shortName, "."); idx >= 0 {
+			shortName = shortName[idx+1:]
+		}
+		lspCallerMethods[rc.CallerQN+"\x00"+shortName] = true
+	}
+
+	return edges, lspCallerMethods
+}
+
+// resolveCallEdge resolves a single call to an edge using the registry and type system.
+func (p *Pipeline) resolveCallEdge(
+	call cbm.Call, moduleQN string, importMap map[string]string,
+	typeMap TypeMap, lspCallerMethods map[string]bool,
+) (resolvedEdge, bool) {
+	calleeName := call.CalleeName
+	callerQN := call.EnclosingFuncQN
+	if calleeName == "" {
+		return resolvedEdge{}, false
+	}
+	if callerQN == "" {
+		callerQN = moduleQN
+	}
+
+	// Skip if LSP already resolved this caller+method
+	fuzzyShort := calleeName
+	if idx := strings.LastIndex(fuzzyShort, "."); idx >= 0 {
+		fuzzyShort = fuzzyShort[idx+1:]
+	}
+	if lspCallerMethods[callerQN+"\x00"+fuzzyShort] {
+		return resolvedEdge{}, false
+	}
+
+	// Python self.method() resolution
+	if strings.HasPrefix(calleeName, "self.") {
+		classQN := extractClassFromMethodQN(callerQN)
+		if classQN != "" {
+			candidate := classQN + "." + calleeName[5:]
+			if p.registry.Exists(candidate) {
+				return resolvedEdge{CallerQN: callerQN, TargetQN: candidate, Type: "CALLS"}, true
+			}
+		}
+	}
+
+	// Type-based method dispatch for qualified calls like obj.method()
+	result := p.resolveCallWithTypes(calleeName, moduleQN, importMap, typeMap)
+	if result.QualifiedName == "" {
+		if fuzzyResult, ok := p.registry.FuzzyResolve(calleeName, moduleQN, importMap); ok && fuzzyResult.Confidence >= 0.10 {
+			return resolvedEdge{
+				CallerQN: callerQN,
+				TargetQN: fuzzyResult.QualifiedName,
+				Type:     "CALLS",
+				Properties: map[string]any{
+					"confidence":          fuzzyResult.Confidence,
+					"confidence_band":     confidenceBand(fuzzyResult.Confidence),
+					"resolution_strategy": fuzzyResult.Strategy,
+				},
+			}, true
+		}
+		return resolvedEdge{}, false
+	}
+
+	if result.Confidence < 0.10 {
+		return resolvedEdge{}, false
+	}
+	return resolvedEdge{
+		CallerQN: callerQN,
+		TargetQN: result.QualifiedName,
+		Type:     "CALLS",
+		Properties: map[string]any{
+			"confidence":          result.Confidence,
+			"confidence_band":     confidenceBand(result.Confidence),
+			"resolution_strategy": result.Strategy,
+		},
+	}, true
 }
 
 // resolveFileUsagesCBM resolves usage references using pre-extracted CBM data.

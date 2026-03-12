@@ -38,7 +38,9 @@ var releaseURL = "https://api.github.com/repos/DeusData/codebase-memory-mcp/rele
 type Server struct {
 	mcp      *mcp.Server
 	router   *store.StoreRouter
+	config   *store.ConfigStore
 	watcher  *watcher.Watcher
+	ctx      context.Context // server lifetime context — cancelled on shutdown
 	indexMu  sync.Mutex
 	handlers map[string]mcp.ToolHandler
 
@@ -49,13 +51,25 @@ type Server struct {
 	indexStatus    atomic.Value
 	indexStartedAt atomic.Value // time.Time — when current/last index started
 	updateNotice   atomic.Value // string — set once by checkForUpdate, cleared after first injection
+	updateOnce     sync.Once    // ensures checkForUpdate runs at most once per session
+}
+
+// ServerOption configures a Server.
+type ServerOption func(*Server)
+
+// WithConfig attaches a ConfigStore for reading runtime settings.
+func WithConfig(c *store.ConfigStore) ServerOption {
+	return func(s *Server) { s.config = c }
 }
 
 // NewServer creates a new MCP server with all tools registered.
-func NewServer(r *store.StoreRouter) *Server {
+func NewServer(r *store.StoreRouter, opts ...ServerOption) *Server {
 	srv := &Server{
 		router:   r,
 		handlers: make(map[string]mcp.ToolHandler),
+	}
+	for _, opt := range opts {
+		opt(srv)
 	}
 
 	srv.mcp = mcp.NewServer(
@@ -75,8 +89,9 @@ func NewServer(r *store.StoreRouter) *Server {
 }
 
 // StartWatcher launches the background file-change polling goroutine.
-// It stops when ctx is cancelled.
+// It stores ctx for use by startAutoIndex and stops when ctx is cancelled.
 func (s *Server) StartWatcher(ctx context.Context) {
+	s.ctx = ctx
 	go s.watcher.Run(ctx)
 }
 
@@ -113,7 +128,7 @@ func (s *Server) SessionProject() string {
 
 // SetSessionRoot sets the session root path directly (for CLI mode).
 func (s *Server) SetSessionRoot(rootPath string) {
-	go s.checkForUpdate()
+	go s.updateOnce.Do(s.checkForUpdate)
 	s.sessionOnce.Do(func() {
 		s.sessionRoot = rootPath
 		if rootPath != "" {
@@ -126,7 +141,7 @@ func (s *Server) SetSessionRoot(rootPath string) {
 
 // onInitialized is called when the client sends notifications/initialized.
 func (s *Server) onInitialized(ctx context.Context, req *mcp.InitializedRequest) {
-	go s.checkForUpdate()
+	go s.updateOnce.Do(s.checkForUpdate)
 	s.sessionOnce.Do(func() {
 		s.sessionRoot = s.detectSessionRoot(ctx, req.Session)
 		if s.sessionRoot != "" {
@@ -138,7 +153,7 @@ func (s *Server) onInitialized(ctx context.Context, req *mcp.InitializedRequest)
 
 // onRootsChanged re-detects session root if not yet set.
 func (s *Server) onRootsChanged(ctx context.Context, req *mcp.RootsListChangedRequest) {
-	go s.checkForUpdate()
+	go s.updateOnce.Do(s.checkForUpdate)
 	s.sessionOnce.Do(func() {
 		s.sessionRoot = s.detectSessionRoot(ctx, req.Session)
 		if s.sessionRoot != "" {
@@ -193,11 +208,52 @@ func parseFileURI(uri string) (string, bool) {
 	return filepath.FromSlash(path), true
 }
 
+// defaultAutoIndexLimit is the maximum number of source files that auto-index
+// will process for a never-before-indexed project. Override with config key
+// "auto_index_limit". Projects above this limit require explicit index_repository.
+const defaultAutoIndexLimit = 50000
+
 // startAutoIndex triggers background indexing for the session project.
+// Respects config: auto_index must be true (default: false).
+// For never-indexed projects: only auto-indexes if file count <= auto_index_limit.
+// For previously-indexed projects: always re-indexes (incremental, fast).
 func (s *Server) startAutoIndex() {
 	hasDB := s.router.HasProject(s.sessionProject)
 
+	// Auto-index for new projects requires explicit opt-in via config.
+	// Previously-indexed projects always get incremental re-index (cheap).
 	if !hasDB {
+		autoIndex := false
+		fileLimit := defaultAutoIndexLimit
+		if s.config != nil {
+			autoIndex = s.config.GetBool(store.ConfigAutoIndex, false)
+			fileLimit = s.config.GetInt(store.ConfigAutoIndexLimit, defaultAutoIndexLimit)
+		}
+
+		if !autoIndex {
+			slog.Info("autoindex.skip",
+				"reason", "auto_index_disabled",
+				"hint", "run: codebase-memory-mcp config set auto_index true",
+			)
+			return
+		}
+
+		// Check file count before committing to index.
+		// Prevents OOM when the server starts in a large monorepo.
+		files, err := discover.Discover(s.ctx, s.sessionRoot, nil)
+		if err != nil {
+			slog.Warn("autoindex.discover.err", "err", err)
+			return
+		}
+		if len(files) > fileLimit {
+			slog.Warn("autoindex.skip",
+				"reason", "too_many_files",
+				"files", len(files),
+				"limit", fileLimit,
+				"hint", "call index_repository explicitly or increase auto_index_limit",
+			)
+			return
+		}
 		s.indexStatus.Store("indexing")
 	} else {
 		s.indexStatus.Store("ready")
@@ -220,7 +276,7 @@ func (s *Server) startAutoIndex() {
 			slog.Warn("autoindex.store.err", "err", err)
 			return
 		}
-		p := pipeline.New(context.Background(), st, s.sessionRoot, discover.ModeFull)
+		p := pipeline.New(s.ctx, st, s.sessionRoot, discover.ModeFull)
 		if err := p.Run(); err != nil {
 			slog.Warn("autoindex.err", "err", err)
 			return
@@ -667,7 +723,7 @@ func (s *Server) registerSearchTools() {
 func (s *Server) registerQueryTool() {
 	s.addTool(&mcp.Tool{
 		Name:        "query_graph",
-		Description: "Execute a Cypher-like graph query. String matching in WHERE is case-sensitive by default. For case-insensitive regex: use (?i) flag — WHERE f.name =~ '(?i)handler'. CONTAINS and STARTS WITH are always case-sensitive — use =~ with (?i) for case-insensitive substring matching: WHERE f.name =~ '(?i).*order.*'. Best practice: use regex alternatives for word form variance — WHERE f.name =~ '(?i)sponsor|sponsoring|sponsored'. Tip: prefer search_graph for simple name searches (case-insensitive by default) — use query_graph only when you need Cypher's relationship patterns or edge properties. WARNING: 200-row cap applies BEFORE aggregation — COUNT queries on large codebases silently undercount. For fan-out/fan-in counting, use search_graph with min_degree/max_degree instead. Best for: relationship patterns, filtered joins, path queries, and edge property filtering. Supports WHERE on edge properties: r.url_path CONTAINS 'orders', r.confidence >= 0.6, r.method = 'POST', r.confidence_band = 'high', r.validated_by_trace = true, r.coupling_score >= 0.5. This is the correct tool for listing cross-service edges — use MATCH (a)-[r:HTTP_CALLS]->(b) RETURN a.name, b.name, r.url_path, r.confidence, r.confidence_band to see HTTP links with URLs and confidence scores (bands: high>=0.7, medium>=0.45, speculative>=0.25), or MATCH (a)-[r:ASYNC_CALLS]->(b) for async dispatch edges. For change coupling: MATCH (a)-[r:FILE_CHANGES_WITH]->(b) RETURN a.name, b.name, r.coupling_score, r.co_change_count. For interface method overrides: MATCH (s)-[r:OVERRIDE]->(i) to find struct methods implementing interface methods. For read references (callbacks, variable assignments): MATCH (a)-[r:USAGE]->(b). Always use LIMIT. Edge types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
+		Description: "Execute a Cypher-like graph query. String matching in WHERE is case-sensitive by default. For case-insensitive regex: use (?i) flag — WHERE f.name =~ '(?i)handler'. CONTAINS and STARTS WITH are always case-sensitive — use =~ with (?i) for case-insensitive substring matching: WHERE f.name =~ '(?i).*order.*'. Best practice: use regex alternatives for word form variance — WHERE f.name =~ '(?i)sponsor|sponsoring|sponsored'. Tip: prefer search_graph for simple name searches (case-insensitive by default) — use query_graph only when you need Cypher's relationship patterns or edge properties. Default row cap is 200 — use max_rows parameter to increase (up to 10000) for COUNT/aggregation queries on large codebases. Best for: relationship patterns, filtered joins, path queries, and edge property filtering. Supports WHERE on edge properties: r.url_path CONTAINS 'orders', r.confidence >= 0.6, r.method = 'POST', r.confidence_band = 'high', r.validated_by_trace = true, r.coupling_score >= 0.5. This is the correct tool for listing cross-service edges — use MATCH (a)-[r:HTTP_CALLS]->(b) RETURN a.name, b.name, r.url_path, r.confidence, r.confidence_band to see HTTP links with URLs and confidence scores (bands: high>=0.7, medium>=0.45, speculative>=0.25), or MATCH (a)-[r:ASYNC_CALLS]->(b) for async dispatch edges. For change coupling: MATCH (a)-[r:FILE_CHANGES_WITH]->(b) RETURN a.name, b.name, r.coupling_score, r.co_change_count. For interface method overrides: MATCH (s)-[r:OVERRIDE]->(i) to find struct methods implementing interface methods. For read references (callbacks, variable assignments): MATCH (a)-[r:USAGE]->(b). Always use LIMIT. Edge types: CALLS, HTTP_CALLS, ASYNC_CALLS, IMPORTS, DEFINES, DEFINES_METHOD, HANDLES, IMPLEMENTS, OVERRIDE, USAGE, FILE_CHANGES_WITH.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -678,6 +734,10 @@ func (s *Server) registerQueryTool() {
 				"project": {
 					"type": "string",
 					"description": "Project to query. Defaults to session project."
+				},
+				"max_rows": {
+					"type": "integer",
+					"description": "Maximum result rows (default 200, max 10000). Overrides the internal row cap. Use higher values for COUNT/aggregation queries on large codebases."
 				}
 			},
 			"required": ["query"]

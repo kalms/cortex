@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,8 @@ type Pipeline struct {
 	importMaps map[string]map[string]string
 	// returnTypes maps function QN -> return type QN for return-type-based type inference
 	returnTypes ReturnTypeMap
+	// goLSPIdx indexes Go cross-file definitions for LSP resolution in pass3
+	goLSPIdx *goLSPDefIndex
 }
 
 // New creates a new Pipeline.
@@ -180,6 +183,7 @@ func (p *Pipeline) Run() error {
 		return fmt.Errorf("discover: %w", err)
 	}
 	slog.Info("pipeline.discovered", "files", len(files))
+	logHeapStats("pre_index")
 
 	// Use MEMORY journal mode during fresh indexing for faster bulk writes.
 	p.Store.BeginBulkWrite(p.ctx)
@@ -202,11 +206,15 @@ func (p *Pipeline) Run() error {
 	// Only checkpoint + optimize when actual data was written.
 	// No-op incremental reindexes skip this to avoid ANALYZE overhead.
 	if wroteData {
+		walBefore := p.Store.WALSize()
 		p.Store.Checkpoint(p.ctx)
+		walAfter := p.Store.WALSize()
+		slog.Info("wal.checkpoint", "before_mb", walBefore/(1<<20), "after_mb", walAfter/(1<<20))
 	}
 
 	nc, _ := p.Store.CountNodes(p.ProjectName)
 	ec, _ := p.Store.CountEdges(p.ProjectName)
+	logHeapStats("post_index")
 	slog.Info("pipeline.done", "nodes", nc, "edges", ec, "total_elapsed", time.Since(runStart))
 	return nil
 }
@@ -256,6 +264,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	t = time.Now()
 	p.passDefinitions(files) // includes Variable extraction + enrichment
 	slog.Info("pass.timing", "pass", "definitions", "elapsed", time.Since(t))
+	logHeapStats("post_definitions")
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -291,8 +300,18 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 
 	t = time.Now()
 	p.buildReturnTypeMap()
+	p.goLSPIdx = p.buildGoLSPDefIndex()
+	if p.goLSPIdx != nil {
+		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
+	}
 	p.passCalls()
 	slog.Info("pass.timing", "pass", "calls", "elapsed", time.Since(t))
+	// Release heavy fields no longer needed after call resolution.
+	// Definitions + Calls + TypeAssigns + Imports dominate extractionCache memory
+	// (~160 KB/file → 16 GB for 100K-file repos). Nil them to halve peak RSS.
+	p.releaseExtractionFields(fieldsPostCalls)
+	p.goLSPIdx = nil // no longer needed after call resolution
+	logHeapStats("post_calls")
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -300,11 +319,14 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	t = time.Now()
 	p.passUsages()
 	slog.Info("pass.timing", "pass", "usages", "elapsed", time.Since(t))
+	p.releaseExtractionFields(fieldsPostUsages)
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
 
 	p.runSemanticEdgePasses()
+	// All semantic fields consumed — release remaining before implements.
+	p.releaseExtractionFields(fieldsPostSemantic)
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -316,6 +338,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	slog.Info("pass.timing", "pass", "implements", "elapsed", time.Since(t))
 
 	p.cleanupASTCache()
+	logHeapStats("post_cleanup")
 
 	// Flush in-memory buffer to SQLite with deferred index creation.
 	if err := p.buf.FlushTo(p.ctx, p.Store); err != nil {
@@ -324,7 +347,12 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	p.buf = nil
 
 	// Post-flush passes use Store directly (need indexes).
-	t = time.Now()
+	return p.runPostFlushPasses(files)
+}
+
+// runPostFlushPasses runs passes that require SQLite indexes (post graph-buffer flush).
+func (p *Pipeline) runPostFlushPasses(files []discover.FileInfo) error {
+	t := time.Now()
 	p.passTests() // TESTS/TESTS_FILE edges (DB-only)
 	slog.Info("pass.timing", "pass", "tests", "elapsed", time.Since(t))
 
@@ -462,8 +490,15 @@ func (p *Pipeline) runIncrementalPasses(
 
 	// Re-resolve calls + usages for changed + dependent files
 	p.buildReturnTypeMap()
+	p.goLSPIdx = p.buildGoLSPDefIndex()
+	if p.goLSPIdx != nil {
+		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
+	}
 	p.passCallsForFiles(filesToResolve)
+	p.releaseExtractionFields(fieldsPostCalls)
+	p.goLSPIdx = nil
 	p.passUsagesForFiles(filesToResolve)
+	p.releaseExtractionFields(fieldsPostUsages)
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -473,6 +508,7 @@ func (p *Pipeline) runIncrementalPasses(
 	p.passThrows()
 	p.passReadsWrites()
 	p.passConfigures()
+	p.releaseExtractionFields(fieldsPostSemantic)
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -515,27 +551,55 @@ func (p *Pipeline) runIncrementalPasses(
 }
 
 // classifyFiles splits files into changed and unchanged based on stored hashes.
-// File hashing is parallelized across CPU cores.
+// Uses stat (mtime+size) as a fast pre-filter: files whose mtime and size match
+// the stored values are assumed unchanged without reading/hashing. Only files
+// with changed stat (or missing from the store) are hashed.
 func (p *Pipeline) classifyFiles(files []discover.FileInfo) (changed, unchanged []discover.FileInfo) {
 	storedHashes, err := p.Store.GetFileHashes(p.ProjectName)
 	if err != nil || len(storedHashes) == 0 {
 		return files, nil // no hashes → full index
 	}
 
+	// Stage 1: stat pre-filter — separate files into "stat-unchanged" and "needs-hash"
+	var needsHash []discover.FileInfo
+	for _, f := range files {
+		stored, ok := storedHashes[f.RelPath]
+		if !ok {
+			needsHash = append(needsHash, f) // new file
+			continue
+		}
+		fi, statErr := os.Stat(f.Path)
+		if statErr != nil {
+			needsHash = append(needsHash, f) // stat failed → hash it
+			continue
+		}
+		if fi.ModTime().UnixNano() == stored.MtimeNs && fi.Size() == stored.Size && stored.MtimeNs != 0 {
+			// Stat matches — trust the stored hash
+			unchanged = append(unchanged, f)
+		} else {
+			needsHash = append(needsHash, f)
+		}
+	}
+
+	if len(needsHash) == 0 {
+		return changed, unchanged // nothing to hash
+	}
+
+	// Stage 2: hash only files that need it
 	type hashResult struct {
 		Hash string
 		Err  error
 	}
 
-	results := make([]hashResult, len(files))
+	results := make([]hashResult, len(needsHash))
 	numWorkers := runtime.NumCPU()
-	if numWorkers > len(files) {
-		numWorkers = len(files)
+	if numWorkers > len(needsHash) {
+		numWorkers = len(needsHash)
 	}
 
 	g := new(errgroup.Group)
 	g.SetLimit(numWorkers)
-	for i, f := range files {
+	for i, f := range needsHash {
 		g.Go(func() error {
 			hash, hashErr := fileHash(f.Path)
 			results[i] = hashResult{Hash: hash, Err: hashErr}
@@ -544,13 +608,13 @@ func (p *Pipeline) classifyFiles(files []discover.FileInfo) (changed, unchanged 
 	}
 	_ = g.Wait()
 
-	for i, f := range files {
+	for i, f := range needsHash {
 		r := results[i]
 		if r.Err != nil {
 			changed = append(changed, f)
 			continue
 		}
-		if stored, ok := storedHashes[f.RelPath]; ok && stored == r.Hash {
+		if stored, ok := storedHashes[f.RelPath]; ok && stored.SHA256 == r.Hash {
 			unchanged = append(unchanged, f)
 		} else {
 			changed = append(changed, f)
@@ -641,6 +705,11 @@ func (p *Pipeline) passCallsForFiles(files []discover.FileInfo) {
 			p.extractionCache[f.RelPath] = ext
 		}
 		edges := p.resolveFileCallsCBM(f.RelPath, ext)
+		// Release Definitions/Imports per-file after call resolution
+		if ext.Result != nil {
+			ext.Result.Definitions = nil
+			ext.Result.Imports = nil
+		}
 		for _, re := range edges {
 			callerNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.CallerQN)
 			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.TargetQN)
@@ -676,15 +745,67 @@ func (p *Pipeline) removeDeletedFiles(currentFiles []discover.FileInfo) {
 	}
 }
 
+// fieldGroup identifies which FileResult fields to release after a pass.
+type fieldGroup int
+
+const (
+	fieldsPostCalls    fieldGroup = iota // Definitions, Calls, ResolvedCalls, TypeAssigns, Imports
+	fieldsPostUsages                     // Usages
+	fieldsPostSemantic                   // TypeRefs, Throws, ReadWrites, EnvAccesses
+)
+
+// releaseExtractionFields nils out consumed FileResult slices to reduce peak memory.
+// Each FileResult field is used by specific passes; once a pass completes, its fields
+// can be released. For a 100K-file repo, Definitions+Calls alone hold ~10 GB.
+func (p *Pipeline) releaseExtractionFields(group fieldGroup) {
+	for _, ext := range p.extractionCache {
+		if ext.Result == nil {
+			continue
+		}
+		switch group {
+		case fieldsPostCalls:
+			ext.Result.Definitions = nil
+			ext.Result.Calls = nil
+			ext.Result.ResolvedCalls = nil
+			ext.Result.TypeAssigns = nil
+			ext.Result.Imports = nil
+		case fieldsPostUsages:
+			ext.Result.Usages = nil
+		case fieldsPostSemantic:
+			ext.Result.TypeRefs = nil
+			ext.Result.Throws = nil
+			ext.Result.ReadWrites = nil
+			ext.Result.EnvAccesses = nil
+		}
+	}
+}
+
 func (p *Pipeline) cleanupASTCache() {
 	// Release extraction cache (Go GC handles the cbm.FileResult structs)
 	p.extractionCache = nil
+	// Prompt the Go runtime to return freed pages to the OS.
+	// Especially useful under GOMEMLIMIT to keep RSS closer to actual usage.
+	debug.FreeOSMemory()
+}
+
+// logHeapStats logs current Go heap metrics for memory diagnostics.
+func logHeapStats(stage string) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	slog.Info("mem.stats",
+		"stage", stage,
+		"heap_inuse_mb", m.HeapInuse/(1<<20),
+		"heap_alloc_mb", m.HeapAlloc/(1<<20),
+		"sys_mb", m.Sys/(1<<20),
+	)
 }
 
 func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
 	type hashResult struct {
-		Hash string
-		Err  error
+		Hash    string
+		MtimeNs int64
+		Size    int64
+		Err     error
 	}
 
 	results := make([]hashResult, len(files))
@@ -698,7 +819,14 @@ func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
 	for i, f := range files {
 		g.Go(func() error {
 			hash, hashErr := fileHash(f.Path)
-			results[i] = hashResult{Hash: hash, Err: hashErr}
+			r := hashResult{Hash: hash, Err: hashErr}
+			if hashErr == nil {
+				if fi, statErr := os.Stat(f.Path); statErr == nil {
+					r.MtimeNs = fi.ModTime().UnixNano()
+					r.Size = fi.Size()
+				}
+			}
+			results[i] = r
 			return nil
 		})
 	}
@@ -712,6 +840,8 @@ func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
 				Project: p.ProjectName,
 				RelPath: f.RelPath,
 				SHA256:  results[i].Hash,
+				MtimeNs: results[i].MtimeNs,
+				Size:    results[i].Size,
 			})
 		}
 	}
@@ -1135,6 +1265,14 @@ func (p *Pipeline) passCalls() {
 				return gctx.Err()
 			}
 			results[i] = p.resolveFileCallsCBM(fe.relPath, fe.ext)
+			// Release heavy fields per-file immediately after call resolution.
+			// Definitions + Imports are only needed for Go LSP cross-file inside
+			// resolveFileCallsCBM. Releasing here reduces peak from O(all_files)
+			// to O(concurrent_workers) for these fields.
+			if fe.ext.Result != nil {
+				fe.ext.Result.Definitions = nil
+				fe.ext.Result.Imports = nil
+			}
 			return nil
 		})
 	}
@@ -1146,17 +1284,7 @@ func (p *Pipeline) passCalls() {
 
 // flushResolvedEdges converts QN-based resolved edges to ID-based edges and batch-inserts them.
 func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
-	// Collect all unique QNs
-	qnSet := make(map[string]struct{})
-	totalEdges := 0
-	for _, fileEdges := range results {
-		for _, re := range fileEdges {
-			qnSet[re.CallerQN] = struct{}{}
-			qnSet[re.TargetQN] = struct{}{}
-			totalEdges++
-		}
-	}
-
+	qnSet, totalEdges := collectEdgeQNs(results)
 	if totalEdges == 0 {
 		return
 	}
@@ -1172,7 +1300,80 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 		return
 	}
 
-	// Build edges
+	// Create stub nodes for LSP-resolved targets that don't exist in the graph.
+	p.createLSPStubNodes(results, qnToID)
+
+	// Build and insert edges
+	edges := buildEdgesFromResults(results, qnToID, p.ProjectName, totalEdges)
+	if err := p.insertEdgeBatch(edges); err != nil {
+		slog.Warn("pass3.batch_edges.err", "err", err)
+	}
+}
+
+// collectEdgeQNs collects all unique qualified names and counts total edges from results.
+func collectEdgeQNs(results [][]resolvedEdge) (qnSet map[string]struct{}, totalEdges int) {
+	qnSet = make(map[string]struct{})
+	for _, fileEdges := range results {
+		for _, re := range fileEdges {
+			qnSet[re.CallerQN] = struct{}{}
+			qnSet[re.TargetQN] = struct{}{}
+			totalEdges++
+		}
+	}
+	return qnSet, totalEdges
+}
+
+// createLSPStubNodes creates stub nodes for LSP-resolved targets that don't exist in the graph.
+// This happens for stdlib/external methods (e.g., context.Context.Done) that
+// the LSP resolver correctly identifies but aren't indexed as nodes.
+func (p *Pipeline) createLSPStubNodes(results [][]resolvedEdge, qnToID map[string]int64) {
+	var stubs []*store.Node
+	stubQNs := make(map[string]bool)
+	for _, fileEdges := range results {
+		for _, re := range fileEdges {
+			if _, ok := qnToID[re.TargetQN]; ok {
+				continue
+			}
+			if stubQNs[re.TargetQN] {
+				continue
+			}
+			strategy, _ := re.Properties["resolution_strategy"].(string)
+			if !strings.HasPrefix(strategy, "lsp_") {
+				continue
+			}
+			stubQNs[re.TargetQN] = true
+			name := re.TargetQN
+			if idx := strings.LastIndex(name, "."); idx >= 0 {
+				name = name[idx+1:]
+			}
+			label := "Function"
+			if strings.Count(re.TargetQN, ".") >= 2 {
+				label = "Method"
+			}
+			stubs = append(stubs, &store.Node{
+				Project:       p.ProjectName,
+				Label:         label,
+				Name:          name,
+				QualifiedName: re.TargetQN,
+				Properties:    map[string]any{"stub": true, "source": "lsp_resolution"},
+			})
+		}
+	}
+	if len(stubs) > 0 {
+		stubIDs, err := p.upsertNodeBatch(stubs)
+		if err != nil {
+			slog.Warn("pass3.stub_nodes.err", "err", err)
+		} else {
+			for qn, id := range stubIDs {
+				qnToID[qn] = id
+			}
+			slog.Info("pass3.stub_nodes", "count", len(stubs))
+		}
+	}
+}
+
+// buildEdgesFromResults converts QN-based resolved edges to store.Edge using the QN-to-ID map.
+func buildEdgesFromResults(results [][]resolvedEdge, qnToID map[string]int64, project string, totalEdges int) []*store.Edge {
 	edges := make([]*store.Edge, 0, totalEdges)
 	for _, fileEdges := range results {
 		for _, re := range fileEdges {
@@ -1180,7 +1381,7 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 			tgtID, tgtOK := qnToID[re.TargetQN]
 			if srcOK && tgtOK {
 				edges = append(edges, &store.Edge{
-					Project:    p.ProjectName,
+					Project:    project,
 					SourceID:   srcID,
 					TargetID:   tgtID,
 					Type:       re.Type,
@@ -1189,10 +1390,7 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 			}
 		}
 	}
-
-	if err := p.insertEdgeBatch(edges); err != nil {
-		slog.Warn("pass3.batch_edges.err", "err", err)
-	}
+	return edges
 }
 
 // resolveCallWithTypes resolves a callee name using the registry, import maps,

@@ -12,13 +12,40 @@ import (
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
-const maxResultRows = 200
+const defaultMaxRows = 200
+const absoluteMaxRows = 10000
 
 // Executor runs Cypher execution plans against a store.
 type Executor struct {
-	Store      *store.Store
-	regexCache map[string]*regexp.Regexp
-	ctx        context.Context // set by Execute, used for DB queries
+	Store       *store.Store
+	MaxRows     int // 0 means defaultMaxRows
+	regexCache  map[string]*regexp.Regexp
+	ctx         context.Context // set by Execute, used for DB queries
+	expandLimit int             // binding cap for current query (set per-execution)
+}
+
+func (e *Executor) maxRows() int {
+	if e.MaxRows <= 0 {
+		return defaultMaxRows
+	}
+	if e.MaxRows > absoluteMaxRows {
+		return absoluteMaxRows
+	}
+	return e.MaxRows
+}
+
+// bindingCap returns the maximum number of bindings to keep during expansion.
+// For aggregation queries (COUNT), we need all bindings for correct counts,
+// so the cap is much higher. For non-aggregation queries, cap at maxRows*2.
+func (e *Executor) bindingCap(ret *ReturnClause) int {
+	if ret != nil {
+		for _, item := range ret.Items {
+			if item.Func == "COUNT" {
+				return absoluteMaxRows * 10 // 100k cap for aggregation
+			}
+		}
+	}
+	return e.maxRows() * 2
 }
 
 // Result holds the tabular output of a query.
@@ -67,6 +94,8 @@ func (e *Executor) executePlan(plan *Plan) (*Result, error) {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
 
+	bindingCap := e.bindingCap(plan.ReturnSpec)
+	e.expandLimit = bindingCap
 	var allBindings []binding
 	for _, proj := range projects {
 		bindings, err := e.executeStepsForProject(proj.Name, plan.Steps)
@@ -74,8 +103,8 @@ func (e *Executor) executePlan(plan *Plan) (*Result, error) {
 			continue // skip projects that error
 		}
 		allBindings = append(allBindings, bindings...)
-		if len(allBindings) > maxResultRows*2 {
-			allBindings = allBindings[:maxResultRows*2]
+		if len(allBindings) > bindingCap {
+			allBindings = allBindings[:bindingCap]
 			break
 		}
 	}
@@ -128,7 +157,7 @@ func (e *Executor) tryAggregateSQL(plan *Plan) (*Result, bool) {
 	}
 
 	// LIMIT
-	allRows = applyLimit(allRows, plan.ReturnSpec.Limit)
+	allRows = applyLimit(allRows, plan.ReturnSpec.Limit, e.maxRows())
 
 	return &Result{Columns: cols, Rows: allRows}, true
 }
@@ -421,8 +450,12 @@ func (e *Executor) executeStepsForProject(project string, steps []PlanStep) ([]b
 		isLastStep := i == len(steps)-1
 		_, isExpand := step.(*ExpandRelationship)
 		if isLastStep || isExpand {
-			if len(bindings) > maxResultRows*2 {
-				bindings = bindings[:maxResultRows*2]
+			stepCap := e.expandLimit
+			if stepCap <= 0 {
+				stepCap = e.maxRows() * 2
+			}
+			if len(bindings) > stepCap {
+				bindings = bindings[:stepCap]
 			}
 		}
 	}
@@ -503,7 +536,11 @@ func (e *Executor) execJoinScanExpand(project string, scan *ScanNodes, expand *E
 		LIMIT ?`,
 		srcCol, tgtCol, typeFilter, srcLabelClause, tgtLabelClause)
 
-	args = append(args, maxResultRows*2)
+	sqlLimit := e.expandLimit
+	if sqlLimit <= 0 {
+		sqlLimit = e.maxRows() * 2
+	}
+	args = append(args, sqlLimit)
 
 	rows, err := e.Store.DB().QueryContext(e.ctx, query, args...)
 	if err != nil {
@@ -674,8 +711,8 @@ func (e *Executor) execExpand(s *ExpandRelationship, bindings []binding) ([]bind
 				return nil, err
 			}
 			result = append(result, expanded...)
-			if len(result) > maxResultRows*2 {
-				result = result[:maxResultRows*2]
+			if len(result) > e.maxRows()*2 {
+				result = result[:e.maxRows()*2]
 				break
 			}
 		}
@@ -709,7 +746,11 @@ func (e *Executor) expandFixedLengthBatch(s *ExpandRelationship, bindings []bind
 		return nil, err
 	}
 
-	return buildExpandedBindings(bindings, s, edgesByNode, nodeMap, direction), nil
+	expandCap := e.expandLimit
+	if expandCap <= 0 {
+		expandCap = e.maxRows() * 2
+	}
+	return buildExpandedBindings(bindings, s, edgesByNode, nodeMap, direction, expandCap), nil
 }
 
 // collectSourceIDs extracts unique node IDs from bindings for the given variable.
@@ -773,7 +814,7 @@ func collectTargetIDs(edgesByNode map[int64][]*store.Edge, direction string) []i
 }
 
 // buildExpandedBindings creates result bindings by matching edges to target nodes.
-func buildExpandedBindings(bindings []binding, s *ExpandRelationship, edgesByNode map[int64][]*store.Edge, nodeMap map[int64]*store.Node, direction string) []binding {
+func buildExpandedBindings(bindings []binding, s *ExpandRelationship, edgesByNode map[int64][]*store.Edge, nodeMap map[int64]*store.Node, direction string, maxRows int) []binding {
 	result := make([]binding, 0, len(bindings))
 	for _, b := range bindings {
 		fromNode, ok := b.nodes[s.FromVar]
@@ -807,8 +848,8 @@ func buildExpandedBindings(bindings []binding, s *ExpandRelationship, edgesByNod
 			result = append(result, newB)
 		}
 
-		if len(result) > maxResultRows*2 {
-			result = result[:maxResultRows*2]
+		if len(result) > maxRows*2 {
+			result = result[:maxRows*2]
 			break
 		}
 	}
@@ -831,7 +872,7 @@ func (e *Executor) expandVariableLength(b binding, fromNode *store.Node, s *Expa
 		edgeTypes = []string{"CALLS"} // default
 	}
 
-	bfsResult, err := e.Store.BFS(fromNode.ID, direction, edgeTypes, maxDepth, maxResultRows)
+	bfsResult, err := e.Store.BFS(fromNode.ID, direction, edgeTypes, maxDepth, e.maxRows())
 	if err != nil {
 		return nil, fmt.Errorf("bfs: %w", err)
 	}
@@ -1121,8 +1162,8 @@ func (e *Executor) defaultProjection(bindings []binding) (*Result, error) {
 		rows = append(rows, row)
 	}
 
-	if len(rows) > maxResultRows {
-		rows = rows[:maxResultRows]
+	if len(rows) > e.maxRows() {
+		rows = rows[:e.maxRows()]
 	}
 
 	return &Result{Columns: cols, Rows: rows}, nil
@@ -1155,7 +1196,7 @@ func (e *Executor) simpleProjection(bindings []binding, ret *ReturnClause) (*Res
 	}
 
 	// LIMIT
-	rows = applyLimit(rows, ret.Limit)
+	rows = applyLimit(rows, ret.Limit, e.maxRows())
 
 	return &Result{Columns: cols, Rows: rows}, nil
 }
@@ -1254,9 +1295,9 @@ func resolveOrderColumn(orderBy string, items []ReturnItem, cols []string) strin
 }
 
 // applyLimit enforces the LIMIT clause on result rows.
-func applyLimit(rows []map[string]any, limit int) []map[string]any {
-	if limit <= 0 || limit > maxResultRows {
-		limit = maxResultRows
+func applyLimit(rows []map[string]any, limit, maxRows int) []map[string]any {
+	if limit <= 0 || limit > maxRows {
+		limit = maxRows
 	}
 	if len(rows) > limit {
 		return rows[:limit]
@@ -1292,7 +1333,7 @@ func (e *Executor) aggregateResults(bindings []binding, ret *ReturnClause) (*Res
 	}
 
 	// LIMIT
-	rows = applyLimit(rows, ret.Limit)
+	rows = applyLimit(rows, ret.Limit, e.maxRows())
 
 	return &Result{Columns: cols, Rows: rows}, nil
 }
