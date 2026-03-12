@@ -58,6 +58,25 @@ jobs:
       - name: Smoke test
         run: bash scripts/smoke-test.sh ./codebase-memory-mcp
 
+  test-asan:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Test with AddressSanitizer
+        env:
+          CGO_CFLAGS: "-fsanitize=address -fno-omit-frame-pointer"
+          CGO_LDFLAGS: "-fsanitize=address"
+        run: go test -count=1 -timeout=10m ./...
+
+      - name: Memory stability check
+        run: go test -run TestMemoryStability -v -count=1 -timeout=5m ./internal/pipeline/
+
   test-windows:
     needs: [lint]
     runs-on: windows-latest

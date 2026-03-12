@@ -48,5 +48,32 @@ if [ -d "$SRC_DIR/tree_sitter" ]; then
     cp "$SRC_DIR/tree_sitter/"*.h "$GRAMMAR_DIR/tree_sitter/" 2>/dev/null || true
 fi
 
+# Copy LICENSE file from upstream repo
+REPO_ROOT="$TMPDIR/repo"
+if [ -n "$SUBDIR" ]; then
+    # For monorepos, check subdir first, then repo root
+    if [ -f "$REPO_ROOT/$SUBDIR/LICENSE" ]; then
+        cp "$REPO_ROOT/$SUBDIR/LICENSE" "$GRAMMAR_DIR/LICENSE"
+    elif [ -f "$REPO_ROOT/LICENSE" ]; then
+        cp "$REPO_ROOT/LICENSE" "$GRAMMAR_DIR/LICENSE"
+    elif [ -f "$REPO_ROOT/LICENSE.md" ]; then
+        cp "$REPO_ROOT/LICENSE.md" "$GRAMMAR_DIR/LICENSE"
+    elif [ -f "$REPO_ROOT/COPYING" ]; then
+        cp "$REPO_ROOT/COPYING" "$GRAMMAR_DIR/LICENSE"
+    else
+        echo "WARNING: No LICENSE file found for $NAME" >&2
+    fi
+else
+    if [ -f "$REPO_ROOT/LICENSE" ]; then
+        cp "$REPO_ROOT/LICENSE" "$GRAMMAR_DIR/LICENSE"
+    elif [ -f "$REPO_ROOT/LICENSE.md" ]; then
+        cp "$REPO_ROOT/LICENSE.md" "$GRAMMAR_DIR/LICENSE"
+    elif [ -f "$REPO_ROOT/COPYING" ]; then
+        cp "$REPO_ROOT/COPYING" "$GRAMMAR_DIR/LICENSE"
+    else
+        echo "WARNING: No LICENSE file found for $NAME" >&2
+    fi
+fi
+
 echo "Vendored $NAME to $GRAMMAR_DIR"
 ls -la "$GRAMMAR_DIR/"
