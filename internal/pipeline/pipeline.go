@@ -73,6 +73,11 @@ func ProjectNameFromPath(absPath string) string {
 	// Clean and normalize separators (backslash is not a separator on non-Windows)
 	cleaned := filepath.ToSlash(filepath.Clean(absPath))
 	cleaned = strings.ReplaceAll(cleaned, "\\", "/")
+	// Normalize Windows drive letter casing: "D:/foo" → "d:/foo"
+	// Prevents duplicate DBs for same path with different drive letter case.
+	if len(cleaned) >= 2 && cleaned[1] == ':' {
+		cleaned = strings.ToLower(cleaned[:1]) + cleaned[1:]
+	}
 	// Replace slashes and colons with dashes
 	name := strings.ReplaceAll(cleaned, "/", "-")
 	name = strings.ReplaceAll(name, ":", "-")

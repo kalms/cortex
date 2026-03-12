@@ -42,7 +42,7 @@ func (s watchStrategy) String() string {
 }
 
 const (
-	baseInterval         = 1 * time.Second
+	baseInterval         = 5 * time.Second
 	maxInterval          = 60 * time.Second
 	fullSnapshotInterval = 5 // polls between forced full snapshots
 	projectsCacheTTL     = 60 * time.Second
@@ -185,23 +185,25 @@ func (w *Watcher) pollAll() {
 
 	now := time.Now()
 	for _, info := range projectInfos {
-		st, stErr := w.router.ForProject(info.Name)
+		state, exists := w.projects[info.Name]
+		if exists && now.Before(state.nextPoll) {
+			continue // not due yet
+		}
+
+		// AcquireStore increments refs so the evictor can't close mid-query.
+		st, release, stErr := w.router.AcquireStore(info.Name)
 		if stErr != nil {
 			continue
 		}
 		proj, projErr := st.GetProject(info.Name)
+		release()
 		if projErr != nil || proj == nil {
 			continue
 		}
 
-		state, exists := w.projects[info.Name]
 		if !exists {
 			state = &projectState{}
 			w.projects[info.Name] = state
-		}
-
-		if exists && now.Before(state.nextPoll) {
-			continue // not due yet
 		}
 
 		w.pollProject(proj, state)
@@ -579,9 +581,9 @@ func snapshotsEqual(a, b map[string]fileSnapshot) bool {
 }
 
 // pollInterval computes the adaptive interval from file count.
-// 1s base + 1s per 500 files, capped at 60s.
+// 5s base + 1s per 500 files, capped at 60s.
 func pollInterval(fileCount int) time.Duration {
-	ms := 1000 + (fileCount/500)*1000
+	ms := 5000 + (fileCount/500)*1000
 	if ms > 60000 {
 		ms = 60000
 	}

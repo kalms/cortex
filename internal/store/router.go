@@ -194,6 +194,8 @@ func (r *StoreRouter) AllStores() map[string]*Store {
 }
 
 // ListProjects scans .db files and queries each for metadata.
+// Uses AcquireStore to prevent the evictor from closing stores mid-query.
+// Individual DB failures are logged and skipped (never block the full list).
 func (r *StoreRouter) ListProjects() ([]*ProjectInfo, error) {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {
@@ -214,10 +216,12 @@ func (r *StoreRouter) ListProjects() ([]*ProjectInfo, error) {
 			DBPath: filepath.Join(r.dir, e.Name()),
 		}
 
-		// Try to get root_path from the projects table
-		s, err := r.ForProject(name)
-		if err == nil {
+		// Try to get root_path from the projects table.
+		// AcquireStore increments refs so the evictor can't close mid-query.
+		s, release, acqErr := r.AcquireStore(name)
+		if acqErr == nil {
 			projects, listErr := s.ListProjects()
+			release()
 			if listErr == nil && len(projects) > 0 {
 				info.RootPath = projects[0].RootPath
 			}

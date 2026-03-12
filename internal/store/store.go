@@ -81,8 +81,12 @@ func OpenInDir(dir, project string) (*Store, error) {
 
 // OpenPath opens a SQLite database at the given path.
 func OpenPath(dbPath string) (*Store, error) {
+	// Recover from stale SHM left by SIGKILL: if WAL is empty/missing but SHM exists,
+	// the SHM has stale lock state that can deadlock new connections. Safe to remove.
+	recoverStaleSHM(dbPath)
+
 	dsn := dbPath + "?_journal_mode=WAL" +
-		"&_busy_timeout=5000" +
+		"&_busy_timeout=10000" +
 		"&_foreign_keys=1" +
 		"&_synchronous=NORMAL" +
 		"&_txlock=immediate"
@@ -97,7 +101,7 @@ func OpenPath(dbPath string) (*Store, error) {
 	// PRAGMAs not supported in mattn DSN — set via Exec after Open.
 	ctx := context.Background()
 	_, _ = db.ExecContext(ctx, "PRAGMA temp_store = MEMORY")
-	_, _ = db.ExecContext(ctx, "PRAGMA mmap_size = 268435456") // 256 MB
+	_, _ = db.ExecContext(ctx, "PRAGMA mmap_size = 67108864") // 64 MB
 
 	// Adaptive cache: 10% of DB file size, clamped to 2-64 MB.
 	cacheMB := adaptiveCacheMB(dbPath)
@@ -112,6 +116,32 @@ func OpenPath(dbPath string) (*Store, error) {
 	}
 	slog.Debug("store.open", "path", dbPath, "cache_mb", cacheMB)
 	return s, nil
+}
+
+// recoverStaleSHM removes stale SHM files left by unclean shutdowns (SIGKILL).
+// If the WAL file is empty or missing but the SHM file exists, the SHM contains
+// stale lock state that can deadlock new connections. Removing it lets SQLite
+// rebuild clean shared memory on next open.
+func recoverStaleSHM(dbPath string) {
+	shmPath := dbPath + "-shm"
+	walPath := dbPath + "-wal"
+
+	shmInfo, shmErr := os.Stat(shmPath)
+	if shmErr != nil {
+		return // no SHM file — nothing to recover
+	}
+
+	walInfo, walErr := os.Stat(walPath)
+	walEmpty := walErr != nil || walInfo.Size() == 0
+
+	if walEmpty && shmInfo.Size() > 0 {
+		slog.Info("store.recover_shm", "path", dbPath, "shm_bytes", shmInfo.Size())
+		_ = os.Remove(shmPath)
+		// Also remove empty WAL to let SQLite start fresh
+		if walErr == nil {
+			_ = os.Remove(walPath)
+		}
+	}
 }
 
 // adaptiveCacheMB returns a cache size in MB proportional to the DB file size.
