@@ -61,6 +61,9 @@ func (s *Server) handleIndexRepository(ctx context.Context, req *mcp.CallToolReq
 		return errResult(fmt.Sprintf("indexing failed: %v", err)), nil
 	}
 
+	// Add to watcher so auto-sync keeps this project fresh.
+	s.watcher.Watch(projectName, absPath)
+
 	// Update session state if this is the session project
 	if projectName == s.sessionProject {
 		s.indexStatus.Store("ready")

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,7 +46,6 @@ const (
 	baseInterval         = 5 * time.Second
 	maxInterval          = 60 * time.Second
 	fullSnapshotInterval = 5 // polls between forced full snapshots
-	projectsCacheTTL     = 60 * time.Second
 )
 
 type fileSnapshot struct {
@@ -94,6 +94,12 @@ func (ps *projectState) close() {
 // IndexFunc is the callback signature for triggering a re-index.
 type IndexFunc func(ctx context.Context, projectName, rootPath string) error
 
+// watchEntry tracks a project in the explicit watch list.
+type watchEntry struct {
+	rootPath  string
+	touchedAt time.Time
+}
+
 // Watcher polls indexed projects for file changes and triggers re-indexing.
 // Change detection uses a 3-tier strategy per project:
 //
@@ -101,12 +107,14 @@ type IndexFunc func(ctx context.Context, projectName, rootPath string) error
 //  2. FSNotify — event-driven via OS file notifications (for non-git dirs)
 //  3. Dir-mtime — directory mtime polling (fallback if fsnotify setup fails)
 type Watcher struct {
-	router            *store.StoreRouter
-	indexFn           IndexFunc
-	projects          map[string]*projectState
-	ctx               context.Context
-	cachedProjects    []*store.ProjectInfo
-	projectsCacheTime time.Time
+	router   *store.StoreRouter
+	indexFn  IndexFunc
+	projects map[string]*projectState
+	ctx      context.Context
+
+	// Explicit watch list — only watched projects get polled.
+	mu        sync.Mutex
+	watchList map[string]watchEntry
 
 	// testStrategy overrides auto-detection when non-zero (for tests).
 	testStrategy watchStrategy
@@ -114,20 +122,53 @@ type Watcher struct {
 
 // New creates a Watcher. indexFn is called when file changes are detected.
 func New(r *store.StoreRouter, indexFn IndexFunc) *Watcher {
-	w := &Watcher{
-		router:   r,
-		indexFn:  indexFn,
-		projects: make(map[string]*projectState),
-		ctx:      context.Background(),
+	return &Watcher{
+		router:    r,
+		indexFn:   indexFn,
+		projects:  make(map[string]*projectState),
+		watchList: make(map[string]watchEntry),
+		ctx:       context.Background(),
 	}
-	// Wire invalidation: when a project is deleted, clear the cache immediately.
-	r.OnDelete(func(_ string) { w.InvalidateProjectsCache() })
-	return w
 }
 
-// InvalidateProjectsCache forces the next pollAll to re-query ListProjects.
-func (w *Watcher) InvalidateProjectsCache() {
-	w.projectsCacheTime = time.Time{}
+// Watch adds a project to the watch list. Called after successful index.
+func (w *Watcher) Watch(name, rootPath string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.watchList[name] = watchEntry{rootPath: rootPath, touchedAt: time.Now()}
+	slog.Debug("watcher.watch", "project", name, "path", rootPath)
+}
+
+// Unwatch removes a project from the watch list. Called on delete.
+func (w *Watcher) Unwatch(name string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.watchList, name)
+	slog.Debug("watcher.unwatch", "project", name)
+}
+
+// TouchProject refreshes a project's timestamp in the watch list.
+// If the project isn't watched yet, adds it (looks up rootPath from DB).
+func (w *Watcher) TouchProject(name string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if e, ok := w.watchList[name]; ok {
+		e.touchedAt = time.Now()
+		w.watchList[name] = e
+		return
+	}
+	// Not yet watched — look up rootPath from DB.
+	st, release, err := w.router.AcquireStore(name)
+	if err != nil {
+		return
+	}
+	proj, projErr := st.GetProject(name)
+	release()
+	if projErr != nil || proj == nil || proj.RootPath == "" {
+		return
+	}
+	w.watchList[name] = watchEntry{rootPath: proj.RootPath, touchedAt: time.Now()}
+	slog.Debug("watcher.touch_add", "project", name, "path", proj.RootPath)
 }
 
 // Run blocks until ctx is cancelled. Ticks at baseInterval, polling each
@@ -155,28 +196,20 @@ func (w *Watcher) closeAll() {
 	}
 }
 
-// pollAll lists all indexed projects and polls each that is due.
-// Prunes watcher state for projects that no longer exist.
+// pollAll iterates the explicit watch list and polls each project that is due.
+// Prunes watcher state for unwatched projects.
 func (w *Watcher) pollAll() {
-	// Cache ListProjects to avoid repeated ReadDir+SQLite queries.
-	if time.Since(w.projectsCacheTime) > projectsCacheTTL {
-		infos, err := w.router.ListProjects()
-		if err != nil {
-			slog.Warn("watcher.list_projects", "err", err)
-			return
-		}
-		w.cachedProjects = infos
-		w.projectsCacheTime = time.Now()
+	w.mu.Lock()
+	// Copy watch list under lock to avoid holding lock during poll.
+	entries := make(map[string]watchEntry, len(w.watchList))
+	for k, v := range w.watchList {
+		entries[k] = v
 	}
-	projectInfos := w.cachedProjects
+	w.mu.Unlock()
 
-	// Prune stale entries.
-	activeNames := make(map[string]struct{}, len(projectInfos))
-	for _, info := range projectInfos {
-		activeNames[info.Name] = struct{}{}
-	}
+	// Prune projectState for unwatched projects.
 	for name, state := range w.projects {
-		if _, ok := activeNames[name]; !ok {
+		if _, ok := entries[name]; !ok {
 			slog.Info("watcher.prune", "project", name)
 			state.close()
 			delete(w.projects, name)
@@ -184,26 +217,30 @@ func (w *Watcher) pollAll() {
 	}
 
 	now := time.Now()
-	for _, info := range projectInfos {
-		state, exists := w.projects[info.Name]
+	for name, entry := range entries {
+		state, exists := w.projects[name]
 		if exists && now.Before(state.nextPoll) {
-			continue // not due yet
+			continue
 		}
 
-		// AcquireStore increments refs so the evictor can't close mid-query.
-		st, release, stErr := w.router.AcquireStore(info.Name)
+		st, release, stErr := w.router.AcquireStore(name)
 		if stErr != nil {
 			continue
 		}
-		proj, projErr := st.GetProject(info.Name)
+		proj, projErr := st.GetProject(name)
 		release()
 		if projErr != nil || proj == nil {
 			continue
 		}
 
+		// Use rootPath from watch list (most current).
+		if entry.rootPath != "" {
+			proj.RootPath = entry.rootPath
+		}
+
 		if !exists {
 			state = &projectState{}
-			w.projects[info.Name] = state
+			w.projects[name] = state
 		}
 
 		w.pollProject(proj, state)

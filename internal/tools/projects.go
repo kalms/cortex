@@ -84,6 +84,7 @@ func (s *Server) handleDeleteProject(_ context.Context, req *mcp.CallToolRequest
 	if err := s.router.DeleteProject(name); err != nil {
 		return errResult(fmt.Sprintf("delete failed: %v", err)), nil
 	}
+	s.watcher.Unwatch(name)
 
 	return jsonResult(map[string]any{
 		"deleted": name,

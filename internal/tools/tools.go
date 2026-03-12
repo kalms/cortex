@@ -282,6 +282,7 @@ func (s *Server) startAutoIndex() {
 			return
 		}
 		s.indexStatus.Store("ready")
+		s.watcher.Watch(s.sessionProject, s.sessionRoot)
 		slog.Info("autoindex.done", "project", s.sessionProject)
 	}()
 }
@@ -301,6 +302,10 @@ func (s *Server) resolveStore(project string) (*store.Store, error) {
 	}
 	if !s.router.HasProject(project) {
 		return nil, fmt.Errorf("project %q not found; use list_projects to see available projects", project)
+	}
+	// Touch watcher so cross-project queries keep that project fresh.
+	if project != s.sessionProject {
+		s.watcher.TouchProject(project)
 	}
 	return s.router.ForProject(project)
 }
@@ -906,6 +911,10 @@ func (s *Server) findNodeAcrossProjects(name string, projectFilter ...string) (*
 	}
 	if !s.router.HasProject(filter) {
 		return nil, "", fmt.Errorf("project %q not found; use list_projects to see available projects", filter)
+	}
+	// Touch watcher so cross-project queries keep that project fresh.
+	if filter != s.sessionProject {
+		s.watcher.TouchProject(filter)
 	}
 
 	st, err := s.router.ForProject(filter)

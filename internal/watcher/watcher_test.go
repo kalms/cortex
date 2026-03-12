@@ -590,6 +590,9 @@ func TestWatcherTriggersOnChange(t *testing.T) {
 	w := newWatcherWithStrategy(r, indexFn, strategyDirMtime)
 	t.Cleanup(w.closeAll)
 
+	// Add to watch list (required for pollAll to see it).
+	w.Watch(filepath.Base(tmpDir), tmpDir)
+
 	// First poll — baseline capture, no index
 	w.pollAll()
 	if indexCount.Load() != 0 {
@@ -635,6 +638,7 @@ func TestWatcherNewFileTriggersIndex_DirMtime(t *testing.T) {
 		return nil
 	}, strategyDirMtime)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline
 	w.pollAll()
@@ -672,6 +676,7 @@ func TestWatcherGitDetectsEdit(t *testing.T) {
 		return nil
 	}, strategyGit)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline
 	w.pollAll()
@@ -708,6 +713,7 @@ func TestWatcherGitDetectsCommit(t *testing.T) {
 		return nil
 	}, strategyGit)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline
 	w.pollAll()
@@ -741,6 +747,7 @@ func TestWatcherGitNoChanges(t *testing.T) {
 		return nil
 	}, strategyGit)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline
 	w.pollAll()
@@ -776,6 +783,7 @@ func TestWatcherFSNotifyDetectsNewFile(t *testing.T) {
 		return nil
 	}, strategyFSNotify)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline (sets up fsnotify watcher).
 	w.pollAll()
@@ -830,6 +838,7 @@ func TestStrategyDowngradeGitToDirMtime(t *testing.T) {
 		return nil
 	})
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// Baseline — should auto-detect git strategy.
 	w.pollAll()
@@ -871,6 +880,7 @@ func TestFSNotifyFallbackToDirMtime(t *testing.T) {
 		return nil
 	}, strategyFSNotify)
 	t.Cleanup(w.closeAll)
+	w.Watch(filepath.Base(tmpDir), tmpDir)
 
 	// initBaseline will try fsnotify. Even if it succeeds, verify the flow works.
 	// If fsnotify fails on this platform, it falls back to dirmtime.
@@ -938,6 +948,7 @@ func TestWatcherSkipsMissingRoot(t *testing.T) {
 		return nil
 	})
 	t.Cleanup(w.closeAll)
+	w.Watch("ghost", "/nonexistent/path")
 
 	w.pollAll()
 	if indexCount.Load() != 0 {
@@ -956,23 +967,184 @@ func TestWatcherPrunesDeletedProjects(t *testing.T) {
 	}, strategyDirMtime)
 	t.Cleanup(w.closeAll)
 
+	projName := filepath.Base(tmpDir)
+	w.Watch(projName, tmpDir)
+
 	// Baseline
 	w.pollAll()
-	projName := filepath.Base(tmpDir)
 	if _, ok := w.projects[projName]; !ok {
 		t.Fatal("project should exist after baseline")
 	}
 
-	// Delete the project.
+	// Delete the project and unwatch.
 	if err := r.DeleteProject(projName); err != nil {
 		t.Fatal(err)
 	}
+	w.Unwatch(projName)
 
-	// Invalidate cache so next pollAll sees the deletion.
-	w.InvalidateProjectsCache()
 	w.pollAll()
 
 	if _, ok := w.projects[projName]; ok {
 		t.Error("pruned project should not exist in watcher state")
+	}
+}
+
+// --- Watch list unit tests ---
+
+func TestWatchAddsProject(t *testing.T) {
+	r := newTestRouter(t, "", "")
+	w := New(r, func(_ context.Context, _, _ string) error { return nil })
+
+	w.Watch("foo", "/tmp/foo")
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	e, ok := w.watchList["foo"]
+	if !ok {
+		t.Fatal("Watch should add entry to watchList")
+	}
+	if e.rootPath != "/tmp/foo" {
+		t.Errorf("rootPath = %q, want /tmp/foo", e.rootPath)
+	}
+	if e.touchedAt.IsZero() {
+		t.Error("touchedAt should be set")
+	}
+}
+
+func TestUnwatchRemovesProject(t *testing.T) {
+	r := newTestRouter(t, "", "")
+	w := New(r, func(_ context.Context, _, _ string) error { return nil })
+
+	w.Watch("foo", "/tmp/foo")
+	w.Unwatch("foo")
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, ok := w.watchList["foo"]; ok {
+		t.Error("Unwatch should remove entry from watchList")
+	}
+}
+
+func TestTouchProjectUpdatesTimestamp(t *testing.T) {
+	r := newTestRouter(t, "", "")
+	w := New(r, func(_ context.Context, _, _ string) error { return nil })
+
+	w.Watch("foo", "/tmp/foo")
+
+	w.mu.Lock()
+	before := w.watchList["foo"].touchedAt
+	w.mu.Unlock()
+
+	time.Sleep(5 * time.Millisecond)
+	w.TouchProject("foo")
+
+	w.mu.Lock()
+	after := w.watchList["foo"].touchedAt
+	w.mu.Unlock()
+
+	if !after.After(before) {
+		t.Error("TouchProject should update touchedAt")
+	}
+}
+
+func TestTouchProjectAddsUnwatched(t *testing.T) {
+	tmpDir := t.TempDir()
+	projName := filepath.Base(tmpDir)
+
+	r := newTestRouter(t, projName, tmpDir)
+	w := New(r, func(_ context.Context, _, _ string) error { return nil })
+
+	// Not in watch list yet — TouchProject should look up from DB and add.
+	w.TouchProject(projName)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	e, ok := w.watchList[projName]
+	if !ok {
+		t.Fatal("TouchProject should add unwatched project from DB")
+	}
+	if e.rootPath != tmpDir {
+		t.Errorf("rootPath = %q, want %q", e.rootPath, tmpDir)
+	}
+}
+
+func TestPollAllOnlyWatched(t *testing.T) {
+	tmpDirA := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmpDirA, "main.go"), []byte("package main\n"))
+	nameA := filepath.Base(tmpDirA)
+
+	tmpDirB := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmpDirB, "main.go"), []byte("package main\n"))
+	nameB := filepath.Base(tmpDirB)
+
+	// Register both in DB.
+	dbDir := t.TempDir()
+	r, err := store.NewRouterWithDir(dbDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.CloseAll)
+	stA, err2 := r.ForProject(nameA)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if err2 = stA.UpsertProject(nameA, tmpDirA); err2 != nil {
+		t.Fatal(err2)
+	}
+	stB, err2 := r.ForProject(nameB)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if err2 = stB.UpsertProject(nameB, tmpDirB); err2 != nil {
+		t.Fatal(err2)
+	}
+
+	polled := make(map[string]bool)
+	w := newWatcherWithStrategy(r, func(_ context.Context, name, _ string) error {
+		polled[name] = true
+		return nil
+	}, strategyDirMtime)
+	t.Cleanup(w.closeAll)
+
+	// Only watch A.
+	w.Watch(nameA, tmpDirA)
+
+	// Baseline
+	w.pollAll()
+
+	// Verify only A has state.
+	if _, ok := w.projects[nameA]; !ok {
+		t.Error("project A should have state after poll")
+	}
+	if _, ok := w.projects[nameB]; ok {
+		t.Error("project B should NOT have state (not watched)")
+	}
+}
+
+func TestPollAllPrunesUnwatched(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmpDir, "main.go"), []byte("package main\n"))
+	projName := filepath.Base(tmpDir)
+
+	r := newTestRouter(t, projName, tmpDir)
+	w := newWatcherWithStrategy(r, func(_ context.Context, _, _ string) error {
+		return nil
+	}, strategyDirMtime)
+	t.Cleanup(w.closeAll)
+
+	w.Watch(projName, tmpDir)
+
+	// Baseline — creates projectState.
+	w.pollAll()
+	if _, ok := w.projects[projName]; !ok {
+		t.Fatal("project should exist after baseline")
+	}
+
+	// Unwatch, then poll — state should be pruned.
+	w.Unwatch(projName)
+	w.pollAll()
+
+	if _, ok := w.projects[projName]; ok {
+		t.Error("unwatched project should be pruned from projects map")
 	}
 }
