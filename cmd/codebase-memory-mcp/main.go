@@ -67,14 +67,17 @@ func main() {
 		log.Fatalf("config err=%v", err)
 	}
 
-	// Apply GOMEMLIMIT from config (e.g. "2G", "512M"), default 2GB.
-	// Prevents OOM kills on systems without user-configured limits.
-	memLimitStr := cfg.Get(store.ConfigMemLimit, "2G")
-	if limit, parseErr := parseByteSize(memLimitStr); parseErr != nil {
-		log.Printf("config: invalid mem_limit %q: %v", memLimitStr, parseErr)
-		debug.SetMemoryLimit(2 << 30) // fallback: 2GB
+	// Apply GOMEMLIMIT from config (e.g. "4G", "512M").
+	// If not configured, auto-detect: 25% of system memory, clamped to [2GB, 8GB].
+	// Prevents OOM kills while avoiding unnecessary GC pressure.
+	if memLimitStr := cfg.Get(store.ConfigMemLimit, ""); memLimitStr != "" {
+		if limit, parseErr := parseByteSize(memLimitStr); parseErr != nil {
+			log.Printf("config: invalid mem_limit %q: %v", memLimitStr, parseErr)
+		} else {
+			debug.SetMemoryLimit(limit)
+		}
 	} else {
-		debug.SetMemoryLimit(limit)
+		debug.SetMemoryLimit(autoMemLimit())
 	}
 
 	srv := tools.NewServer(router, tools.WithConfig(cfg))
