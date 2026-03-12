@@ -32,3 +32,4 @@ Thumbs.db
 
 # Local project memory (Claude Code auto-memory)
 memory/
+reference/
