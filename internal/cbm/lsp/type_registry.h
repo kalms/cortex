@@ -11,6 +11,7 @@ typedef struct {
     const char* short_name;      // e.g., "MethodName"
     const CBMType* signature;    // FUNC type with param/return types
     const char** type_param_names; // NULL-terminated, e.g., ["T", "R", NULL] for generics
+    int min_params;               // Minimum required params (excluding defaulted). -1 = unknown.
 } CBMRegisteredFunc;
 
 // Registered type with fields and method names.

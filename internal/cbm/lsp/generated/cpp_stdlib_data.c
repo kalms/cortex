@@ -9,6 +9,7 @@ static void reg_method(CBMTypeRegistry* reg, CBMArena* arena,
     const char* recv_qn, const char* method_name, const CBMType* ret_type) {
     CBMRegisteredFunc rf;
     memset(&rf, 0, sizeof(rf));
+    rf.min_params = -1;
     // Build QN: recv_qn.method_name
     size_t rlen = strlen(recv_qn);
     size_t mlen = strlen(method_name);
@@ -54,6 +55,7 @@ static void reg_func(CBMTypeRegistry* reg, CBMArena* arena,
     const char* qn, const char* short_name, const CBMType* ret_type) {
     CBMRegisteredFunc rf;
     memset(&rf, 0, sizeof(rf));
+    rf.min_params = -1;
     rf.qualified_name = qn;
     rf.short_name = short_name;
     rf.signature = cbm_type_func(arena, NULL, NULL,

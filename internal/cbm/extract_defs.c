@@ -874,6 +874,11 @@ static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec*
                     TSNode type_desc = ts_node_named_child_count(ch) > 0
                         ? ts_node_named_child(ch, 0) : ch;
                     def.return_type = cbm_node_text(a, type_desc, ctx->source);
+                    // Also update return_types array (so registration uses trailing type, not "auto")
+                    if (def.return_type && def.return_type[0]) {
+                        const char** rt = (const char**)cbm_arena_alloc(a, 2 * sizeof(const char*));
+                        if (rt) { rt[0] = def.return_type; rt[1] = NULL; def.return_types = rt; }
+                    }
                     break;
                 }
             }
@@ -1304,6 +1309,10 @@ static void push_method_def(CBMExtractCtx* ctx, TSNode child, const char* class_
                     TSNode type_desc = ts_node_named_child_count(ch) > 0
                         ? ts_node_named_child(ch, 0) : ch;
                     def.return_type = cbm_node_text(a, type_desc, ctx->source);
+                    if (def.return_type && def.return_type[0]) {
+                        const char** rt = (const char**)cbm_arena_alloc(a, 2 * sizeof(const char*));
+                        if (rt) { rt[0] = def.return_type; rt[1] = NULL; def.return_types = rt; }
+                    }
                     break;
                 }
             }

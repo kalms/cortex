@@ -1046,18 +1046,19 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
         const CBMType* t = cbm_scope_lookup(ctx->current_scope, name);
         if (!cbm_type_is_unknown(t)) return t;
 
+        // Check if it's a registered function (before type check — functions
+        // return FUNC type which lets call_expression extract return types)
+        const char* fqn = c_resolve_name(ctx, name);
+        if (fqn) {
+            const CBMRegisteredFunc* f = cbm_registry_lookup_func(ctx->registry, fqn);
+            if (f && f->signature) return f->signature;
+        }
+
         // Check if it's a type name (for constructor calls / casts)
         const CBMType* type = c_resolve_name_to_type(ctx, name);
         if (type && type->kind == CBM_TYPE_NAMED) {
             // Could be a constructor call — return as type
             return type;
-        }
-
-        // Check if it's a registered function
-        const char* fqn = c_resolve_name(ctx, name);
-        if (fqn) {
-            const CBMRegisteredFunc* f = cbm_registry_lookup_func(ctx->registry, fqn);
-            if (f && f->signature) return f->signature;
         }
 
         return cbm_type_unknown();
@@ -2948,13 +2949,31 @@ static void c_process_function(CLSPContext* ctx, TSNode func_node) {
                 cbm_type_named(ctx->arena, ctx->enclosing_class_qn)));
     }
 
-    // Bind parameters
+    // Bind parameters and count defaults for min_params
+    int total_params = 0, defaulted_params = 0;
     if (!ts_node_is_null(params_node)) {
         uint32_t pnc = ts_node_named_child_count(params_node);
         for (uint32_t i = 0; i < pnc; i++) {
             TSNode param = ts_node_named_child(params_node, i);
             if (!ts_node_is_null(param)) {
+                const char* pk = ts_node_type(param);
+                if (strcmp(pk, "parameter_declaration") == 0 ||
+                    strcmp(pk, "optional_parameter_declaration") == 0) {
+                    total_params++;
+                    TSNode dv = ts_node_child_by_field_name(param, "default_value", 13);
+                    if (!ts_node_is_null(dv)) defaulted_params++;
+                }
                 c_process_statement(ctx, param);
+            }
+        }
+    }
+    // Set min_params on the registered function (for default-arg overload matching)
+    if (total_params > 0 && defaulted_params > 0) {
+        for (int ri = 0; ri < ((CBMTypeRegistry*)ctx->registry)->func_count; ri++) {
+            CBMRegisteredFunc* rf = &((CBMTypeRegistry*)ctx->registry)->funcs[ri];
+            if (strcmp(rf->qualified_name, func_qn) == 0 && rf->min_params < 0) {
+                rf->min_params = total_params - defaulted_params;
+                break;
             }
         }
     }
@@ -3233,6 +3252,21 @@ static const CBMType* c_parse_return_type_text(CBMArena* a, const char* text, co
         return cbm_type_reference(a, c_parse_return_type_text(a, inner, module_qn));
     }
 
+    // decltype(expr) — extract the type from the expression
+    if (strncmp(text, "decltype(", 9) == 0 && len > 10 && text[len - 1] == ')') {
+        char* inner = cbm_arena_strndup(a, text + 9, len - 10);
+        size_t ilen = strlen(inner);
+        // decltype(auto) — auto deduction, can't resolve statically
+        if (strcmp(inner, "auto") == 0) return cbm_type_unknown();
+        // decltype(TypeName()) — constructor call → type is TypeName
+        if (ilen >= 2 && inner[ilen - 1] == ')' && inner[ilen - 2] == '(') {
+            inner[ilen - 2] = '\0';
+            return c_parse_return_type_text(a, inner, module_qn);
+        }
+        // decltype(expr) — try to interpret as type name (covers decltype(x) where x is a type)
+        return c_parse_return_type_text(a, inner, module_qn);
+    }
+
     // Builtins
     if (is_c_builtin_type(text)) return cbm_type_builtin(a, text);
 
@@ -3314,6 +3348,7 @@ void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
             CBMRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
+            rf.min_params = -1;
             rf.qualified_name = d->qualified_name;
             rf.short_name = d->name;
 
@@ -3472,6 +3507,7 @@ void cbm_run_c_lsp_cross(
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
             CBMRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
+            rf.min_params = -1;
             rf.qualified_name = cbm_arena_strdup(arena, d->qualified_name);
             rf.short_name = cbm_arena_strdup(arena, d->short_name);
 

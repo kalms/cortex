@@ -98,7 +98,10 @@ void test() {
 }
 `
 	result := extractCPPWithRegistry(t, source)
-	requireResolvedCall(t, result, "test", "bar")
+	rc := requireResolvedCall(t, result, "test", "Foo.bar")
+	if rc.Strategy == "lsp_unresolved" {
+		t.Errorf("auto deduction from free function return should resolve, got strategy=%s", rc.Strategy)
+	}
 }
 
 // ============================================================================
@@ -2967,4 +2970,182 @@ void test() {
 			t.Logf("  %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
 		}
 	}
+}
+
+// ============================================================================
+// Test Category 48: Default argument overload resolution
+// ============================================================================
+
+func TestCLSP_DefaultArgs(t *testing.T) {
+	source := `
+class Logger {
+public:
+    void log(const char* msg, int level = 0) {}
+    void log(const char* msg, int level, int flags) {}
+};
+
+void test() {
+    Logger lg;
+    lg.log("hello");        // 1 arg → matches log(msg, level=0)
+    lg.log("hello", 2);     // 2 args → matches log(msg, level)
+    lg.log("hello", 2, 3);  // 3 args → matches log(msg, level, flags)
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	// All three calls should resolve to a log method
+	logCalls := 0
+	for _, rc := range result.ResolvedCalls {
+		if strings.Contains(rc.CallerQN, "test") &&
+			strings.Contains(rc.CalleeQN, "log") &&
+			rc.Strategy != "lsp_unresolved" {
+			logCalls++
+			t.Logf("default args: %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
+		}
+	}
+	if logCalls < 3 {
+		t.Errorf("expected 3 resolved log() calls with default args, got %d", logCalls)
+		for _, rc := range result.ResolvedCalls {
+			t.Logf("  %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
+		}
+	}
+}
+
+// ============================================================================
+// Gap analysis: probe remaining coverage gaps
+// ============================================================================
+
+func TestCLSP_Gap_StdForward(t *testing.T) {
+	source := `
+class Widget {
+public:
+    void draw() {}
+};
+
+template<typename T>
+void wrapper(T&& arg) {
+    arg.draw();
+}
+
+void test() {
+    Widget w;
+    wrapper(w);
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "wrapper")
+	found := false
+	for _, rc := range result.ResolvedCalls {
+		if strings.Contains(rc.CalleeQN, "Widget") && strings.Contains(rc.CalleeQN, "draw") &&
+			rc.Strategy != "lsp_unresolved" {
+			found = true
+			t.Logf("forwarding ref resolved: %s [%s]", rc.CalleeQN, rc.Strategy)
+		}
+	}
+	if !found {
+		t.Log("forwarding reference arg.draw() not resolved — dependent member call in rvalue-ref template")
+		for _, rc := range result.ResolvedCalls {
+			t.Logf("  %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
+		}
+	}
+}
+
+func TestCLSP_Gap_GenericLambda(t *testing.T) {
+	source := `
+class Gadget {
+public:
+    int compute() { return 0; }
+};
+
+void test() {
+    auto fn = [](auto& x) { return x.compute(); };
+    Gadget g;
+    fn(g);
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	found := false
+	for _, rc := range result.ResolvedCalls {
+		if strings.Contains(rc.CalleeQN, "compute") && rc.Strategy != "lsp_unresolved" {
+			found = true
+			t.Logf("generic lambda resolved: %s [%s]", rc.CalleeQN, rc.Strategy)
+		}
+	}
+	if !found {
+		t.Log("generic lambda auto& param not resolved — needs auto param deduction")
+		for _, rc := range result.ResolvedCalls {
+			t.Logf("  %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
+		}
+	}
+}
+
+func TestCLSP_Gap_DecltypeReturn(t *testing.T) {
+	source := `
+class Sensor {
+public:
+    int read() { return 0; }
+};
+
+auto make_sensor() -> decltype(Sensor()) { return Sensor(); }
+
+void test() {
+    auto s = make_sensor();
+    s.read();
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "make_sensor")
+	rc := findResolvedCall(t, result, "test", "Sensor.read")
+	if rc == nil || rc.Strategy == "lsp_unresolved" {
+		t.Errorf("decltype return type not resolved — auto s = make_sensor() → s.read()")
+		for _, r := range result.ResolvedCalls {
+			t.Logf("  %s -> %s [%s]", r.CallerQN, r.CalleeQN, r.Strategy)
+		}
+	}
+}
+
+func TestCLSP_Gap_StdMove(t *testing.T) {
+	source := `
+class Resource {
+public:
+    void release() {}
+};
+
+void test() {
+    Resource r;
+    Resource moved = static_cast<Resource&&>(r);
+    moved.release();
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	found := false
+	for _, rc := range result.ResolvedCalls {
+		if strings.Contains(rc.CalleeQN, "release") && rc.Strategy != "lsp_unresolved" {
+			found = true
+			t.Logf("move resolved: %s [%s]", rc.CalleeQN, rc.Strategy)
+		}
+	}
+	if !found {
+		t.Log("std::move/rvalue cast not preserving type — moved.release() not resolved")
+		for _, rc := range result.ResolvedCalls {
+			t.Logf("  %s -> %s [%s]", rc.CallerQN, rc.CalleeQN, rc.Strategy)
+		}
+	}
+}
+
+func TestCLSP_Gap_MultipleInheritance(t *testing.T) {
+	source := `
+class A { public: void method_a() {} };
+class B : public A { public: void method_b() {} };
+class C : public A { public: void method_c() {} };
+class D : public B, public C { public: void method_d() {} };
+
+void test() {
+    D d;
+    d.method_b();
+    d.method_d();
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "method_b")
+	requireResolvedCall(t, result, "test", "method_d")
 }

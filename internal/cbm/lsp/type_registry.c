@@ -139,6 +139,7 @@ const CBMRegisteredFunc* cbm_registry_lookup_method_by_args(const CBMTypeRegistr
     if (!reg || !receiver_qn || !method_name) return NULL;
 
     const CBMRegisteredFunc* first_match = NULL;
+    const CBMRegisteredFunc* range_match = NULL;
     for (int i = 0; i < reg->func_count; i++) {
         const CBMRegisteredFunc* f = &reg->funcs[i];
         if (f->receiver_type && f->short_name &&
@@ -147,9 +148,14 @@ const CBMRegisteredFunc* cbm_registry_lookup_method_by_args(const CBMTypeRegistr
             if (!first_match) first_match = f;
             int pc = count_func_params(f);
             if (pc == arg_count) return f;  // exact match
+            // Accept if arg_count is in [min_params, pc] (default args)
+            int min_pc = (f->min_params >= 0) ? f->min_params : pc;
+            if (!range_match && arg_count >= min_pc && arg_count <= pc) {
+                range_match = f;
+            }
         }
     }
-    return first_match;  // fallback to first match
+    return range_match ? range_match : first_match;
 }
 
 // --- Overload scoring by parameter type ---
@@ -202,7 +208,8 @@ static bool c_types_compatible(const char* expected_qn, const char* actual_qn) {
 // Score an overload match: higher = better. 0 = wrong arg count (no match).
 static int score_overload_match(const CBMRegisteredFunc* f, const CBMType** arg_types, int arg_count) {
     int pc = count_func_params(f);
-    if (pc != arg_count) return 0;  // wrong count = no match
+    int min_pc = (f->min_params >= 0) ? f->min_params : pc;
+    if (arg_count < min_pc || arg_count > pc) return 0;  // out of range
     if (!arg_types || !f->signature || !f->signature->data.func.param_types) return 50;
     int score = 50;
     for (int i = 0; i < arg_count; i++) {
@@ -291,13 +298,18 @@ const CBMRegisteredFunc* cbm_registry_lookup_symbol_by_args(const CBMTypeRegistr
     buf[total_len] = '\0';
 
     const CBMRegisteredFunc* first_match = NULL;
+    const CBMRegisteredFunc* range_match = NULL;
     for (int i = 0; i < reg->func_count; i++) {
         const CBMRegisteredFunc* f = &reg->funcs[i];
         if (strcmp(f->qualified_name, buf) == 0) {
             if (!first_match) first_match = f;
             int pc = count_func_params(f);
             if (pc == arg_count) return f;
+            int min_pc = (f->min_params >= 0) ? f->min_params : pc;
+            if (!range_match && arg_count >= min_pc && arg_count <= pc) {
+                range_match = f;
+            }
         }
     }
-    return first_match;
+    return range_match ? range_match : first_match;
 }

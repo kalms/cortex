@@ -7,6 +7,7 @@
 // Helper macros for concise registration
 #define REG_FUNC(qn, short, ret_type) do { \
     memset(&rf, 0, sizeof(rf)); \
+    rf.min_params = -1; \
     rf.qualified_name = (qn); \
     rf.short_name = (short); \
     rf.signature = cbm_type_func(arena, NULL, NULL, (const CBMType*[]){(ret_type), NULL}); \
