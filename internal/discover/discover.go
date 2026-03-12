@@ -15,18 +15,34 @@ import (
 
 // IGNORE_PATTERNS are directory names to skip during discovery.
 var IGNORE_PATTERNS = map[string]bool{
-	".cache": true, ".claude": true, ".eclipse": true, ".eggs": true,
-	".env": true, ".git": true, ".gradle": true, ".hg": true,
-	".idea": true, ".maven": true, ".mypy_cache": true, ".nox": true,
-	".npm": true, ".nyc_output": true, ".pnpm-store": true,
-	".pytest_cache": true, ".qdrant_code_embeddings": true,
-	".ruff_cache": true, ".svn": true, ".tmp": true, ".tox": true,
-	".venv": true, ".vs": true, ".vscode": true, ".yarn": true,
-	"__pycache__": true, "bin": true, "bower_components": true,
-	"build": true, "coverage": true, "dist": true, "env": true,
-	"htmlcov": true, "node_modules": true, "obj": true, "out": true,
-	"Pods": true, "site-packages": true, "target": true, "temp": true,
-	"tmp": true, "vendor": true, "venv": true,
+	// VCS / IDE
+	".git": true, ".hg": true, ".svn": true,
+	".idea": true, ".vs": true, ".vscode": true, ".eclipse": true, ".claude": true,
+	// Python
+	".cache": true, ".eggs": true, ".env": true, ".mypy_cache": true, ".nox": true,
+	".pytest_cache": true, ".ruff_cache": true, ".tox": true, ".venv": true,
+	"__pycache__": true, "env": true, "htmlcov": true, "site-packages": true, "venv": true,
+	// JS/TS
+	".npm": true, ".nyc_output": true, ".pnpm-store": true, ".yarn": true,
+	"bower_components": true, "coverage": true, "node_modules": true,
+	// JS/TS framework caches
+	".next": true, ".nuxt": true, ".svelte-kit": true, ".angular": true,
+	".turbo": true, ".parcel-cache": true, ".docusaurus": true, ".expo": true,
+	// Build artifacts
+	"dist": true, "obj": true, "Pods": true, "target": true, "temp": true, "tmp": true,
+	// Build system caches
+	".terraform": true, ".serverless": true,
+	"bazel-bin": true, "bazel-out": true, "bazel-testlogs": true,
+	// Language-specific caches
+	".cargo": true, ".stack-work": true, ".dart_tool": true,
+	"zig-cache": true, "zig-out": true,
+	".metals": true, ".bloop": true, ".bsp": true,
+	".ccls-cache": true, ".clangd": true,
+	"elm-stuff": true, "_opam": true, ".cpcache": true, ".shadow-cljs": true,
+	// Deploy/hosting
+	".vercel": true, ".netlify": true,
+	// Misc
+	".qdrant_code_embeddings": true, ".tmp": true, "vendor": true,
 }
 
 // IGNORE_SUFFIXES are file suffixes that are never source files.
@@ -82,6 +98,8 @@ var fastIgnoreDirs = map[string]bool{
 	"e2e": true, "integration": true,
 	"locale": true, "locales": true, "i18n": true, "l10n": true,
 	"scripts": true, "tools": true, "hack": true,
+	// Generic dirs moved from IGNORE_PATTERNS (cause false exclusions in Go, CMake, Maven)
+	"bin": true, "build": true, "out": true,
 }
 
 // fastIgnoreSuffixes are additional file extensions skipped in fast mode.
@@ -323,6 +341,9 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 		mode = opts.Mode
 	}
 
+	// Load gitignore + cbmignore matchers (nil-safe for non-git repos)
+	matchers := loadIgnoreMatchers(repoPath)
+
 	err = filepath.Walk(repoPath, func(path string, info os.FileInfo, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -331,12 +352,28 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 			return filepath.SkipDir
 		}
 
+		// Skip symlinks — prevents duplicate indexing
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
 		rel, _ := filepath.Rel(repoPath, path)
 
 		if info.IsDir() {
+			// Hardcoded patterns first (fast O(1) map lookup)
 			if shouldSkipDir(info.Name(), rel, extraIgnore, mode) {
 				return filepath.SkipDir
 			}
+			// Then gitignore + cbmignore (skip root — library panics on base==path)
+			if rel != "." && matchers.shouldIgnore(path, true) {
+				slog.Debug("discover.gitignore_skip", "dir", rel)
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Gitignore + cbmignore check for files
+		if matchers.shouldIgnore(path, false) {
 			return nil
 		}
 
