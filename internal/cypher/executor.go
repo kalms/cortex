@@ -1294,9 +1294,10 @@ func resolveOrderColumn(orderBy string, items []ReturnItem, cols []string) strin
 	return orderBy
 }
 
-// applyLimit enforces the LIMIT clause on result rows.
+// applyLimit caps result rows. Explicit LIMIT values from the Cypher query are
+// respected; when no LIMIT is specified (limit <= 0), maxRows is used as default.
 func applyLimit(rows []map[string]any, limit, maxRows int) []map[string]any {
-	if limit <= 0 || limit > maxRows {
+	if limit <= 0 {
 		limit = maxRows
 	}
 	if len(rows) > limit {

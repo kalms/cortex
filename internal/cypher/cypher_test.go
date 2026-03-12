@@ -968,6 +968,37 @@ func TestEdgePropertyFilterRegex(t *testing.T) {
 	}
 }
 
+func TestApplyLimitRespectsExplicit(t *testing.T) {
+	rows := make([]map[string]any, 300)
+	for i := range rows {
+		rows[i] = map[string]any{"i": i}
+	}
+
+	// No explicit limit — should use maxRows default (200)
+	got := applyLimit(rows, 0, 200)
+	if len(got) != 200 {
+		t.Errorf("no limit: expected 200 rows, got %d", len(got))
+	}
+
+	// Explicit limit below maxRows
+	got = applyLimit(rows, 50, 200)
+	if len(got) != 50 {
+		t.Errorf("limit=50: expected 50 rows, got %d", len(got))
+	}
+
+	// Explicit limit above maxRows — must be respected (not silently capped)
+	got = applyLimit(rows, 250, 200)
+	if len(got) != 250 {
+		t.Errorf("limit=250: expected 250 rows, got %d", len(got))
+	}
+
+	// Explicit limit above total rows — returns all
+	got = applyLimit(rows, 500, 200)
+	if len(got) != 300 {
+		t.Errorf("limit=500: expected 300 rows (all), got %d", len(got))
+	}
+}
+
 func TestEdgeBuiltinPropertyFilter(t *testing.T) {
 	s := setupTestStoreMultiEdge(t)
 	defer s.Close()
