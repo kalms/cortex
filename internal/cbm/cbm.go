@@ -2,6 +2,9 @@ package cbm
 
 /*
 #cgo CFLAGS: -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Ivendored/ts_runtime/include -Ivendored/ts_runtime/src
+#cgo CXXFLAGS: -std=c++17 -O2 -Wall -Ivendored/ts_runtime/include
+#cgo darwin LDFLAGS: -lc++
+#cgo linux LDFLAGS: -lstdc++
 #include "cbm.h"
 #include "helpers.h"
 #include "lang_specs.h"
@@ -143,17 +146,30 @@ func Shutdown() {
 
 // ProfileStats holds accumulated profiling data from C extraction.
 type ProfileStats struct {
-	ParseNs   uint64
-	ExtractNs uint64
-	Files     uint64
+	ParseNs            uint64
+	ExtractNs          uint64
+	LspNs              uint64
+	PreprocessNs       uint64
+	FilesPreprocessed  uint64
+	Files              uint64
 }
 
 // GetProfile returns accumulated parse/extraction timing and resets counters.
 func GetProfile() ProfileStats {
 	var p, e, f C.uint64_t
 	C.cbm_get_profile(&p, &e, &f)
+	lsp := uint64(C.cbm_get_lsp_ns())
+	ppNs := uint64(C.cbm_get_preprocess_ns())
+	ppFiles := uint64(C.cbm_get_files_preprocessed())
 	C.cbm_reset_profile()
-	return ProfileStats{ParseNs: uint64(p), ExtractNs: uint64(e), Files: uint64(f)}
+	return ProfileStats{
+		ParseNs:           uint64(p),
+		ExtractNs:         uint64(e),
+		LspNs:             lsp,
+		PreprocessNs:      ppNs,
+		FilesPreprocessed: ppFiles,
+		Files:             uint64(f),
+	}
 }
 
 // languageToC maps Go lang.Language to CBMLanguage enum.
@@ -229,10 +245,21 @@ var languageToC = map[lang.Language]C.CBMLanguage{
 // ParseTimeoutMicros is the default per-file parse timeout (10 seconds).
 const ParseTimeoutMicros = 10_000_000
 
+// ExtractionFlags holds optional compile flags for C/C++ preprocessing.
+type ExtractionFlags struct {
+	IncludePaths []string // -I paths for #include resolution
+	Defines      []string // -D defines as "NAME=VALUE" or "NAME"
+}
+
 // ExtractFile runs the C extraction library on one file.
 // source is the file content, language is the programming language,
 // project and relPath are used for qualified name computation.
 func ExtractFile(source []byte, language lang.Language, project, relPath string) (*FileResult, error) {
+	return ExtractFileWithFlags(source, language, project, relPath, nil)
+}
+
+// ExtractFileWithFlags runs extraction with optional compile flags for C/C++ preprocessing.
+func ExtractFileWithFlags(source []byte, language lang.Language, project, relPath string, flags *ExtractionFlags) (*FileResult, error) {
 	Init()
 
 	if len(source) == 0 {
@@ -251,7 +278,27 @@ func ExtractFile(source []byte, language lang.Language, project, relPath string)
 	defer C.free(unsafe.Pointer(cProject))
 	defer C.free(unsafe.Pointer(cRelPath))
 
-	result := C.cbm_extract_file(cSource, cSourceLen, cLang, cProject, cRelPath, C.int64_t(ParseTimeoutMicros))
+	// Build C string arrays for defines and include paths
+	var cDefines **C.char
+	var cIncludes **C.char
+	var toFree []unsafe.Pointer
+
+	if flags != nil {
+		if len(flags.Defines) > 0 {
+			cDefines = buildCStringArray(flags.Defines, &toFree)
+		}
+		if len(flags.IncludePaths) > 0 {
+			cIncludes = buildCStringArray(flags.IncludePaths, &toFree)
+		}
+	}
+	defer func() {
+		for _, p := range toFree {
+			C.free(p)
+		}
+	}()
+
+	result := C.cbm_extract_file(cSource, cSourceLen, cLang, cProject, cRelPath,
+		C.int64_t(ParseTimeoutMicros), cDefines, cIncludes)
 	if result == nil {
 		return nil, fmt.Errorf("cbm: extraction returned nil")
 	}
@@ -262,6 +309,23 @@ func ExtractFile(source []byte, language lang.Language, project, relPath string)
 	}
 
 	return convertResult(result), nil
+}
+
+// buildCStringArray creates a NULL-terminated C string array from Go strings.
+func buildCStringArray(strs []string, toFree *[]unsafe.Pointer) **C.char {
+	n := len(strs)
+	ptrSize := C.size_t(unsafe.Sizeof((*C.char)(nil)))
+	arr := (**C.char)(C.malloc(C.size_t(n+1) * ptrSize))
+	*toFree = append(*toFree, unsafe.Pointer(arr))
+
+	slice := unsafe.Slice(arr, n+1)
+	for i, s := range strs {
+		cs := C.CString(s)
+		*toFree = append(*toFree, unsafe.Pointer(cs))
+		slice[i] = cs
+	}
+	slice[n] = nil // NULL terminator
+	return arr
 }
 
 func convertResult(r *C.CBMFileResult) *FileResult {

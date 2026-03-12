@@ -65,4 +65,31 @@ const CBMRegisteredFunc* cbm_registry_lookup_func(const CBMTypeRegistry* reg,
 const CBMRegisteredFunc* cbm_registry_lookup_symbol(const CBMTypeRegistry* reg,
     const char* package_qn, const char* name);
 
+// Resolve type alias chain: follow alias_of until concrete type found (max 16 levels).
+const CBMRegisteredType* cbm_registry_resolve_alias(const CBMTypeRegistry* reg, const char* type_qn);
+
+// Look up a method by receiver type QN + method name, following alias chains.
+const CBMRegisteredFunc* cbm_registry_lookup_method_aliased(const CBMTypeRegistry* reg,
+    const char* receiver_qn, const char* method_name);
+
+// Look up a method by receiver type + name, preferring the overload with matching arg count.
+// Falls back to any match if no exact arg count match found.
+const CBMRegisteredFunc* cbm_registry_lookup_method_by_args(const CBMTypeRegistry* reg,
+    const char* receiver_qn, const char* method_name, int arg_count);
+
+// Look up a free function by package + name, preferring matching arg count.
+const CBMRegisteredFunc* cbm_registry_lookup_symbol_by_args(const CBMTypeRegistry* reg,
+    const char* package_qn, const char* name, int arg_count);
+
+// Look up a method by receiver type + name, scoring overloads by parameter type match.
+// arg_types may contain NULL entries for unknown types. Falls back to arg-count matching.
+const CBMRegisteredFunc* cbm_registry_lookup_method_by_types(const CBMTypeRegistry* reg,
+    const char* receiver_qn, const char* method_name,
+    const CBMType** arg_types, int arg_count);
+
+// Look up a free function by package + name, scoring overloads by parameter type match.
+const CBMRegisteredFunc* cbm_registry_lookup_symbol_by_types(const CBMTypeRegistry* reg,
+    const char* package_qn, const char* name,
+    const CBMType** arg_types, int arg_count);
+
 #endif // CBM_LSP_TYPE_REGISTRY_H

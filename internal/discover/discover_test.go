@@ -108,6 +108,67 @@ func TestDiscoverSkipsWorktrees(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsWorktreeCheckout(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a worktree-like directory with a .git file containing "gitdir:"
+	wtDir := filepath.Join(dir, "feature-branch")
+	if err := os.MkdirAll(filepath.Join(wtDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtDir, "src", "lib.go"), []byte("package lib\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtDir, ".git"), []byte("gitdir: /repo/.git/worktrees/feature-branch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (skipping worktree checkout), got %d", len(files))
+	}
+	if filepath.Base(files[0].Path) != "main.go" {
+		t.Errorf("expected main.go, got %s", files[0].Path)
+	}
+}
+
+func TestDiscoverDoesNotSkipDirWithNonGitdirDotGitFile(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a directory with a .git file that does NOT start with "gitdir:"
+	subDir := filepath.Join(dir, "subproject")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "lib.go"), []byte("package lib\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, ".git"), []byte("not a gitdir pointer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files (subdir NOT skipped), got %d", len(files))
+	}
+}
+
 func TestDiscoverCancellation(t *testing.T) {
 	dir := t.TempDir()
 

@@ -3,6 +3,8 @@
 #include "lang_specs.h"
 #include "extract_unified.h"
 #include "lsp/go_lsp.h"
+#include "lsp/c_lsp.h"
+#include "preprocessor.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -12,6 +14,9 @@
 #include <stdatomic.h>
 static _Atomic uint64_t total_parse_ns = 0;
 static _Atomic uint64_t total_extract_ns = 0;
+static _Atomic uint64_t total_lsp_ns = 0;
+static _Atomic uint64_t total_preprocess_ns = 0;
+static _Atomic uint64_t total_files_preprocessed = 0;
 static _Atomic uint64_t total_files = 0;
 
 static uint64_t now_ns(void) {
@@ -27,10 +32,25 @@ void cbm_get_profile(uint64_t* parse_ns, uint64_t* extract_ns, uint64_t* files) 
     *files = atomic_load(&total_files);
 }
 
+uint64_t cbm_get_lsp_ns(void) {
+    return atomic_load(&total_lsp_ns);
+}
+
+uint64_t cbm_get_preprocess_ns(void) {
+    return atomic_load(&total_preprocess_ns);
+}
+
+uint64_t cbm_get_files_preprocessed(void) {
+    return atomic_load(&total_files_preprocessed);
+}
+
 // cbm_reset_profile zeros the profiling counters.
 void cbm_reset_profile(void) {
     atomic_store(&total_parse_ns, 0);
     atomic_store(&total_extract_ns, 0);
+    atomic_store(&total_lsp_ns, 0);
+    atomic_store(&total_preprocess_ns, 0);
+    atomic_store(&total_files_preprocessed, 0);
     atomic_store(&total_files, 0);
 }
 
@@ -178,7 +198,9 @@ CBMFileResult* cbm_extract_file(
     const char* source, int source_len,
     CBMLanguage language,
     const char* project, const char* rel_path,
-    int64_t timeout_micros
+    int64_t timeout_micros,
+    const char** extra_defines,
+    const char** include_paths
 ) {
     // Allocate result on heap (arena inside for all string data)
     CBMFileResult* result = (CBMFileResult*)calloc(1, sizeof(CBMFileResult));
@@ -267,9 +289,74 @@ CBMFileResult* cbm_extract_file(
     cbm_extract_imports(&ctx);
     cbm_extract_unified(&ctx);
 
-    // LSP type-aware call resolution (Go only for now)
+    // LSP type-aware call resolution
+    uint64_t lsp_start = now_ns();
     if (language == CBM_LANG_GO) {
         cbm_run_go_lsp(a, result, source, source_len, root);
+    }
+    if (language == CBM_LANG_C || language == CBM_LANG_CPP || language == CBM_LANG_CUDA) {
+        cbm_run_c_lsp(a, result, source, source_len, root, language != CBM_LANG_C);
+    }
+    atomic_fetch_add(&total_lsp_ns, now_ns() - lsp_start);
+
+    // Second pass: preprocess C/C++/CUDA and extract additional macro-hidden calls.
+    // Defs keep original-source line numbers; only CALLS are extracted from expanded source.
+    if (language == CBM_LANG_C || language == CBM_LANG_CPP || language == CBM_LANG_CUDA) {
+        uint64_t pp_start = now_ns();
+        char* expanded = cbm_preprocess(source, source_len, rel_path,
+                                         extra_defines, include_paths,
+                                         language != CBM_LANG_C);
+        if (expanded) {
+            int expanded_len = (int)strlen(expanded);
+            // Record calls count before second pass
+            int calls_before = result->calls.count;
+
+            // Parse expanded source with fresh tree
+            TSParser* pp_parser = get_thread_parser(ts_lang, language);
+            if (pp_parser) {
+                ts_parser_reset(pp_parser);
+                CBMStringInput pp_input = {expanded, (uint32_t)expanded_len};
+                TSInput pp_ts_input = {
+                    &pp_input,
+                    cbm_string_read,
+                    TSInputEncodingUTF8,
+                    NULL,
+                };
+                TSParseOptions pp_opts = {0};
+                TSTree* pp_tree = ts_parser_parse_with_options(pp_parser, NULL, pp_ts_input, pp_opts);
+                if (pp_tree) {
+                    TSNode pp_root = ts_tree_root_node(pp_tree);
+
+                    // Build context for expanded source — extract only calls via unified extractor
+                    CBMExtractCtx pp_ctx = {
+                        .arena = a,
+                        .result = result,
+                        .source = expanded,
+                        .source_len = expanded_len,
+                        .language = language,
+                        .project = project,
+                        .rel_path = rel_path,
+                        .module_qn = result->module_qn,
+                        .root = pp_root,
+                    };
+                    // Re-run unified extraction on expanded source.
+                    // This adds macro-expanded calls; duplicates with original calls are
+                    // harmless (pipeline deduplicates by caller+callee).
+                    cbm_extract_unified(&pp_ctx);
+
+                    // Also run LSP on expanded source for additional type-resolved calls
+                    if (language == CBM_LANG_C || language == CBM_LANG_CPP || language == CBM_LANG_CUDA) {
+                        cbm_run_c_lsp(a, result, expanded, expanded_len, pp_root, language != CBM_LANG_C);
+                    }
+
+                    ts_tree_delete(pp_tree);
+                }
+            }
+            cbm_preprocess_free(expanded);
+            atomic_fetch_add(&total_files_preprocessed, 1);
+            (void)calls_before; // used for future logging
+        }
+        atomic_fetch_add(&total_preprocess_ns, now_ns() - pp_start);
     }
 
     uint64_t t2 = now_ns();

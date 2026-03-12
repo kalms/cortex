@@ -22,17 +22,17 @@ type cachedExtraction struct {
 // cbmParseFile reads a file, calls cbm.ExtractFile(), and converts the
 // result to the same parseResult format used by the batch write infrastructure.
 // This replaces parseFileAST() — all AST walking happens in C.
-func cbmParseFile(projectName string, f discover.FileInfo) *parseResult {
+func cbmParseFile(projectName string, f discover.FileInfo, flags *cbm.ExtractionFlags) *parseResult {
 	source, cleanup, err := mmapFile(f.Path)
 	if cleanup != nil {
 		defer cleanup()
 	}
-	return cbmParseFileFromSource(projectName, f, source, err)
+	return cbmParseFileFromSource(projectName, f, source, err, flags)
 }
 
 // cbmParseFileFromSource is like cbmParseFile but takes pre-read source data.
 // Used by the producer-consumer pipeline where I/O and CPU are separated.
-func cbmParseFileFromSource(projectName string, f discover.FileInfo, source []byte, readErr error) *parseResult {
+func cbmParseFileFromSource(projectName string, f discover.FileInfo, source []byte, readErr error, flags *cbm.ExtractionFlags) *parseResult {
 	result := &parseResult{File: f}
 
 	if readErr != nil {
@@ -43,7 +43,7 @@ func cbmParseFileFromSource(projectName string, f discover.FileInfo, source []by
 	// Strip UTF-8 BOM if present (common in C#/Windows-generated files)
 	source = stripBOM(source)
 
-	cbmResult, err := cbm.ExtractFile(source, f.Language, projectName, f.RelPath)
+	cbmResult, err := cbm.ExtractFileWithFlags(source, f.Language, projectName, f.RelPath, flags)
 	if err != nil {
 		slog.Warn("cbm.extract.err", "path", f.RelPath, "lang", f.Language, "err", err)
 		result.Err = err
@@ -240,6 +240,9 @@ func (p *Pipeline) resolveFileCallsCBM(relPath string, ext *cachedExtraction) []
 	// Cross-file LSP resolution for Go files
 	p.runGoLSPCrossFileResolution(ext, moduleQN, relPath, importMap)
 
+	// Cross-file LSP resolution for C/C++/CUDA files
+	p.runCLSPCrossFileResolution(ext, moduleQN, relPath)
+
 	// Build type map from CBM type assignments
 	typeMap := inferTypesCBM(ext.Result.TypeAssigns, p.registry, moduleQN, importMap)
 
@@ -271,6 +274,31 @@ func (p *Pipeline) runGoLSPCrossFileResolution(ext *cachedExtraction, moduleQN, 
 	}
 	fileDefs := cbm.DefsToLSPDefs(ext.Result.Definitions, moduleQN)
 	resolved := cbm.RunGoLSPCrossFile(source, moduleQN, fileDefs, crossDefs, ext.Result.Imports)
+	if len(resolved) > 0 {
+		ext.Result.ResolvedCalls = resolved
+	}
+}
+
+// runCLSPCrossFileResolution re-runs LSP with cross-file definitions from included headers.
+func (p *Pipeline) runCLSPCrossFileResolution(ext *cachedExtraction, moduleQN, relPath string) {
+	if !isCOrCPP(ext.Language) || p.cLSPIdx == nil {
+		return
+	}
+	incDirs := p.getRelativeIncludeDirs(relPath)
+	if incDirs == nil {
+		incDirs = p.getAllRelativeIncludeDirs()
+	}
+	crossDefs := p.cLSPIdx.collectCrossFileDefs(ext.Result.Imports, relPath, incDirs)
+	if len(crossDefs) == 0 {
+		return
+	}
+	source := readFileSource(p.RepoPath, relPath)
+	if len(source) == 0 {
+		return
+	}
+	cppMode := ext.Language == lang.CPP || ext.Language == lang.CUDA
+	fileDefs := cbm.DefsToLSPDefs(ext.Result.Definitions, moduleQN)
+	resolved := cbm.RunCLSPCrossFile(source, moduleQN, cppMode, fileDefs, crossDefs, ext.Result.Imports)
 	if len(resolved) > 0 {
 		ext.Result.ResolvedCalls = resolved
 	}

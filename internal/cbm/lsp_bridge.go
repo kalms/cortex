@@ -7,6 +7,7 @@ package cbm
 #include "lsp/scope.h"
 #include "lsp/type_registry.h"
 #include "lsp/go_lsp.h"
+#include "lsp/c_lsp.h"
 */
 import "C"
 import (
@@ -153,6 +154,16 @@ func RunGoLSPCrossFile(
 // DefsToLSPDefs converts file-local Definition slice to CrossFileDef format.
 func DefsToLSPDefs(defs []Definition, moduleQN string) []CrossFileDef {
 	result := make([]CrossFileDef, 0, len(defs))
+
+	// First pass: collect Field defs grouped by parent class QN → "name:type" pairs
+	fieldsByClass := make(map[string][]string)
+	for _, d := range defs {
+		if d.Label == "Field" && d.ParentClass != "" && d.Name != "" && d.ReturnType != "" {
+			fieldsByClass[d.ParentClass] = append(fieldsByClass[d.ParentClass],
+				d.Name+":"+d.ReturnType)
+		}
+	}
+
 	for _, d := range defs {
 		if d.QualifiedName == "" || d.Name == "" {
 			continue
@@ -184,13 +195,16 @@ func DefsToLSPDefs(defs []Definition, moduleQN string) []CrossFileDef {
 				IsInterface:   d.Label == "Interface",
 			}
 			if len(d.BaseClasses) > 0 {
-				// Qualify embedded types relative to module
 				embeds := make([]string, len(d.BaseClasses))
 				for i, bc := range d.BaseClasses {
 					bc = strings.TrimLeft(bc, "*")
 					embeds[i] = moduleQN + "." + bc
 				}
 				cd.EmbeddedTypes = strings.Join(embeds, "|")
+			}
+			// Attach field defs collected from Field-labeled definitions
+			if fields, ok := fieldsByClass[d.QualifiedName]; ok {
+				cd.FieldDefs = strings.Join(fields, "|")
 			}
 			result = append(result, cd)
 		}
@@ -216,4 +230,122 @@ func extractReceiverTypeQN(receiver, moduleQN string) string {
 		return ""
 	}
 	return moduleQN + "." + r
+}
+
+// RunCLSPCrossFile runs the C/C++ LSP type resolver with cross-file definitions.
+// source is the file content, moduleQN is the file's module QN,
+// cppMode enables C++ features (namespaces, classes, templates, etc.),
+// fileDefs are the file's own definitions, crossDefs are from included headers,
+// includes are the file's include mappings (header path → namespace QN).
+func RunCLSPCrossFile(
+	source []byte,
+	moduleQN string,
+	cppMode bool,
+	fileDefs []CrossFileDef,
+	crossDefs []CrossFileDef,
+	includes []Import,
+) []ResolvedCall {
+	if len(source) == 0 {
+		return nil
+	}
+
+	Init()
+
+	allDefs := make([]CrossFileDef, 0, len(fileDefs)+len(crossDefs))
+	allDefs = append(allDefs, fileDefs...)
+	allDefs = append(allDefs, crossDefs...)
+
+	if len(allDefs) == 0 {
+		return nil
+	}
+
+	var arena C.CBMArena
+	C.cbm_arena_init(&arena)
+	defer C.cbm_arena_destroy(&arena)
+
+	var toFree []unsafe.Pointer
+	defer func() {
+		for _, p := range toFree {
+			C.free(p)
+		}
+	}()
+
+	cs := func(s string) *C.char {
+		if s == "" {
+			return nil
+		}
+		p := C.CString(s)
+		toFree = append(toFree, unsafe.Pointer(p))
+		return p
+	}
+
+	// Build C def array
+	nDefs := len(allDefs)
+	cDefsPtr := (*C.CBMLSPDef)(C.malloc(C.size_t(nDefs) * C.size_t(unsafe.Sizeof(C.CBMLSPDef{}))))
+	if cDefsPtr == nil {
+		return nil
+	}
+	toFree = append(toFree, unsafe.Pointer(cDefsPtr))
+	cDefs := unsafe.Slice(cDefsPtr, nDefs)
+
+	for i, d := range allDefs {
+		cDefs[i] = C.CBMLSPDef{
+			qualified_name:   cs(d.QualifiedName),
+			short_name:       cs(d.ShortName),
+			label:            cs(d.Label),
+			receiver_type:    cs(d.ReceiverType),
+			def_module_qn:    cs(d.DefModuleQN),
+			return_types:     cs(d.ReturnTypes),
+			embedded_types:   cs(d.EmbeddedTypes),
+			field_defs:       cs(d.FieldDefs),
+			method_names_str: cs(d.MethodNames),
+			is_interface:     C.bool(d.IsInterface),
+		}
+	}
+
+	// Build include arrays (header path → namespace QN)
+	nIncludes := len(includes)
+	ptrSize := C.size_t(unsafe.Sizeof((*C.char)(nil)))
+	cIncPaths := (**C.char)(C.malloc(C.size_t(nIncludes+1) * ptrSize))
+	cIncQNs := (**C.char)(C.malloc(C.size_t(nIncludes+1) * ptrSize))
+	toFree = append(toFree, unsafe.Pointer(cIncPaths), unsafe.Pointer(cIncQNs))
+
+	incPathSlice := unsafe.Slice(cIncPaths, nIncludes+1)
+	incQNSlice := unsafe.Slice(cIncQNs, nIncludes+1)
+	for i, inc := range includes {
+		incPathSlice[i] = cs(inc.LocalName)
+		incQNSlice[i] = cs(inc.ModulePath)
+	}
+	incPathSlice[nIncludes] = nil
+	incQNSlice[nIncludes] = nil
+
+	cModuleQN := cs(moduleQN)
+	cSource := (*C.char)(unsafe.Pointer(&source[0]))
+
+	var outCalls C.CBMResolvedCallArray
+	C.cbm_run_c_lsp_cross(
+		&arena,
+		cSource, C.int(len(source)),
+		cModuleQN,
+		C.bool(cppMode),
+		cDefsPtr, C.int(nDefs),
+		cIncPaths, cIncQNs, C.int(nIncludes),
+		&outCalls,
+	)
+
+	if outCalls.count == 0 {
+		return nil
+	}
+	result := make([]ResolvedCall, outCalls.count)
+	rcs := unsafe.Slice(outCalls.items, outCalls.count)
+	for i, rc := range rcs {
+		result[i] = ResolvedCall{
+			CallerQN:   C.GoString(rc.caller_qn),
+			CalleeQN:   C.GoString(rc.callee_qn),
+			Strategy:   C.GoString(rc.strategy),
+			Confidence: float32(rc.confidence),
+			Reason:     goStringOrEmpty(rc.reason),
+		}
+	}
+	return result
 }

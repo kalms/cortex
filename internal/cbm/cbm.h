@@ -300,7 +300,9 @@ CBMFileResult* cbm_extract_file(
     const char* source, int source_len,
     CBMLanguage language,
     const char* project, const char* rel_path,
-    int64_t timeout_micros
+    int64_t timeout_micros,
+    const char** extra_defines,   // NULL-terminated, or NULL
+    const char** include_paths    // NULL-terminated, or NULL
 );
 
 // Free all memory associated with a result.
@@ -311,6 +313,9 @@ void cbm_shutdown(void);
 
 // Profiling: get accumulated parse/extraction times and file count.
 void cbm_get_profile(uint64_t* parse_ns, uint64_t* extract_ns, uint64_t* files);
+uint64_t cbm_get_lsp_ns(void);
+uint64_t cbm_get_preprocess_ns(void);
+uint64_t cbm_get_files_preprocessed(void);
 void cbm_reset_profile(void);
 
 

@@ -163,6 +163,24 @@ var fastIgnorePatterns = []string{
 	".test.",         // test files
 }
 
+// isWorktreeDir reports whether dir is a git worktree or submodule checkout.
+// These contain a .git *file* (not directory) whose first line starts with "gitdir:".
+func isWorktreeDir(dir string) bool {
+	gitPath := filepath.Join(dir, ".git")
+	fi, err := os.Lstat(gitPath)
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	f, err := os.Open(gitPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 7)
+	n, _ := f.Read(buf)
+	return n == 7 && string(buf) == "gitdir:"
+}
+
 // shouldSkipDir returns true if the directory should be skipped during discovery.
 func shouldSkipDir(name, rel string, extraIgnore []string, mode IndexMode) bool {
 	if IGNORE_PATTERNS[name] {
@@ -362,6 +380,11 @@ func Discover(ctx context.Context, repoPath string, opts *Options) ([]FileInfo, 
 		if info.IsDir() {
 			// Hardcoded patterns first (fast O(1) map lookup)
 			if shouldSkipDir(info.Name(), rel, extraIgnore, mode) {
+				return filepath.SkipDir
+			}
+			// Detect worktree/submodule checkouts (.git file with "gitdir:" pointer)
+			if rel != "." && isWorktreeDir(path) {
+				slog.Debug("discover.skip_worktree", "dir", rel)
 				return filepath.SkipDir
 			}
 			// Then gitignore + cbmignore (skip root — library panics on base==path)

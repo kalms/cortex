@@ -47,6 +47,10 @@ type Pipeline struct {
 	returnTypes ReturnTypeMap
 	// goLSPIdx indexes Go cross-file definitions for LSP resolution in pass3
 	goLSPIdx *goLSPDefIndex
+	// cLSPIdx indexes C/C++/CUDA cross-file definitions for LSP resolution in pass3
+	cLSPIdx *cLSPDefIndex
+	// compileFlags holds per-file compile flags from compile_commands.json (C/C++ only)
+	compileFlags CompileFlagsMap
 }
 
 // New creates a new Pipeline.
@@ -177,6 +181,9 @@ func (p *Pipeline) Run() error {
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
+
+	// Load compile_commands.json for C/C++ include paths and defines
+	p.compileFlags = loadCompileCommands(p.RepoPath)
 
 	// Discover source files (filesystem, no DB — runs outside transaction)
 	discoverOpts := &discover.Options{Mode: p.Mode}
@@ -309,6 +316,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	if p.goLSPIdx != nil {
 		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
 	}
+	p.cLSPIdx = p.buildCLSPDefIndex()
 	p.passCalls()
 	slog.Info("pass.timing", "pass", "calls", "elapsed", time.Since(t))
 	// Release heavy fields no longer needed after call resolution.
@@ -316,6 +324,7 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 	// (~160 KB/file → 16 GB for 100K-file repos). Nil them to halve peak RSS.
 	p.releaseExtractionFields(fieldsPostCalls)
 	p.goLSPIdx = nil // no longer needed after call resolution
+	p.cLSPIdx = nil
 	logHeapStats("post_calls")
 	if err := p.checkCancel(); err != nil {
 		return err
@@ -499,9 +508,11 @@ func (p *Pipeline) runIncrementalPasses(
 	if p.goLSPIdx != nil {
 		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
 	}
+	p.cLSPIdx = p.buildCLSPDefIndex()
 	p.passCallsForFiles(filesToResolve)
 	p.releaseExtractionFields(fieldsPostCalls)
 	p.goLSPIdx = nil
+	p.cLSPIdx = nil
 	p.passUsagesForFiles(filesToResolve)
 	p.releaseExtractionFields(fieldsPostUsages)
 	if err := p.checkCancel(); err != nil {
@@ -1090,7 +1101,7 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 			if p.ctx.Err() != nil {
 				return
 			}
-			results[i] = cbmParseFile(p.ProjectName, f)
+			results[i] = cbmParseFile(p.ProjectName, f, p.getCompileFlags(f.RelPath))
 			pf.advance(i + 1)
 		}()
 	}
@@ -1107,6 +1118,8 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 			"extract_total", time.Duration(profile.ExtractNs),
 			"parse_avg_us", profile.ParseNs/profile.Files/1000,
 			"extract_avg_us", profile.ExtractNs/profile.Files/1000,
+			"preprocess_total", time.Duration(profile.PreprocessNs),
+			"files_preprocessed", profile.FilesPreprocessed,
 		)
 	}
 

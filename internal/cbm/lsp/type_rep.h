@@ -19,6 +19,10 @@ typedef enum {
     CBM_TYPE_BUILTIN,     // int, string, bool, error, etc.
     CBM_TYPE_TUPLE,       // multi-return (T1, T2)
     CBM_TYPE_TYPE_PARAM,  // generic type parameter: T, K, V
+    CBM_TYPE_REFERENCE,   // T& (C++ lvalue reference)
+    CBM_TYPE_RVALUE_REF,  // T&& (C++ rvalue reference)
+    CBM_TYPE_TEMPLATE,    // Parameterized type: vector<T> — stores template name + args
+    CBM_TYPE_ALIAS,       // Type alias: using/typedef — stores alias name + underlying type
 } CBMTypeKind;
 
 // Forward declaration
@@ -58,6 +62,16 @@ struct CBMType {
             int count;
         } tuple;                                            // TUPLE
         struct { const char* name; } type_param;            // TYPE_PARAM
+        struct { const CBMType* elem; } reference;            // REFERENCE / RVALUE_REF
+        struct {
+            const char* template_name;      // "std::vector", "std::map"
+            const CBMType** template_args;  // NULL-terminated
+            int arg_count;
+        } template_type;                                      // TEMPLATE
+        struct {
+            const char* alias_qn;          // "proj.ns.MyAlias"
+            const CBMType* underlying;     // the actual type it aliases
+        } alias;                                              // ALIAS
     } data;
 };
 
@@ -72,6 +86,10 @@ const CBMType* cbm_type_func(CBMArena* a, const char** param_names, const CBMTyp
 const CBMType* cbm_type_builtin(CBMArena* a, const char* name);
 const CBMType* cbm_type_tuple(CBMArena* a, const CBMType** elems, int count);
 const CBMType* cbm_type_type_param(CBMArena* a, const char* name);
+const CBMType* cbm_type_reference(CBMArena* a, const CBMType* elem);
+const CBMType* cbm_type_rvalue_ref(CBMArena* a, const CBMType* elem);
+const CBMType* cbm_type_template(CBMArena* a, const char* name, const CBMType** args, int arg_count);
+const CBMType* cbm_type_alias(CBMArena* a, const char* alias_qn, const CBMType* underlying);
 
 // Operations
 const CBMType* cbm_type_deref(const CBMType* t);         // remove one pointer level
@@ -79,6 +97,10 @@ const CBMType* cbm_type_elem(const CBMType* t);           // get element type (s
 bool cbm_type_is_unknown(const CBMType* t);
 bool cbm_type_is_interface(const CBMType* t);
 bool cbm_type_is_pointer(const CBMType* t);
+bool cbm_type_is_reference(const CBMType* t);
+
+// Follow alias chain with cycle detection (max 16 levels).
+const CBMType* cbm_type_resolve_alias(const CBMType* t);
 
 // Generic type substitution: replace type params in t with concrete types.
 // type_params: NULL-terminated array of param names

@@ -11,6 +11,7 @@ static void extract_variables(CBMExtractCtx* ctx, TSNode root, const CBMLangSpec
 static void extract_class_variables(CBMExtractCtx* ctx, TSNode class_node, const CBMLangSpec* spec);
 static void extract_rust_impl(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
 static void extract_class_methods(CBMExtractCtx* ctx, TSNode class_node, const char* class_qn, const CBMLangSpec* spec);
+static void extract_class_fields(CBMExtractCtx* ctx, TSNode class_node, const char* class_qn, const CBMLangSpec* spec);
 static void extract_elixir_call(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
 
 // --- Helpers ---
@@ -252,6 +253,23 @@ static TSNode resolve_func_name(TSNode node, CBMLanguage lang, const char* sourc
         return null_node;
     }
 
+    // C++/CUDA: template_declaration wraps a function_definition — unwrap and resolve inner
+    if ((lang == CBM_LANG_CPP || lang == CBM_LANG_CUDA) &&
+        strcmp(kind, "template_declaration") == 0) {
+        // Find the inner function_definition or declaration child
+        uint32_t nc = ts_node_named_child_count(node);
+        for (uint32_t i = 0; i < nc; i++) {
+            TSNode ch = ts_node_named_child(node, i);
+            const char* ck = ts_node_type(ch);
+            if (strcmp(ck, "function_definition") == 0 ||
+                strcmp(ck, "declaration") == 0) {
+                return resolve_func_name(ch, lang, source);
+            }
+        }
+        TSNode null_node = {0};
+        return null_node;
+    }
+
     // C/C++/CUDA/GLSL: function_definition — name is inside the declarator chain
     // C grammar: function_definition{declarator:function_declarator{declarator:identifier}}
     if ((lang == CBM_LANG_C || lang == CBM_LANG_CPP || lang == CBM_LANG_CUDA ||
@@ -260,10 +278,24 @@ static TSNode resolve_func_name(TSNode node, CBMLanguage lang, const char* sourc
         for (int depth = 0; depth < 8 && !ts_node_is_null(decl); depth++) {
             const char* dk = ts_node_type(decl);
             if (strcmp(dk, "identifier") == 0) return decl;
-            // C++ qualified name: Namespace::Function
+            if (strcmp(dk, "field_identifier") == 0) return decl;
+            // C++ operator functions: operator+, operator[], operator(), etc.
+            if (strcmp(dk, "operator_name") == 0 || strcmp(dk, "operator_cast") == 0) return decl;
+            // C++ destructor: ~ClassName
+            if (strcmp(dk, "destructor_name") == 0) return decl;
+            // C++ qualified name: Namespace::Function or Class::operator+
             if (strcmp(dk, "qualified_identifier") == 0 ||
                 strcmp(dk, "scoped_identifier") == 0) {
+                // Check for operator_name child first (e.g., Class::operator+)
+                TSNode op = cbm_find_child_by_kind(decl, "operator_name");
+                if (!ts_node_is_null(op)) return op;
+                op = cbm_find_child_by_kind(decl, "operator_cast");
+                if (!ts_node_is_null(op)) return op;
+                op = cbm_find_child_by_kind(decl, "destructor_name");
+                if (!ts_node_is_null(op)) return op;
                 TSNode id = cbm_find_child_by_kind(decl, "identifier");
+                if (!ts_node_is_null(id)) return id;
+                id = cbm_find_child_by_kind(decl, "field_identifier");
                 if (!ts_node_is_null(id)) return id;
                 break;
             }
@@ -770,6 +802,23 @@ static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec*
     char* name = cbm_node_text(a, name_node, ctx->source);
     if (!name || !name[0] || strcmp(name, "function") == 0) return;
 
+    // For template_declaration, use the inner function_definition for field lookups
+    // (parameters, return type, etc. are on the inner node, not the template wrapper)
+    TSNode func_node = node;
+    if ((ctx->language == CBM_LANG_CPP || ctx->language == CBM_LANG_CUDA) &&
+        strcmp(ts_node_type(node), "template_declaration") == 0) {
+        uint32_t nc = ts_node_named_child_count(node);
+        for (uint32_t i = 0; i < nc; i++) {
+            TSNode ch = ts_node_named_child(node, i);
+            const char* ck = ts_node_type(ch);
+            if (strcmp(ck, "function_definition") == 0 ||
+                strcmp(ck, "declaration") == 0) {
+                func_node = ch;
+                break;
+            }
+        }
+    }
+
     CBMDefinition def;
     memset(&def, 0, sizeof(def));
 
@@ -782,22 +831,52 @@ static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec*
     def.lines = (int)(def.end_line - def.start_line + 1);
     def.is_exported = cbm_is_exported(name, ctx->language);
 
-    // Parameters
-    TSNode params = ts_node_child_by_field_name(node, "parameters", 10);
+    // Parameters — use func_node (inner function for templates)
+    TSNode params = ts_node_child_by_field_name(func_node, "parameters", 10);
+    // C/C++/CUDA/GLSL: parameters live on function_declarator inside declarator chain
+    if (ts_node_is_null(params) && (ctx->language == CBM_LANG_C || ctx->language == CBM_LANG_CPP ||
+        ctx->language == CBM_LANG_CUDA || ctx->language == CBM_LANG_GLSL)) {
+        TSNode decl = ts_node_child_by_field_name(func_node, "declarator", 10);
+        for (int d = 0; d < 5 && !ts_node_is_null(decl); d++) {
+            params = ts_node_child_by_field_name(decl, "parameters", 10);
+            if (!ts_node_is_null(params)) break;
+            decl = ts_node_child_by_field_name(decl, "declarator", 10);
+        }
+    }
     if (!ts_node_is_null(params)) {
         def.signature = cbm_node_text(a, params, ctx->source);
         def.param_names = extract_param_names(a, params, ctx->source, ctx->language);
         def.param_types = extract_param_types(a, params, ctx->source, ctx->language);
     }
 
-    // Return type
+    // Return type — use func_node (inner function for templates)
     static const char* rt_fields[] = {"result","return_type","type",NULL};
     for (const char** f = rt_fields; *f; f++) {
-        TSNode rt = ts_node_child_by_field_name(node, *f, (uint32_t)strlen(*f));
+        TSNode rt = ts_node_child_by_field_name(func_node, *f, (uint32_t)strlen(*f));
         if (!ts_node_is_null(rt)) {
             def.return_type = cbm_node_text(a, rt, ctx->source);
             def.return_types = extract_return_types(a, rt, ctx->source, ctx->language);
             break;
+        }
+    }
+
+    // C++: trailing return type (auto f() -> Type) — override "auto" with actual type
+    if (def.return_type && strcmp(def.return_type, "auto") == 0 &&
+        (ctx->language == CBM_LANG_CPP || ctx->language == CBM_LANG_CUDA)) {
+        TSNode declarator = ts_node_child_by_field_name(func_node, "declarator", 10);
+        if (!ts_node_is_null(declarator)) {
+            // trailing_return_type is a child of the function_declarator
+            uint32_t nc = ts_node_named_child_count(declarator);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode ch = ts_node_named_child(declarator, i);
+                if (strcmp(ts_node_type(ch), "trailing_return_type") == 0) {
+                    // trailing_return_type contains a type_descriptor as first named child
+                    TSNode type_desc = ts_node_named_child_count(ch) > 0
+                        ? ts_node_named_child(ch, 0) : ch;
+                    def.return_type = cbm_node_text(a, type_desc, ctx->source);
+                    break;
+                }
+            }
         }
     }
 
@@ -1064,6 +1143,9 @@ static void extract_class_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec
     // Extract methods inside the class
     extract_class_methods(ctx, node, class_qn, spec);
 
+    // Extract typed struct/class fields (for cross-file LSP type resolution)
+    extract_class_fields(ctx, node, class_qn, spec);
+
     // Extract class-level variables (field declarations)
     extract_class_variables(ctx, node, spec);
 }
@@ -1111,6 +1193,13 @@ static TSNode resolve_method_name(TSNode child, CBMLanguage lang) {
     if (!ts_node_is_null(name_node)) return name_node;
 
     const char* ck = ts_node_type(child);
+
+    // C/C++/CUDA: function_definition inside class body — use resolve_func_name which
+    // handles the declarator chain including operator_name, destructor_name, etc.
+    if ((lang == CBM_LANG_C || lang == CBM_LANG_CPP || lang == CBM_LANG_CUDA ||
+         lang == CBM_LANG_GLSL) && strcmp(ck, "function_definition") == 0) {
+        return resolve_func_name(child, lang, NULL);
+    }
 
     // Groovy: function_definition uses field_function for the method name (not field_name).
     // e.g., "String greet()" → {field_type:String, field_function:greet, ...}
@@ -1189,6 +1278,36 @@ static void push_method_def(CBMExtractCtx* ctx, TSNode child, const char* class_
     if (!ts_node_is_null(params)) {
         def.signature = cbm_node_text(a, params, ctx->source);
         def.param_types = extract_param_types(a, params, ctx->source, ctx->language);
+    }
+
+    // Return type (same fields as extract_func_def)
+    {
+        static const char* rt_fields[] = {"result","return_type","type",NULL};
+        for (const char** f = rt_fields; *f; f++) {
+            TSNode rt = ts_node_child_by_field_name(child, *f, (uint32_t)strlen(*f));
+            if (!ts_node_is_null(rt)) {
+                def.return_type = cbm_node_text(a, rt, ctx->source);
+                break;
+            }
+        }
+    }
+
+    // C++: trailing return type (auto method() -> Type)
+    if (def.return_type && strcmp(def.return_type, "auto") == 0 &&
+        (ctx->language == CBM_LANG_CPP || ctx->language == CBM_LANG_CUDA)) {
+        TSNode declarator = ts_node_child_by_field_name(child, "declarator", 10);
+        if (!ts_node_is_null(declarator)) {
+            uint32_t nc = ts_node_named_child_count(declarator);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode ch = ts_node_named_child(declarator, i);
+                if (strcmp(ts_node_type(ch), "trailing_return_type") == 0) {
+                    TSNode type_desc = ts_node_named_child_count(ch) > 0
+                        ? ts_node_named_child(ch, 0) : ch;
+                    def.return_type = cbm_node_text(a, type_desc, ctx->source);
+                    break;
+                }
+            }
+        }
     }
 
     def.decorators = extract_decorators(a, child, ctx->source, ctx->language, spec);
@@ -1982,6 +2101,94 @@ static void extract_variables(CBMExtractCtx* ctx, TSNode root, const CBMLangSpec
                 extract_var_names(ctx, child, spec);
             }
         }
+    }
+}
+
+// Extract typed struct/class fields for cross-file LSP resolution (C/C++/CUDA/Go/Java/Rust etc.)
+// Creates "Field" label definitions with return_type set to the field's type text.
+// These are later collected by DefsToLSPDefs to build FieldDefs pipe-separated strings.
+static void extract_class_fields(CBMExtractCtx* ctx, TSNode class_node,
+                                  const char* class_qn, const CBMLangSpec* spec) {
+    if (!spec->field_node_types || !spec->field_node_types[0]) return;
+
+    TSNode body = find_class_body(class_node, ctx->language);
+    if (ts_node_is_null(body)) return;
+
+    CBMArena* a = ctx->arena;
+    uint32_t count = ts_node_named_child_count(body);
+    for (uint32_t i = 0; i < count; i++) {
+        TSNode child = ts_node_named_child(body, i);
+        if (!cbm_kind_in_set(child, spec->field_node_types)) continue;
+
+        // Skip function-pointer fields: walk the declarator chain — if any level
+        // is function_declarator, this is a function pointer, not a data field.
+        {
+            TSNode decl = ts_node_child_by_field_name(child, "declarator", 10);
+            bool is_func = false;
+            for (int depth = 0; depth < 5 && !ts_node_is_null(decl); depth++) {
+                const char* dk = ts_node_type(decl);
+                if (strcmp(dk, "function_declarator") == 0) { is_func = true; break; }
+                // Descend through parenthesized_declarator, pointer_declarator, etc.
+                TSNode inner = ts_node_child_by_field_name(decl, "declarator", 10);
+                if (ts_node_is_null(inner)) {
+                    uint32_t nc = ts_node_named_child_count(decl);
+                    for (uint32_t k = 0; k < nc; k++) {
+                        inner = ts_node_named_child(decl, k);
+                        if (!ts_node_is_null(inner)) break;
+                    }
+                }
+                decl = inner;
+            }
+            if (is_func) continue;
+        }
+
+        // Extract type from "type" field
+        TSNode type_node = ts_node_child_by_field_name(child, "type", 4);
+        if (ts_node_is_null(type_node)) continue;
+        char* type_text = cbm_node_text(a, type_node, ctx->source);
+        if (!type_text || !type_text[0]) continue;
+
+        // Extract field name from "declarator" field (C/C++/CUDA/GLSL)
+        // or "name" field (Go, Java, Rust)
+        TSNode name_node = ts_node_child_by_field_name(child, "declarator", 10);
+        if (ts_node_is_null(name_node)) {
+            name_node = ts_node_child_by_field_name(child, "name", 4);
+        }
+        if (ts_node_is_null(name_node)) continue;
+
+        // For C/C++: declarator might be a pointer_declarator or array_declarator wrapping field_identifier
+        const char* nk = ts_node_type(name_node);
+        if (strcmp(nk, "pointer_declarator") == 0 || strcmp(nk, "array_declarator") == 0) {
+            // Prepend pointer/array to type, get inner identifier
+            char* decl_text = cbm_node_text(a, name_node, ctx->source);
+            TSNode inner = ts_node_child_by_field_name(name_node, "declarator", 10);
+            if (!ts_node_is_null(inner)) {
+                name_node = inner;
+                nk = ts_node_type(name_node);
+            } else {
+                (void)decl_text;
+                continue;
+            }
+        }
+
+        char* name = cbm_node_text(a, name_node, ctx->source);
+        if (!name || !name[0]) continue;
+
+        const char* field_qn = cbm_arena_sprintf(a, "%s.%s", class_qn, name);
+
+        CBMDefinition def;
+        memset(&def, 0, sizeof(def));
+        def.name = name;
+        def.qualified_name = field_qn;
+        def.label = "Field";
+        def.file_path = ctx->rel_path;
+        def.parent_class = class_qn;
+        def.return_type = type_text;
+        def.start_line = ts_node_start_point(child).row + 1;
+        def.end_line = ts_node_end_point(child).row + 1;
+        def.is_exported = cbm_is_exported(name, ctx->language);
+
+        cbm_defs_push(&ctx->result->defs, a, def);
     }
 }
 
