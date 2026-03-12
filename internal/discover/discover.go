@@ -16,7 +16,7 @@ import (
 // IGNORE_PATTERNS are directory names to skip during discovery.
 var IGNORE_PATTERNS = map[string]bool{
 	// VCS / IDE
-	".git": true, ".hg": true, ".svn": true,
+	".git": true, ".hg": true, ".svn": true, ".worktrees": true,
 	".idea": true, ".vs": true, ".vscode": true, ".eclipse": true, ".claude": true,
 	// Python
 	".cache": true, ".eggs": true, ".env": true, ".mypy_cache": true, ".nox": true,

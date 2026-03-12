@@ -79,6 +79,35 @@ func TestDisambiguateM(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsWorktrees(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// .worktrees/ contains duplicated source trees from git worktrees
+	wtDir := filepath.Join(dir, ".worktrees", "feature-branch", "src")
+	if err := os.MkdirAll(wtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtDir, "app.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (skipping .worktrees), got %d", len(files))
+	}
+	if filepath.Base(files[0].Path) != "main.go" {
+		t.Errorf("expected main.go, got %s", files[0].Path)
+	}
+}
+
 func TestDiscoverCancellation(t *testing.T) {
 	dir := t.TempDir()
 
