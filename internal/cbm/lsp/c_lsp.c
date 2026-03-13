@@ -23,18 +23,21 @@ extern const TSLanguage* tree_sitter_c(void);
 extern const TSLanguage* tree_sitter_cpp(void);
 
 // --- Smart pointer names for deref ---
+// Checks suffix: "std.shared_ptr", "test.main.std.shared_ptr" both match
 static bool is_smart_ptr(const char* name) {
     if (!name) return false;
-    return strcmp(name, "std.unique_ptr") == 0 ||
-           strcmp(name, "std.shared_ptr") == 0 ||
-           strcmp(name, "std.weak_ptr") == 0 ||
-           strcmp(name, "std.auto_ptr") == 0 ||
-           strcmp(name, "boost.shared_ptr") == 0 ||
-           strcmp(name, "boost.scoped_ptr") == 0 ||
-           // Legacy :: format (cross-file defs)
-           strcmp(name, "std::unique_ptr") == 0 ||
-           strcmp(name, "std::shared_ptr") == 0 ||
-           strcmp(name, "std::weak_ptr") == 0;
+    // Extract short name after last dot (or use full name)
+    const char* short_name = strrchr(name, '.');
+    short_name = short_name ? short_name + 1 : name;
+    // Check if the short name is a smart pointer type AND the QN contains "std"
+    if (strcmp(short_name, "unique_ptr") == 0 ||
+        strcmp(short_name, "shared_ptr") == 0 ||
+        strcmp(short_name, "weak_ptr") == 0 ||
+        strcmp(short_name, "auto_ptr") == 0 ||
+        strcmp(short_name, "scoped_ptr") == 0) {
+        return strstr(name, "std") != NULL || strstr(name, "boost") != NULL;
+    }
+    return false;
 }
 
 // --- Helper: get node text ---
@@ -221,7 +224,9 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
         }
     }
 
-    // Resolve pending calls for this function
+    // Resolve pending calls for this function — emit with template func as caller
+    const char* saved_func_qn = ctx->enclosing_func_qn;
+    ctx->enclosing_func_qn = callee->qualified_name;
     for (int i = 0; i < ctx->pending_tc_count; i++) {
         if (strcmp(ctx->pending_template_calls[i].func_qn, callee->qualified_name) != 0)
             continue;
@@ -241,6 +246,7 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
             break;
         }
     }
+    ctx->enclosing_func_qn = saved_func_qn;
 }
 
 // --- Helper: extract call argument types for overload scoring ---
@@ -613,6 +619,16 @@ static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name)
     // Builtin types
     if (is_c_builtin_type(name)) return cbm_type_builtin(ctx->arena, name);
 
+    // Scope lookup: typedef/using aliases are bound here.
+    // If the name resolves to an alias, follow it to the underlying type.
+    {
+        const CBMType* scoped = cbm_scope_lookup(ctx->current_scope, name);
+        if (scoped && scoped->kind == CBM_TYPE_ALIAS) {
+            const CBMType* resolved = cbm_type_resolve_alias(scoped);
+            if (resolved && !cbm_type_is_unknown(resolved)) return resolved;
+        }
+    }
+
     // Template type parameters (T, U, etc.)
     if (ctx->in_template && ctx->template_param_names) {
         for (int i = 0; i < ctx->template_param_count; i++) {
@@ -815,6 +831,20 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
             trt = cbm_registry_lookup_type(ctx->registry, mod_qn);
             if (trt) template_qn = mod_qn;
         }
+        if (!trt && ctx->current_namespace) {
+            // Try with current namespace prefix (e.g., inside namespace std, "shared_ptr" → "std.shared_ptr")
+            const char* ns_qn = cbm_arena_sprintf(ctx->arena, "%s.%s",
+                ctx->current_namespace, template_qn);
+            trt = cbm_registry_lookup_type(ctx->registry, ns_qn);
+            if (trt) template_qn = ns_qn;
+            // Also try module + namespace
+            if (!trt && ctx->module_qn) {
+                const char* full_qn = cbm_arena_sprintf(ctx->arena, "%s.%s.%s",
+                    ctx->module_qn, ctx->current_namespace, template_qn);
+                trt = cbm_registry_lookup_type(ctx->registry, full_qn);
+                if (trt) template_qn = full_qn;
+            }
+        }
         if (!trt) {
             // Try with std:: prefix
             const char* std_qn = cbm_arena_sprintf(ctx->arena, "std.%s", template_qn);
@@ -1014,6 +1044,46 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
             }
         }
 
+        // Template type with operator-> (e.g., optional<Widget>::operator->)
+        if (t->kind == CBM_TYPE_TEMPLATE) {
+            const char* tqn = t->data.template_type.template_name;
+            const CBMRegisteredFunc* op = c_lookup_member(ctx, tqn, "operator->");
+            if (op && op->signature && op->signature->kind == CBM_TYPE_FUNC &&
+                op->signature->data.func.return_types && op->signature->data.func.return_types[0]) {
+                const CBMType* ret = op->signature->data.func.return_types[0];
+                // Substitute template params using receiver's template args
+                if (ret->kind == CBM_TYPE_TYPE_PARAM || ret->kind == CBM_TYPE_POINTER ||
+                    ret->kind == CBM_TYPE_REFERENCE) {
+                    const CBMRegisteredType* rt = cbm_registry_lookup_type(ctx->registry, tqn);
+                    if (!rt && ctx->module_qn) {
+                        rt = cbm_registry_lookup_type(ctx->registry,
+                            cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, tqn));
+                    }
+                    if (rt && rt->type_param_names) {
+                        ret = cbm_type_substitute(ctx->arena, ret,
+                            rt->type_param_names, t->data.template_type.template_args);
+                    } else {
+                        const char* fb[] = {"T", "K", "V", NULL};
+                        const CBMType* fa[3] = {NULL};
+                        int na = t->data.template_type.arg_count;
+                        if (na > 0) fa[0] = t->data.template_type.template_args[0];
+                        if (na > 1) fa[1] = t->data.template_type.template_args[1];
+                        if (na > 2) fa[2] = t->data.template_type.template_args[2];
+                        ret = cbm_type_substitute(ctx->arena, ret, fb, fa);
+                    }
+                }
+                t = ret;
+                if (t->kind == CBM_TYPE_POINTER) t = t->data.pointer.elem;
+                break;
+            }
+            // Fallback: known smart pointer types — use first template arg
+            if (is_smart_ptr(tqn) && t->data.template_type.arg_count > 0 &&
+                t->data.template_type.template_args[0]) {
+                t = t->data.template_type.template_args[0];
+                break;
+            }
+        }
+
         break;
     }
     return t ? t : cbm_type_unknown();
@@ -1115,24 +1185,172 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
 
         // Look up field
         const CBMType* field_type = c_lookup_field_type(ctx, type_qn, field_name, 0);
-        if (field_type && !cbm_type_is_unknown(field_type)) return field_type;
+        if (field_type && !cbm_type_is_unknown(field_type)) {
+            // Template field substitution: if field type is TYPE_PARAM (or NAMED matching
+            // a template param name) and receiver is a TEMPLATE type, substitute using
+            // receiver's template args.
+            // e.g., pair<int, Foo>.second where second has type V → substitute V=Foo
+            bool is_tparam = (field_type->kind == CBM_TYPE_TYPE_PARAM);
+            // Also check NAMED types that match template param names (extract_defs
+            // may register template fields as NAMED("V") rather than TYPE_PARAM("V"))
+            if (!is_tparam && field_type->kind == CBM_TYPE_NAMED &&
+                base->kind == CBM_TYPE_TEMPLATE) {
+                const CBMRegisteredType* trt = cbm_registry_lookup_type(ctx->registry, type_qn);
+                if (!trt && ctx->module_qn) {
+                    trt = cbm_registry_lookup_type(ctx->registry,
+                        cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
+                }
+                if (trt && trt->type_param_names) {
+                    const char* fname_qn = field_type->data.named.qualified_name;
+                    // Extract short name from QN (after last dot)
+                    const char* short_fn = strrchr(fname_qn, '.');
+                    short_fn = short_fn ? short_fn + 1 : fname_qn;
+                    for (int tpi = 0; trt->type_param_names[tpi]; tpi++) {
+                        if (strcmp(trt->type_param_names[tpi], short_fn) == 0) {
+                            is_tparam = true;
+                            // Convert to TYPE_PARAM for substitution
+                            field_type = cbm_type_type_param(ctx->arena, short_fn);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (is_tparam && base->kind == CBM_TYPE_TEMPLATE &&
+                base->data.template_type.template_args) {
+                const CBMRegisteredType* rt = cbm_registry_lookup_type(ctx->registry, type_qn);
+                if (!rt && ctx->module_qn) {
+                    rt = cbm_registry_lookup_type(ctx->registry,
+                        cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
+                }
+                if (rt && rt->type_param_names) {
+                    field_type = cbm_type_substitute(ctx->arena, field_type,
+                        rt->type_param_names, base->data.template_type.template_args);
+                } else {
+                    // Fallback: positional T, K, V
+                    const char* params[] = {"T", "K", "V", "T1", "T2", NULL};
+                    const CBMType* args[5] = {NULL};
+                    int nargs = base->data.template_type.arg_count;
+                    if (nargs > 0) args[0] = base->data.template_type.template_args[0];
+                    if (nargs > 0) args[1] = base->data.template_type.template_args[0];
+                    if (nargs > 1) args[2] = base->data.template_type.template_args[1];
+                    if (nargs > 0) args[3] = base->data.template_type.template_args[0];
+                    if (nargs > 1) args[4] = base->data.template_type.template_args[1];
+                    field_type = cbm_type_substitute(ctx->arena, field_type, params, args);
+                }
+            }
+            return field_type;
+        }
 
         return cbm_type_unknown();
     }
 
-    // --- qualified_identifier: ns::Class::method or Enum::Value ---
-    if (strcmp(kind, "qualified_identifier") == 0) {
+    // --- qualified_identifier / scoped_identifier: ns::Class::method or Enum::Value ---
+    if (strcmp(kind, "qualified_identifier") == 0 ||
+        strcmp(kind, "scoped_identifier") == 0) {
         char* text = c_node_text(ctx, node);
         if (!text) return cbm_type_unknown();
+
+        // Check if name child is template_function: ns::func<T> → strip template args
+        TSNode qi_name_child = ts_node_child_by_field_name(node, "name", 4);
+        bool qi_has_tmpl_args = false;
+        TSNode qi_tmpl_args = (TSNode){0};
+        if (!ts_node_is_null(qi_name_child) &&
+            strcmp(ts_node_type(qi_name_child), "template_function") == 0) {
+            qi_has_tmpl_args = true;
+            qi_tmpl_args = ts_node_child_by_field_name(qi_name_child, "arguments", 9);
+            // Build scope::bare_name without template args
+            TSNode scope_node = ts_node_child_by_field_name(node, "scope", 5);
+            TSNode tmpl_bare = ts_node_child_by_field_name(qi_name_child, "name", 4);
+            char* scope_text = !ts_node_is_null(scope_node) ? c_node_text(ctx, scope_node) : NULL;
+            char* bare_name = !ts_node_is_null(tmpl_bare) ? c_node_text(ctx, tmpl_bare) : NULL;
+            if (bare_name) {
+                text = scope_text
+                    ? (char*)cbm_arena_sprintf(ctx->arena, "%s::%s", scope_text, bare_name)
+                    : bare_name;
+            }
+        }
+
         const char* qn = c_build_qn(ctx, text);
 
-        // Try as function
-        const CBMRegisteredFunc* f = cbm_registry_lookup_func(ctx->registry, qn);
-        if (f && f->signature) return f->signature;
+        // Try as function: module-prefixed first (shadows stdlib stubs), then bare QN
+        const CBMRegisteredFunc* f = NULL;
+        if (ctx->module_qn) {
+            f = cbm_registry_lookup_func(ctx->registry,
+                cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn));
+        }
+        if (!f) f = cbm_registry_lookup_func(ctx->registry, qn);
+        // Namespace fallback: extract_defs may omit namespace from QN.
+        // "utils.create_logger" → try just "create_logger" with module prefix
+        if (!f) {
+            const char* ns_dot = strrchr(qn, '.');
+            if (ns_dot && ctx->module_qn) {
+                const char* bare = ns_dot + 1;
+                f = cbm_registry_lookup_func(ctx->registry,
+                    cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, bare));
+                if (!f) f = cbm_registry_lookup_func(ctx->registry, bare);
+            }
+        }
+        if (f && f->signature) {
+            // If template args present, substitute into return type
+            if (qi_has_tmpl_args && !ts_node_is_null(qi_tmpl_args) &&
+                f->signature->kind == CBM_TYPE_FUNC &&
+                f->signature->data.func.return_types &&
+                f->signature->data.func.return_types[0]) {
+                const CBMType* base_ret = f->signature->data.func.return_types[0];
+                const CBMType* targs[16];
+                int targ_count = 0;
+                uint32_t tnc = ts_node_named_child_count(qi_tmpl_args);
+                for (uint32_t ti = 0; ti < tnc && targ_count < 15; ti++) {
+                    TSNode targ = ts_node_named_child(qi_tmpl_args, ti);
+                    if (ts_node_is_null(targ)) continue;
+                    const char* tak = ts_node_type(targ);
+                    if (strcmp(tak, "type_descriptor") == 0) {
+                        if (ts_node_named_child_count(targ) > 0)
+                            targs[targ_count++] = c_parse_type_node(ctx,
+                                ts_node_named_child(targ, 0));
+                    } else {
+                        targs[targ_count++] = c_parse_type_node(ctx, targ);
+                    }
+                }
+                if (targ_count > 0) {
+                    const char** tpn = f->type_param_names;
+                    if (tpn) {
+                        base_ret = cbm_type_substitute(ctx->arena, base_ret, tpn, targs);
+                    } else {
+                        const char* fallback[] = {"T", "U", "V", "W", NULL};
+                        base_ret = cbm_type_substitute(ctx->arena, base_ret, fallback, targs);
+                    }
+                    // If return type is still NAMED after substitution (no TYPE_PARAM was
+                    // present), wrap as TEMPLATE with explicit args so downstream code
+                    // (e.g., smart pointer dereference) can extract inner types.
+                    // e.g., make_shared<Widget> returns NAMED("std.shared_ptr") →
+                    //        TEMPLATE("std.shared_ptr", [Widget])
+                    if (base_ret->kind == CBM_TYPE_NAMED) {
+                        const CBMType** final_targs = (const CBMType**)cbm_arena_alloc(
+                            ctx->arena, (targ_count + 1) * sizeof(const CBMType*));
+                        for (int i = 0; i < targ_count; i++) final_targs[i] = targs[i];
+                        final_targs[targ_count] = NULL;
+                        base_ret = cbm_type_template(ctx->arena,
+                            base_ret->data.named.qualified_name, final_targs, targ_count);
+                    }
+                }
+                const CBMType** rets = (const CBMType**)cbm_arena_alloc(
+                    ctx->arena, 2 * sizeof(const CBMType*));
+                rets[0] = base_ret;
+                rets[1] = NULL;
+                return cbm_type_func(ctx->arena, NULL, NULL, rets);
+            }
+            return f->signature;
+        }
 
-        // Try as type
+        // Try as type (bare QN then module-prefixed)
         const CBMRegisteredType* rt = cbm_registry_lookup_type(ctx->registry, qn);
         if (rt) return cbm_type_named(ctx->arena, qn);
+        if (!rt && ctx->module_qn) {
+            const char* mod_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn);
+            rt = cbm_registry_lookup_type(ctx->registry, mod_qn);
+            if (rt) return cbm_type_named(ctx->arena, mod_qn);
+        }
 
         // Try as enum member: Enum::Value → look up Enum type, return int/enum type
         const char* dot = strrchr(qn, '.');
@@ -1265,9 +1483,34 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
         TSNode func_node = ts_node_child_by_field_name(node, "function", 8);
         if (ts_node_is_null(func_node)) return cbm_type_unknown();
 
+        // Special-case std::move/std::forward: return operand's type (rvalue ref)
+        {
+            const char* fk = ts_node_type(func_node);
+            char* fname = NULL;
+            if (strcmp(fk, "qualified_identifier") == 0 || strcmp(fk, "scoped_identifier") == 0 ||
+                strcmp(fk, "identifier") == 0) {
+                fname = c_node_text(ctx, func_node);
+            } else if (strcmp(fk, "template_function") == 0) {
+                TSNode name_node = ts_node_child_by_field_name(func_node, "name", 4);
+                if (!ts_node_is_null(name_node)) fname = c_node_text(ctx, name_node);
+            }
+            if (fname && (strcmp(fname, "std::move") == 0 || strcmp(fname, "move") == 0 ||
+                          strcmp(fname, "std::forward") == 0 || strcmp(fname, "forward") == 0)) {
+                TSNode call_args = ts_node_child_by_field_name(node, "arguments", 9);
+                if (!ts_node_is_null(call_args) && ts_node_named_child_count(call_args) > 0) {
+                    TSNode first_arg = ts_node_named_child(call_args, 0);
+                    if (!ts_node_is_null(first_arg)) {
+                        const CBMType* arg_type = c_eval_expr_type(ctx, first_arg);
+                        // Unwrap to base type — move/forward preserves the type
+                        arg_type = c_simplify_type(ctx, arg_type, false);
+                        if (!cbm_type_is_unknown(arg_type)) return arg_type;
+                    }
+                }
+            }
+        }
+
         const CBMType* func_type = c_eval_expr_type(ctx, func_node);
         if (!func_type) return cbm_type_unknown();
-
         // FUNC type -> return its return type
         if (func_type->kind == CBM_TYPE_FUNC &&
             func_type->data.func.return_types && func_type->data.func.return_types[0]) {
@@ -1276,9 +1519,12 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
             // Template param substitution: try receiver's template args (method calls)
             // then try TAD from call-site argument types (free function calls)
             bool needs_subst = (ret->kind == CBM_TYPE_TYPE_PARAM ||
+                                ret->kind == CBM_TYPE_NAMED ||
+                                ret->kind == CBM_TYPE_POINTER ||
                                 ret->kind == CBM_TYPE_REFERENCE ||
                                 ret->kind == CBM_TYPE_RVALUE_REF ||
-                                ret->kind == CBM_TYPE_TEMPLATE);
+                                ret->kind == CBM_TYPE_TEMPLATE ||
+                                ret->kind == CBM_TYPE_SLICE);
 
             if (needs_subst) {
                 bool substituted = false;
@@ -1288,7 +1534,9 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
                     TSNode arg_node = ts_node_child_by_field_name(func_node, "argument", 8);
                     if (!ts_node_is_null(arg_node)) {
                         const CBMType* obj_type = c_eval_expr_type(ctx, arg_node);
-                        obj_type = c_simplify_type(ctx, obj_type, true);
+                        // Use false to preserve TEMPLATE type — we need template args
+                        // for substitution, not the pointed-to type from operator->
+                        obj_type = c_simplify_type(ctx, obj_type, false);
                         if (obj_type && obj_type->kind == CBM_TYPE_TEMPLATE &&
                             obj_type->data.template_type.template_args) {
                             // Use registered type_param_names if available
@@ -1297,13 +1545,23 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
                                 c_node_text(ctx, field_node) : NULL;
                             const char* recv_qn = type_to_qn(obj_type);
                             const CBMRegisteredFunc* mf = (recv_qn && method_name) ?
-                                cbm_registry_lookup_method(ctx->registry, recv_qn, method_name) : NULL;
+                                c_lookup_member(ctx, recv_qn, method_name) : NULL;
                             const char** tpn = mf ? mf->type_param_names : NULL;
+
+                            // Try class template param names from registered type
+                            if (!tpn && recv_qn) {
+                                const CBMRegisteredType* rrt = cbm_registry_lookup_type(ctx->registry, recv_qn);
+                                if (!rrt && ctx->module_qn) {
+                                    rrt = cbm_registry_lookup_type(ctx->registry,
+                                        cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, recv_qn));
+                                }
+                                if (rrt && rrt->type_param_names) tpn = rrt->type_param_names;
+                            }
 
                             // Build substitution from receiver template args
                             int nargs = obj_type->data.template_type.arg_count;
                             if (tpn) {
-                                // Use actual type param names from function registration
+                                // Use actual type param names from class/function registration
                                 ret = cbm_type_substitute(ctx->arena, ret, tpn,
                                     obj_type->data.template_type.template_args);
                                 substituted = true;
@@ -1515,6 +1773,39 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
                 if (!op) continue;
                 if (strcmp(op, "*") == 0) {
                     const CBMType* inner = c_eval_expr_type(ctx, operand);
+                    inner = c_simplify_type(ctx, inner, false);
+                    // TEMPLATE with operator*(): look up and substitute return type
+                    if (inner && inner->kind == CBM_TYPE_TEMPLATE) {
+                        const char* tqn = inner->data.template_type.template_name;
+                        const CBMRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
+                        if (opf && opf->signature && opf->signature->kind == CBM_TYPE_FUNC &&
+                            opf->signature->data.func.return_types &&
+                            opf->signature->data.func.return_types[0]) {
+                            const CBMType* ret = opf->signature->data.func.return_types[0];
+                            const CBMRegisteredType* rt = cbm_registry_lookup_type(
+                                ctx->registry, tqn);
+                            if (!rt && ctx->module_qn) {
+                                rt = cbm_registry_lookup_type(ctx->registry,
+                                    cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, tqn));
+                            }
+                            if (rt && rt->type_param_names) {
+                                ret = cbm_type_substitute(ctx->arena, ret,
+                                    rt->type_param_names,
+                                    inner->data.template_type.template_args);
+                            } else {
+                                const char* fb[] = {"T", "K", "V", NULL};
+                                const CBMType* fa[3] = {NULL};
+                                int na = inner->data.template_type.arg_count;
+                                if (na > 0) fa[0] = inner->data.template_type.template_args[0];
+                                if (na > 1) fa[1] = inner->data.template_type.template_args[1];
+                                if (na > 2) fa[2] = inner->data.template_type.template_args[2];
+                                ret = cbm_type_substitute(ctx->arena, ret, fb, fa);
+                            }
+                            if (ret->kind == CBM_TYPE_REFERENCE)
+                                ret = ret->data.reference.elem;
+                            return ret;
+                        }
+                    }
                     return cbm_type_deref(inner);
                 }
                 if (strcmp(op, "&") == 0) {
@@ -1541,7 +1832,42 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
             TSNode child = ts_node_child(node, i);
             if (!ts_node_is_named(child)) {
                 char* op = c_node_text(ctx, child);
-                if (op && strcmp(op, "*") == 0) return cbm_type_deref(c_eval_expr_type(ctx, arg));
+                if (op && strcmp(op, "*") == 0) {
+                    const CBMType* inner = c_eval_expr_type(ctx, arg);
+                    inner = c_simplify_type(ctx, inner, false);
+                    if (inner && inner->kind == CBM_TYPE_TEMPLATE) {
+                        const char* tqn = inner->data.template_type.template_name;
+                        const CBMRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
+                        if (opf && opf->signature && opf->signature->kind == CBM_TYPE_FUNC &&
+                            opf->signature->data.func.return_types &&
+                            opf->signature->data.func.return_types[0]) {
+                            const CBMType* ret = opf->signature->data.func.return_types[0];
+                            const CBMRegisteredType* rt = cbm_registry_lookup_type(
+                                ctx->registry, tqn);
+                            if (!rt && ctx->module_qn) {
+                                rt = cbm_registry_lookup_type(ctx->registry,
+                                    cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, tqn));
+                            }
+                            if (rt && rt->type_param_names) {
+                                ret = cbm_type_substitute(ctx->arena, ret,
+                                    rt->type_param_names,
+                                    inner->data.template_type.template_args);
+                            } else {
+                                const char* fb[] = {"T", "K", "V", NULL};
+                                const CBMType* fa[3] = {NULL};
+                                int na = inner->data.template_type.arg_count;
+                                if (na > 0) fa[0] = inner->data.template_type.template_args[0];
+                                if (na > 1) fa[1] = inner->data.template_type.template_args[1];
+                                if (na > 2) fa[2] = inner->data.template_type.template_args[2];
+                                ret = cbm_type_substitute(ctx->arena, ret, fb, fa);
+                            }
+                            if (ret->kind == CBM_TYPE_REFERENCE)
+                                ret = ret->data.reference.elem;
+                            return ret;
+                        }
+                    }
+                    return cbm_type_deref(inner);
+                }
                 if (op && strcmp(op, "&") == 0) return cbm_type_pointer(ctx->arena, c_eval_expr_type(ctx, arg));
                 break;
             }
@@ -1652,6 +1978,74 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
         return cbm_type_func(ctx->arena, NULL, NULL, NULL);
     }
 
+    // --- co_await_expression: co_await expr → evaluate operand, return await_resume type ---
+    if (strcmp(kind, "co_await_expression") == 0) {
+        if (ts_node_named_child_count(node) > 0) {
+            TSNode operand = ts_node_named_child(node, 0);
+            const CBMType* op_type = c_eval_expr_type(ctx, operand);
+            // co_await returns the result of operator co_await or the awaitable's await_resume
+            // Heuristic: if operand is a template type (e.g., Task<T>), return first template arg
+            op_type = c_simplify_type(ctx, op_type, false);
+            if (op_type && op_type->kind == CBM_TYPE_TEMPLATE &&
+                op_type->data.template_type.arg_count > 0) {
+                return op_type->data.template_type.template_args[0];
+            }
+            // Fallback: check for await_resume method
+            const char* op_qn = type_to_qn(op_type);
+            if (op_qn) {
+                const CBMRegisteredFunc* ar = c_lookup_member(ctx, op_qn, "await_resume");
+                if (ar && ar->signature && ar->signature->kind == CBM_TYPE_FUNC &&
+                    ar->signature->data.func.return_types &&
+                    ar->signature->data.func.return_types[0]) {
+                    return ar->signature->data.func.return_types[0];
+                }
+            }
+        }
+        return cbm_type_unknown();
+    }
+
+    // --- fold_expression: (args op ...) → return type of operand ---
+    if (strcmp(kind, "fold_expression") == 0) {
+        // Fold expressions apply a binary operator across a parameter pack.
+        // The result type is the type of the operator applied to the pack elements.
+        // Heuristic: return the type of the first named child that isn't an operator.
+        uint32_t fnc = ts_node_named_child_count(node);
+        for (uint32_t fi = 0; fi < fnc; fi++) {
+            TSNode child = ts_node_named_child(node, fi);
+            if (!ts_node_is_null(child)) {
+                const CBMType* ct = c_eval_expr_type(ctx, child);
+                if (!cbm_type_is_unknown(ct)) return ct;
+            }
+        }
+        return cbm_type_unknown();
+    }
+
+    // --- requires_expression: requires(T x) { x.method(); } → bool ---
+    if (strcmp(kind, "requires_expression") == 0) {
+        return cbm_type_builtin(ctx->arena, "bool");
+    }
+
+    // --- generic_expression: _Generic(expr, type1: val1, type2: val2, ...) ---
+    if (strcmp(kind, "generic_expression") == 0) {
+        // C11 _Generic: evaluate the controlling expression's type,
+        // then match against the association list.
+        // Heuristic: return the type of the first non-default association value.
+        uint32_t gnc = ts_node_named_child_count(node);
+        for (uint32_t gi = 1; gi < gnc; gi++) {
+            TSNode assoc = ts_node_named_child(node, gi);
+            if (!ts_node_is_null(assoc)) {
+                // Each association may have type + value children
+                uint32_t anc = ts_node_named_child_count(assoc);
+                if (anc > 0) {
+                    TSNode val = ts_node_named_child(assoc, anc - 1);
+                    const CBMType* vt = c_eval_expr_type(ctx, val);
+                    if (!cbm_type_is_unknown(vt)) return vt;
+                }
+            }
+        }
+        return cbm_type_unknown();
+    }
+
     // --- Literals ---
     if (strcmp(kind, "number_literal") == 0) {
         char* text = c_node_text(ctx, node);
@@ -1713,13 +2107,27 @@ const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
     const CBMRegisteredFunc* f = cbm_registry_lookup_method(ctx->registry, type_qn, member_name);
     if (f) return f;
 
-    // Try module-prefixed QN (e.g., "std.vector" -> "test.std.vector")
-    if (ctx->module_qn && !strchr(type_qn, '.')) {
-        // Short name without dots — unlikely to need prefix
-    } else if (ctx->module_qn) {
+    // Try module-prefixed QN (e.g., "Container" -> "test.main.Container")
+    if (ctx->module_qn) {
         const char* prefixed = cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn);
         f = cbm_registry_lookup_method(ctx->registry, prefixed, member_name);
         if (f) return f;
+    }
+
+    // Scope-based alias: using Vec = std::vector<T>;
+    // Vec is in scope as ALIAS → follow to underlying type's QN
+    {
+        const CBMType* scoped = cbm_scope_lookup(ctx->current_scope, type_qn);
+        if (scoped && scoped->kind == CBM_TYPE_ALIAS) {
+            const CBMType* underlying = cbm_type_resolve_alias(scoped);
+            if (underlying && !cbm_type_is_unknown(underlying)) {
+                const char* alias_target_qn = type_to_qn(underlying);
+                if (alias_target_qn) {
+                    f = c_lookup_member(ctx, alias_target_qn, member_name);
+                    if (f) return f;
+                }
+            }
+        }
     }
 
     // Check registered type for alias and base classes
@@ -1790,10 +2198,15 @@ static const CBMType* c_parse_declaration_type(CLSPContext* ctx, TSNode decl_nod
         TSNode child = ts_node_named_child(decl_node, i);
         const char* ck = ts_node_type(child);
 
-        // Skip declarators
+        // Skip declarators and non-type specifiers
         if (strcmp(ck, "init_declarator") == 0 || strcmp(ck, "identifier") == 0 ||
             strcmp(ck, "pointer_declarator") == 0 || strcmp(ck, "reference_declarator") == 0 ||
-            strcmp(ck, "array_declarator") == 0 || strcmp(ck, "function_declarator") == 0)
+            strcmp(ck, "array_declarator") == 0 || strcmp(ck, "function_declarator") == 0 ||
+            strcmp(ck, "storage_class_specifier") == 0 || strcmp(ck, "type_qualifier") == 0 ||
+            strcmp(ck, "virtual") == 0 || strcmp(ck, "explicit") == 0 ||
+            strcmp(ck, "virtual_function_specifier") == 0 ||
+            strcmp(ck, "access_specifier") == 0 || strcmp(ck, "friend") == 0 ||
+            strcmp(ck, "comment") == 0)
             continue;
 
         // Found a type node
@@ -1861,15 +2274,61 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                         }
                         if (!ts_node_is_null(inner) && strcmp(ts_node_type(inner), "identifier") == 0)
                             var_name = c_node_text(ctx, inner);
-                        for (int d = 0; d < ptr_depth; d++)
-                            var_type = cbm_type_pointer(ctx->arena, var_type);
+                        // For auto*, the deduced type already includes pointer depth
+                        // (e.g., auto* w = new Widget() → eval gives Widget*)
+                        if (!has_auto) {
+                            for (int d = 0; d < ptr_depth; d++)
+                                var_type = cbm_type_pointer(ctx->arena, var_type);
+                        }
                     } else if (strcmp(dk, "reference_declarator") == 0) {
                         if (ts_node_named_child_count(decl) > 0) {
                             TSNode inner = ts_node_named_child(decl, 0);
-                            if (strcmp(ts_node_type(inner), "identifier") == 0)
+                            const char* ik = ts_node_type(inner);
+                            if (strcmp(ik, "identifier") == 0) {
                                 var_name = c_node_text(ctx, inner);
+                            } else if (strcmp(ik, "structured_binding_declarator") == 0) {
+                                // const auto& [a, b] = expr; — delegate to structured binding
+                                const CBMType* rhs_type = cbm_type_unknown();
+                                if (!ts_node_is_null(value)) {
+                                    rhs_type = c_eval_expr_type(ctx, value);
+                                    rhs_type = c_simplify_type(ctx, rhs_type, false);
+                                }
+                                uint32_t bnc = ts_node_named_child_count(inner);
+                                int binding_idx = 0;
+                                for (uint32_t bi = 0; bi < bnc; bi++) {
+                                    TSNode bn = ts_node_named_child(inner, bi);
+                                    if (strcmp(ts_node_type(bn), "identifier") == 0) {
+                                        char* bname = c_node_text(ctx, bn);
+                                        if (!bname) continue;
+                                        const CBMType* elem_type = cbm_type_unknown();
+                                        if (rhs_type && rhs_type->kind == CBM_TYPE_TEMPLATE &&
+                                            rhs_type->data.template_type.template_args) {
+                                            int nta = rhs_type->data.template_type.arg_count;
+                                            if (binding_idx < nta)
+                                                elem_type = rhs_type->data.template_type.template_args[binding_idx];
+                                        }
+                                        if (cbm_type_is_unknown(elem_type) && rhs_type && rhs_type->kind == CBM_TYPE_SLICE)
+                                            elem_type = rhs_type->data.slice.elem;
+                                        if (cbm_type_is_unknown(elem_type) && rhs_type) {
+                                            const char* rhs_qn = type_to_qn(rhs_type);
+                                            const CBMRegisteredType* rt = rhs_qn ?
+                                                cbm_registry_lookup_type(ctx->registry, rhs_qn) : NULL;
+                                            if (!rt && rhs_qn && ctx->module_qn)
+                                                rt = cbm_registry_lookup_type(ctx->registry,
+                                                    cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, rhs_qn));
+                                            if (rt && rt->field_types && rt->field_types[binding_idx])
+                                                elem_type = rt->field_types[binding_idx];
+                                        }
+                                        cbm_scope_bind(ctx->current_scope, bname, elem_type);
+                                        binding_idx++;
+                                    }
+                                }
+                                continue;
+                            }
                         }
-                        var_type = cbm_type_reference(ctx->arena, var_type);
+                        // For auto&, the deduced type is already correct
+                        if (!has_auto)
+                            var_type = cbm_type_reference(ctx->arena, var_type);
                     } else if (strcmp(dk, "function_declarator") == 0) {
                         // Function pointer: int (*fp)(int) = &target_func;
                         // Walk into function_declarator → parenthesized_declarator → pointer_declarator → identifier
@@ -1921,14 +2380,21 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                         elem_type = rhs_type->data.template_type.template_args[binding_idx];
                                     }
                                 }
+                                // Decompose array (SLICE) → each binding gets element type
+                                if (cbm_type_is_unknown(elem_type) && rhs_type &&
+                                    rhs_type->kind == CBM_TYPE_SLICE) {
+                                    elem_type = rhs_type->data.slice.elem;
+                                }
                                 // Decompose struct fields
                                 if (cbm_type_is_unknown(elem_type) && rhs_type) {
                                     const char* rhs_qn = type_to_qn(rhs_type);
-                                    if (rhs_qn) {
-                                        const CBMRegisteredType* rt = cbm_registry_lookup_type(ctx->registry, rhs_qn);
-                                        if (rt && rt->field_types && rt->field_types[binding_idx]) {
-                                            elem_type = rt->field_types[binding_idx];
-                                        }
+                                    const CBMRegisteredType* rt = rhs_qn ?
+                                        cbm_registry_lookup_type(ctx->registry, rhs_qn) : NULL;
+                                    if (!rt && rhs_qn && ctx->module_qn)
+                                        rt = cbm_registry_lookup_type(ctx->registry,
+                                            cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, rhs_qn));
+                                    if (rt && rt->field_types && rt->field_types[binding_idx]) {
+                                        elem_type = rt->field_types[binding_idx];
                                     }
                                 }
                                 cbm_scope_bind(ctx->current_scope, bname, elem_type);
@@ -1942,10 +2408,11 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                         cbm_scope_bind(ctx->current_scope, var_name, var_type);
 
                         // Track function pointer targets: fp = &foo or fp = foo
-                        // Accept any pointer or func type — C function pointer declarators
-                        // like int (*fp)(int) often parse as pointer(int), not pointer(FUNC).
+                        // Accept pointer, func, or named types (typedef function pointers
+                        // like fn_t appear as CBM_TYPE_NAMED, not FUNC/POINTER).
                         if (var_type && (var_type->kind == CBM_TYPE_FUNC ||
-                            var_type->kind == CBM_TYPE_POINTER)) {
+                            var_type->kind == CBM_TYPE_POINTER ||
+                            var_type->kind == CBM_TYPE_NAMED)) {
                             if (!ts_node_is_null(value)) {
                                 const char* vk = ts_node_type(value);
                                 // pointer_expression with & operator: &foo
@@ -1978,6 +2445,21 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                 }
                             }
                         }
+
+                        // Fallback: if RHS is an identifier resolving to a known function,
+                        // track as fp target even when var_type is unknown (typedef func ptrs).
+                        if (!c_lookup_fp_target(ctx, var_name) && !ts_node_is_null(value)) {
+                            const char* vk = ts_node_type(value);
+                            if (strcmp(vk, "identifier") == 0) {
+                                char* target_name = c_node_text(ctx, value);
+                                if (target_name) {
+                                    const char* target_qn = c_resolve_name_to_func_qn(ctx, target_name);
+                                    if (target_qn) {
+                                        c_add_fp_target(ctx, var_name, target_qn);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else if (strcmp(ck, "identifier") == 0) {
@@ -2003,6 +2485,16 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                         for (int d = 0; d < ptr_depth; d++)
                             vt = cbm_type_pointer(ctx->arena, vt);
                         cbm_scope_bind(ctx->current_scope, var_name, vt);
+                    }
+                }
+            } else if (strcmp(ck, "array_declarator") == 0) {
+                // Type var[N]; without initializer
+                TSNode inner = ts_node_child_by_field_name(child, "declarator", 10);
+                if (!ts_node_is_null(inner) && strcmp(ts_node_type(inner), "identifier") == 0) {
+                    char* var_name = c_node_text(ctx, inner);
+                    if (var_name) {
+                        cbm_scope_bind(ctx->current_scope, var_name,
+                            cbm_type_slice(ctx->arena, base_type));
                     }
                 }
             }
@@ -2094,18 +2586,29 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
         return;
     }
 
-    // type_definition: typedef Bar Foo;
+    // type_definition: typedef Bar Foo; or typedef struct X Y;
     if (strcmp(kind, "type_definition") == 0) {
-        // Get the type being aliased
+        // Get the type being aliased and the alias name(s).
+        // Tree-sitter produces: type_definition { type_spec alias_name }
+        // For "typedef RealWidget Widget": { type_identifier("RealWidget") type_identifier("Widget") }
+        // For "typedef struct Foo Bar": { struct_specifier type_identifier("Bar") }
+        // The first type_identifier may be the source type (when no specifier precedes it).
         const CBMType* target = cbm_type_unknown();
         uint32_t nc = ts_node_named_child_count(node);
         bool found_type = false;
+        int first_type_id_idx = -1;
         for (uint32_t i = 0; i < nc; i++) {
             TSNode child = ts_node_named_child(node, i);
             const char* ck = ts_node_type(child);
             if (!found_type && strcmp(ck, "type_identifier") != 0 &&
                 strcmp(ck, "pointer_declarator") != 0 &&
                 strcmp(ck, "identifier") != 0) {
+                target = c_parse_type_node(ctx, child);
+                found_type = true;
+            } else if (!found_type && strcmp(ck, "type_identifier") == 0 && first_type_id_idx < 0) {
+                // First type_identifier without a preceding specifier — this IS the source type.
+                // Mark it and parse; the NEXT type_identifier will be the alias name.
+                first_type_id_idx = (int)i;
                 target = c_parse_type_node(ctx, child);
                 found_type = true;
             } else if (found_type && strcmp(ck, "type_identifier") == 0) {
@@ -2207,16 +2710,52 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
 
         // Bind declarator
         if (!ts_node_is_null(decl)) {
-            const char* dk = ts_node_type(decl);
+            // Unwrap reference_declarator to get inner declarator
+            TSNode bind_target = decl;
+            const char* dk = ts_node_type(bind_target);
+            if (strcmp(dk, "reference_declarator") == 0 &&
+                ts_node_named_child_count(bind_target) > 0) {
+                bind_target = ts_node_named_child(bind_target, 0);
+                dk = ts_node_type(bind_target);
+            }
+
             if (strcmp(dk, "identifier") == 0) {
-                char* var_name = c_node_text(ctx, decl);
+                char* var_name = c_node_text(ctx, bind_target);
                 if (var_name) cbm_scope_bind(ctx->current_scope, var_name, elem_type);
-            } else if (strcmp(dk, "reference_declarator") == 0) {
-                if (ts_node_named_child_count(decl) > 0) {
-                    TSNode inner = ts_node_named_child(decl, 0);
-                    if (strcmp(ts_node_type(inner), "identifier") == 0) {
-                        char* var_name = c_node_text(ctx, inner);
-                        if (var_name) cbm_scope_bind(ctx->current_scope, var_name, elem_type);
+            } else if (strcmp(dk, "structured_binding_declarator") == 0) {
+                // for (auto& [k, v] : container) — decompose elem_type
+                uint32_t bnc = ts_node_named_child_count(bind_target);
+                int binding_idx = 0;
+                for (uint32_t bi = 0; bi < bnc; bi++) {
+                    TSNode bn = ts_node_named_child(bind_target, bi);
+                    if (strcmp(ts_node_type(bn), "identifier") == 0) {
+                        char* bname = c_node_text(ctx, bn);
+                        if (!bname) continue;
+                        const CBMType* bt = cbm_type_unknown();
+                        // TEMPLATE decomposition (e.g., pair<K,V>)
+                        if (elem_type && elem_type->kind == CBM_TYPE_TEMPLATE &&
+                            elem_type->data.template_type.template_args &&
+                            binding_idx < elem_type->data.template_type.arg_count) {
+                            bt = elem_type->data.template_type.template_args[binding_idx];
+                        }
+                        // SLICE decomposition
+                        if (cbm_type_is_unknown(bt) && elem_type &&
+                            elem_type->kind == CBM_TYPE_SLICE) {
+                            bt = elem_type->data.slice.elem;
+                        }
+                        // Struct field decomposition
+                        if (cbm_type_is_unknown(bt) && elem_type) {
+                            const char* eq = type_to_qn(elem_type);
+                            const CBMRegisteredType* rt = eq ?
+                                cbm_registry_lookup_type(ctx->registry, eq) : NULL;
+                            if (!rt && eq && ctx->module_qn)
+                                rt = cbm_registry_lookup_type(ctx->registry,
+                                    cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, eq));
+                            if (rt && rt->field_types && rt->field_types[binding_idx])
+                                bt = rt->field_types[binding_idx];
+                        }
+                        cbm_scope_bind(ctx->current_scope, bname, bt);
+                        binding_idx++;
                     }
                 }
             }
@@ -2397,18 +2936,47 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
             }
 
             // qualified_identifier: ns::func() or Class::static_method()
+            // Also handles ns::func<T>() where name child is template_function
             if (strcmp(fk, "qualified_identifier") == 0 ||
                 strcmp(fk, "scoped_identifier") == 0) {
                 char* text = c_node_text(ctx, func_node);
                 if (text) {
                     const char* qn = c_build_qn(ctx, text);
+                    // Strip template args from last component only:
+                    // std.get<Widget> → std.get, but Registry<int>.init stays unchanged
+                    const char* angle = strchr(qn, '<');
+                    if (angle) {
+                        // Only strip if no '.' follows the '<' (i.e., template is in the last segment)
+                        const char* dot_after = strchr(angle, '.');
+                        if (!dot_after) {
+                            size_t strip_len = (size_t)(angle - qn);
+                            char* stripped = (char*)cbm_arena_alloc(ctx->arena, strip_len + 1);
+                            memcpy(stripped, qn, strip_len);
+                            stripped[strip_len] = '\0';
+                            qn = stripped;
+                        } else {
+                            // Strip <...> segment but keep what follows: Registry<int>.init → Registry.init
+                            const char* close = strchr(angle, '>');
+                            if (close && close < dot_after) {
+                                size_t prefix_len = (size_t)(angle - qn);
+                                size_t suffix_len = strlen(dot_after);
+                                char* stripped = (char*)cbm_arena_alloc(ctx->arena, prefix_len + suffix_len + 1);
+                                memcpy(stripped, qn, prefix_len);
+                                memcpy(stripped + prefix_len, dot_after, suffix_len);
+                                stripped[prefix_len + suffix_len] = '\0';
+                                qn = stripped;
+                            }
+                        }
+                    }
                     int arg_count = 0;
                     const CBMType** arg_types = c_extract_call_arg_types(ctx, node, &arg_count);
-                    const CBMRegisteredFunc* f = cbm_registry_lookup_func(ctx->registry, qn);
-                    if (!f && ctx->module_qn) {
-                        const char* mod_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn);
-                        f = cbm_registry_lookup_func(ctx->registry, mod_qn);
+                    // Module-prefixed first (shadows stdlib stubs), then bare QN
+                    const CBMRegisteredFunc* f = NULL;
+                    if (ctx->module_qn) {
+                        f = cbm_registry_lookup_func(ctx->registry,
+                            cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn));
                     }
+                    if (!f) f = cbm_registry_lookup_func(ctx->registry, qn);
                     if (f) {
                         c_emit_resolved_call(ctx, f->qualified_name, "lsp_scoped", 0.95f);
                         goto recurse;
@@ -2431,6 +2999,20 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         }
                         if (m) {
                             c_emit_resolved_call(ctx, m->qualified_name, "lsp_scoped", 0.95f);
+                            goto recurse;
+                        }
+                    }
+                    // Namespace fallback: extract_defs may omit namespace from QN.
+                    // "utils.create_logger" → try "create_logger" and "mod.create_logger"
+                    if (dot && ctx->module_qn) {
+                        const char* bare_name = dot + 1;
+                        const CBMRegisteredFunc* nf = cbm_registry_lookup_func(ctx->registry, bare_name);
+                        if (!nf) {
+                            nf = cbm_registry_lookup_func(ctx->registry,
+                                cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, bare_name));
+                        }
+                        if (nf) {
+                            c_emit_resolved_call(ctx, nf->qualified_name, "lsp_scoped", 0.90f);
                             goto recurse;
                         }
                     }
@@ -2688,6 +3270,36 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
         }
     }
 
+    // --- Compound assignment operator calls (C++ only): a += b, a -= b, etc. ---
+    if (ctx->cpp_mode && strcmp(kind, "assignment_expression") == 0) {
+        TSNode left = ts_node_child_by_field_name(node, "left", 4);
+        if (!ts_node_is_null(left)) {
+            const CBMType* lhs_type = c_eval_expr_type(ctx, left);
+            const CBMType* base = c_simplify_type(ctx, lhs_type, false);
+            if (base && base->kind != CBM_TYPE_BUILTIN && !cbm_type_is_unknown(base)) {
+                const char* type_qn = type_to_qn(base);
+                if (type_qn) {
+                    // Extract operator (+=, -=, *=, /=, etc.)
+                    for (uint32_t i = 0; i < ts_node_child_count(node); i++) {
+                        TSNode child = ts_node_child(node, i);
+                        if (!ts_node_is_named(child)) {
+                            char* op = c_node_text(ctx, child);
+                            if (op && strlen(op) >= 2 && op[strlen(op)-1] == '=') {
+                                // Compound assignment: +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=
+                                const char* op_name = cbm_arena_sprintf(ctx->arena, "operator%s", op);
+                                const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
+                                if (m) {
+                                    c_emit_resolved_call(ctx, m->qualified_name, "lsp_operator", 0.90f);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // --- subscript_expression operator[] ---
     if (ctx->cpp_mode && strcmp(kind, "subscript_expression") == 0) {
         TSNode arg_node = ts_node_child_by_field_name(node, "argument", 8);
@@ -2800,6 +3412,30 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
         }
     }
 
+    // --- throw_statement: throw MyError("msg") → emit constructor call ---
+    if (strcmp(kind, "throw_statement") == 0) {
+        uint32_t tnc = ts_node_named_child_count(node);
+        if (tnc > 0) {
+            TSNode thrown = ts_node_named_child(node, 0);
+            if (!ts_node_is_null(thrown)) {
+                // If the thrown expression is a call_expression (constructor),
+                // it will be resolved by the normal call_expression handler during recursion.
+                // Just let the recursion handle it — no special emission needed.
+            }
+        }
+        // throw; (rethrow) — no calls, just skip
+    }
+
+    // --- co_yield_statement: co_yield expr → resolve inner expression calls ---
+    if (strcmp(kind, "co_yield_statement") == 0) {
+        // co_yield's operand is processed by normal recursion into children
+    }
+
+    // --- co_return_statement: co_return expr → resolve inner expression calls ---
+    if (strcmp(kind, "co_return_statement") == 0) {
+        // co_return's operand is processed by normal recursion into children
+    }
+
     // --- Designated initializer: {.field = value} ---
     if (strcmp(kind, "initializer_pair") == 0 || strcmp(kind, "field_designator") == 0) {
         // These appear inside initializer_list for aggregate init
@@ -2816,7 +3452,8 @@ recurse:;
                        strcmp(kind, "while_statement") == 0 ||
                        strcmp(kind, "do_statement") == 0 ||
                        strcmp(kind, "switch_statement") == 0 ||
-                       strcmp(kind, "catch_clause") == 0);
+                       strcmp(kind, "catch_clause") == 0 ||
+                       strcmp(kind, "lambda_expression") == 0);
 
     if (push_scope) {
         ctx->current_scope = cbm_scope_push(ctx->arena, ctx->current_scope);
@@ -2829,6 +3466,42 @@ recurse:;
             uint32_t pnc = ts_node_named_child_count(params);
             for (uint32_t pi = 0; pi < pnc; pi++) {
                 c_process_statement(ctx, ts_node_named_child(params, pi));
+            }
+        }
+    }
+
+    // Process lambda init-captures: [captured = expr] binds 'captured' in lambda scope
+    if (strcmp(kind, "lambda_expression") == 0) {
+        uint32_t lnc = ts_node_named_child_count(node);
+        for (uint32_t li = 0; li < lnc; li++) {
+            TSNode child = ts_node_named_child(node, li);
+            if (ts_node_is_null(child)) continue;
+            if (strcmp(ts_node_type(child), "lambda_capture_specifier") == 0) {
+                uint32_t cnc = ts_node_named_child_count(child);
+                for (uint32_t ci = 0; ci < cnc; ci++) {
+                    TSNode cap = ts_node_named_child(child, ci);
+                    if (ts_node_is_null(cap)) continue;
+                    const char* ck = ts_node_type(cap);
+                    if (strcmp(ck, "lambda_capture_initializer") == 0) {
+                        // Init-capture: name = value
+                        // Try field-based access first (name field = 4 chars)
+                        TSNode name_node = ts_node_child_by_field_name(cap, "name", 4);
+                        TSNode val_node = ts_node_child_by_field_name(cap, "value", 5);
+                        // Fallback: positional — first named child is name, second is value
+                        if (ts_node_is_null(name_node) && ts_node_named_child_count(cap) >= 2) {
+                            name_node = ts_node_named_child(cap, 0);
+                            val_node = ts_node_named_child(cap, 1);
+                        }
+                        if (!ts_node_is_null(name_node) && !ts_node_is_null(val_node)) {
+                            char* cap_name = c_node_text(ctx, name_node);
+                            const CBMType* cap_type = c_eval_expr_type(ctx, val_node);
+                            if (cap_name && !cbm_type_is_unknown(cap_type)) {
+                                cbm_scope_bind(ctx->current_scope, cap_name, cap_type);
+                            }
+                        }
+                    }
+                }
+                break; // only one capture specifier per lambda
             }
         }
     }
@@ -3005,6 +3678,97 @@ static void c_process_body_child(CLSPContext* ctx, TSNode child) {
         c_process_namespace(ctx, child);
     } else if (strcmp(ck, "class_specifier") == 0 || strcmp(ck, "struct_specifier") == 0) {
         c_process_class(ctx, child);
+    } else if (strcmp(ck, "declaration") == 0) {
+        // declaration may contain class/struct specifier: class Foo { ... };
+        // Extract and process the class before resolving calls.
+        bool has_class = false;
+        uint32_t dnc = ts_node_named_child_count(child);
+        for (uint32_t di = 0; di < dnc; di++) {
+            TSNode dch = ts_node_named_child(child, di);
+            const char* dk = ts_node_type(dch);
+            if (strcmp(dk, "class_specifier") == 0 || strcmp(dk, "struct_specifier") == 0) {
+                c_process_class(ctx, dch);
+                has_class = true;
+            }
+            // Register bare function declarations: ReturnType func_name(params);
+            // Unwrap reference_declarator/pointer_declarator to find function_declarator
+            {
+                TSNode func_decl_node = dch;
+                bool is_ref_ret = false;
+                bool is_ptr_ret = false;
+                if (strcmp(dk, "reference_declarator") == 0 &&
+                    ts_node_named_child_count(dch) > 0) {
+                    TSNode inner = ts_node_named_child(dch, 0);
+                    if (strcmp(ts_node_type(inner), "function_declarator") == 0) {
+                        func_decl_node = inner;
+                        is_ref_ret = true;
+                    }
+                } else if (strcmp(dk, "pointer_declarator") == 0 &&
+                           ts_node_named_child_count(dch) > 0) {
+                    TSNode inner = ts_node_named_child(dch, ts_node_named_child_count(dch) - 1);
+                    if (strcmp(ts_node_type(inner), "function_declarator") == 0) {
+                        func_decl_node = inner;
+                        is_ptr_ret = true;
+                    }
+                }
+                if (strcmp(ts_node_type(func_decl_node), "function_declarator") == 0) {
+                    TSNode fn_name = ts_node_child_by_field_name(func_decl_node, "declarator", 10);
+                    if (!ts_node_is_null(fn_name)) {
+                        char* fname = c_node_text(ctx, fn_name);
+                        if (fname && fname[0]) {
+                            // Parse return type from declaration's type specifier
+                            const CBMType* ret_type = NULL;
+                            for (uint32_t ri = 0; ri < dnc; ri++) {
+                                TSNode rch = ts_node_named_child(child, ri);
+                                const char* rk = ts_node_type(rch);
+                                if (strcmp(rk, "function_declarator") != 0 &&
+                                    strcmp(rk, "identifier") != 0 &&
+                                    strcmp(rk, "pointer_declarator") != 0 &&
+                                    strcmp(rk, "reference_declarator") != 0) {
+                                    ret_type = c_parse_type_node(ctx, rch);
+                                    if (!cbm_type_is_unknown(ret_type)) break;
+                                }
+                            }
+                            if (ret_type && !cbm_type_is_unknown(ret_type)) {
+                                if (is_ref_ret) ret_type = cbm_type_reference(ctx->arena, ret_type);
+                                if (is_ptr_ret) ret_type = cbm_type_pointer(ctx->arena, ret_type);
+                                const char* func_qn = c_build_qn(ctx, fname);
+                                if (ctx->module_qn && !strchr(func_qn, '.'))
+                                    func_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, func_qn);
+                                // Use namespace if available
+                                if (ctx->current_namespace && !strstr(func_qn, ctx->current_namespace))
+                                    func_qn = cbm_arena_sprintf(ctx->arena, "%s.%s",
+                                        ctx->current_namespace, fname);
+                                // Only register if not already registered
+                                if (!cbm_registry_lookup_func(ctx->registry, func_qn)) {
+                                    const CBMType** rets = (const CBMType**)cbm_arena_alloc(
+                                        ctx->arena, 2 * sizeof(const CBMType*));
+                                    rets[0] = ret_type;
+                                    rets[1] = NULL;
+                                    CBMRegisteredFunc rf = {0};
+                                    rf.qualified_name = func_qn;
+                                    rf.short_name = fname;
+                                    rf.signature = cbm_type_func(ctx->arena, NULL, NULL, rets);
+                                    // Copy template params if in template context
+                                    if (ctx->in_template && ctx->template_param_count > 0) {
+                                        const char** tpn = (const char**)cbm_arena_alloc(
+                                            ctx->arena, (ctx->template_param_count + 1) * sizeof(char*));
+                                        for (int tp = 0; tp < ctx->template_param_count; tp++)
+                                            tpn[tp] = ctx->template_param_names[tp];
+                                        tpn[ctx->template_param_count] = NULL;
+                                        rf.type_param_names = tpn;
+                                    }
+                                    cbm_registry_add_func((CBMTypeRegistry*)ctx->registry, rf);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!has_class) {
+            c_resolve_calls_in_node(ctx, child);
+        }
     } else if (strcmp(ck, "concept_definition") == 0) {
         // C++20 concept: concept Sortable = requires(T a) { a.sort(); };
         // No CALLS edges from concept definitions — they are constraints, not runtime calls.
@@ -3087,6 +3851,25 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
                 class_qn = class_name;
             }
             ctx->enclosing_class_qn = class_qn;
+
+            // Store template param names on the registered type (for substitution)
+            if (ctx->in_template && ctx->template_param_names && ctx->template_param_count > 0) {
+                CBMRegisteredType* rt = NULL;
+                for (int ri = 0; ri < ((CBMTypeRegistry*)ctx->registry)->type_count; ri++) {
+                    if (strcmp(((CBMTypeRegistry*)ctx->registry)->types[ri].qualified_name, class_qn) == 0) {
+                        rt = &((CBMTypeRegistry*)ctx->registry)->types[ri];
+                        break;
+                    }
+                }
+                if (rt && !rt->type_param_names) {
+                    const char** tpn = (const char**)cbm_arena_alloc(ctx->arena,
+                        (ctx->template_param_count + 1) * sizeof(const char*));
+                    for (int pi = 0; pi < ctx->template_param_count; pi++)
+                        tpn[pi] = ctx->template_param_names[pi];
+                    tpn[ctx->template_param_count] = NULL;
+                    rt->type_param_names = tpn;
+                }
+            }
         }
     }
 
@@ -3167,6 +3950,115 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
 
     TSNode body = ts_node_child_by_field_name(class_node, "body", 4);
     if (!ts_node_is_null(body)) {
+        // Pre-pass: register method declarations (no body) as methods in registry.
+        // This allows template return type substitution for methods like T& value();
+        if (ctx->enclosing_class_qn) {
+            uint32_t nc = ts_node_child_count(body);
+            for (uint32_t i = 0; i < nc; i++) {
+                TSNode child = ts_node_child(body, i);
+                if (ts_node_is_null(child) || !ts_node_is_named(child)) continue;
+                const char* ck = ts_node_type(child);
+                // field_declaration, declaration, or function_definition = method
+                if (strcmp(ck, "field_declaration") != 0 && strcmp(ck, "declaration") != 0 &&
+                    strcmp(ck, "function_definition") != 0)
+                    continue;
+                // Parse return type from type specifier
+                const CBMType* ret_type = c_parse_declaration_type(ctx, child);
+                // Walk declarator chain to find function_declarator + method name
+                uint32_t dnc = ts_node_named_child_count(child);
+                for (uint32_t di = 0; di < dnc; di++) {
+                    TSNode decl = ts_node_named_child(child, di);
+                    // Navigate through reference_declarator, pointer_declarator to function_declarator
+                    TSNode cur = decl;
+                    const CBMType* actual_ret = ret_type;
+                    for (int depth = 0; depth < 5 && !ts_node_is_null(cur); depth++) {
+                        const char* dk = ts_node_type(cur);
+                        if (strcmp(dk, "function_declarator") == 0) {
+                            // Found method declaration — extract name
+                            TSNode name_node = ts_node_child_by_field_name(cur, "declarator", 10);
+                            if (ts_node_is_null(name_node)) break;
+                            char* method_name = NULL;
+                            const char* nk = ts_node_type(name_node);
+                            if (strcmp(nk, "field_identifier") == 0 || strcmp(nk, "identifier") == 0) {
+                                method_name = c_node_text(ctx, name_node);
+                            } else if (strcmp(nk, "destructor_name") == 0 ||
+                                       strcmp(nk, "operator_name") == 0) {
+                                method_name = c_node_text(ctx, name_node);
+                            }
+                            if (!method_name || !method_name[0]) break;
+                            const char* method_qn = cbm_arena_sprintf(ctx->arena, "%s.%s",
+                                ctx->enclosing_class_qn, method_name);
+                            // Check if already registered — if so, upgrade return type
+                            // if pre-pass has a more specific type (e.g., TEMPLATE vs NAMED)
+                            // Check both full QN and short QN (extract_defs may use shorter)
+                            const CBMRegisteredFunc* existing = cbm_registry_lookup_method(
+                                ctx->registry, ctx->enclosing_class_qn, method_name);
+                            if (!existing && ctx->module_qn) {
+                                // Try without module prefix: "test.main.std.X" -> "std.X"
+                                const char* class_qn = ctx->enclosing_class_qn;
+                                size_t mod_len = strlen(ctx->module_qn);
+                                if (strncmp(class_qn, ctx->module_qn, mod_len) == 0 &&
+                                    class_qn[mod_len] == '.') {
+                                    existing = cbm_registry_lookup_method(
+                                        ctx->registry, class_qn + mod_len + 1, method_name);
+                                }
+                            }
+                            if (existing) {
+                                // Upgrade: if existing return type is NAMED but we have
+                                // TEMPLATE/TYPE_PARAM/POINTER(TYPE_PARAM), update in-place
+                                bool should_upgrade = false;
+                                if (existing->signature && existing->signature->kind == CBM_TYPE_FUNC &&
+                                    existing->signature->data.func.return_types &&
+                                    existing->signature->data.func.return_types[0]) {
+                                    int ek = existing->signature->data.func.return_types[0]->kind;
+                                    int nk2 = actual_ret ? actual_ret->kind : CBM_TYPE_UNKNOWN;
+                                    // Upgrade if existing is NAMED and new is more specific
+                                    if (ek == CBM_TYPE_NAMED &&
+                                        (nk2 == CBM_TYPE_TEMPLATE || nk2 == CBM_TYPE_TYPE_PARAM ||
+                                         nk2 == CBM_TYPE_POINTER || nk2 == CBM_TYPE_REFERENCE))
+                                        should_upgrade = true;
+                                }
+                                if (should_upgrade) {
+                                    // Update existing entry's signature return type
+                                    const CBMType** new_rets = (const CBMType**)cbm_arena_alloc(
+                                        ctx->arena, 2 * sizeof(const CBMType*));
+                                    new_rets[0] = actual_ret;
+                                    new_rets[1] = NULL;
+                                    CBMRegisteredFunc* mut = (CBMRegisteredFunc*)existing;
+                                    mut->signature = cbm_type_func(ctx->arena, NULL, NULL, new_rets);
+                                }
+                                break;
+                            }
+                            // Build return type with ref/ptr wrapping
+                            const CBMType** rets = (const CBMType**)cbm_arena_alloc(
+                                ctx->arena, 2 * sizeof(const CBMType*));
+                            rets[0] = actual_ret;
+                            rets[1] = NULL;
+                            CBMRegisteredFunc rf;
+                            memset(&rf, 0, sizeof(rf));
+                            rf.qualified_name = method_qn;
+                            rf.short_name = method_name;
+                            rf.receiver_type = ctx->enclosing_class_qn;
+                            rf.signature = cbm_type_func(ctx->arena, NULL, NULL, rets);
+                            rf.min_params = -1;
+                            cbm_registry_add_func((CBMTypeRegistry*)ctx->registry, rf);
+                            break;
+                        } else if (strcmp(dk, "reference_declarator") == 0) {
+                            actual_ret = cbm_type_reference(ctx->arena, actual_ret);
+                            cur = ts_node_named_child_count(cur) > 0 ?
+                                ts_node_named_child(cur, 0) : (TSNode){0};
+                        } else if (strcmp(dk, "pointer_declarator") == 0) {
+                            actual_ret = cbm_type_pointer(ctx->arena, actual_ret);
+                            cur = ts_node_named_child_count(cur) > 0 ?
+                                ts_node_named_child(cur, 0) : (TSNode){0};
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         uint32_t nc = ts_node_child_count(body);
         for (uint32_t i = 0; i < nc; i++) {
             TSNode child = ts_node_child(body, i);
@@ -3206,6 +4098,18 @@ void c_lsp_process_file(CLSPContext* ctx, TSNode root) {
             c_process_statement(ctx, child);
         } else if (strcmp(ck, "declaration") == 0) {
             c_process_statement(ctx, child);
+        } else if (strcmp(ck, "template_declaration") == 0) {
+            // template<class T> using Vec = std::vector<T>;
+            // Unwrap template_declaration to process inner alias/typedef
+            uint32_t tnc = ts_node_named_child_count(child);
+            for (uint32_t ti = 0; ti < tnc; ti++) {
+                TSNode inner = ts_node_named_child(child, ti);
+                const char* ik = ts_node_type(inner);
+                if (strcmp(ik, "alias_declaration") == 0 ||
+                    strcmp(ik, "type_definition") == 0) {
+                    c_process_statement(ctx, inner);
+                }
+            }
         }
     }
 
@@ -3270,13 +4174,70 @@ static const CBMType* c_parse_return_type_text(CBMArena* a, const char* text, co
     // Builtins
     if (is_c_builtin_type(text)) return cbm_type_builtin(a, text);
 
-    // Template type parameters: single uppercase letter or T1-T9
-    // Recognized as TYPE_PARAM so template substitution works on method return types.
-    if (len == 1 && text[0] >= 'A' && text[0] <= 'Z') {
+    // Template type parameters: only T, U, V, K, W (common conventions) or T1-T9.
+    // Do NOT treat all single uppercase letters as type params — A, B, C, etc.
+    // are legitimate class names (especially in C++ code with short names).
+    if (len == 1 && (text[0] == 'T' || text[0] == 'U' || text[0] == 'V' ||
+                     text[0] == 'K' || text[0] == 'W')) {
         return cbm_type_type_param(a, text);
     }
     if (len == 2 && text[0] == 'T' && text[1] >= '1' && text[1] <= '9') {
         return cbm_type_type_param(a, text);
+    }
+
+    // Template type: Name<Arg1, Arg2, ...>
+    {
+        const char* angle = strchr(text, '<');
+        if (angle && len > 0 && text[len - 1] == '>') {
+            // Extract template name
+            size_t name_len = (size_t)(angle - text);
+            char* tmpl_name = cbm_arena_strndup(a, text, name_len);
+            while (name_len > 0 && tmpl_name[name_len - 1] == ' ') tmpl_name[--name_len] = '\0';
+            // Replace :: with .
+            for (char* p = tmpl_name; *p; p++) {
+                if (p[0] == ':' && p[1] == ':') {
+                    p[0] = '.';
+                    memmove(p + 1, p + 2, strlen(p + 2) + 1);
+                }
+            }
+
+            // Extract args between < and >
+            const char* args_start = angle + 1;
+            size_t args_len = (size_t)((text + len - 1) - args_start);
+            char* args_text = cbm_arena_strndup(a, args_start, args_len);
+
+            // Split by comma at nesting depth 0
+            const CBMType* arg_types[16];
+            int arg_count = 0;
+            int depth = 0;
+            const char* arg_begin = args_text;
+            for (const char* p = args_text; ; p++) {
+                if (*p == '<') depth++;
+                else if (*p == '>') depth--;
+                if ((*p == ',' && depth == 0) || *p == '\0') {
+                    if (arg_count < 16) {
+                        size_t alen = (size_t)(p - arg_begin);
+                        char* arg = cbm_arena_strndup(a, arg_begin, alen);
+                        // Trim whitespace
+                        while (*arg == ' ') arg++;
+                        size_t al = strlen(arg);
+                        while (al > 0 && arg[al - 1] == ' ') arg[--al] = '\0';
+                        if (arg[0]) {
+                            arg_types[arg_count++] = c_parse_return_type_text(a, arg, module_qn);
+                        }
+                    }
+                    if (*p == '\0') break;
+                    arg_begin = p + 1;
+                }
+            }
+
+            // Qualify with module if unqualified
+            const char* qname = tmpl_name;
+            if (!strchr(tmpl_name, '.') && module_qn && module_qn[0]) {
+                qname = cbm_arena_sprintf(a, "%s.%s", module_qn, tmpl_name);
+            }
+            return cbm_type_template(a, qname, arg_types, arg_count);
+        }
     }
 
     // Qualified name (has ::)
@@ -3345,6 +4306,40 @@ void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
             cbm_registry_add_type(&reg, rt);
         }
 
+        // Field definitions → populate field_names/field_types on parent type
+        if (d->label && strcmp(d->label, "Field") == 0 && d->parent_class && d->return_type) {
+            // Find or add the parent type in registry
+            CBMRegisteredType* parent_rt = NULL;
+            for (int ri = 0; ri < reg.type_count; ri++) {
+                if (strcmp(reg.types[ri].qualified_name, d->parent_class) == 0) {
+                    parent_rt = &reg.types[ri];
+                    break;
+                }
+            }
+            if (parent_rt) {
+                // Count existing fields
+                int existing = 0;
+                if (parent_rt->field_names) {
+                    while (parent_rt->field_names[existing]) existing++;
+                }
+                // Add this field
+                const char** new_fnames = (const char**)cbm_arena_alloc(arena, (existing + 2) * sizeof(const char*));
+                const CBMType** new_ftypes = (const CBMType**)cbm_arena_alloc(arena, (existing + 2) * sizeof(const CBMType*));
+                if (new_fnames && new_ftypes) {
+                    for (int j = 0; j < existing; j++) {
+                        new_fnames[j] = parent_rt->field_names[j];
+                        new_ftypes[j] = parent_rt->field_types[j];
+                    }
+                    new_fnames[existing] = d->name;
+                    new_ftypes[existing] = c_parse_return_type_text(arena, d->return_type, module_qn);
+                    new_fnames[existing + 1] = NULL;
+                    new_ftypes[existing + 1] = NULL;
+                    parent_rt->field_names = new_fnames;
+                    parent_rt->field_types = new_ftypes;
+                }
+            }
+        }
+
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
             CBMRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
@@ -3352,9 +4347,14 @@ void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
             rf.qualified_name = d->qualified_name;
             rf.short_name = d->name;
 
-            // Build return type
+            // Build return type — prefer return_type (raw text) over return_types
+            // (cleaned by clean_type_name which strips template args like <Service>).
             const CBMType** ret_types = NULL;
-            if (d->return_types) {
+            if (d->return_type && d->return_type[0]) {
+                ret_types = (const CBMType**)cbm_arena_alloc(arena, 2 * sizeof(const CBMType*));
+                ret_types[0] = c_parse_return_type_text(arena, d->return_type, module_qn);
+                ret_types[1] = NULL;
+            } else if (d->return_types) {
                 int count = 0;
                 while (d->return_types[count]) count++;
                 if (count > 0) {
@@ -3363,10 +4363,6 @@ void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
                         ret_types[j] = c_parse_return_type_text(arena, d->return_types[j], module_qn);
                     ret_types[count] = NULL;
                 }
-            } else if (d->return_type && d->return_type[0]) {
-                ret_types = (const CBMType**)cbm_arena_alloc(arena, 2 * sizeof(const CBMType*));
-                ret_types[0] = c_parse_return_type_text(arena, d->return_type, module_qn);
-                ret_types[1] = NULL;
             }
 
             // Build param types

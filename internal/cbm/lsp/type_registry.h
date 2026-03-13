@@ -24,6 +24,7 @@ typedef struct {
     const char** method_qns;     // NULL-terminated (qualified names, parallel)
     const char** embedded_types; // NULL-terminated (embedded/anonymous field type QNs)
     const char* alias_of;       // QN of aliased type (type Foo = Bar), NULL if not alias
+    const char** type_param_names; // NULL-terminated, e.g., ["T", "K", NULL] for template classes
     bool is_interface;
 } CBMRegisteredType;
 

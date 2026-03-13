@@ -286,6 +286,7 @@ typedef struct {
     const char*     module_qn;
     TSNode          root;
     EFCache         ef_cache;  // enclosing function cache
+    const char*     enclosing_class_qn;  // for nested class QN computation
 } CBMExtractCtx;
 
 // --- Public API ---

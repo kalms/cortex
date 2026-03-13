@@ -7,6 +7,7 @@
 // Forward declarations
 static void extract_func_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
 static void extract_class_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
+static void walk_defs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
 static void extract_variables(CBMExtractCtx* ctx, TSNode root, const CBMLangSpec* spec);
 static void extract_class_variables(CBMExtractCtx* ctx, TSNode class_node, const CBMLangSpec* spec);
 static void extract_rust_impl(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
@@ -465,6 +466,47 @@ static const char** extract_base_classes(CBMArena* a, TSNode node, const char* s
             }
         }
     }
+    // C/C++ specific: handle base_class_clause (contains access specifiers + type names)
+    {
+        uint32_t count = ts_node_child_count(node);
+        for (uint32_t i = 0; i < count; i++) {
+            TSNode child = ts_node_child(node, i);
+            if (strcmp(ts_node_type(child), "base_class_clause") == 0) {
+                // Extract type identifiers from base_class_clause, skipping access specifiers
+                const char* bases[16];
+                int base_count = 0;
+                uint32_t bnc = ts_node_named_child_count(child);
+                for (uint32_t bi = 0; bi < bnc && base_count < 15; bi++) {
+                    TSNode bc = ts_node_named_child(child, bi);
+                    const char* bk = ts_node_type(bc);
+                    if (strcmp(bk, "access_specifier") == 0) continue;
+                    // type_identifier, qualified_identifier, scoped_identifier, template_type
+                    if (strcmp(bk, "type_identifier") == 0 ||
+                        strcmp(bk, "qualified_identifier") == 0 ||
+                        strcmp(bk, "scoped_identifier") == 0) {
+                        char* text = cbm_node_text(a, bc, source);
+                        if (text && text[0]) bases[base_count++] = text;
+                    } else if (strcmp(bk, "template_type") == 0) {
+                        // For template base: extract just the template name (not args)
+                        TSNode tname = ts_node_child_by_field_name(bc, "name", 4);
+                        if (!ts_node_is_null(tname)) {
+                            char* text = cbm_node_text(a, tname, source);
+                            if (text && text[0]) bases[base_count++] = text;
+                        }
+                    }
+                }
+                if (base_count > 0) {
+                    const char** result = (const char**)cbm_arena_alloc(a, (base_count + 1) * sizeof(const char*));
+                    if (result) {
+                        for (int j = 0; j < base_count; j++) result[j] = bases[j];
+                        result[base_count] = NULL;
+                        return result;
+                    }
+                }
+            }
+        }
+    }
+
     // Fallback: search for common base class node types as children
     static const char* base_types[] = {
         "superclass","superinterfaces","type_inheritance_clause",
@@ -1117,7 +1159,13 @@ static void extract_class_def(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec
     char* name = cbm_node_text(a, name_node, ctx->source);
     if (!name || !name[0]) return;
 
-    const char* class_qn = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+    // For nested classes, prefix with enclosing class QN (e.g., Outer.Inner)
+    const char* class_qn;
+    if (ctx->enclosing_class_qn) {
+        class_qn = cbm_arena_sprintf(a, "%s.%s", ctx->enclosing_class_qn, name);
+    } else {
+        class_qn = cbm_fqn_compute(a, ctx->project, ctx->rel_path, name);
+    }
     const char* label = class_label_for_kind(kind);
 
     // Go type_spec: check inner type for interface/struct
@@ -2220,6 +2268,28 @@ static void extract_class_variables(CBMExtractCtx* ctx, TSNode class_node, const
 // --- Module node + main walk ---
 
 // Recursive definition walker using tree-sitter cursor for cache-friendliness
+// Search for nested class definitions inside a class body, recursing into wrapper
+// nodes (field_declaration, template_declaration) but not into function bodies.
+static void find_nested_classes(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) {
+    uint32_t nc = ts_node_child_count(node);
+    for (uint32_t i = 0; i < nc; i++) {
+        TSNode child = ts_node_child(node, i);
+        if (cbm_kind_in_set(child, spec->class_node_types)) {
+            // Found a nested class — process it via normal walk_defs
+            walk_defs(ctx, child, spec);
+        } else {
+            const char* ck = ts_node_type(child);
+            // Recurse into wrapper nodes that might contain nested classes
+            // but NOT into function bodies (function_definition, lambda_expression)
+            if (strcmp(ck, "field_declaration") == 0 ||
+                strcmp(ck, "template_declaration") == 0 ||
+                strcmp(ck, "declaration") == 0) {
+                find_nested_classes(ctx, child, spec);
+            }
+        }
+    }
+}
+
 static void walk_defs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) {
     const char* kind = ts_node_type(node);
 
@@ -2231,11 +2301,31 @@ static void walk_defs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) 
 
     // Function types
     if (cbm_kind_in_set(node, spec->function_node_types)) {
-        extract_func_def(ctx, node, spec);
-        // Wolfram: continue recursing — nested set_delayed inside Module/Block are valid defs
-        if (ctx->language != CBM_LANG_WOLFRAM) {
-            return; // don't recurse into function bodies for nested defs
+        // C++/CUDA: template_declaration may wrap a class, not a function.
+        // Check if it contains a class_specifier/struct_specifier — if so, skip
+        // function extraction and fall through to class handling.
+        bool is_template_class = false;
+        if ((ctx->language == CBM_LANG_CPP || ctx->language == CBM_LANG_CUDA) &&
+            strcmp(kind, "template_declaration") == 0) {
+            uint32_t nc = ts_node_named_child_count(node);
+            for (uint32_t i = 0; i < nc; i++) {
+                const char* ck = ts_node_type(ts_node_named_child(node, i));
+                if (strcmp(ck, "class_specifier") == 0 ||
+                    strcmp(ck, "struct_specifier") == 0 ||
+                    strcmp(ck, "union_specifier") == 0) {
+                    is_template_class = true;
+                    break;
+                }
+            }
         }
+        if (!is_template_class) {
+            extract_func_def(ctx, node, spec);
+            // Wolfram: continue recursing — nested set_delayed inside Module/Block are valid defs
+            if (ctx->language != CBM_LANG_WOLFRAM) {
+                return; // don't recurse into function bodies for nested defs
+            }
+        }
+        // For template classes: fall through to class check or default recursion
     }
 
     // Rust impl blocks
@@ -2246,16 +2336,51 @@ static void walk_defs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) 
 
     // Class types
     if (cbm_kind_in_set(node, spec->class_node_types)) {
+        const char* saved_enclosing = ctx->enclosing_class_qn;
         extract_class_def(ctx, node, spec);
-        // Config languages have nested classes (XML elements, TOML tables)
-        // — continue recursing instead of returning
-        if (ctx->language == CBM_LANG_XML || ctx->language == CBM_LANG_TOML ||
-            ctx->language == CBM_LANG_INI || ctx->language == CBM_LANG_MARKDOWN) {
-            uint32_t nc = ts_node_child_count(node);
+        // extract_class_def computed class_qn; replicate to set enclosing for nested classes
+        {
+            TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
+            if (ts_node_is_null(name_node) && ctx->language == CBM_LANG_OBJC)
+                name_node = cbm_find_child_by_kind(node, "identifier");
+            if (ts_node_is_null(name_node) && ctx->language == CBM_LANG_SWIFT)
+                name_node = cbm_find_child_by_kind(node, "type_identifier");
+            if (!ts_node_is_null(name_node)) {
+                char* cname = cbm_node_text(ctx->arena, name_node, ctx->source);
+                if (cname && cname[0]) {
+                    if (saved_enclosing)
+                        ctx->enclosing_class_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", saved_enclosing, cname);
+                    else
+                        ctx->enclosing_class_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, cname);
+                }
+            }
+        }
+        // Recurse into class body for nested class definitions (C++, Java, C#, Python, etc.)
+        // For languages with body containers, use targeted nested class search.
+        // For config languages (XML, JSON, etc.) with no body container, generic child walk.
+        bool found_body = false;
+        uint32_t nc = ts_node_child_count(node);
+        for (uint32_t ci = 0; ci < nc; ci++) {
+            TSNode child = ts_node_child(node, ci);
+            const char* ck = ts_node_type(child);
+            if (strcmp(ck, "field_declaration_list") == 0 ||
+                strcmp(ck, "class_body") == 0 ||
+                strcmp(ck, "declaration_list") == 0 ||
+                strcmp(ck, "body") == 0 ||
+                strcmp(ck, "block") == 0 ||
+                strcmp(ck, "suite") == 0) {
+                find_nested_classes(ctx, child, spec);
+                found_body = true;
+                break;
+            }
+        }
+        if (!found_body) {
+            // Config languages (XML, TOML, JSON, etc.) — children are direct class nodes
             for (uint32_t ci = 0; ci < nc; ci++) {
                 walk_defs(ctx, ts_node_child(node, ci), spec);
             }
         }
+        ctx->enclosing_class_qn = saved_enclosing;
         return;
     }
 

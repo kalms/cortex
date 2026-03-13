@@ -237,6 +237,23 @@ const CBMType* cbm_type_substitute(CBMArena* a, const CBMType* t,
         }
         return t; // unmatched param stays as-is
     }
+    case CBM_TYPE_NAMED: {
+        // Also substitute NAMED types matching template param names.
+        // c_parse_return_type_text may parse "A" as NAMED("test.main.A")
+        // instead of TYPE_PARAM("A") — check both full QN and short name.
+        const char* qn = t->data.named.qualified_name;
+        if (qn) {
+            const char* short_name = strrchr(qn, '.');
+            short_name = short_name ? short_name + 1 : qn;
+            for (int i = 0; type_params[i]; i++) {
+                if (strcmp(qn, type_params[i]) == 0 ||
+                    strcmp(short_name, type_params[i]) == 0) {
+                    return type_args[i];
+                }
+            }
+        }
+        return t;
+    }
     case CBM_TYPE_POINTER:
         return cbm_type_pointer(a, cbm_type_substitute(a, t->data.pointer.elem, type_params, type_args));
     case CBM_TYPE_REFERENCE:
