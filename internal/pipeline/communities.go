@@ -5,11 +5,12 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
-// passCommunities runs Louvain community detection on the CALLS graph
+// passCommunities runs hybrid LPA→Leiden community detection on the CALLS graph
 // and creates Community nodes + MEMBER_OF edges.
 func (p *Pipeline) passCommunities() {
 	slog.Info("pass.communities")
@@ -37,79 +38,168 @@ func (p *Pipeline) passCommunities() {
 		adj[e.TargetID][e.SourceID] = true
 	}
 
-	// Run Louvain community detection
-	communities := louvainCommunities(adj, allNodes)
+	slog.Info("pass.communities.graph", "nodes", len(allNodes), "edges", len(callEdges))
+
+	// Run hybrid LPA→Leiden community detection
+	t := time.Now()
+	communities := hybridCommunities(adj, allNodes)
+	slog.Info("pass.communities.algo", "elapsed", time.Since(t), "communities", len(communities))
 
 	// Create Community nodes + MEMBER_OF edges
 	communityCount, memberOfCount := p.storeCommunities(communities)
 	slog.Info("pass.communities.done", "communities", communityCount, "member_of", memberOfCount)
 }
 
-// louvainCommunities implements the Louvain algorithm for community detection.
-// Uses per-community degree accumulators for O(m) per iteration instead of O(N^2).
-// Returns a map of community_id → []node_id.
-func louvainCommunities(adj map[int64]map[int64]bool, allNodes map[int64]bool) map[int][]int64 {
-	nodeCommunity := make(map[int64]int, len(allNodes))
-	commID := 0
-	for nodeID := range allNodes {
-		nodeCommunity[nodeID] = commID
-		commID++
+// hybridCommunities runs LPA for fast initial partition, then Leiden refinement
+// to guarantee connected communities. Replaces Louvain for better scaling.
+func hybridCommunities(adj map[int64]map[int64]bool, allNodes map[int64]bool) map[int][]int64 {
+	partition := lpaInitPartition(adj, allNodes)
+	refined := leidenRefine(adj, partition)
+	return groupAndFilter(refined)
+}
+
+// lpaInitPartition runs Label Propagation for quick O(m) partitioning.
+// Each node starts with a unique label, then adopts the most frequent neighbor label.
+// Converges when <1% of nodes change labels per iteration.
+func lpaInitPartition(adj map[int64]map[int64]bool, allNodes map[int64]bool) map[int64]int {
+	label := make(map[int64]int, len(allNodes))
+	id := 0
+	for n := range allNodes {
+		label[n] = id
+		id++
 	}
 
-	// Pre-compute node degrees
-	nodeDegree := make(map[int64]float64, len(allNodes))
+	nodeCount := len(allNodes)
+	threshold := nodeCount / 100 // <1% changed → converged
+	if threshold < 1 {
+		threshold = 1
+	}
+
+	for iter := 0; iter < 10; iter++ {
+		changed := 0
+		for node, neighbors := range adj {
+			if len(neighbors) == 0 {
+				continue
+			}
+			// Count neighbor labels
+			freq := make(map[int]int, len(neighbors))
+			for nb := range neighbors {
+				freq[label[nb]]++
+			}
+			// Pick most frequent (deterministic tie-break by lower label)
+			bestLabel, bestCount := label[node], 0
+			for lbl, cnt := range freq {
+				if cnt > bestCount || (cnt == bestCount && lbl < bestLabel) {
+					bestLabel = lbl
+					bestCount = cnt
+				}
+			}
+			if bestLabel != label[node] {
+				label[node] = bestLabel
+				changed++
+			}
+		}
+		if changed <= threshold {
+			break
+		}
+	}
+	return label
+}
+
+// leidenRefine guarantees connected communities by splitting disconnected
+// sub-components, then runs one modularity-optimization pass for edge cases.
+func leidenRefine(adj map[int64]map[int64]bool, partition map[int64]int) map[int64]int {
+	// Group nodes by community
+	communities := make(map[int][]int64)
+	for node, comm := range partition {
+		communities[comm] = append(communities[comm], node)
+	}
+
+	nextID := 0
+	refined := make(map[int64]int, len(partition))
+
+	for _, members := range communities {
+		// BFS to find connected components within this community
+		memberSet := make(map[int64]bool, len(members))
+		for _, m := range members {
+			memberSet[m] = true
+		}
+		visited := make(map[int64]bool, len(members))
+
+		for _, seed := range members {
+			if visited[seed] {
+				continue
+			}
+			component := bfsComponent(seed, adj, memberSet, visited)
+			for _, n := range component {
+				refined[n] = nextID
+			}
+			nextID++
+		}
+	}
+
+	// One modularity pass: move border nodes to better-connected community
+	modularityPass(adj, refined, len(partition))
+
+	return refined
+}
+
+// bfsComponent does BFS from seed, staying within memberSet.
+// Marks visited nodes and returns the connected component.
+func bfsComponent(seed int64, adj map[int64]map[int64]bool, memberSet, visited map[int64]bool) []int64 {
+	queue := []int64{seed}
+	visited[seed] = true
+	var component []int64
+
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		component = append(component, node)
+
+		for nb := range adj[node] {
+			if memberSet[nb] && !visited[nb] {
+				visited[nb] = true
+				queue = append(queue, nb)
+			}
+		}
+	}
+	return component
+}
+
+// modularityPass does one greedy pass moving border nodes to the community
+// with which they share the most edges. This fixes edge cases from LPA.
+func modularityPass(adj map[int64]map[int64]bool, partition map[int64]int, _ int) {
+	// Pre-compute total edges (for modularity denominator)
 	totalEdges := 0
-	for nodeID, neighbors := range adj {
-		nodeDegree[nodeID] = float64(len(neighbors))
+	for _, neighbors := range adj {
 		totalEdges += len(neighbors)
 	}
 	m := float64(totalEdges) / 2.0
 	if m == 0 {
-		m = 1
+		return
 	}
 
-	// Per-community accumulator: sum of degrees of all members.
-	// Updated incrementally when nodes move between communities.
-	commSumTot := make(map[int]float64, len(allNodes))
-	for nodeID, comm := range nodeCommunity {
-		commSumTot[comm] = nodeDegree[nodeID]
+	// Pre-compute community degree sums
+	commDegree := make(map[int]float64)
+	for node, neighbors := range adj {
+		commDegree[partition[node]] += float64(len(neighbors))
 	}
 
-	improved := true
-	for iteration := 0; improved && iteration < 50; iteration++ {
-		improved = louvainIteration(adj, nodeCommunity, nodeDegree, commSumTot, m)
-	}
-
-	return groupAndFilter(nodeCommunity)
-}
-
-// louvainIteration runs one pass of greedy modularity optimization.
-// For each node, computes modularity gain for neighboring communities in O(degree)
-// using pre-maintained commSumTot accumulators. Returns true if any node moved.
-func louvainIteration(
-	adj map[int64]map[int64]bool,
-	nodeCommunity map[int64]int,
-	nodeDegree map[int64]float64,
-	commSumTot map[int]float64,
-	m float64,
-) bool {
-	improved := false
 	m2 := 2.0 * m * m
+	for node, neighbors := range adj {
+		currentComm := partition[node]
+		ki := float64(len(neighbors))
 
-	for nodeID, neighbors := range adj {
-		currentComm := nodeCommunity[nodeID]
-		ki := nodeDegree[nodeID]
-
-		// Aggregate edges to each neighboring community: O(degree)
+		// Count edges to each neighboring community
 		edgesToComm := make(map[int]float64, len(neighbors))
-		for neighborID := range neighbors {
-			edgesToComm[nodeCommunity[neighborID]]++
+		for nb := range neighbors {
+			edgesToComm[partition[nb]]++
 		}
 
 		// Remove self from current community for fair comparison
-		commSumTot[currentComm] -= ki
+		commDegree[currentComm] -= ki
 		kiInCurrent := edgesToComm[currentComm]
-		removeCost := kiInCurrent/m - ki*commSumTot[currentComm]/m2
+		removeCost := kiInCurrent/m - ki*commDegree[currentComm]/m2
 
 		bestComm := currentComm
 		bestGain := 0.0
@@ -118,24 +208,21 @@ func louvainIteration(
 			if comm == currentComm {
 				continue
 			}
-			gain := kiIn/m - ki*commSumTot[comm]/m2 - removeCost
+			gain := kiIn/m - ki*commDegree[comm]/m2 - removeCost
 			if gain > bestGain {
 				bestGain = gain
 				bestComm = comm
 			}
 		}
 
-		// Restore / update accumulator
 		if bestComm != currentComm && bestGain > 1e-10 {
-			nodeCommunity[nodeID] = bestComm
-			commSumTot[bestComm] += ki
+			partition[node] = bestComm
+			commDegree[bestComm] += ki
 			// currentComm already had ki subtracted
-			improved = true
 		} else {
-			commSumTot[currentComm] += ki // restore
+			commDegree[currentComm] += ki // restore
 		}
 	}
-	return improved
 }
 
 // groupAndFilter groups nodes by community and filters out singletons.
@@ -157,6 +244,8 @@ func groupAndFilter(nodeCommunity map[int64]int) map[int][]int64 {
 }
 
 // storeCommunities creates Community nodes and MEMBER_OF edges in the database.
+// Uses nodeMap (already fetched via FindNodesByIDs) for member lookups instead
+// of per-member FindNodeByQN queries.
 func (p *Pipeline) storeCommunities(communities map[int][]int64) (communityCount, memberOfCount int) {
 	if len(communities) == 0 {
 		return 0, 0
@@ -170,7 +259,12 @@ func (p *Pipeline) storeCommunities(communities map[int][]int64) (communityCount
 	nodeMap, _ := p.Store.FindNodesByIDs(allMemberIDs)
 
 	communityNodes := make([]*store.Node, 0, len(communities))
-	memberEdges := make([]pendingEdge, 0, len(allMemberIDs))
+	// pendingEdge now carries SourceID (not SourceQN) to avoid redundant DB lookups
+	type memberEdge struct {
+		SourceID int64
+		TargetQN string
+	}
+	memberEdges := make([]memberEdge, 0, len(allMemberIDs))
 
 	for commIdx, memberIDs := range communities {
 		// Find top symbols by name for labeling
@@ -199,17 +293,16 @@ func (p *Pipeline) storeCommunities(communities map[int][]int64) (communityCount
 		})
 
 		for _, memberID := range memberIDs {
-			memberNode := nodeMap[memberID]
-			if memberNode == nil {
+			if nodeMap[memberID] == nil {
 				continue
 			}
-			memberEdges = append(memberEdges, pendingEdge{
-				SourceQN: memberNode.QualifiedName,
+			memberEdges = append(memberEdges, memberEdge{
+				SourceID: memberID,
 				TargetQN: commQN,
-				Type:     "MEMBER_OF",
 			})
 
 			// Also store community_id on the member node (via properties update)
+			memberNode := nodeMap[memberID]
 			if memberNode.Properties == nil {
 				memberNode.Properties = make(map[string]any)
 			}
@@ -224,19 +317,14 @@ func (p *Pipeline) storeCommunities(communities map[int][]int64) (communityCount
 		return 0, 0
 	}
 
-	// Resolve and insert MEMBER_OF edges
+	// Resolve and insert MEMBER_OF edges using direct ID lookup (no DB queries)
 	var edges []*store.Edge
-	for _, pe := range memberEdges {
-		srcQN := pe.SourceQN
-		tgtQN := pe.TargetQN
-
-		srcNode, _ := p.Store.FindNodeByQN(p.ProjectName, srcQN)
-		tgtID, tgtOK := idMap[tgtQN]
-
-		if srcNode != nil && tgtOK {
+	for _, me := range memberEdges {
+		tgtID, tgtOK := idMap[me.TargetQN]
+		if tgtOK {
 			edges = append(edges, &store.Edge{
 				Project:  p.ProjectName,
-				SourceID: srcNode.ID,
+				SourceID: me.SourceID,
 				TargetID: tgtID,
 				Type:     "MEMBER_OF",
 			})

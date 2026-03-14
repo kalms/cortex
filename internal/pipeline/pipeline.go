@@ -51,6 +51,19 @@ type Pipeline struct {
 	cLSPIdx *cLSPDefIndex
 	// compileFlags holds per-file compile flags from compile_commands.json (C/C++ only)
 	compileFlags CompileFlagsMap
+	// sourceStore holds LZ4-compressed file bytes loaded during bulk load.
+	// All post-parse passes decompress from here instead of re-reading from disk.
+	// Nil'd after all passes complete.
+	sourceStore map[string]*compressedSource
+}
+
+// compressedSource holds an LZ4 HC compressed file with pre-computed hash.
+type compressedSource struct {
+	data        []byte // LZ4 HC compressed
+	originalLen int    // for decompressor
+	hash        string // xxh3 hex, pre-computed during bulk load
+	mtimeNs     int64  // file mtime from stat during bulk load
+	size        int64  // file size from stat during bulk load
 }
 
 // New creates a new Pipeline.
@@ -197,31 +210,21 @@ func (p *Pipeline) Run() error {
 	slog.Info("pipeline.discovered", "files", len(files))
 	logHeapStats("pre_index")
 
-	// Use MEMORY journal mode during fresh indexing for faster bulk writes.
-	p.Store.BeginBulkWrite(p.ctx)
+	// Classify files (read-only) to decide full vs incremental path
+	changed, unchanged := p.classifyFiles(files)
+	isFullIndex := len(unchanged) == 0
 
-	wroteData := false
-	if err := p.Store.WithTransaction(p.ctx, func(txStore *store.Store) error {
-		origStore := p.Store
-		p.Store = txStore
-		defer func() { p.Store = origStore }()
-		var passErr error
-		wroteData, passErr = p.runPasses(files)
-		return passErr
-	}); err != nil {
-		p.Store.EndBulkWrite(p.ctx)
-		return err
-	}
-
-	p.Store.EndBulkWrite(p.ctx)
-
-	// Only checkpoint + optimize when actual data was written.
-	// No-op incremental reindexes skip this to avoid ANALYZE overhead.
-	if wroteData {
-		walBefore := p.Store.WALSize()
-		p.Store.Checkpoint(p.ctx)
-		walAfter := p.Store.WALSize()
-		slog.Info("wal.checkpoint", "before_mb", walBefore/(1<<20), "after_mb", walAfter/(1<<20))
+	if isFullIndex {
+		// Full index: use in-memory SQLite for zero disk I/O during passes.
+		// All data is built in RAM and restored to the disk store at the end.
+		if err := p.runFullIndex(files, runStart); err != nil {
+			return err
+		}
+	} else {
+		// Incremental: use existing disk-backed store with transaction
+		if err := p.runIncrementalIndex(files, changed, unchanged, runStart); err != nil {
+			return err
+		}
 	}
 
 	nc, _ := p.Store.CountNodes(p.ProjectName)
@@ -231,31 +234,71 @@ func (p *Pipeline) Run() error {
 	return nil
 }
 
-// runPasses executes all indexing passes (called within a transaction).
-// Returns (wroteData, error) — wroteData is true if nodes/edges were written.
-func (p *Pipeline) runPasses(files []discover.FileInfo) (bool, error) {
+// runFullIndex creates an in-memory SQLite store, runs all full-index passes
+// on it, then restores the result to the disk store via the Backup API.
+func (p *Pipeline) runFullIndex(files []discover.FileInfo, _ time.Time) error {
+	memStore, err := store.OpenMemory()
+	if err != nil {
+		return fmt.Errorf("open memory store: %w", err)
+	}
+	defer memStore.Close()
+
+	// Swap to in-memory store for all passes
+	diskStore := p.Store
+	p.Store = memStore
+	defer func() { p.Store = diskStore }()
+
 	if err := p.Store.UpsertProject(p.ProjectName, p.RepoPath); err != nil {
-		return false, fmt.Errorf("upsert project: %w", err)
+		return fmt.Errorf("upsert project: %w", err)
 	}
 
-	// Classify files as changed/unchanged using stored hashes
-	changed, unchanged := p.classifyFiles(files)
-
-	// If all files are changed (first index or no hashes), do full pass
-	isFullIndex := len(unchanged) == 0
-	if isFullIndex {
-		return true, p.runFullPasses(files)
+	if err := p.runFullPasses(files); err != nil {
+		return err
 	}
 
+	// Restore in-memory DB → disk store via SQLite Backup API
+	t := time.Now()
+	if err := diskStore.RestoreFrom(memStore); err != nil {
+		return fmt.Errorf("restore from memory: %w", err)
+	}
+	slog.Info("db.restore", "elapsed", time.Since(t))
+	return nil
+}
+
+// runIncrementalIndex runs the incremental pipeline on the disk-backed store.
+func (p *Pipeline) runIncrementalIndex(files, changed, unchanged []discover.FileInfo, _ time.Time) error {
 	slog.Info("incremental.classify", "changed", len(changed), "unchanged", len(unchanged), "total", len(files))
 
 	// Fast path: nothing changed → skip all heavy passes
 	if len(changed) == 0 {
 		slog.Info("incremental.noop", "reason", "no_changes")
-		return false, nil
+		return nil
 	}
 
-	return true, p.runIncrementalPasses(files, changed, unchanged)
+	// Use MEMORY journal mode during incremental writes
+	p.Store.BeginBulkWrite(p.ctx)
+
+	if err := p.Store.WithTransaction(p.ctx, func(txStore *store.Store) error {
+		origStore := p.Store
+		p.Store = txStore
+		defer func() { p.Store = origStore }()
+
+		if err := p.Store.UpsertProject(p.ProjectName, p.RepoPath); err != nil {
+			return fmt.Errorf("upsert project: %w", err)
+		}
+		return p.runIncrementalPasses(files, changed, unchanged)
+	}); err != nil {
+		p.Store.EndBulkWrite(p.ctx)
+		return err
+	}
+
+	p.Store.EndBulkWrite(p.ctx)
+
+	walBefore := p.Store.WALSize()
+	p.Store.Checkpoint(p.ctx)
+	walAfter := p.Store.WALSize()
+	slog.Info("wal.checkpoint", "before_mb", walBefore/(1<<20), "after_mb", walAfter/(1<<20))
+	return nil
 }
 
 // runFullPasses runs the complete pipeline (no incremental optimization).
@@ -269,6 +312,15 @@ func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
 		return fmt.Errorf("pass1 structure: %w", err)
 	}
 	slog.Info("pass.timing", "pass", "structure", "elapsed", time.Since(t))
+	if err := p.checkCancel(); err != nil {
+		return err
+	}
+
+	// Bulk load: read all files, xxh3 hash, LZ4 HC compress → RAM.
+	// This is the ONLY bulk disk read. All subsequent passes decompress from RAM.
+	t = time.Now()
+	p.bulkLoadSources(files)
+	slog.Info("pass.timing", "pass", "bulk_load", "elapsed", time.Since(t))
 	if err := p.checkCancel(); err != nil {
 		return err
 	}
@@ -394,6 +446,9 @@ func (p *Pipeline) runPostFlushPasses(files []discover.FileInfo) error {
 	t = time.Now()
 	p.updateFileHashes(files)
 	slog.Info("pass.timing", "pass", "filehashes", "elapsed", time.Since(t))
+
+	// Release source store — all passes done, no more source reads needed
+	p.sourceStore = nil
 
 	// Observability: per-edge-type counts
 	p.logEdgeCounts()
@@ -804,6 +859,162 @@ func (p *Pipeline) cleanupASTCache() {
 	debug.FreeOSMemory()
 }
 
+// getSource returns the raw source bytes for a file from the in-memory sourceStore.
+// Decompresses LZ4 on-the-fly (~3μs per 17KB file at 5.7 GB/s).
+// Returns nil if the file is not in the store (e.g., infra files not parsed by CBM).
+func (p *Pipeline) getSource(relPath string) []byte {
+	if p.sourceStore == nil {
+		return nil
+	}
+	cs := p.sourceStore[relPath]
+	if cs == nil {
+		return nil
+	}
+	return cbm.LZ4Decompress(cs.data, cs.originalLen)
+}
+
+// getHash returns the pre-computed xxh3 hash for a file. O(1), no disk I/O.
+func (p *Pipeline) getHash(relPath string) (hash string, mtimeNs, size int64, ok bool) {
+	if p.sourceStore == nil {
+		return "", 0, 0, false
+	}
+	cs := p.sourceStore[relPath]
+	if cs == nil {
+		return "", 0, 0, false
+	}
+	return cs.hash, cs.mtimeNs, cs.size, true
+}
+
+// bulkLoadSources reads all files, computes xxh3 hashes, and LZ4 HC compresses
+// them into the sourceStore. This is the ONLY bulk disk read for full indexing.
+func (p *Pipeline) bulkLoadSources(files []discover.FileInfo) {
+	t := time.Now()
+	p.sourceStore = make(map[string]*compressedSource, len(files))
+
+	type loadResult struct {
+		relPath string
+		cs      *compressedSource
+		err     error
+	}
+
+	results := make([]loadResult, len(files))
+	numWorkers := runtime.NumCPU()
+	if numWorkers > len(files) {
+		numWorkers = len(files)
+	}
+
+	g := new(errgroup.Group)
+	g.SetLimit(numWorkers)
+	for i, f := range files {
+		g.Go(func() error {
+			if err := p.ctx.Err(); err != nil {
+				return err //nolint:wrapcheck // context cancellation
+			}
+			source, cleanup, err := mmapFile(f.Path)
+			if err != nil {
+				results[i] = loadResult{relPath: f.RelPath, err: err}
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil
+			}
+
+			// Compute xxh3 hash from raw source
+			h := xxh3.New()
+			_, _ = h.Write(source)
+			hashHex := hex.EncodeToString(h.Sum(nil))
+
+			// Get stat info
+			var mtimeNs, size int64
+			if fi, statErr := os.Stat(f.Path); statErr == nil {
+				mtimeNs = fi.ModTime().UnixNano()
+				size = fi.Size()
+			}
+
+			// LZ4 HC compress
+			compressed := cbm.LZ4CompressHC(source)
+			originalLen := len(source)
+
+			// Unmap before storing (we have the compressed copy)
+			if cleanup != nil {
+				cleanup()
+			}
+
+			results[i] = loadResult{
+				relPath: f.RelPath,
+				cs: &compressedSource{
+					data:        compressed,
+					originalLen: originalLen,
+					hash:        hashHex,
+					mtimeNs:     mtimeNs,
+					size:        size,
+				},
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	// Collect results (sequential, no lock needed)
+	var totalRaw, totalCompressed int64
+	var loaded int
+	for _, r := range results {
+		if r.cs == nil {
+			continue
+		}
+		p.sourceStore[r.relPath] = r.cs
+		totalRaw += int64(r.cs.originalLen)
+		totalCompressed += int64(len(r.cs.data))
+		loaded++
+	}
+
+	ratio := float64(0)
+	if totalCompressed > 0 {
+		ratio = float64(totalRaw) / float64(totalCompressed)
+	}
+	slog.Info("bulk_load.done",
+		"files", loaded,
+		"raw_mb", totalRaw/(1<<20),
+		"compressed_mb", totalCompressed/(1<<20),
+		"ratio", fmt.Sprintf("%.1fx", ratio),
+		"elapsed", time.Since(t),
+	)
+}
+
+// getSourceLines returns a line range from the in-memory sourceStore.
+// Equivalent to readSourceLines but without disk I/O.
+func (p *Pipeline) getSourceLines(relPath string, startLine, endLine int) string {
+	src := p.getSource(relPath)
+	if len(src) == 0 {
+		return ""
+	}
+	return extractLines(src, startLine, endLine)
+}
+
+// extractLines extracts lines [startLine, endLine] (1-based) from source bytes.
+func extractLines(src []byte, startLine, endLine int) string {
+	var lines []string
+	lineNum := 0
+	start := 0
+	for i := 0; i <= len(src); i++ {
+		if i == len(src) || src[i] == '\n' {
+			lineNum++
+			if lineNum >= startLine && lineNum <= endLine {
+				end := i
+				if end > start && end > 0 && src[end-1] == '\r' {
+					end--
+				}
+				lines = append(lines, string(src[start:end]))
+			}
+			if lineNum > endLine {
+				break
+			}
+			start = i + 1
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // logHeapStats logs current Go heap metrics for memory diagnostics.
 func logHeapStats(stage string) {
 	var m runtime.MemStats
@@ -817,6 +1028,25 @@ func logHeapStats(stage string) {
 }
 
 func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
+	// Fast path: use pre-computed hashes from sourceStore (bulk load)
+	if p.sourceStore != nil {
+		batch := make([]store.FileHash, 0, len(files))
+		for _, f := range files {
+			if hash, mtimeNs, size, ok := p.getHash(f.RelPath); ok {
+				batch = append(batch, store.FileHash{
+					Project: p.ProjectName,
+					RelPath: f.RelPath,
+					SHA256:  hash,
+					MtimeNs: mtimeNs,
+					Size:    size,
+				})
+			}
+		}
+		_ = p.Store.UpsertFileHashBatch(batch)
+		return
+	}
+
+	// Slow path: read from disk (incremental mode)
 	type hashResult struct {
 		Hash    string
 		MtimeNs int64
@@ -1051,12 +1281,13 @@ type parseResult struct {
 	PendingEdges []pendingEdge
 	ImportMap    map[string]string
 	CBMResult    *cbm.FileResult // CBM extraction result (nil when using legacy AST path)
+	Source       []byte          // raw file bytes, kept for post-parse passes (sourceStore)
 	Err          error
 }
 
 // passDefinitions extracts definitions from each file via CBM (C extraction library).
 // Uses parallel extraction (Stage 1) followed by sequential batch DB writes (Stage 2).
-func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
+func (p *Pipeline) passDefinitions(files []discover.FileInfo) { //nolint:gocognit,cyclop,funlen // two-stage parallel extraction + sequential DB write
 	slog.Info("pass2.definitions")
 
 	// Enrich JSON files with URL constants (for HTTP linking), then include
@@ -1078,36 +1309,61 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 		return
 	}
 
-	// Stage 1: Parallel CBM extraction (I/O + CPU, no DB, no shared state)
-	// Adaptive pool auto-tunes concurrency via AIMD throughput feedback.
+	// Stage 1: Parallel CBM extraction (CPU-only when sourceStore is populated)
 	t1 := time.Now()
 	results := make([]*parseResult, len(parseableFiles))
+	hasBulkLoaded := p.sourceStore != nil
 
-	// Start readahead prefetcher to warm page cache ahead of workers
-	pf := newPrefetcher(parseableFiles, 100)
-	go pf.run(p.ctx)
-	defer pf.stop()
+	if hasBulkLoaded {
+		// RAM path: decompress from sourceStore, no disk I/O
+		pool := newAdaptivePool(runtime.NumCPU())
+		go pool.monitor(p.ctx)
+		var wg sync.WaitGroup
+		for i, f := range parseableFiles {
+			pool.acquire()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer pool.releaseBytes(f.Size)
+				if p.ctx.Err() != nil {
+					return
+				}
+				source := p.getSource(f.RelPath)
+				var readErr error
+				if source == nil {
+					readErr = fmt.Errorf("not in sourceStore: %s", f.RelPath)
+				}
+				results[i] = cbmParseFileFromSource(p.ProjectName, f, source, readErr, p.getCompileFlags(f.RelPath))
+			}()
+		}
+		wg.Wait()
+		pool.stop()
+	} else {
+		// Disk path (incremental): mmap from disk as before
+		pf := newPrefetcher(parseableFiles, 100)
+		go pf.run(p.ctx)
+		defer pf.stop()
 
-	pool := newAdaptivePool(runtime.NumCPU())
-	go pool.monitor(p.ctx)
-
-	var wg sync.WaitGroup
-	for i, f := range parseableFiles {
-		pool.acquire()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer pool.releaseBytes(f.Size)
-			if p.ctx.Err() != nil {
-				return
-			}
-			results[i] = cbmParseFile(p.ProjectName, f, p.getCompileFlags(f.RelPath))
-			pf.advance(i + 1)
-		}()
+		pool := newAdaptivePool(runtime.NumCPU())
+		go pool.monitor(p.ctx)
+		var wg sync.WaitGroup
+		for i, f := range parseableFiles {
+			pool.acquire()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer pool.releaseBytes(f.Size)
+				if p.ctx.Err() != nil {
+					return
+				}
+				results[i] = cbmParseFile(p.ProjectName, f, p.getCompileFlags(f.RelPath))
+				pf.advance(i + 1)
+			}()
+		}
+		wg.Wait()
+		pool.stop()
 	}
-	wg.Wait()
-	pool.stop()
-	slog.Info("pass2.stage1.extract", "files", len(parseableFiles), "elapsed", time.Since(t1))
+	slog.Info("pass2.stage1.extract", "files", len(parseableFiles), "from_ram", hasBulkLoaded, "elapsed", time.Since(t1))
 
 	// Log C-side parse vs extraction breakdown
 	profile := cbm.GetProfile()
@@ -1128,6 +1384,11 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 	var allNodes []*store.Node
 	var allPendingEdges []pendingEdge
 
+	// Initialize sourceStore for incremental path (bulk load already did this for full)
+	if p.sourceStore == nil {
+		p.sourceStore = make(map[string]*compressedSource, len(results))
+	}
+
 	for _, r := range results {
 		if r == nil {
 			continue
@@ -1142,6 +1403,15 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) {
 				Result:   r.CBMResult,
 				Language: r.File.Language,
 			}
+		}
+		// Store raw source bytes for incremental path (full path already has them in sourceStore)
+		if !hasBulkLoaded && len(r.Source) > 0 {
+			compressed := cbm.LZ4CompressHC(r.Source)
+			p.sourceStore[r.File.RelPath] = &compressedSource{
+				data:        compressed,
+				originalLen: len(r.Source),
+			}
+			r.Source = nil
 		}
 		// Store import map
 		moduleQN := fqn.ModuleQN(p.ProjectName, r.File.RelPath)
@@ -1524,12 +1794,34 @@ func (p *Pipeline) passHTTPLinks() error {
 	p.passInfraFiles()
 
 	// Scan config files for env var URLs and create synthetic Module nodes
-	envBindings := ScanProjectEnvURLs(p.RepoPath)
+	var envBindings []EnvBinding
+	if p.sourceStore != nil {
+		envBindings = p.scanEnvURLsFromStore()
+	} else {
+		envBindings = ScanProjectEnvURLs(p.RepoPath)
+	}
 	if len(envBindings) > 0 {
 		p.injectEnvBindings(envBindings)
 	}
 
 	linker := httplink.New(p.Store, p.ProjectName)
+
+	// Set RAM source readers when sourceStore is available (full index)
+	if p.sourceStore != nil {
+		linker.SetSourceReader(
+			func(relPath string) []byte { return p.getSource(relPath) },
+			func(relPath string, start, end int) string { return p.getSourceLines(relPath, start, end) },
+		)
+
+		// AC pre-screen: single CGo call scans all files for HTTP/async + route keywords.
+		acCallFiles, acRouteFiles := p.acScreenHTTPFiles()
+		if acCallFiles != nil {
+			linker.SetHTTPKeywordFiles(acCallFiles)
+		}
+		if acRouteFiles != nil {
+			linker.SetRouteKeywordFiles(acRouteFiles)
+		}
+	}
 
 	// Feed InfraFile environment URLs into the HTTP linker
 	infraSites := p.extractInfraCallSites()
@@ -1544,6 +1836,95 @@ func (p *Pipeline) passHTTPLinks() error {
 	}
 	slog.Info("pass4.httplinks", "links", len(links))
 	return nil
+}
+
+// acScreenHTTPFiles uses a single Aho-Corasick automaton to pre-screen all
+// sourceStore files for HTTP client, async dispatch, AND route registration
+// keywords. One CGo call scans all files — zero per-file overhead.
+// Returns two maps: callFiles (HTTP/async keywords) and routeFiles (route keywords).
+func (p *Pipeline) acScreenHTTPFiles() (callFiles, routeFiles map[string]uint64) {
+	httpKW := httplink.HTTPClientKeywords()
+	asyncKW := httplink.AsyncDispatchKeywords()
+	routeKW := httplink.RouteKeywords()
+
+	// Layout: [httpClient...][asyncDispatch...][route...]
+	// Deduplicate to fit in 64-bit bitmask.
+	all := make([]string, 0, len(httpKW)+len(asyncKW)+len(routeKW))
+	all = append(all, httpKW...)
+	all = append(all, asyncKW...)
+	all = append(all, routeKW...)
+	seen := make(map[string]bool, len(all))
+	patterns := all[:0]
+	for _, p := range all {
+		if !seen[p] {
+			seen[p] = true
+			patterns = append(patterns, p)
+		}
+	}
+
+	ac := cbm.ACBuild(patterns)
+	if ac == nil {
+		return nil, nil
+	}
+	defer ac.Free()
+
+	// Bitmask boundaries — computed from deduplicated positions.
+	// Re-map: find which bits correspond to each category.
+	var callBits, asyncBits, routeBits uint64
+	pidOf := make(map[string]int, len(patterns))
+	for i, p := range patterns {
+		pidOf[p] = i
+	}
+	for _, kw := range httpKW {
+		if pid, ok := pidOf[kw]; ok && pid < 64 {
+			callBits |= 1 << pid
+		}
+	}
+	for _, kw := range asyncKW {
+		if pid, ok := pidOf[kw]; ok && pid < 64 {
+			asyncBits |= 1 << pid
+		}
+	}
+	for _, kw := range routeKW {
+		if pid, ok := pidOf[kw]; ok && pid < 64 {
+			routeBits |= 1 << pid
+		}
+	}
+	callAndAsyncBits := callBits | asyncBits
+
+	// Build LZ4 entry array + path index for single CGo call.
+	t := time.Now()
+	entries := make([]cbm.LZ4Entry, 0, len(p.sourceStore))
+	paths := make([]string, 0, len(p.sourceStore))
+	for relPath, cs := range p.sourceStore {
+		entries = append(entries, cbm.LZ4Entry{Data: cs.data, OriginalLen: cs.originalLen})
+		paths = append(paths, relPath)
+	}
+
+	matches := ac.ScanLZ4Batch(entries)
+
+	callFiles = make(map[string]uint64)
+	routeFiles = make(map[string]uint64)
+	for _, m := range matches {
+		relPath := paths[m.FileIndex]
+		if m.Bitmask&callAndAsyncBits != 0 {
+			callFiles[relPath] = m.Bitmask & callAndAsyncBits
+		}
+		if m.Bitmask&routeBits != 0 {
+			routeFiles[relPath] = m.Bitmask & routeBits
+		}
+	}
+
+	slog.Info("httplink.ac_screen",
+		"files_total", len(entries),
+		"call_files", len(callFiles),
+		"route_files", len(routeFiles),
+		"patterns", len(patterns),
+		"states", ac.NumStates(),
+		"table_kb", ac.TableBytes()/1024,
+		"elapsed", time.Since(t))
+
+	return callFiles, routeFiles
 }
 
 // extractInfraCallSites extracts URL values from InfraFile environment properties
@@ -1695,9 +2076,14 @@ var jsonURLKeyPattern = regexp.MustCompile(`(?i)(url|endpoint|base_url|host|api_
 // processJSONFile extracts URL-related string values from JSON config files.
 // Uses a key-pattern allowlist to avoid flooding constants with noise.
 func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
-	data, err := os.ReadFile(f.Path)
-	if err != nil {
-		return err
+	// Use sourceStore if available (RAM path), fall back to disk
+	data := p.getSource(f.RelPath)
+	if data == nil {
+		var err error
+		data, err = os.ReadFile(f.Path)
+		if err != nil {
+			return err
+		}
 	}
 
 	var parsed any
@@ -1718,7 +2104,7 @@ func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
 	}
 
 	moduleQN := fqn.ModuleQN(p.ProjectName, f.RelPath)
-	err = p.upsertNode(&store.Node{
+	return p.upsertNode(&store.Node{
 		Project:       p.ProjectName,
 		Label:         "Module",
 		Name:          filepath.Base(f.RelPath),
@@ -1726,7 +2112,6 @@ func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
 		FilePath:      f.RelPath,
 		Properties:    map[string]any{"constants": constants},
 	})
-	return err
 }
 
 // extractJSONURLValues recursively extracts key=value pairs from JSON where

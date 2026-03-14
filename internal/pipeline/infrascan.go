@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bufio"
+	"bytes"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,11 +21,45 @@ type infraFile struct {
 	properties map[string]any
 }
 
-// passInfraFiles walks the repo, detects infrastructure files, parses them,
+// passInfraFiles detects infrastructure files, parses them,
 // and creates File + InfraFile nodes for each.
+// Uses sourceStore when available (RAM path), falls back to filepath.Walk.
 func (p *Pipeline) passInfraFiles() {
 	var infras []infraFile
 
+	if p.sourceStore != nil {
+		infras = p.scanInfraFromRAM()
+	} else {
+		infras = p.scanInfraFromDisk()
+	}
+
+	if len(infras) == 0 {
+		return
+	}
+
+	for _, inf := range infras {
+		p.upsertInfraNodes(inf)
+	}
+	slog.Info("pass4.infra", "nodes", len(infras))
+}
+
+// scanInfraFromRAM iterates sourceStore keys and parses infra files from RAM.
+func (p *Pipeline) scanInfraFromRAM() []infraFile {
+	var infras []infraFile
+	for relPath := range p.sourceStore {
+		name := filepath.Base(relPath)
+		source := p.getSource(relPath)
+		if len(source) == 0 || len(source) > 1<<20 {
+			continue
+		}
+		infras = append(infras, parseInfraFileFromSource(source, relPath, name)...)
+	}
+	return infras
+}
+
+// scanInfraFromDisk walks the filesystem and parses infra files from disk.
+func (p *Pipeline) scanInfraFromDisk() []infraFile {
+	var infras []infraFile
 	_ = filepath.Walk(p.RepoPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -50,19 +85,33 @@ func (p *Pipeline) passInfraFiles() {
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		parsed := parseInfraFile(path, relPath, info.Name())
-		infras = append(infras, parsed...)
+		infras = append(infras, parseInfraFile(path, relPath, info.Name())...)
 		return nil
 	})
+	return infras
+}
 
-	if len(infras) == 0 {
-		return
-	}
+// parseInfraFileFromSource routes a file from RAM to the appropriate parser.
+func parseInfraFileFromSource(source []byte, relPath, name string) []infraFile {
+	lower := strings.ToLower(name)
+	ext := strings.ToLower(filepath.Ext(name))
 
-	for _, inf := range infras {
-		p.upsertInfraNodes(inf)
+	switch {
+	case isDockerfile(lower):
+		return parseDockerfileFromSource(source, relPath)
+	case isComposeFile(lower):
+		return parseComposeFileFromSource(source, relPath)
+	case isCloudbuildFile(lower):
+		return parseCloudbuildFileFromSource(source, relPath)
+	case isEnvFile(lower):
+		return parseDotenvFileFromSource(source, relPath)
+	case ext == ".tf":
+		return parseTerraformFileFromSource(source, relPath)
+	case isShellScript(lower, ext):
+		return parseShellScriptFromSource(source, relPath)
+	default:
+		return nil
 	}
-	slog.Info("pass4.infra", "nodes", len(infras))
 }
 
 // parseInfraFile routes a file to the appropriate parser based on its name.
@@ -168,9 +217,15 @@ func parseDockerfile(absPath, relPath string) []infraFile {
 		return nil
 	}
 	defer f.Close()
+	return parseDockerfileScanner(bufio.NewScanner(f), relPath)
+}
 
+func parseDockerfileFromSource(source []byte, relPath string) []infraFile {
+	return parseDockerfileScanner(bufio.NewScanner(bytes.NewReader(source)), relPath)
+}
+
+func parseDockerfileScanner(scanner *bufio.Scanner, relPath string) []infraFile {
 	var d dockerfileState
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -305,9 +360,15 @@ func parseDotenvFile(absPath, relPath string) []infraFile {
 		return nil
 	}
 	defer f.Close()
+	return parseDotenvScanner(bufio.NewScanner(f), relPath)
+}
 
+func parseDotenvFileFromSource(source []byte, relPath string) []infraFile {
+	return parseDotenvScanner(bufio.NewScanner(bytes.NewReader(source)), relPath)
+}
+
+func parseDotenvScanner(scanner *bufio.Scanner, relPath string) []infraFile {
 	envVars := make(map[string]string)
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -354,9 +415,15 @@ func parseShellScript(absPath, relPath string) []infraFile {
 		return nil
 	}
 	defer f.Close()
+	return parseShellScanner(bufio.NewScanner(f), relPath)
+}
 
+func parseShellScriptFromSource(source []byte, relPath string) []infraFile {
+	return parseShellScanner(bufio.NewScanner(bytes.NewReader(source)), relPath)
+}
+
+func parseShellScanner(scanner *bufio.Scanner, relPath string) []infraFile {
 	var st shellState
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		st.parseLine(line)

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -1128,5 +1130,127 @@ func TestBFSWithCrossServiceEdges(t *testing.T) {
 	summary := BuildImpactSummary(result.Visited, result.Edges)
 	if !summary.HasCrossService {
 		t.Error("expected has_cross_service=true for HTTP_CALLS edge")
+	}
+}
+
+func TestDumpToFile(t *testing.T) {
+	// Create in-memory store with test data
+	mem, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mem.Close()
+
+	if err := mem.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := mem.UpsertNode(&Node{
+		Project:       "test",
+		Label:         "Function",
+		Name:          "Hello",
+		QualifiedName: "test.main.Hello",
+		FilePath:      "main.go",
+		StartLine:     1,
+		EndLine:       5,
+		Properties:    map[string]any{"sig": "func Hello()"},
+	})
+	if err != nil || id == 0 {
+		t.Fatalf("UpsertNode: id=%d err=%v", id, err)
+	}
+
+	// Dump to temp file
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "dump.db")
+	if err := mem.DumpToFile(destPath); err != nil {
+		t.Fatalf("DumpToFile: %v", err)
+	}
+
+	// Verify file exists and has content
+	fi, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if fi.Size() == 0 {
+		t.Fatal("dumped DB is empty")
+	}
+
+	// Open the dumped file and verify data survived
+	disk, err := OpenPath(destPath)
+	if err != nil {
+		t.Fatalf("OpenPath dumped: %v", err)
+	}
+	defer disk.Close()
+
+	found, err := disk.FindNodeByQN("test", "test.main.Hello")
+	if err != nil {
+		t.Fatalf("FindNodeByQN: %v", err)
+	}
+	if found == nil {
+		t.Fatal("node not found in dumped DB")
+	}
+	if found.Name != "Hello" {
+		t.Errorf("expected Hello, got %s", found.Name)
+	}
+	if found.Properties["sig"] != "func Hello()" {
+		t.Errorf("properties mismatch: %v", found.Properties)
+	}
+}
+
+func TestRestoreFrom(t *testing.T) {
+	// Create in-memory store with test data
+	mem, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mem.Close()
+
+	if err := mem.UpsertProject("test", "/tmp/test"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		_, err := mem.UpsertNode(&Node{
+			Project:       "test",
+			Label:         "Function",
+			Name:          fmt.Sprintf("Func%d", i),
+			QualifiedName: fmt.Sprintf("test.main.Func%d", i),
+			FilePath:      "main.go",
+			StartLine:     i * 10,
+			EndLine:       i*10 + 5,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create disk store as destination
+	dir := t.TempDir()
+	diskPath := filepath.Join(dir, "restore.db")
+	disk, err := OpenPath(diskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disk.Close()
+
+	// Restore: copy from in-memory → disk
+	if err := disk.RestoreFrom(mem); err != nil {
+		t.Fatalf("RestoreFrom: %v", err)
+	}
+
+	// Verify data landed in the disk store
+	found, err := disk.FindNodeByQN("test", "test.main.Func42")
+	if err != nil {
+		t.Fatalf("FindNodeByQN: %v", err)
+	}
+	if found == nil {
+		t.Fatal("node not found after restore")
+	}
+	if found.Name != "Func42" {
+		t.Errorf("expected Func42, got %s", found.Name)
+	}
+
+	// Verify count
+	nc, _ := disk.CountNodes("test")
+	if nc != 100 {
+		t.Errorf("expected 100 nodes, got %d", nc)
 	}
 }

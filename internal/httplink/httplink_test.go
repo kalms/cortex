@@ -257,7 +257,7 @@ func TestReadSourceLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := readSourceLines(dir, "test.go", 2, 4)
+	got := readSourceLinesDisk(dir, "test.go", 2, 4)
 	want := "line2\nline3\nline4"
 	if got != want {
 		t.Errorf("readSourceLines = %q, want %q", got, want)
@@ -265,7 +265,7 @@ func TestReadSourceLines(t *testing.T) {
 }
 
 func TestReadSourceLinesMissingFile(t *testing.T) {
-	got := readSourceLines("/nonexistent", "missing.go", 1, 10)
+	got := readSourceLinesDisk("/nonexistent", "missing.go", 1, 10)
 	if got != "" {
 		t.Errorf("expected empty string for missing file, got %q", got)
 	}
@@ -900,7 +900,7 @@ func EnqueueJob(ctx context.Context) {
 		FilePath:      "worker/task.go", StartLine: 3, EndLine: 7,
 	}
 
-	sites := extractFunctionCallSites(node, dir)
+	sites := (&Linker{}).extractFunctionCallSites(node, dir)
 	if len(sites) == 0 {
 		t.Fatal("expected at least 1 call site, got 0")
 	}
@@ -935,7 +935,7 @@ func SyncCall(ctx context.Context) {
 		FilePath:      "worker/sync.go", StartLine: 3, EndLine: 6,
 	}
 
-	syncSites := extractFunctionCallSites(syncNode, dir)
+	syncSites := (&Linker{}).extractFunctionCallSites(syncNode, dir)
 	if len(syncSites) == 0 {
 		t.Fatal("expected at least 1 sync call site, got 0")
 	}

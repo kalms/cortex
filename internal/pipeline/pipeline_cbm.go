@@ -21,13 +21,21 @@ type cachedExtraction struct {
 
 // cbmParseFile reads a file, calls cbm.ExtractFile(), and converts the
 // result to the same parseResult format used by the batch write infrastructure.
-// This replaces parseFileAST() — all AST walking happens in C.
+// Keeps a copy of the source bytes on parseResult.Source for the sourceStore.
 func cbmParseFile(projectName string, f discover.FileInfo, flags *cbm.ExtractionFlags) *parseResult {
 	source, cleanup, err := mmapFile(f.Path)
 	if cleanup != nil {
 		defer cleanup()
 	}
-	return cbmParseFileFromSource(projectName, f, source, err, flags)
+	r := cbmParseFileFromSource(projectName, f, source, err, flags)
+	// Keep a heap copy of the source bytes for the sourceStore.
+	// The mmap will be unmapped after this function returns.
+	if r.Err == nil && len(source) > 0 {
+		kept := make([]byte, len(source))
+		copy(kept, source)
+		r.Source = kept
+	}
+	return r
 }
 
 // cbmParseFileFromSource is like cbmParseFile but takes pre-read source data.
@@ -268,7 +276,7 @@ func (p *Pipeline) runGoLSPCrossFileResolution(ext *cachedExtraction, moduleQN, 
 	if len(crossDefs) == 0 {
 		return
 	}
-	source := readFileSource(p.RepoPath, relPath)
+	source := readFileSource(p, relPath)
 	if len(source) == 0 {
 		return
 	}
@@ -292,7 +300,7 @@ func (p *Pipeline) runCLSPCrossFileResolution(ext *cachedExtraction, moduleQN, r
 	if len(crossDefs) == 0 {
 		return
 	}
-	source := readFileSource(p.RepoPath, relPath)
+	source := readFileSource(p, relPath)
 	if len(source) == 0 {
 		return
 	}

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"regexp"
 	"strings"
@@ -52,13 +53,19 @@ func parseTerraformFile(absPath, relPath string) []infraFile {
 		return nil
 	}
 	defer f.Close()
+	return parseTerraformScanner(bufio.NewScanner(f), relPath)
+}
 
+func parseTerraformFileFromSource(source []byte, relPath string) []infraFile {
+	return parseTerraformScanner(bufio.NewScanner(bytes.NewReader(source)), relPath)
+}
+
+func parseTerraformScanner(scanner *bufio.Scanner, relPath string) []infraFile {
 	var st tfState
 	var curBlock blockKind
 	var curBlockData map[string]string
 	braceDepth := 0
 
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)

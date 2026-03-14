@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 )
 
 // Querier abstracts *sql.DB and *sql.Tx so store methods work in both contexts.
@@ -246,6 +246,135 @@ func (s *Store) restoreDefaultCache(ctx context.Context) {
 	cacheMB := adaptiveCacheMB(s.dbPath)
 	cacheKB := cacheMB * 1024
 	_, _ = s.db.ExecContext(ctx, fmt.Sprintf("PRAGMA cache_size = -%d", cacheKB))
+}
+
+// DumpToFile copies the in-memory database to a file using SQLite's Backup API.
+// Writes atomically: the destination file is fully consistent after this call.
+// Only useful when the Store was opened with OpenMemory().
+func (s *Store) DumpToFile(destPath string) error {
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return fmt.Errorf("mkdir for dump: %w", err)
+	}
+
+	// Open destination database
+	destDB, err := sql.Open("sqlite3", destPath+"?_journal_mode=OFF&_synchronous=OFF")
+	if err != nil {
+		return fmt.Errorf("open dest db: %w", err)
+	}
+	defer destDB.Close()
+	destDB.SetMaxOpenConns(1)
+
+	ctx := context.Background()
+
+	// Get raw SQLiteConn for source (in-memory)
+	srcConn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("src conn: %w", err)
+	}
+	defer srcConn.Close()
+
+	// Get raw SQLiteConn for destination
+	dstConn, err := destDB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("dst conn: %w", err)
+	}
+	defer dstConn.Close()
+
+	// Perform backup via raw driver connections
+	var backupErr error
+	err = dstConn.Raw(func(dstDriverConn any) error {
+		dstSQLiteConn, ok := dstDriverConn.(*sqlite3.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("dest is not SQLiteConn")
+		}
+		return srcConn.Raw(func(srcDriverConn any) error {
+			srcSQLiteConn, ok := srcDriverConn.(*sqlite3.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("src is not SQLiteConn")
+			}
+			backup, err := dstSQLiteConn.Backup("main", srcSQLiteConn, "main")
+			if err != nil {
+				return fmt.Errorf("backup init: %w", err)
+			}
+			// Step(-1) copies all pages in one call
+			done, stepErr := backup.Step(-1)
+			finishErr := backup.Finish()
+			if stepErr != nil {
+				backupErr = fmt.Errorf("backup step: %w", stepErr)
+				return backupErr
+			}
+			if finishErr != nil {
+				backupErr = fmt.Errorf("backup finish: %w", finishErr)
+				return backupErr
+			}
+			if !done {
+				backupErr = fmt.Errorf("backup incomplete")
+				return backupErr
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return backupErr
+}
+
+// RestoreFrom copies all data from src (typically in-memory) into this store
+// using the SQLite Backup API. This replaces all content in the destination.
+// The destination store's connection remains valid after the operation.
+func (s *Store) RestoreFrom(src *Store) error {
+	ctx := context.Background()
+
+	srcConn, err := src.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("src conn: %w", err)
+	}
+	defer srcConn.Close()
+
+	dstConn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("dst conn: %w", err)
+	}
+	defer dstConn.Close()
+
+	var backupErr error
+	err = dstConn.Raw(func(dstDriverConn any) error {
+		dstSQLiteConn, ok := dstDriverConn.(*sqlite3.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("dest is not SQLiteConn")
+		}
+		return srcConn.Raw(func(srcDriverConn any) error {
+			srcSQLiteConn, ok := srcDriverConn.(*sqlite3.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("src is not SQLiteConn")
+			}
+			backup, err := dstSQLiteConn.Backup("main", srcSQLiteConn, "main")
+			if err != nil {
+				return fmt.Errorf("backup init: %w", err)
+			}
+			done, stepErr := backup.Step(-1)
+			finishErr := backup.Finish()
+			if stepErr != nil {
+				backupErr = fmt.Errorf("backup step: %w", stepErr)
+				return backupErr
+			}
+			if finishErr != nil {
+				backupErr = fmt.Errorf("backup finish: %w", finishErr)
+				return backupErr
+			}
+			if !done {
+				backupErr = fmt.Errorf("backup incomplete")
+				return backupErr
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return backupErr
 }
 
 // Close closes the database connection.

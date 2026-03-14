@@ -36,7 +36,14 @@ func parseComposeFile(absPath, relPath string) []infraFile {
 	if err != nil {
 		return nil
 	}
+	return parseComposeData(data, relPath)
+}
 
+func parseComposeFileFromSource(source []byte, relPath string) []infraFile {
+	return parseComposeData(source, relPath)
+}
+
+func parseComposeData(data []byte, relPath string) []infraFile {
 	var cf composeFile
 	if err := yaml.Unmarshal(data, &cf); err != nil {
 		return nil
@@ -213,7 +220,14 @@ func parseCloudbuildFile(absPath, relPath string) []infraFile {
 	if err != nil {
 		return nil
 	}
+	return parseCloudbuildData(data, relPath)
+}
 
+func parseCloudbuildFileFromSource(source []byte, relPath string) []infraFile {
+	return parseCloudbuildData(source, relPath)
+}
+
+func parseCloudbuildData(data []byte, relPath string) []infraFile {
 	var cb cloudbuildFile
 	if err := yaml.Unmarshal(data, &cb); err != nil {
 		return nil

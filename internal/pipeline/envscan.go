@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,6 +66,50 @@ func ScanProjectEnvURLs(rootPath string) []EnvBinding {
 		return nil
 	})
 
+	return bindings
+}
+
+// scanEnvURLsFromStore iterates sourceStore keys and scans for env URL bindings.
+// Used when sourceStore is populated (RAM path) to avoid filesystem walk.
+func (p *Pipeline) scanEnvURLsFromStore() []EnvBinding {
+	var bindings []EnvBinding
+	for relPath := range p.sourceStore {
+		name := filepath.Base(relPath)
+		lowerName := strings.ToLower(name)
+		ext := filepath.Ext(name)
+
+		// Skip secret files
+		if isSecretFile(name) {
+			continue
+		}
+
+		var patterns []*regexp.Regexp
+		switch {
+		case isDockerfile(lowerName):
+			patterns = dockerfilePatterns
+		case ext == ".yaml" || ext == ".yml":
+			patterns = yamlPatterns
+		case ext == ".tf" || ext == ".hcl":
+			patterns = terraformPatterns
+		case ext == ".sh" || ext == ".bash" || ext == ".zsh":
+			patterns = shellPatterns
+		case isEnvFile(lowerName):
+			patterns = envFilePatterns
+		case ext == ".toml":
+			patterns = tomlPatterns
+		case ext == ".properties" || ext == ".cfg" || ext == ".ini":
+			patterns = propertiesPatterns
+		default:
+			continue
+		}
+
+		source := p.getSource(relPath)
+		if len(source) == 0 || len(source) > 1<<20 {
+			continue
+		}
+		fileBindings := scanWithPatternsFromSource(source, relPath, patterns)
+		bindings = append(bindings, fileBindings...)
+	}
 	return bindings
 }
 
@@ -204,9 +249,15 @@ func scanWithPatterns(absPath, relPath string, patterns []*regexp.Regexp) []EnvB
 		return nil
 	}
 	defer f.Close()
+	return scanWithPatternsReader(bufio.NewScanner(f), relPath, patterns)
+}
 
+func scanWithPatternsFromSource(source []byte, relPath string, patterns []*regexp.Regexp) []EnvBinding {
+	return scanWithPatternsReader(bufio.NewScanner(bytes.NewReader(source)), relPath, patterns)
+}
+
+func scanWithPatternsReader(scanner *bufio.Scanner, relPath string, patterns []*regexp.Regexp) []EnvBinding {
 	var bindings []EnvBinding
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 

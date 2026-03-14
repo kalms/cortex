@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/cbm"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -37,8 +40,9 @@ var configFileRefRe = regexp.MustCompile(
 // passConfigLinker runs 3 post-flush strategies to link config↔code.
 func (p *Pipeline) passConfigLinker() {
 	t := time.Now()
+	t1 := time.Now()
 	keyEdges := p.matchConfigKeySymbols()
-	slog.Info("configlinker.strategy", "name", "key_symbol", "edges", len(keyEdges))
+	slog.Info("configlinker.strategy", "name", "key_symbol", "edges", len(keyEdges), "elapsed", time.Since(t1))
 
 	t2 := time.Now()
 	depEdges := p.matchDependencyImports()
@@ -138,6 +142,7 @@ func (p *Pipeline) collectCodeNodes() []*store.Node {
 
 // matchConfigKeySymbols links config Variable nodes to code symbols when
 // the normalized config key is a contiguous substring of the normalized code name.
+// Pre-normalizes all code node names in O(n) to avoid O(n×m) normalizeConfigKey calls.
 func (p *Pipeline) matchConfigKeySymbols() []*store.Edge {
 	configVars, err := p.Store.FindNodesByLabel(p.ProjectName, "Variable")
 	if err != nil {
@@ -151,37 +156,104 @@ func (p *Pipeline) matchConfigKeySymbols() []*store.Edge {
 
 	codeNodes := p.collectCodeNodes()
 
-	var edges []*store.Edge
-	for _, ce := range entries {
-		for _, code := range codeNodes {
-			codeNorm, _ := normalizeConfigKey(code.Name)
-			if codeNorm == "" {
-				continue
-			}
-
-			var confidence float64
-			switch {
-			case codeNorm == ce.normalized:
-				confidence = 0.85 // exact match
-			case strings.Contains(codeNorm, ce.normalized):
-				confidence = 0.75 // substring match
-			default:
-				continue
-			}
-
-			edges = append(edges, &store.Edge{
-				Project:  p.ProjectName,
-				SourceID: code.ID,
-				TargetID: ce.node.ID,
-				Type:     "CONFIGURES",
-				Properties: map[string]any{
-					"strategy":   "key_symbol",
-					"confidence": confidence,
-					"config_key": ce.node.Name,
-				},
-			})
+	// Pre-normalize: build map[normalizedName] → []*store.Node (single O(n) pass)
+	codeByNorm := make(map[string][]*store.Node, len(codeNodes))
+	for _, code := range codeNodes {
+		norm, _ := normalizeConfigKey(code.Name)
+		if norm != "" {
+			codeByNorm[norm] = append(codeByNorm[norm], code)
 		}
 	}
+	slog.Info("configlinker.key_symbol.stats",
+		"config_entries", len(entries),
+		"code_nodes", len(codeNodes),
+		"unique_norms", len(codeByNorm))
+
+	var edges []*store.Edge
+
+	// Exact match: O(1) lookup per config entry.
+	for _, ce := range entries {
+		if matches, ok := codeByNorm[ce.normalized]; ok {
+			for _, code := range matches {
+				edges = append(edges, &store.Edge{
+					Project:  p.ProjectName,
+					SourceID: code.ID,
+					TargetID: ce.node.ID,
+					Type:     "CONFIGURES",
+					Properties: map[string]any{
+						"strategy":   "key_symbol",
+						"confidence": 0.85,
+						"config_key": ce.node.Name,
+					},
+				})
+			}
+		}
+	}
+
+	// Substring match via Aho-Corasick: build AC from config keys, scan code names.
+	// This replaces O(entries × unique_norms) string comparisons with O(sum(name_lengths)).
+	acPatterns := make([]string, len(entries))
+	for i, ce := range entries {
+		acPatterns[i] = ce.normalized
+	}
+
+	// Build compact-alphabet AC (config keys only contain [a-z0-9_]).
+	var alphaMap [256]byte
+	idx := byte(1)
+	for c := byte('a'); c <= byte('z'); c++ {
+		alphaMap[c] = idx
+		idx++
+	}
+	for c := byte('0'); c <= byte('9'); c++ {
+		alphaMap[c] = idx
+		idx++
+	}
+	alphaMap['_'] = idx
+	alphaSize := int(idx) + 1
+
+	ac := cbm.ACBuildCompact(acPatterns, alphaMap, alphaSize)
+	if ac != nil {
+		defer ac.Free()
+
+		// Collect unique norms as a flat list for batch scanning.
+		normList := make([]string, 0, len(codeByNorm))
+		for norm := range codeByNorm {
+			normList = append(normList, norm)
+		}
+
+		tAC := time.Now()
+		matches := ac.ScanBatch(normList)
+		slog.Info("configlinker.ac_scan",
+			"names", len(normList),
+			"matches", len(matches),
+			"states", ac.NumStates(),
+			"table_kb", ac.TableBytes()/1024,
+			"elapsed", time.Since(tAC))
+
+		// Convert AC matches to edges (skip exact matches, already handled above).
+		for _, m := range matches {
+			norm := normList[m.NameIndex]
+			ce := entries[m.PatternID]
+			if norm == ce.normalized {
+				continue // already added as exact match
+			}
+			codes := codeByNorm[norm]
+			for _, code := range codes {
+				edges = append(edges, &store.Edge{
+					Project:  p.ProjectName,
+					SourceID: code.ID,
+					TargetID: ce.node.ID,
+					Type:     "CONFIGURES",
+					Properties: map[string]any{
+						"strategy":   "key_symbol",
+						"confidence": 0.75,
+						"config_key": ce.node.Name,
+					},
+				})
+			}
+		}
+	}
+
 	return edges
 }
 
@@ -219,20 +291,26 @@ func collectManifestDeps(vars []*store.Node) []depEntry {
 	return deps
 }
 
-// resolveEdgeNodes builds lookup maps for source and target nodes of edges.
+// resolveEdgeNodes builds a lookup map for source and target nodes of edges.
+// Uses batched FindNodesByIDs instead of per-ID queries.
 func (p *Pipeline) resolveEdgeNodes(edges []*store.Edge) (source, target map[int64]*store.Node) {
-	ids := make(map[int64]struct{})
+	seen := make(map[int64]struct{}, len(edges)*2)
+	var ids []int64
 	for _, e := range edges {
-		ids[e.SourceID] = struct{}{}
-		ids[e.TargetID] = struct{}{}
-	}
-	lookup := make(map[int64]*store.Node, len(ids))
-	for id := range ids {
-		n, err := p.Store.FindNodeByID(id)
-		if err == nil && n != nil {
-			lookup[id] = n
+		if _, ok := seen[e.SourceID]; !ok {
+			ids = append(ids, e.SourceID)
+			seen[e.SourceID] = struct{}{}
+		}
+		if _, ok := seen[e.TargetID]; !ok {
+			ids = append(ids, e.TargetID)
+			seen[e.TargetID] = struct{}{}
 		}
 	}
+	lookup, _ := p.Store.FindNodesByIDs(ids)
+	if lookup == nil {
+		lookup = make(map[int64]*store.Node)
+	}
+	slog.Info("configlinker.resolve_nodes", "unique_ids", len(ids), "resolved", len(lookup))
 	return lookup, lookup
 }
 
@@ -309,8 +387,17 @@ func isDependencyChild(v *store.Node) bool {
 
 // --- Strategy 3: Config File Path → Code String Reference ---
 
+// fileRefResult holds a matched config file reference for concurrent collection.
+type fileRefResult struct {
+	sourceQN   string
+	targetNode *store.Node
+	confidence float64
+	refPath    string
+}
+
 // matchConfigFileRefs scans source code for string literals referencing config files.
-func (p *Pipeline) matchConfigFileRefs() []*store.Edge {
+// Parallelizes disk I/O across CPUs for large codebases.
+func (p *Pipeline) matchConfigFileRefs() []*store.Edge { //nolint:gocognit,funlen // parallel file scanning with concurrent result collection
 	// Collect config Module nodes
 	modules, err := p.Store.FindNodesByLabel(p.ProjectName, "Module")
 	if err != nil {
@@ -329,65 +416,118 @@ func (p *Pipeline) matchConfigFileRefs() []*store.Edge {
 		return nil
 	}
 
-	// Scan source files for config file references (use Module nodes from DB)
-	var edges []*store.Edge
+	// Collect non-config modules to scan
+	var toScan []*store.Node
 	for _, m := range modules {
-		relPath := m.FilePath
-		if hasConfigExtension(relPath) {
-			continue // Skip config files themselves
+		if !hasConfigExtension(m.FilePath) {
+			toScan = append(toScan, m)
 		}
+	}
 
-		// Read source from disk for string literal scanning
-		fullPath := filepath.Join(p.RepoPath, relPath)
-		source, err := os.ReadFile(fullPath)
-		if err != nil {
-			continue
-		}
+	slog.Info("configlinker.file_ref.stats",
+		"config_modules", len(configModules),
+		"files_to_scan", len(toScan),
+		"concurrency", runtime.NumCPU())
 
-		matches := configFileRefRe.FindAllStringSubmatch(string(source), -1)
-		for _, match := range matches {
-			if len(match) < 2 {
-				continue
-			}
-			refPath := match[1]
+	// Parallel file scanning with bounded concurrency
+	sem := make(chan struct{}, runtime.NumCPU())
+	var mu sync.Mutex
+	var results []fileRefResult
 
-			// Try full path match first
-			var target *store.Node
-			var confidence float64
-			if m, ok := configModulesFull[refPath]; ok {
-				target = m
-				confidence = 0.90
-			} else {
-				// Try basename match
-				refBase := filepath.Base(refPath)
-				if m, ok := configModules[refBase]; ok {
-					target = m
-					confidence = 0.70
+	var wg sync.WaitGroup
+	for _, m := range toScan {
+		wg.Add(1)
+		go func(mod *store.Node) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			source := p.getSource(mod.FilePath)
+			if len(source) == 0 {
+				// Disk fallback for incremental mode
+				var err error
+				source, err = os.ReadFile(filepath.Join(p.RepoPath, mod.FilePath))
+				if err != nil {
+					return
 				}
 			}
-			if target == nil {
-				continue
+
+			matches := configFileRefRe.FindAllStringSubmatch(string(source), -1)
+			if len(matches) == 0 {
+				return
 			}
 
-			// Find the source module/function
-			moduleQN := moduleQNForFile(p.ProjectName, relPath)
-			sourceNode, err := p.Store.FindNodeByQN(p.ProjectName, moduleQN)
-			if err != nil || sourceNode == nil {
-				continue
+			var local []fileRefResult
+			for _, match := range matches {
+				if len(match) < 2 {
+					continue
+				}
+				refPath := match[1]
+
+				var target *store.Node
+				var confidence float64
+				if t, ok := configModulesFull[refPath]; ok {
+					target = t
+					confidence = 0.90
+				} else {
+					refBase := filepath.Base(refPath)
+					if t, ok := configModules[refBase]; ok {
+						target = t
+						confidence = 0.70
+					}
+				}
+				if target == nil {
+					continue
+				}
+
+				moduleQN := moduleQNForFile(p.ProjectName, mod.FilePath)
+				local = append(local, fileRefResult{
+					sourceQN:   moduleQN,
+					targetNode: target,
+					confidence: confidence,
+					refPath:    refPath,
+				})
 			}
 
-			edges = append(edges, &store.Edge{
-				Project:  p.ProjectName,
-				SourceID: sourceNode.ID,
-				TargetID: target.ID,
-				Type:     "CONFIGURES",
-				Properties: map[string]any{
-					"strategy":   "file_reference",
-					"confidence": confidence,
-					"ref_path":   refPath,
-				},
-			})
+			if len(local) > 0 {
+				mu.Lock()
+				results = append(results, local...)
+				mu.Unlock()
+			}
+		}(m)
+	}
+	wg.Wait()
+
+	// Batch-resolve source QNs (deduplicate first)
+	qnSet := make(map[string]struct{}, len(results))
+	for _, r := range results {
+		qnSet[r.sourceQN] = struct{}{}
+	}
+	qnMap := make(map[string]*store.Node, len(qnSet))
+	for qn := range qnSet {
+		n, err := p.Store.FindNodeByQN(p.ProjectName, qn)
+		if err == nil && n != nil {
+			qnMap[qn] = n
 		}
+	}
+
+	var edges []*store.Edge
+	for _, r := range results {
+		sourceNode := qnMap[r.sourceQN]
+		if sourceNode == nil {
+			continue
+		}
+		edges = append(edges, &store.Edge{
+			Project:  p.ProjectName,
+			SourceID: sourceNode.ID,
+			TargetID: r.targetNode.ID,
+			Type:     "CONFIGURES",
+			Properties: map[string]any{
+				"strategy":   "file_reference",
+				"confidence": r.confidence,
+				"ref_path":   r.refPath,
+			},
+		})
 	}
 	return edges
 }

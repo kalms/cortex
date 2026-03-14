@@ -43,13 +43,23 @@ type HTTPLink struct {
 	EdgeType    string // "HTTP_CALLS" or "ASYNC_CALLS"
 }
 
+// SourceReader returns the full source bytes for a file by relative path.
+type SourceReader func(relPath string) []byte
+
+// SourceLineReader returns specific lines from a file by relative path.
+type SourceLineReader func(relPath string, startLine, endLine int) string
+
 // Linker discovers cross-service HTTP calls and creates HTTP_CALLS edges.
 type Linker struct {
-	store          *store.Store
-	project        string
-	config         *LinkerConfig
-	routesByFunc   map[string][]int // funcQN → indices into routes slice
-	extraCallSites []HTTPCallSite   // injected from pipeline (e.g., InfraFile URLs)
+	store             *store.Store
+	project           string
+	config            *LinkerConfig
+	routesByFunc      map[string][]int  // funcQN → indices into routes slice
+	extraCallSites    []HTTPCallSite    // injected from pipeline (e.g., InfraFile URLs)
+	sourceReader      SourceReader      // RAM source reader (nil → disk fallback)
+	sourceLines       SourceLineReader  // RAM line reader (nil → disk fallback)
+	httpKeywordFiles  map[string]uint64 // relPath → AC bitmask (files containing HTTP/async keywords)
+	routeKeywordFiles map[string]uint64 // relPath → AC bitmask (files containing route registration keywords)
 }
 
 // New creates a new HTTP Linker.
@@ -67,6 +77,69 @@ func (l *Linker) SetConfig(cfg *LinkerConfig) {
 // AddCallSites allows the pipeline to inject additional call sites from infra files.
 func (l *Linker) AddCallSites(sites []HTTPCallSite) {
 	l.extraCallSites = append(l.extraCallSites, sites...)
+}
+
+// SetSourceReader sets callbacks for reading source from RAM instead of disk.
+func (l *Linker) SetSourceReader(full SourceReader, lines SourceLineReader) {
+	l.sourceReader = full
+	l.sourceLines = lines
+}
+
+// SetHTTPKeywordFiles sets the pre-screened file filter from AC scanning.
+// Only files in this map will have their functions scanned for HTTP call sites.
+// The bitmask encodes which keyword categories matched (httpClient vs asyncDispatch).
+func (l *Linker) SetHTTPKeywordFiles(files map[string]uint64) {
+	l.httpKeywordFiles = files
+}
+
+// SetRouteKeywordFiles sets the pre-screened file filter for route discovery.
+// Only files in this map will have their function source read for route patterns.
+func (l *Linker) SetRouteKeywordFiles(files map[string]uint64) {
+	l.routeKeywordFiles = files
+}
+
+// HTTPClientKeywords returns the HTTP client keyword patterns for AC automaton building.
+func HTTPClientKeywords() []string {
+	return httpClientKeywords
+}
+
+// AsyncDispatchKeywords returns the async dispatch keyword patterns for AC automaton building.
+func AsyncDispatchKeywords() []string {
+	return asyncDispatchKeywords
+}
+
+// RouteKeywords returns keywords that indicate route registration in source code.
+// Used for AC pre-screening to avoid reading source for files with no routes.
+func RouteKeywords() []string {
+	return routeKeywords
+}
+
+// routeKeywords are patterns indicating route registration in source code.
+// Files not containing any of these can skip source-based route discovery.
+var routeKeywords = []string{
+	// Go gin/chi: .GET("/path"), .POST("/path"), .Group("/prefix"), .Route("/prefix"
+	".GET(", ".POST(", ".PUT(", ".DELETE(", ".PATCH(",
+	".Get(", ".Post(", ".Put(", ".Delete(", ".Patch(",
+	".Group(", ".Route(",
+	// Express.js: app.get("/path"), router.post("/path"), .use("/prefix"
+	".get(", ".post(", ".put(", ".delete(", ".patch(",
+	".use(",
+	// PHP Laravel: Route::get, Route::post
+	"Route::get", "Route::post", "Route::put", "Route::delete", "Route::patch",
+	// Kotlin Ktor: get("/path") {, post("/path") {
+	// (covered by .get(/.post( above)
+	// Python decorators (in properties, but file-level patterns for module scan)
+	"@app.", "@router.",
+	// Java Spring annotations (in properties, but useful for file screening)
+	"@GetMapping", "@PostMapping", "@PutMapping", "@DeleteMapping", "@PatchMapping",
+	"@RequestMapping",
+	// Rust Actix: #[get("/path")]
+	"#[get(", "#[post(", "#[put(", "#[delete(", "#[patch(",
+	// C# ASP.NET: [HttpGet("/path")], [Route("/path")]
+	"[HttpGet", "[HttpPost", "[HttpPut", "[HttpDelete", "[HttpPatch",
+	"[Route(",
+	// WebSocket
+	".websocket(", "webSocket(", "@MessageMapping",
 }
 
 // regex patterns for route and URL discovery
@@ -278,7 +351,7 @@ func (l *Linker) buildRouteProps(rh *RouteHandler, handlerNode *store.Node, root
 
 	// Detect protocol from handler source if not already set
 	if handlerNode != nil && handlerNode.FilePath != "" && handlerNode.StartLine > 0 {
-		handlerSource := readSourceLines(rootPath, handlerNode.FilePath, handlerNode.StartLine, handlerNode.EndLine)
+		handlerSource := l.readLines(rootPath, handlerNode.FilePath, handlerNode.StartLine, handlerNode.EndLine)
 		if protocol := detectProtocol(handlerSource); protocol != "" {
 			routeProps["protocol"] = protocol
 		}
@@ -337,7 +410,7 @@ func containsTestSegment(fp, seg string) bool {
 
 // discoverRoutes finds route handler registrations from Function nodes.
 //
-//nolint:gocognit // WHY: inherent complexity from multi-framework route discovery
+//nolint:gocognit,cyclop // WHY: inherent complexity from multi-framework route discovery
 func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 	var routes []RouteHandler
 
@@ -376,8 +449,10 @@ func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 		routes = append(routes, extractASPNetRoutes(f)...)
 
 		// Source-based route discovery (Go gin, Express.js, PHP Laravel, Kotlin Ktor)
-		if f.FilePath != "" && f.StartLine > 0 && f.EndLine > 0 {
-			source := readSourceLines(rootPath, f.FilePath, f.StartLine, f.EndLine)
+		// Skip source reads for files that AC pre-screening excluded.
+		if f.FilePath != "" && f.StartLine > 0 && f.EndLine > 0 &&
+			(l.routeKeywordFiles == nil || l.routeKeywordFiles[f.FilePath] != 0) {
+			source := l.readLines(rootPath, f.FilePath, f.StartLine, f.EndLine)
 			if source != "" {
 				routes = append(routes, extractGoRoutes(f, source)...)
 				routes = append(routes, extractExpressRoutes(f, source)...)
@@ -414,11 +489,16 @@ func (l *Linker) discoverRoutes(rootPath string) []RouteHandler {
 		if !isPHP && !isJSTS {
 			continue
 		}
+		// Skip files that AC pre-screening excluded
+		if l.routeKeywordFiles != nil && l.routeKeywordFiles[m.FilePath] == 0 {
+			continue
+		}
 		// For PHP: skip files where routes were already extracted from function bodies
 		if isPHP && phpFilesWithFuncs[m.FilePath] {
 			continue
 		}
-		source := readSourceFull(rootPath, m.FilePath)
+		sourceBytes := l.readFull(rootPath, m.FilePath)
+		source := string(sourceBytes)
 		if source == "" {
 			continue
 		}
@@ -808,13 +888,18 @@ func (l *Linker) discoverCallSites(rootPath string) []HTTPCallSite {
 		}
 	}
 
-	// Function/Method source
+	// Function/Method source — skip files that AC pre-screening excluded
 	funcs, err := l.store.FindNodesByLabel(l.project, "Function")
 	if err != nil {
 		slog.Warn("httplink.callsites.funcs.err", "err", err)
 	} else {
 		for _, f := range funcs {
-			sites = append(sites, extractFunctionCallSites(f, rootPath)...)
+			if l.httpKeywordFiles != nil {
+				if _, ok := l.httpKeywordFiles[f.FilePath]; !ok {
+					continue
+				}
+			}
+			sites = append(sites, l.extractFunctionCallSites(f, rootPath)...)
 		}
 	}
 
@@ -823,7 +908,12 @@ func (l *Linker) discoverCallSites(rootPath string) []HTTPCallSite {
 		slog.Warn("httplink.callsites.methods.err", "err", err)
 	} else {
 		for _, f := range methods {
-			sites = append(sites, extractFunctionCallSites(f, rootPath)...)
+			if l.httpKeywordFiles != nil {
+				if _, ok := l.httpKeywordFiles[f.FilePath]; !ok {
+					continue
+				}
+			}
+			sites = append(sites, l.extractFunctionCallSites(f, rootPath)...)
 		}
 	}
 
@@ -977,7 +1067,7 @@ func detectProtocol(source string) string {
 }
 
 // extractFunctionCallSites extracts HTTP paths from function source code.
-func extractFunctionCallSites(f *store.Node, rootPath string) []HTTPCallSite {
+func (l *Linker) extractFunctionCallSites(f *store.Node, rootPath string) []HTTPCallSite {
 	sites := make([]HTTPCallSite, 0, 4)
 
 	if f.FilePath == "" || f.StartLine <= 0 || f.EndLine <= 0 {
@@ -989,7 +1079,7 @@ func extractFunctionCallSites(f *store.Node, rootPath string) []HTTPCallSite {
 		return sites
 	}
 
-	source := readSourceLines(rootPath, f.FilePath, f.StartLine, f.EndLine)
+	source := l.readLines(rootPath, f.FilePath, f.StartLine, f.EndLine)
 	if source == "" {
 		return sites
 	}
@@ -1237,43 +1327,78 @@ func walkJSONForURLs(v any, out *[]string) {
 // matchAndLink matches call site paths to route handler paths and creates edges.
 // Uses multi-signal probabilistic scoring (path Jaccard, depth, method, source type).
 // Only creates edges above the confidence threshold.
-func (l *Linker) matchAndLink(routes []RouteHandler, callSites []HTTPCallSite) []HTTPLink {
+// Pre-caches QN lookups, pre-normalizes paths, and batch-inserts edges.
+func (l *Linker) matchAndLink(routes []RouteHandler, callSites []HTTPCallSite) []HTTPLink { //nolint:gocognit // multi-signal scoring loop is inherently complex
+	// Pre-resolve all unique QNs before the nested loop
+	qnCache := make(map[string]*store.Node)
+	for _, cs := range callSites {
+		if _, ok := qnCache[cs.SourceQualifiedName]; !ok {
+			n, _ := l.store.FindNodeByQN(l.project, cs.SourceQualifiedName)
+			qnCache[cs.SourceQualifiedName] = n // nil cached as "not found"
+		}
+	}
+	for _, rh := range routes {
+		if _, ok := qnCache[rh.QualifiedName]; !ok {
+			n, _ := l.store.FindNodeByQN(l.project, rh.QualifiedName)
+			qnCache[rh.QualifiedName] = n
+		}
+	}
+
+	// Pre-normalize all paths (avoid redundant regex in the inner loop)
+	normCalls := make([]string, len(callSites))
+	for i, cs := range callSites {
+		normCalls[i] = normalizePath(cs.Path)
+	}
+	normRoutes := make([]string, len(routes))
+	for i, rh := range routes {
+		normRoutes[i] = normalizePath(rh.Path)
+	}
+
+	slog.Info("httplink.matchAndLink.stats",
+		"routes", len(routes),
+		"callsites", len(callSites),
+		"cached_qns", len(qnCache))
+
+	excludePaths := l.config.AllExcludePaths()
+	minConf := l.config.EffectiveMinConfidence()
+
+	var pendingEdges []*store.Edge
 	var links []HTTPLink
 
-	for _, cs := range callSites {
-		for _, rh := range routes {
+	for ci, cs := range callSites {
+		callerNode := qnCache[cs.SourceQualifiedName]
+		if callerNode == nil {
+			continue
+		}
+		for ri, rh := range routes {
 			if sameService(cs.SourceQualifiedName, rh.QualifiedName) {
 				continue
 			}
-
-			// Skip noisy utility endpoints
-			if isPathExcluded(rh.Path, l.config.AllExcludePaths()) {
+			if isPathExcluded(rh.Path, excludePaths) {
 				continue
 			}
 
-			// Multi-signal confidence scoring
-			pathScore := pathMatchScore(cs.Path, rh.Path)
+			// Multi-signal confidence scoring using pre-normalized paths
+			pathScore := pathMatchScorePreNorm(normCalls[ci], normRoutes[ri])
 			if pathScore == 0 {
 				continue
 			}
 
 			score := pathScore*sourceWeight(cs.SourceLabel) + methodBonus(cs.Method, rh.Method)
-			if score < l.config.EffectiveMinConfidence() {
+			if score < minConf {
 				continue
 			}
 			if score > 1.0 {
 				score = 1.0
 			}
 
-			// Create edge with confidence score
 			edgeType := "HTTP_CALLS"
 			if cs.IsAsync {
 				edgeType = "ASYNC_CALLS"
 			}
 
-			callerNode, _ := l.store.FindNodeByQN(l.project, cs.SourceQualifiedName)
-			handlerNode, _ := l.store.FindNodeByQN(l.project, rh.QualifiedName)
-			if callerNode != nil && handlerNode != nil {
+			handlerNode := qnCache[rh.QualifiedName]
+			if handlerNode != nil {
 				band := confidenceBand(score)
 				props := map[string]any{
 					"url_path":        cs.Path,
@@ -1283,7 +1408,7 @@ func (l *Linker) matchAndLink(routes []RouteHandler, callSites []HTTPCallSite) [
 				if rh.Method != "" {
 					props["method"] = rh.Method
 				}
-				_, _ = l.store.InsertEdge(&store.Edge{
+				pendingEdges = append(pendingEdges, &store.Edge{
 					Project:    l.project,
 					SourceID:   callerNode.ID,
 					TargetID:   handlerNode.ID,
@@ -1302,6 +1427,9 @@ func (l *Linker) matchAndLink(routes []RouteHandler, callSites []HTTPCallSite) [
 		}
 	}
 
+	if len(pendingEdges) > 0 {
+		_ = l.store.InsertEdgeBatch(pendingEdges)
+	}
 	return links
 }
 
@@ -1380,6 +1508,55 @@ func pathMatchScore(callPath, routePath string) float64 {
 	jaccard := segmentJaccard(matchedCallSegs, matchedRouteSegs)
 
 	// Depth factor: more segments = more specific match
+	totalSegs := len(matchedRouteSegs)
+	depthFactor := float64(totalSegs) / 3.0
+	if depthFactor > 1.0 {
+		depthFactor = 1.0
+	}
+
+	score := matchBase * (0.5*jaccard + 0.5*depthFactor)
+	if score > 1.0 {
+		score = 1.0
+	}
+	return score
+}
+
+// pathMatchScorePreNorm is like pathMatchScore but accepts already-normalized paths.
+// Avoids redundant normalizePath calls in the hot loop.
+func pathMatchScorePreNorm(normCall, normRoute string) float64 {
+	if normCall == "" || normRoute == "" {
+		return 0
+	}
+
+	var matchBase float64
+	var matchedCallSegs, matchedRouteSegs []string
+
+	switch {
+	case normCall == normRoute:
+		matchBase = 0.95
+		matchedCallSegs = splitSegments(normCall)
+		matchedRouteSegs = splitSegments(normRoute)
+	case strings.HasSuffix(normCall, normRoute):
+		matchBase = 0.75
+		matchedCallSegs = splitSegments(normRoute)
+		matchedRouteSegs = splitSegments(normRoute)
+	default:
+		callParts := strings.Split(normCall, "/")
+		routeParts := strings.Split(normRoute, "/")
+		if len(callParts) != len(routeParts) {
+			return 0
+		}
+		for i := range callParts {
+			if callParts[i] != routeParts[i] && callParts[i] != "*" && routeParts[i] != "*" {
+				return 0
+			}
+		}
+		matchBase = 0.55
+		matchedCallSegs = splitSegments(normCall)
+		matchedRouteSegs = splitSegments(normRoute)
+	}
+
+	jaccard := segmentJaccard(matchedCallSegs, matchedRouteSegs)
 	totalSegs := len(matchedRouteSegs)
 	depthFactor := float64(totalSegs) / 3.0
 	if depthFactor > 1.0 {
@@ -1485,8 +1662,8 @@ func (l *Linker) resolveFastAPIPrefixes(routes []RouteHandler, rootPath string) 
 			continue
 		}
 
-		source, readErr := os.ReadFile(filepath.Join(rootPath, mod.FilePath))
-		if readErr != nil {
+		source := l.readFull(rootPath, mod.FilePath)
+		if source == nil {
 			continue
 		}
 		srcStr := string(source)
@@ -1548,8 +1725,8 @@ func (l *Linker) resolveExpressPrefixes(routes []RouteHandler, rootPath string) 
 			continue
 		}
 
-		source, readErr := os.ReadFile(filepath.Join(rootPath, mod.FilePath))
-		if readErr != nil {
+		source := l.readFull(rootPath, mod.FilePath)
+		if source == nil {
 			continue
 		}
 		srcStr := string(source)
@@ -1681,7 +1858,7 @@ func (l *Linker) resolveCallerGroupPrefixes(routes []RouteHandler, indices []int
 			continue
 		}
 
-		callerSource := readSourceLines(rootPath, callerNode.FilePath, callerNode.StartLine, callerNode.EndLine)
+		callerSource := l.readLines(rootPath, callerNode.FilePath, callerNode.StartLine, callerNode.EndLine)
 		if callerSource == "" {
 			continue
 		}
@@ -1780,17 +1957,28 @@ func (l *Linker) createRegistrationCallEdges(routes []RouteHandler) {
 	}
 }
 
-// readSourceLines reads specific lines from a file on disk.
-// readSourceFull reads the entire file content as a string.
-func readSourceFull(rootPath, relPath string) string {
-	data, err := os.ReadFile(filepath.Join(rootPath, relPath))
-	if err != nil {
-		return ""
+// readLines returns specific lines, using sourceLines callback or disk fallback.
+func (l *Linker) readLines(rootPath, relPath string, startLine, endLine int) string {
+	if l.sourceLines != nil {
+		return l.sourceLines(relPath, startLine, endLine)
 	}
-	return string(data)
+	return readSourceLinesDisk(rootPath, relPath, startLine, endLine)
 }
 
-func readSourceLines(rootPath, relPath string, startLine, endLine int) string {
+// readFull returns full file content, using sourceReader callback or disk fallback.
+func (l *Linker) readFull(rootPath, relPath string) []byte {
+	if l.sourceReader != nil {
+		return l.sourceReader(relPath)
+	}
+	data, err := os.ReadFile(filepath.Join(rootPath, relPath))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// readSourceLinesDisk reads specific lines from a file on disk (fallback).
+func readSourceLinesDisk(rootPath, relPath string, startLine, endLine int) string {
 	absPath := filepath.Join(rootPath, relPath)
 	f, err := os.Open(absPath)
 	if err != nil {

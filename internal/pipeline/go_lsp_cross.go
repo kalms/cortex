@@ -58,8 +58,8 @@ func (p *Pipeline) buildGoLSPDefIndex() *goLSPDefIndex {
 
 		// Enrich struct types with field definitions and interfaces with method names from Go source
 		if len(defs) > 0 {
-			enrichStructFieldDefs(p.RepoPath, relPath, defs)
-			enrichInterfaceMethodNames(p.RepoPath, relPath, defs)
+			enrichStructFieldDefs(p, relPath, defs)
+			enrichInterfaceMethodNames(p, relPath, defs)
 			idx.byImportPath[importPath] = append(idx.byImportPath[importPath], defs...)
 		}
 	}
@@ -133,7 +133,7 @@ func requalifyForImport(qn, moduleQN, goImportPath string) string {
 
 // enrichStructFieldDefs parses Go source to extract struct field name:type pairs.
 // Populates FieldDefs on Type/Class CrossFileDef entries.
-func enrichStructFieldDefs(repoPath, relPath string, defs []cbm.CrossFileDef) {
+func enrichStructFieldDefs(p *Pipeline, relPath string, defs []cbm.CrossFileDef) {
 	// Collect struct type names that need field info
 	structNames := make(map[string]int) // shortName -> index in defs
 	for i := range defs {
@@ -146,8 +146,8 @@ func enrichStructFieldDefs(repoPath, relPath string, defs []cbm.CrossFileDef) {
 		return
 	}
 
-	src, err := os.ReadFile(filepath.Join(repoPath, relPath))
-	if err != nil {
+	src := readFileSource(p, relPath)
+	if len(src) == 0 {
 		return
 	}
 
@@ -250,7 +250,7 @@ func goTypeToString(expr ast.Expr) string {
 
 // enrichInterfaceMethodNames parses Go source to extract interface method names.
 // Populates MethodNames on Interface CrossFileDef entries as "|"-separated strings.
-func enrichInterfaceMethodNames(repoPath, relPath string, defs []cbm.CrossFileDef) {
+func enrichInterfaceMethodNames(p *Pipeline, relPath string, defs []cbm.CrossFileDef) {
 	ifaceNames := make(map[string]int) // shortName -> index in defs
 	for i := range defs {
 		d := &defs[i]
@@ -262,8 +262,8 @@ func enrichInterfaceMethodNames(repoPath, relPath string, defs []cbm.CrossFileDe
 		return
 	}
 
-	src, err := os.ReadFile(filepath.Join(repoPath, relPath))
-	if err != nil {
+	src := readFileSource(p, relPath)
+	if len(src) == 0 {
 		return
 	}
 
@@ -334,9 +334,13 @@ func readGoModulePath(repoPath string) string {
 	return ""
 }
 
-// readFileSource reads a file's source content from the repo.
-func readFileSource(repoPath, relPath string) []byte {
-	data, err := os.ReadFile(filepath.Join(repoPath, relPath))
+// readFileSource reads source from the in-memory sourceStore, falling back to disk.
+func readFileSource(p *Pipeline, relPath string) []byte {
+	if src := p.getSource(relPath); len(src) > 0 {
+		return src
+	}
+	// Fallback for files not in sourceStore (e.g., go.mod)
+	data, err := os.ReadFile(filepath.Join(p.RepoPath, relPath))
 	if err != nil {
 		return nil
 	}
