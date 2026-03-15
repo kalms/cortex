@@ -1,0 +1,363 @@
+# Makefile.cbm — Build system for pure C rewrite
+#
+# Usage:
+#   make -f Makefile.cbm test           # Build + run all tests (ASan + UBSan)
+#   make -f Makefile.cbm test-foundation # Foundation tests only (fast)
+#   make -f Makefile.cbm test-tsan      # Thread sanitizer build
+#   make -f Makefile.cbm cbm            # Production binary
+#   make -f Makefile.cbm clean-c        # Remove build artifacts
+
+CC = cc
+CXX = c++
+
+# ── Common flags ─────────────────────────────────────────────────
+
+# Include paths for:
+#   src/         — new foundation headers
+#   vendored/    — yyjson, xxhash, sqlite3
+#   internal/cbm — existing extraction headers (cbm.h, helpers.h, etc.)
+#   internal/cbm/vendored/ts_runtime/include — tree-sitter API
+CBM_DIR = internal/cbm
+TS_INCLUDE = $(CBM_DIR)/vendored/ts_runtime/include
+
+CFLAGS_COMMON = -std=c11 -Wall -Wextra -Werror \
+                -Wno-unused-parameter -Wno-sign-compare \
+                -Isrc -Ivendored -Ivendored/sqlite3 \
+                -I$(CBM_DIR) -I$(TS_INCLUDE)
+
+CXXFLAGS_COMMON = -std=c++14 -Wall -Wextra -Werror \
+                  -Wno-unused-parameter \
+                  -I$(CBM_DIR) -I$(TS_INCLUDE)
+
+# Production flags
+CFLAGS_PROD = $(CFLAGS_COMMON) -O2
+CXXFLAGS_PROD = $(CXXFLAGS_COMMON) -O2
+
+# Test flags: debug + sanitizers
+CFLAGS_TEST = $(CFLAGS_COMMON) -g -O1 \
+              -fsanitize=address,undefined \
+              -fno-omit-frame-pointer
+CXXFLAGS_TEST = $(CXXFLAGS_COMMON) -g -O1 \
+                -fsanitize=address,undefined \
+                -fno-omit-frame-pointer
+
+# TSan (can't combine with ASan)
+CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
+              -fsanitize=thread -fno-omit-frame-pointer
+CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
+                -fsanitize=thread -fno-omit-frame-pointer
+
+LDFLAGS = -lm -lstdc++ -lpthread -lsqlite3 -lz
+LDFLAGS_TEST = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=address,undefined
+LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=thread
+
+# ── Source files ─────────────────────────────────────────────────
+
+FOUNDATION_SRCS = \
+    src/foundation/arena.c \
+    src/foundation/hash_table.c \
+    src/foundation/str_intern.c \
+    src/foundation/log.c \
+    src/foundation/str_util.c \
+    src/foundation/platform.c \
+    src/foundation/system_info.c \
+    src/foundation/yaml.c
+
+# Existing extraction C code (compiled from current location)
+EXTRACTION_SRCS = \
+    $(CBM_DIR)/cbm.c \
+    $(CBM_DIR)/extract_defs.c \
+    $(CBM_DIR)/extract_calls.c \
+    $(CBM_DIR)/extract_imports.c \
+    $(CBM_DIR)/extract_usages.c \
+    $(CBM_DIR)/extract_unified.c \
+    $(CBM_DIR)/extract_semantic.c \
+    $(CBM_DIR)/extract_type_refs.c \
+    $(CBM_DIR)/extract_type_assigns.c \
+    $(CBM_DIR)/extract_env_accesses.c \
+    $(CBM_DIR)/helpers.c \
+    $(CBM_DIR)/lang_specs.c
+
+# LSP resolvers (compiled as one unit via lsp_all.c)
+LSP_SRCS = $(CBM_DIR)/lsp_all.c
+
+# Tree-sitter runtime
+TS_RUNTIME_SRC = $(CBM_DIR)/ts_runtime.c
+
+# All 64 grammar shim files
+GRAMMAR_SRCS = $(wildcard $(CBM_DIR)/grammar_*.c)
+
+# LZ4 + Aho-Corasick
+AC_LZ4_SRCS = $(CBM_DIR)/ac.c $(CBM_DIR)/lz4_store.c
+
+# Preprocessor (C++)
+PREPROCESSOR_SRC = $(CBM_DIR)/preprocessor.cpp
+
+# SQLite writer
+SQLITE_WRITER_SRC = $(CBM_DIR)/sqlite_writer.c
+
+# Store module (new)
+STORE_SRCS = src/store/store.c
+
+# Cypher module (new)
+CYPHER_SRCS = src/cypher/cypher.c
+
+# MCP server module (new)
+MCP_SRCS = src/mcp/mcp.c
+
+# Discover module (new)
+DISCOVER_SRCS = \
+    src/discover/language.c \
+    src/discover/gitignore.c \
+    src/discover/discover.c
+
+# Graph buffer module (new)
+GRAPH_BUFFER_SRCS = src/graph_buffer/graph_buffer.c
+
+# Pipeline module (new)
+PIPELINE_SRCS = \
+    src/pipeline/fqn.c \
+    src/pipeline/registry.c \
+    src/pipeline/pipeline.c \
+    src/pipeline/worker_pool.c \
+    src/pipeline/pass_parallel.c \
+    src/pipeline/pass_definitions.c \
+    src/pipeline/pass_calls.c \
+    src/pipeline/pass_usages.c \
+    src/pipeline/pass_semantic.c \
+    src/pipeline/pass_tests.c \
+    src/pipeline/pass_githistory.c \
+    src/pipeline/pass_httplinks.c \
+    src/pipeline/pass_gitdiff.c \
+    src/pipeline/pass_configures.c \
+    src/pipeline/pass_configlink.c \
+    src/pipeline/pass_enrichment.c \
+    src/pipeline/pass_envscan.c \
+    src/pipeline/pass_compile_commands.c \
+    src/pipeline/pass_infrascan.c \
+    src/pipeline/httplink.c
+
+# Traces module (new)
+TRACES_SRCS = src/traces/traces.c
+
+# Watcher module (new)
+WATCHER_SRCS = src/watcher/watcher.c
+
+# CLI module (new)
+CLI_SRCS = src/cli/cli.c
+
+# yyjson (vendored)
+YYJSON_SRC = vendored/yyjson/yyjson.c
+
+# All production sources
+PROD_SRCS = $(FOUNDATION_SRCS) $(STORE_SRCS) $(CYPHER_SRCS) $(MCP_SRCS) $(DISCOVER_SRCS) $(GRAPH_BUFFER_SRCS) $(PIPELINE_SRCS) $(TRACES_SRCS) $(WATCHER_SRCS) $(CLI_SRCS) $(YYJSON_SRC)
+EXISTING_C_SRCS = $(EXTRACTION_SRCS) $(LSP_SRCS) $(TS_RUNTIME_SRC) \
+                  $(GRAMMAR_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC)
+
+# ── Test sources ─────────────────────────────────────────────────
+
+TEST_FOUNDATION_SRCS = \
+    tests/test_main.c \
+    tests/test_arena.c \
+    tests/test_hash_table.c \
+    tests/test_dyn_array.c \
+    tests/test_str_intern.c \
+    tests/test_log.c \
+    tests/test_str_util.c \
+    tests/test_platform.c
+
+TEST_EXTRACTION_SRCS = \
+    tests/test_extraction.c \
+    tests/test_ac.c
+
+TEST_STORE_SRCS = \
+    tests/test_store_nodes.c \
+    tests/test_store_edges.c \
+    tests/test_store_search.c \
+    tests/test_store_arch.c
+
+TEST_CYPHER_SRCS = \
+    tests/test_cypher.c
+
+TEST_MCP_SRCS = \
+    tests/test_mcp.c
+
+TEST_DISCOVER_SRCS = \
+    tests/test_language.c \
+    tests/test_gitignore.c \
+    tests/test_discover.c
+
+TEST_GRAPH_BUFFER_SRCS = tests/test_graph_buffer.c
+
+TEST_PIPELINE_SRCS = tests/test_registry.c tests/test_pipeline.c tests/test_configlink.c tests/test_infrascan.c tests/test_worker_pool.c tests/test_parallel.c
+
+TEST_WATCHER_SRCS = tests/test_watcher.c
+
+TEST_LZ4_SRCS = tests/test_lz4.c
+
+TEST_SQLITE_WRITER_SRCS = tests/test_sqlite_writer.c
+
+TEST_GO_LSP_SRCS = tests/test_go_lsp.c
+
+TEST_C_LSP_SRCS = tests/test_c_lsp.c
+
+TEST_INTEGRATION_SRCS = tests/test_integration.c
+
+TEST_TRACES_SRCS = tests/test_traces.c
+
+TEST_HTTPLINK_SRCS = tests/test_httplink.c
+
+TEST_CLI_SRCS = tests/test_cli.c
+
+ALL_TEST_SRCS = $(TEST_FOUNDATION_SRCS) $(TEST_EXTRACTION_SRCS) $(TEST_STORE_SRCS) $(TEST_CYPHER_SRCS) $(TEST_MCP_SRCS) $(TEST_DISCOVER_SRCS) $(TEST_GRAPH_BUFFER_SRCS) $(TEST_PIPELINE_SRCS) $(TEST_WATCHER_SRCS) $(TEST_LZ4_SRCS) $(TEST_SQLITE_WRITER_SRCS) $(TEST_GO_LSP_SRCS) $(TEST_C_LSP_SRCS) $(TEST_TRACES_SRCS) $(TEST_HTTPLINK_SRCS) $(TEST_CLI_SRCS) $(TEST_INTEGRATION_SRCS)
+
+# ── Build directories ────────────────────────────────────────────
+
+BUILD_DIR = build/c
+
+# ── Object file compilation (grammars need relaxed warnings) ─────
+
+# Grammar + tree-sitter runtime: compiled without -Werror (upstream code has warnings)
+GRAMMAR_CFLAGS = -std=c11 -O2 -w -I$(CBM_DIR) -I$(TS_INCLUDE)
+GRAMMAR_CFLAGS_TEST = -std=c11 -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) \
+                      -fsanitize=address,undefined -fno-omit-frame-pointer
+GRAMMAR_CFLAGS_TSAN = -std=c11 -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) \
+                      -fsanitize=thread -fno-omit-frame-pointer
+
+# Object files for grammars + ts_runtime + lsp_all + preprocessor
+GRAMMAR_OBJS_TEST = $(patsubst $(CBM_DIR)/%.c,$(BUILD_DIR)/%.o,$(GRAMMAR_SRCS))
+TS_RUNTIME_OBJ_TEST = $(BUILD_DIR)/ts_runtime.o
+LSP_OBJ_TEST = $(BUILD_DIR)/lsp_all.o
+PP_OBJ_TEST = $(BUILD_DIR)/preprocessor.o
+
+# ── Targets ──────────────────────────────────────────────────────
+
+.PHONY: test test-foundation test-tsan cbm clean-c lint lint-tidy lint-cppcheck lint-format
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+# ── Foundation-only test (fast, no extraction) ───────────────────
+
+$(BUILD_DIR)/test-foundation: $(TEST_FOUNDATION_SRCS) $(FOUNDATION_SRCS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS_TEST) -o $@ $(TEST_FOUNDATION_SRCS) $(FOUNDATION_SRCS) $(LDFLAGS_TEST)
+
+test-foundation: $(BUILD_DIR)/test-foundation
+	cd $(CURDIR) && $(BUILD_DIR)/test-foundation
+
+# ── Grammar/TS/LSP object files (compiled with relaxed warnings) ─
+
+$(BUILD_DIR)/%.o: $(CBM_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS_TEST) -c -o $@ $<
+
+$(BUILD_DIR)/ts_runtime.o: $(CBM_DIR)/ts_runtime.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS_TEST) -c -o $@ $<
+
+$(BUILD_DIR)/lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS_TEST) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+
+$(BUILD_DIR)/preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS_TEST) -w -I$(CBM_DIR)/vendored -c -o $@ $<
+
+# ── Full test binary ─────────────────────────────────────────────
+
+OBJS_VENDORED_TEST = $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST)
+
+$(BUILD_DIR)/test-runner: $(ALL_TEST_SRCS) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_TEST) | $(BUILD_DIR)
+	$(CC) $(CFLAGS_TEST) -o $@ \
+		$(ALL_TEST_SRCS) $(PROD_SRCS) \
+		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
+		$(OBJS_VENDORED_TEST) \
+		$(LDFLAGS_TEST)
+
+test: $(BUILD_DIR)/test-runner
+	cd $(CURDIR) && $(BUILD_DIR)/test-runner
+
+# ── TSan full test ───────────────────────────────────────────────
+
+test-tsan:
+	@echo "TSan not yet wired for full extraction tests"
+
+# ── Production binary ────────────────────────────────────────────
+
+# Grammar/TS/LSP objects for production (compiled with relaxed warnings, -O2)
+GRAMMAR_OBJS_PROD = $(patsubst $(CBM_DIR)/%.c,$(BUILD_DIR)/prod_%.o,$(GRAMMAR_SRCS))
+TS_RUNTIME_OBJ_PROD = $(BUILD_DIR)/prod_ts_runtime.o
+LSP_OBJ_PROD = $(BUILD_DIR)/prod_lsp_all.o
+PP_OBJ_PROD = $(BUILD_DIR)/prod_preprocessor.o
+
+$(BUILD_DIR)/prod_%.o: $(CBM_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/prod_ts_runtime.o: $(CBM_DIR)/ts_runtime.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/prod_lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
+	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/prod_preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS_PROD) -w -I$(CBM_DIR)/vendored -c -o $@ $<
+
+OBJS_VENDORED_PROD = $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD)
+
+MAIN_SRC = src/main.c
+
+$(BUILD_DIR)/codebase-memory-mcp: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_PROD) | $(BUILD_DIR)
+	$(CC) $(CFLAGS_PROD) -o $@ \
+		$(MAIN_SRC) $(PROD_SRCS) \
+		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
+		$(OBJS_VENDORED_PROD) \
+		$(LDFLAGS)
+
+cbm: $(BUILD_DIR)/codebase-memory-mcp
+	@echo "Built: $(BUILD_DIR)/codebase-memory-mcp"
+
+clean-c:
+	rm -rf $(BUILD_DIR)
+
+# ── Linting ─────────────────────────────────────────────────────
+
+# clang-tidy and clang-format from Homebrew LLVM (keg-only on macOS)
+LLVM_BIN = $(shell brew --prefix llvm 2>/dev/null)/bin
+CLANG_TIDY = $(shell [ -x "$(LLVM_BIN)/clang-tidy" ] && echo "$(LLVM_BIN)/clang-tidy" || echo clang-tidy)
+CLANG_FORMAT = $(shell [ -x "$(LLVM_BIN)/clang-format" ] && echo "$(LLVM_BIN)/clang-format" || echo clang-format)
+CPPCHECK = cppcheck
+
+# macOS SDK sysroot (needed for Homebrew LLVM to find system headers)
+SYSROOT = $(shell xcrun --show-sdk-path 2>/dev/null)
+SYSROOT_FLAG = $(if $(SYSROOT),-isysroot $(SYSROOT),)
+
+# Our source files (excluding vendored, grammars, tree-sitter runtime)
+LINT_SRCS = $(FOUNDATION_SRCS) $(STORE_SRCS) $(CYPHER_SRCS) $(MCP_SRCS) \
+            $(DISCOVER_SRCS) $(GRAPH_BUFFER_SRCS) $(PIPELINE_SRCS) $(TRACES_SRCS) \
+            $(WATCHER_SRCS) $(CLI_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) \
+            $(SQLITE_WRITER_SRC) $(MAIN_SRC)
+LINT_HDRS = $(wildcard src/**/*.h src/*.h $(CBM_DIR)/*.h)
+LINT_TEST_SRCS = $(ALL_TEST_SRCS)
+
+# clang-tidy: deep static analysis (config in .clang-tidy)
+lint-tidy:
+	@echo "=== clang-tidy ==="
+	@$(CLANG_TIDY) --quiet $(LINT_SRCS) -- $(CFLAGS_COMMON) $(SYSROOT_FLAG)
+
+# cppcheck: complementary analysis (config in .cppcheck)
+lint-cppcheck:
+	@echo "=== cppcheck ==="
+	@$(CPPCHECK) --enable=warning,style,performance,portability \
+		--std=c11 --language=c \
+		--suppressions-list=.cppcheck \
+		--error-exitcode=1 \
+		--inline-suppr \
+		--quiet \
+		-Isrc -Ivendored -Ivendored/sqlite3 \
+		-I$(CBM_DIR) -I$(TS_INCLUDE) \
+		$(LINT_SRCS)
+
+# clang-format: formatting check (config in .clang-format, dry-run = no changes)
+lint-format:
+	@echo "=== clang-format ==="
+	@$(CLANG_FORMAT) --dry-run --Werror $(LINT_SRCS) $(LINT_HDRS)
+
+# All linters
+lint: lint-tidy lint-cppcheck lint-format
+	@echo "=== All linters passed ==="

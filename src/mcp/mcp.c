@@ -1,0 +1,1790 @@
+/*
+ * mcp.c — MCP server: JSON-RPC 2.0 over stdio with 14 graph tools.
+ *
+ * Uses yyjson for fast JSON parsing/building.
+ * Single-threaded event loop: read line → parse → dispatch → respond.
+ */
+#include "mcp/mcp.h"
+#include "store/store.h"
+#include "cypher/cypher.h"
+#include "pipeline/pipeline.h"
+#include "foundation/platform.h"
+
+#include <yyjson/yyjson.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+/* ── Helpers ────────────────────────────────────────────────────── */
+
+static char *heap_strdup(const char *s) {
+    if (!s)
+        return NULL;
+    size_t len = strlen(s);
+    char *d = malloc(len + 1);
+    if (d)
+        memcpy(d, s, len + 1);
+    return d;
+}
+
+/* Write yyjson_mut_doc to heap-allocated JSON string */
+static char *yy_doc_to_str(yyjson_mut_doc *doc) {
+    size_t len = 0;
+    char *s = yyjson_mut_write(doc, 0, &len);
+    return s;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  JSON-RPC PARSING
+ * ══════════════════════════════════════════════════════════════════ */
+
+int cbm_jsonrpc_parse(const char *line, cbm_jsonrpc_request_t *out) {
+    memset(out, 0, sizeof(*out));
+    out->id = -1;
+
+    yyjson_doc *doc = yyjson_read(line, strlen(line), 0);
+    if (!doc)
+        return -1;
+
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    if (!yyjson_is_obj(root)) {
+        yyjson_doc_free(doc);
+        return -1;
+    }
+
+    yyjson_val *v_jsonrpc = yyjson_obj_get(root, "jsonrpc");
+    yyjson_val *v_method = yyjson_obj_get(root, "method");
+    yyjson_val *v_id = yyjson_obj_get(root, "id");
+    yyjson_val *v_params = yyjson_obj_get(root, "params");
+
+    if (!v_method || !yyjson_is_str(v_method)) {
+        yyjson_doc_free(doc);
+        return -1;
+    }
+
+    out->jsonrpc =
+        heap_strdup(v_jsonrpc && yyjson_is_str(v_jsonrpc) ? yyjson_get_str(v_jsonrpc) : "2.0");
+    out->method = heap_strdup(yyjson_get_str(v_method));
+
+    if (v_id) {
+        out->has_id = true;
+        if (yyjson_is_int(v_id)) {
+            out->id = yyjson_get_int(v_id);
+        } else if (yyjson_is_str(v_id)) {
+            out->id = strtol(yyjson_get_str(v_id), NULL, 10);
+        }
+    }
+
+    if (v_params) {
+        out->params_raw = yyjson_val_write(v_params, 0, NULL);
+    }
+
+    yyjson_doc_free(doc);
+    return 0;
+}
+
+void cbm_jsonrpc_request_free(cbm_jsonrpc_request_t *r) {
+    if (!r)
+        return;
+    free((void *)r->jsonrpc);
+    free((void *)r->method);
+    free((void *)r->params_raw);
+    memset(r, 0, sizeof(*r));
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  JSON-RPC FORMATTING
+ * ══════════════════════════════════════════════════════════════════ */
+
+char *cbm_jsonrpc_format_response(const cbm_jsonrpc_response_t *resp) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "jsonrpc", "2.0");
+    yyjson_mut_obj_add_int(doc, root, "id", resp->id);
+
+    if (resp->error_json) {
+        /* Parse the error JSON and embed */
+        yyjson_doc *err_doc = yyjson_read(resp->error_json, strlen(resp->error_json), 0);
+        if (err_doc) {
+            yyjson_mut_val *err_val = yyjson_val_mut_copy(doc, yyjson_doc_get_root(err_doc));
+            yyjson_mut_obj_add_val(doc, root, "error", err_val);
+            yyjson_doc_free(err_doc);
+        }
+    } else if (resp->result_json) {
+        /* Parse the result JSON and embed */
+        yyjson_doc *res_doc = yyjson_read(resp->result_json, strlen(resp->result_json), 0);
+        if (res_doc) {
+            yyjson_mut_val *res_val = yyjson_val_mut_copy(doc, yyjson_doc_get_root(res_doc));
+            yyjson_mut_obj_add_val(doc, root, "result", res_val);
+            yyjson_doc_free(res_doc);
+        }
+    }
+
+    char *out = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    return out;
+}
+
+char *cbm_jsonrpc_format_error(int64_t id, int code, const char *message) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "jsonrpc", "2.0");
+    yyjson_mut_obj_add_int(doc, root, "id", id);
+
+    yyjson_mut_val *err = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_int(doc, err, "code", code);
+    yyjson_mut_obj_add_str(doc, err, "message", message);
+    yyjson_mut_obj_add_val(doc, root, "error", err);
+
+    char *out = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  MCP PROTOCOL HELPERS
+ * ══════════════════════════════════════════════════════════════════ */
+
+char *cbm_mcp_text_result(const char *text, bool is_error) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val *content = yyjson_mut_arr(doc);
+    yyjson_mut_val *item = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_str(doc, item, "type", "text");
+    yyjson_mut_obj_add_str(doc, item, "text", text);
+    yyjson_mut_arr_add_val(content, item);
+    yyjson_mut_obj_add_val(doc, root, "content", content);
+
+    if (is_error) {
+        yyjson_mut_obj_add_bool(doc, root, "isError", true);
+    }
+
+    char *out = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    return out;
+}
+
+/* ── Tool definitions ─────────────────────────────────────────── */
+
+typedef struct {
+    const char *name;
+    const char *description;
+    const char *input_schema; /* JSON string */
+} tool_def_t;
+
+static const tool_def_t TOOLS[] = {
+    {"index_repository", "Index a repository into the knowledge graph",
+     "{\"type\":\"object\",\"properties\":{\"repo_path\":{\"type\":\"string\",\"description\":"
+     "\"Path to the "
+     "repository\"},\"mode\":{\"type\":\"string\",\"enum\":[\"full\",\"fast\"],\"default\":"
+     "\"full\"}},\"required\":[\"repo_path\"]}"},
+
+    {"search_graph", "Search the code knowledge graph for nodes matching criteria",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"label\":{\"type\":"
+     "\"string\"},\"name_pattern\":{\"type\":\"string\"},\"qn_pattern\":{\"type\":\"string\"},"
+     "\"file_pattern\":{\"type\":\"string\"},\"relationship\":{\"type\":\"string\"},\"min_degree\":"
+     "{\"type\":\"integer\"},\"max_degree\":{\"type\":\"integer\"},\"exclude_entry_points\":{"
+     "\"type\":\"boolean\"},\"include_connected\":{\"type\":\"boolean\"},\"limit\":{\"type\":"
+     "\"integer\",\"default\":10},\"offset\":{\"type\":\"integer\",\"default\":0}}}"},
+
+    {"query_graph", "Execute a Cypher query against the knowledge graph",
+     "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Cypher "
+     "query\"},\"project\":{\"type\":\"string\"},\"max_rows\":{\"type\":\"integer\",\"default\":"
+     "200}},\"required\":[\"query\"]}"},
+
+    {"trace_call_path", "Trace function call paths (callers/callees)",
+     "{\"type\":\"object\",\"properties\":{\"function_name\":{\"type\":\"string\"},\"project\":{"
+     "\"type\":\"string\"},\"direction\":{\"type\":\"string\",\"enum\":[\"inbound\",\"outbound\","
+     "\"both\"],\"default\":\"both\"},\"depth\":{\"type\":\"integer\",\"default\":3},\"edge_"
+     "types\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"function_"
+     "name\"]}"},
+
+    {"get_code_snippet", "Get source code for a specific symbol",
+     "{\"type\":\"object\",\"properties\":{\"qualified_name\":{\"type\":\"string\"},\"project\":{"
+     "\"type\":\"string\"},\"auto_resolve\":{\"type\":\"boolean\",\"default\":false},\"include_"
+     "neighbors\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"qualified_name\"]}"},
+
+    {"get_graph_schema", "Get the schema of the knowledge graph (node labels, edge types)",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}}}"},
+
+    {"get_architecture", "Get high-level architecture overview",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"aspects\":{\"type\":"
+     "\"array\",\"items\":{\"type\":\"string\"}}}}"},
+
+    {"search_code", "Search source code content with text or regex patterns",
+     "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"project\":{\"type\":"
+     "\"string\"},\"file_pattern\":{\"type\":\"string\"},\"regex\":{\"type\":\"boolean\","
+     "\"default\":false},\"limit\":{\"type\":\"integer\",\"default\":10}},\"required\":["
+     "\"pattern\"]}"},
+
+    {"list_projects", "List all indexed projects", "{\"type\":\"object\",\"properties\":{}}"},
+
+    {"delete_project", "Delete a project from the index",
+     "{\"type\":\"object\",\"properties\":{\"project_name\":{\"type\":\"string\"}},\"required\":["
+     "\"project_name\"]}"},
+
+    {"index_status", "Get the indexing status of a project",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}}}"},
+
+    {"detect_changes", "Detect code changes and their impact",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"scope\":{\"type\":"
+     "\"string\"},\"depth\":{\"type\":\"integer\",\"default\":2},\"base_branch\":{\"type\":"
+     "\"string\",\"default\":\"main\"}}}"},
+
+    {"manage_adr", "Create or update Architecture Decision Records",
+     "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"mode\":{\"type\":"
+     "\"string\",\"enum\":[\"get\",\"update\",\"sections\"]},\"content\":{\"type\":\"string\"},"
+     "\"sections\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}"},
+
+    {"ingest_traces", "Ingest runtime traces to enhance the knowledge graph",
+     "{\"type\":\"object\",\"properties\":{\"traces\":{\"type\":\"array\"},\"project\":{\"type\":"
+     "\"string\"}},\"required\":[\"traces\"]}"},
+};
+
+static const int TOOL_COUNT = sizeof(TOOLS) / sizeof(TOOLS[0]);
+
+char *cbm_mcp_tools_list(void) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val *tools = yyjson_mut_arr(doc);
+
+    for (int i = 0; i < TOOL_COUNT; i++) {
+        yyjson_mut_val *tool = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, tool, "name", TOOLS[i].name);
+        yyjson_mut_obj_add_str(doc, tool, "description", TOOLS[i].description);
+
+        /* Parse input schema JSON and embed */
+        yyjson_doc *schema_doc =
+            yyjson_read(TOOLS[i].input_schema, strlen(TOOLS[i].input_schema), 0);
+        if (schema_doc) {
+            yyjson_mut_val *schema = yyjson_val_mut_copy(doc, yyjson_doc_get_root(schema_doc));
+            yyjson_mut_obj_add_val(doc, tool, "inputSchema", schema);
+            yyjson_doc_free(schema_doc);
+        }
+
+        yyjson_mut_arr_add_val(tools, tool);
+    }
+
+    yyjson_mut_obj_add_val(doc, root, "tools", tools);
+
+    char *out = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    return out;
+}
+
+char *cbm_mcp_initialize_response(void) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val *proto = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_str(doc, proto, "version", "2024-11-05");
+    yyjson_mut_obj_add_val(doc, root, "protocolVersion", proto);
+
+    yyjson_mut_val *impl = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_str(doc, impl, "name", "codebase-memory-mcp");
+    yyjson_mut_obj_add_str(doc, impl, "version", "0.10.0");
+    yyjson_mut_obj_add_val(doc, root, "serverInfo", impl);
+
+    yyjson_mut_val *caps = yyjson_mut_obj(doc);
+    yyjson_mut_val *tools_cap = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_val(doc, caps, "tools", tools_cap);
+    yyjson_mut_obj_add_val(doc, root, "capabilities", caps);
+
+    char *out = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  ARGUMENT EXTRACTION
+ * ══════════════════════════════════════════════════════════════════ */
+
+char *cbm_mcp_get_tool_name(const char *params_json) {
+    yyjson_doc *doc = yyjson_read(params_json, strlen(params_json), 0);
+    if (!doc)
+        return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *name = yyjson_obj_get(root, "name");
+    char *result = NULL;
+    if (name && yyjson_is_str(name)) {
+        result = heap_strdup(yyjson_get_str(name));
+    }
+    yyjson_doc_free(doc);
+    return result;
+}
+
+char *cbm_mcp_get_arguments(const char *params_json) {
+    yyjson_doc *doc = yyjson_read(params_json, strlen(params_json), 0);
+    if (!doc)
+        return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *args = yyjson_obj_get(root, "arguments");
+    char *result = NULL;
+    if (args) {
+        result = yyjson_val_write(args, 0, NULL);
+    }
+    yyjson_doc_free(doc);
+    return result ? result : heap_strdup("{}");
+}
+
+char *cbm_mcp_get_string_arg(const char *args_json, const char *key) {
+    yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
+    if (!doc)
+        return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *val = yyjson_obj_get(root, key);
+    char *result = NULL;
+    if (val && yyjson_is_str(val)) {
+        result = heap_strdup(yyjson_get_str(val));
+    }
+    yyjson_doc_free(doc);
+    return result;
+}
+
+int cbm_mcp_get_int_arg(const char *args_json, const char *key, int default_val) {
+    yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
+    if (!doc)
+        return default_val;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *val = yyjson_obj_get(root, key);
+    int result = default_val;
+    if (val && yyjson_is_int(val)) {
+        result = (int)yyjson_get_int(val);
+    }
+    yyjson_doc_free(doc);
+    return result;
+}
+
+bool cbm_mcp_get_bool_arg(const char *args_json, const char *key) {
+    yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
+    if (!doc)
+        return false;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *val = yyjson_obj_get(root, key);
+    bool result = false;
+    if (val && yyjson_is_bool(val)) {
+        result = yyjson_get_bool(val);
+    }
+    yyjson_doc_free(doc);
+    return result;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  MCP SERVER
+ * ══════════════════════════════════════════════════════════════════ */
+
+struct cbm_mcp_server {
+    cbm_store_t *store;     /* in-memory or file-backed SQLite store */
+    bool owns_store;        /* true if we opened the store */
+    const char *store_path; /* NULL for in-memory */
+};
+
+cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
+    cbm_mcp_server_t *srv = calloc(1, sizeof(*srv));
+    if (!srv)
+        return NULL;
+
+    if (store_path) {
+        srv->store = cbm_store_open(store_path);
+        srv->store_path = heap_strdup(store_path);
+    } else {
+        srv->store = cbm_store_open_memory();
+    }
+    srv->owns_store = true;
+
+    return srv;
+}
+
+cbm_store_t *cbm_mcp_server_store(cbm_mcp_server_t *srv) {
+    return srv ? srv->store : NULL;
+}
+
+void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
+    if (!srv)
+        return;
+    if (srv->owns_store && srv->store) {
+        cbm_store_close(srv->store);
+    }
+    free((void *)srv->store_path);
+    free(srv);
+}
+
+/* ── Tool handler implementations ─────────────────────────────── */
+
+static char *handle_list_projects(cbm_mcp_server_t *srv, const char *args) {
+    cbm_project_t *projects = NULL;
+    int count = 0;
+    cbm_store_list_projects(srv->store, &projects, &count);
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val *arr = yyjson_mut_arr(doc);
+    for (int i = 0; i < count; i++) {
+        yyjson_mut_val *p = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, p, "name", projects[i].name ? projects[i].name : "");
+        yyjson_mut_obj_add_str(doc, p, "root_path",
+                               projects[i].root_path ? projects[i].root_path : "");
+        int nodes = cbm_store_count_nodes(srv->store, projects[i].name);
+        int edges = cbm_store_count_edges(srv->store, projects[i].name);
+        yyjson_mut_obj_add_int(doc, p, "nodes", nodes);
+        yyjson_mut_obj_add_int(doc, p, "edges", edges);
+        yyjson_mut_arr_add_val(arr, p);
+    }
+    yyjson_mut_obj_add_val(doc, root, "projects", arr);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    cbm_store_free_projects(projects, count);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_get_graph_schema(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+
+    cbm_schema_info_t schema = {0};
+    cbm_store_get_schema(srv->store, project, &schema);
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_val *labels = yyjson_mut_arr(doc);
+    for (int i = 0; i < schema.node_label_count; i++) {
+        yyjson_mut_val *lbl = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, lbl, "label", schema.node_labels[i].label);
+        yyjson_mut_obj_add_int(doc, lbl, "count", schema.node_labels[i].count);
+        yyjson_mut_arr_add_val(labels, lbl);
+    }
+    yyjson_mut_obj_add_val(doc, root, "node_labels", labels);
+
+    yyjson_mut_val *types = yyjson_mut_arr(doc);
+    for (int i = 0; i < schema.edge_type_count; i++) {
+        yyjson_mut_val *typ = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, typ, "type", schema.edge_types[i].type);
+        yyjson_mut_obj_add_int(doc, typ, "count", schema.edge_types[i].count);
+        yyjson_mut_arr_add_val(types, typ);
+    }
+    yyjson_mut_obj_add_val(doc, root, "edge_types", types);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    cbm_store_schema_free(&schema);
+    free(project);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_search_graph(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    char *label = cbm_mcp_get_string_arg(args, "label");
+    char *name_pattern = cbm_mcp_get_string_arg(args, "name_pattern");
+    char *file_pattern = cbm_mcp_get_string_arg(args, "file_pattern");
+    int limit = cbm_mcp_get_int_arg(args, "limit", 10);
+    int offset = cbm_mcp_get_int_arg(args, "offset", 0);
+    int min_degree = cbm_mcp_get_int_arg(args, "min_degree", -1);
+    int max_degree = cbm_mcp_get_int_arg(args, "max_degree", -1);
+
+    cbm_search_params_t params = {
+        .project = project,
+        .label = label,
+        .name_pattern = name_pattern,
+        .file_pattern = file_pattern,
+        .limit = limit,
+        .offset = offset,
+        .min_degree = min_degree,
+        .max_degree = max_degree,
+    };
+
+    cbm_search_output_t out = {0};
+    cbm_store_search(srv->store, &params, &out);
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_int(doc, root, "total", out.total);
+
+    yyjson_mut_val *results = yyjson_mut_arr(doc);
+    for (int i = 0; i < out.count; i++) {
+        cbm_search_result_t *sr = &out.results[i];
+        yyjson_mut_val *item = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, item, "name", sr->node.name ? sr->node.name : "");
+        yyjson_mut_obj_add_str(doc, item, "qualified_name",
+                               sr->node.qualified_name ? sr->node.qualified_name : "");
+        yyjson_mut_obj_add_str(doc, item, "label", sr->node.label ? sr->node.label : "");
+        yyjson_mut_obj_add_str(doc, item, "file_path",
+                               sr->node.file_path ? sr->node.file_path : "");
+        yyjson_mut_obj_add_int(doc, item, "in_degree", sr->in_degree);
+        yyjson_mut_obj_add_int(doc, item, "out_degree", sr->out_degree);
+        yyjson_mut_arr_add_val(results, item);
+    }
+    yyjson_mut_obj_add_val(doc, root, "results", results);
+    yyjson_mut_obj_add_bool(doc, root, "has_more", out.total > offset + out.count);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    cbm_store_search_free(&out);
+
+    free(project);
+    free(label);
+    free(name_pattern);
+    free(file_pattern);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_query_graph(cbm_mcp_server_t *srv, const char *args) {
+    char *query = cbm_mcp_get_string_arg(args, "query");
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    int max_rows = cbm_mcp_get_int_arg(args, "max_rows", 200);
+
+    if (!query) {
+        free(project);
+        return cbm_mcp_text_result("query parameter is required", true);
+    }
+
+    cbm_cypher_result_t result = {0};
+    int rc = cbm_cypher_execute(srv->store, query, project, max_rows, &result);
+
+    if (rc < 0) {
+        free(query);
+        free(project);
+        return cbm_mcp_text_result("query execution failed", true);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    /* columns */
+    yyjson_mut_val *cols = yyjson_mut_arr(doc);
+    for (int i = 0; i < result.col_count; i++) {
+        yyjson_mut_arr_add_str(doc, cols, result.columns[i]);
+    }
+    yyjson_mut_obj_add_val(doc, root, "columns", cols);
+
+    /* rows */
+    yyjson_mut_val *rows = yyjson_mut_arr(doc);
+    for (int r = 0; r < result.row_count; r++) {
+        yyjson_mut_val *row = yyjson_mut_arr(doc);
+        for (int c = 0; c < result.col_count; c++) {
+            yyjson_mut_arr_add_str(doc, row, result.rows[r][c]);
+        }
+        yyjson_mut_arr_add_val(rows, row);
+    }
+    yyjson_mut_obj_add_val(doc, root, "rows", rows);
+    yyjson_mut_obj_add_int(doc, root, "total", result.row_count);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    cbm_cypher_result_free(&result);
+    free(query);
+    free(project);
+
+    char *res = cbm_mcp_text_result(json, false);
+    free(json);
+    return res;
+}
+
+static char *handle_index_status(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    if (project) {
+        int nodes = cbm_store_count_nodes(srv->store, project);
+        int edges = cbm_store_count_edges(srv->store, project);
+        yyjson_mut_obj_add_str(doc, root, "project", project);
+        yyjson_mut_obj_add_int(doc, root, "nodes", nodes);
+        yyjson_mut_obj_add_int(doc, root, "edges", edges);
+        yyjson_mut_obj_add_str(doc, root, "status", nodes > 0 ? "ready" : "empty");
+    } else {
+        yyjson_mut_obj_add_str(doc, root, "status", "no_project");
+    }
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(project);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_delete_project(cbm_mcp_server_t *srv, const char *args) {
+    char *name = cbm_mcp_get_string_arg(args, "project_name");
+    if (!name)
+        return cbm_mcp_text_result("project_name is required", true);
+
+    /* Check if project exists before deleting */
+    cbm_project_t proj = {0};
+    bool exists = (cbm_store_get_project(srv->store, name, &proj) == CBM_STORE_OK);
+    if (exists) {
+        free((void *)proj.name);
+        free((void *)proj.indexed_at);
+        free((void *)proj.root_path);
+    }
+
+    const char *status = "not_found";
+    if (exists) {
+        cbm_store_delete_project(srv->store, name);
+        status = "deleted";
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+    yyjson_mut_obj_add_str(doc, root, "project", name);
+    yyjson_mut_obj_add_str(doc, root, "status", status);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(name);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_get_architecture(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+
+    cbm_schema_info_t schema = {0};
+    cbm_store_get_schema(srv->store, project, &schema);
+
+    int node_count = cbm_store_count_nodes(srv->store, project);
+    int edge_count = cbm_store_count_edges(srv->store, project);
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    if (project)
+        yyjson_mut_obj_add_str(doc, root, "project", project);
+    yyjson_mut_obj_add_int(doc, root, "total_nodes", node_count);
+    yyjson_mut_obj_add_int(doc, root, "total_edges", edge_count);
+
+    /* Node label summary */
+    yyjson_mut_val *labels = yyjson_mut_arr(doc);
+    for (int i = 0; i < schema.node_label_count; i++) {
+        yyjson_mut_val *item = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, item, "label", schema.node_labels[i].label);
+        yyjson_mut_obj_add_int(doc, item, "count", schema.node_labels[i].count);
+        yyjson_mut_arr_add_val(labels, item);
+    }
+    yyjson_mut_obj_add_val(doc, root, "node_labels", labels);
+
+    /* Edge type summary */
+    yyjson_mut_val *types = yyjson_mut_arr(doc);
+    for (int i = 0; i < schema.edge_type_count; i++) {
+        yyjson_mut_val *item = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, item, "type", schema.edge_types[i].type);
+        yyjson_mut_obj_add_int(doc, item, "count", schema.edge_types[i].count);
+        yyjson_mut_arr_add_val(types, item);
+    }
+    yyjson_mut_obj_add_val(doc, root, "edge_types", types);
+
+    /* Relationship patterns */
+    if (schema.rel_pattern_count > 0) {
+        yyjson_mut_val *pats = yyjson_mut_arr(doc);
+        for (int i = 0; i < schema.rel_pattern_count; i++) {
+            yyjson_mut_arr_add_str(doc, pats, schema.rel_patterns[i]);
+        }
+        yyjson_mut_obj_add_val(doc, root, "relationship_patterns", pats);
+    }
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    cbm_store_schema_free(&schema);
+    free(project);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
+    char *func_name = cbm_mcp_get_string_arg(args, "function_name");
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    char *direction = cbm_mcp_get_string_arg(args, "direction");
+    int depth = cbm_mcp_get_int_arg(args, "depth", 3);
+
+    if (!func_name) {
+        free(project);
+        free(direction);
+        return cbm_mcp_text_result("function_name is required", true);
+    }
+    if (!direction)
+        direction = heap_strdup("both");
+
+    /* Find the node by name */
+    cbm_node_t *nodes = NULL;
+    int node_count = 0;
+    cbm_store_find_nodes_by_name(srv->store, project, func_name, &nodes, &node_count);
+
+    if (node_count == 0) {
+        free(func_name);
+        free(project);
+        free(direction);
+        cbm_store_free_nodes(nodes, 0);
+        return cbm_mcp_text_result("{\"error\":\"function not found\"}", true);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "function", func_name);
+    yyjson_mut_obj_add_str(doc, root, "direction", direction);
+
+    const char *edge_types[] = {"CALLS"};
+    int edge_type_count = 1;
+
+    /* Run BFS for each requested direction.
+     * IMPORTANT: yyjson_mut_obj_add_str borrows pointers — we must keep
+     * traversal results alive until after yy_doc_to_str serialization. */
+    bool do_outbound = strcmp(direction, "outbound") == 0 || strcmp(direction, "both") == 0;
+    bool do_inbound = strcmp(direction, "inbound") == 0 || strcmp(direction, "both") == 0;
+
+    cbm_traverse_result_t tr_out = {0};
+    cbm_traverse_result_t tr_in = {0};
+
+    if (do_outbound) {
+        cbm_store_bfs(srv->store, nodes[0].id, "outbound", edge_types, edge_type_count, depth, 100,
+                      &tr_out);
+
+        yyjson_mut_val *callees = yyjson_mut_arr(doc);
+        for (int i = 0; i < tr_out.visited_count; i++) {
+            yyjson_mut_val *item = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_str(doc, item, "name",
+                                   tr_out.visited[i].node.name ? tr_out.visited[i].node.name : "");
+            yyjson_mut_obj_add_str(
+                doc, item, "qualified_name",
+                tr_out.visited[i].node.qualified_name ? tr_out.visited[i].node.qualified_name : "");
+            yyjson_mut_obj_add_int(doc, item, "hop", tr_out.visited[i].hop);
+            yyjson_mut_arr_add_val(callees, item);
+        }
+        yyjson_mut_obj_add_val(doc, root, "callees", callees);
+    }
+
+    if (do_inbound) {
+        cbm_store_bfs(srv->store, nodes[0].id, "inbound", edge_types, edge_type_count, depth, 100,
+                      &tr_in);
+
+        yyjson_mut_val *callers = yyjson_mut_arr(doc);
+        for (int i = 0; i < tr_in.visited_count; i++) {
+            yyjson_mut_val *item = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_str(doc, item, "name",
+                                   tr_in.visited[i].node.name ? tr_in.visited[i].node.name : "");
+            yyjson_mut_obj_add_str(
+                doc, item, "qualified_name",
+                tr_in.visited[i].node.qualified_name ? tr_in.visited[i].node.qualified_name : "");
+            yyjson_mut_obj_add_int(doc, item, "hop", tr_in.visited[i].hop);
+            yyjson_mut_arr_add_val(callers, item);
+        }
+        yyjson_mut_obj_add_val(doc, root, "callers", callers);
+    }
+
+    /* Serialize BEFORE freeing traversal results (yyjson borrows strings) */
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+
+    /* Now safe to free traversal data */
+    if (do_outbound)
+        cbm_store_traverse_free(&tr_out);
+    if (do_inbound)
+        cbm_store_traverse_free(&tr_in);
+
+    cbm_store_free_nodes(nodes, node_count);
+    free(func_name);
+    free(project);
+    free(direction);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* ── Helper: free heap fields of a stack-allocated node ────────── */
+
+static void free_node_contents(cbm_node_t *n) {
+    free((void *)n->project);
+    free((void *)n->label);
+    free((void *)n->name);
+    free((void *)n->qualified_name);
+    free((void *)n->file_path);
+    free((void *)n->properties_json);
+    memset(n, 0, sizeof(*n));
+}
+
+/* ── Helper: read lines [start, end] from a file ─────────────── */
+
+static char *read_file_lines(const char *path, int start, int end) {
+    FILE *fp = fopen(path, "r");
+    if (!fp)
+        return NULL;
+
+    size_t cap = 4096;
+    char *buf = malloc(cap);
+    size_t len = 0;
+    buf[0] = '\0';
+
+    char line[2048];
+    int lineno = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        lineno++;
+        if (lineno < start)
+            continue;
+        if (lineno > end)
+            break;
+        size_t ll = strlen(line);
+        while (len + ll + 1 > cap) {
+            cap *= 2;
+            buf = safe_realloc(buf, cap);
+        }
+        memcpy(buf + len, line, ll);
+        len += ll;
+        buf[len] = '\0';
+    }
+
+    fclose(fp);
+    if (len == 0) {
+        free(buf);
+        return NULL;
+    }
+    return buf;
+}
+
+/* ── Helper: get project root_path from store ─────────────────── */
+
+static char *get_project_root(cbm_mcp_server_t *srv, const char *project) {
+    if (!project)
+        return NULL;
+    cbm_project_t proj = {0};
+    if (cbm_store_get_project(srv->store, project, &proj) != CBM_STORE_OK)
+        return NULL;
+    char *root = heap_strdup(proj.root_path);
+    free((void *)proj.name);
+    free((void *)proj.indexed_at);
+    free((void *)proj.root_path);
+    return root;
+}
+
+/* ── index_repository ─────────────────────────────────────────── */
+
+static char *handle_index_repository(cbm_mcp_server_t *srv, const char *args) {
+    char *repo_path = cbm_mcp_get_string_arg(args, "repo_path");
+    char *mode_str = cbm_mcp_get_string_arg(args, "mode");
+
+    if (!repo_path) {
+        free(mode_str);
+        return cbm_mcp_text_result("repo_path is required", true);
+    }
+
+    cbm_index_mode_t mode = CBM_MODE_FULL;
+    if (mode_str && strcmp(mode_str, "fast") == 0)
+        mode = CBM_MODE_FAST;
+    free(mode_str);
+
+    cbm_pipeline_t *p = cbm_pipeline_new(repo_path, srv->store_path, mode);
+    if (!p) {
+        free(repo_path);
+        return cbm_mcp_text_result("failed to create pipeline", true);
+    }
+
+    char *project_name = heap_strdup(cbm_pipeline_project_name(p));
+
+    /* Close store so pipeline can write to same db */
+    if (srv->owns_store && srv->store) {
+        cbm_store_close(srv->store);
+        srv->store = NULL;
+    }
+
+    int rc = cbm_pipeline_run(p);
+    cbm_pipeline_free(p);
+
+    /* Reopen store to see new data */
+    if (srv->store_path) {
+        srv->store = cbm_store_open_path(srv->store_path);
+    } else {
+        srv->store = cbm_store_open(project_name);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "project", project_name);
+    yyjson_mut_obj_add_str(doc, root, "status", rc == 0 ? "indexed" : "error");
+
+    if (rc == 0 && srv->store) {
+        int nodes = cbm_store_count_nodes(srv->store, project_name);
+        int edges = cbm_store_count_edges(srv->store, project_name);
+        yyjson_mut_obj_add_int(doc, root, "nodes", nodes);
+        yyjson_mut_obj_add_int(doc, root, "edges", edges);
+    }
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(project_name);
+    free(repo_path);
+
+    char *result = cbm_mcp_text_result(json, rc != 0);
+    free(json);
+    return result;
+}
+
+/* ── get_code_snippet ─────────────────────────────────────────── */
+
+/* Copy a node from an array into a heap-allocated standalone node. */
+static void copy_node(const cbm_node_t *src, cbm_node_t *dst) {
+    dst->id = src->id;
+    dst->project = heap_strdup(src->project);
+    dst->label = heap_strdup(src->label);
+    dst->name = heap_strdup(src->name);
+    dst->qualified_name = heap_strdup(src->qualified_name);
+    dst->file_path = heap_strdup(src->file_path);
+    dst->start_line = src->start_line;
+    dst->end_line = src->end_line;
+    dst->properties_json = src->properties_json ? heap_strdup(src->properties_json) : NULL;
+}
+
+/* Build a JSON suggestions response for ambiguous or fuzzy results. */
+static char *snippet_suggestions(const char *input, cbm_node_t *nodes, int count) {
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "status", "ambiguous");
+
+    char msg[512];
+    snprintf(msg, sizeof(msg),
+             "%d matches found for \"%s\" — use a qualified_name "
+             "from the suggestions to disambiguate",
+             count, input);
+    yyjson_mut_obj_add_str(doc, root, "message", msg);
+
+    yyjson_mut_val *arr = yyjson_mut_arr(doc);
+    for (int i = 0; i < count; i++) {
+        yyjson_mut_val *s = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, s, "qualified_name",
+                               nodes[i].qualified_name ? nodes[i].qualified_name : "");
+        yyjson_mut_obj_add_str(doc, s, "name", nodes[i].name ? nodes[i].name : "");
+        yyjson_mut_obj_add_str(doc, s, "label", nodes[i].label ? nodes[i].label : "");
+        yyjson_mut_obj_add_str(doc, s, "file_path", nodes[i].file_path ? nodes[i].file_path : "");
+        yyjson_mut_arr_append(arr, s);
+    }
+    yyjson_mut_obj_add_val(doc, root, "suggestions", arr);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* Build an enriched snippet response for a resolved node. */
+static char *build_snippet_response(cbm_mcp_server_t *srv, cbm_node_t *node,
+                                    const char *match_method, bool include_neighbors,
+                                    cbm_node_t *alternatives, int alt_count) {
+    char *root_path = get_project_root(srv, node->project);
+
+    int start = node->start_line > 0 ? node->start_line : 1;
+    int end = node->end_line > start ? node->end_line : start + 50;
+    char *source = NULL;
+
+    /* Build absolute path (persists until free) */
+    char *abs_path = NULL;
+    if (root_path && node->file_path) {
+        size_t apsz = strlen(root_path) + strlen(node->file_path) + 2;
+        abs_path = malloc(apsz);
+        snprintf(abs_path, apsz, "%s/%s", root_path, node->file_path);
+        source = read_file_lines(abs_path, start, end);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root_obj = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root_obj);
+
+    yyjson_mut_obj_add_str(doc, root_obj, "name", node->name ? node->name : "");
+    yyjson_mut_obj_add_str(doc, root_obj, "qualified_name",
+                           node->qualified_name ? node->qualified_name : "");
+    yyjson_mut_obj_add_str(doc, root_obj, "label", node->label ? node->label : "");
+
+    yyjson_mut_obj_add_str(doc, root_obj, "file_path",
+                           abs_path ? abs_path : (node->file_path ? node->file_path : ""));
+    yyjson_mut_obj_add_int(doc, root_obj, "start_line", start);
+    yyjson_mut_obj_add_int(doc, root_obj, "end_line", end);
+
+    if (source) {
+        yyjson_mut_obj_add_str(doc, root_obj, "source", source);
+    } else {
+        yyjson_mut_obj_add_str(doc, root_obj, "source", "(source not available)");
+    }
+
+    /* match_method — omitted for exact matches */
+    if (match_method) {
+        yyjson_mut_obj_add_str(doc, root_obj, "match_method", match_method);
+    }
+
+    /* Enrich with node properties.
+     * props_doc is freed AFTER serialization since yyjson_mut_obj_add_str
+     * stores pointers into it (zero-copy). */
+    yyjson_doc *props_doc = NULL;
+    if (node->properties_json && node->properties_json[0] != '\0') {
+        props_doc = yyjson_read(node->properties_json, strlen(node->properties_json), 0);
+        if (props_doc) {
+            yyjson_val *props_root = yyjson_doc_get_root(props_doc);
+            if (props_root && yyjson_is_obj(props_root)) {
+                yyjson_obj_iter iter;
+                yyjson_obj_iter_init(props_root, &iter);
+                yyjson_val *key;
+                while ((key = yyjson_obj_iter_next(&iter))) {
+                    yyjson_val *val = yyjson_obj_iter_get_val(key);
+                    const char *k = yyjson_get_str(key);
+                    if (!k)
+                        continue;
+                    if (yyjson_is_str(val))
+                        yyjson_mut_obj_add_str(doc, root_obj, k, yyjson_get_str(val));
+                    else if (yyjson_is_bool(val))
+                        yyjson_mut_obj_add_bool(doc, root_obj, k, yyjson_get_bool(val));
+                    else if (yyjson_is_int(val))
+                        yyjson_mut_obj_add_int(doc, root_obj, k, yyjson_get_int(val));
+                    else if (yyjson_is_real(val))
+                        yyjson_mut_obj_add_real(doc, root_obj, k, yyjson_get_real(val));
+                }
+            }
+        }
+    }
+
+    /* Caller/callee counts */
+    int in_deg = 0, out_deg = 0;
+    cbm_store_node_degree(srv->store, node->id, &in_deg, &out_deg);
+    yyjson_mut_obj_add_int(doc, root_obj, "callers", in_deg);
+    yyjson_mut_obj_add_int(doc, root_obj, "callees", out_deg);
+
+    /* Include neighbor names (opt-in).
+     * Strings stored by yyjson reference — freed after serialization. */
+    char **nb_callers = NULL;
+    int nb_caller_count = 0;
+    char **nb_callees = NULL;
+    int nb_callee_count = 0;
+    if (include_neighbors) {
+        cbm_store_node_neighbor_names(srv->store, node->id, 10, &nb_callers, &nb_caller_count,
+                                      &nb_callees, &nb_callee_count);
+        if (nb_caller_count > 0) {
+            yyjson_mut_val *arr = yyjson_mut_arr(doc);
+            for (int i = 0; i < nb_caller_count; i++)
+                yyjson_mut_arr_add_str(doc, arr, nb_callers[i]);
+            yyjson_mut_obj_add_val(doc, root_obj, "caller_names", arr);
+        }
+        if (nb_callee_count > 0) {
+            yyjson_mut_val *arr = yyjson_mut_arr(doc);
+            for (int i = 0; i < nb_callee_count; i++)
+                yyjson_mut_arr_add_str(doc, arr, nb_callees[i]);
+            yyjson_mut_obj_add_val(doc, root_obj, "callee_names", arr);
+        }
+    }
+
+    /* Alternatives (when auto-resolved from ambiguous) */
+    if (alternatives && alt_count > 0) {
+        yyjson_mut_val *arr = yyjson_mut_arr(doc);
+        for (int i = 0; i < alt_count; i++) {
+            yyjson_mut_val *a = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_str(doc, a, "qualified_name",
+                                   alternatives[i].qualified_name ? alternatives[i].qualified_name
+                                                                  : "");
+            yyjson_mut_obj_add_str(doc, a, "file_path",
+                                   alternatives[i].file_path ? alternatives[i].file_path : "");
+            yyjson_mut_arr_append(arr, a);
+        }
+        yyjson_mut_obj_add_val(doc, root_obj, "alternatives", arr);
+    }
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    yyjson_doc_free(props_doc); /* safe if NULL */
+    for (int i = 0; i < nb_caller_count; i++)
+        free(nb_callers[i]);
+    for (int i = 0; i < nb_callee_count; i++)
+        free(nb_callees[i]);
+    free(nb_callers);
+    free(nb_callees);
+    free(root_path);
+    free(abs_path);
+    free(source);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
+    char *qn = cbm_mcp_get_string_arg(args, "qualified_name");
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    bool auto_resolve = cbm_mcp_get_bool_arg(args, "auto_resolve");
+    bool include_neighbors = cbm_mcp_get_bool_arg(args, "include_neighbors");
+
+    if (!qn) {
+        free(project);
+        return cbm_mcp_text_result("qualified_name is required", true);
+    }
+
+    /* Tier 1: Exact QN match */
+    cbm_node_t node = {0};
+    int rc = cbm_store_find_node_by_qn(srv->store, project, qn, &node);
+    if (rc == CBM_STORE_OK) {
+        char *result =
+            build_snippet_response(srv, &node, NULL /*exact*/, include_neighbors, NULL, 0);
+        free_node_contents(&node);
+        free(qn);
+        free(project);
+        return result;
+    }
+
+    /* Tier 2: QN suffix match */
+    cbm_node_t *suffix_nodes = NULL;
+    int suffix_count = 0;
+    cbm_store_find_nodes_by_qn_suffix(srv->store, project, qn, &suffix_nodes, &suffix_count);
+    if (suffix_count == 1) {
+        copy_node(&suffix_nodes[0], &node);
+        cbm_store_free_nodes(suffix_nodes, suffix_count);
+        char *result = build_snippet_response(srv, &node, "suffix", include_neighbors, NULL, 0);
+        free_node_contents(&node);
+        free(qn);
+        free(project);
+        return result;
+    }
+
+    /* Tier 3: Short name match */
+    cbm_node_t *name_nodes = NULL;
+    int name_count = 0;
+    cbm_store_find_nodes_by_name(srv->store, project, qn, &name_nodes, &name_count);
+    if (name_count == 1) {
+        copy_node(&name_nodes[0], &node);
+        cbm_store_free_nodes(name_nodes, name_count);
+        cbm_store_free_nodes(suffix_nodes, suffix_count);
+        char *result = build_snippet_response(srv, &node, "name", include_neighbors, NULL, 0);
+        free_node_contents(&node);
+        free(qn);
+        free(project);
+        return result;
+    }
+
+    /* Ambiguous: collect candidates from suffix + name tiers (dedup by id) */
+    int total_cand = suffix_count + name_count;
+    if (total_cand > 0) {
+        /* Dedup by node ID */
+        cbm_node_t *candidates = calloc((size_t)total_cand, sizeof(cbm_node_t));
+        int cand_count = 0;
+
+        for (int i = 0; i < suffix_count; i++) {
+            copy_node(&suffix_nodes[i], &candidates[cand_count++]);
+        }
+        for (int i = 0; i < name_count; i++) {
+            bool dup = false;
+            for (int j = 0; j < cand_count; j++) {
+                if (candidates[j].id == name_nodes[i].id) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup)
+                copy_node(&name_nodes[i], &candidates[cand_count++]);
+        }
+
+        cbm_store_free_nodes(suffix_nodes, suffix_count);
+        cbm_store_free_nodes(name_nodes, name_count);
+
+        /* Auto-resolve: pick best candidate by degree */
+        if (auto_resolve && cand_count >= 2 && cand_count <= 2) {
+            /* Find best: highest total degree, prefer non-test files */
+            int best_idx = 0;
+            int best_deg = -1;
+            bool best_is_test = false;
+            for (int i = 0; i < cand_count; i++) {
+                int in_d = 0, out_d = 0;
+                cbm_store_node_degree(srv->store, candidates[i].id, &in_d, &out_d);
+                int deg = in_d + out_d;
+                bool is_test =
+                    candidates[i].file_path && strstr(candidates[i].file_path, "_test") != NULL;
+                if (i == 0 || (best_is_test && !is_test) ||
+                    (!best_is_test == !is_test && deg > best_deg) ||
+                    (!best_is_test == !is_test && deg == best_deg && candidates[i].qualified_name &&
+                     best_idx >= 0 && candidates[best_idx].qualified_name &&
+                     strcmp(candidates[i].qualified_name, candidates[best_idx].qualified_name) <
+                         0)) {
+                    best_idx = i;
+                    best_deg = deg;
+                    best_is_test = is_test;
+                }
+            }
+
+            copy_node(&candidates[best_idx], &node);
+
+            /* Build alternatives list (skip the picked one) */
+            cbm_node_t *alts = calloc((size_t)(cand_count - 1), sizeof(cbm_node_t));
+            int alt_count = 0;
+            for (int i = 0; i < cand_count; i++) {
+                if (i != best_idx)
+                    copy_node(&candidates[i], &alts[alt_count++]);
+            }
+
+            for (int i = 0; i < cand_count; i++)
+                free_node_contents(&candidates[i]);
+            free(candidates);
+
+            char *result =
+                build_snippet_response(srv, &node, "auto_best", include_neighbors, alts, alt_count);
+            free_node_contents(&node);
+            for (int i = 0; i < alt_count; i++)
+                free_node_contents(&alts[i]);
+            free(alts);
+            free(qn);
+            free(project);
+            return result;
+        }
+
+        /* Return suggestions */
+        char *result = snippet_suggestions(qn, candidates, cand_count);
+        for (int i = 0; i < cand_count; i++)
+            free_node_contents(&candidates[i]);
+        free(candidates);
+        free(qn);
+        free(project);
+        return result;
+    }
+
+    cbm_store_free_nodes(suffix_nodes, suffix_count);
+    cbm_store_free_nodes(name_nodes, name_count);
+
+    /* Tier 4: Fuzzy — try last segment for name-based search */
+    const char *dot = strrchr(qn, '.');
+    const char *search_name = dot ? dot + 1 : qn;
+
+    /* Use search with name pattern for fuzzy matching */
+    cbm_search_params_t params = {0};
+    params.project = project;
+    params.name_pattern = search_name;
+    params.limit = 5;
+    params.min_degree = -1;
+    params.max_degree = -1;
+    const char *excl[] = {"Community", NULL};
+    params.exclude_labels = excl;
+
+    cbm_search_output_t search_out = {0};
+    if (cbm_store_search(srv->store, &params, &search_out) == CBM_STORE_OK &&
+        search_out.count > 0) {
+        /* Build suggestions from search results */
+        cbm_node_t *fuzzy = calloc((size_t)search_out.count, sizeof(cbm_node_t));
+        for (int i = 0; i < search_out.count; i++)
+            copy_node(&search_out.results[i].node, &fuzzy[i]);
+        int fuzzy_count = search_out.count;
+        cbm_store_search_free(&search_out);
+
+        char *result = snippet_suggestions(qn, fuzzy, fuzzy_count);
+        for (int i = 0; i < fuzzy_count; i++)
+            free_node_contents(&fuzzy[i]);
+        free(fuzzy);
+        free(qn);
+        free(project);
+        return result;
+    }
+    cbm_store_search_free(&search_out);
+
+    /* Nothing found */
+    free(qn);
+    free(project);
+    return cbm_mcp_text_result("symbol not found", true);
+}
+
+/* ── search_code ──────────────────────────────────────────────── */
+
+static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
+    char *pattern = cbm_mcp_get_string_arg(args, "pattern");
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    char *file_pattern = cbm_mcp_get_string_arg(args, "file_pattern");
+    int limit = cbm_mcp_get_int_arg(args, "limit", 10);
+    bool use_regex = cbm_mcp_get_bool_arg(args, "regex");
+
+    if (!pattern) {
+        free(project);
+        free(file_pattern);
+        return cbm_mcp_text_result("pattern is required", true);
+    }
+
+    char *root_path = get_project_root(srv, project);
+    if (!root_path) {
+        free(pattern);
+        free(project);
+        free(file_pattern);
+        return cbm_mcp_text_result("project not found or not indexed", true);
+    }
+
+    /* Write pattern to temp file to avoid shell injection */
+    char tmpfile[256];
+    snprintf(tmpfile, sizeof(tmpfile), "/tmp/cbm_search_%d.pat", (int)getpid());
+    FILE *tf = fopen(tmpfile, "w");
+    if (!tf) {
+        free(root_path);
+        free(pattern);
+        free(project);
+        free(file_pattern);
+        return cbm_mcp_text_result("search failed: temp file", true);
+    }
+    fprintf(tf, "%s\n", pattern);
+    fclose(tf);
+
+    char cmd[4096];
+    const char *flag = use_regex ? "-E" : "-F";
+    if (file_pattern) {
+        snprintf(cmd, sizeof(cmd), "grep -rn %s --include='%s' -m %d -f '%s' '%s' 2>/dev/null",
+                 flag, file_pattern, limit * 3, tmpfile, root_path);
+    } else {
+        snprintf(cmd, sizeof(cmd), "grep -rn %s -m %d -f '%s' '%s' 2>/dev/null", flag, limit * 3,
+                 tmpfile, root_path);
+    }
+
+    FILE *fp = popen(cmd, "r");
+    unlink(tmpfile);
+
+    if (!fp) {
+        free(root_path);
+        free(pattern);
+        free(project);
+        free(file_pattern);
+        return cbm_mcp_text_result("search failed", true);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root_obj = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root_obj);
+
+    yyjson_mut_val *matches = yyjson_mut_arr(doc);
+    char line[2048];
+    int count = 0;
+    size_t root_len = strlen(root_path);
+
+    while (fgets(line, sizeof(line), fp) && count < limit) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+        if (len == 0)
+            continue;
+
+        /* grep output: /abs/path/file:lineno:content */
+        char *colon1 = strchr(line, ':');
+        if (!colon1)
+            continue;
+        char *colon2 = strchr(colon1 + 1, ':');
+        if (!colon2)
+            continue;
+
+        *colon1 = '\0';
+        *colon2 = '\0';
+
+        /* Strip root_path prefix to get relative path */
+        const char *file = line;
+        if (strncmp(file, root_path, root_len) == 0) {
+            file += root_len;
+            if (*file == '/')
+                file++;
+        }
+        int lineno = (int)strtol(colon1 + 1, NULL, 10);
+        const char *content = colon2 + 1;
+
+        yyjson_mut_val *item = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, item, "file", file);
+        yyjson_mut_obj_add_int(doc, item, "line", lineno);
+        yyjson_mut_obj_add_str(doc, item, "content", content);
+        yyjson_mut_arr_add_val(matches, item);
+        count++;
+    }
+    pclose(fp);
+
+    yyjson_mut_obj_add_val(doc, root_obj, "matches", matches);
+    yyjson_mut_obj_add_int(doc, root_obj, "count", count);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(root_path);
+    free(pattern);
+    free(project);
+    free(file_pattern);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* ── detect_changes ───────────────────────────────────────────── */
+
+static char *handle_detect_changes(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    char *base_branch = cbm_mcp_get_string_arg(args, "base_branch");
+    int depth = cbm_mcp_get_int_arg(args, "depth", 2);
+
+    if (!base_branch)
+        base_branch = heap_strdup("main");
+
+    char *root_path = get_project_root(srv, project);
+    if (!root_path) {
+        free(project);
+        free(base_branch);
+        return cbm_mcp_text_result("project not found", true);
+    }
+
+    /* Get changed files via git */
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "cd '%s' && { git diff --name-only '%s'...HEAD 2>/dev/null; "
+             "git diff --name-only 2>/dev/null; } | sort -u",
+             root_path, base_branch);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        free(root_path);
+        free(project);
+        free(base_branch);
+        return cbm_mcp_text_result("git diff failed", true);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root_obj = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root_obj);
+
+    yyjson_mut_val *changed = yyjson_mut_arr(doc);
+    yyjson_mut_val *impacted = yyjson_mut_arr(doc);
+
+    char line[1024];
+    int file_count = 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+        if (len == 0)
+            continue;
+
+        yyjson_mut_arr_add_str(doc, changed, line);
+        file_count++;
+
+        /* Find symbols defined in this file */
+        cbm_node_t *nodes = NULL;
+        int ncount = 0;
+        cbm_store_find_nodes_by_file(srv->store, project, line, &nodes, &ncount);
+
+        for (int i = 0; i < ncount; i++) {
+            if (nodes[i].label && strcmp(nodes[i].label, "File") != 0 &&
+                strcmp(nodes[i].label, "Folder") != 0 && strcmp(nodes[i].label, "Project") != 0) {
+                yyjson_mut_val *item = yyjson_mut_obj(doc);
+                yyjson_mut_obj_add_str(doc, item, "name", nodes[i].name ? nodes[i].name : "");
+                yyjson_mut_obj_add_str(doc, item, "label", nodes[i].label);
+                yyjson_mut_obj_add_str(doc, item, "file", line);
+                yyjson_mut_arr_add_val(impacted, item);
+            }
+        }
+        cbm_store_free_nodes(nodes, ncount);
+    }
+    pclose(fp);
+
+    yyjson_mut_obj_add_val(doc, root_obj, "changed_files", changed);
+    yyjson_mut_obj_add_int(doc, root_obj, "changed_count", file_count);
+    yyjson_mut_obj_add_val(doc, root_obj, "impacted_symbols", impacted);
+    yyjson_mut_obj_add_int(doc, root_obj, "depth", depth);
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(root_path);
+    free(project);
+    free(base_branch);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* ── manage_adr ───────────────────────────────────────────────── */
+
+static char *handle_manage_adr(cbm_mcp_server_t *srv, const char *args) {
+    char *project = cbm_mcp_get_string_arg(args, "project");
+    char *mode_str = cbm_mcp_get_string_arg(args, "mode");
+    char *content = cbm_mcp_get_string_arg(args, "content");
+
+    if (!mode_str)
+        mode_str = heap_strdup("get");
+
+    char *root_path = get_project_root(srv, project);
+    if (!root_path) {
+        free(project);
+        free(mode_str);
+        free(content);
+        return cbm_mcp_text_result("project not found", true);
+    }
+
+    char adr_dir[4096];
+    snprintf(adr_dir, sizeof(adr_dir), "%s/.codebase-memory", root_path);
+    char adr_path[4096];
+    snprintf(adr_path, sizeof(adr_path), "%s/adr.md", adr_dir);
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root_obj = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root_obj);
+
+    if (strcmp(mode_str, "update") == 0 && content) {
+        /* Create dir if needed */
+        mkdir(adr_dir, 0755);
+        FILE *fp = fopen(adr_path, "w");
+        if (fp) {
+            fputs(content, fp);
+            fclose(fp);
+            yyjson_mut_obj_add_str(doc, root_obj, "status", "updated");
+        } else {
+            yyjson_mut_obj_add_str(doc, root_obj, "status", "write_error");
+        }
+    } else if (strcmp(mode_str, "sections") == 0) {
+        /* List section headers from ADR */
+        FILE *fp = fopen(adr_path, "r");
+        yyjson_mut_val *sections = yyjson_mut_arr(doc);
+        if (fp) {
+            char line[1024];
+            while (fgets(line, sizeof(line), fp)) {
+                if (line[0] == '#') {
+                    size_t len = strlen(line);
+                    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+                        line[--len] = '\0';
+                    yyjson_mut_arr_add_str(doc, sections, line);
+                }
+            }
+            fclose(fp);
+        }
+        yyjson_mut_obj_add_val(doc, root_obj, "sections", sections);
+    } else {
+        /* get: read ADR content */
+        FILE *fp = fopen(adr_path, "r");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            char *buf = malloc(sz + 1);
+            size_t n = fread(buf, 1, sz, fp);
+            buf[n] = '\0';
+            fclose(fp);
+            yyjson_mut_obj_add_str(doc, root_obj, "content", buf);
+            free(buf);
+        } else {
+            yyjson_mut_obj_add_str(doc, root_obj, "content", "");
+            yyjson_mut_obj_add_str(doc, root_obj, "status", "no_adr");
+        }
+    }
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+    free(root_path);
+    free(project);
+    free(mode_str);
+    free(content);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* ── ingest_traces ────────────────────────────────────────────── */
+
+static char *handle_ingest_traces(cbm_mcp_server_t *srv, const char *args) {
+    (void)srv;
+    /* Parse traces array from JSON args */
+    yyjson_doc *adoc = yyjson_read(args, strlen(args), 0);
+    int trace_count = 0;
+
+    if (adoc) {
+        yyjson_val *aroot = yyjson_doc_get_root(adoc);
+        yyjson_val *traces = yyjson_obj_get(aroot, "traces");
+        if (traces && yyjson_is_arr(traces)) {
+            trace_count = (int)yyjson_arr_size(traces);
+        }
+        yyjson_doc_free(adoc);
+    }
+
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, root);
+
+    yyjson_mut_obj_add_str(doc, root, "status", "accepted");
+    yyjson_mut_obj_add_int(doc, root, "traces_received", trace_count);
+    yyjson_mut_obj_add_str(doc, root, "note",
+                           "Runtime edge creation from traces not yet implemented");
+
+    char *json = yy_doc_to_str(doc);
+    yyjson_mut_doc_free(doc);
+
+    char *result = cbm_mcp_text_result(json, false);
+    free(json);
+    return result;
+}
+
+/* ── Tool dispatch ────────────────────────────────────────────── */
+
+char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const char *args_json) {
+    if (!tool_name)
+        return cbm_mcp_text_result("missing tool name", true);
+
+    if (strcmp(tool_name, "list_projects") == 0)
+        return handle_list_projects(srv, args_json);
+    if (strcmp(tool_name, "get_graph_schema") == 0)
+        return handle_get_graph_schema(srv, args_json);
+    if (strcmp(tool_name, "search_graph") == 0)
+        return handle_search_graph(srv, args_json);
+    if (strcmp(tool_name, "query_graph") == 0)
+        return handle_query_graph(srv, args_json);
+    if (strcmp(tool_name, "index_status") == 0)
+        return handle_index_status(srv, args_json);
+    if (strcmp(tool_name, "delete_project") == 0)
+        return handle_delete_project(srv, args_json);
+    if (strcmp(tool_name, "trace_call_path") == 0)
+        return handle_trace_call_path(srv, args_json);
+    if (strcmp(tool_name, "get_architecture") == 0)
+        return handle_get_architecture(srv, args_json);
+
+    /* Pipeline-dependent tools */
+    if (strcmp(tool_name, "index_repository") == 0)
+        return handle_index_repository(srv, args_json);
+    if (strcmp(tool_name, "get_code_snippet") == 0)
+        return handle_get_code_snippet(srv, args_json);
+    if (strcmp(tool_name, "search_code") == 0)
+        return handle_search_code(srv, args_json);
+    if (strcmp(tool_name, "detect_changes") == 0)
+        return handle_detect_changes(srv, args_json);
+    if (strcmp(tool_name, "manage_adr") == 0)
+        return handle_manage_adr(srv, args_json);
+    if (strcmp(tool_name, "ingest_traces") == 0)
+        return handle_ingest_traces(srv, args_json);
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "unknown tool: %s", tool_name);
+    return cbm_mcp_text_result(msg, true);
+}
+
+/* ── Server request handler ───────────────────────────────────── */
+
+char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
+    cbm_jsonrpc_request_t req = {0};
+    if (cbm_jsonrpc_parse(line, &req) < 0) {
+        return cbm_jsonrpc_format_error(0, -32700, "Parse error");
+    }
+
+    /* Notifications (no id) → no response */
+    if (!req.has_id) {
+        cbm_jsonrpc_request_free(&req);
+        return NULL;
+    }
+
+    char *result_json = NULL;
+
+    if (strcmp(req.method, "initialize") == 0) {
+        result_json = cbm_mcp_initialize_response();
+    } else if (strcmp(req.method, "tools/list") == 0) {
+        result_json = cbm_mcp_tools_list();
+    } else if (strcmp(req.method, "tools/call") == 0) {
+        char *tool_name = req.params_raw ? cbm_mcp_get_tool_name(req.params_raw) : NULL;
+        char *tool_args =
+            req.params_raw ? cbm_mcp_get_arguments(req.params_raw) : heap_strdup("{}");
+
+        result_json = cbm_mcp_handle_tool(srv, tool_name, tool_args);
+        free(tool_name);
+        free(tool_args);
+    } else {
+        char *err = cbm_jsonrpc_format_error(req.id, -32601, "Method not found");
+        cbm_jsonrpc_request_free(&req);
+        return err;
+    }
+
+    cbm_jsonrpc_response_t resp = {
+        .id = req.id,
+        .result_json = result_json,
+    };
+    char *out = cbm_jsonrpc_format_response(&resp);
+    free(result_json);
+    cbm_jsonrpc_request_free(&req);
+    return out;
+}
+
+/* ── Event loop ───────────────────────────────────────────────── */
+
+int cbm_mcp_server_run(cbm_mcp_server_t *srv, FILE *in, FILE *out) {
+    char *line = NULL;
+    size_t cap = 0;
+
+    while (getline(&line, &cap, in) > 0) {
+        /* Trim trailing newline */
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[--len] = '\0';
+        }
+        if (len == 0)
+            continue;
+
+        char *resp = cbm_mcp_server_handle(srv, line);
+        if (resp) {
+            fprintf(out, "%s\n", resp);
+            fflush(out);
+            free(resp);
+        }
+    }
+
+    free(line);
+    return 0;
+}
+
+/* ── cbm_parse_file_uri ──────────────────────────────────────── */
+
+bool cbm_parse_file_uri(const char *uri, char *out_path, int out_size) {
+    if (!uri || !out_path || out_size <= 0) {
+        if (out_path && out_size > 0)
+            out_path[0] = '\0';
+        return false;
+    }
+
+    /* Must start with file:// */
+    if (strncmp(uri, "file://", 7) != 0) {
+        out_path[0] = '\0';
+        return false;
+    }
+
+    const char *path = uri + 7;
+
+    /* On Windows, file:///C:/path → /C:/path. Strip leading / before drive letter. */
+    if (path[0] == '/' && path[1] &&
+        ((path[1] >= 'A' && path[1] <= 'Z') || (path[1] >= 'a' && path[1] <= 'z')) &&
+        path[2] == ':') {
+        path++; /* skip the leading / */
+    }
+
+    snprintf(out_path, out_size, "%s", path);
+    return true;
+}
