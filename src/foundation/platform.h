@@ -20,7 +20,7 @@
 /* Safe realloc: frees old pointer on failure instead of leaking it.
  * Returns NULL on allocation failure (old memory is freed). */
 static inline void *safe_realloc(void *ptr, size_t size) {
-    void *tmp = realloc(ptr, size);
+    void *tmp = realloc(ptr, size); // NOLINT(clang-analyzer-optin.portability.UnixAPI)
     if (!tmp) {
         free(ptr);
     }

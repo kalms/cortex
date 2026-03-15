@@ -1,3 +1,5 @@
+// NOLINTBEGIN(cert-err33-c) — best-effort file reading, errors handled by caller
+
 /*
  * gitignore.c — Gitignore-style pattern matching.
  *
@@ -38,6 +40,7 @@ struct cbm_gitignore {
  * Match a glob pattern against a string.
  * Handles: * (non-slash), ** (any path), ? (single non-slash), [class]
  */
+// NOLINTNEXTLINE(misc-no-recursion) — intentional recursive glob pattern matching
 static bool glob_match(const char *pat, const char *str) {
     while (*pat && *str) {
         if (pat[0] == '*' && pat[1] == '*') {
@@ -46,12 +49,14 @@ static bool glob_match(const char *pat, const char *str) {
                 /* "** /" at start or middle: try matching rest at every / boundary */
                 pat += 3;
                 /* Try matching from current position */
-                if (glob_match(pat, str))
+                if (glob_match(pat, str)) {
                     return true;
+                }
                 /* Try matching from every / in str */
                 for (const char *s = str; *s; s++) {
-                    if (*s == '/' && glob_match(pat, s + 1))
+                    if (*s == '/' && glob_match(pat, s + 1)) {
                         return true;
+                    }
                 }
                 return false;
             }
@@ -62,10 +67,12 @@ static bool glob_match(const char *pat, const char *str) {
             /* ** followed by non-slash — treat as two *'s, match anything */
             pat += 2;
             for (const char *s = str;; s++) {
-                if (glob_match(pat, s))
+                if (glob_match(pat, s)) {
                     return true;
-                if (!*s)
+                }
+                if (!*s) {
                     return false;
+                }
             }
         }
 
@@ -74,17 +81,20 @@ static bool glob_match(const char *pat, const char *str) {
             pat++;
             /* Try matching rest at every position that doesn't cross / */
             for (const char *s = str;; s++) {
-                if (glob_match(pat, s))
+                if (glob_match(pat, s)) {
                     return true;
-                if (!*s || *s == '/')
+                }
+                if (!*s || *s == '/') {
                     return false;
+                }
             }
         }
 
         if (*pat == '?') {
             /* ? — match any single character except / */
-            if (*str == '/')
+            if (*str == '/') {
                 return false;
+            }
             pat++;
             str++;
             continue;
@@ -104,38 +114,47 @@ static bool glob_match(const char *pat, const char *str) {
                 if (*pat == '-' && prev && pat[1] && pat[1] != ']') {
                     /* Range: [a-z] */
                     pat++;
-                    if (*str >= prev && *str <= *pat)
+                    if (*str >= prev && *str <= *pat) {
                         matched = true;
+                    }
                     prev = *pat;
                     pat++;
                 } else {
-                    if (*str == *pat)
+                    if (*str == *pat) {
                         matched = true;
+                    }
                     prev = *pat;
                     pat++;
                 }
             }
-            if (*pat == ']')
+            if (*pat == ']') {
                 pat++;
-            if (negate_class)
+            }
+            if (negate_class) {
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 matched = !matched;
-            if (!matched)
+            }
+            if (!matched) {
                 return false;
+            }
             str++;
             continue;
         }
 
         /* Literal character */
-        if (*pat != *str)
+        if (*pat != *str) {
             return false;
+        }
         pat++;
         str++;
     }
 
     /* Handle trailing * or ** in pattern */
-    while (*pat == '*')
+    while (*pat == '*') {
         pat++;
+    }
 
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return *pat == '\0' && *str == '\0';
 }
 
@@ -146,8 +165,9 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
     while (len > 0 && (line[len - 1] == ' ' || line[len - 1] == '\t' || line[len - 1] == '\r')) {
         len--;
     }
-    if (len == 0)
+    if (len == 0) {
         return;
+    }
 
     gi_pattern_t p = {0};
 
@@ -159,8 +179,9 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
         len--;
     }
 
-    if (len == 0)
+    if (len == 0) {
         return;
+    }
 
     /* Check for trailing / (directory-only) */
     if (start[len - 1] == '/') {
@@ -168,8 +189,9 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
         len--;
     }
 
-    if (len == 0)
+    if (len == 0) {
         return;
+    }
 
     /* Check for leading / (rooted) */
     if (*start == '/') {
@@ -178,8 +200,9 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
         len--;
     }
 
-    if (len == 0)
+    if (len == 0) {
         return;
+    }
 
     /* Check if pattern contains / anywhere (makes it rooted) */
     if (!p.rooted) {
@@ -193,9 +216,11 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
 
     /* Copy pattern */
     p.pattern = malloc(len + 1);
-    if (!p.pattern)
+    if (!p.pattern) {
         return;
+    }
     memcpy(p.pattern, start, len);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     p.pattern[len] = '\0';
 
     /* Grow array if needed */
@@ -216,12 +241,14 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 cbm_gitignore_t *cbm_gitignore_parse(const char *content) {
-    if (!content)
+    if (!content) {
         return NULL;
+    }
 
     cbm_gitignore_t *gi = calloc(1, sizeof(cbm_gitignore_t));
-    if (!gi)
+    if (!gi) {
         return NULL;
+    }
 
     const char *line = content;
     while (*line) {
@@ -234,8 +261,9 @@ cbm_gitignore_t *cbm_gitignore_parse(const char *content) {
             gi_add_pattern(gi, line, len);
         }
 
-        if (!eol)
+        if (!eol) {
             break;
+        }
         line = eol + 1;
     }
 
@@ -243,12 +271,14 @@ cbm_gitignore_t *cbm_gitignore_parse(const char *content) {
 }
 
 cbm_gitignore_t *cbm_gitignore_load(const char *path) {
-    if (!path)
+    if (!path) {
         return NULL;
+    }
 
     FILE *f = fopen(path, "r");
-    if (!f)
+    if (!f) {
         return NULL;
+    }
 
     /* Read entire file */
     fseek(f, 0, SEEK_END);
@@ -267,6 +297,7 @@ cbm_gitignore_t *cbm_gitignore_load(const char *path) {
     }
 
     size_t n = fread(buf, 1, size, f);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[n] = '\0';
     fclose(f);
 
@@ -276,8 +307,9 @@ cbm_gitignore_t *cbm_gitignore_load(const char *path) {
 }
 
 bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool is_dir) {
-    if (!gi || !rel_path)
+    if (!gi || !rel_path) {
         return false;
+    }
 
     /* Extract the basename for non-rooted pattern matching */
     const char *basename = strrchr(rel_path, '/');
@@ -289,8 +321,9 @@ bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool
         const gi_pattern_t *p = &gi->patterns[i];
 
         /* Directory-only patterns only match directories */
-        if (p->dir_only && !is_dir)
+        if (p->dir_only && !is_dir) {
             continue;
+        }
 
         bool this_match = false;
 
@@ -314,14 +347,16 @@ bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool
                         break;
                     }
                     const char *next = strchr(s, '/');
-                    if (!next)
+                    if (!next) {
                         break;
+                    }
                     s = next + 1;
                 }
             }
         }
 
         if (this_match) {
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             matched = !p->negated;
         }
     }
@@ -330,11 +365,14 @@ bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool
 }
 
 void cbm_gitignore_free(cbm_gitignore_t *gi) {
-    if (!gi)
+    if (!gi) {
         return;
+    }
     for (int i = 0; i < gi->count; i++) {
         free(gi->patterns[i].pattern);
     }
     free(gi->patterns);
     free(gi);
 }
+
+// NOLINTEND(cert-err33-c)

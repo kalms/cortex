@@ -9,7 +9,7 @@
 /* ── Basic pattern matching ────────────────────────────────────── */
 
 TEST(gi_empty_pattern) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("");
     ASSERT_NOT_NULL(gi);
     ASSERT_FALSE(cbm_gitignore_matches(gi, "foo.txt", false));
     cbm_gitignore_free(gi);
@@ -17,7 +17,7 @@ TEST(gi_empty_pattern) {
 }
 
 TEST(gi_exact_file) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("secret.key\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("secret.key\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "secret.key", false));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "other.key", false));
@@ -26,7 +26,7 @@ TEST(gi_exact_file) {
 }
 
 TEST(gi_wildcard_star) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("*.log\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("*.log\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "error.log", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "access.log", false));
@@ -39,7 +39,7 @@ TEST(gi_wildcard_star) {
 
 TEST(gi_double_star_prefix) {
     /* ** matches any number of directories */
-    cbm_gitignore_t* gi = cbm_gitignore_parse("**/build\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("**/build\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "build", true));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "src/build", true));
@@ -49,7 +49,7 @@ TEST(gi_double_star_prefix) {
 }
 
 TEST(gi_double_star_suffix) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("logs/**\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("logs/**\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "logs/debug.log", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "logs/sub/trace.log", false));
@@ -59,7 +59,7 @@ TEST(gi_double_star_suffix) {
 }
 
 TEST(gi_double_star_middle) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("a/**/b\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("a/**/b\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "a/b", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "a/x/b", false));
@@ -71,10 +71,10 @@ TEST(gi_double_star_middle) {
 
 TEST(gi_directory_only) {
     /* Trailing slash means match directories only */
-    cbm_gitignore_t* gi = cbm_gitignore_parse("build/\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("build/\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "build", true));
-    ASSERT_FALSE(cbm_gitignore_matches(gi, "build", false));  /* not a directory */
+    ASSERT_FALSE(cbm_gitignore_matches(gi, "build", false)); /* not a directory */
     /* Should match anywhere in tree */
     ASSERT_TRUE(cbm_gitignore_matches(gi, "src/build", true));
     cbm_gitignore_free(gi);
@@ -83,7 +83,7 @@ TEST(gi_directory_only) {
 
 TEST(gi_negation) {
     /* ! prefix negates a pattern */
-    cbm_gitignore_t* gi = cbm_gitignore_parse("*.log\n!important.log\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("*.log\n!important.log\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "error.log", false));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "important.log", false));
@@ -92,7 +92,7 @@ TEST(gi_negation) {
 }
 
 TEST(gi_comment_and_blank) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("# This is a comment\n\n*.tmp\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("# This is a comment\n\n*.tmp\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "data.tmp", false));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "data.txt", false));
@@ -102,7 +102,7 @@ TEST(gi_comment_and_blank) {
 
 TEST(gi_rooted_pattern) {
     /* Pattern with slash is anchored to the root */
-    cbm_gitignore_t* gi = cbm_gitignore_parse("/build\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("/build\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "build", true));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "src/build", true));
@@ -112,7 +112,7 @@ TEST(gi_rooted_pattern) {
 
 TEST(gi_path_with_slash) {
     /* Pattern containing / (not just leading) is rooted */
-    cbm_gitignore_t* gi = cbm_gitignore_parse("doc/frotz\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("doc/frotz\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "doc/frotz", false));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "src/doc/frotz", false));
@@ -121,7 +121,7 @@ TEST(gi_path_with_slash) {
 }
 
 TEST(gi_question_mark) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("file?.txt\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("file?.txt\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "file1.txt", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "fileA.txt", false));
@@ -131,7 +131,7 @@ TEST(gi_question_mark) {
 }
 
 TEST(gi_bracket_range) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse("file[0-9].txt\n");
+    cbm_gitignore_t *gi = cbm_gitignore_parse("file[0-9].txt\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "file3.txt", false));
     ASSERT_FALSE(cbm_gitignore_matches(gi, "fileA.txt", false));
@@ -140,12 +140,10 @@ TEST(gi_bracket_range) {
 }
 
 TEST(gi_multiple_patterns) {
-    cbm_gitignore_t* gi = cbm_gitignore_parse(
-        "*.pyc\n"
-        "__pycache__/\n"
-        ".env\n"
-        "*.log\n"
-    );
+    cbm_gitignore_t *gi = cbm_gitignore_parse("*.pyc\n"
+                                              "__pycache__/\n"
+                                              ".env\n"
+                                              "*.log\n");
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "module.pyc", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "__pycache__", true));
@@ -157,20 +155,20 @@ TEST(gi_multiple_patterns) {
 }
 
 TEST(gi_null_safe_free) {
-    cbm_gitignore_free(NULL);  /* should not crash */
+    cbm_gitignore_free(NULL); /* should not crash */
     PASS();
 }
 
 /* ── Load from file ────────────────────────────────────────────── */
 
 TEST(gi_load_file) {
-    const char* path = "/tmp/test_gitignore_file";
-    FILE* f = fopen(path, "w");
+    const char *path = "/tmp/test_gitignore_file";
+    FILE *f = fopen(path, "w");
     ASSERT_NOT_NULL(f);
     fprintf(f, "*.o\nbuild/\n");
     fclose(f);
 
-    cbm_gitignore_t* gi = cbm_gitignore_load(path);
+    cbm_gitignore_t *gi = cbm_gitignore_load(path);
     ASSERT_NOT_NULL(gi);
     ASSERT_TRUE(cbm_gitignore_matches(gi, "main.o", false));
     ASSERT_TRUE(cbm_gitignore_matches(gi, "build", true));
@@ -180,7 +178,7 @@ TEST(gi_load_file) {
 }
 
 TEST(gi_load_nonexistent) {
-    cbm_gitignore_t* gi = cbm_gitignore_load("/tmp/nonexistent_gitignore_12345");
+    cbm_gitignore_t *gi = cbm_gitignore_load("/tmp/nonexistent_gitignore_12345");
     ASSERT_NULL(gi);
     PASS();
 }

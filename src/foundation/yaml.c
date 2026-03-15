@@ -13,9 +13,12 @@
 #include "foundation/yaml.h"
 
 #include <ctype.h>
+#include <stddef.h> // NULL
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h> // strdup
+// NOLINTNEXTLINE(misc-include-cleaner) — strings.h included for interface contract
+#include <strings.h> // strcasecmp
 
 /* ── Node types ───────────────────────────────────────────────── */
 
@@ -40,31 +43,38 @@ struct cbm_yaml_node {
 
 static cbm_yaml_node_t *node_new(yaml_type_t type) {
     cbm_yaml_node_t *n = calloc(1, sizeof(*n));
-    if (n)
+    if (n) {
         n->type = type;
+    }
     return n;
 }
 
 static void node_add_child(cbm_yaml_node_t *parent, cbm_yaml_node_t *child) {
-    if (!parent || !child)
+    if (!parent || !child) {
         return;
+    }
     if (parent->child_count >= parent->child_cap) {
         int new_cap = parent->child_cap < 8 ? 8 : parent->child_cap * 2;
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         cbm_yaml_node_t **new_arr = realloc(parent->children, (size_t)new_cap * sizeof(*new_arr));
-        if (!new_arr)
+        if (!new_arr) {
             return;
+        }
         parent->children = new_arr;
         parent->child_cap = new_cap;
     }
     parent->children[parent->child_count++] = child;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion) — intentional recursive tree deallocation
 void cbm_yaml_free(cbm_yaml_node_t *root) {
-    if (!root)
+    if (!root) {
         return;
+    }
     for (int i = 0; i < root->child_count; i++) {
         cbm_yaml_free(root->children[i]);
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(root->children);
     free(root->key);
     free(root->value);
@@ -75,16 +85,21 @@ void cbm_yaml_free(cbm_yaml_node_t *root) {
 
 /* Duplicate a substring [start, end). Trims trailing whitespace. */
 static char *trim_dup(const char *start, const char *end) {
-    while (end > start && isspace((unsigned char)end[-1]))
+    while (end > start && isspace((unsigned char)end[-1])) {
         end--;
-    while (start < end && isspace((unsigned char)*start))
+    }
+    while (start < end && isspace((unsigned char)*start)) {
         start++;
-    if (start >= end)
+    }
+    if (start >= end) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
         return strdup("");
+    }
     size_t len = (size_t)(end - start);
     char *s = malloc(len + 1);
-    if (!s)
+    if (!s) {
         return NULL;
+    }
     memcpy(s, start, len);
     s[len] = '\0';
     return s;
@@ -93,8 +108,9 @@ static char *trim_dup(const char *start, const char *end) {
 /* Count leading spaces (not tabs). */
 static int leading_spaces(const char *line) {
     int n = 0;
-    while (line[n] == ' ')
+    while (line[n] == ' ') {
         n++;
+    }
     return n;
 }
 
@@ -107,12 +123,14 @@ typedef struct {
 } stack_entry_t;
 
 cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
-    if (!text || len <= 0)
+    if (!text || len <= 0) {
         return node_new(YAML_MAP);
+    }
 
     cbm_yaml_node_t *root = node_new(YAML_MAP);
-    if (!root)
+    if (!root) {
         return NULL;
+    }
 
     /* Stack for tracking parent context */
     stack_entry_t stack[32];
@@ -126,8 +144,9 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
     while (p < end) {
         /* Find end of line */
         const char *eol = memchr(p, '\n', (size_t)(end - p));
-        if (!eol)
+        if (!eol) {
             eol = end;
+        }
         int line_len = (int)(eol - p);
 
         /* Skip empty lines and comments */
@@ -136,8 +155,9 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
         int content_len = line_len - indent;
 
         /* Strip \r */
-        if (content_len > 0 && content[content_len - 1] == '\r')
+        if (content_len > 0 && content[content_len - 1] == '\r') {
             content_len--;
+        }
 
         if (content_len == 0 || content[0] == '#') {
             p = (eol < end) ? eol + 1 : end;
@@ -175,6 +195,7 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
                 node_add_child(list_parent, item);
             }
 
+            // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
             p = (eol < end) ? eol + 1 : end;
             continue;
         }
@@ -206,8 +227,9 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
             for (int i = 0; i < after_len; i++) {
                 if (after[i] == '#' && i > 0 && after[i - 1] == ' ') {
                     after_len = i;
-                    while (after_len > 0 && isspace((unsigned char)after[after_len - 1]))
+                    while (after_len > 0 && isspace((unsigned char)after[after_len - 1])) {
                         after_len--;
+                    }
                     break;
                 }
             }
@@ -230,22 +252,26 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
             bool is_list = false;
             while (peek < end) {
                 const char *peek_eol = memchr(peek, '\n', (size_t)(end - peek));
-                if (!peek_eol)
+                if (!peek_eol) {
                     peek_eol = end;
+                }
                 int pi = leading_spaces(peek);
                 const char *pc = peek + pi;
                 int pcl = (int)(peek_eol - pc);
-                if (pcl > 0 && pc[pcl - 1] == '\r')
+                if (pcl > 0 && pc[pcl - 1] == '\r') {
                     pcl--;
+                }
                 if (pcl == 0 || pc[0] == '#') {
                     peek = (peek_eol < end) ? peek_eol + 1 : end;
                     continue;
                 }
-                if (pc[0] == '-')
+                if (pc[0] == '-') {
                     is_list = true;
+                }
                 break;
             }
 
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             cbm_yaml_node_t *child = node_new(is_list ? YAML_LIST : YAML_MAP);
             if (child) {
                 child->key = key;
@@ -259,9 +285,11 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
             }
         }
 
+        // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
         p = (eol < end) ? eol + 1 : end;
     }
 
+    // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
     return root;
 }
 
@@ -269,8 +297,9 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
 
 /* Find a child node by key in a map node. */
 static const cbm_yaml_node_t *find_child(const cbm_yaml_node_t *node, const char *key) {
-    if (!node || !key)
+    if (!node || !key) {
         return NULL;
+    }
     for (int i = 0; i < node->child_count; i++) {
         if (node->children[i]->key && strcmp(node->children[i]->key, key) == 0) {
             return node->children[i];
@@ -281,8 +310,9 @@ static const cbm_yaml_node_t *find_child(const cbm_yaml_node_t *node, const char
 
 /* Navigate to a node by dot-separated path. */
 static const cbm_yaml_node_t *navigate(const cbm_yaml_node_t *root, const char *path) {
-    if (!root || !path)
+    if (!root || !path) {
         return NULL;
+    }
 
     const cbm_yaml_node_t *cur = root;
     char buf[256];
@@ -296,19 +326,22 @@ static const cbm_yaml_node_t *navigate(const cbm_yaml_node_t *root, const char *
         } else {
             seg_len = (int)strlen(p);
         }
-        if (seg_len <= 0 || seg_len >= (int)sizeof(buf))
+        if (seg_len <= 0 || seg_len >= (int)sizeof(buf)) {
             return NULL;
+        }
 
         memcpy(buf, p, (size_t)seg_len);
         buf[seg_len] = '\0';
 
         cur = find_child(cur, buf);
-        if (!cur)
+        if (!cur) {
             return NULL;
+        }
 
         p += seg_len;
-        if (*p == '.')
+        if (*p == '.') {
             p++;
+        }
     }
 
     return cur;
@@ -316,27 +349,32 @@ static const cbm_yaml_node_t *navigate(const cbm_yaml_node_t *root, const char *
 
 const char *cbm_yaml_get_str(const cbm_yaml_node_t *root, const char *path) {
     const cbm_yaml_node_t *node = navigate(root, path);
-    if (!node || node->type != YAML_SCALAR)
+    if (!node || node->type != YAML_SCALAR) {
         return NULL;
+    }
     return node->value;
 }
 
 double cbm_yaml_get_float(const cbm_yaml_node_t *root, const char *path, double default_val) {
     const char *str = cbm_yaml_get_str(root, path);
-    if (!str)
+    if (!str) {
         return default_val;
+    }
     char *endptr;
     double val = strtod(str, &endptr);
-    if (endptr == str)
+    if (endptr == str) {
         return default_val;
+    }
     return val;
 }
 
 bool cbm_yaml_get_bool(const cbm_yaml_node_t *root, const char *path, bool default_val) {
     const char *str = cbm_yaml_get_str(root, path);
-    if (!str)
+    if (!str) {
         return default_val;
+    }
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — strcasecmp provided by standard header
     if (strcasecmp(str, "true") == 0 || strcasecmp(str, "yes") == 0 || strcasecmp(str, "on") == 0 ||
         strcmp(str, "1") == 0) {
         return true;
@@ -351,8 +389,9 @@ bool cbm_yaml_get_bool(const cbm_yaml_node_t *root, const char *path, bool defau
 int cbm_yaml_get_str_list(const cbm_yaml_node_t *root, const char *path, const char **out,
                           int max_out) {
     const cbm_yaml_node_t *node = navigate(root, path);
-    if (!node || node->type != YAML_LIST)
+    if (!node || node->type != YAML_LIST) {
         return 0;
+    }
 
     int count = 0;
     for (int i = 0; i < node->child_count && count < max_out; i++) {

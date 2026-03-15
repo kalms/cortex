@@ -27,81 +27,106 @@
 
 /* ── Helper: create architecture test store ──────────────────────── */
 
-static cbm_store_t* setup_arch_test_store(void) {
-    cbm_store_t* s = cbm_store_open_memory();
-    if (!s) return NULL;
+static cbm_store_t *setup_arch_test_store(void) {
+    cbm_store_t *s = cbm_store_open_memory();
+    if (!s)
+        return NULL;
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Files */
-    const char* files[] = {"main.go", "handler.go", "service.go", "model.py", "utils.js"};
+    const char *files[] = {"main.go", "handler.go", "service.go", "model.py", "utils.js"};
     for (int i = 0; i < 5; i++) {
         char qn[64];
         snprintf(qn, sizeof(qn), "test.%s", files[i]);
-        cbm_node_t n = {.project = "test", .label = "File", .name = files[i],
-                        .qualified_name = qn, .file_path = files[i]};
+        cbm_node_t n = {.project = "test",
+                        .label = "File",
+                        .name = files[i],
+                        .qualified_name = qn,
+                        .file_path = files[i]};
         cbm_store_upsert_node(s, &n);
     }
 
     /* Packages */
-    cbm_node_t pkg1 = {.project = "test", .label = "Package", .name = "cmd",
-                        .qualified_name = "test.cmd"};
-    cbm_node_t pkg2 = {.project = "test", .label = "Package", .name = "handler",
-                        .qualified_name = "test.handler"};
-    cbm_node_t pkg3 = {.project = "test", .label = "Package", .name = "service",
-                        .qualified_name = "test.service"};
+    cbm_node_t pkg1 = {
+        .project = "test", .label = "Package", .name = "cmd", .qualified_name = "test.cmd"};
+    cbm_node_t pkg2 = {
+        .project = "test", .label = "Package", .name = "handler", .qualified_name = "test.handler"};
+    cbm_node_t pkg3 = {
+        .project = "test", .label = "Package", .name = "service", .qualified_name = "test.service"};
     cbm_store_upsert_node(s, &pkg1);
     cbm_store_upsert_node(s, &pkg2);
     cbm_store_upsert_node(s, &pkg3);
 
     /* Functions with 4-segment QNs */
-    cbm_node_t fn_main = {.project = "test", .label = "Function", .name = "main",
-                           .qualified_name = "test.cmd.server.main",
-                           .file_path = "cmd/server/main.go",
-                           .properties_json = "{\"is_entry_point\":true}"};
+    cbm_node_t fn_main = {.project = "test",
+                          .label = "Function",
+                          .name = "main",
+                          .qualified_name = "test.cmd.server.main",
+                          .file_path = "cmd/server/main.go",
+                          .properties_json = "{\"is_entry_point\":true}"};
     int64_t id_main = cbm_store_upsert_node(s, &fn_main);
 
-    cbm_node_t fn_handle = {.project = "test", .label = "Function", .name = "HandleRequest",
-                             .qualified_name = "test.internal.handler.HandleRequest",
-                             .file_path = "internal/handler/handler.go",
-                             .properties_json = "{\"is_entry_point\":true}"};
+    cbm_node_t fn_handle = {.project = "test",
+                            .label = "Function",
+                            .name = "HandleRequest",
+                            .qualified_name = "test.internal.handler.HandleRequest",
+                            .file_path = "internal/handler/handler.go",
+                            .properties_json = "{\"is_entry_point\":true}"};
     int64_t id_handle = cbm_store_upsert_node(s, &fn_handle);
 
-    cbm_node_t fn_process = {.project = "test", .label = "Function", .name = "ProcessOrder",
-                              .qualified_name = "test.internal.service.ProcessOrder",
-                              .file_path = "internal/service/service.go"};
+    cbm_node_t fn_process = {.project = "test",
+                             .label = "Function",
+                             .name = "ProcessOrder",
+                             .qualified_name = "test.internal.service.ProcessOrder",
+                             .file_path = "internal/service/service.go"};
     int64_t id_process = cbm_store_upsert_node(s, &fn_process);
 
-    cbm_node_t fn_validate = {.project = "test", .label = "Function", .name = "ValidateOrder",
-                               .qualified_name = "test.internal.service.ValidateOrder",
-                               .file_path = "internal/service/service.go"};
+    cbm_node_t fn_validate = {.project = "test",
+                              .label = "Function",
+                              .name = "ValidateOrder",
+                              .qualified_name = "test.internal.service.ValidateOrder",
+                              .file_path = "internal/service/service.go"};
     int64_t id_validate = cbm_store_upsert_node(s, &fn_validate);
 
-    cbm_node_t fn_helper = {.project = "test", .label = "Function", .name = "formatDate",
-                             .qualified_name = "test.internal.service.formatDate",
-                             .file_path = "internal/service/service.go"};
+    cbm_node_t fn_helper = {.project = "test",
+                            .label = "Function",
+                            .name = "formatDate",
+                            .qualified_name = "test.internal.service.formatDate",
+                            .file_path = "internal/service/service.go"};
     int64_t id_helper = cbm_store_upsert_node(s, &fn_helper);
 
     /* Test function (should be excluded) */
-    cbm_node_t fn_test = {.project = "test", .label = "Function", .name = "TestHandleRequest",
-                           .qualified_name = "test.internal.handler.handler_test.TestHandleRequest",
-                           .file_path = "internal/handler/handler_test.go",
-                           .properties_json = "{\"is_entry_point\":true}"};
+    cbm_node_t fn_test = {.project = "test",
+                          .label = "Function",
+                          .name = "TestHandleRequest",
+                          .qualified_name = "test.internal.handler.handler_test.TestHandleRequest",
+                          .file_path = "internal/handler/handler_test.go",
+                          .properties_json = "{\"is_entry_point\":true}"};
     int64_t id_test = cbm_store_upsert_node(s, &fn_test);
 
     /* Route */
-    cbm_node_t route = {.project = "test", .label = "Route", .name = "/api/orders",
-                         .qualified_name = "test.internal.handler.route./api/orders",
-                         .properties_json = "{\"method\":\"POST\",\"path\":\"/api/orders\",\"handler\":\"HandleRequest\"}"};
+    cbm_node_t route = {
+        .project = "test",
+        .label = "Route",
+        .name = "/api/orders",
+        .qualified_name = "test.internal.handler.route./api/orders",
+        .properties_json =
+            "{\"method\":\"POST\",\"path\":\"/api/orders\",\"handler\":\"HandleRequest\"}"};
     cbm_store_upsert_node(s, &route);
 
     /* Edges: main → HandleRequest → ProcessOrder → ValidateOrder
      *                                ProcessOrder → formatDate
      *        TestHandleRequest → HandleRequest */
-    cbm_edge_t e1 = {.project = "test", .source_id = id_main, .target_id = id_handle, .type = "CALLS"};
-    cbm_edge_t e2 = {.project = "test", .source_id = id_handle, .target_id = id_process, .type = "CALLS"};
-    cbm_edge_t e3 = {.project = "test", .source_id = id_process, .target_id = id_validate, .type = "CALLS"};
-    cbm_edge_t e4 = {.project = "test", .source_id = id_process, .target_id = id_helper, .type = "CALLS"};
-    cbm_edge_t e5 = {.project = "test", .source_id = id_test, .target_id = id_handle, .type = "CALLS"};
+    cbm_edge_t e1 = {
+        .project = "test", .source_id = id_main, .target_id = id_handle, .type = "CALLS"};
+    cbm_edge_t e2 = {
+        .project = "test", .source_id = id_handle, .target_id = id_process, .type = "CALLS"};
+    cbm_edge_t e3 = {
+        .project = "test", .source_id = id_process, .target_id = id_validate, .type = "CALLS"};
+    cbm_edge_t e4 = {
+        .project = "test", .source_id = id_process, .target_id = id_helper, .type = "CALLS"};
+    cbm_edge_t e5 = {
+        .project = "test", .source_id = id_test, .target_id = id_handle, .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
@@ -114,7 +139,7 @@ static cbm_store_t* setup_arch_test_store(void) {
 /* ── Architecture tests ──────────────────────────────────────────── */
 
 TEST(arch_get_all) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     ASSERT_EQ(cbm_store_get_architecture(s, "test", NULL, 0, &info), CBM_STORE_OK);
 
@@ -131,10 +156,10 @@ TEST(arch_get_all) {
 }
 
 TEST(arch_entry_points_exclude_tests) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"entry_points"};
+    const char *aspects[] = {"entry_points"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     for (int i = 0; i < info.entry_point_count; i++) {
@@ -148,10 +173,10 @@ TEST(arch_entry_points_exclude_tests) {
 }
 
 TEST(arch_hotspots_exclude_tests) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"hotspots"};
+    const char *aspects[] = {"hotspots"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     for (int i = 0; i < info.hotspot_count; i++) {
@@ -164,9 +189,9 @@ TEST(arch_hotspots_exclude_tests) {
 }
 
 TEST(arch_specific_aspects) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
-    const char* aspects[] = {"languages", "hotspots"};
+    const char *aspects[] = {"languages", "hotspots"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 2, &info), CBM_STORE_OK);
 
     ASSERT_TRUE(info.language_count > 0);
@@ -182,12 +207,12 @@ TEST(arch_specific_aspects) {
 }
 
 TEST(arch_empty_project) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "empty", "/tmp/empty"), CBM_STORE_OK);
 
     cbm_architecture_info_t info;
-    const char* aspects[] = {"all"};
+    const char *aspects[] = {"all"};
     ASSERT_EQ(cbm_store_get_architecture(s, "empty", aspects, 1, &info), CBM_STORE_OK);
     /* All should be empty but no errors */
 
@@ -197,18 +222,21 @@ TEST(arch_empty_project) {
 }
 
 TEST(arch_languages) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"languages"};
+    const char *aspects[] = {"languages"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     /* Check Go=3, Python=1, JavaScript=1 */
     int go_count = 0, py_count = 0, js_count = 0;
     for (int i = 0; i < info.language_count; i++) {
-        if (strcmp(info.languages[i].language, "Go") == 0) go_count = info.languages[i].file_count;
-        if (strcmp(info.languages[i].language, "Python") == 0) py_count = info.languages[i].file_count;
-        if (strcmp(info.languages[i].language, "JavaScript") == 0) js_count = info.languages[i].file_count;
+        if (strcmp(info.languages[i].language, "Go") == 0)
+            go_count = info.languages[i].file_count;
+        if (strcmp(info.languages[i].language, "Python") == 0)
+            py_count = info.languages[i].file_count;
+        if (strcmp(info.languages[i].language, "JavaScript") == 0)
+            js_count = info.languages[i].file_count;
     }
     ASSERT_EQ(go_count, 3);
     ASSERT_EQ(py_count, 1);
@@ -220,10 +248,10 @@ TEST(arch_languages) {
 }
 
 TEST(arch_routes) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"routes"};
+    const char *aspects[] = {"routes"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     ASSERT_EQ(info.route_count, 1);
@@ -237,10 +265,10 @@ TEST(arch_routes) {
 }
 
 TEST(arch_hotspots) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"hotspots"};
+    const char *aspects[] = {"hotspots"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     ASSERT_TRUE(info.hotspot_count > 0);
@@ -261,18 +289,22 @@ TEST(arch_hotspots) {
 }
 
 TEST(arch_boundaries) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"boundaries"};
+    const char *aspects[] = {"boundaries"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     ASSERT_TRUE(info.boundary_count > 0);
     /* server → handler and handler → service should be present */
     bool found_sh = false, found_hs = false;
     for (int i = 0; i < info.boundary_count; i++) {
-        if (strcmp(info.boundaries[i].from, "server") == 0 && strcmp(info.boundaries[i].to, "handler") == 0) found_sh = true;
-        if (strcmp(info.boundaries[i].from, "handler") == 0 && strcmp(info.boundaries[i].to, "service") == 0) found_hs = true;
+        if (strcmp(info.boundaries[i].from, "server") == 0 &&
+            strcmp(info.boundaries[i].to, "handler") == 0)
+            found_sh = true;
+        if (strcmp(info.boundaries[i].from, "handler") == 0 &&
+            strcmp(info.boundaries[i].to, "service") == 0)
+            found_hs = true;
     }
     ASSERT_TRUE(found_sh);
     ASSERT_TRUE(found_hs);
@@ -283,10 +315,10 @@ TEST(arch_boundaries) {
 }
 
 TEST(arch_layers) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"layers"};
+    const char *aspects[] = {"layers"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     ASSERT_TRUE(info.layer_count > 0);
@@ -303,10 +335,10 @@ TEST(arch_layers) {
 }
 
 TEST(arch_file_tree) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"file_tree"};
+    const char *aspects[] = {"file_tree"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     ASSERT_TRUE(info.file_tree_count > 0);
@@ -322,10 +354,10 @@ TEST(arch_file_tree) {
 }
 
 TEST(arch_clusters) {
-    cbm_store_t* s = setup_arch_test_store();
+    cbm_store_t *s = setup_arch_test_store();
     cbm_architecture_info_t info;
     memset(&info, 0, sizeof(info));
-    const char* aspects[] = {"clusters"};
+    const char *aspects[] = {"clusters"};
     ASSERT_EQ(cbm_store_get_architecture(s, "test", aspects, 1, &info), CBM_STORE_OK);
 
     /* With 5 functions and 4 edges, Louvain should find at least 1 cluster */
@@ -350,11 +382,11 @@ TEST(arch_clusters) {
 /* ── ADR tests ──────────────────────────────────────────────────── */
 
 TEST(adr_store_and_retrieve) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
-    const char* content = "## PURPOSE\nTest project for unit tests.\n\n## STACK\n- Go: speed";
+    const char *content = "## PURPOSE\nTest project for unit tests.\n\n## STACK\n- Go: speed";
     ASSERT_EQ(cbm_store_adr_store(s, "test", content), CBM_STORE_OK);
 
     cbm_adr_t adr;
@@ -370,7 +402,7 @@ TEST(adr_store_and_retrieve) {
 }
 
 TEST(adr_upsert) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
@@ -387,7 +419,7 @@ TEST(adr_upsert) {
 }
 
 TEST(adr_delete) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
@@ -402,7 +434,7 @@ TEST(adr_delete) {
 }
 
 TEST(adr_delete_not_found) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
 
     ASSERT_TRUE(cbm_store_adr_delete(s, "nonexistent") != CBM_STORE_OK);
@@ -423,8 +455,9 @@ TEST(adr_parse_sections_basic) {
 }
 
 TEST(adr_parse_sections_all_six) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections(
-        "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
+    cbm_adr_sections_t sec =
+        cbm_adr_parse_sections("## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
+                               "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
     ASSERT_EQ(sec.count, 6);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "A");
@@ -435,8 +468,8 @@ TEST(adr_parse_sections_all_six) {
 }
 
 TEST(adr_parse_sections_non_canonical) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections(
-        "## PURPOSE\nFoo\n## CUSTOM\nStill in PURPOSE\n\n## STACK\nBar");
+    cbm_adr_sections_t sec =
+        cbm_adr_parse_sections("## PURPOSE\nFoo\n## CUSTOM\nStill in PURPOSE\n\n## STACK\nBar");
     ASSERT_EQ(sec.count, 2);
     ASSERT_STR_EQ(sec.keys[0], "PURPOSE");
     ASSERT_STR_EQ(sec.values[0], "Foo\n## CUSTOM\nStill in PURPOSE");
@@ -463,8 +496,8 @@ TEST(adr_parse_sections_preamble) {
 }
 
 TEST(adr_parse_sections_multiline) {
-    cbm_adr_sections_t sec = cbm_adr_parse_sections(
-        "## PURPOSE\nLine 1\nLine 2\nLine 3\n\n## STACK\n- Go\n- SQLite");
+    cbm_adr_sections_t sec =
+        cbm_adr_parse_sections("## PURPOSE\nLine 1\nLine 2\nLine 3\n\n## STACK\n- Go\n- SQLite");
     ASSERT_EQ(sec.count, 2);
     ASSERT_STR_EQ(sec.values[0], "Line 1\nLine 2\nLine 3");
     ASSERT_STR_EQ(sec.values[1], "- Go\n- SQLite");
@@ -474,9 +507,11 @@ TEST(adr_parse_sections_multiline) {
 
 TEST(adr_render_canonical_order) {
     cbm_adr_sections_t sec = {.count = 2};
-    sec.keys[0] = strdup("STACK");  sec.values[0] = strdup("Bar");
-    sec.keys[1] = strdup("PURPOSE"); sec.values[1] = strdup("Foo");
-    char* rendered = cbm_adr_render(&sec);
+    sec.keys[0] = strdup("STACK");
+    sec.values[0] = strdup("Bar");
+    sec.keys[1] = strdup("PURPOSE");
+    sec.values[1] = strdup("Foo");
+    char *rendered = cbm_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "## PURPOSE\nFoo\n\n## STACK\nBar");
     free(rendered);
     cbm_adr_sections_free(&sec);
@@ -485,15 +520,21 @@ TEST(adr_render_canonical_order) {
 
 TEST(adr_render_all_sections) {
     cbm_adr_sections_t sec = {.count = 6};
-    sec.keys[0] = strdup("PHILOSOPHY"); sec.values[0] = strdup("F");
-    sec.keys[1] = strdup("PURPOSE"); sec.values[1] = strdup("A");
-    sec.keys[2] = strdup("STACK"); sec.values[2] = strdup("B");
-    sec.keys[3] = strdup("ARCHITECTURE"); sec.values[3] = strdup("C");
-    sec.keys[4] = strdup("PATTERNS"); sec.values[4] = strdup("D");
-    sec.keys[5] = strdup("TRADEOFFS"); sec.values[5] = strdup("E");
-    char* rendered = cbm_adr_render(&sec);
-    ASSERT_STR_EQ(rendered,
-        "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
+    sec.keys[0] = strdup("PHILOSOPHY");
+    sec.values[0] = strdup("F");
+    sec.keys[1] = strdup("PURPOSE");
+    sec.values[1] = strdup("A");
+    sec.keys[2] = strdup("STACK");
+    sec.values[2] = strdup("B");
+    sec.keys[3] = strdup("ARCHITECTURE");
+    sec.values[3] = strdup("C");
+    sec.keys[4] = strdup("PATTERNS");
+    sec.values[4] = strdup("D");
+    sec.keys[5] = strdup("TRADEOFFS");
+    sec.values[5] = strdup("E");
+    char *rendered = cbm_adr_render(&sec);
+    ASSERT_STR_EQ(rendered, "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
+                            "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF");
     free(rendered);
     cbm_adr_sections_free(&sec);
     PASS();
@@ -501,10 +542,13 @@ TEST(adr_render_all_sections) {
 
 TEST(adr_render_non_canonical) {
     cbm_adr_sections_t sec = {.count = 3};
-    sec.keys[0] = strdup("PURPOSE"); sec.values[0] = strdup("Foo");
-    sec.keys[1] = strdup("ZEBRA"); sec.values[1] = strdup("Z");
-    sec.keys[2] = strdup("ALPHA"); sec.values[2] = strdup("A");
-    char* rendered = cbm_adr_render(&sec);
+    sec.keys[0] = strdup("PURPOSE");
+    sec.values[0] = strdup("Foo");
+    sec.keys[1] = strdup("ZEBRA");
+    sec.values[1] = strdup("Z");
+    sec.keys[2] = strdup("ALPHA");
+    sec.values[2] = strdup("A");
+    char *rendered = cbm_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "## PURPOSE\nFoo\n\n## ALPHA\nA\n\n## ZEBRA\nZ");
     free(rendered);
     cbm_adr_sections_free(&sec);
@@ -513,19 +557,19 @@ TEST(adr_render_non_canonical) {
 
 TEST(adr_render_empty) {
     cbm_adr_sections_t sec = {.count = 0};
-    char* rendered = cbm_adr_render(&sec);
+    char *rendered = cbm_adr_render(&sec);
     ASSERT_STR_EQ(rendered, "");
     free(rendered);
     PASS();
 }
 
 TEST(adr_parse_render_roundtrip) {
-    const char* original =
+    const char *original =
         "## PURPOSE\nTest project\n\n## STACK\n- Go: speed\n- SQLite: embedded\n\n"
         "## ARCHITECTURE\nPipeline pattern\n\n## PATTERNS\n- Convention over config\n\n"
         "## TRADEOFFS\n- Speed over features\n\n## PHILOSOPHY\n- Keep it simple";
     cbm_adr_sections_t sec = cbm_adr_parse_sections(original);
-    char* rendered = cbm_adr_render(&sec);
+    char *rendered = cbm_adr_render(&sec);
     ASSERT_STR_EQ(rendered, original);
     free(rendered);
     cbm_adr_sections_free(&sec);
@@ -533,14 +577,15 @@ TEST(adr_parse_render_roundtrip) {
 }
 
 TEST(adr_update_sections) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
-    ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nOriginal purpose\n\n## STACK\n- Go"), CBM_STORE_OK);
+    ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nOriginal purpose\n\n## STACK\n- Go"),
+              CBM_STORE_OK);
 
-    const char* keys[] = {"PATTERNS"};
-    const char* values[] = {"- Pipeline pattern"};
+    const char *keys[] = {"PATTERNS"};
+    const char *values[] = {"- Pipeline pattern"};
     cbm_adr_t updated;
     ASSERT_EQ(cbm_store_adr_update_sections(s, "test", keys, values, 1, &updated), CBM_STORE_OK);
 
@@ -572,18 +617,18 @@ TEST(adr_update_sections) {
 }
 
 TEST(adr_update_overflow) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
     ASSERT_EQ(cbm_store_adr_store(s, "test", "## PURPOSE\nShort"), CBM_STORE_OK);
 
     /* Create huge content */
-    char* huge = malloc(CBM_ADR_MAX_LENGTH + 2);
+    char *huge = malloc(CBM_ADR_MAX_LENGTH + 2);
     memset(huge, 'x', CBM_ADR_MAX_LENGTH + 1);
     huge[CBM_ADR_MAX_LENGTH + 1] = '\0';
 
-    const char* keys[] = {"STACK"};
-    const char* values[] = {huge};
+    const char *keys[] = {"STACK"};
+    const char *values[] = {huge};
     cbm_adr_t out;
     ASSERT_TRUE(cbm_store_adr_update_sections(s, "test", keys, values, 1, &out) != CBM_STORE_OK);
 
@@ -593,12 +638,12 @@ TEST(adr_update_overflow) {
 }
 
 TEST(adr_update_no_existing) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
-    const char* keys[] = {"PURPOSE"};
-    const char* values[] = {"New purpose"};
+    const char *keys[] = {"PURPOSE"};
+    const char *values[] = {"New purpose"};
     cbm_adr_t out;
     ASSERT_TRUE(cbm_store_adr_update_sections(s, "test", keys, values, 1, &out) != CBM_STORE_OK);
 
@@ -607,15 +652,15 @@ TEST(adr_update_no_existing) {
 }
 
 TEST(adr_validate_all_sections) {
-    const char* content =
-        "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF";
+    const char *content = "## PURPOSE\nA\n\n## STACK\nB\n\n## ARCHITECTURE\nC\n\n## "
+                          "PATTERNS\nD\n\n## TRADEOFFS\nE\n\n## PHILOSOPHY\nF";
     char errbuf[256];
     ASSERT_EQ(cbm_adr_validate_content(content, errbuf, sizeof(errbuf)), CBM_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_missing_sections) {
-    const char* content = "## PURPOSE\nA\n\n## STACK\nB";
+    const char *content = "## PURPOSE\nA\n\n## STACK\nB";
     char errbuf[512];
     ASSERT_TRUE(cbm_adr_validate_content(content, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
     /* Error should mention missing sections */
@@ -633,14 +678,14 @@ TEST(adr_validate_empty) {
 }
 
 TEST(adr_validate_keys_valid) {
-    const char* keys[] = {"PURPOSE", "STACK"};
+    const char *keys[] = {"PURPOSE", "STACK"};
     char errbuf[256];
     ASSERT_EQ(cbm_adr_validate_section_keys(keys, 2, errbuf, sizeof(errbuf)), CBM_STORE_OK);
     PASS();
 }
 
 TEST(adr_validate_keys_invalid) {
-    const char* keys[] = {"PURPOSE", "STACKS", "CUSTOM"};
+    const char *keys[] = {"PURPOSE", "STACKS", "CUSTOM"};
     char errbuf[256];
     ASSERT_TRUE(cbm_adr_validate_section_keys(keys, 3, errbuf, sizeof(errbuf)) != CBM_STORE_OK);
     ASSERT_TRUE(strstr(errbuf, "STACKS") != NULL);
@@ -659,10 +704,8 @@ TEST(adr_validate_keys_empty) {
 TEST(louvain_basic) {
     /* Triangle: 1-2, 2-3, 1-3. Pair: 4-5. */
     int64_t nodes[] = {1, 2, 3, 4, 5};
-    cbm_louvain_edge_t edges[] = {
-        {1, 2}, {2, 3}, {1, 3}, {4, 5}
-    };
-    cbm_louvain_result_t* result = NULL;
+    cbm_louvain_edge_t edges[] = {{1, 2}, {2, 3}, {1, 3}, {4, 5}};
+    cbm_louvain_result_t *result = NULL;
     int count = 0;
     ASSERT_EQ(cbm_louvain(nodes, 5, edges, 4, &result, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 5);
@@ -686,7 +729,7 @@ TEST(louvain_basic) {
 }
 
 TEST(louvain_empty) {
-    cbm_louvain_result_t* result = NULL;
+    cbm_louvain_result_t *result = NULL;
     int count = 0;
     ASSERT_EQ(cbm_louvain(NULL, 0, NULL, 0, &result, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 0);
@@ -696,7 +739,7 @@ TEST(louvain_empty) {
 
 TEST(louvain_single_node) {
     int64_t nodes[] = {42};
-    cbm_louvain_result_t* result = NULL;
+    cbm_louvain_result_t *result = NULL;
     int count = 0;
     ASSERT_EQ(cbm_louvain(nodes, 1, NULL, 0, &result, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 1);
@@ -711,7 +754,8 @@ TEST(louvain_converges) {
     cbm_louvain_edge_t edges[200];
     int nedges = 0;
 
-    for (int i = 0; i < 20; i++) nodes[i] = i + 1;
+    for (int i = 0; i < 20; i++)
+        nodes[i] = i + 1;
 
     /* Cluster 1: nodes 1-10, fully connected */
     for (int i = 1; i <= 10; i++) {
@@ -728,7 +772,7 @@ TEST(louvain_converges) {
     /* Bridge */
     edges[nedges++] = (cbm_louvain_edge_t){5, 15};
 
-    cbm_louvain_result_t* result = NULL;
+    cbm_louvain_result_t *result = NULL;
     int count = 0;
     ASSERT_EQ(cbm_louvain(nodes, 20, edges, nedges, &result, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 20);
@@ -740,20 +784,26 @@ TEST(louvain_converges) {
     }
 
     /* Count distinct communities */
-    int distinct[20]; int ndistinct = 0;
+    int distinct[20];
+    int ndistinct = 0;
     for (int i = 0; i < count; i++) {
         bool found = false;
         for (int j = 0; j < ndistinct; j++) {
-            if (distinct[j] == result[i].community) { found = true; break; }
+            if (distinct[j] == result[i].community) {
+                found = true;
+                break;
+            }
         }
-        if (!found) distinct[ndistinct++] = result[i].community;
+        if (!found)
+            distinct[ndistinct++] = result[i].community;
     }
     ASSERT_TRUE(ndistinct >= 2);
 
     /* Nodes 1-10 mostly in same community */
     int same_count = 0;
     for (int i = 1; i <= 10; i++) {
-        if (comm_map[i] == comm_map[1]) same_count++;
+        if (comm_map[i] == comm_map[1])
+            same_count++;
     }
     ASSERT_TRUE(same_count >= 8);
 
@@ -797,28 +847,33 @@ TEST(is_test_file_path) {
 }
 
 TEST(find_architecture_docs) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
-    const char* fps[] = {"main.go", "ARCHITECTURE.md", "docs/adr/001-use-sqlite.md", "README.md"};
+    const char *fps[] = {"main.go", "ARCHITECTURE.md", "docs/adr/001-use-sqlite.md", "README.md"};
     for (int i = 0; i < 4; i++) {
         char qn[64];
         snprintf(qn, sizeof(qn), "test.%s", fps[i]);
-        cbm_node_t n = {.project = "test", .label = "File", .name = fps[i],
-                        .qualified_name = qn, .file_path = fps[i]};
+        cbm_node_t n = {.project = "test",
+                        .label = "File",
+                        .name = fps[i],
+                        .qualified_name = qn,
+                        .file_path = fps[i]};
         cbm_store_upsert_node(s, &n);
     }
 
-    char** docs = NULL;
+    char **docs = NULL;
     int count = 0;
     ASSERT_EQ(cbm_store_find_architecture_docs(s, "test", &docs, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 2);
 
     bool found_arch = false, found_adr = false;
     for (int i = 0; i < count; i++) {
-        if (strcmp(docs[i], "ARCHITECTURE.md") == 0) found_arch = true;
-        if (strcmp(docs[i], "docs/adr/001-use-sqlite.md") == 0) found_adr = true;
+        if (strcmp(docs[i], "ARCHITECTURE.md") == 0)
+            found_arch = true;
+        if (strcmp(docs[i], "docs/adr/001-use-sqlite.md") == 0)
+            found_adr = true;
         free(docs[i]);
     }
     free(docs);
@@ -830,11 +885,11 @@ TEST(find_architecture_docs) {
 }
 
 TEST(find_architecture_docs_empty) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(cbm_store_upsert_project(s, "test", "/tmp/test"), CBM_STORE_OK);
 
-    char** docs = NULL;
+    char **docs = NULL;
     int count = 0;
     ASSERT_EQ(cbm_store_find_architecture_docs(s, "test", &docs, &count), CBM_STORE_OK);
     ASSERT_EQ(count, 0);
@@ -847,19 +902,25 @@ TEST(find_architecture_docs_empty) {
 /* ── Case-insensitive search tests ───────────────────────────────── */
 
 TEST(search_case_insensitive_default) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n1 = {.project="test", .label="Function", .name="FooBar", .qualified_name="test.FooBar"};
-    cbm_node_t n2 = {.project="test", .label="Function", .name="foobar", .qualified_name="test.foobar"};
-    cbm_node_t n3 = {.project="test", .label="Function", .name="FOOBAR", .qualified_name="test.FOOBAR"};
+    cbm_node_t n1 = {
+        .project = "test", .label = "Function", .name = "FooBar", .qualified_name = "test.FooBar"};
+    cbm_node_t n2 = {
+        .project = "test", .label = "Function", .name = "foobar", .qualified_name = "test.foobar"};
+    cbm_node_t n3 = {
+        .project = "test", .label = "Function", .name = "FOOBAR", .qualified_name = "test.FOOBAR"};
     cbm_store_upsert_node(s, &n1);
     cbm_store_upsert_node(s, &n2);
     cbm_store_upsert_node(s, &n3);
 
     /* Default (case_sensitive=false) should match all 3 */
-    cbm_search_params_t params = {.project="test", .name_pattern="foobar",
-                                   .min_degree=-1, .max_degree=-1, .case_sensitive=false};
+    cbm_search_params_t params = {.project = "test",
+                                  .name_pattern = "foobar",
+                                  .min_degree = -1,
+                                  .max_degree = -1,
+                                  .case_sensitive = false};
     cbm_search_output_t out = {0};
     ASSERT_EQ(cbm_store_search(s, &params, &out), CBM_STORE_OK);
     ASSERT_EQ(out.count, 3);
@@ -870,19 +931,25 @@ TEST(search_case_insensitive_default) {
 }
 
 TEST(search_case_sensitive_explicit) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n1 = {.project="test", .label="Function", .name="FooBar", .qualified_name="test.FooBar"};
-    cbm_node_t n2 = {.project="test", .label="Function", .name="foobar", .qualified_name="test.foobar"};
-    cbm_node_t n3 = {.project="test", .label="Function", .name="FOOBAR", .qualified_name="test.FOOBAR"};
+    cbm_node_t n1 = {
+        .project = "test", .label = "Function", .name = "FooBar", .qualified_name = "test.FooBar"};
+    cbm_node_t n2 = {
+        .project = "test", .label = "Function", .name = "foobar", .qualified_name = "test.foobar"};
+    cbm_node_t n3 = {
+        .project = "test", .label = "Function", .name = "FOOBAR", .qualified_name = "test.FOOBAR"};
     cbm_store_upsert_node(s, &n1);
     cbm_store_upsert_node(s, &n2);
     cbm_store_upsert_node(s, &n3);
 
     /* Explicit case-sensitive should match only "foobar" */
-    cbm_search_params_t params = {.project="test", .name_pattern="foobar",
-                                   .min_degree=-1, .max_degree=-1, .case_sensitive=true};
+    cbm_search_params_t params = {.project = "test",
+                                  .name_pattern = "foobar",
+                                  .min_degree = -1,
+                                  .max_degree = -1,
+                                  .case_sensitive = true};
     cbm_search_output_t out = {0};
     ASSERT_EQ(cbm_store_search(s, &params, &out), CBM_STORE_OK);
     ASSERT_EQ(out.count, 1);

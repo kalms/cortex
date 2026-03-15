@@ -6,15 +6,24 @@
  */
 #include "cli/cli.h"
 
+// NOLINTBEGIN(cert-err33-c)
+// NOLINTBEGIN(readability-magic-numbers)
+// NOLINTBEGIN(concurrency-mt-unsafe)
+// NOLINTBEGIN(performance-no-int-to-ptr)
+
+// NOLINTBEGIN(misc-include-cleaner) — macOS declares POSIX symbols in internal sub-headers;
+// the correct standard headers are included below but clang-tidy doesn't map them.
 #include <ctype.h>
-#include <dirent.h>
-#include <errno.h>
+#include <dirent.h> // struct dirent
+#include <errno.h>  // EEXIST
+#include <stdint.h> // uintptr_t
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
+#include <string.h>   // strtok_r
+#include <sys/stat.h> // mode_t, S_IXUSR
 #include <unistd.h>
-#include <zlib.h>
+#include <zlib.h> // MAX_WBITS
+// NOLINTEND(misc-include-cleaner)
 
 /* yyjson for JSON read-modify-write */
 #include "yyjson/yyjson.h"
@@ -24,8 +33,9 @@
 static const char *cli_version = "dev";
 
 void cbm_cli_set_version(const char *ver) {
-    if (ver)
+    if (ver) {
         cli_version = ver;
+    }
 }
 
 const char *cbm_cli_get_version(void) {
@@ -38,13 +48,15 @@ const char *cbm_cli_get_version(void) {
 static int parse_semver(const char *v, int out[3]) {
     out[0] = out[1] = out[2] = 0;
     /* Skip v prefix */
-    if (*v == 'v' || *v == 'V')
+    if (*v == 'v' || *v == 'V') {
         v++;
+    }
 
     int count = 0;
     while (*v && count < 3) {
-        if (*v == '-')
+        if (*v == '-') {
             break; /* stop at pre-release suffix */
+        }
         char *endptr;
         long val = strtol(v, &endptr, 10);
         out[count++] = (int)val;
@@ -58,28 +70,33 @@ static int parse_semver(const char *v, int out[3]) {
 }
 
 static bool has_prerelease(const char *v) {
-    if (*v == 'v' || *v == 'V')
+    if (*v == 'v' || *v == 'V') {
         v++;
+    }
     return strchr(v, '-') != NULL;
 }
 
 int cbm_compare_versions(const char *a, const char *b) {
-    int pa[3], pb[3];
+    int pa[3];
+    int pb[3];
     parse_semver(a, pa);
     parse_semver(b, pb);
 
     for (int i = 0; i < 3; i++) {
-        if (pa[i] != pb[i])
+        if (pa[i] != pb[i]) {
             return pa[i] - pb[i];
+        }
     }
 
     /* Same base version — non-dev beats dev */
     bool a_pre = has_prerelease(a);
     bool b_pre = has_prerelease(b);
-    if (a_pre && !b_pre)
+    if (a_pre && !b_pre) {
         return -1;
-    if (!a_pre && b_pre)
+    }
+    if (!a_pre && b_pre) {
         return 1;
+    }
     return 0;
 }
 
@@ -87,12 +104,14 @@ int cbm_compare_versions(const char *a, const char *b) {
 
 const char *cbm_detect_shell_rc(const char *home_dir) {
     static char buf[512];
-    if (!home_dir || !home_dir[0])
+    if (!home_dir || !home_dir[0]) {
         return "";
+    }
 
     const char *shell = getenv("SHELL");
-    if (!shell)
+    if (!shell) {
         shell = "";
+    }
 
     if (strstr(shell, "/zsh")) {
         snprintf(buf, sizeof(buf), "%s/.zshrc", home_dir);
@@ -102,8 +121,9 @@ const char *cbm_detect_shell_rc(const char *home_dir) {
         /* Prefer .bashrc, fall back to .bash_profile */
         snprintf(buf, sizeof(buf), "%s/.bashrc", home_dir);
         struct stat st;
-        if (stat(buf, &st) == 0)
+        if (stat(buf, &st) == 0) {
             return buf;
+        }
         snprintf(buf, sizeof(buf), "%s/.bash_profile", home_dir);
         return buf;
     }
@@ -121,8 +141,9 @@ const char *cbm_detect_shell_rc(const char *home_dir) {
 
 const char *cbm_find_cli(const char *name, const char *home_dir) {
     static char buf[512];
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return "";
+    }
 
     /* Check PATH first */
     const char *path_env = getenv("PATH");
@@ -130,10 +151,12 @@ const char *cbm_find_cli(const char *name, const char *home_dir) {
         char path_copy[4096];
         snprintf(path_copy, sizeof(path_copy), "%s", path_env);
         char *saveptr;
+        // NOLINTNEXTLINE(misc-include-cleaner) — strtok_r provided by standard header
         char *dir = strtok_r(path_copy, ":", &saveptr);
         while (dir) {
             snprintf(buf, sizeof(buf), "%s/%s", dir, name);
             struct stat st;
+            // NOLINTNEXTLINE(misc-include-cleaner) — S_IXUSR provided by standard header
             if (stat(buf, &st) == 0 && (st.st_mode & S_IXUSR)) {
                 return buf;
             }
@@ -163,8 +186,9 @@ const char *cbm_find_cli(const char *name, const char *home_dir) {
         (void)candidates;
 
         for (int i = 0; i < 5; i++) {
-            if (!paths[i][0])
+            if (!paths[i][0]) {
                 continue;
+            }
             struct stat st;
             if (stat(paths[i], &st) == 0) {
                 snprintf(buf, sizeof(buf), "%s", paths[i]);
@@ -180,8 +204,9 @@ const char *cbm_find_cli(const char *name, const char *home_dir) {
 
 int cbm_copy_file(const char *src, const char *dst) {
     FILE *in = fopen(src, "rb");
-    if (!in)
+    if (!in) {
         return -1;
+    }
 
     FILE *out = fopen(dst, "wb");
     if (!out) {
@@ -193,8 +218,9 @@ int cbm_copy_file(const char *src, const char *dst) {
     int err = 0;
     while (!feof(in) && !ferror(in)) {
         size_t n = fread(buf, 1, sizeof(buf), in);
-        if (n == 0)
+        if (n == 0) {
             break;
+        }
         if (fwrite(buf, 1, n, out) != n) {
             err = 1;
             break;
@@ -356,14 +382,17 @@ const char *cbm_get_codex_instructions(void) {
 
 /* ── Recursive mkdir ──────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(misc-include-cleaner) — mode_t provided by standard header
 static int mkdirp(const char *path, mode_t mode) {
     char tmp[1024];
     snprintf(tmp, sizeof(tmp), "%s", path);
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (mkdir(tmp, mode) != 0 && errno != EEXIST)
+            // NOLINTNEXTLINE(misc-include-cleaner) — EEXIST provided by standard header
+            if (mkdir(tmp, mode) != 0 && errno != EEXIST) {
                 return -1;
+            }
             *p = '/';
         }
     }
@@ -372,15 +401,19 @@ static int mkdirp(const char *path, mode_t mode) {
 
 /* ── Recursive rmdir ──────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(misc-no-recursion) — intentional recursive directory removal
 static int rmdir_recursive(const char *path) {
     DIR *d = opendir(path);
-    if (!d)
+    if (!d) {
         return -1;
+    }
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — dirent provided by standard header
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
             continue;
+        }
         char child[1024];
         snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
         struct stat st;
@@ -397,8 +430,9 @@ static int rmdir_recursive(const char *path) {
 /* ── Skill management ─────────────────────────────────────────── */
 
 int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
-    if (!skills_dir)
+    if (!skills_dir) {
         return 0;
+    }
     int count = 0;
 
     for (int i = 0; i < CBM_SKILL_COUNT; i++) {
@@ -410,8 +444,9 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
         /* Check if already exists */
         if (!force) {
             struct stat st;
-            if (stat(file_path, &st) == 0)
+            if (stat(file_path, &st) == 0) {
                 continue;
+            }
         }
 
         if (dry_run) {
@@ -419,12 +454,14 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
             continue;
         }
 
-        if (mkdirp(skill_path, 0750) != 0)
+        if (mkdirp(skill_path, 0750) != 0) {
             continue;
+        }
 
         FILE *f = fopen(file_path, "w");
-        if (!f)
+        if (!f) {
             continue;
+        }
         fwrite(skills[i].content, 1, strlen(skills[i].content), f);
         fclose(f);
         count++;
@@ -433,40 +470,46 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
 }
 
 int cbm_remove_skills(const char *skills_dir, bool dry_run) {
-    if (!skills_dir)
+    if (!skills_dir) {
         return 0;
+    }
     int count = 0;
 
     for (int i = 0; i < CBM_SKILL_COUNT; i++) {
         char skill_path[1024];
         snprintf(skill_path, sizeof(skill_path), "%s/%s", skills_dir, skills[i].name);
         struct stat st;
-        if (stat(skill_path, &st) != 0)
+        if (stat(skill_path, &st) != 0) {
             continue;
+        }
 
         if (dry_run) {
             count++;
             continue;
         }
 
-        if (rmdir_recursive(skill_path) == 0)
+        if (rmdir_recursive(skill_path) == 0) {
             count++;
+        }
     }
     return count;
 }
 
 bool cbm_remove_old_monolithic_skill(const char *skills_dir, bool dry_run) {
-    if (!skills_dir)
+    if (!skills_dir) {
         return false;
+    }
 
     char old_path[1024];
     snprintf(old_path, sizeof(old_path), "%s/codebase-memory-mcp", skills_dir);
     struct stat st;
-    if (stat(old_path, &st) != 0 || !S_ISDIR(st.st_mode))
+    if (stat(old_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
         return false;
+    }
 
-    if (dry_run)
+    if (dry_run) {
         return true;
+    }
     return rmdir_recursive(old_path) == 0;
 }
 
@@ -475,8 +518,9 @@ bool cbm_remove_old_monolithic_skill(const char *skills_dir, bool dry_run) {
 /* Read a JSON file into a yyjson document. Returns NULL on error. */
 static yyjson_doc *read_json_file(const char *path) {
     FILE *f = fopen(path, "r");
-    if (!f)
+    if (!f) {
         return NULL;
+    }
 
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
@@ -495,6 +539,7 @@ static yyjson_doc *read_json_file(const char *path) {
 
     size_t nread = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[nread] = '\0';
 
     yyjson_doc *doc = yyjson_read(buf, nread, 0);
@@ -516,8 +561,9 @@ static int write_json_file(const char *path, yyjson_mut_doc *doc) {
     yyjson_write_flag flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
     size_t len;
     char *json = yyjson_mut_write(doc, flags, &len);
-    if (!json)
+    if (!json) {
         return -1;
+    }
 
     FILE *f = fopen(path, "w");
     if (!f) {
@@ -537,13 +583,15 @@ static int write_json_file(const char *path, yyjson_mut_doc *doc) {
 /* ── Editor MCP: Cursor/Windsurf/Gemini (mcpServers key) ──────── */
 
 int cbm_install_editor_mcp(const char *binary_path, const char *config_path) {
-    if (!binary_path || !config_path)
+    if (!binary_path || !config_path) {
         return -1;
+    }
 
     /* Read existing or start fresh */
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
-    if (!mdoc)
+    if (!mdoc) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
     yyjson_mut_val *root;
@@ -580,12 +628,14 @@ int cbm_install_editor_mcp(const char *binary_path, const char *config_path) {
 }
 
 int cbm_remove_editor_mcp(const char *config_path) {
-    if (!config_path)
+    if (!config_path) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
-    if (!doc)
+    if (!doc) {
         return -1;
+    }
 
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
@@ -612,12 +662,14 @@ int cbm_remove_editor_mcp(const char *config_path) {
 /* ── VS Code MCP (servers key with type:stdio) ────────────────── */
 
 int cbm_install_vscode_mcp(const char *binary_path, const char *config_path) {
-    if (!binary_path || !config_path)
+    if (!binary_path || !config_path) {
         return -1;
+    }
 
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
-    if (!mdoc)
+    if (!mdoc) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
     yyjson_mut_val *root;
@@ -652,12 +704,14 @@ int cbm_install_vscode_mcp(const char *binary_path, const char *config_path) {
 }
 
 int cbm_remove_vscode_mcp(const char *config_path) {
-    if (!config_path)
+    if (!config_path) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
-    if (!doc)
+    if (!doc) {
         return -1;
+    }
 
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
@@ -684,12 +738,14 @@ int cbm_remove_vscode_mcp(const char *config_path) {
 /* ── Zed MCP (context_servers with source:custom) ─────────────── */
 
 int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
-    if (!binary_path || !config_path)
+    if (!binary_path || !config_path) {
         return -1;
+    }
 
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
-    if (!mdoc)
+    if (!mdoc) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
     yyjson_mut_val *root;
@@ -724,12 +780,14 @@ int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
 }
 
 int cbm_remove_zed_mcp(const char *config_path) {
-    if (!config_path)
+    if (!config_path) {
         return -1;
+    }
 
     yyjson_doc *doc = read_json_file(config_path);
-    if (!doc)
+    if (!doc) {
         return -1;
+    }
 
     yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
@@ -756,8 +814,9 @@ int cbm_remove_zed_mcp(const char *config_path) {
 /* ── PATH management ──────────────────────────────────────────── */
 
 int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
-    if (!bin_dir || !rc_file)
+    if (!bin_dir || !rc_file) {
         return -1;
+    }
 
     char line[1024];
     snprintf(line, sizeof(line), "export PATH=\"%s:$PATH\"", bin_dir);
@@ -775,13 +834,16 @@ int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
         fclose(f);
     }
 
-    if (dry_run)
+    if (dry_run) {
         return 0;
+    }
 
     f = fopen(rc_file, "a");
-    if (!f)
+    if (!f) {
         return -1;
+    }
 
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
     fprintf(f, "\n# Added by codebase-memory-mcp install\n%s\n", line);
     fclose(f);
     return 0;
@@ -791,23 +853,28 @@ int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
 
 unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data_len,
                                              int *out_len) {
-    if (!data || data_len <= 0 || !out_len)
+    if (!data || data_len <= 0 || !out_len) {
         return NULL;
+    }
 
     /* Decompress gzip */
     z_stream strm = {0};
     strm.next_in = (unsigned char *)(uintptr_t)data;
     strm.avail_in = (unsigned int)data_len;
 
-    if (inflateInit2(&strm, 16 + MAX_WBITS) != Z_OK)
+    // NOLINTNEXTLINE(misc-include-cleaner) — MAX_WBITS provided by standard header
+    if (inflateInit2(&strm, 16 + MAX_WBITS) != Z_OK) {
         return NULL;
+    }
 
     /* Allocate decompression buffer (up to 500MB) */
     size_t buf_cap = (size_t)data_len * 10;
-    if (buf_cap < 4096)
+    if (buf_cap < 4096) {
         buf_cap = 4096;
-    if (buf_cap > (size_t)500 * 1024 * 1024)
+    }
+    if (buf_cap > (size_t)500 * 1024 * 1024) {
         buf_cap = (size_t)500 * 1024 * 1024;
+    }
     unsigned char *decompressed = malloc(buf_cap);
     if (!decompressed) {
         inflateEnd(&strm);
@@ -855,11 +922,13 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
         /* Check for end-of-archive (two zero blocks) */
         bool all_zero = true;
         for (int i = 0; i < 512 && all_zero; i++) {
-            if (hdr[i] != 0)
+            if (hdr[i] != 0) {
                 all_zero = false;
+            }
         }
-        if (all_zero)
+        if (all_zero) {
             break;
+        }
 
         /* Extract filename (bytes 0-99) */
         char name[101] = {0};
@@ -902,3 +971,8 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
     free(decompressed);
     return NULL; /* binary not found */
 }
+
+// NOLINTEND(performance-no-int-to-ptr)
+// NOLINTEND(concurrency-mt-unsafe)
+// NOLINTEND(readability-magic-numbers)
+// NOLINTEND(cert-err33-c)

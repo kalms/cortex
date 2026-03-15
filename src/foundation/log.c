@@ -1,10 +1,12 @@
+// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
 /*
  * log.c — Structured key-value logging to stderr.
  */
 #include "log.h"
+#include <inttypes.h> // PRId64
+#include <stdint.h>   // int64_t
 #include <stdio.h>
 #include <stdarg.h>
-#include <inttypes.h>
 
 static CBMLogLevel g_log_level = CBM_LOG_INFO;
 
@@ -32,20 +34,25 @@ static const char *level_str(CBMLogLevel level) {
 }
 
 void cbm_log(CBMLogLevel level, const char *msg, ...) {
-    if (level < g_log_level)
+    if (level < g_log_level) {
         return;
+    }
 
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
     fprintf(stderr, "level=%s msg=%s", level_str(level), msg ? msg : "");
 
     va_list args;
     va_start(args, msg);
     for (;;) {
         const char *key = va_arg(args, const char *);
-        if (!key)
+        if (!key) {
             break;
+        }
         const char *val = va_arg(args, const char *);
-        if (!val)
+        if (!val) {
             val = "";
+        }
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
         fprintf(stderr, " %s=%s", key, val);
     }
     va_end(args);
@@ -54,8 +61,12 @@ void cbm_log(CBMLogLevel level, const char *msg, ...) {
 }
 
 void cbm_log_int(CBMLogLevel level, const char *msg, const char *key, int64_t value) {
-    if (level < g_log_level)
+    if (level < g_log_level) {
         return;
+    }
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,misc-include-cleaner)
     fprintf(stderr, "level=%s msg=%s %s=%" PRId64 "\n", level_str(level), msg ? msg : "",
             key ? key : "?", value);
 }
+
+// NOLINTEND(cert-err33-c)

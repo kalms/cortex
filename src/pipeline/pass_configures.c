@@ -4,6 +4,7 @@
  * Pure helper functions for detecting environment variable names,
  * normalizing config keys, and identifying config file extensions.
  */
+// NOLINTNEXTLINE(misc-include-cleaner) — pipeline.h included for interface contract
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
 
@@ -11,11 +12,13 @@
 #include <string.h>
 
 bool cbm_is_env_var_name(const char *s) {
-    if (!s)
+    if (!s) {
         return false;
+    }
     size_t len = strlen(s);
-    if (len < 2)
+    if (len < 2) {
         return false;
+    }
 
     bool has_upper = false;
     for (size_t i = 0; i < len; i++) {
@@ -32,8 +35,9 @@ bool cbm_is_env_var_name(const char *s) {
 }
 
 int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
-    if (!key || !norm_out || norm_sz == 0)
+    if (!key || !norm_out || norm_sz == 0) {
         return 0;
+    }
     norm_out[0] = '\0';
 
     /* Split on delimiters: _, -, . */
@@ -42,8 +46,9 @@ int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
 
     char buf[512];
     size_t klen = strlen(key);
-    if (klen >= sizeof(buf))
+    if (klen >= sizeof(buf)) {
         klen = sizeof(buf) - 1;
+    }
     memcpy(buf, key, klen);
     buf[klen] = '\0';
 
@@ -59,6 +64,7 @@ int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
     size_t out_pos = 0;
 
     char *saveptr = NULL;
+    // NOLINTNEXTLINE(misc-include-cleaner) — strtok_r provided by standard header
     char *part = strtok_r(buf, " ", &saveptr);
     while (part) {
         /* Split camelCase within this part */
@@ -95,30 +101,35 @@ int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
 }
 
 bool cbm_has_config_extension(const char *path) {
-    if (!path)
+    if (!path) {
         return false;
+    }
 
     /* Find last dot */
     const char *dot = strrchr(path, '.');
     const char *basename = strrchr(path, '/');
-    if (!basename)
+    if (!basename) {
         basename = path;
-    else
+    } else {
         basename++;
+    }
 
     /* Special case: .env files */
-    if (strcmp(basename, ".env") == 0)
+    if (strcmp(basename, ".env") == 0) {
         return true;
+    }
 
-    if (!dot)
+    if (!dot) {
         return false;
+    }
 
     static const char *exts[] = {".toml", ".ini", ".yaml", ".yml", ".cfg", ".properties",
                                  ".json", ".xml", ".conf", ".env", NULL};
 
     for (int i = 0; exts[i]; i++) {
-        if (strcmp(dot, exts[i]) == 0)
+        if (strcmp(dot, exts[i]) == 0) {
             return true;
+        }
     }
     return false;
 }

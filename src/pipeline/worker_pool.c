@@ -10,6 +10,7 @@
 #include "pipeline/worker_pool.h"
 #include "foundation/platform.h"
 
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -46,8 +47,9 @@ static void *pthread_worker(void *arg) {
     pthread_worker_arg_t *wa = arg;
     while (1) {
         int idx = atomic_fetch_add_explicit(wa->next_idx, 1, memory_order_relaxed);
-        if (idx >= wa->count)
+        if (idx >= wa->count) {
             break;
+        }
         wa->fn(idx, wa->ctx);
     }
     return NULL;
@@ -63,7 +65,8 @@ static void run_pthreads(int count, cbm_parallel_fn fn, void *ctx, int nworkers)
         .count = count,
     };
 
-    pthread_t *threads = malloc((size_t)nworkers * sizeof(pthread_t));
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    pthread_t *threads = (pthread_t *)malloc((size_t)nworkers * sizeof(pthread_t));
     if (!threads) {
         run_serial(count, fn, ctx);
         return;
@@ -80,8 +83,9 @@ static void run_pthreads(int count, cbm_parallel_fn fn, void *ctx, int nworkers)
     /* Main thread also participates */
     while (1) {
         int idx = atomic_fetch_add_explicit(&next_idx, 1, memory_order_relaxed);
-        if (idx >= count)
+        if (idx >= count) {
             break;
+        }
         fn(idx, ctx);
     }
 
@@ -89,6 +93,7 @@ static void run_pthreads(int count, cbm_parallel_fn fn, void *ctx, int nworkers)
         pthread_join(threads[i], NULL);
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(threads);
 }
 
@@ -114,6 +119,7 @@ static void run_gcd(int count, cbm_parallel_fn fn, void *ctx, int nworkers) {
     /* Create a concurrent queue with USER_INITIATED QoS
      * to ensure P-core eligibility on Apple Silicon */
     dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+        // NOLINTNEXTLINE(misc-include-cleaner)
         DISPATCH_QUEUE_CONCURRENT, QOS_CLASS_USER_INITIATED, 0);
     dispatch_queue_t queue = dispatch_queue_create("cbm.parallel", attr);
 
@@ -128,16 +134,18 @@ static void run_gcd(int count, cbm_parallel_fn fn, void *ctx, int nworkers) {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 void cbm_parallel_for(int count, cbm_parallel_fn fn, void *ctx, cbm_parallel_for_opts_t opts) {
-    if (count <= 0 || !fn)
+    if (count <= 0 || !fn) {
         return;
+    }
 
     /* Determine worker count */
     int nworkers = opts.max_workers;
     if (nworkers <= 0) {
         nworkers = cbm_default_worker_count(true);
     }
-    if (nworkers < 1)
+    if (nworkers < 1) {
         nworkers = 1;
+    }
 
     /* Small workload threshold: serial is cheaper than dispatch overhead */
     if (count < 2 * nworkers || nworkers <= 1) {

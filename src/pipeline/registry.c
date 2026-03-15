@@ -1,3 +1,5 @@
+// NOLINTBEGIN(readability-magic-numbers) — scoring weights, capacity sizes, and match thresholds
+
 /*
  * registry.c — Function/Method/Class registry for call resolution.
  *
@@ -42,8 +44,10 @@ static const char *simple_name(const char *qn) {
 /* Extract everything before the last dot. Returns heap-allocated string. */
 static char *module_prefix(const char *qn) {
     const char *last = strrchr(qn, '.');
-    if (!last)
+    if (!last) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
         return strdup(qn);
+    }
     size_t len = last - qn;
     char *result = malloc(len + 1);
     memcpy(result, qn, len);
@@ -60,13 +64,15 @@ static int common_prefix_len(const char *a, const char *b) {
         const char *bdot = strchr(b, '.');
         size_t alen = adot ? (size_t)(adot - a) : strlen(a);
         size_t blen = bdot ? (size_t)(bdot - b) : strlen(b);
-        if (alen != blen || memcmp(a, b, alen) != 0)
+        if (alen != blen || memcmp(a, b, alen) != 0) {
             break;
+        }
         count++;
         a += alen + (adot ? 1 : 0);
         b += blen + (bdot ? 1 : 0);
-        if (!adot || !bdot)
+        if (!adot || !bdot) {
             break;
+        }
     }
     return count;
 }
@@ -102,8 +108,9 @@ static bool is_import_reachable(const char *candidate_qn, const char **import_va
 
 /* Scale confidence inversely with candidate count. */
 static double candidate_count_penalty(double base, int count) {
-    if (count <= 3)
+    if (count <= 3) {
         return base;
+    }
     return base * fmin(1.0, 3.0 / (double)count);
 }
 
@@ -116,19 +123,22 @@ static cbm_resolution_t empty_result(void) {
 
 cbm_registry_t *cbm_registry_new(void) {
     cbm_registry_t *r = calloc(1, sizeof(cbm_registry_t));
-    if (!r)
+    if (!r) {
         return NULL;
+    }
     r->exact = cbm_ht_create(1024);
     r->by_name = cbm_ht_create(512);
     return r;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void free_label(const char *key, void *value, void *ud) {
     (void)ud;
     free((void *)key);
     free(value);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void free_qn_array(const char *key, void *value, void *ud) {
     (void)ud;
     qn_array_t *arr = value;
@@ -136,6 +146,7 @@ static void free_qn_array(const char *key, void *value, void *ud) {
         for (int i = 0; i < arr->count; i++) {
             free(arr->items[i]);
         }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         cbm_da_free(arr);
         free(arr);
     }
@@ -143,8 +154,9 @@ static void free_qn_array(const char *key, void *value, void *ud) {
 }
 
 void cbm_registry_free(cbm_registry_t *r) {
-    if (!r)
+    if (!r) {
         return;
+    }
     cbm_ht_foreach(r->exact, free_label, NULL);
     cbm_ht_free(r->exact);
     cbm_ht_foreach(r->by_name, free_qn_array, NULL);
@@ -154,14 +166,18 @@ void cbm_registry_free(cbm_registry_t *r) {
 
 /* ── Registration ────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void cbm_registry_add(cbm_registry_t *r, const char *name, const char *qualified_name,
                       const char *label) {
-    if (!r || !qualified_name || !label)
+    (void)name;
+    if (!r || !qualified_name || !label) {
         return;
+    }
 
     /* Check for duplicate */
-    if (cbm_ht_get(r->exact, qualified_name))
+    if (cbm_ht_get(r->exact, qualified_name)) {
         return;
+    }
 
     /* Store in exact map: QN → label */
     cbm_ht_set(r->exact, strdup(qualified_name), strdup(label));
@@ -175,30 +191,35 @@ void cbm_registry_add(cbm_registry_t *r, const char *name, const char *qualified
     }
     /* Check for duplicate in array */
     for (int i = 0; i < arr->count; i++) {
-        if (strcmp(arr->items[i], qualified_name) == 0)
+        if (strcmp(arr->items[i], qualified_name) == 0) {
             return;
+        }
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     cbm_da_push(arr, strdup(qualified_name));
 }
 
 /* ── Lookup ──────────────────────────────────────────────────────── */
 
 bool cbm_registry_exists(const cbm_registry_t *r, const char *qn) {
-    if (!r || !qn)
+    if (!r || !qn) {
         return false;
+    }
     return cbm_ht_get(r->exact, qn) != NULL;
 }
 
 const char *cbm_registry_label_of(const cbm_registry_t *r, const char *qn) {
-    if (!r || !qn)
+    if (!r || !qn) {
         return NULL;
+    }
     return cbm_ht_get(r->exact, qn);
 }
 
 int cbm_registry_find_by_name(const cbm_registry_t *r, const char *name, const char ***out,
                               int *count) {
-    if (!r || !out || !count)
+    if (!r || !out || !count) {
         return -1;
+    }
     qn_array_t *arr = cbm_ht_get(r->by_name, name);
     if (arr && arr->count > 0) {
         *out = (const char **)arr->items;
@@ -225,11 +246,13 @@ struct ims_ctx {
     const char *found_key;
 };
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void ims_scan(const char *key, void *value, void *ud) {
     (void)value;
     struct ims_ctx *ctx = ud;
-    if (ctx->found_key)
+    if (ctx->found_key) {
         return; /* already found */
+    }
     size_t klen = strlen(key);
     if (klen >= ctx->resolved_dot_len + ctx->dot_suffix_len &&
         strncmp(key, ctx->resolved_dot, ctx->resolved_dot_len) == 0 &&
@@ -239,11 +262,13 @@ static void ims_scan(const char *key, void *value, void *ud) {
 }
 
 /* Strategy 1: Import map lookup (exact → suffix fallback) */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static cbm_resolution_t resolve_import_map(const cbm_registry_t *r, const char *prefix,
                                            const char *suffix, const char **keys, const char **vals,
                                            int map_count) {
-    if (!keys || !vals || map_count <= 0)
+    if (!keys || !vals || map_count <= 0) {
         return empty_result();
+    }
 
     /* Find prefix in import map keys */
     const char *resolved = NULL;
@@ -253,8 +278,9 @@ static cbm_resolution_t resolve_import_map(const cbm_registry_t *r, const char *
             break;
         }
     }
-    if (!resolved)
+    if (!resolved) {
         return empty_result();
+    }
 
     /* Build candidate: resolved.suffix or just resolved */
     char candidate[512];
@@ -292,6 +318,7 @@ static cbm_resolution_t resolve_import_map(const cbm_registry_t *r, const char *
 }
 
 /* Strategy 2: Same-module match */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static cbm_resolution_t resolve_same_module(const cbm_registry_t *r, const char *callee_name,
                                             const char *suffix, const char *module_qn) {
     char candidate[512];
@@ -311,13 +338,15 @@ static cbm_resolution_t resolve_same_module(const cbm_registry_t *r, const char 
 }
 
 /* Strategy 3+4: Name lookup + suffix match */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static cbm_resolution_t resolve_name_lookup(const cbm_registry_t *r, const char *callee_name,
                                             const char *module_qn, const char **import_vals,
                                             int import_count) {
     const char *lookup = simple_name(callee_name);
     qn_array_t *arr = cbm_ht_get(r->by_name, lookup);
-    if (!arr || arr->count == 0)
+    if (!arr || arr->count == 0) {
         return empty_result();
+    }
 
     /* Strategy 3: unique name */
     if (arr->count == 1) {
@@ -372,8 +401,9 @@ static cbm_resolution_t resolve_name_lookup(const cbm_registry_t *r, const char 
 cbm_resolution_t cbm_registry_resolve(const cbm_registry_t *r, const char *callee_name,
                                       const char *module_qn, const char **import_map_keys,
                                       const char **import_map_vals, int import_map_count) {
-    if (!r || !callee_name)
+    if (!r || !callee_name) {
         return empty_result();
+    }
 
     /* Split callee: "pkg.Func" → prefix="pkg", suffix="Func" */
     char prefix[256] = {0};
@@ -381,8 +411,9 @@ cbm_resolution_t cbm_registry_resolve(const cbm_registry_t *r, const char *calle
     const char *dot = strchr(callee_name, '.');
     if (dot) {
         size_t plen = dot - callee_name;
-        if (plen >= sizeof(prefix))
+        if (plen >= sizeof(prefix)) {
             plen = sizeof(prefix) - 1;
+        }
         memcpy(prefix, callee_name, plen);
         prefix[plen] = '\0';
         suffix = dot + 1;
@@ -393,13 +424,15 @@ cbm_resolution_t cbm_registry_resolve(const cbm_registry_t *r, const char *calle
     /* Strategy 1: import map */
     cbm_resolution_t res =
         resolve_import_map(r, prefix, suffix, import_map_keys, import_map_vals, import_map_count);
-    if (res.qualified_name && res.qualified_name[0])
+    if (res.qualified_name && res.qualified_name[0]) {
         return res;
+    }
 
     /* Strategy 2: same module */
     res = resolve_same_module(r, callee_name, suffix, module_qn);
-    if (res.qualified_name && res.qualified_name[0])
+    if (res.qualified_name && res.qualified_name[0]) {
         return res;
+    }
 
     /* Strategy 3+4: name lookup */
     return resolve_name_lookup(r, callee_name, module_qn, import_map_vals, import_map_count);
@@ -419,19 +452,25 @@ static int filter_import_reachable(const char **candidates, int count, const cha
     return n;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 cbm_fuzzy_result_t cbm_registry_fuzzy_resolve(const cbm_registry_t *r, const char *callee_name,
                                               const char *module_qn, const char **import_map_keys,
                                               const char **import_map_vals, int import_map_count) {
+    // NOLINTEND(bugprone-easily-swappable-parameters)
+    (void)import_map_keys;
     cbm_fuzzy_result_t no_match = {{0}, false};
-    if (!r || !callee_name)
+    if (!r || !callee_name) {
         return no_match;
+    }
 
     /* Extract simple name (last segment after dots) */
     const char *lookup = simple_name(callee_name);
     qn_array_t *arr = cbm_ht_get(r->by_name, lookup);
-    if (!arr || arr->count == 0)
+    if (!arr || arr->count == 0) {
         return no_match;
+    }
 
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool have_imports = (import_map_vals && import_map_count > 0);
 
     /* Single candidate */
@@ -459,8 +498,9 @@ cbm_fuzzy_result_t cbm_registry_fuzzy_resolve(const cbm_registry_t *r, const cha
         /* No import-reachable — use originals with penalty */
         const char *best =
             best_by_import_distance((const char **)arr->items, arr->count, module_qn);
-        if (!best)
+        if (!best) {
             return no_match;
+        }
         return (cbm_fuzzy_result_t){
             {best, "fuzzy", candidate_count_penalty(0.30 * 0.5, arr->count), arr->count}, true};
     }
@@ -469,8 +509,9 @@ cbm_fuzzy_result_t cbm_registry_fuzzy_resolve(const cbm_registry_t *r, const cha
             {fptr[0], "fuzzy", candidate_count_penalty(0.40, arr->count), arr->count}, true};
     }
     const char *best = best_by_import_distance(fptr, fcount, module_qn);
-    if (!best)
+    if (!best) {
         return no_match;
+    }
     return (cbm_fuzzy_result_t){{best, "fuzzy", candidate_count_penalty(0.30, fcount), fcount},
                                 true};
 }
@@ -485,6 +526,7 @@ struct few_ctx {
     int cap;
 };
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void few_scan(const char *key, void *value, void *ud) {
     (void)value;
     struct few_ctx *ctx = ud;
@@ -492,6 +534,7 @@ static void few_scan(const char *key, void *value, void *ud) {
     if (klen >= ctx->target_len && strcmp(key + klen - ctx->target_len, ctx->target) == 0) {
         if (ctx->count >= ctx->cap) {
             ctx->cap = ctx->cap ? ctx->cap * 2 : 16;
+            // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
             ctx->results = safe_realloc(ctx->results, (size_t)ctx->cap * sizeof(char *));
         }
         ctx->results[ctx->count++] = key;
@@ -500,8 +543,9 @@ static void few_scan(const char *key, void *value, void *ud) {
 
 int cbm_registry_find_ending_with(const cbm_registry_t *r, const char *suffix, const char ***out) {
     if (!r || !suffix || !out) {
-        if (out)
+        if (out) {
             *out = NULL;
+        }
         return 0;
     }
 
@@ -526,3 +570,5 @@ bool cbm_registry_is_import_reachable(const char *candidate_qn, const char **imp
 }
 
 /* cbm_confidence_band() is defined in httplink.c */
+
+// NOLINTEND(readability-magic-numbers)

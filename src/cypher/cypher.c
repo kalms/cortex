@@ -10,20 +10,25 @@
 #include "foundation/platform.h"
 
 #include <ctype.h>
-#include <regex.h>
+#include <regex.h>  // regex_t, regcomp, regexec, regfree, REG_EXTENDED, REG_NOSUB
+#include <stdint.h> // int64_t
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+// NOLINTNEXTLINE(misc-include-cleaner) — strings.h included for interface contract
+#include <strings.h> // strcasecmp
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 static char *heap_strdup(const char *s) {
-    if (!s)
+    if (!s) {
         return NULL;
+    }
     size_t len = strlen(s);
     char *d = malloc(len + 1);
-    if (d)
+    if (d) {
         memcpy(d, s, len + 1);
+    }
     return d;
 }
 
@@ -74,16 +79,19 @@ static const kw_entry_t keywords[] = {
 static cbm_token_type_t keyword_lookup(const char *word) {
     /* Case-insensitive compare */
     for (const kw_entry_t *kw = keywords; kw->name; kw++) {
-        if (strcasecmp(word, kw->name) == 0)
+        // NOLINTNEXTLINE(misc-include-cleaner) — strcasecmp provided by standard header
+        if (strcasecmp(word, kw->name) == 0) {
             return kw->type;
+        }
     }
     return TOK_IDENT;
 }
 
 int cbm_lex(const char *input, cbm_lex_result_t *out) {
     memset(out, 0, sizeof(*out));
-    if (!input)
+    if (!input) {
         return -1;
+    }
 
     int len = (int)strlen(input);
     int i = 0;
@@ -97,17 +105,20 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
 
         /* Skip // line comments */
         if (i + 1 < len && input[i] == '/' && input[i + 1] == '/') {
-            while (i < len && input[i] != '\n')
+            while (i < len && input[i] != '\n') {
                 i++;
+            }
             continue;
         }
         /* Skip block comments */
         if (i + 1 < len && input[i] == '/' && input[i + 1] == '*') {
             i += 2;
-            while (i + 1 < len && !(input[i] == '*' && input[i + 1] == '/'))
+            while (i + 1 < len && !(input[i] == '*' && input[i + 1] == '/')) {
                 i++;
-            if (i + 1 < len)
+            }
+            if (i + 1 < len) {
                 i += 2;
+            }
             continue;
         }
 
@@ -144,8 +155,9 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
                 i++;
             }
             buf[blen] = '\0';
-            if (i < len)
+            if (i < len) {
                 i++; /* skip closing quote */
+            }
             lex_push(out, TOK_STRING, buf, start - 1);
             continue;
         }
@@ -155,8 +167,9 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
             (c == '.' && i + 1 < len && isdigit((unsigned char)input[i + 1]))) {
             int start = i;
             while (i < len && (isdigit((unsigned char)input[i]) ||
-                               (input[i] == '.' && i + 1 < len && input[i + 1] != '.')))
+                               (input[i] == '.' && i + 1 < len && input[i + 1] != '.'))) {
                 i++;
+            }
             lex_push_n(out, TOK_NUMBER, input + start, i - start, start);
             continue;
         }
@@ -164,12 +177,14 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
         /* Identifiers / keywords */
         if (isalpha((unsigned char)c) || c == '_') {
             int start = i;
-            while (i < len && (isalnum((unsigned char)input[i]) || input[i] == '_'))
+            while (i < len && (isalnum((unsigned char)input[i]) || input[i] == '_')) {
                 i++;
+            }
             char word[256];
             int wlen = i - start;
-            if (wlen >= (int)sizeof(word))
+            if (wlen >= (int)sizeof(word)) {
                 wlen = (int)sizeof(word) - 1;
+            }
             memcpy(word, input + start, wlen);
             word[wlen] = '\0';
             cbm_token_type_t type = keyword_lookup(word);
@@ -268,8 +283,9 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
 }
 
 void cbm_lex_free(cbm_lex_result_t *r) {
-    if (!r)
+    if (!r) {
         return;
+    }
     for (int i = 0; i < r->count; i++) {
         free((void *)r->tokens[i].text);
     }
@@ -290,14 +306,16 @@ typedef struct {
 } parser_t;
 
 static const cbm_token_t *peek(parser_t *p) {
-    if (p->pos >= p->count)
+    if (p->pos >= p->count) {
         return &p->tokens[p->count - 1]; /* EOF */
+    }
     return &p->tokens[p->pos];
 }
 
 static const cbm_token_t *advance(parser_t *p) {
-    if (p->pos >= p->count)
+    if (p->pos >= p->count) {
         return &p->tokens[p->count - 1];
+    }
     return &p->tokens[p->pos++];
 }
 
@@ -314,8 +332,9 @@ static bool match(parser_t *p, cbm_token_type_t type) {
 }
 
 static const cbm_token_t *expect(parser_t *p, cbm_token_type_t type) {
-    if (check(p, type))
+    if (check(p, type)) {
         return advance(p);
+    }
     snprintf(p->error, sizeof(p->error), "expected token type %d, got %d at pos %d", type,
              peek(p)->type, peek(p)->pos);
     return NULL;
@@ -325,10 +344,12 @@ static const cbm_token_t *expect(parser_t *p, cbm_token_type_t type) {
 static int parse_props(parser_t *p, cbm_prop_filter_t **out, int *count) {
     *out = NULL;
     *count = 0;
-    if (!match(p, TOK_LBRACE))
+    if (!match(p, TOK_LBRACE)) {
         return 0;
+    }
 
-    int cap = 4, n = 0;
+    int cap = 4;
+    int n = 0;
     cbm_prop_filter_t *arr = malloc(cap * sizeof(cbm_prop_filter_t));
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
@@ -367,8 +388,9 @@ static int parse_props(parser_t *p, cbm_prop_filter_t **out, int *count) {
 /* Parse node: (variable:Label {props}) */
 static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
     memset(out, 0, sizeof(*out));
-    if (!expect(p, TOK_LPAREN))
+    if (!expect(p, TOK_LPAREN)) {
         return -1;
+    }
 
     /* Optional variable */
     if (check(p, TOK_IDENT)) {
@@ -380,19 +402,22 @@ static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
     /* Optional :Label */
     if (match(p, TOK_COLON)) {
         const cbm_token_t *label = expect(p, TOK_IDENT);
-        if (!label)
+        if (!label) {
             return -1;
+        }
         out->label = heap_strdup(label->text);
     }
 
     /* Optional {props} */
     if (check(p, TOK_LBRACE)) {
-        if (parse_props(p, &out->props, &out->prop_count) < 0)
+        if (parse_props(p, &out->props, &out->prop_count) < 0) {
             return -1;
+        }
     }
 
-    if (!expect(p, TOK_RPAREN))
+    if (!expect(p, TOK_RPAREN)) {
         return -1;
+    }
     return 0;
 }
 
@@ -404,8 +429,9 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
 
     /* Check for leading < (inbound) */
     bool leading_lt = match(p, TOK_LT);
-    if (!expect(p, TOK_DASH))
+    if (!expect(p, TOK_DASH)) {
         return -1;
+    }
 
     /* Optional bracket content */
     if (match(p, TOK_LBRACKET)) {
@@ -418,11 +444,14 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
 
         /* Optional :Types */
         if (match(p, TOK_COLON)) {
-            int cap = 4, n = 0;
+            int cap = 4;
+            int n = 0;
+            // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
             const char **types = malloc(cap * sizeof(const char *));
 
             const cbm_token_t *t = expect(p, TOK_IDENT);
             if (!t) {
+                // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                 free(types);
                 return -1;
             }
@@ -431,13 +460,16 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
             while (match(p, TOK_PIPE)) {
                 t = expect(p, TOK_IDENT);
                 if (!t) {
-                    for (int i = 0; i < n; i++)
+                    for (int i = 0; i < n; i++) {
                         free((void *)types[i]);
+                    }
+                    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                     free(types);
                     return -1;
                 }
                 if (n >= cap) {
                     cap *= 2;
+                    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                     types = safe_realloc(types, cap * sizeof(const char *));
                 }
                 types[n++] = heap_strdup(t->text);
@@ -479,12 +511,14 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
             }
         }
 
-        if (!expect(p, TOK_RBRACKET))
+        if (!expect(p, TOK_RBRACKET)) {
             return -1;
+        }
     }
 
-    if (!expect(p, TOK_DASH))
+    if (!expect(p, TOK_DASH)) {
         return -1;
+    }
 
     /* Check for trailing > (outbound) */
     bool trailing_gt = match(p, TOK_GT);
@@ -535,6 +569,7 @@ static int parse_where(parser_t *p, cbm_where_clause_t **out) {
         c.variable = heap_strdup(var->text);
 
         if (!expect(p, TOK_DOT)) {
+            // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
             free(w->conditions);
             free(w);
             return -1;
@@ -568,6 +603,7 @@ static int parse_where(parser_t *p, cbm_where_clause_t **out) {
             expect(p, TOK_WITH); /* STARTS WITH */
             c.op = heap_strdup("STARTS WITH");
         } else {
+            // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
             snprintf(p->error, sizeof(p->error), "unexpected operator at pos %d", peek(p)->pos);
             free(w->conditions);
             free(w);
@@ -610,8 +646,9 @@ static int parse_return(parser_t *p, cbm_return_clause_t **out) {
     r->distinct = match(p, TOK_DISTINCT);
 
     do {
-        if (r->count > 0 && !match(p, TOK_COMMA))
+        if (r->count > 0 && !match(p, TOK_COMMA)) {
             break;
+        }
 
         cbm_return_item_t item = {0};
 
@@ -629,8 +666,9 @@ static int parse_return(parser_t *p, cbm_return_clause_t **out) {
             /* Optional .property inside COUNT */
             if (match(p, TOK_DOT)) {
                 const cbm_token_t *prop = expect(p, TOK_IDENT);
-                if (prop)
+                if (prop) {
                     item.property = heap_strdup(prop->text);
+                }
             }
             expect(p, TOK_RPAREN);
             item.func = heap_strdup("COUNT");
@@ -645,16 +683,18 @@ static int parse_return(parser_t *p, cbm_return_clause_t **out) {
 
             if (match(p, TOK_DOT)) {
                 const cbm_token_t *prop = expect(p, TOK_IDENT);
-                if (prop)
+                if (prop) {
                     item.property = heap_strdup(prop->text);
+                }
             }
         }
 
         /* Optional AS alias */
         if (match(p, TOK_AS)) {
             const cbm_token_t *alias = expect(p, TOK_IDENT);
-            if (alias)
+            if (alias) {
                 item.alias = heap_strdup(alias->text);
+            }
         }
 
         if (r->count >= cap) {
@@ -702,8 +742,9 @@ static int parse_return(parser_t *p, cbm_return_clause_t **out) {
     /* Optional LIMIT */
     if (match(p, TOK_LIMIT)) {
         const cbm_token_t *num = expect(p, TOK_NUMBER);
-        if (num)
+        if (num) {
             r->limit = (int)strtol(num->text, NULL, 10);
+        }
     }
 
     *out = r;
@@ -724,7 +765,8 @@ int cbm_parse(const cbm_token_t *tokens, int token_count, cbm_parse_result_t *ou
     cbm_query_t *q = calloc(1, sizeof(cbm_query_t));
 
     /* Parse pattern: node (rel node)* */
-    int node_cap = 4, rel_cap = 4;
+    int node_cap = 4;
+    int rel_cap = 4;
     q->pattern.nodes = malloc(node_cap * sizeof(cbm_node_pattern_t));
     q->pattern.rels = malloc(rel_cap * sizeof(cbm_rel_pattern_t));
 
@@ -783,8 +825,9 @@ int cbm_parse(const cbm_token_t *tokens, int token_count, cbm_parse_result_t *ou
 }
 
 void cbm_parse_free(cbm_parse_result_t *r) {
-    if (!r)
+    if (!r) {
         return;
+    }
     cbm_query_free(r->query);
     free(r->error);
     memset(r, 0, sizeof(*r));
@@ -793,8 +836,9 @@ void cbm_parse_free(cbm_parse_result_t *r) {
 /* ── Query free ─────────────────────────────────────────────────── */
 
 void cbm_query_free(cbm_query_t *q) {
-    if (!q)
+    if (!q) {
         return;
+    }
 
     /* Free nodes */
     for (int i = 0; i < q->pattern.node_count; i++) {
@@ -816,6 +860,7 @@ void cbm_query_free(cbm_query_t *q) {
         for (int j = 0; j < r->type_count; j++) {
             free((void *)r->types[j]);
         }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         free(r->types);
         free((void *)r->direction);
     }
@@ -895,16 +940,21 @@ typedef struct {
 
 /* Get node property by name */
 static const char *node_prop(const cbm_node_t *n, const char *prop) {
-    if (!n || !prop)
+    if (!n || !prop) {
         return "";
-    if (strcmp(prop, "name") == 0)
+    }
+    if (strcmp(prop, "name") == 0) {
         return n->name ? n->name : "";
-    if (strcmp(prop, "qualified_name") == 0)
+    }
+    if (strcmp(prop, "qualified_name") == 0) {
         return n->qualified_name ? n->qualified_name : "";
-    if (strcmp(prop, "label") == 0)
+    }
+    if (strcmp(prop, "label") == 0) {
         return n->label ? n->label : "";
-    if (strcmp(prop, "file_path") == 0)
+    }
+    if (strcmp(prop, "file_path") == 0) {
         return n->file_path ? n->file_path : "";
+    }
     if (strcmp(prop, "start_line") == 0) {
         /* Return as string */
         static char buf[32];
@@ -937,8 +987,9 @@ static const char *json_extract_prop(const char *json, const char *key, char *bu
     }
     p += strlen(pattern);
     /* Skip whitespace */
-    while (*p == ' ' || *p == '\t')
+    while (*p == ' ' || *p == '\t') {
         p++;
+    }
     if (*p == '"') {
         /* String value */
         p++;
@@ -962,10 +1013,12 @@ static const char *json_extract_prop(const char *json, const char *key, char *bu
  * multiple concurrent calls (e.g. projecting r.url_path, r.confidence
  * in the same row). */
 static const char *edge_prop(const cbm_edge_t *e, const char *prop) {
-    if (!e || !prop)
+    if (!e || !prop) {
         return "";
-    if (strcmp(prop, "type") == 0)
+    }
+    if (strcmp(prop, "type") == 0) {
         return e->type ? e->type : "";
+    }
     /* Rotate through 8 static buffers so multiple props can be accessed per row */
     static char ebufs[8][512];
     static int ebuf_idx = 0;
@@ -977,8 +1030,9 @@ static const char *edge_prop(const cbm_edge_t *e, const char *prop) {
 /* Find an edge variable in a binding */
 static cbm_edge_t *binding_get_edge(binding_t *b, const char *var) {
     for (int i = 0; i < b->edge_var_count; i++) {
-        if (strcmp(b->edge_var_names[i], var) == 0)
+        if (strcmp(b->edge_var_names[i], var) == 0) {
             return &b->edge_vars[i];
+        }
     }
     return NULL;
 }
@@ -986,8 +1040,9 @@ static cbm_edge_t *binding_get_edge(binding_t *b, const char *var) {
 /* Find a variable's node in a binding */
 static cbm_node_t *binding_get(binding_t *b, const char *var) {
     for (int i = 0; i < b->var_count; i++) {
-        if (strcmp(b->var_names[i], var) == 0)
+        if (strcmp(b->var_names[i], var) == 0) {
             return &b->var_nodes[i];
+        }
     }
     return NULL;
 }
@@ -1036,8 +1091,9 @@ static void binding_set_edge(binding_t *b, const char *var, const cbm_edge_t *ed
             return;
         }
     }
-    if (b->edge_var_count >= 8)
+    if (b->edge_var_count >= 8) {
         return;
+    }
     b->edge_var_names[b->edge_var_count] = var; /* not owned — points to AST string */
     edge_deep_copy(&b->edge_vars[b->edge_var_count], edge);
     b->edge_var_count++;
@@ -1077,8 +1133,9 @@ static void binding_set(binding_t *b, const char *var, const cbm_node_t *node) {
             return;
         }
     }
-    if (b->var_count >= 16)
+    if (b->var_count >= 16) {
         return;
+    }
     b->var_names[b->var_count] = var; /* not owned — points to AST string */
     node_deep_copy(&b->var_nodes[b->var_count], node);
     b->var_count++;
@@ -1094,8 +1151,9 @@ static bool eval_condition(const cbm_condition_t *c, binding_t *b) {
         actual = edge_prop(e, c->property);
     } else {
         cbm_node_t *n = binding_get(b, c->variable);
-        if (!n)
+        if (!n) {
             return false;
+        }
         actual = node_prop(n, c->property);
     }
 
@@ -1105,10 +1163,15 @@ static bool eval_condition(const cbm_condition_t *c, binding_t *b) {
         return strcmp(actual, expected) == 0;
     }
     if (strcmp(c->op, "=~") == 0) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — regex_t provided by standard header
         regex_t re;
-        if (regcomp(&re, expected, REG_EXTENDED | REG_NOSUB) != 0)
+        // NOLINTNEXTLINE(misc-include-cleaner) — regcomp provided by standard header
+        if (regcomp(&re, expected, REG_EXTENDED | REG_NOSUB) != 0) {
             return false;
+        }
+        // NOLINTNEXTLINE(misc-include-cleaner) — regexec provided by standard header
         int rc = regexec(&re, actual, 0, NULL, 0);
+        // NOLINTNEXTLINE(misc-include-cleaner) — regfree provided by standard header
         regfree(&re);
         return rc == 0;
     }
@@ -1123,31 +1186,38 @@ static bool eval_condition(const cbm_condition_t *c, binding_t *b) {
         strcmp(c->op, "<=") == 0) {
         double a = strtod(actual, NULL);
         double exp_val = strtod(expected, NULL);
-        if (strcmp(c->op, ">") == 0)
+        if (strcmp(c->op, ">") == 0) {
             return a > exp_val;
-        if (strcmp(c->op, "<") == 0)
+        }
+        if (strcmp(c->op, "<") == 0) {
             return a < exp_val;
-        if (strcmp(c->op, ">=") == 0)
+        }
+        if (strcmp(c->op, ">=") == 0) {
             return a >= exp_val;
-        if (strcmp(c->op, "<=") == 0)
+        }
+        if (strcmp(c->op, "<=") == 0) {
             return a <= exp_val;
+        }
     }
     return false;
 }
 
 /* Evaluate all WHERE conditions */
 static bool eval_where(const cbm_where_clause_t *w, binding_t *b) {
-    if (!w || w->count == 0)
+    if (!w || w->count == 0) {
         return true;
+    }
 
     bool is_and = (strcmp(w->op, "AND") == 0);
 
     for (int i = 0; i < w->count; i++) {
         bool r = eval_condition(&w->conditions[i], b);
-        if (is_and && !r)
+        if (is_and && !r) {
             return false;
-        if (!is_and && r)
+        }
+        if (!is_and && r) {
             return true;
+        }
     }
     return is_and; /* AND: all passed → true; OR: none passed → false */
 }
@@ -1156,8 +1226,9 @@ static bool eval_where(const cbm_where_clause_t *w, binding_t *b) {
 static bool check_inline_props(const cbm_node_t *n, const cbm_prop_filter_t *props, int count) {
     for (int i = 0; i < count; i++) {
         const char *actual = node_prop(n, props[i].key);
-        if (strcmp(actual, props[i].value) != 0)
+        if (strcmp(actual, props[i].value) != 0) {
             return false;
+        }
     }
     return true;
 }
@@ -1175,10 +1246,12 @@ typedef struct {
 static void rb_init(result_builder_t *rb) {
     memset(rb, 0, sizeof(*rb));
     rb->row_cap = 32;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     rb->rows = malloc(rb->row_cap * sizeof(const char **));
 }
 
 static void rb_set_columns(result_builder_t *rb, const char **cols, int count) {
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     rb->columns = malloc(count * sizeof(const char *));
     for (int i = 0; i < count; i++) {
         rb->columns[i] = heap_strdup(cols[i]);
@@ -1189,8 +1262,10 @@ static void rb_set_columns(result_builder_t *rb, const char **cols, int count) {
 static void rb_add_row(result_builder_t *rb, const char **values) {
     if (rb->row_count >= rb->row_cap) {
         rb->row_cap *= 2;
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         rb->rows = safe_realloc(rb->rows, rb->row_cap * sizeof(const char **));
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     const char **row = malloc(rb->col_count * sizeof(const char *));
     for (int i = 0; i < rb->col_count; i++) {
         row[i] = heap_strdup(values[i]);
@@ -1200,11 +1275,13 @@ static void rb_add_row(result_builder_t *rb, const char **values) {
 
 /* ── Main execution ─────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,readability-function-cognitive-complexity,readability-function-size)
 int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *project, int max_rows,
                        cbm_cypher_result_t *out) {
     memset(out, 0, sizeof(*out));
-    if (max_rows <= 0)
+    if (max_rows <= 0) {
         max_rows = 200;
+    }
 
     /* Parse */
     cbm_query_t *q = NULL;
@@ -1248,8 +1325,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
         int kept = 0;
         for (int i = 0; i < scan_count; i++) {
             if (check_inline_props(&scanned[i], first->props, first->prop_count)) {
-                if (kept != i)
+                if (kept != i) {
                     scanned[kept] = scanned[i];
+                }
                 kept++;
             }
         }
@@ -1297,16 +1375,18 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
         cbm_node_pattern_t *target_node = &q->pattern.nodes[ri + 1];
         const char *to_var = target_node->variable ? target_node->variable : "_n_t";
 
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         bool is_variable_length = (rel->min_hops != 1 || rel->max_hops != 1);
 
-        binding_t *new_bindings = malloc((bind_cap * 10 + 1) * sizeof(binding_t));
+        binding_t *new_bindings = malloc(((bind_cap * 10) + 1) * sizeof(binding_t));
         int new_count = 0;
 
         for (int bi = 0; bi < bind_count; bi++) {
             binding_t *b = &bindings[bi];
             cbm_node_t *src = binding_get(b, var_name);
-            if (!src)
+            if (!src) {
                 continue;
+            }
 
             if (is_variable_length) {
                 /* Variable-length: use BFS */
@@ -1318,16 +1398,19 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
 
                 for (int v = 0; v < tr.visited_count && new_count < bind_cap * 10; v++) {
                     cbm_node_hop_t *hop = &tr.visited[v];
-                    if (hop->hop < rel->min_hops)
+                    if (hop->hop < rel->min_hops) {
                         continue;
+                    }
 
                     /* Check target label */
-                    if (target_node->label && strcmp(hop->node.label, target_node->label) != 0)
+                    if (target_node->label && strcmp(hop->node.label, target_node->label) != 0) {
                         continue;
+                    }
                     /* Check inline props */
                     if (!check_inline_props(&hop->node, target_node->props,
-                                            target_node->prop_count))
+                                            target_node->prop_count)) {
                         continue;
+                    }
 
                     binding_t nb = {0};
                     binding_copy(&nb, b);
@@ -1337,7 +1420,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
                 cbm_store_traverse_free(&tr);
             } else {
                 /* Fixed-length (1 hop): query edges directly */
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 bool is_inbound = rel->direction && strcmp(rel->direction, "inbound") == 0;
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 bool is_any = rel->direction && strcmp(rel->direction, "any") == 0;
                 const char *rel_var = rel->variable; /* edge variable name, may be NULL */
 
@@ -1419,8 +1504,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
             }
         }
 
-        for (int bi = 0; bi < bind_count; bi++)
+        for (int bi = 0; bi < bind_count; bi++) {
             binding_free(&bindings[bi]);
+        }
         free(bindings);
         bindings = new_bindings;
         bind_count = new_count;
@@ -1434,8 +1520,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
         int kept = 0;
         for (int i = 0; i < bind_count; i++) {
             if (eval_where(q->where, &bindings[i])) {
-                if (kept != i)
+                if (kept != i) {
                     bindings[kept] = bindings[i];
+                }
                 kept++;
             } else {
                 binding_free(&bindings[i]);
@@ -1531,6 +1618,7 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
                     }
                     snprintf(aggs[agg_count].group_key, sizeof(aggs[agg_count].group_key), "%s",
                              key);
+                    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                     aggs[agg_count].group_vals = malloc(q->ret->count * sizeof(const char *));
                     for (int ci = 0; ci < q->ret->count; ci++) {
                         aggs[agg_count].group_vals[ci] = heap_strdup(vals[ci]);
@@ -1561,6 +1649,7 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
                 for (int ci = 0; ci < q->ret->count; ci++) {
                     free((void *)aggs[a].group_vals[ci]);
                 }
+                // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                 free(aggs[a].group_vals);
             }
             free(aggs);
@@ -1581,7 +1670,11 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
                         if (item->property) {
                             vals[ci] = n ? node_prop(n, item->property) : "";
                         } else {
-                            vals[ci] = n ? (n->name ? n->name : "") : "";
+                            const char *node_name = "";
+                            if (n && n->name) {
+                                node_name = n->name;
+                            }
+                            vals[ci] = node_name;
                         }
                     }
                 }
@@ -1611,11 +1704,13 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
             }
 
             if (order_col >= 0) {
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 bool desc = q->ret->order_dir && strcmp(q->ret->order_dir, "DESC") == 0;
                 /* Simple bubble sort (adequate for result sets) */
                 for (int i = 0; i < rb.row_count - 1; i++) {
                     for (int j = 0; j < rb.row_count - i - 1; j++) {
                         int cmp = strcmp(rb.rows[j][order_col], rb.rows[j + 1][order_col]);
+                        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                         if (desc ? cmp < 0 : cmp > 0) {
                             const char **tmp = rb.rows[j];
                             rb.rows[j] = rb.rows[j + 1];
@@ -1630,8 +1725,10 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
         int limit = q->ret->limit > 0 ? q->ret->limit : max_rows;
         if (rb.row_count > limit) {
             for (int i = limit; i < rb.row_count; i++) {
-                for (int c = 0; c < rb.col_count; c++)
+                for (int c = 0; c < rb.col_count; c++) {
                     free((void *)rb.rows[i][c]);
+                }
+                // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                 free(rb.rows[i]);
             }
             rb.row_count = limit;
@@ -1646,19 +1743,24 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
                 for (int j = 0; j < kept && !dup; j++) {
                     bool same = true;
                     for (int c = 0; c < rb.col_count && same; c++) {
-                        if (strcmp(rb.rows[i][c], rb.rows[j][c]) != 0)
+                        if (strcmp(rb.rows[i][c], rb.rows[j][c]) != 0) {
                             same = false;
+                        }
                     }
-                    if (same)
+                    if (same) {
                         dup = true;
+                    }
                 }
                 if (!dup) {
-                    if (kept != i)
+                    if (kept != i) {
                         rb.rows[kept] = rb.rows[i];
+                    }
                     kept++;
                 } else {
-                    for (int c = 0; c < rb.col_count; c++)
+                    for (int c = 0; c < rb.col_count; c++) {
                         free((void *)rb.rows[i][c]);
+                    }
+                    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                     free(rb.rows[i]);
                 }
             }
@@ -1682,21 +1784,22 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
             snprintf(buf, sizeof(buf), "%s.name", vars[v]);
             col_names[(size_t)v * 3] = heap_strdup(buf);
             snprintf(buf, sizeof(buf), "%s.qualified_name", vars[v]);
-            col_names[(size_t)v * 3 + 1] = heap_strdup(buf);
+            col_names[((size_t)v * 3) + 1] = heap_strdup(buf);
             snprintf(buf, sizeof(buf), "%s.label", vars[v]);
-            col_names[(size_t)v * 3 + 2] = heap_strdup(buf);
+            col_names[((size_t)v * 3) + 2] = heap_strdup(buf);
         }
         rb_set_columns(&rb, col_names, col_n);
-        for (int i = 0; i < col_n; i++)
+        for (int i = 0; i < col_n; i++) {
             free((void *)col_names[i]);
+        }
 
         for (int bi = 0; bi < bind_count && rb.row_count < max_rows; bi++) {
             const char *vals[48];
             for (int v = 0; v < var_count; v++) {
                 cbm_node_t *n = binding_get(&bindings[bi], vars[v]);
                 vals[(size_t)v * 3] = n && n->name ? n->name : "";
-                vals[(size_t)v * 3 + 1] = n && n->qualified_name ? n->qualified_name : "";
-                vals[(size_t)v * 3 + 2] = n && n->label ? n->label : "";
+                vals[((size_t)v * 3) + 1] = n && n->qualified_name ? n->qualified_name : "";
+                vals[((size_t)v * 3) + 2] = n && n->label ? n->label : "";
             }
             rb_add_row(&rb, vals);
         }
@@ -1709,8 +1812,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
     out->row_count = rb.row_count;
 
     /* Cleanup */
-    for (int bi = 0; bi < bind_count; bi++)
+    for (int bi = 0; bi < bind_count; bi++) {
         binding_free(&bindings[bi]);
+    }
     free(bindings);
     cbm_store_free_nodes(scanned, scan_count);
     cbm_query_free(q);
@@ -1719,18 +1823,22 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
 }
 
 void cbm_cypher_result_free(cbm_cypher_result_t *r) {
-    if (!r)
+    if (!r) {
         return;
+    }
     for (int i = 0; i < r->col_count; i++) {
         free((void *)r->columns[i]);
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(r->columns);
     for (int i = 0; i < r->row_count; i++) {
         for (int j = 0; j < r->col_count; j++) {
             free((void *)r->rows[i][j]);
         }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         free(r->rows[i]);
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(r->rows);
     memset(r, 0, sizeof(*r));
 }

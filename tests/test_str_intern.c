@@ -88,8 +88,8 @@ TEST(intern_many_strings) {
 
 TEST(intern_bytes) {
     CBMInternPool *pool = cbm_intern_create();
-    cbm_intern(pool, "abc");    /* 3 bytes + NUL */
-    cbm_intern(pool, "defgh");  /* 5 bytes + NUL */
+    cbm_intern(pool, "abc");   /* 3 bytes + NUL */
+    cbm_intern(pool, "defgh"); /* 5 bytes + NUL */
     /* bytes should be at least 8 (3+5 for the content) */
     ASSERT_GTE(cbm_intern_bytes(pool), 8);
     cbm_intern_free(pool);
