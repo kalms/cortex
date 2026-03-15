@@ -40,10 +40,18 @@ extern int tf_skip_count;
 
 /* ── Color helpers ─────────────────────────────────────────────── */
 
-static inline const char* tf_green(void) { return isatty(1) ? "\033[32m" : ""; }
-static inline const char* tf_red(void)   { return isatty(1) ? "\033[31m" : ""; }
-static inline const char* tf_dim(void)   { return isatty(1) ? "\033[90m" : ""; }
-static inline const char* tf_reset(void) { return isatty(1) ? "\033[0m"  : ""; }
+static inline const char *tf_green(void) {
+    return isatty(1) ? "\033[32m" : "";
+}
+static inline const char *tf_red(void) {
+    return isatty(1) ? "\033[31m" : "";
+}
+static inline const char *tf_dim(void) {
+    return isatty(1) ? "\033[90m" : "";
+}
+static inline const char *tf_reset(void) {
+    return isatty(1) ? "\033[0m" : "";
+}
 
 /* ── Test definition ───────────────────────────────────────────── */
 
@@ -51,156 +59,175 @@ static inline const char* tf_reset(void) { return isatty(1) ? "\033[0m"  : ""; }
 
 #define PASS() return 0
 
-#define SKIP(reason) do { \
-    printf("%sSKIP%s (%s)\n", tf_dim(), tf_reset(), reason); \
-    tf_skip_count++; \
-    return -1; \
-} while(0)
+#define SKIP(reason)                                             \
+    do {                                                         \
+        printf("%sSKIP%s (%s)\n", tf_dim(), tf_reset(), reason); \
+        tf_skip_count++;                                         \
+        return -1;                                               \
+    } while (0)
 
 /* ── Assertions ────────────────────────────────────────────────── */
 
-#define ASSERT(cond) do { \
-    if (!(cond)) { \
-        printf("  %sFAIL%s %s:%d: ASSERT(%s)\n", tf_red(), tf_reset(), __FILE__, __LINE__, #cond); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT(cond)                                                                           \
+    do {                                                                                       \
+        if (!(cond)) {                                                                         \
+            printf("  %sFAIL%s %s:%d: ASSERT(%s)\n", tf_red(), tf_reset(), __FILE__, __LINE__, \
+                   #cond);                                                                     \
+            return 1;                                                                          \
+        }                                                                                      \
+    } while (0)
 
-#define ASSERT_EQ(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a != _b) { \
-        printf("  %sFAIL%s %s:%d: %s == %lld, expected %s == %lld\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, _a, #b, _b); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_EQ(a, b)                                                                         \
+    do {                                                                                        \
+        long long _a = (long long)(a), _b = (long long)(b);                                     \
+        if (_a != _b) {                                                                         \
+            printf("  %sFAIL%s %s:%d: %s == %lld, expected %s == %lld\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b);                                         \
+            return 1;                                                                           \
+        }                                                                                       \
+    } while (0)
 
-#define ASSERT_NEQ(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a == _b) { \
-        printf("  %sFAIL%s %s:%d: %s == %s (both %lld)\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, #b, _a); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_NEQ(a, b)                                                                       \
+    do {                                                                                       \
+        long long _a = (long long)(a), _b = (long long)(b);                                    \
+        if (_a == _b) {                                                                        \
+            printf("  %sFAIL%s %s:%d: %s == %s (both %lld)\n", tf_red(), tf_reset(), __FILE__, \
+                   __LINE__, #a, #b, _a);                                                      \
+            return 1;                                                                          \
+        }                                                                                      \
+    } while (0)
 
-#define ASSERT_GT(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a <= _b) { \
-        printf("  %sFAIL%s %s:%d: %s (%lld) not > %s (%lld)\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, _a, #b, _b); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_GT(a, b)                                                                   \
+    do {                                                                                  \
+        long long _a = (long long)(a), _b = (long long)(b);                               \
+        if (_a <= _b) {                                                                   \
+            printf("  %sFAIL%s %s:%d: %s (%lld) not > %s (%lld)\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b);                                   \
+            return 1;                                                                     \
+        }                                                                                 \
+    } while (0)
 
-#define ASSERT_GTE(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a < _b) { \
-        printf("  %sFAIL%s %s:%d: %s (%lld) not >= %s (%lld)\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, _a, #b, _b); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_GTE(a, b)                                                                   \
+    do {                                                                                   \
+        long long _a = (long long)(a), _b = (long long)(b);                                \
+        if (_a < _b) {                                                                     \
+            printf("  %sFAIL%s %s:%d: %s (%lld) not >= %s (%lld)\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b);                                    \
+            return 1;                                                                      \
+        }                                                                                  \
+    } while (0)
 
-#define ASSERT_LT(a, b) do { \
-    long long _a = (long long)(a), _b = (long long)(b); \
-    if (_a >= _b) { \
-        printf("  %sFAIL%s %s:%d: %s (%lld) not < %s (%lld)\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, _a, #b, _b); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_LT(a, b)                                                                   \
+    do {                                                                                  \
+        long long _a = (long long)(a), _b = (long long)(b);                               \
+        if (_a >= _b) {                                                                   \
+            printf("  %sFAIL%s %s:%d: %s (%lld) not < %s (%lld)\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b);                                   \
+            return 1;                                                                     \
+        }                                                                                 \
+    } while (0)
 
-#define ASSERT_STR_EQ(a, b) do { \
-    const char *_a = (a), *_b = (b); \
-    if (_a == NULL && _b == NULL) break; \
-    if (_a == NULL || _b == NULL || strcmp(_a, _b) != 0) { \
-        printf("  %sFAIL%s %s:%d: \"%s\" != \"%s\"\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, \
-               _a ? _a : "(null)", _b ? _b : "(null)"); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_STR_EQ(a, b)                                                                \
+    do {                                                                                   \
+        const char *_a = (a), *_b = (b);                                                   \
+        if (_a == NULL && _b == NULL)                                                      \
+            break;                                                                         \
+        if (_a == NULL || _b == NULL || strcmp(_a, _b) != 0) {                             \
+            printf("  %sFAIL%s %s:%d: \"%s\" != \"%s\"\n", tf_red(), tf_reset(), __FILE__, \
+                   __LINE__, _a ? _a : "(null)", _b ? _b : "(null)");                      \
+            return 1;                                                                      \
+        }                                                                                  \
+    } while (0)
 
-#define ASSERT_STR_NEQ(a, b) do { \
-    const char *_a = (a), *_b = (b); \
-    if (_a != NULL && _b != NULL && strcmp(_a, _b) == 0) { \
-        printf("  %sFAIL%s %s:%d: strings equal: \"%s\"\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, _a); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_STR_NEQ(a, b)                                                                    \
+    do {                                                                                        \
+        const char *_a = (a), *_b = (b);                                                        \
+        if (_a != NULL && _b != NULL && strcmp(_a, _b) == 0) {                                  \
+            printf("  %sFAIL%s %s:%d: strings equal: \"%s\"\n", tf_red(), tf_reset(), __FILE__, \
+                   __LINE__, _a);                                                               \
+            return 1;                                                                           \
+        }                                                                                       \
+    } while (0)
 
-#define ASSERT_NULL(a) do { \
-    if ((a) != NULL) { \
-        printf("  %sFAIL%s %s:%d: %s is not NULL\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_NULL(a)                                                                             \
+    do {                                                                                           \
+        if ((a) != NULL) {                                                                         \
+            printf("  %sFAIL%s %s:%d: %s is not NULL\n", tf_red(), tf_reset(), __FILE__, __LINE__, \
+                   #a);                                                                            \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (0)
 
-#define ASSERT_NOT_NULL(a) do { \
-    if ((a) == NULL) { \
-        printf("  %sFAIL%s %s:%d: %s is NULL\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_NOT_NULL(a)                                                                     \
+    do {                                                                                       \
+        if ((a) == NULL) {                                                                     \
+            printf("  %sFAIL%s %s:%d: %s is NULL\n", tf_red(), tf_reset(), __FILE__, __LINE__, \
+                   #a);                                                                        \
+            return 1;                                                                          \
+        }                                                                                      \
+    } while (0)
 
-#define ASSERT_TRUE(a)  ASSERT(a)
+#define ASSERT_TRUE(a) ASSERT(a)
 #define ASSERT_FALSE(a) ASSERT(!(a))
 
-#define ASSERT_MEM_EQ(a, b, n) do { \
-    if (memcmp((a), (b), (n)) != 0) { \
-        printf("  %sFAIL%s %s:%d: memory differs (%zu bytes)\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, (size_t)(n)); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_MEM_EQ(a, b, n)                                                             \
+    do {                                                                                   \
+        if (memcmp((a), (b), (n)) != 0) {                                                  \
+            printf("  %sFAIL%s %s:%d: memory differs (%zu bytes)\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, (size_t)(n));                                       \
+            return 1;                                                                      \
+        }                                                                                  \
+    } while (0)
 
-#define ASSERT_FLOAT_EQ(a, b, eps) do { \
-    double _a = (double)(a), _b = (double)(b); \
-    if (fabs(_a - _b) > (eps)) { \
-        printf("  %sFAIL%s %s:%d: %s (%g) != %s (%g) within eps %g\n", \
-               tf_red(), tf_reset(), __FILE__, __LINE__, #a, _a, #b, _b, (double)(eps)); \
-        return 1; \
-    } \
-} while(0)
+#define ASSERT_FLOAT_EQ(a, b, eps)                                                               \
+    do {                                                                                         \
+        double _a = (double)(a), _b = (double)(b);                                               \
+        if (fabs(_a - _b) > (eps)) {                                                             \
+            printf("  %sFAIL%s %s:%d: %s (%g) != %s (%g) within eps %g\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b, (double)(eps));                           \
+            return 1;                                                                            \
+        }                                                                                        \
+    } while (0)
 
 /* ── Test runner ───────────────────────────────────────────────── */
 
-#define RUN_TEST(name) do { \
-    printf("  %-55s", #name); \
-    fflush(stdout); \
-    int _result = test_##name(); \
-    if (_result == 0) { \
-        printf("%sPASS%s\n", tf_green(), tf_reset()); \
-        tf_pass_count++; \
-    } else if (_result == -1) { \
-        /* skip — already printed */ \
-    } else { \
-        tf_fail_count++; \
-    } \
-} while(0)
+#define RUN_TEST(name)                                    \
+    do {                                                  \
+        printf("  %-55s", #name);                         \
+        fflush(stdout);                                   \
+        int _result = test_##name();                      \
+        if (_result == 0) {                               \
+            printf("%sPASS%s\n", tf_green(), tf_reset()); \
+            tf_pass_count++;                              \
+        } else if (_result == -1) {                       \
+            /* skip — already printed */                  \
+        } else {                                          \
+            tf_fail_count++;                              \
+        }                                                 \
+    } while (0)
 
 /* ── Suite grouping ────────────────────────────────────────────── */
 
 #define SUITE(name) void suite_##name(void)
 
-#define RUN_SUITE(name) do { \
-    printf("\n%s=== %s ===%s\n", tf_dim(), #name, tf_reset()); \
-    suite_##name(); \
-} while(0)
+#define RUN_SUITE(name)                                            \
+    do {                                                           \
+        printf("\n%s=== %s ===%s\n", tf_dim(), #name, tf_reset()); \
+        suite_##name();                                            \
+    } while (0)
 
 /* ── Summary ───────────────────────────────────────────────────── */
 
-#define TEST_SUMMARY() do { \
-    printf("\n────────────────────────────────────────────\n"); \
-    printf("  %s%d passed%s", tf_green(), tf_pass_count, tf_reset()); \
-    if (tf_fail_count > 0) printf(", %s%d failed%s", tf_red(), tf_fail_count, tf_reset()); \
-    if (tf_skip_count > 0) printf(", %s%d skipped%s", tf_dim(), tf_skip_count, tf_reset()); \
-    printf("\n────────────────────────────────────────────\n\n"); \
-    return tf_fail_count > 0 ? 1 : 0; \
-} while(0)
+#define TEST_SUMMARY()                                                       \
+    do {                                                                     \
+        printf("\n────────────────────────────────────────────\n");          \
+        printf("  %s%d passed%s", tf_green(), tf_pass_count, tf_reset());    \
+        if (tf_fail_count > 0)                                               \
+            printf(", %s%d failed%s", tf_red(), tf_fail_count, tf_reset());  \
+        if (tf_skip_count > 0)                                               \
+            printf(", %s%d skipped%s", tf_dim(), tf_skip_count, tf_reset()); \
+        printf("\n────────────────────────────────────────────\n\n");        \
+        return tf_fail_count > 0 ? 1 : 0;                                    \
+    } while (0)
 
 #endif /* TEST_FRAMEWORK_H */

@@ -188,18 +188,15 @@ TEST(httplink_same_service) {
     ASSERT_TRUE(cbm_same_service("a.b.c", "a.b.c"));
     ASSERT_FALSE(cbm_same_service("a.b.c", "x.b.c"));
     /* Realistic multi-service */
-    ASSERT_TRUE(cbm_same_service(
-        "myapp.docker-images.cloud-runs.order-service.main.Func",
-        "myapp.docker-images.cloud-runs.order-service.handlers.Other"));
-    ASSERT_FALSE(cbm_same_service(
-        "myapp.docker-images.cloud-runs.order-service.main.Func",
-        "myapp.docker-images.cloud-runs.notification-service.main.health_check"));
-    ASSERT_TRUE(cbm_same_service(
-        "myapp.docker-images.cloud-runs.svcA.sub.mod.Func",
-        "myapp.docker-images.cloud-runs.svcA.sub.mod.Other"));
-    ASSERT_FALSE(cbm_same_service(
-        "myapp.docker-images.cloud-runs.svcA.sub.mod.Func",
-        "myapp.docker-images.cloud-runs.svcB.sub.mod.Other"));
+    ASSERT_TRUE(cbm_same_service("myapp.docker-images.cloud-runs.order-service.main.Func",
+                                 "myapp.docker-images.cloud-runs.order-service.handlers.Other"));
+    ASSERT_FALSE(
+        cbm_same_service("myapp.docker-images.cloud-runs.order-service.main.Func",
+                         "myapp.docker-images.cloud-runs.notification-service.main.health_check"));
+    ASSERT_TRUE(cbm_same_service("myapp.docker-images.cloud-runs.svcA.sub.mod.Func",
+                                 "myapp.docker-images.cloud-runs.svcA.sub.mod.Other"));
+    ASSERT_FALSE(cbm_same_service("myapp.docker-images.cloud-runs.svcA.sub.mod.Func",
+                                  "myapp.docker-images.cloud-runs.svcB.sub.mod.Other"));
     PASS();
 }
 
@@ -208,55 +205,60 @@ TEST(httplink_same_service) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_extract_url_paths) {
-    char* paths[16];
+    char *paths[16];
     int n;
 
     n = cbm_extract_url_paths("URL = \"https://example.com/api/orders\"", paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     n = cbm_extract_url_paths("fetch(\"http://host/api/v1/items\")", paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     n = cbm_extract_url_paths("path = \"/api/orders\"", paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     n = cbm_extract_url_paths("no urls here", paths, 16);
     ASSERT_EQ(n, 0);
 
     n = cbm_extract_url_paths("both = \"https://a.com/api/x\" and \"/api/y\"", paths, 16);
     ASSERT_EQ(n, 2);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     PASS();
 }
 
 TEST(httplink_extract_json_string_paths) {
-    char* paths[16];
+    char *paths[16];
     int n;
 
     n = cbm_extract_json_string_paths(
         "BODY = '{\"target\": \"https://api.internal.com/api/orders\", \"method\": \"POST\"}'",
         paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     n = cbm_extract_json_string_paths(
-        "CONFIG = {\"endpoint\": \"/api/v1/process\", \"timeout\": 30}",
-        paths, 16);
+        "CONFIG = {\"endpoint\": \"/api/v1/process\", \"timeout\": 30}", paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     n = cbm_extract_json_string_paths("plain string without json", paths, 16);
     ASSERT_EQ(n, 0);
 
     n = cbm_extract_json_string_paths(
-        "{\"services\": [{\"url\": \"https://svc.example.com/api/health\"}]}",
-        paths, 16);
+        "{\"services\": [{\"url\": \"https://svc.example.com/api/health\"}]}", paths, 16);
     ASSERT_EQ(n, 1);
-    for (int i = 0; i < n; i++) free(paths[i]);
+    for (int i = 0; i < n; i++)
+        free(paths[i]);
 
     PASS();
 }
@@ -266,10 +268,10 @@ TEST(httplink_extract_json_string_paths) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_extract_python_routes) {
-    const char* decs[] = { "@app.post(\"/api/orders\")" };
+    const char *decs[] = {"@app.post(\"/api/orders\")"};
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_python_routes("create_order", "proj.api.routes.create_order",
-                                       decs, 1, routes, 4);
+    int n = cbm_extract_python_routes("create_order", "proj.api.routes.create_order", decs, 1,
+                                      routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].path, "/api/orders");
     ASSERT_STR_EQ(routes[0].method, "POST");
@@ -278,30 +280,24 @@ TEST(httplink_extract_python_routes) {
 }
 
 TEST(httplink_extract_python_routes_multiple) {
-    const char* decs[] = {
-        "@router.get(\"/api/items/{item_id}\")",
-        "@router.post(\"/api/items\")"
-    };
+    const char *decs[] = {"@router.get(\"/api/items/{item_id}\")", "@router.post(\"/api/items\")"};
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_python_routes("handler", "proj.api.handler",
-                                       decs, 2, routes, 4);
+    int n = cbm_extract_python_routes("handler", "proj.api.handler", decs, 2, routes, 4);
     ASSERT_EQ(n, 2);
     PASS();
 }
 
 TEST(httplink_extract_python_routes_no_decorators) {
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_python_routes("helper", "proj.utils.helper",
-                                       NULL, 0, routes, 4);
+    int n = cbm_extract_python_routes("helper", "proj.utils.helper", NULL, 0, routes, 4);
     ASSERT_EQ(n, 0);
     PASS();
 }
 
 TEST(httplink_extract_python_ws_routes) {
-    const char* decs[] = { "@app.websocket(\"/ws/chat\")" };
+    const char *decs[] = {"@app.websocket(\"/ws/chat\")"};
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_python_routes("ws_handler", "proj.api.ws_handler",
-                                       decs, 1, routes, 4);
+    int n = cbm_extract_python_routes("ws_handler", "proj.api.ws_handler", decs, 1, routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].path, "/ws/chat");
     ASSERT_STR_EQ(routes[0].method, "WS");
@@ -314,12 +310,10 @@ TEST(httplink_extract_python_ws_routes) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_extract_go_routes) {
-    const char* source =
-        "\tr.POST(\"/api/orders\", h.CreateOrder)\n"
-        "\tr.GET(\"/api/orders/:id\", h.GetOrder)\n";
+    const char *source = "\tr.POST(\"/api/orders\", h.CreateOrder)\n"
+                         "\tr.GET(\"/api/orders/:id\", h.GetOrder)\n";
     cbm_route_handler_t routes[8];
-    int n = cbm_extract_go_routes("RegisterRoutes", "proj.api.RegisterRoutes",
-                                   source, routes, 8);
+    int n = cbm_extract_go_routes("RegisterRoutes", "proj.api.RegisterRoutes", source, routes, 8);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(routes[0].path, "/api/orders");
     ASSERT_STR_EQ(routes[0].method, "POST");
@@ -328,19 +322,17 @@ TEST(httplink_extract_go_routes) {
 }
 
 TEST(httplink_chi_prefix) {
-    const char* source =
-        "func SetupRoutes(r chi.Router) {\n"
-        "\tr.Route(\"/api\", func(r chi.Router) {\n"
-        "\t\tr.Get(\"/health\", healthHandler)\n"
-        "\t\tr.Route(\"/users\", func(r chi.Router) {\n"
-        "\t\t\tr.Get(\"/\", listUsers)\n"
-        "\t\t\tr.Post(\"/{id}\", updateUser)\n"
-        "\t\t})\n"
-        "\t})\n"
-        "}\n";
+    const char *source = "func SetupRoutes(r chi.Router) {\n"
+                         "\tr.Route(\"/api\", func(r chi.Router) {\n"
+                         "\t\tr.Get(\"/health\", healthHandler)\n"
+                         "\t\tr.Route(\"/users\", func(r chi.Router) {\n"
+                         "\t\t\tr.Get(\"/\", listUsers)\n"
+                         "\t\t\tr.Post(\"/{id}\", updateUser)\n"
+                         "\t\t})\n"
+                         "\t})\n"
+                         "}\n";
     cbm_route_handler_t routes[8];
-    int n = cbm_extract_go_routes("SetupRoutes", "proj.SetupRoutes",
-                                   source, routes, 8);
+    int n = cbm_extract_go_routes("SetupRoutes", "proj.SetupRoutes", source, routes, 8);
     ASSERT_EQ(n, 3);
 
     /* Verify all routes have /api prefix */
@@ -355,15 +347,13 @@ TEST(httplink_chi_prefix) {
 }
 
 TEST(httplink_chi_prefix_mixed_with_gin) {
-    const char* source =
-        "func RegisterRoutes(r *gin.RouterGroup) {\n"
-        "\torders := r.Group(\"/orders\")\n"
-        "\torders.GET(\"/:id\", getOrder)\n"
-        "\torders.POST(\"\", createOrder)\n"
-        "}\n";
+    const char *source = "func RegisterRoutes(r *gin.RouterGroup) {\n"
+                         "\torders := r.Group(\"/orders\")\n"
+                         "\torders.GET(\"/:id\", getOrder)\n"
+                         "\torders.POST(\"\", createOrder)\n"
+                         "}\n";
     cbm_route_handler_t routes[8];
-    int n = cbm_extract_go_routes("RegisterRoutes", "proj.RegisterRoutes",
-                                   source, routes, 8);
+    int n = cbm_extract_go_routes("RegisterRoutes", "proj.RegisterRoutes", source, routes, 8);
     ASSERT_EQ(n, 2);
     /* Both should have /orders prefix from gin group */
     for (int i = 0; i < n; i++) {
@@ -377,10 +367,10 @@ TEST(httplink_chi_prefix_mixed_with_gin) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_extract_spring_ws_routes) {
-    const char* decs[] = { "@MessageMapping(\"/chat\")" };
+    const char *decs[] = {"@MessageMapping(\"/chat\")"};
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_java_routes("handleChat", "proj.ChatController.handleChat",
-                                     decs, 1, routes, 4);
+    int n =
+        cbm_extract_java_routes("handleChat", "proj.ChatController.handleChat", decs, 1, routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].path, "/chat");
     ASSERT_STR_EQ(routes[0].method, "WS");
@@ -393,28 +383,25 @@ TEST(httplink_extract_spring_ws_routes) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_extract_ktor_ws_routes) {
-    const char* source =
-        "\twebSocket(\"/chat\") {\n"
-        "\t\tfor (frame in incoming) {\n"
-        "\t\t\tsend(frame)\n"
-        "\t\t}\n"
-        "\t}\n"
-        "\tget(\"/api/health\") {\n"
-        "\t\tcall.respond(\"ok\")\n"
-        "\t}\n";
+    const char *source = "\twebSocket(\"/chat\") {\n"
+                         "\t\tfor (frame in incoming) {\n"
+                         "\t\t\tsend(frame)\n"
+                         "\t\t}\n"
+                         "\t}\n"
+                         "\tget(\"/api/health\") {\n"
+                         "\t\tcall.respond(\"ok\")\n"
+                         "\t}\n";
     cbm_route_handler_t routes[8];
-    int n = cbm_extract_ktor_routes("configureRouting", "proj.Routing.configureRouting",
-                                     source, routes, 8);
+    int n = cbm_extract_ktor_routes("configureRouting", "proj.Routing.configureRouting", source,
+                                    routes, 8);
     ASSERT_EQ(n, 2);
 
     bool ws_found = false, http_found = false;
     for (int i = 0; i < n; i++) {
-        if (strcmp(routes[i].protocol, "ws") == 0 &&
-            strcmp(routes[i].path, "/chat") == 0 &&
+        if (strcmp(routes[i].protocol, "ws") == 0 && strcmp(routes[i].path, "/chat") == 0 &&
             strcmp(routes[i].method, "WS") == 0)
             ws_found = true;
-        if (strcmp(routes[i].path, "/api/health") == 0 &&
-            strcmp(routes[i].method, "GET") == 0)
+        if (strcmp(routes[i].path, "/api/health") == 0 && strcmp(routes[i].method, "GET") == 0)
             http_found = true;
     }
     ASSERT_TRUE(ws_found);
@@ -432,51 +419,48 @@ TEST(httplink_express_route_filtering) {
 
     /* Should match (allowlisted receivers) */
     n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "app.get('/api/users', handler)", routes, 4);
+                                   "app.get('/api/users', handler)", routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].method, "GET");
     ASSERT_STR_EQ(routes[0].path, "/api/users");
 
     n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "router.post('/orders', handler)", routes, 4);
+                                   "router.post('/orders', handler)", routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].method, "POST");
 
     n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "server.put('/items', handler)", routes, 4);
+                                   "server.put('/items', handler)", routes, 4);
     ASSERT_EQ(n, 1);
 
     n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "api.delete('/users/:id', handler)", routes, 4);
+                                   "api.delete('/users/:id', handler)", routes, 4);
     ASSERT_EQ(n, 1);
 
     n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "routes.patch('/items/:id', handler)", routes, 4);
+                                   "routes.patch('/items/:id', handler)", routes, 4);
     ASSERT_EQ(n, 1);
 
     /* Should NOT match (not in allowlist) */
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "req.get('Content-Type')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "req.get('Content-Type')",
+                                   routes, 4);
     ASSERT_EQ(n, 0);
 
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "res.get('key')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "res.get('key')", routes, 4);
     ASSERT_EQ(n, 0);
 
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "this.get('property')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "this.get('property')", routes,
+                                   4);
     ASSERT_EQ(n, 0);
 
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "map.get('key')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "map.get('key')", routes, 4);
     ASSERT_EQ(n, 0);
 
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "model.delete('record')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "model.delete('record')",
+                                   routes, 4);
     ASSERT_EQ(n, 0);
 
-    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc",
-                                    "params.get('id')", routes, 4);
+    n = cbm_extract_express_routes("testFunc", "proj.test.testFunc", "params.get('id')", routes, 4);
     ASSERT_EQ(n, 0);
 
     PASS();
@@ -492,7 +476,8 @@ TEST(httplink_detect_protocol) {
     ASSERT_STR_EQ(cbm_detect_protocol("conn, err := upgrader.Upgrade(w, r, nil)"), "ws");
     ASSERT_STR_EQ(cbm_detect_protocol("ws.on(\"connection\", func)"), "ws");
     ASSERT_STR_EQ(cbm_detect_protocol("io.on(\"connection\", handler)"), "ws");
-    ASSERT_STR_EQ(cbm_detect_protocol("w.Header().Set(\"Content-Type\", \"text/event-stream\")"), "sse");
+    ASSERT_STR_EQ(cbm_detect_protocol("w.Header().Set(\"Content-Type\", \"text/event-stream\")"),
+                  "sse");
     ASSERT_STR_EQ(cbm_detect_protocol("return EventSourceResponse(generate())"), "sse");
     ASSERT_STR_EQ(cbm_detect_protocol("SseEmitter emitter = new SseEmitter()"), "sse");
     ASSERT_STR_EQ(cbm_detect_protocol("ServerSentEvent event = ServerSentEvent.builder()"), "sse");
@@ -517,7 +502,7 @@ TEST(httplink_is_test_node) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(httplink_is_path_excluded) {
-    const char* paths[] = { "/health", "/debug", "/internal/status" };
+    const char *paths[] = {"/health", "/debug", "/internal/status"};
     ASSERT_TRUE(cbm_is_path_excluded("/health", paths, 3));
     ASSERT_TRUE(cbm_is_path_excluded("/health/", paths, 3));
     ASSERT_TRUE(cbm_is_path_excluded("/HEALTH", paths, 3));
@@ -553,7 +538,7 @@ TEST(httplink_load_config_default) {
     ASSERT_FLOAT_EQ(cbm_httplink_effective_min_confidence(&cfg), 0.25, 0.001);
     ASSERT_TRUE(cbm_httplink_effective_fuzzy_matching(&cfg));
 
-    const char* paths[64];
+    const char *paths[64];
     int count = cbm_httplink_all_exclude_paths(&cfg, paths, 64);
     ASSERT_EQ(count, cbm_default_exclude_paths_count);
 
@@ -564,28 +549,31 @@ TEST(httplink_load_config_default) {
 TEST(httplink_load_config_from_file) {
     /* Create temp dir with .cgrconfig */
     char tmpdir[] = "/tmp/httplink-cfg-XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cfgpath[512];
     snprintf(cfgpath, sizeof(cfgpath), "%s/.cgrconfig", tmpdir);
 
-    FILE* f = fopen(cfgpath, "w");
-    if (!f) { rmdir(tmpdir); SKIP("cannot write .cgrconfig"); }
-    fprintf(f,
-        "\n"
-        "http_linker:\n"
-        "  exclude_paths:\n"
-        "    - /debug\n"
-        "    - /internal/status\n"
-        "  min_confidence: 0.5\n"
-        "  fuzzy_matching: false\n");
+    FILE *f = fopen(cfgpath, "w");
+    if (!f) {
+        rmdir(tmpdir);
+        SKIP("cannot write .cgrconfig");
+    }
+    fprintf(f, "\n"
+               "http_linker:\n"
+               "  exclude_paths:\n"
+               "    - /debug\n"
+               "    - /internal/status\n"
+               "  min_confidence: 0.5\n"
+               "  fuzzy_matching: false\n");
     fclose(f);
 
     cbm_httplink_config_t cfg = cbm_httplink_load_config(tmpdir);
     ASSERT_FLOAT_EQ(cbm_httplink_effective_min_confidence(&cfg), 0.5, 0.001);
     ASSERT_FALSE(cbm_httplink_effective_fuzzy_matching(&cfg));
 
-    const char* paths[64];
+    const char *paths[64];
     int count = cbm_httplink_all_exclude_paths(&cfg, paths, 64);
     int expected = cbm_default_exclude_paths_count + 2;
     ASSERT_EQ(count, expected);
@@ -601,13 +589,17 @@ TEST(httplink_load_config_from_file) {
 TEST(httplink_load_config_invalid_yaml) {
     /* Invalid YAML → fallback to defaults */
     char tmpdir[] = "/tmp/httplink-bad-XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cfgpath[512];
     snprintf(cfgpath, sizeof(cfgpath), "%s/.cgrconfig", tmpdir);
 
-    FILE* f = fopen(cfgpath, "w");
-    if (!f) { rmdir(tmpdir); SKIP("cannot write .cgrconfig"); }
+    FILE *f = fopen(cfgpath, "w");
+    if (!f) {
+        rmdir(tmpdir);
+        SKIP("cannot write .cgrconfig");
+    }
     fprintf(f, "not: [valid: yaml");
     fclose(f);
 
@@ -626,12 +618,12 @@ TEST(httplink_load_config_invalid_yaml) {
 TEST(httplink_all_exclude_paths_merge) {
     /* User-configured paths should be appended after defaults */
     cbm_httplink_config_t cfg = cbm_httplink_default_config();
-    cfg.exclude_paths = calloc(2, sizeof(char*));
+    cfg.exclude_paths = calloc(2, sizeof(char *));
     cfg.exclude_paths[0] = strdup("/custom1");
     cfg.exclude_paths[1] = strdup("/custom2");
     cfg.exclude_path_count = 2;
 
-    const char* paths[64];
+    const char *paths[64];
     int count = cbm_httplink_all_exclude_paths(&cfg, paths, 64);
     int expected = cbm_default_exclude_paths_count + 2;
     ASSERT_EQ(count, expected);
@@ -655,20 +647,21 @@ TEST(httplink_all_exclude_paths_merge) {
 
 TEST(httplink_http_client_keywords_all_languages) {
     /* Each language should have at least one keyword in the list */
-    typedef struct { const char* lang; const char** keywords; int nkw; } lang_kw_t;
+    typedef struct {
+        const char *lang;
+        const char **keywords;
+        int nkw;
+    } lang_kw_t;
 
-    const char* py_kw[] = { "requests.get", "httpx.", "aiohttp." };
-    const char* go_kw[] = { "http.Get", "http.Post", "http.NewRequest" };
-    const char* js_kw[] = { "fetch(", "axios." };
-    const char* java_kw[] = { "HttpClient", "RestTemplate" };
-    const char* rust_kw[] = { "reqwest::", "hyper::" };
+    const char *py_kw[] = {"requests.get", "httpx.", "aiohttp."};
+    const char *go_kw[] = {"http.Get", "http.Post", "http.NewRequest"};
+    const char *js_kw[] = {"fetch(", "axios."};
+    const char *java_kw[] = {"HttpClient", "RestTemplate"};
+    const char *rust_kw[] = {"reqwest::", "hyper::"};
 
     lang_kw_t langs[] = {
-        { "Python", py_kw, 3 },
-        { "Go", go_kw, 3 },
-        { "JavaScript", js_kw, 2 },
-        { "Java", java_kw, 2 },
-        { "Rust", rust_kw, 2 },
+        {"Python", py_kw, 3}, {"Go", go_kw, 3},     {"JavaScript", js_kw, 2},
+        {"Java", java_kw, 2}, {"Rust", rust_kw, 2},
     };
 
     for (int l = 0; l < 5; l++) {
@@ -693,7 +686,7 @@ TEST(httplink_http_client_keywords_all_languages) {
 TEST(httplink_route_extraction_negative_cases) {
     cbm_route_handler_t routes[8];
     int n;
-    const char* sources[] = {
+    const char *sources[] = {
         "func processOrder(order Order) error {\n\treturn nil\n}\n",
         "function calculate(x, y) {\n\treturn x + y;\n}\n",
         "def transform_data(data):\n    return data.upper()\n",
@@ -726,16 +719,22 @@ TEST(httplink_route_extraction_negative_cases) {
 TEST(httplink_read_source_lines) {
     /* Create temp dir with test file */
     char tmpdir[] = "/tmp/httplink-test-XXXXXX";
-    if (!mkdtemp(tmpdir)) { printf("  SKIP: mkdtemp failed\n"); return -1; }
+    if (!mkdtemp(tmpdir)) {
+        printf("  SKIP: mkdtemp failed\n");
+        return -1;
+    }
 
     char fpath[512];
     snprintf(fpath, sizeof(fpath), "%s/test.go", tmpdir);
-    FILE* f = fopen(fpath, "w");
-    if (!f) { printf("  SKIP: cannot write\n"); return -1; }
+    FILE *f = fopen(fpath, "w");
+    if (!f) {
+        printf("  SKIP: cannot write\n");
+        return -1;
+    }
     fprintf(f, "line1\nline2\nline3\nline4\nline5\n");
     fclose(f);
 
-    char* result = cbm_read_source_lines_disk(tmpdir, "test.go", 2, 4);
+    char *result = cbm_read_source_lines_disk(tmpdir, "test.go", 2, 4);
     ASSERT_NOT_NULL(result);
     ASSERT_STR_EQ(result, "line2\nline3\nline4");
     free(result);
@@ -747,7 +746,7 @@ TEST(httplink_read_source_lines) {
 }
 
 TEST(httplink_read_source_lines_missing_file) {
-    char* result = cbm_read_source_lines_disk("/nonexistent", "missing.go", 1, 10);
+    char *result = cbm_read_source_lines_disk("/nonexistent", "missing.go", 1, 10);
     ASSERT_NULL(result);
     PASS();
 }
@@ -762,8 +761,9 @@ TEST(httplink_read_source_lines_missing_file) {
 TEST(httplink_linker_route_nodes) {
     /* This tests that the route extraction + store integration works.
      * Creates a store with nodes, runs extraction, verifies results. */
-    cbm_store_t* s = cbm_store_open(":memory:");
-    if (!s) return 1;
+    cbm_store_t *s = cbm_store_open(":memory:");
+    if (!s)
+        return 1;
 
     cbm_store_upsert_project(s, "testproj", "/tmp/test");
 
@@ -779,10 +779,10 @@ TEST(httplink_linker_route_nodes) {
     ASSERT(handler_id > 0);
 
     /* Now test that we can extract routes from the decorator */
-    const char* decs[] = { "@app.post(\"/api/orders\")" };
+    const char *decs[] = {"@app.post(\"/api/orders\")"};
     cbm_route_handler_t routes[4];
-    int n = cbm_extract_python_routes("create_order",
-        "testproj.handler.routes.create_order", decs, 1, routes, 4);
+    int n = cbm_extract_python_routes("create_order", "testproj.handler.routes.create_order", decs,
+                                      1, routes, 4);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].path, "/api/orders");
     ASSERT_STR_EQ(routes[0].method, "POST");
@@ -795,31 +795,30 @@ TEST(httplink_linker_route_nodes) {
 
 TEST(httplink_linker_same_service_skip) {
     /* Both caller and handler in same service → no link */
-    ASSERT_TRUE(cbm_same_service(
-        "testproj.cat.sub.svcA.internal.client",
-        "testproj.cat.sub.svcA.internal.handle_orders"));
+    ASSERT_TRUE(cbm_same_service("testproj.cat.sub.svcA.internal.client",
+                                 "testproj.cat.sub.svcA.internal.handle_orders"));
     PASS();
 }
 
 /* ── Laravel module-level route extraction ─────────────────────── */
 
 TEST(httplink_laravel_module_level_routes) {
-    const char* source =
-        "<?php\n"
-        "use App\\Http\\Controllers\\OrderController;\n"
-        "Route::get('/api/orders', [OrderController::class, 'index']);\n"
-        "Route::post('/api/orders', [OrderController::class, 'store']);\n"
-        "Route::get('/api/orders/{id}', [OrderController::class, 'show']);\n";
+    const char *source = "<?php\n"
+                         "use App\\Http\\Controllers\\OrderController;\n"
+                         "Route::get('/api/orders', [OrderController::class, 'index']);\n"
+                         "Route::post('/api/orders', [OrderController::class, 'store']);\n"
+                         "Route::get('/api/orders/{id}', [OrderController::class, 'show']);\n";
 
     cbm_route_handler_t routes[8];
-    int n = cbm_extract_laravel_routes("api.php", "testproj.routes.api",
-                                        source, routes, 8);
+    int n = cbm_extract_laravel_routes("api.php", "testproj.routes.api", source, routes, 8);
     ASSERT_GTE(n, 3);
 
     bool found_orders = false, found_orders_id = false;
     for (int i = 0; i < n; i++) {
-        if (strcmp(routes[i].path, "/api/orders") == 0) found_orders = true;
-        if (strcmp(routes[i].path, "/api/orders/{id}") == 0) found_orders_id = true;
+        if (strcmp(routes[i].path, "/api/orders") == 0)
+            found_orders = true;
+        if (strcmp(routes[i].path, "/api/orders/{id}") == 0)
+            found_orders_id = true;
     }
     ASSERT_TRUE(found_orders);
     ASSERT_TRUE(found_orders_id);

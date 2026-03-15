@@ -16,7 +16,7 @@ TEST(traces_extract_service_name) {
     };
     cbm_trace_resource_t r = {.attributes = attrs, .attr_count = 1};
 
-    const char* name = cbm_extract_service_name(&r);
+    const char *name = cbm_extract_service_name(&r);
     ASSERT_STR_EQ(name, "order-service");
     PASS();
 }
@@ -27,13 +27,13 @@ TEST(traces_extract_service_name_missing) {
     };
     cbm_trace_resource_t r = {.attributes = attrs, .attr_count = 1};
 
-    const char* name = cbm_extract_service_name(&r);
+    const char *name = cbm_extract_service_name(&r);
     ASSERT_STR_EQ(name, "");
     PASS();
 }
 
 TEST(traces_extract_service_name_null) {
-    const char* name = cbm_extract_service_name(NULL);
+    const char *name = cbm_extract_service_name(NULL);
     ASSERT_STR_EQ(name, "");
     PASS();
 }
@@ -48,7 +48,8 @@ TEST(traces_extract_http_info) {
     };
     cbm_trace_span_t span = {
         .kind = 2,
-        .attributes = attrs, .attr_count = 3,
+        .attributes = attrs,
+        .attr_count = 3,
         .start_time = "1000000000",
         .end_time = "1050000000",
     };
@@ -71,7 +72,8 @@ TEST(traces_extract_http_info_non_http) {
     };
     cbm_trace_span_t span = {
         .kind = 1,
-        .attributes = attrs, .attr_count = 1,
+        .attributes = attrs,
+        .attr_count = 1,
     };
 
     cbm_http_span_info_t info;
@@ -89,7 +91,8 @@ TEST(traces_extract_http_info_url_full) {
     };
     cbm_trace_span_t span = {
         .kind = 2,
-        .attributes = attrs, .attr_count = 2,
+        .attributes = attrs,
+        .attr_count = 2,
         .start_time = "2000000000",
         .end_time = "2100000000",
     };

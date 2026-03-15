@@ -7,12 +7,19 @@
  * Results are cached after first call (immutable hardware properties).
  */
 #include "foundation/platform.h"
+#include <stdint.h> // uint64_t
 #include <string.h>
 
 #ifdef __APPLE__
 #include <sys/sysctl.h>
-#include <mach/mach.h>
-#include <mach/mach_host.h>
+#include <mach/mach_host.h> // host_info64_t, host_page_size, HOST_VM_INFO64, mach_host_self, mach_port_t
+#include <mach/mach_init.h>   // mach_host_self (direct provider)
+#include <mach/kern_return.h> // KERN_SUCCESS
+// NOLINTNEXTLINE(misc-include-cleaner) — vm_types.h included for interface contract
+#include <mach/vm_types.h> // vm_size_t
+// NOLINTNEXTLINE(misc-include-cleaner) — mach_types.h included for interface contract
+#include <mach/mach_types.h>    // mach_msg_type_number_t
+#include <mach/vm_statistics.h> // vm_statistics64_data_t, HOST_VM_INFO64_COUNT
 #else
 #include <unistd.h>
 #include <sys/sysinfo.h>
@@ -26,31 +33,38 @@
 static int sysctl_int(const char *name, int fallback) {
     int val = 0;
     size_t len = sizeof(val);
-    if (sysctlbyname(name, &val, &len, NULL, 0) == 0 && val > 0)
+    if (sysctlbyname(name, &val, &len, NULL, 0) == 0 && val > 0) {
         return val;
+    }
     return fallback;
 }
 
 static size_t sysctl_size(const char *name, size_t fallback) {
     size_t val = 0;
     size_t len = sizeof(val);
-    if (sysctlbyname(name, &val, &len, NULL, 0) == 0 && val > 0)
+    if (sysctlbyname(name, &val, &len, NULL, 0) == 0 && val > 0) {
         return val;
+    }
     /* Try 64-bit variant */
     uint64_t val64 = 0;
     len = sizeof(val64);
-    if (sysctlbyname(name, &val64, &len, NULL, 0) == 0 && val64 > 0)
+    if (sysctlbyname(name, &val64, &len, NULL, 0) == 0 && val64 > 0) {
         return (size_t)val64;
+    }
     return fallback;
 }
 
 static size_t get_free_ram_macos(void) {
+    // NOLINTNEXTLINE(misc-include-cleaner) — mach_port_t provided by standard header
     mach_port_t host = mach_host_self();
     vm_statistics64_data_t stats = {0};
+    // NOLINTNEXTLINE(misc-include-cleaner) — mach_msg_type_number_t provided by standard header
     mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    // NOLINTNEXTLINE(misc-include-cleaner) — HOST_VM_INFO64 provided by standard header
     if (host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&stats, &count) != KERN_SUCCESS) {
         return 0;
     }
+    // NOLINTNEXTLINE(misc-include-cleaner) — vm_size_t provided by standard header
     vm_size_t page_size = 0;
     host_page_size(host, &page_size);
     return (size_t)(stats.free_count + stats.inactive_count) * (size_t)page_size;

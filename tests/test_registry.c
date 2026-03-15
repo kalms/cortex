@@ -14,7 +14,7 @@
 /* ── FQN computation ──────────────────────────────────────────────── */
 
 TEST(fqn_simple) {
-    char* qn = cbm_pipeline_fqn_compute("myproj", "cmd/server/main.go", "HandleRequest");
+    char *qn = cbm_pipeline_fqn_compute("myproj", "cmd/server/main.go", "HandleRequest");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.cmd.server.main.HandleRequest");
     free(qn);
@@ -22,7 +22,7 @@ TEST(fqn_simple) {
 }
 
 TEST(fqn_no_name) {
-    char* qn = cbm_pipeline_fqn_compute("myproj", "pkg/service.go", NULL);
+    char *qn = cbm_pipeline_fqn_compute("myproj", "pkg/service.go", NULL);
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.pkg.service");
     free(qn);
@@ -31,7 +31,7 @@ TEST(fqn_no_name) {
 
 TEST(fqn_python_init) {
     /* __init__.py should be stripped */
-    char* qn = cbm_pipeline_fqn_compute("myproj", "pkg/__init__.py", "Foo");
+    char *qn = cbm_pipeline_fqn_compute("myproj", "pkg/__init__.py", "Foo");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.pkg.Foo");
     free(qn);
@@ -40,7 +40,7 @@ TEST(fqn_python_init) {
 
 TEST(fqn_js_index) {
     /* index.js should be stripped */
-    char* qn = cbm_pipeline_fqn_compute("myproj", "src/index.ts", "App");
+    char *qn = cbm_pipeline_fqn_compute("myproj", "src/index.ts", "App");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.src.App");
     free(qn);
@@ -48,7 +48,7 @@ TEST(fqn_js_index) {
 }
 
 TEST(fqn_module) {
-    char* qn = cbm_pipeline_fqn_module("myproj", "cmd/server/main.go");
+    char *qn = cbm_pipeline_fqn_module("myproj", "cmd/server/main.go");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.cmd.server.main");
     free(qn);
@@ -56,7 +56,7 @@ TEST(fqn_module) {
 }
 
 TEST(fqn_folder) {
-    char* qn = cbm_pipeline_fqn_folder("myproj", "cmd/server");
+    char *qn = cbm_pipeline_fqn_folder("myproj", "cmd/server");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "myproj.cmd.server");
     free(qn);
@@ -64,7 +64,7 @@ TEST(fqn_folder) {
 }
 
 TEST(fqn_root_file) {
-    char* qn = cbm_pipeline_fqn_compute("proj", "main.go", "main");
+    char *qn = cbm_pipeline_fqn_compute("proj", "main.go", "main");
     ASSERT_NOT_NULL(qn);
     ASSERT_STR_EQ(qn, "proj.main.main");
     free(qn);
@@ -72,7 +72,7 @@ TEST(fqn_root_file) {
 }
 
 TEST(project_name_from_path) {
-    char* name = cbm_project_name_from_path("/Users/dev/project");
+    char *name = cbm_project_name_from_path("/Users/dev/project");
     ASSERT_NOT_NULL(name);
     ASSERT_STR_EQ(name, "Users-dev-project");
     free(name);
@@ -80,7 +80,7 @@ TEST(project_name_from_path) {
 }
 
 TEST(project_name_from_root) {
-    char* name = cbm_project_name_from_path("/");
+    char *name = cbm_project_name_from_path("/");
     ASSERT_NOT_NULL(name);
     ASSERT_STR_EQ(name, "root");
     free(name);
@@ -90,7 +90,7 @@ TEST(project_name_from_root) {
 /* ── Registry lifecycle ───────────────────────────────────────────── */
 
 TEST(registry_create_free) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     ASSERT_NOT_NULL(r);
     ASSERT_EQ(cbm_registry_size(r), 0);
     cbm_registry_free(r);
@@ -98,12 +98,12 @@ TEST(registry_create_free) {
 }
 
 TEST(registry_free_null) {
-    cbm_registry_free(NULL);  /* should not crash */
+    cbm_registry_free(NULL); /* should not crash */
     PASS();
 }
 
 TEST(registry_add_and_exists) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "main", "proj.cmd.main", "Function");
     ASSERT_EQ(cbm_registry_size(r), 1);
     ASSERT_TRUE(cbm_registry_exists(r, "proj.cmd.main"));
@@ -113,7 +113,7 @@ TEST(registry_add_and_exists) {
 }
 
 TEST(registry_label_of) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Foo", "proj.pkg.Foo", "Class");
     cbm_registry_add(r, "bar", "proj.pkg.bar", "Function");
 
@@ -126,12 +126,12 @@ TEST(registry_label_of) {
 }
 
 TEST(registry_find_by_name) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "main", "proj.cmd.main", "Function");
     cbm_registry_add(r, "main", "proj.srv.main", "Function");
     cbm_registry_add(r, "helper", "proj.util.helper", "Function");
 
-    const char** out = NULL;
+    const char **out = NULL;
     int count = 0;
     cbm_registry_find_by_name(r, "main", &out, &count);
     ASSERT_EQ(count, 2);
@@ -147,15 +147,15 @@ TEST(registry_find_by_name) {
 }
 
 TEST(registry_no_duplicates) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "main", "proj.cmd.main", "Function");
-    cbm_registry_add(r, "main", "proj.cmd.main", "Function");  /* duplicate */
+    cbm_registry_add(r, "main", "proj.cmd.main", "Function"); /* duplicate */
     ASSERT_EQ(cbm_registry_size(r), 1);
 
-    const char** out = NULL;
+    const char **out = NULL;
     int count = 0;
     cbm_registry_find_by_name(r, "main", &out, &count);
-    ASSERT_EQ(count, 1);  /* no duplicate in byName list */
+    ASSERT_EQ(count, 1); /* no duplicate in byName list */
 
     cbm_registry_free(r);
     PASS();
@@ -164,12 +164,11 @@ TEST(registry_no_duplicates) {
 /* ── Resolution strategies ────────────────────────────────────────── */
 
 TEST(resolve_same_module) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "helper", "proj.pkg.service.helper", "Function");
 
     /* Call "helper" from the same module → should resolve */
-    cbm_resolution_t res = cbm_registry_resolve(r, "helper",
-        "proj.pkg.service", NULL, NULL, 0);
+    cbm_resolution_t res = cbm_registry_resolve(r, "helper", "proj.pkg.service", NULL, NULL, 0);
     ASSERT_STR_EQ(res.qualified_name, "proj.pkg.service.helper");
     ASSERT_STR_EQ(res.strategy, "same_module");
     ASSERT_TRUE(res.confidence >= 0.85);
@@ -179,16 +178,16 @@ TEST(resolve_same_module) {
 }
 
 TEST(resolve_import_map) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "proj.pkg.worker.Process", "Function");
 
     /* Import map: "worker" → "proj.pkg.worker" */
-    const char* keys[] = {"worker"};
-    const char* vals[] = {"proj.pkg.worker"};
+    const char *keys[] = {"worker"};
+    const char *vals[] = {"proj.pkg.worker"};
 
     /* Call "worker.Process" → should resolve via import map */
-    cbm_resolution_t res = cbm_registry_resolve(r, "worker.Process",
-        "proj.cmd.main", keys, vals, 1);
+    cbm_resolution_t res =
+        cbm_registry_resolve(r, "worker.Process", "proj.cmd.main", keys, vals, 1);
     ASSERT_STR_EQ(res.qualified_name, "proj.pkg.worker.Process");
     ASSERT_STR_EQ(res.strategy, "import_map");
     ASSERT_TRUE(res.confidence >= 0.90);
@@ -198,12 +197,12 @@ TEST(resolve_import_map) {
 }
 
 TEST(resolve_unique_name) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "UniqueFunc", "proj.deep.path.UniqueFunc", "Function");
 
     /* Call "UniqueFunc" — only one candidate project-wide */
-    cbm_resolution_t res = cbm_registry_resolve(r, "UniqueFunc",
-        "proj.other.module", NULL, NULL, 0);
+    cbm_resolution_t res =
+        cbm_registry_resolve(r, "UniqueFunc", "proj.other.module", NULL, NULL, 0);
     ASSERT_STR_EQ(res.qualified_name, "proj.deep.path.UniqueFunc");
     ASSERT_STR_EQ(res.strategy, "unique_name");
 
@@ -212,12 +211,11 @@ TEST(resolve_unique_name) {
 }
 
 TEST(resolve_unresolved) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "foo", "proj.pkg.foo", "Function");
 
     /* Call "nonexistent" — not in registry */
-    cbm_resolution_t res = cbm_registry_resolve(r, "nonexistent",
-        "proj.other", NULL, NULL, 0);
+    cbm_resolution_t res = cbm_registry_resolve(r, "nonexistent", "proj.other", NULL, NULL, 0);
     ASSERT_TRUE(res.qualified_name == NULL || res.qualified_name[0] == '\0');
 
     cbm_registry_free(r);
@@ -225,7 +223,7 @@ TEST(resolve_unresolved) {
 }
 
 TEST(resolve_many_nodes) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     /* Add 500 functions */
     for (int i = 0; i < 500; i++) {
         char name[32], qn[64];
@@ -236,8 +234,7 @@ TEST(resolve_many_nodes) {
     ASSERT_EQ(cbm_registry_size(r), 500);
 
     /* Resolve one */
-    cbm_resolution_t res = cbm_registry_resolve(r, "func_250",
-        "proj.pkg", NULL, NULL, 0);
+    cbm_resolution_t res = cbm_registry_resolve(r, "func_250", "proj.pkg", NULL, NULL, 0);
     ASSERT_STR_EQ(res.qualified_name, "proj.pkg.func_250");
 
     cbm_registry_free(r);
@@ -269,13 +266,12 @@ TEST(confidence_band_speculative) {
 /* ── Suffix match resolution ──────────────────────────────────── */
 
 TEST(resolve_suffix_match) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "proj.svcA.Process", "Function");
     cbm_registry_add(r, "Process", "proj.svcB.Process", "Function");
 
     /* Caller in svcA — should prefer svcA via import distance */
-    cbm_resolution_t res = cbm_registry_resolve(r, "Process",
-        "proj.svcA.caller", NULL, NULL, 0);
+    cbm_resolution_t res = cbm_registry_resolve(r, "Process", "proj.svcA.caller", NULL, NULL, 0);
     ASSERT_STR_EQ(res.qualified_name, "proj.svcA.Process");
     ASSERT_STR_EQ(res.strategy, "suffix_match");
     ASSERT_TRUE(res.confidence >= 0.50 && res.confidence <= 0.60);
@@ -287,16 +283,15 @@ TEST(resolve_suffix_match) {
 /* ── Import map suffix resolution ─────────────────────────────── */
 
 TEST(resolve_import_map_suffix) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Foo", "proj.other.sub.Foo", "Function");
 
-    const char* keys[] = {"other"};
-    const char* vals[] = {"proj.other"};
+    const char *keys[] = {"other"};
+    const char *vals[] = {"proj.other"};
 
     /* "other.Foo" → exact "proj.other.Foo" not found →
      * suffix scan finds "proj.other.sub.Foo" */
-    cbm_resolution_t res = cbm_registry_resolve(r, "other.Foo",
-        "proj.pkg", keys, vals, 1);
+    cbm_resolution_t res = cbm_registry_resolve(r, "other.Foo", "proj.pkg", keys, vals, 1);
     ASSERT_STR_EQ(res.qualified_name, "proj.other.sub.Foo");
     ASSERT_STR_EQ(res.strategy, "import_map_suffix");
     ASSERT_TRUE(res.confidence >= 0.80 && res.confidence <= 0.90);
@@ -310,22 +305,20 @@ TEST(resolve_import_map_suffix) {
 TEST(resolve_is_import_reachable) {
     /* Test import reachability through unique_name confidence penalty.
      * is_import_reachable is static, so we test it indirectly. */
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Helper", "proj.shared.utils.Helper", "Function");
 
     /* With import covering the module → full confidence */
-    const char* keys1[] = {"utils"};
-    const char* vals1[] = {"proj.shared.utils"};
-    cbm_resolution_t res = cbm_registry_resolve(r, "Helper",
-        "proj.caller", keys1, vals1, 1);
+    const char *keys1[] = {"utils"};
+    const char *vals1[] = {"proj.shared.utils"};
+    cbm_resolution_t res = cbm_registry_resolve(r, "Helper", "proj.caller", keys1, vals1, 1);
     ASSERT_STR_EQ(res.strategy, "unique_name");
     ASSERT_TRUE(res.confidence >= 0.70); /* 0.75, not halved */
 
     /* With import NOT covering the module → halved */
-    const char* keys2[] = {"other"};
-    const char* vals2[] = {"proj.other"};
-    res = cbm_registry_resolve(r, "Helper",
-        "proj.caller", keys2, vals2, 1);
+    const char *keys2[] = {"other"};
+    const char *vals2[] = {"proj.other"};
+    res = cbm_registry_resolve(r, "Helper", "proj.caller", keys2, vals2, 1);
     ASSERT_STR_EQ(res.strategy, "unique_name");
     ASSERT_TRUE(res.confidence <= 0.40); /* 0.75 * 0.5 = 0.375 */
 
@@ -335,13 +328,12 @@ TEST(resolve_is_import_reachable) {
 
 TEST(resolve_import_reachable_prefix) {
     /* "proj.handler.sub.Process" should be reachable via import "proj.handler" */
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "proj.handler.sub.Process", "Function");
 
-    const char* keys[] = {"handler"};
-    const char* vals[] = {"proj.handler"};
-    cbm_resolution_t res = cbm_registry_resolve(r, "Process",
-        "proj.caller", keys, vals, 1);
+    const char *keys[] = {"handler"};
+    const char *vals[] = {"proj.handler"};
+    cbm_resolution_t res = cbm_registry_resolve(r, "Process", "proj.caller", keys, vals, 1);
     ASSERT_STR_EQ(res.strategy, "unique_name");
     ASSERT_TRUE(res.confidence >= 0.70); /* reachable → no penalty */
 
@@ -352,15 +344,14 @@ TEST(resolve_import_reachable_prefix) {
 /* ── Negative import evidence ─────────────────────────────────── */
 
 TEST(negative_import_rejects_unimported) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "proj.billing.Process", "Function");
     cbm_registry_add(r, "Process", "proj.handler.Process", "Function");
 
     /* Import only handler's module — suffix_match should prefer handler */
-    const char* keys[] = {"handler"};
-    const char* vals[] = {"proj.handler"};
-    cbm_resolution_t res = cbm_registry_resolve(r, "Process",
-        "proj.caller", keys, vals, 1);
+    const char *keys[] = {"handler"};
+    const char *vals[] = {"proj.handler"};
+    cbm_resolution_t res = cbm_registry_resolve(r, "Process", "proj.caller", keys, vals, 1);
     ASSERT_STR_EQ(res.qualified_name, "proj.handler.Process");
 
     cbm_registry_free(r);
@@ -370,13 +361,13 @@ TEST(negative_import_rejects_unimported) {
 /* ── Fuzzy resolve ────────────────────────────────────────────── */
 
 TEST(fuzzy_resolve_single_candidate) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
     cbm_registry_add(r, "ValidateOrder", "svcB.validators.ValidateOrder", "Function");
 
     /* FuzzyResolve should find by simple name even with unknown prefix */
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknownPkg.CreateOrder",
-        "svcC.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknownPkg.CreateOrder", "svcC.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcA.handlers.CreateOrder");
 
@@ -385,11 +376,11 @@ TEST(fuzzy_resolve_single_candidate) {
 }
 
 TEST(fuzzy_resolve_nonexistent) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
 
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "NonExistent",
-        "svcC.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "NonExistent", "svcC.caller", NULL, NULL, 0);
     ASSERT_FALSE(fr.ok);
 
     cbm_registry_free(r);
@@ -397,19 +388,18 @@ TEST(fuzzy_resolve_nonexistent) {
 }
 
 TEST(fuzzy_resolve_multiple_best_by_distance) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "svcA.handlers.Process", "Function");
     cbm_registry_add(r, "Process", "svcB.handlers.Process", "Function");
 
     /* Caller in svcA — should prefer svcA */
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknown.Process",
-        "svcA.other", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknown.Process", "svcA.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcA.handlers.Process");
 
     /* Caller in svcB — should prefer svcB */
-    fr = cbm_registry_fuzzy_resolve(r, "unknown.Process",
-        "svcB.other", NULL, NULL, 0);
+    fr = cbm_registry_fuzzy_resolve(r, "unknown.Process", "svcB.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcB.handlers.Process");
 
@@ -418,12 +408,12 @@ TEST(fuzzy_resolve_multiple_best_by_distance) {
 }
 
 TEST(fuzzy_resolve_deep_name_extraction) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "DoWork", "myproject.utils.DoWork", "Function");
 
     /* Deeply qualified callee — should extract "DoWork" */
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "some.deep.module.DoWork",
-        "myproject.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "some.deep.module.DoWork", "myproject.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "myproject.utils.DoWork");
 
@@ -432,10 +422,10 @@ TEST(fuzzy_resolve_deep_name_extraction) {
 }
 
 TEST(fuzzy_resolve_empty_registry) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
 
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "SomeFunc",
-        "myproject.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "SomeFunc", "myproject.caller", NULL, NULL, 0);
     ASSERT_FALSE(fr.ok);
 
     cbm_registry_free(r);
@@ -443,11 +433,11 @@ TEST(fuzzy_resolve_empty_registry) {
 }
 
 TEST(fuzzy_resolve_confidence_single) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Handler", "proj.svc.Handler", "Function");
 
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknownPkg.Handler",
-        "proj.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknownPkg.Handler", "proj.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_TRUE(fr.result.confidence >= 0.35 && fr.result.confidence <= 0.45);
     ASSERT_STR_EQ(fr.result.strategy, "fuzzy");
@@ -457,12 +447,12 @@ TEST(fuzzy_resolve_confidence_single) {
 }
 
 TEST(fuzzy_resolve_confidence_distance) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Process", "proj.svcA.Process", "Function");
     cbm_registry_add(r, "Process", "proj.svcB.Process", "Function");
 
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknownPkg.Process",
-        "proj.svcA.other", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknownPkg.Process", "proj.svcA.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_TRUE(fr.result.confidence >= 0.25 && fr.result.confidence <= 0.35);
     ASSERT_STR_EQ(fr.result.strategy, "fuzzy");
@@ -472,14 +462,14 @@ TEST(fuzzy_resolve_confidence_distance) {
 }
 
 TEST(fuzzy_penalty_unreachable_import) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Handler", "proj.billing.Handler", "Function");
 
     /* Import for different module → confidence halved */
-    const char* keys[] = {"other"};
-    const char* vals[] = {"proj.other"};
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknown.Handler",
-        "proj.caller", keys, vals, 1);
+    const char *keys[] = {"other"};
+    const char *vals[] = {"proj.other"};
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknown.Handler", "proj.caller", keys, vals, 1);
     ASSERT_TRUE(fr.ok);
     /* 0.40 * 0.5 = 0.20 */
     ASSERT_TRUE(fr.result.confidence >= 0.15 && fr.result.confidence <= 0.25);
@@ -489,12 +479,12 @@ TEST(fuzzy_penalty_unreachable_import) {
 }
 
 TEST(fuzzy_no_import_map_passthrough) {
-    cbm_registry_t* r = cbm_registry_new();
+    cbm_registry_t *r = cbm_registry_new();
     cbm_registry_add(r, "Handler", "proj.billing.Handler", "Function");
 
     /* nil import map → full confidence */
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(r, "unknown.Handler",
-        "proj.caller", NULL, NULL, 0);
+    cbm_fuzzy_result_t fr =
+        cbm_registry_fuzzy_resolve(r, "unknown.Handler", "proj.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_TRUE(fr.result.confidence >= 0.35 && fr.result.confidence <= 0.45);
 

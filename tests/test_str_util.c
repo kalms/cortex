@@ -6,8 +6,12 @@
 
 static CBMArena a;
 
-static void setup(void) { cbm_arena_init(&a); }
-static void teardown(void) { cbm_arena_destroy(&a); }
+static void setup(void) {
+    cbm_arena_init(&a);
+}
+static void teardown(void) {
+    cbm_arena_destroy(&a);
+}
 
 TEST(path_join_basic) {
     setup();

@@ -29,78 +29,92 @@ static const char *itoa_log(int val) {
 
 /* Check if a node has is_test:true in its properties JSON. */
 static bool node_is_test(const cbm_gbuf_node_t *n) {
-    if (!n || !n->properties_json)
+    if (!n || !n->properties_json) {
         return false;
+    }
     return strstr(n->properties_json, "\"is_test\":true") != NULL;
 }
 
 /* Helper to check suffix. */
 static bool str_ends_with(const char *s, size_t slen, const char *suffix) {
     size_t sflen = strlen(suffix);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return slen >= sflen && strcmp(s + slen - sflen, suffix) == 0;
 }
 
 /* Check if a file path looks like a test file (language-agnostic). */
 bool cbm_is_test_path(const char *path) {
-    if (!path)
+    if (!path) {
         return false;
+    }
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
     size_t len = strlen(path);
 
     /* Prefix-based: Python test_*.py */
-    if (strncmp(base, "test_", 5) == 0)
+    if (strncmp(base, "test_", 5) == 0) {
         return true;
+    }
 
     /* Suffix-based: _test.<ext> pattern (Go, Python, Rust, C++, Lua) */
     if (str_ends_with(path, len, "_test.go") || str_ends_with(path, len, "_test.py") ||
         str_ends_with(path, len, "_test.rs") || str_ends_with(path, len, "_test.cpp") ||
-        str_ends_with(path, len, "_test.lua"))
+        str_ends_with(path, len, "_test.lua")) {
         return true;
+    }
 
     /* .test.<ext> / .spec.<ext> pattern (JS/TS/TSX) */
     if (strstr(path, ".test.ts") || strstr(path, ".spec.ts") || strstr(path, ".test.js") ||
-        strstr(path, ".spec.js") || strstr(path, ".test.tsx") || strstr(path, ".spec.tsx"))
+        strstr(path, ".spec.js") || strstr(path, ".test.tsx") || strstr(path, ".spec.tsx")) {
         return true;
+    }
 
     /* Name ends with "Test" or "Spec" before extension (Java, Kotlin, C#, PHP, Scala) */
     if (str_ends_with(path, len, "Test.java") || str_ends_with(path, len, "Test.kt") ||
         str_ends_with(path, len, "Test.cs") || str_ends_with(path, len, "Test.php") ||
-        str_ends_with(path, len, "Spec.scala"))
+        str_ends_with(path, len, "Spec.scala")) {
         return true;
+    }
 
     return false;
 }
 
 /* Check if a function name looks like a test function (language-agnostic). */
 bool cbm_is_test_func_name(const char *name) {
-    if (!name)
+    if (!name) {
         return false;
+    }
     /* Go: Test*, Benchmark*, Example* */
     if (strncmp(name, "Test", 4) == 0 || strncmp(name, "Benchmark", 9) == 0 ||
-        strncmp(name, "Example", 7) == 0)
+        strncmp(name, "Example", 7) == 0) {
         return true;
+    }
     /* Python/Rust/C++/Lua/Java: test_ or test prefix (lowercase) */
-    if (strncmp(name, "test_", 5) == 0)
+    if (strncmp(name, "test_", 5) == 0) {
         return true;
-    if (strncmp(name, "test", 4) == 0 && name[4] >= 'A' && name[4] <= 'Z')
+    }
+    if (strncmp(name, "test", 4) == 0 && name[4] >= 'A' && name[4] <= 'Z') {
         return true;
+    }
     /* JS/TS: test/it/describe + lifecycle hooks */
     if (strcmp(name, "test") == 0 || strcmp(name, "it") == 0 || strcmp(name, "describe") == 0 ||
         strcmp(name, "beforeAll") == 0 || strcmp(name, "afterAll") == 0 ||
-        strcmp(name, "beforeEach") == 0 || strcmp(name, "afterEach") == 0)
+        strcmp(name, "beforeEach") == 0 || strcmp(name, "afterEach") == 0) {
         return true;
+    }
     /* Julia: @testset, @test */
-    if (strcmp(name, "@testset") == 0 || strcmp(name, "@test") == 0)
+    if (strcmp(name, "@testset") == 0 || strcmp(name, "@test") == 0) {
         return true;
+    }
     return false;
 }
 
 /* Try to derive the production file path from a test file path.
  * Returns heap-allocated string or NULL. Caller must free(). */
 static char *test_to_prod_path(const char *test_path) {
-    if (!test_path)
+    if (!test_path) {
         return NULL;
+    }
 
     const char *base = strrchr(test_path, '/');
     const char *dir_end = base ? base : test_path;
@@ -171,6 +185,7 @@ static char *test_to_prod_path(const char *test_path) {
     return NULL;
 }
 
+// NOLINTNEXTLINE(misc-include-cleaner) — cbm_file_info_t provided by standard header
 int cbm_pipeline_pass_tests(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *files, int file_count) {
     cbm_log_info("pass.start", "pass", "tests");
     (void)files;
@@ -189,23 +204,29 @@ int cbm_pipeline_pass_tests(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *file
             const cbm_gbuf_edge_t *e = call_edges[i];
             const cbm_gbuf_node_t *src = cbm_gbuf_find_by_id(ctx->gbuf, e->source_id);
             const cbm_gbuf_node_t *tgt = cbm_gbuf_find_by_id(ctx->gbuf, e->target_id);
-            if (!src || !tgt)
+            if (!src || !tgt) {
                 continue;
+            }
 
             /* Source must be a test, target must not */
             bool src_is_test =
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 node_is_test(src) || (src->file_path && cbm_is_test_path(src->file_path));
-            if (!src_is_test)
+            if (!src_is_test) {
                 continue;
+            }
 
             bool tgt_is_test =
+                // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                 node_is_test(tgt) || (tgt->file_path && cbm_is_test_path(tgt->file_path));
-            if (tgt_is_test)
+            if (tgt_is_test) {
                 continue;
+            }
 
             /* Gate: source must have a test function name */
-            if (!cbm_is_test_func_name(src->name))
+            if (!cbm_is_test_func_name(src->name)) {
                 continue;
+            }
 
             cbm_gbuf_insert_edge(ctx->gbuf, src->id, tgt->id, "TESTS", "{}");
             tests_count++;
@@ -220,12 +241,14 @@ int cbm_pipeline_pass_tests(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *file
     if (rc == 0) {
         for (int i = 0; i < file_node_count; i++) {
             const cbm_gbuf_node_t *fnode = file_nodes[i];
-            if (!fnode->file_path || !cbm_is_test_path(fnode->file_path))
+            if (!fnode->file_path || !cbm_is_test_path(fnode->file_path)) {
                 continue;
+            }
 
             char *prod_path = test_to_prod_path(fnode->file_path);
-            if (!prod_path)
+            if (!prod_path) {
                 continue;
+            }
 
             /* Find the production file node */
             char *prod_qn = cbm_pipeline_fqn_compute(ctx->project_name, prod_path, "__file__");

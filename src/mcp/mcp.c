@@ -4,6 +4,12 @@
  * Uses yyjson for fast JSON parsing/building.
  * Single-threaded event loop: read line → parse → dispatch → respond.
  */
+
+// NOLINTBEGIN(cert-err33-c) — best-effort logging and stdio writes, no recovery path
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes and JSON field counts
+// NOLINTBEGIN(bugprone-command-processor,cert-env33-c) — intentional shell commands for git
+// operations
+
 #include "mcp/mcp.h"
 #include "store/store.h"
 #include "cypher/cypher.h"
@@ -12,21 +18,24 @@
 
 #include <yyjson/yyjson.h>
 
+#include <stdint.h> // int64_t
+#include <stdio.h>  // popen, pclose, getline
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 static char *heap_strdup(const char *s) {
-    if (!s)
+    if (!s) {
         return NULL;
+    }
     size_t len = strlen(s);
     char *d = malloc(len + 1);
-    if (d)
+    if (d) {
         memcpy(d, s, len + 1);
+    }
     return d;
 }
 
@@ -46,8 +55,9 @@ int cbm_jsonrpc_parse(const char *line, cbm_jsonrpc_request_t *out) {
     out->id = -1;
 
     yyjson_doc *doc = yyjson_read(line, strlen(line), 0);
-    if (!doc)
+    if (!doc) {
         return -1;
+    }
 
     yyjson_val *root = yyjson_doc_get_root(doc);
     if (!yyjson_is_obj(root)) {
@@ -87,8 +97,9 @@ int cbm_jsonrpc_parse(const char *line, cbm_jsonrpc_request_t *out) {
 }
 
 void cbm_jsonrpc_request_free(cbm_jsonrpc_request_t *r) {
-    if (!r)
+    if (!r) {
         return;
+    }
     free((void *)r->jsonrpc);
     free((void *)r->method);
     free((void *)r->params_raw);
@@ -313,8 +324,9 @@ char *cbm_mcp_initialize_response(void) {
 
 char *cbm_mcp_get_tool_name(const char *params_json) {
     yyjson_doc *doc = yyjson_read(params_json, strlen(params_json), 0);
-    if (!doc)
+    if (!doc) {
         return NULL;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *name = yyjson_obj_get(root, "name");
     char *result = NULL;
@@ -327,8 +339,9 @@ char *cbm_mcp_get_tool_name(const char *params_json) {
 
 char *cbm_mcp_get_arguments(const char *params_json) {
     yyjson_doc *doc = yyjson_read(params_json, strlen(params_json), 0);
-    if (!doc)
+    if (!doc) {
         return NULL;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *args = yyjson_obj_get(root, "arguments");
     char *result = NULL;
@@ -339,10 +352,12 @@ char *cbm_mcp_get_arguments(const char *params_json) {
     return result ? result : heap_strdup("{}");
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_mcp_get_string_arg(const char *args_json, const char *key) {
     yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
-    if (!doc)
+    if (!doc) {
         return NULL;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *val = yyjson_obj_get(root, key);
     char *result = NULL;
@@ -353,24 +368,28 @@ char *cbm_mcp_get_string_arg(const char *args_json, const char *key) {
     return result;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_mcp_get_int_arg(const char *args_json, const char *key, int default_val) {
     yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
-    if (!doc)
+    if (!doc) {
         return default_val;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *val = yyjson_obj_get(root, key);
     int result = default_val;
     if (val && yyjson_is_int(val)) {
-        result = (int)yyjson_get_int(val);
+        result = yyjson_get_int(val);
     }
     yyjson_doc_free(doc);
     return result;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool cbm_mcp_get_bool_arg(const char *args_json, const char *key) {
     yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
-    if (!doc)
+    if (!doc) {
         return false;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *val = yyjson_obj_get(root, key);
     bool result = false;
@@ -393,8 +412,9 @@ struct cbm_mcp_server {
 
 cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
     cbm_mcp_server_t *srv = calloc(1, sizeof(*srv));
-    if (!srv)
+    if (!srv) {
         return NULL;
+    }
 
     if (store_path) {
         srv->store = cbm_store_open(store_path);
@@ -412,8 +432,9 @@ cbm_store_t *cbm_mcp_server_store(cbm_mcp_server_t *srv) {
 }
 
 void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
-    if (!srv)
+    if (!srv) {
         return;
+    }
     if (srv->owns_store && srv->store) {
         cbm_store_close(srv->store);
     }
@@ -424,6 +445,7 @@ void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
 /* ── Tool handler implementations ─────────────────────────────── */
 
 static char *handle_list_projects(cbm_mcp_server_t *srv, const char *args) {
+    (void)args;
     cbm_project_t *projects = NULL;
     int count = 0;
     cbm_store_list_projects(srv->store, &projects, &count);
@@ -636,8 +658,9 @@ static char *handle_index_status(cbm_mcp_server_t *srv, const char *args) {
 
 static char *handle_delete_project(cbm_mcp_server_t *srv, const char *args) {
     char *name = cbm_mcp_get_string_arg(args, "project_name");
-    if (!name)
+    if (!name) {
         return cbm_mcp_text_result("project_name is required", true);
+    }
 
     /* Check if project exists before deleting */
     cbm_project_t proj = {0};
@@ -682,8 +705,9 @@ static char *handle_get_architecture(cbm_mcp_server_t *srv, const char *args) {
     yyjson_mut_val *root = yyjson_mut_obj(doc);
     yyjson_mut_doc_set_root(doc, root);
 
-    if (project)
+    if (project) {
         yyjson_mut_obj_add_str(doc, root, "project", project);
+    }
     yyjson_mut_obj_add_int(doc, root, "total_nodes", node_count);
     yyjson_mut_obj_add_int(doc, root, "total_edges", edge_count);
 
@@ -737,8 +761,9 @@ static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
         free(direction);
         return cbm_mcp_text_result("function_name is required", true);
     }
-    if (!direction)
+    if (!direction) {
         direction = heap_strdup("both");
+    }
 
     /* Find the node by name */
     cbm_node_t *nodes = NULL;
@@ -766,7 +791,9 @@ static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
     /* Run BFS for each requested direction.
      * IMPORTANT: yyjson_mut_obj_add_str borrows pointers — we must keep
      * traversal results alive until after yy_doc_to_str serialization. */
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool do_outbound = strcmp(direction, "outbound") == 0 || strcmp(direction, "both") == 0;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool do_inbound = strcmp(direction, "inbound") == 0 || strcmp(direction, "both") == 0;
 
     cbm_traverse_result_t tr_out = {0};
@@ -813,10 +840,12 @@ static char *handle_trace_call_path(cbm_mcp_server_t *srv, const char *args) {
     yyjson_mut_doc_free(doc);
 
     /* Now safe to free traversal data */
-    if (do_outbound)
+    if (do_outbound) {
         cbm_store_traverse_free(&tr_out);
-    if (do_inbound)
+    }
+    if (do_inbound) {
         cbm_store_traverse_free(&tr_in);
+    }
 
     cbm_store_free_nodes(nodes, node_count);
     free(func_name);
@@ -844,8 +873,9 @@ static void free_node_contents(cbm_node_t *n) {
 
 static char *read_file_lines(const char *path, int start, int end) {
     FILE *fp = fopen(path, "r");
-    if (!fp)
+    if (!fp) {
         return NULL;
+    }
 
     size_t cap = 4096;
     char *buf = malloc(cap);
@@ -856,10 +886,12 @@ static char *read_file_lines(const char *path, int start, int end) {
     int lineno = 0;
     while (fgets(line, sizeof(line), fp)) {
         lineno++;
-        if (lineno < start)
+        if (lineno < start) {
             continue;
-        if (lineno > end)
+        }
+        if (lineno > end) {
             break;
+        }
         size_t ll = strlen(line);
         while (len + ll + 1 > cap) {
             cap *= 2;
@@ -881,11 +913,13 @@ static char *read_file_lines(const char *path, int start, int end) {
 /* ── Helper: get project root_path from store ─────────────────── */
 
 static char *get_project_root(cbm_mcp_server_t *srv, const char *project) {
-    if (!project)
+    if (!project) {
         return NULL;
+    }
     cbm_project_t proj = {0};
-    if (cbm_store_get_project(srv->store, project, &proj) != CBM_STORE_OK)
+    if (cbm_store_get_project(srv->store, project, &proj) != CBM_STORE_OK) {
         return NULL;
+    }
     char *root = heap_strdup(proj.root_path);
     free((void *)proj.name);
     free((void *)proj.indexed_at);
@@ -905,8 +939,9 @@ static char *handle_index_repository(cbm_mcp_server_t *srv, const char *args) {
     }
 
     cbm_index_mode_t mode = CBM_MODE_FULL;
-    if (mode_str && strcmp(mode_str, "fast") == 0)
+    if (mode_str && strcmp(mode_str, "fast") == 0) {
         mode = CBM_MODE_FAST;
+    }
     free(mode_str);
 
     cbm_pipeline_t *p = cbm_pipeline_new(repo_path, srv->store_path, mode);
@@ -1035,8 +1070,13 @@ static char *build_snippet_response(cbm_mcp_server_t *srv, cbm_node_t *node,
                            node->qualified_name ? node->qualified_name : "");
     yyjson_mut_obj_add_str(doc, root_obj, "label", node->label ? node->label : "");
 
-    yyjson_mut_obj_add_str(doc, root_obj, "file_path",
-                           abs_path ? abs_path : (node->file_path ? node->file_path : ""));
+    const char *display_path = "";
+    if (abs_path) {
+        display_path = abs_path;
+    } else if (node->file_path) {
+        display_path = node->file_path;
+    }
+    yyjson_mut_obj_add_str(doc, root_obj, "file_path", display_path);
     yyjson_mut_obj_add_int(doc, root_obj, "start_line", start);
     yyjson_mut_obj_add_int(doc, root_obj, "end_line", end);
 
@@ -1066,23 +1106,26 @@ static char *build_snippet_response(cbm_mcp_server_t *srv, cbm_node_t *node,
                 while ((key = yyjson_obj_iter_next(&iter))) {
                     yyjson_val *val = yyjson_obj_iter_get_val(key);
                     const char *k = yyjson_get_str(key);
-                    if (!k)
+                    if (!k) {
                         continue;
-                    if (yyjson_is_str(val))
+                    }
+                    if (yyjson_is_str(val)) {
                         yyjson_mut_obj_add_str(doc, root_obj, k, yyjson_get_str(val));
-                    else if (yyjson_is_bool(val))
+                    } else if (yyjson_is_bool(val)) {
                         yyjson_mut_obj_add_bool(doc, root_obj, k, yyjson_get_bool(val));
-                    else if (yyjson_is_int(val))
+                    } else if (yyjson_is_int(val)) {
                         yyjson_mut_obj_add_int(doc, root_obj, k, yyjson_get_int(val));
-                    else if (yyjson_is_real(val))
+                    } else if (yyjson_is_real(val)) {
                         yyjson_mut_obj_add_real(doc, root_obj, k, yyjson_get_real(val));
+                    }
                 }
             }
         }
     }
 
     /* Caller/callee counts */
-    int in_deg = 0, out_deg = 0;
+    int in_deg = 0;
+    int out_deg = 0;
     cbm_store_node_degree(srv->store, node->id, &in_deg, &out_deg);
     yyjson_mut_obj_add_int(doc, root_obj, "callers", in_deg);
     yyjson_mut_obj_add_int(doc, root_obj, "callees", out_deg);
@@ -1098,14 +1141,16 @@ static char *build_snippet_response(cbm_mcp_server_t *srv, cbm_node_t *node,
                                       &nb_callees, &nb_callee_count);
         if (nb_caller_count > 0) {
             yyjson_mut_val *arr = yyjson_mut_arr(doc);
-            for (int i = 0; i < nb_caller_count; i++)
+            for (int i = 0; i < nb_caller_count; i++) {
                 yyjson_mut_arr_add_str(doc, arr, nb_callers[i]);
+            }
             yyjson_mut_obj_add_val(doc, root_obj, "caller_names", arr);
         }
         if (nb_callee_count > 0) {
             yyjson_mut_val *arr = yyjson_mut_arr(doc);
-            for (int i = 0; i < nb_callee_count; i++)
+            for (int i = 0; i < nb_callee_count; i++) {
                 yyjson_mut_arr_add_str(doc, arr, nb_callees[i]);
+            }
             yyjson_mut_obj_add_val(doc, root_obj, "callee_names", arr);
         }
     }
@@ -1128,11 +1173,15 @@ static char *build_snippet_response(cbm_mcp_server_t *srv, cbm_node_t *node,
     char *json = yy_doc_to_str(doc);
     yyjson_mut_doc_free(doc);
     yyjson_doc_free(props_doc); /* safe if NULL */
-    for (int i = 0; i < nb_caller_count; i++)
+    for (int i = 0; i < nb_caller_count; i++) {
         free(nb_callers[i]);
-    for (int i = 0; i < nb_callee_count; i++)
+    }
+    for (int i = 0; i < nb_callee_count; i++) {
         free(nb_callees[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(nb_callers);
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(nb_callees);
     free(root_path);
     free(abs_path);
@@ -1213,8 +1262,9 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
                     break;
                 }
             }
-            if (!dup)
+            if (!dup) {
                 copy_node(&name_nodes[i], &candidates[cand_count++]);
+            }
         }
 
         cbm_store_free_nodes(suffix_nodes, suffix_count);
@@ -1227,10 +1277,12 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
             int best_deg = -1;
             bool best_is_test = false;
             for (int i = 0; i < cand_count; i++) {
-                int in_d = 0, out_d = 0;
+                int in_d = 0;
+                int out_d = 0;
                 cbm_store_node_degree(srv->store, candidates[i].id, &in_d, &out_d);
                 int deg = in_d + out_d;
                 bool is_test =
+                    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
                     candidates[i].file_path && strstr(candidates[i].file_path, "_test") != NULL;
                 if (i == 0 || (best_is_test && !is_test) ||
                     (!best_is_test == !is_test && deg > best_deg) ||
@@ -1250,19 +1302,22 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
             cbm_node_t *alts = calloc((size_t)(cand_count - 1), sizeof(cbm_node_t));
             int alt_count = 0;
             for (int i = 0; i < cand_count; i++) {
-                if (i != best_idx)
+                if (i != best_idx) {
                     copy_node(&candidates[i], &alts[alt_count++]);
+                }
             }
 
-            for (int i = 0; i < cand_count; i++)
+            for (int i = 0; i < cand_count; i++) {
                 free_node_contents(&candidates[i]);
+            }
             free(candidates);
 
             char *result =
                 build_snippet_response(srv, &node, "auto_best", include_neighbors, alts, alt_count);
             free_node_contents(&node);
-            for (int i = 0; i < alt_count; i++)
+            for (int i = 0; i < alt_count; i++) {
                 free_node_contents(&alts[i]);
+            }
             free(alts);
             free(qn);
             free(project);
@@ -1271,8 +1326,9 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
 
         /* Return suggestions */
         char *result = snippet_suggestions(qn, candidates, cand_count);
-        for (int i = 0; i < cand_count; i++)
+        for (int i = 0; i < cand_count; i++) {
             free_node_contents(&candidates[i]);
+        }
         free(candidates);
         free(qn);
         free(project);
@@ -1301,14 +1357,16 @@ static char *handle_get_code_snippet(cbm_mcp_server_t *srv, const char *args) {
         search_out.count > 0) {
         /* Build suggestions from search results */
         cbm_node_t *fuzzy = calloc((size_t)search_out.count, sizeof(cbm_node_t));
-        for (int i = 0; i < search_out.count; i++)
+        for (int i = 0; i < search_out.count; i++) {
             copy_node(&search_out.results[i].node, &fuzzy[i]);
+        }
         int fuzzy_count = search_out.count;
         cbm_store_search_free(&search_out);
 
         char *result = snippet_suggestions(qn, fuzzy, fuzzy_count);
-        for (int i = 0; i < fuzzy_count; i++)
+        for (int i = 0; i < fuzzy_count; i++) {
             free_node_contents(&fuzzy[i]);
+        }
         free(fuzzy);
         free(qn);
         free(project);
@@ -1356,10 +1414,12 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
         free(file_pattern);
         return cbm_mcp_text_result("search failed: temp file", true);
     }
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
     fprintf(tf, "%s\n", pattern);
     fclose(tf);
 
     char cmd[4096];
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     const char *flag = use_regex ? "-E" : "-F";
     if (file_pattern) {
         snprintf(cmd, sizeof(cmd), "grep -rn %s --include='%s' -m %d -f '%s' '%s' 2>/dev/null",
@@ -1369,6 +1429,7 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
                  tmpfile, root_path);
     }
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — popen provided by standard header
     FILE *fp = popen(cmd, "r");
     unlink(tmpfile);
 
@@ -1391,18 +1452,22 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
 
     while (fgets(line, sizeof(line), fp) && count < limit) {
         size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
-        if (len == 0)
+        }
+        if (len == 0) {
             continue;
+        }
 
         /* grep output: /abs/path/file:lineno:content */
         char *colon1 = strchr(line, ':');
-        if (!colon1)
+        if (!colon1) {
             continue;
+        }
         char *colon2 = strchr(colon1 + 1, ':');
-        if (!colon2)
+        if (!colon2) {
             continue;
+        }
 
         *colon1 = '\0';
         *colon2 = '\0';
@@ -1411,8 +1476,9 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
         const char *file = line;
         if (strncmp(file, root_path, root_len) == 0) {
             file += root_len;
-            if (*file == '/')
+            if (*file == '/') {
                 file++;
+            }
         }
         int lineno = (int)strtol(colon1 + 1, NULL, 10);
         const char *content = colon2 + 1;
@@ -1424,6 +1490,7 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
         yyjson_mut_arr_add_val(matches, item);
         count++;
     }
+    // NOLINTNEXTLINE(misc-include-cleaner) — pclose provided by standard header
     pclose(fp);
 
     yyjson_mut_obj_add_val(doc, root_obj, "matches", matches);
@@ -1448,8 +1515,9 @@ static char *handle_detect_changes(cbm_mcp_server_t *srv, const char *args) {
     char *base_branch = cbm_mcp_get_string_arg(args, "base_branch");
     int depth = cbm_mcp_get_int_arg(args, "depth", 2);
 
-    if (!base_branch)
+    if (!base_branch) {
         base_branch = heap_strdup("main");
+    }
 
     char *root_path = get_project_root(srv, project);
     if (!root_path) {
@@ -1485,10 +1553,12 @@ static char *handle_detect_changes(cbm_mcp_server_t *srv, const char *args) {
 
     while (fgets(line, sizeof(line), fp)) {
         size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
-        if (len == 0)
+        }
+        if (len == 0) {
             continue;
+        }
 
         yyjson_mut_arr_add_str(doc, changed, line);
         file_count++;
@@ -1535,8 +1605,9 @@ static char *handle_manage_adr(cbm_mcp_server_t *srv, const char *args) {
     char *mode_str = cbm_mcp_get_string_arg(args, "mode");
     char *content = cbm_mcp_get_string_arg(args, "content");
 
-    if (!mode_str)
+    if (!mode_str) {
         mode_str = heap_strdup("get");
+    }
 
     char *root_path = get_project_root(srv, project);
     if (!root_path) {
@@ -1575,8 +1646,9 @@ static char *handle_manage_adr(cbm_mcp_server_t *srv, const char *args) {
             while (fgets(line, sizeof(line), fp)) {
                 if (line[0] == '#') {
                     size_t len = strlen(line);
-                    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+                    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
                         line[--len] = '\0';
+                    }
                     yyjson_mut_arr_add_str(doc, sections, line);
                 }
             }
@@ -1650,40 +1722,56 @@ static char *handle_ingest_traces(cbm_mcp_server_t *srv, const char *args) {
 
 /* ── Tool dispatch ────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const char *args_json) {
-    if (!tool_name)
+    if (!tool_name) {
         return cbm_mcp_text_result("missing tool name", true);
+    }
 
-    if (strcmp(tool_name, "list_projects") == 0)
+    if (strcmp(tool_name, "list_projects") == 0) {
         return handle_list_projects(srv, args_json);
-    if (strcmp(tool_name, "get_graph_schema") == 0)
+    }
+    if (strcmp(tool_name, "get_graph_schema") == 0) {
         return handle_get_graph_schema(srv, args_json);
-    if (strcmp(tool_name, "search_graph") == 0)
+    }
+    if (strcmp(tool_name, "search_graph") == 0) {
         return handle_search_graph(srv, args_json);
-    if (strcmp(tool_name, "query_graph") == 0)
+    }
+    if (strcmp(tool_name, "query_graph") == 0) {
         return handle_query_graph(srv, args_json);
-    if (strcmp(tool_name, "index_status") == 0)
+    }
+    if (strcmp(tool_name, "index_status") == 0) {
         return handle_index_status(srv, args_json);
-    if (strcmp(tool_name, "delete_project") == 0)
+    }
+    if (strcmp(tool_name, "delete_project") == 0) {
         return handle_delete_project(srv, args_json);
-    if (strcmp(tool_name, "trace_call_path") == 0)
+    }
+    if (strcmp(tool_name, "trace_call_path") == 0) {
         return handle_trace_call_path(srv, args_json);
-    if (strcmp(tool_name, "get_architecture") == 0)
+    }
+    if (strcmp(tool_name, "get_architecture") == 0) {
         return handle_get_architecture(srv, args_json);
+    }
 
     /* Pipeline-dependent tools */
-    if (strcmp(tool_name, "index_repository") == 0)
+    if (strcmp(tool_name, "index_repository") == 0) {
         return handle_index_repository(srv, args_json);
-    if (strcmp(tool_name, "get_code_snippet") == 0)
+    }
+    if (strcmp(tool_name, "get_code_snippet") == 0) {
         return handle_get_code_snippet(srv, args_json);
-    if (strcmp(tool_name, "search_code") == 0)
+    }
+    if (strcmp(tool_name, "search_code") == 0) {
         return handle_search_code(srv, args_json);
-    if (strcmp(tool_name, "detect_changes") == 0)
+    }
+    if (strcmp(tool_name, "detect_changes") == 0) {
         return handle_detect_changes(srv, args_json);
-    if (strcmp(tool_name, "manage_adr") == 0)
+    }
+    if (strcmp(tool_name, "manage_adr") == 0) {
         return handle_manage_adr(srv, args_json);
-    if (strcmp(tool_name, "ingest_traces") == 0)
+    }
+    if (strcmp(tool_name, "ingest_traces") == 0) {
         return handle_ingest_traces(srv, args_json);
+    }
 
     char msg[256];
     snprintf(msg, sizeof(msg), "unknown tool: %s", tool_name);
@@ -1736,21 +1824,25 @@ char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
 
 /* ── Event loop ───────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_mcp_server_run(cbm_mcp_server_t *srv, FILE *in, FILE *out) {
     char *line = NULL;
     size_t cap = 0;
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — getline provided by standard header
     while (getline(&line, &cap, in) > 0) {
         /* Trim trailing newline */
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
         }
-        if (len == 0)
+        if (len == 0) {
             continue;
+        }
 
         char *resp = cbm_mcp_server_handle(srv, line);
         if (resp) {
+            // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
             fprintf(out, "%s\n", resp);
             fflush(out);
             free(resp);
@@ -1765,8 +1857,9 @@ int cbm_mcp_server_run(cbm_mcp_server_t *srv, FILE *in, FILE *out) {
 
 bool cbm_parse_file_uri(const char *uri, char *out_path, int out_size) {
     if (!uri || !out_path || out_size <= 0) {
-        if (out_path && out_size > 0)
+        if (out_path && out_size > 0) {
             out_path[0] = '\0';
+        }
         return false;
     }
 
@@ -1788,3 +1881,7 @@ bool cbm_parse_file_uri(const char *uri, char *out_path, int out_size) {
     snprintf(out_path, out_size, "%s", path);
     return true;
 }
+
+// NOLINTEND(bugprone-command-processor,cert-env33-c)
+// NOLINTEND(readability-magic-numbers)
+// NOLINTEND(cert-err33-c)

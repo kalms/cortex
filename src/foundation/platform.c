@@ -1,3 +1,4 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * platform.c — OS abstraction implementations.
  *
@@ -5,9 +6,10 @@
  */
 #include "platform.h"
 
+#include <fcntl.h>  // open, O_RDONLY
+#include <stdint.h> // uint64_t, int64_t
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -21,13 +23,16 @@
 /* ── Memory mapping ────────────────────────────────────────────── */
 
 void *cbm_mmap_read(const char *path, size_t *out_size) {
-    if (!path || !out_size)
+    if (!path || !out_size) {
         return NULL;
+    }
     *out_size = 0;
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — open provided by standard header
     int fd = open(path, O_RDONLY);
-    if (fd < 0)
+    if (fd < 0) {
         return NULL;
+    }
 
     struct stat st;
     if (fstat(fd, &st) != 0 || st.st_size == 0) {
@@ -38,8 +43,9 @@ void *cbm_mmap_read(const char *path, size_t *out_size) {
     void *addr = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
 
-    if (addr == MAP_FAILED)
+    if (addr == MAP_FAILED) {
         return NULL;
+    }
     *out_size = (size_t)st.st_size;
     return addr;
 }
@@ -101,12 +107,16 @@ bool cbm_file_exists(const char *path) {
 
 bool cbm_is_dir(const char *path) {
     struct stat st;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 int64_t cbm_file_size(const char *path) {
     struct stat st;
-    if (stat(path, &st) != 0)
+    if (stat(path, &st) != 0) {
         return -1;
+    }
     return (int64_t)st.st_size;
 }
+
+// NOLINTEND(readability-magic-numbers)

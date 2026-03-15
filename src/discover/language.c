@@ -1,3 +1,4 @@
+// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
 /*
  * language.c — Language detection from filename and extension.
  *
@@ -5,6 +6,7 @@
  * Handles .m disambiguation (Objective-C vs Magma vs MATLAB).
  */
 #include "discover/discover.h"
+#include "cbm.h" // CBMLanguage, CBM_LANG_*
 
 #include <ctype.h>
 #include <stdio.h>
@@ -349,8 +351,9 @@ static const char *LANG_NAMES[CBM_LANG_COUNT] = {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 CBMLanguage cbm_language_for_extension(const char *ext) {
-    if (!ext || !ext[0])
+    if (!ext || !ext[0]) {
         return CBM_LANG_COUNT;
+    }
 
     for (size_t i = 0; i < EXT_TABLE_SIZE; i++) {
         if (strcmp(EXT_TABLE[i].ext, ext) == 0) {
@@ -361,8 +364,9 @@ CBMLanguage cbm_language_for_extension(const char *ext) {
 }
 
 CBMLanguage cbm_language_for_filename(const char *filename) {
-    if (!filename || !filename[0])
+    if (!filename || !filename[0]) {
         return CBM_LANG_COUNT;
+    }
 
     /* Check special filenames first */
     for (size_t i = 0; i < FILENAME_TABLE_SIZE; i++) {
@@ -381,8 +385,9 @@ CBMLanguage cbm_language_for_filename(const char *filename) {
 }
 
 const char *cbm_language_name(CBMLanguage lang) {
-    if (lang < 0 || lang >= CBM_LANG_COUNT)
+    if (lang < 0 || lang >= CBM_LANG_COUNT) {
         return "Unknown";
+    }
     return LANG_NAMES[lang] ? LANG_NAMES[lang] : "Unknown";
 }
 
@@ -394,12 +399,14 @@ static bool str_contains(const char *haystack, const char *needle) {
 }
 
 CBMLanguage cbm_disambiguate_m(const char *path) {
-    if (!path)
+    if (!path) {
         return CBM_LANG_MATLAB;
+    }
 
     FILE *f = fopen(path, "r");
-    if (!f)
+    if (!f) {
         return CBM_LANG_MATLAB;
+    }
 
     /* Read first 4KB */
     char buf[4096 + 1];
@@ -432,10 +439,12 @@ CBMLanguage cbm_disambiguate_m(const char *path) {
             if (p) {
                 p += strlen(markers[i]);
                 /* Skip to see if there's an identifier followed by '(' */
-                while (*p && isalpha((unsigned char)*p))
+                while (*p && isalpha((unsigned char)*p)) {
                     p++;
-                if (*p == '(')
+                }
+                if (*p == '(') {
                     return CBM_LANG_MAGMA;
+                }
             }
         }
     }
@@ -446,8 +455,9 @@ CBMLanguage cbm_disambiguate_m(const char *path) {
     while (*line) {
         /* Skip leading whitespace */
         const char *p = line;
-        while (*p == ' ' || *p == '\t')
+        while (*p == ' ' || *p == '\t') {
             p++;
+        }
 
         if (strncmp(p, "function ", 9) == 0 || strncmp(p, "function\t", 9) == 0 ||
             strncmp(p, "classdef ", 9) == 0 || strncmp(p, "classdef\t", 9) == 0 ||
@@ -457,11 +467,14 @@ CBMLanguage cbm_disambiguate_m(const char *path) {
 
         /* Advance to next line */
         const char *nl = strchr(line, '\n');
-        if (!nl)
+        if (!nl) {
             break;
+        }
         line = nl + 1;
     }
 
     /* Default to MATLAB */
     return CBM_LANG_MATLAB;
 }
+
+// NOLINTEND(cert-err33-c)

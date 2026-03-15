@@ -3,6 +3,11 @@
  *
  * Port of Go internal/httplink package.
  */
+
+// NOLINTBEGIN(readability-magic-numbers) — confidence scores, buffer sizes, and regex patterns used
+// throughout NOLINTBEGIN(concurrency-mt-unsafe) — strtok/strtok_r used in single-threaded pipeline
+// passes NOLINTBEGIN(cert-err33-c) — snprintf/regex calls with truncation-is-acceptable semantics
+
 #include "pipeline/httplink.h"
 #include "foundation/yaml.h"
 #include "foundation/platform.h"
@@ -25,10 +30,12 @@ static int imax(int a, int b) {
 int cbm_levenshtein_distance(const char *a, const char *b) {
     int la = (int)strlen(a);
     int lb = (int)strlen(b);
-    if (la == 0)
+    if (la == 0) {
         return lb;
-    if (lb == 0)
+    }
+    if (lb == 0) {
         return la;
+    }
 
     int *prev = calloc((size_t)lb + 1, sizeof(int));
     int *curr = calloc((size_t)lb + 1, sizeof(int));
@@ -38,8 +45,9 @@ int cbm_levenshtein_distance(const char *a, const char *b) {
         return imax(la, lb);
     }
 
-    for (int j = 0; j <= lb; j++)
+    for (int j = 0; j <= lb; j++) {
         prev[j] = j;
+    }
 
     for (int i = 1; i <= la; i++) {
         curr[0] = i;
@@ -58,28 +66,32 @@ int cbm_levenshtein_distance(const char *a, const char *b) {
 }
 
 double cbm_normalized_levenshtein(const char *a, const char *b) {
-    if (strcmp(a, b) == 0)
+    if (strcmp(a, b) == 0) {
         return 1.0;
+    }
     int la = (int)strlen(a);
     int lb = (int)strlen(b);
     int max_len = imax(la, lb);
-    if (max_len == 0)
+    if (max_len == 0) {
         return 1.0;
+    }
     int dist = cbm_levenshtein_distance(a, b);
-    return 1.0 - (double)dist / (double)max_len;
+    return 1.0 - ((double)dist / (double)max_len);
 }
 
 double cbm_ngram_overlap(const char *a, const char *b, int n) {
     int la = (int)strlen(a);
     int lb = (int)strlen(b);
-    if (la < n || lb < n)
+    if (la < n || lb < n) {
         return 0.0;
+    }
 
     /* Build ngram sets using simple hash table */
     int na = la - n + 1;
     int nb = lb - n + 1;
 
     /* Use a flat array of ngram strings for set A */
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     char **ngrams_a = calloc((size_t)na, sizeof(char *));
     int unique_a = 0;
     for (int i = 0; i < na; i++) {
@@ -97,6 +109,7 @@ double cbm_ngram_overlap(const char *a, const char *b, int n) {
     }
 
     /* Build set B and count intersection */
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     char **ngrams_b = calloc((size_t)nb, sizeof(char *));
     int unique_b = 0;
     for (int i = 0; i < nb; i++) {
@@ -123,22 +136,28 @@ double cbm_ngram_overlap(const char *a, const char *b, int n) {
         }
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(ngrams_a);
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(ngrams_b);
 
     int min_size = imin(unique_a, unique_b);
-    if (min_size == 0)
+    if (min_size == 0) {
         return 0.0;
+    }
     return (double)intersection / (double)min_size;
 }
 
 const char *cbm_confidence_band(double score) {
-    if (score >= 0.7)
+    if (score >= 0.7) {
         return "high";
-    if (score >= 0.45)
+    }
+    if (score >= 0.45) {
         return "medium";
-    if (score >= 0.25)
+    }
+    if (score >= 0.25) {
         return "speculative";
+    }
     return "";
 }
 
@@ -165,8 +184,9 @@ const char *cbm_normalize_path(const char *input) {
     if (scheme) {
         path_start = scheme + 3;
         /* Skip host */
-        while (*path_start && *path_start != '/')
+        while (*path_start && *path_start != '/') {
             path_start++;
+        }
         if (!*path_start) {
             buf[0] = '\0';
             return buf;
@@ -175,8 +195,9 @@ const char *cbm_normalize_path(const char *input) {
 
     /* Strip trailing slash */
     int plen = (int)strlen(path_start);
-    if (plen > 1 && path_start[plen - 1] == '/')
+    if (plen > 1 && path_start[plen - 1] == '/') {
         path_start[--plen] = '\0';
+    }
 
     /* Replace :param and {param} with * */
     int out_len = 0;
@@ -184,15 +205,18 @@ const char *cbm_normalize_path(const char *input) {
         if (path_start[i] == ':' && (i == 0 || path_start[i - 1] == '/')) {
             buf[out_len++] = '*';
             i++;
-            while (i < plen && path_start[i] != '/')
+            while (i < plen && path_start[i] != '/') {
                 i++;
+            }
         } else if (path_start[i] == '{') {
             buf[out_len++] = '*';
             i++;
-            while (i < plen && path_start[i] != '}')
+            while (i < plen && path_start[i] != '}') {
                 i++;
-            if (i < plen)
+            }
+            if (i < plen) {
                 i++;
+            }
         } else {
             buf[out_len++] = path_start[i++];
         }
@@ -210,33 +234,39 @@ const char *cbm_normalize_path(const char *input) {
 static void normalize_to_buf(const char *input, char *out, int out_size) {
     const char *norm = cbm_normalize_path(input);
     int len = (int)strlen(norm);
-    if (len >= out_size)
+    if (len >= out_size) {
         len = out_size - 1;
+    }
     memcpy(out, norm, (size_t)len);
     out[len] = '\0';
 }
 
 bool cbm_paths_match(const char *call_path, const char *route_path) {
-    char norm_call[1024], norm_route[1024];
+    char norm_call[1024];
+    char norm_route[1024];
     normalize_to_buf(call_path, norm_call, sizeof(norm_call));
     normalize_to_buf(route_path, norm_route, sizeof(norm_route));
 
-    if (!*norm_call || !*norm_route)
+    if (!*norm_call || !*norm_route) {
         return false;
+    }
 
     /* Exact match */
-    if (strcmp(norm_call, norm_route) == 0)
+    if (strcmp(norm_call, norm_route) == 0) {
         return true;
+    }
 
     /* Suffix match: normalized call ends with normalized route */
     int lc = (int)strlen(norm_call);
     int lr = (int)strlen(norm_route);
-    if (lc > lr && strcmp(norm_call + lc - lr, norm_route) == 0)
+    if (lc > lr && strcmp(norm_call + lc - lr, norm_route) == 0) {
         return true;
+    }
 
     /* Segment-by-segment comparison with wildcard matching */
     /* Split both into segments */
-    char call_copy[1024], route_copy[1024];
+    char call_copy[1024];
+    char route_copy[1024];
     strncpy(call_copy, norm_call, sizeof(call_copy) - 1);
     call_copy[sizeof(call_copy) - 1] = '\0';
     strncpy(route_copy, norm_route, sizeof(route_copy) - 1);
@@ -246,7 +276,8 @@ bool cbm_paths_match(const char *call_path, const char *route_path) {
      * But first try direct segment comparison. */
     char *call_segs[64];
     char *route_segs[64];
-    int nc = 0, nr = 0;
+    int nc = 0;
+    int nr = 0;
 
     char *tok = strtok(call_copy, "/");
     while (tok && nc < 64) {
@@ -273,8 +304,9 @@ bool cbm_paths_match(const char *call_path, const char *route_path) {
                 break;
             }
         }
-        if (match)
+        if (match) {
             return true;
+        }
     }
 
     /* Suffix match at segment level */
@@ -290,8 +322,9 @@ bool cbm_paths_match(const char *call_path, const char *route_path) {
                 break;
             }
         }
-        if (match)
+        if (match) {
             return true;
+        }
     }
 
     return false;
@@ -301,8 +334,9 @@ bool cbm_paths_match(const char *call_path, const char *route_path) {
 static int count_segments(const char *path) {
     int count = 0;
     for (int i = 0; path[i]; i++) {
-        if (path[i] == '/')
+        if (path[i] == '/') {
             count++;
+        }
     }
     return count;
 }
@@ -310,7 +344,8 @@ static int count_segments(const char *path) {
 /* Jaccard similarity of path segments (intersection/union) */
 static double segment_jaccard(const char *norm_call, const char *norm_route) {
     /* Split into segments */
-    char a[1024], b[1024];
+    char a[1024];
+    char b[1024];
     strncpy(a, norm_call, sizeof(a) - 1);
     a[sizeof(a) - 1] = '\0';
     strncpy(b, norm_route, sizeof(b) - 1);
@@ -318,7 +353,8 @@ static double segment_jaccard(const char *norm_call, const char *norm_route) {
 
     char *a_segs[64];
     char *b_segs[64];
-    int na = 0, nb = 0;
+    int na = 0;
+    int nb = 0;
 
     char *t = strtok(a, "/");
     while (t && na < 64) {
@@ -332,10 +368,12 @@ static double segment_jaccard(const char *norm_call, const char *norm_route) {
         t = strtok(NULL, "/");
     }
 
-    if (na == 0 && nb == 0)
+    if (na == 0 && nb == 0) {
         return 1.0;
-    if (na == 0 || nb == 0)
+    }
+    if (na == 0 || nb == 0) {
         return 0.0;
+    }
 
     /* Count intersection (match segments in order, accounting for wildcards) */
     int intersect = 0;
@@ -352,12 +390,14 @@ static double segment_jaccard(const char *norm_call, const char *norm_route) {
 }
 
 double cbm_path_match_score(const char *call_path, const char *route_path) {
-    char norm_call[1024], norm_route[1024];
+    char norm_call[1024];
+    char norm_route[1024];
     normalize_to_buf(call_path, norm_call, sizeof(norm_call));
     normalize_to_buf(route_path, norm_route, sizeof(norm_route));
 
-    if (!*norm_call || !*norm_route)
+    if (!*norm_call || !*norm_route) {
         return 0.0;
+    }
 
     /* Determine match type and base score */
     double match_base = 0.0;
@@ -375,14 +415,17 @@ double cbm_path_match_score(const char *call_path, const char *route_path) {
             is_suffix = true;
         } else {
             /* Segment-wise match with wildcards */
-            char c2[1024], r2[1024];
+            char c2[1024];
+            char r2[1024];
             strncpy(c2, norm_call, sizeof(c2) - 1);
             c2[sizeof(c2) - 1] = '\0';
             strncpy(r2, norm_route, sizeof(r2) - 1);
             r2[sizeof(r2) - 1] = '\0';
 
-            char *cs[64], *rs[64];
-            int nc2 = 0, nr2 = 0;
+            char *cs[64];
+            char *rs[64];
+            int nc2 = 0;
+            int nr2 = 0;
             char *tk = strtok(c2, "/");
             while (tk && nc2 < 64) {
                 cs[nc2++] = tk;
@@ -403,29 +446,34 @@ double cbm_path_match_score(const char *call_path, const char *route_path) {
                         break;
                     }
                 }
-                if (all_match)
+                if (all_match) {
                     match_base = 0.95;
+                }
             }
         }
     }
 
-    if (match_base == 0.0)
+    if (match_base == 0.0) {
         return 0.0;
+    }
 
     /* Compute confidence: 0.5 × jaccard + 0.5 × depthFactor */
     double jaccard = segment_jaccard(norm_call, norm_route);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     int depth = count_segments(is_suffix ? norm_route : norm_call);
     double depth_factor = (double)depth / 3.0;
-    if (depth_factor > 1.0)
+    if (depth_factor > 1.0) {
         depth_factor = 1.0;
+    }
 
-    double confidence = 0.5 * jaccard + 0.5 * depth_factor;
+    double confidence = (0.5 * jaccard) + (0.5 * depth_factor);
     return match_base * confidence;
 }
 
 bool cbm_same_service(const char *qn1, const char *qn2) {
     /* Split QN by '.', strip last 2 segments (module+name), compare rest */
-    char a[1024], b[1024];
+    char a[1024];
+    char b[1024];
     strncpy(a, qn1, sizeof(a) - 1);
     a[sizeof(a) - 1] = '\0';
     strncpy(b, qn2, sizeof(b) - 1);
@@ -434,7 +482,8 @@ bool cbm_same_service(const char *qn1, const char *qn2) {
     /* Count segments */
     char *a_segs[64];
     char *b_segs[64];
-    int na = 0, nb = 0;
+    int na = 0;
+    int nb = 0;
 
     char *tok = strtok(a, ".");
     while (tok && na < 64) {
@@ -449,19 +498,22 @@ bool cbm_same_service(const char *qn1, const char *qn2) {
     }
 
     /* Need at least 3 segments (dir + module + name) */
-    if (na < 3 || nb < 3)
+    if (na < 3 || nb < 3) {
         return false;
+    }
 
     /* Strip last 2 segments */
     int da = na - 2;
     int db = nb - 2;
 
-    if (da != db)
+    if (da != db) {
         return false;
+    }
 
     for (int i = 0; i < da; i++) {
-        if (strcmp(a_segs[i], b_segs[i]) != 0)
+        if (strcmp(a_segs[i], b_segs[i]) != 0) {
             return false;
+        }
     }
     return true;
 }
@@ -469,8 +521,9 @@ bool cbm_same_service(const char *qn1, const char *qn2) {
 /* ── Detection ─────────────────────────────────────────────────── */
 
 const char *cbm_detect_protocol(const char *source) {
-    if (!source || !*source)
+    if (!source || !*source) {
         return "";
+    }
 
     /* WebSocket patterns */
     if (strstr(source, "websocket.Upgrade") || strstr(source, "websocket.Accept") ||
@@ -489,11 +542,13 @@ const char *cbm_detect_protocol(const char *source) {
 }
 
 /* containsTestSegment: check if path has a segment that equals testWord */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static bool contains_test_segment(const char *fp, const char *test_word) {
     char work[1024];
     int len = (int)strlen(fp);
-    if (len >= (int)sizeof(work))
+    if (len >= (int)sizeof(work)) {
         len = (int)sizeof(work) - 1;
+    }
     memcpy(work, fp, (size_t)len);
     work[len] = '\0';
 
@@ -501,26 +556,31 @@ static bool contains_test_segment(const char *fp, const char *test_word) {
     char *p = work;
     while (*p) {
         char *seg = p;
-        while (*p && *p != '/')
+        while (*p && *p != '/') {
             p++;
+        }
         char saved = *p;
         *p = '\0';
-        if (strcmp(seg, test_word) == 0)
+        if (strcmp(seg, test_word) == 0) {
             return true;
+        }
         if (saved) {
             *p = saved;
             p++;
-        } else
-            break;
+        } else {
+            { break; }
+        }
     }
     return false;
 }
 
 bool cbm_is_test_node_fp(const char *file_path, bool is_test_prop) {
-    if (is_test_prop)
+    if (is_test_prop) {
         return true;
-    if (!file_path || !*file_path)
+    }
+    if (!file_path || !*file_path) {
         return false;
+    }
 
     /* Convert to forward slashes for consistent matching */
     char fp[1024];
@@ -530,26 +590,34 @@ bool cbm_is_test_node_fp(const char *file_path, bool is_test_prop) {
     }
     fp[len] = '\0';
 
-    if (contains_test_segment(fp, "test"))
+    if (contains_test_segment(fp, "test")) {
         return true;
-    if (contains_test_segment(fp, "tests"))
+    }
+    if (contains_test_segment(fp, "tests")) {
         return true;
-    if (contains_test_segment(fp, "__tests__"))
+    }
+    if (contains_test_segment(fp, "__tests__")) {
         return true;
-    if (strstr(fp, "_test."))
+    }
+    if (strstr(fp, "_test.")) {
         return true;
-    if (strstr(fp, ".test."))
+    }
+    if (strstr(fp, ".test.")) {
         return true;
-    if (strstr(fp, "spec/"))
+    }
+    if (strstr(fp, "spec/")) {
         return true;
-    if (strstr(fp, "fixtures/"))
+    }
+    if (strstr(fp, "fixtures/")) {
         return true;
+    }
     return false;
 }
 
 bool cbm_is_path_excluded(const char *path, const char **exclude_paths, int count) {
-    if (!path || !*path)
+    if (!path || !*path) {
         return false;
+    }
 
     /* Normalize: lowercase, strip trailing / */
     char norm[512];
@@ -558,8 +626,9 @@ bool cbm_is_path_excluded(const char *path, const char **exclude_paths, int coun
         norm[len++] = (char)tolower((unsigned char)path[i]);
     }
     norm[len] = '\0';
-    if (len > 1 && norm[len - 1] == '/')
+    if (len > 1 && norm[len - 1] == '/') {
         norm[--len] = '\0';
+    }
 
     for (int i = 0; i < count; i++) {
         /* Normalize exclude path too */
@@ -569,11 +638,13 @@ bool cbm_is_path_excluded(const char *path, const char **exclude_paths, int coun
             excl[elen++] = (char)tolower((unsigned char)exclude_paths[i][j]);
         }
         excl[elen] = '\0';
-        if (elen > 1 && excl[elen - 1] == '/')
+        if (elen > 1 && excl[elen - 1] == '/') {
             excl[--elen] = '\0';
+        }
 
-        if (strcmp(norm, excl) == 0)
+        if (strcmp(norm, excl) == 0) {
             return true;
+        }
     }
     return false;
 }
@@ -581,28 +652,38 @@ bool cbm_is_path_excluded(const char *path, const char **exclude_paths, int coun
 /* ── URL extraction ────────────────────────────────────────────── */
 
 int cbm_extract_url_paths(const char *text, char **out, int max_out) {
-    if (!text || !*text)
+    if (!text || !*text) {
         return 0;
+    }
 
     int count = 0;
-    regex_t url_re, path_re;
+    // NOLINTNEXTLINE(misc-include-cleaner) — regex_t provided by standard header
+    regex_t url_re;
+    regex_t path_re;
 
     /* URL pattern: https?://host/path */
-    if (regcomp(&url_re, "https?://[a-zA-Z0-9.\\-]+(/[a-zA-Z0-9_/:.\\.\\-]+)", REG_EXTENDED) != 0)
+    // NOLINTNEXTLINE(misc-include-cleaner) — regcomp provided by standard header
+    if (regcomp(&url_re, "https?://[a-zA-Z0-9.\\-]+(/[a-zA-Z0-9_/:.\\.\\-]+)", REG_EXTENDED) != 0) {
         return 0;
+    }
 
     /* Path pattern: "/path" (quoted paths starting with /) */
     if (regcomp(&path_re, "[\"'](/[a-zA-Z0-9_/:.\\.\\-]{2,})[\"']", REG_EXTENDED) != 0) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — regfree provided by standard header
         regfree(&url_re);
         return 0;
     }
 
     /* Search for URL patterns */
     const char *p = text;
+    // NOLINTNEXTLINE(misc-include-cleaner) — regmatch_t provided by standard header
     regmatch_t match[2];
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — regexec provided by standard header
     while (count < max_out && regexec(&url_re, p, 2, match, 0) == 0) {
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int path_start = match[1].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int path_end = match[1].rm_eo;
         int path_len = path_end - path_start;
         if (path_len > 0 && path_len < 256) {
@@ -617,7 +698,9 @@ int cbm_extract_url_paths(const char *text, char **out, int max_out) {
     /* Search for path-only patterns */
     p = text;
     while (count < max_out && regexec(&path_re, p, 2, match, 0) == 0) {
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int path_start = match[1].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int path_end = match[1].rm_eo;
         int path_len = path_end - path_start;
         if (path_len > 0 && path_len < 256) {
@@ -648,8 +731,9 @@ int cbm_extract_url_paths(const char *text, char **out, int max_out) {
 }
 
 int cbm_extract_json_string_paths(const char *text, char **out, int max_out) {
-    if (!text || !*text)
+    if (!text || !*text) {
         return 0;
+    }
 
     /* Look for JSON-like strings containing URLs or paths */
     /* Extract all quoted strings and check for URL/path patterns */
@@ -663,16 +747,20 @@ int cbm_extract_json_string_paths(const char *text, char **out, int max_out) {
 
 /* ── Route extraction: Python ──────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_python_routes(const char *name, const char *qn, const char **decorators, int ndec,
                               cbm_route_handler_t *out, int max_out) {
-    if (!decorators || ndec <= 0)
+    if (!decorators || ndec <= 0) {
         return 0;
+    }
 
-    regex_t py_route_re, py_ws_re;
+    regex_t py_route_re;
+    regex_t py_ws_re;
     if (regcomp(&py_route_re,
                 "@[a-zA-Z_]+\\.(get|post|put|delete|patch)\\([[:space:]]*[\"']([^\"']*)[\"']",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
     if (regcomp(&py_ws_re, "@[a-zA-Z_]+\\.websocket\\([[:space:]]*[\"']([^\"']*)[\"']",
                 REG_EXTENDED) != 0) {
         regfree(&py_route_re);
@@ -688,9 +776,11 @@ int cbm_extract_python_routes(const char *name, const char *qn, const char **dec
             cbm_route_handler_t *r = &out[count];
             memset(r, 0, sizeof(*r));
 
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[1].rm_eo - match[1].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, decorators[i] + match[1].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -708,19 +798,24 @@ int cbm_extract_python_routes(const char *name, const char *qn, const char **dec
             memset(r, 0, sizeof(*r));
 
             /* Method */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = match[1].rm_eo - match[1].rm_so;
-            if (mlen >= (int)sizeof(r->method))
+            if (mlen >= (int)sizeof(r->method)) {
                 mlen = (int)sizeof(r->method) - 1;
+            }
             memcpy(r->method, decorators[i] + match[1].rm_so, (size_t)mlen);
             r->method[mlen] = '\0';
             /* Uppercase */
-            for (int j = 0; r->method[j]; j++)
+            for (int j = 0; r->method[j]; j++) {
                 r->method[j] = (char)toupper((unsigned char)r->method[j]);
+            }
 
             /* Path */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[2].rm_eo - match[2].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, decorators[i] + match[2].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -737,18 +832,23 @@ int cbm_extract_python_routes(const char *name, const char *qn, const char **dec
 
 /* ── Route extraction: Go gin/chi ──────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
                           cbm_route_handler_t *out, int max_out) {
-    if (!source || !*source)
+    if (!source || !*source) {
         return 0;
+    }
 
-    regex_t go_route_re, go_group_re, go_chi_re;
+    regex_t go_route_re;
+    regex_t go_group_re;
+    regex_t go_chi_re;
 
     if (regcomp(&go_route_re,
                 "\\.(GET|POST|PUT|DELETE|PATCH|Get|Post|Put|Delete|Patch)\\([[:space:]]*[\"']([^\"'"
                 "]*)[\"'][[:space:]]*,[[:space:]]*([^,)]+)",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
 
     if (regcomp(&go_group_re,
                 "([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*(:=|=)[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\\."
@@ -776,7 +876,9 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
     const char *sp = source;
     regmatch_t gm[4];
     while (regexec(&go_group_re, sp, 4, gm, 0) == 0 && ngin < 32) {
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int vlen = gm[1].rm_eo - gm[1].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int plen = gm[3].rm_eo - gm[3].rm_so;
         if (vlen < 64 && plen < 256) {
             memcpy(gin_groups[ngin].var, sp + gm[1].rm_so, (size_t)vlen);
@@ -799,7 +901,9 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
     sp = source;
     regmatch_t cm[2];
     while (regexec(&go_chi_re, sp, 2, cm, 0) == 0 && nchi < 32) {
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int abs_end = (int)(sp - source) + cm[0].rm_eo;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int plen = cm[1].rm_eo - cm[1].rm_so;
         if (plen < 256) {
             chi_matches[nchi].end_pos = abs_end;
@@ -824,13 +928,21 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
     regmatch_t rm[4];
     while (regexec(&go_route_re, sp, 4, rm, 0) == 0 && nmatches < 64) {
         int base = (int)(sp - source);
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].start_pos = base + rm[0].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].end_pos = base + rm[0].rm_eo;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].method_so = base + rm[1].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].method_eo = base + rm[1].rm_eo;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].path_so = base + rm[2].rm_so;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].path_eo = base + rm[2].rm_eo;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].handler_so = (rm[3].rm_so >= 0) ? base + rm[3].rm_so : -1;
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         route_matches[nmatches].handler_eo = (rm[3].rm_eo >= 0) ? base + rm[3].rm_eo : -1;
         nmatches++;
         sp += rm[0].rm_eo;
@@ -909,17 +1021,20 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
 
         /* Method */
         int mlen = route_matches[ri].method_eo - route_matches[ri].method_so;
-        if (mlen >= (int)sizeof(r->method))
+        if (mlen >= (int)sizeof(r->method)) {
             mlen = (int)sizeof(r->method) - 1;
+        }
         memcpy(r->method, source + route_matches[ri].method_so, (size_t)mlen);
         r->method[mlen] = '\0';
-        for (int j = 0; r->method[j]; j++)
+        for (int j = 0; r->method[j]; j++) {
             r->method[j] = (char)toupper((unsigned char)r->method[j]);
+        }
 
         /* Path */
         int plen = route_matches[ri].path_eo - route_matches[ri].path_so;
-        if (plen >= (int)sizeof(r->path))
+        if (plen >= (int)sizeof(r->path)) {
             plen = (int)sizeof(r->path) - 1;
+        }
         memcpy(r->path, source + route_matches[ri].path_so, (size_t)plen);
         r->path[plen] = '\0';
 
@@ -928,8 +1043,9 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
         char receiver[64] = "";
         if (dot_pos > source) {
             const char *rp = dot_pos - 1;
-            while (rp >= source && (isalnum((unsigned char)*rp) || *rp == '_'))
+            while (rp >= source && (isalnum((unsigned char)*rp) || *rp == '_')) {
                 rp--;
+            }
             rp++;
             int rlen = (int)(dot_pos - rp);
             if (rlen > 0 && rlen < 64) {
@@ -972,8 +1088,9 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
                 hlen--;
             }
             while (hlen > 0 && (hs[hlen - 1] == ' ' || hs[hlen - 1] == '\t' ||
-                                hs[hlen - 1] == ')' || hs[hlen - 1] == '\n'))
+                                hs[hlen - 1] == ')' || hs[hlen - 1] == '\n')) {
                 hlen--;
+            }
             if (hlen > 0 && hlen < (int)sizeof(r->handler_ref)) {
                 memcpy(r->handler_ref, hs, (size_t)hlen);
                 r->handler_ref[hlen] = '\0';
@@ -991,17 +1108,21 @@ int cbm_extract_go_routes(const char *name, const char *qn, const char *source,
 
 /* ── Route extraction: Java Spring ─────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_java_routes(const char *name, const char *qn, const char **decorators, int ndec,
                             cbm_route_handler_t *out, int max_out) {
-    if (!decorators || ndec <= 0)
+    if (!decorators || ndec <= 0) {
         return 0;
+    }
 
-    regex_t spring_re, spring_ws_re;
+    regex_t spring_re;
+    regex_t spring_ws_re;
     if (regcomp(&spring_re,
                 "@(Get|Post|Put|Delete|Patch|Request)Mapping\\([[:space:]]*(value[[:space:]]*=[[:"
                 "space:]]*)?[\"']([^\"']+)[\"']",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
     if (regcomp(&spring_ws_re, "@MessageMapping\\([[:space:]]*[\"']([^\"']+)[\"']", REG_EXTENDED) !=
         0) {
         regfree(&spring_re);
@@ -1017,9 +1138,11 @@ int cbm_extract_java_routes(const char *name, const char *qn, const char **decor
             cbm_route_handler_t *r = &out[count];
             memset(r, 0, sizeof(*r));
 
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[1].rm_eo - match[1].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, decorators[i] + match[1].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -1037,30 +1160,35 @@ int cbm_extract_java_routes(const char *name, const char *qn, const char **decor
             memset(r, 0, sizeof(*r));
 
             /* Method from annotation name */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = match[1].rm_eo - match[1].rm_so;
             char method_name[32];
-            if (mlen >= (int)sizeof(method_name))
+            if (mlen >= (int)sizeof(method_name)) {
                 mlen = (int)sizeof(method_name) - 1;
+            }
             memcpy(method_name, decorators[i] + match[1].rm_so, (size_t)mlen);
             method_name[mlen] = '\0';
 
-            if (strcmp(method_name, "Get") == 0)
+            if (strcmp(method_name, "Get") == 0) {
                 strncpy(r->method, "GET", sizeof(r->method) - 1);
-            else if (strcmp(method_name, "Post") == 0)
+            } else if (strcmp(method_name, "Post") == 0) {
                 strncpy(r->method, "POST", sizeof(r->method) - 1);
-            else if (strcmp(method_name, "Put") == 0)
+            } else if (strcmp(method_name, "Put") == 0) {
                 strncpy(r->method, "PUT", sizeof(r->method) - 1);
-            else if (strcmp(method_name, "Delete") == 0)
+            } else if (strcmp(method_name, "Delete") == 0) {
                 strncpy(r->method, "DELETE", sizeof(r->method) - 1);
-            else if (strcmp(method_name, "Patch") == 0)
+            } else if (strcmp(method_name, "Patch") == 0) {
                 strncpy(r->method, "PATCH", sizeof(r->method) - 1);
-            else
+            } else {
                 strncpy(r->method, "ANY", sizeof(r->method) - 1);
+            }
 
             /* Path */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[3].rm_eo - match[3].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, decorators[i] + match[3].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -1077,15 +1205,19 @@ int cbm_extract_java_routes(const char *name, const char *qn, const char **decor
 
 /* ── Route extraction: Kotlin Ktor ─────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_ktor_routes(const char *name, const char *qn, const char *source,
                             cbm_route_handler_t *out, int max_out) {
-    if (!source || !*source)
+    if (!source || !*source) {
         return 0;
+    }
 
-    regex_t ktor_re, ktor_ws_re;
+    regex_t ktor_re;
+    regex_t ktor_ws_re;
     if (regcomp(&ktor_re, "(get|post|put|delete|patch)\\([[:space:]]*\"([^\"]+)\"[[:space:]]*\\)",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
     if (regcomp(&ktor_ws_re, "webSocket\\([[:space:]]*\"([^\"]+)\"[[:space:]]*\\)", REG_EXTENDED) !=
         0) {
         regfree(&ktor_re);
@@ -1101,9 +1233,11 @@ int cbm_extract_ktor_routes(const char *name, const char *qn, const char *source
         cbm_route_handler_t *r = &out[count];
         memset(r, 0, sizeof(*r));
 
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int plen = match[1].rm_eo - match[1].rm_so;
-        if (plen >= (int)sizeof(r->path))
+        if (plen >= (int)sizeof(r->path)) {
             plen = (int)sizeof(r->path) - 1;
+        }
         memcpy(r->path, p + match[1].rm_so, (size_t)plen);
         r->path[plen] = '\0';
 
@@ -1120,6 +1254,7 @@ int cbm_extract_ktor_routes(const char *name, const char *qn, const char *source
     while (count < max_out && regexec(&ktor_re, p, 3, match, 0) == 0) {
         /* Make sure this isn't the webSocket match (check if preceded by "web") */
         const char *match_start = p + match[0].rm_so;
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         bool is_ws = (match_start >= source + 3 && strncmp(match_start - 3, "web", 3) == 0);
 
         if (!is_ws) {
@@ -1127,18 +1262,23 @@ int cbm_extract_ktor_routes(const char *name, const char *qn, const char *source
             memset(r, 0, sizeof(*r));
 
             /* Method */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = match[1].rm_eo - match[1].rm_so;
-            if (mlen >= (int)sizeof(r->method))
+            if (mlen >= (int)sizeof(r->method)) {
                 mlen = (int)sizeof(r->method) - 1;
+            }
             memcpy(r->method, p + match[1].rm_so, (size_t)mlen);
             r->method[mlen] = '\0';
-            for (int j = 0; r->method[j]; j++)
+            for (int j = 0; r->method[j]; j++) {
                 r->method[j] = (char)toupper((unsigned char)r->method[j]);
+            }
 
             /* Path */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[2].rm_eo - match[2].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, p + match[2].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -1160,23 +1300,27 @@ static bool is_express_receiver(const char *receiver) {
     static const char *allowlist[] = {"app",    "router",  "server", "api",
                                       "routes", "express", "route"};
     for (int i = 0; i < 7; i++) {
-        if (strcmp(receiver, allowlist[i]) == 0)
+        if (strcmp(receiver, allowlist[i]) == 0) {
             return true;
+        }
     }
     return false;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_express_routes(const char *name, const char *qn, const char *source,
                                cbm_route_handler_t *out, int max_out) {
-    if (!source || !*source)
+    if (!source || !*source) {
         return 0;
+    }
 
     regex_t express_re;
     if (regcomp(&express_re,
                 "([a-zA-Z_][a-zA-Z0-9_]*)\\.(get|post|put|delete|patch)\\([[:space:]]*[\"'`]([^\"'`"
                 "]+)[\"'`]",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
 
     int count = 0;
     const char *p = source;
@@ -1184,10 +1328,12 @@ int cbm_extract_express_routes(const char *name, const char *qn, const char *sou
 
     while (count < max_out && regexec(&express_re, p, 4, match, 0) == 0) {
         /* Extract receiver */
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int rlen = match[1].rm_eo - match[1].rm_so;
         char receiver[64];
-        if (rlen >= 64)
+        if (rlen >= 64) {
             rlen = 63;
+        }
         memcpy(receiver, p + match[1].rm_so, (size_t)rlen);
         receiver[rlen] = '\0';
 
@@ -1196,18 +1342,23 @@ int cbm_extract_express_routes(const char *name, const char *qn, const char *sou
             memset(r, 0, sizeof(*r));
 
             /* Method */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = match[2].rm_eo - match[2].rm_so;
-            if (mlen >= (int)sizeof(r->method))
+            if (mlen >= (int)sizeof(r->method)) {
                 mlen = (int)sizeof(r->method) - 1;
+            }
             memcpy(r->method, p + match[2].rm_so, (size_t)mlen);
             r->method[mlen] = '\0';
-            for (int j = 0; r->method[j]; j++)
+            for (int j = 0; r->method[j]; j++) {
                 r->method[j] = (char)toupper((unsigned char)r->method[j]);
+            }
 
             /* Path */
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = match[3].rm_eo - match[3].rm_so;
-            if (plen >= (int)sizeof(r->path))
+            if (plen >= (int)sizeof(r->path)) {
                 plen = (int)sizeof(r->path) - 1;
+            }
             memcpy(r->path, p + match[3].rm_so, (size_t)plen);
             r->path[plen] = '\0';
 
@@ -1224,15 +1375,18 @@ int cbm_extract_express_routes(const char *name, const char *qn, const char *sou
 
 /* ── Route extraction: Laravel ─────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int cbm_extract_laravel_routes(const char *name, const char *qn, const char *source,
                                cbm_route_handler_t *out, int max_out) {
-    if (!source || !*source)
+    if (!source || !*source) {
         return 0;
+    }
 
     regex_t laravel_re;
     if (regcomp(&laravel_re, "Route::(get|post|put|delete|patch)\\([[:space:]]*[\"']([^\"']+)[\"']",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return 0;
+    }
 
     int count = 0;
     const char *p = source;
@@ -1243,18 +1397,23 @@ int cbm_extract_laravel_routes(const char *name, const char *qn, const char *sou
         memset(r, 0, sizeof(*r));
 
         /* Method */
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int mlen = match[1].rm_eo - match[1].rm_so;
-        if (mlen >= (int)sizeof(r->method))
+        if (mlen >= (int)sizeof(r->method)) {
             mlen = (int)sizeof(r->method) - 1;
+        }
         memcpy(r->method, p + match[1].rm_so, (size_t)mlen);
         r->method[mlen] = '\0';
-        for (int j = 0; r->method[j]; j++)
+        for (int j = 0; r->method[j]; j++) {
             r->method[j] = (char)toupper((unsigned char)r->method[j]);
+        }
 
         /* Path */
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
         int plen = match[2].rm_eo - match[2].rm_so;
-        if (plen >= (int)sizeof(r->path))
+        if (plen >= (int)sizeof(r->path)) {
             plen = (int)sizeof(r->path) - 1;
+        }
         memcpy(r->path, p + match[2].rm_so, (size_t)plen);
         r->path[plen] = '\0';
 
@@ -1270,14 +1429,16 @@ int cbm_extract_laravel_routes(const char *name, const char *qn, const char *sou
 
 /* ── Read source lines ─────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_read_source_lines_disk(const char *root_dir, const char *rel_path, int start_line,
                                  int end_line) {
     char full_path[2048];
     snprintf(full_path, sizeof(full_path), "%s/%s", root_dir, rel_path);
 
     FILE *f = fopen(full_path, "r");
-    if (!f)
+    if (!f) {
         return NULL;
+    }
 
     char *result = NULL;
     int result_len = 0;
@@ -1287,15 +1448,18 @@ char *cbm_read_source_lines_disk(const char *root_dir, const char *rel_path, int
 
     while (fgets(line_buf, sizeof(line_buf), f)) {
         line++;
-        if (line < start_line)
+        if (line < start_line) {
             continue;
-        if (line > end_line)
+        }
+        if (line > end_line) {
             break;
+        }
 
         int llen = (int)strlen(line_buf);
         /* Strip trailing newline */
-        if (llen > 0 && line_buf[llen - 1] == '\n')
+        if (llen > 0 && line_buf[llen - 1] == '\n') {
             line_buf[--llen] = '\0';
+        }
 
         /* Add separator between lines */
         if (result_len > 0) {
@@ -1316,8 +1480,10 @@ char *cbm_read_source_lines_disk(const char *root_dir, const char *rel_path, int
     }
 
     fclose(f);
-    if (result)
+    if (result) {
+        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
         result[result_len] = '\0';
+    }
     return result;
 }
 
@@ -1358,19 +1524,22 @@ cbm_httplink_config_t cbm_httplink_default_config(void) {
 
 cbm_httplink_config_t cbm_httplink_load_config(const char *dir) {
     cbm_httplink_config_t cfg = cbm_httplink_default_config();
-    if (!dir)
+    if (!dir) {
         return cfg;
+    }
 
     /* Build path: dir/.cgrconfig */
     char path[1024];
     int n = snprintf(path, sizeof(path), "%s/.cgrconfig", dir);
-    if (n <= 0 || (size_t)n >= sizeof(path))
+    if (n <= 0 || (size_t)n >= sizeof(path)) {
         return cfg;
+    }
 
     /* Read file */
     FILE *f = fopen(path, "r");
-    if (!f)
+    if (!f) {
         return cfg;
+    }
 
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
@@ -1389,13 +1558,15 @@ cbm_httplink_config_t cbm_httplink_load_config(const char *dir) {
 
     size_t nread = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[nread] = '\0';
 
     /* Parse YAML */
     cbm_yaml_node_t *root = cbm_yaml_parse(buf, (int)nread);
     free(buf);
-    if (!root)
+    if (!root) {
         return cfg;
+    }
 
     /* Extract min_confidence */
     if (cbm_yaml_has(root, "http_linker.min_confidence")) {
@@ -1404,6 +1575,7 @@ cbm_httplink_config_t cbm_httplink_load_config(const char *dir) {
 
     /* Extract fuzzy_matching */
     if (cbm_yaml_has(root, "http_linker.fuzzy_matching")) {
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         cfg.fuzzy_matching = cbm_yaml_get_bool(root, "http_linker.fuzzy_matching", true) ? 1 : 0;
     }
 
@@ -1411,9 +1583,11 @@ cbm_httplink_config_t cbm_httplink_load_config(const char *dir) {
     const char *items[128];
     int count = cbm_yaml_get_str_list(root, "http_linker.exclude_paths", items, 128);
     if (count > 0) {
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         cfg.exclude_paths = calloc((size_t)count, sizeof(char *));
         if (cfg.exclude_paths) {
             for (int i = 0; i < count; i++) {
+                // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
                 cfg.exclude_paths[i] = strdup(items[i]);
             }
             cfg.exclude_path_count = count;
@@ -1425,25 +1599,29 @@ cbm_httplink_config_t cbm_httplink_load_config(const char *dir) {
 }
 
 void cbm_httplink_config_free(cbm_httplink_config_t *cfg) {
-    if (!cfg)
+    if (!cfg) {
         return;
+    }
     for (int i = 0; i < cfg->exclude_path_count; i++) {
         free(cfg->exclude_paths[i]);
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(cfg->exclude_paths);
     cfg->exclude_paths = NULL;
     cfg->exclude_path_count = 0;
 }
 
 double cbm_httplink_effective_min_confidence(const cbm_httplink_config_t *cfg) {
-    if (!cfg || cfg->min_confidence < 0)
+    if (!cfg || cfg->min_confidence < 0) {
         return 0.25;
+    }
     return cfg->min_confidence;
 }
 
 bool cbm_httplink_effective_fuzzy_matching(const cbm_httplink_config_t *cfg) {
-    if (!cfg || cfg->fuzzy_matching < 0)
+    if (!cfg || cfg->fuzzy_matching < 0) {
         return true;
+    }
     return cfg->fuzzy_matching == 1;
 }
 
@@ -1465,3 +1643,7 @@ int cbm_httplink_all_exclude_paths(const cbm_httplink_config_t *cfg, const char 
 
     return count;
 }
+
+// NOLINTEND(cert-err33-c)
+// NOLINTEND(concurrency-mt-unsafe)
+// NOLINTEND(readability-magic-numbers)
