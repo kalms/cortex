@@ -1,21 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pre-commit hook: mirrors the GitHub Actions lint + test jobs.
-# Same commands as .github/workflows/release.yml
+# Pre-commit hook: C linting + tests.
+# Mirrors the lint targets in Makefile.cbm.
 #
 # Setup (once after clone):
 #   git config core.hooksPath scripts/hooks
 
-# --- Lint ---
-if ! command -v golangci-lint &>/dev/null; then
-    echo "pre-commit: golangci-lint not found, skipping lint check"
-    echo "  install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.10"
+LLVM_BIN="$(brew --prefix llvm 2>/dev/null)/bin"
+
+# Resolve tool paths (Homebrew LLVM is keg-only on macOS)
+CLANG_TIDY="${LLVM_BIN}/clang-tidy"
+CLANG_FORMAT="${LLVM_BIN}/clang-format"
+[ -x "$CLANG_TIDY" ] || CLANG_TIDY="clang-tidy"
+[ -x "$CLANG_FORMAT" ] || CLANG_FORMAT="clang-format"
+
+# --- clang-format (blocking — fastest, check first) ---
+echo "pre-commit: checking formatting..."
+make -f Makefile.cbm lint-format CLANG_FORMAT="$CLANG_FORMAT"
+
+# --- cppcheck (blocking) ---
+if command -v cppcheck &>/dev/null; then
+    echo "pre-commit: running cppcheck..."
+    make -f Makefile.cbm lint-cppcheck
 else
-    echo "pre-commit: running golangci-lint..."
-    golangci-lint run --timeout=5m ./...
+    echo "pre-commit: cppcheck not found, skipping"
+    echo "  install: brew install cppcheck"
 fi
 
-# --- Tests ---
-echo "pre-commit: running tests..."
-go test ./... -timeout=5m
+# --- clang-tidy (blocking) ---
+if command -v "$CLANG_TIDY" &>/dev/null; then
+    echo "pre-commit: running clang-tidy..."
+    make -f Makefile.cbm lint-tidy CLANG_TIDY="$CLANG_TIDY"
+else
+    echo "pre-commit: clang-tidy not found, skipping"
+    echo "  install: brew install llvm"
+fi
+
+# --- Build + Tests (blocking) ---
+echo "pre-commit: building and running tests..."
+make -f Makefile.cbm test
