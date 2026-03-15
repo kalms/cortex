@@ -1,0 +1,190 @@
+/*
+ * fqn.c — Fully Qualified Name computation for graph nodes.
+ *
+ * Implements the FQN scheme: project.dir.parts.name
+ * Handles Python __init__.py, JS/TS index.{js,ts}, path separators.
+ */
+#include "pipeline/pipeline.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+/* ── Internal helpers ─────────────────────────────────────────────── */
+
+/* Build a dot-joined string from segments. Returns heap-allocated string. */
+static char *join_segments(const char **segments, int count) {
+    if (count == 0)
+        return strdup("");
+    size_t total = 0;
+    for (int i = 0; i < count; i++) {
+        total += strlen(segments[i]);
+        if (i > 0)
+            total++; /* dot separator */
+    }
+    char *result = malloc(total + 1);
+    if (!result)
+        return NULL;
+    char *p = result;
+    for (int i = 0; i < count; i++) {
+        if (i > 0)
+            *p++ = '.';
+        size_t len = strlen(segments[i]);
+        memcpy(p, segments[i], len);
+        p += len;
+    }
+    *p = '\0';
+    return result;
+}
+
+/* ── Public API ──────────────────────────────────────────────────── */
+
+char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const char *name) {
+    if (!project)
+        return strdup("");
+
+    /* Work on a mutable copy for path manipulation */
+    char *path = strdup(rel_path ? rel_path : "");
+
+    /* Convert backslash to forward slash */
+    for (char *p = path; *p; p++) {
+        if (*p == '\\')
+            *p = '/';
+    }
+
+    /* Strip file extension */
+    {
+        char *last_slash = strrchr(path, '/');
+        char *start = last_slash ? last_slash + 1 : path;
+        char *ext = strrchr(start, '.');
+        if (ext)
+            *ext = '\0';
+    }
+
+    /* Split by '/' into segments */
+    const char *segments[256];
+    int seg_count = 0;
+
+    /* First segment is always the project */
+    segments[seg_count++] = project;
+
+    /* Add path segments */
+    if (path[0] != '\0') {
+        char *tok = path;
+        while (tok && *tok && seg_count < 254) {
+            char *slash = strchr(tok, '/');
+            if (slash)
+                *slash = '\0';
+            if (tok[0] != '\0') {
+                segments[seg_count++] = tok;
+            }
+            tok = slash ? slash + 1 : NULL;
+        }
+    }
+
+    /* Strip __init__ (Python) and index (JS/TS) from last segment */
+    if (seg_count > 1) {
+        const char *last = segments[seg_count - 1];
+        if (strcmp(last, "__init__") == 0 || strcmp(last, "index") == 0) {
+            seg_count--;
+        }
+    }
+
+    /* Add name if provided */
+    if (name && name[0] != '\0') {
+        segments[seg_count++] = name;
+    }
+
+    char *result = join_segments(segments, seg_count);
+    free(path);
+    return result;
+}
+
+char *cbm_pipeline_fqn_module(const char *project, const char *rel_path) {
+    return cbm_pipeline_fqn_compute(project, rel_path, NULL);
+}
+
+char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
+    if (!project)
+        return strdup("");
+
+    /* Work on mutable copy */
+    char *dir = strdup(rel_dir ? rel_dir : "");
+    for (char *p = dir; *p; p++) {
+        if (*p == '\\')
+            *p = '/';
+    }
+
+    const char *segments[256];
+    int seg_count = 0;
+    segments[seg_count++] = project;
+
+    if (dir[0] != '\0') {
+        char *tok = dir;
+        while (tok && *tok && seg_count < 255) {
+            char *slash = strchr(tok, '/');
+            if (slash)
+                *slash = '\0';
+            if (tok[0] != '\0') {
+                segments[seg_count++] = tok;
+            }
+            tok = slash ? slash + 1 : NULL;
+        }
+    }
+
+    char *result = join_segments(segments, seg_count);
+    free(dir);
+    return result;
+}
+
+char *cbm_project_name_from_path(const char *abs_path) {
+    if (!abs_path || !abs_path[0])
+        return strdup("root");
+
+    /* Work on mutable copy */
+    char *path = strdup(abs_path);
+    size_t len = strlen(path);
+
+    /* Convert \ to / */
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '\\')
+            path[i] = '/';
+    }
+
+    /* Replace / and : with - */
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '/' || path[i] == ':')
+            path[i] = '-';
+    }
+
+    /* Collapse consecutive dashes */
+    char *dst = path;
+    char prev = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '-' && prev == '-')
+            continue;
+        *dst++ = path[i];
+        prev = path[i];
+    }
+    *dst = '\0';
+
+    /* Trim leading dashes */
+    char *start = path;
+    while (*start == '-')
+        start++;
+
+    /* Trim trailing dashes */
+    size_t slen = strlen(start);
+    while (slen > 0 && start[slen - 1] == '-') {
+        start[--slen] = '\0';
+    }
+
+    if (*start == '\0') {
+        free(path);
+        return strdup("root");
+    }
+
+    char *result = strdup(start);
+    free(path);
+    return result;
+}
