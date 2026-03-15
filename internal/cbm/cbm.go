@@ -45,6 +45,16 @@ type FileResult struct {
 	ModuleQN    string
 	IsTestFile  bool
 	ImportCount int
+	TreeHandle  unsafe.Pointer // cached TSTree* for cross-file LSP reuse
+	TreeLang    int            // CBMLanguage enum value
+}
+
+// FreeTree releases the cached parse tree. Call after cross-file LSP is done.
+func (r *FileResult) FreeTree() {
+	if r.TreeHandle != nil {
+		C.cbm_free_tree_ptr((*C.TSTree)(r.TreeHandle))
+		r.TreeHandle = nil
+	}
 }
 
 // ImplTrait represents a Rust `impl Trait for Struct` pair.
@@ -297,18 +307,29 @@ func ExtractFileWithFlags(source []byte, language lang.Language, project, relPat
 		}
 	}()
 
-	result := C.cbm_extract_file(cSource, cSourceLen, cLang, cProject, cRelPath,
+	cResult := C.cbm_extract_file(cSource, cSourceLen, cLang, cProject, cRelPath,
 		C.int64_t(ParseTimeoutMicros), cDefines, cIncludes)
-	if result == nil {
+	if cResult == nil {
 		return nil, fmt.Errorf("cbm: extraction returned nil")
 	}
-	defer C.cbm_free_result(result)
 
-	if result.has_error {
-		return nil, fmt.Errorf("cbm: %s", C.GoString(result.error_msg))
+	if cResult.has_error {
+		C.cbm_free_result(cResult)
+		return nil, fmt.Errorf("cbm: %s", C.GoString(cResult.error_msg))
 	}
 
-	return convertResult(result), nil
+	// Retain cached tree for cross-file LSP reuse.
+	// Detach from C result so cbm_free_result doesn't free it.
+	treeHandle := unsafe.Pointer(cResult.cached_tree)
+	treeLang := int(cResult.cached_lang)
+	cResult.cached_tree = nil
+
+	goResult := convertResult(cResult)
+	goResult.TreeHandle = treeHandle
+	goResult.TreeLang = treeLang
+
+	C.cbm_free_result(cResult)
+	return goResult, nil
 }
 
 // buildCStringArray creates a NULL-terminated C string array from Go strings.

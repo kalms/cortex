@@ -6,9 +6,9 @@
 #include <ctype.h>
 
 // Forward declarations
-static void walk_calls(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
-static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, CBMLanguage lang);
-static void extract_jsx_refs(CBMExtractCtx* ctx, TSNode node);
+static void walk_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
+static char *extract_callee_name(CBMArena *a, TSNode node, const char *source, CBMLanguage lang);
+static void extract_jsx_refs(CBMExtractCtx *ctx, TSNode node);
 
 // Lean 4: check if an apply node is inside a type annotation.
 // Strategy: walk up to the nearest declaration boundary; if the apply falls
@@ -18,25 +18,28 @@ static void extract_jsx_refs(CBMExtractCtx* ctx, TSNode node);
 static bool lean_is_in_type_position(TSNode node) {
     TSNode cur = ts_node_parent(node);
     for (int depth = 0; depth < 20; depth++) {
-        if (ts_node_is_null(cur)) return false;
-        const char* pk = ts_node_type(cur);
+        if (ts_node_is_null(cur))
+            return false;
+        const char *pk = ts_node_type(cur);
         // Inside a binder — definitely type position
-        if (strcmp(pk, "explicit_binder") == 0 ||
-            strcmp(pk, "implicit_binder") == 0 ||
-            strcmp(pk, "instance_binder") == 0) return true;
+        if (strcmp(pk, "explicit_binder") == 0 || strcmp(pk, "implicit_binder") == 0 ||
+            strcmp(pk, "instance_binder") == 0)
+            return true;
         // At a declaration boundary: check if apply is inside the body field
-        if (strcmp(pk, "def") == 0 || strcmp(pk, "theorem") == 0 ||
-            strcmp(pk, "instance") == 0 || strcmp(pk, "abbrev") == 0 ||
-            strcmp(pk, "structure") == 0 || strcmp(pk, "inductive") == 0) {
+        if (strcmp(pk, "def") == 0 || strcmp(pk, "theorem") == 0 || strcmp(pk, "instance") == 0 ||
+            strcmp(pk, "abbrev") == 0 || strcmp(pk, "structure") == 0 ||
+            strcmp(pk, "inductive") == 0) {
             // Check if apply comes after the type annotation.
-            // Strategy: if the node starts after the end of the "type" field, it's in value position.
-            // If there's no "type" field, allow the call (no annotation to filter).
+            // Strategy: if the node starts after the end of the "type" field, it's in value
+            // position. If there's no "type" field, allow the call (no annotation to filter).
             TSNode type_field = ts_node_child_by_field_name(cur, "type", 4);
-            if (ts_node_is_null(type_field)) return false; // no type annotation → allow call
-            uint32_t type_end  = ts_node_end_byte(type_field);
+            if (ts_node_is_null(type_field))
+                return false; // no type annotation → allow call
+            uint32_t type_end = ts_node_end_byte(type_field);
             uint32_t node_start = ts_node_start_byte(node);
             // If apply starts after the type annotation ends, it's a value (call)
-            if (node_start > type_end) return false;
+            if (node_start > type_end)
+                return false;
             return true; // apply is within or before type annotation → type position
         }
         cur = ts_node_parent(cur);
@@ -45,30 +48,25 @@ static bool lean_is_in_type_position(TSNode node) {
 }
 
 // Extract callee name from a call node
-static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, CBMLanguage lang) {
+static char *extract_callee_name(CBMArena *a, TSNode node, const char *source, CBMLanguage lang) {
     // Lean 4: apply — name field is callee. Skip if in a type annotation position.
     // Must be checked before the generic "name" field handler below.
     if (lang == CBM_LANG_LEAN && strcmp(ts_node_type(node), "apply") == 0) {
-        if (lean_is_in_type_position(node)) return NULL;
+        if (lean_is_in_type_position(node))
+            return NULL;
         // Fall through to generic handler
     }
 
     // Try "function" field (most languages: call_expression, etc.)
     TSNode func_node = ts_node_child_by_field_name(node, "function", 8);
     if (!ts_node_is_null(func_node)) {
-        const char* fk = ts_node_type(func_node);
-        if (strcmp(fk, "identifier") == 0 ||
-            strcmp(fk, "simple_identifier") == 0 ||
-            strcmp(fk, "selector_expression") == 0 ||
-            strcmp(fk, "attribute") == 0 ||
-            strcmp(fk, "member_expression") == 0 ||
-            strcmp(fk, "field_expression") == 0 ||
-            strcmp(fk, "dot") == 0 ||
-            strcmp(fk, "function") == 0 ||
-            strcmp(fk, "dotted_identifier") == 0 ||
-            strcmp(fk, "member_access_expression") == 0 ||
-            strcmp(fk, "scoped_identifier") == 0 ||
-            strcmp(fk, "qualified_identifier") == 0) {
+        const char *fk = ts_node_type(func_node);
+        if (strcmp(fk, "identifier") == 0 || strcmp(fk, "simple_identifier") == 0 ||
+            strcmp(fk, "selector_expression") == 0 || strcmp(fk, "attribute") == 0 ||
+            strcmp(fk, "member_expression") == 0 || strcmp(fk, "field_expression") == 0 ||
+            strcmp(fk, "dot") == 0 || strcmp(fk, "function") == 0 ||
+            strcmp(fk, "dotted_identifier") == 0 || strcmp(fk, "member_access_expression") == 0 ||
+            strcmp(fk, "scoped_identifier") == 0 || strcmp(fk, "qualified_identifier") == 0) {
             return cbm_node_text(a, func_node, source);
         }
     }
@@ -76,11 +74,11 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
     // Try "name" field (Java method_invocation)
     TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
     if (!ts_node_is_null(name_node)) {
-        char* name = cbm_node_text(a, name_node, source);
+        char *name = cbm_node_text(a, name_node, source);
         // For Java: prepend object if present
         TSNode obj = ts_node_child_by_field_name(node, "object", 6);
         if (!ts_node_is_null(obj) && name) {
-            char* obj_text = cbm_node_text(a, obj, source);
+            char *obj_text = cbm_node_text(a, obj, source);
             if (obj_text && obj_text[0]) {
                 return cbm_arena_sprintf(a, "%s.%s", obj_text, name);
             }
@@ -91,10 +89,10 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
     // Ruby: "method" + "receiver" fields
     TSNode method_node = ts_node_child_by_field_name(node, "method", 6);
     if (!ts_node_is_null(method_node)) {
-        char* method = cbm_node_text(a, method_node, source);
+        char *method = cbm_node_text(a, method_node, source);
         TSNode recv = ts_node_child_by_field_name(node, "receiver", 8);
         if (!ts_node_is_null(recv) && method) {
-            char* recv_text = cbm_node_text(a, recv, source);
+            char *recv_text = cbm_node_text(a, recv, source);
             if (recv_text && recv_text[0]) {
                 return cbm_arena_sprintf(a, "%s.%s", recv_text, method);
             }
@@ -119,7 +117,7 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
 
     // Haskell/OCaml: application_expression, infix, apply
     if (lang == CBM_LANG_HASKELL || lang == CBM_LANG_OCAML) {
-        const char* nk = ts_node_type(node);
+        const char *nk = ts_node_type(node);
         if (strcmp(nk, "apply") == 0 || strcmp(nk, "application_expression") == 0) {
             if (ts_node_child_count(node) > 0) {
                 TSNode callee = ts_node_child(node, 0);
@@ -147,7 +145,7 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
     if (lang == CBM_LANG_ELIXIR && strcmp(ts_node_type(node), "call") == 0) {
         if (ts_node_child_count(node) > 0) {
             TSNode first = ts_node_child(node, 0);
-            const char* fk = ts_node_type(first);
+            const char *fk = ts_node_type(first);
             if (strcmp(fk, "identifier") == 0 || strcmp(fk, "dot") == 0) {
                 return cbm_node_text(a, first, source);
             }
@@ -191,7 +189,7 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
     if (lang == CBM_LANG_WOLFRAM && strcmp(ts_node_type(node), "apply") == 0) {
         TSNode parent = ts_node_parent(node);
         if (!ts_node_is_null(parent)) {
-            const char* pk = ts_node_type(parent);
+            const char *pk = ts_node_type(parent);
             if ((strcmp(pk, "set_delayed_top") == 0 || strcmp(pk, "set_top") == 0 ||
                  strcmp(pk, "set_delayed") == 0 || strcmp(pk, "set") == 0) &&
                 ts_node_named_child_count(parent) > 0 &&
@@ -201,7 +199,7 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
         }
         if (ts_node_named_child_count(node) > 0) {
             TSNode head = ts_node_named_child(node, 0);
-            const char* hk = ts_node_type(head);
+            const char *hk = ts_node_type(head);
             if (strcmp(hk, "user_symbol") == 0 || strcmp(hk, "builtin_symbol") == 0)
                 return cbm_node_text(a, head, source);
         }
@@ -220,11 +218,11 @@ static char* extract_callee_name(CBMArena* a, TSNode node, const char* source, C
 }
 
 // Walk AST for call nodes
-static void walk_calls(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) {
-    const char* kind = ts_node_type(node);
+static void walk_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
+    const char *kind = ts_node_type(node);
 
     if (cbm_kind_in_set(node, spec->call_node_types)) {
-        char* callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
+        char *callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
         if (callee && callee[0]) {
             // Skip keywords
             if (!cbm_is_keyword(callee, ctx->language)) {
@@ -253,15 +251,18 @@ static void walk_calls(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec)
 }
 
 // Extract JSX component references (uppercase = component, lowercase = HTML)
-static void extract_jsx_refs(CBMExtractCtx* ctx, TSNode node) {
+static void extract_jsx_refs(CBMExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-    if (ts_node_is_null(name_node)) return;
+    if (ts_node_is_null(name_node))
+        return;
 
-    char* name = cbm_node_text(ctx->arena, name_node, ctx->source);
-    if (!name || !name[0]) return;
+    char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
+    if (!name || !name[0])
+        return;
 
     // Only uppercase names are components
-    if (name[0] < 'A' || name[0] > 'Z') return;
+    if (name[0] < 'A' || name[0] > 'Z')
+        return;
 
     CBMCall call;
     call.callee_name = name;
@@ -269,22 +270,24 @@ static void extract_jsx_refs(CBMExtractCtx* ctx, TSNode node) {
     cbm_calls_push(&ctx->result->calls, ctx->arena, call);
 }
 
-void cbm_extract_calls(CBMExtractCtx* ctx) {
-    const CBMLangSpec* spec = cbm_lang_spec(ctx->language);
-    if (!spec || !spec->call_node_types || !spec->call_node_types[0]) return;
+void cbm_extract_calls(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+    if (!spec || !spec->call_node_types || !spec->call_node_types[0])
+        return;
 
     walk_calls(ctx, ctx->root, spec);
 }
 
 // --- Unified handler: called once per node by the cursor walk ---
 
-void handle_calls(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, WalkState* state) {
-    if (!spec->call_node_types || !spec->call_node_types[0]) return;
+void handle_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+    if (!spec->call_node_types || !spec->call_node_types[0])
+        return;
 
-    const char* kind = ts_node_type(node);
+    const char *kind = ts_node_type(node);
 
     if (cbm_kind_in_set(node, spec->call_node_types)) {
-        char* callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
+        char *callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
         if (callee && callee[0] && !cbm_is_keyword(callee, ctx->language)) {
             CBMCall call;
             call.callee_name = callee;
@@ -299,7 +302,7 @@ void handle_calls(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, Walk
             strcmp(kind, "jsx_opening_element") == 0) {
             TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
             if (!ts_node_is_null(name_node)) {
-                char* name = cbm_node_text(ctx->arena, name_node, ctx->source);
+                char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
                 if (name && name[0] >= 'A' && name[0] <= 'Z') {
                     CBMCall call;
                     call.callee_name = name;

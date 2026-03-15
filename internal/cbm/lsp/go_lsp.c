@@ -2449,18 +2449,22 @@ void cbm_run_go_lsp_cross(
     const char* module_qn,
     CBMLSPDef* defs, int def_count,
     const char** import_names, const char** import_qns, int import_count,
+    TSTree* cached_tree,
     CBMResolvedCallArray* out)
 {
     if (!source || source_len <= 0) return;
 
-    // 1. Parse source with tree-sitter
-    TSParser* parser = ts_parser_new();
-    if (!parser) return;
-    ts_parser_set_language(parser, tree_sitter_go());
-    TSTree* tree = ts_parser_parse_string(parser, NULL, source, source_len);
+    // 1. Use cached tree if available, otherwise parse fresh
+    TSParser* parser = NULL;
+    TSTree* tree = cached_tree;
+    bool owns_tree = false;
     if (!tree) {
-        ts_parser_delete(parser);
-        return;
+        parser = ts_parser_new();
+        if (!parser) return;
+        ts_parser_set_language(parser, tree_sitter_go());
+        tree = ts_parser_parse_string(parser, NULL, source, source_len);
+        owns_tree = true;
+        if (!tree) { ts_parser_delete(parser); return; }
     }
     TSNode root = ts_tree_root_node(tree);
 
@@ -2680,7 +2684,61 @@ void cbm_run_go_lsp_cross(
 
     go_lsp_process_file(&ctx, root);
 
-    // 5. Cleanup
-    ts_tree_delete(tree);
-    ts_parser_delete(parser);
+    // 5. Cleanup — only free if we allocated
+    if (owns_tree) {
+        ts_tree_delete(tree);
+        if (parser) ts_parser_delete(parser);
+    }
+}
+
+// --- Batch cross-file LSP ---
+
+void cbm_batch_go_lsp_cross(
+    CBMArena* arena,
+    CBMBatchGoLSPFile* files, int file_count,
+    CBMResolvedCallArray* out)
+{
+    if (!files || file_count <= 0 || !out) return;
+
+    for (int f = 0; f < file_count; f++) {
+        CBMBatchGoLSPFile* file = &files[f];
+        memset(&out[f], 0, sizeof(CBMResolvedCallArray));
+
+        if (!file->source || file->source_len <= 0 || file->def_count <= 0) continue;
+
+        // Per-file arena: registry + temp data freed after each file
+        CBMArena file_arena;
+        cbm_arena_init(&file_arena);
+
+        CBMResolvedCallArray file_out;
+        memset(&file_out, 0, sizeof(file_out));
+
+        // Delegate to existing per-file function
+        cbm_run_go_lsp_cross(
+            &file_arena,
+            file->source, file->source_len,
+            file->module_qn,
+            file->defs, file->def_count,
+            file->import_names, file->import_qns, file->import_count,
+            file->cached_tree,
+            &file_out);
+
+        // Copy results to output arena (must outlive per-file arena)
+        if (file_out.count > 0) {
+            out[f].count = file_out.count;
+            out[f].items = (CBMResolvedCall*)cbm_arena_alloc(arena,
+                file_out.count * sizeof(CBMResolvedCall));
+            for (int j = 0; j < file_out.count; j++) {
+                CBMResolvedCall* src = &file_out.items[j];
+                CBMResolvedCall* dst = &out[f].items[j];
+                dst->caller_qn = src->caller_qn ? cbm_arena_strdup(arena, src->caller_qn) : NULL;
+                dst->callee_qn = src->callee_qn ? cbm_arena_strdup(arena, src->callee_qn) : NULL;
+                dst->strategy  = src->strategy  ? cbm_arena_strdup(arena, src->strategy)  : NULL;
+                dst->confidence = src->confidence;
+                dst->reason    = src->reason    ? cbm_arena_strdup(arena, src->reason)    : NULL;
+            }
+        }
+
+        cbm_arena_destroy(&file_arena);
+    }
 }

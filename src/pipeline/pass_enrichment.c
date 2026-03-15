@@ -1,0 +1,404 @@
+/*
+ * pass_enrichment.c — Decorator tokenization, camelCase splitting,
+ * and decorator_tags pass (post-flush enrichment).
+ *
+ * Pure helper functions + a store-level pass that classifies decorators
+ * into semantic tags via auto-discovery (words on 2+ nodes become tags).
+ */
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_internal.h"
+#include "store/store.h"
+#include "foundation/log.h"
+#include "foundation/hash_table.h"
+#include "foundation/platform.h"
+#include "yyjson/yyjson.h"
+
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
+static bool is_decorator_stopword(const char *w) {
+    static const char *stopwords[] = {"get",   "set",  "new",   "class",  "method", "function",
+                                      "value", "type", "param", "return", "public", "private",
+                                      "for",   "if",   "the",   "and",    "or",     "not",
+                                      "with",  "from", "app",   "router", NULL};
+    for (int i = 0; stopwords[i]; i++) {
+        if (strcmp(w, stopwords[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
+int cbm_split_camel_case(const char *s, char **out, int max_out) {
+    if (!s || !out || max_out <= 0)
+        return 0;
+    size_t len = strlen(s);
+    if (len == 0)
+        return 0;
+
+    int count = 0;
+    size_t start = 0;
+
+    for (size_t i = 1; i < len; i++) {
+        if (s[i] >= 'A' && s[i] <= 'Z' && s[i - 1] >= 'a' && s[i - 1] <= 'z') {
+            if (count < max_out) {
+                out[count] = strndup(s + start, i - start);
+                count++;
+            }
+            start = i;
+        }
+    }
+    /* Emit remaining */
+    if (count < max_out) {
+        out[count] = strndup(s + start, len - start);
+        count++;
+    }
+    return count;
+}
+
+int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
+    if (!dec || !out || max_out <= 0)
+        return 0;
+
+    /* Work on a copy */
+    char buf[256];
+    size_t len = strlen(dec);
+    if (len >= sizeof(buf))
+        len = sizeof(buf) - 1;
+    memcpy(buf, dec, len);
+    buf[len] = '\0';
+
+    char *p = buf;
+
+    /* Strip leading @ */
+    if (*p == '@')
+        p++;
+    /* Strip leading #[ and trailing ] */
+    if (p[0] == '#' && p[1] == '[') {
+        p += 2;
+        size_t plen = strlen(p);
+        if (plen > 0 && p[plen - 1] == ']')
+            p[plen - 1] = '\0';
+    }
+
+    /* Strip arguments: everything from first ( onwards */
+    char *paren = strchr(p, '(');
+    if (paren)
+        *paren = '\0';
+
+    /* Replace delimiters with spaces: . _ - : / */
+    for (char *c = p; *c; c++) {
+        if (*c == '.' || *c == '_' || *c == '-' || *c == ':' || *c == '/') {
+            *c = ' ';
+        }
+    }
+
+    /* Process each part: split camelCase, lowercase, filter stopwords */
+    int count = 0;
+    char *saveptr = NULL;
+    char *part = strtok_r(p, " ", &saveptr);
+
+    while (part && count < max_out) {
+        /* Split camelCase */
+        char *camel_parts[16];
+        int camel_count = cbm_split_camel_case(part, camel_parts, 16);
+
+        for (int i = 0; i < camel_count && count < max_out; i++) {
+            /* Lowercase */
+            for (char *c = camel_parts[i]; *c; c++) {
+                *c = (char)tolower((unsigned char)*c);
+            }
+
+            /* Filter: must be >= 2 chars and not a stopword */
+            if (strlen(camel_parts[i]) >= 2 && !is_decorator_stopword(camel_parts[i])) {
+                out[count++] = camel_parts[i];
+            } else {
+                free(camel_parts[i]);
+            }
+        }
+
+        part = strtok_r(NULL, " ", &saveptr);
+    }
+
+    return count;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  Decorator Tags Pass (post-flush, operates on store)
+ *
+ *  Algorithm:
+ *  1. Load all Function/Method/Class nodes from the store
+ *  2. For each node with "decorators" property, tokenize decorators
+ *  3. Count word frequency across all nodes
+ *  4. Words on 2+ distinct nodes become candidates
+ *  5. Update each node's properties_json with "decorator_tags" array
+ * ══════════════════════════════════════════════════════════════════ */
+
+/* Per-node tokenization state */
+typedef struct {
+    int64_t node_id;
+    char *qualified_name;
+    char **words;
+    int word_count;
+} tagged_node_t;
+
+/* Extract the "decorators" array from a properties_json string.
+ * Returns a NULL-terminated array of strings. Caller must free array and strings. */
+static char **extract_decorators_from_json(const char *json) {
+    if (!json)
+        return NULL;
+
+    yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
+    if (!doc)
+        return NULL;
+
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *decs = yyjson_obj_get(root, "decorators");
+    if (!decs || !yyjson_is_arr(decs)) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+
+    size_t cnt = yyjson_arr_size(decs);
+    if (cnt == 0) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+
+    char **out = calloc(cnt + 1, sizeof(char *));
+    size_t idx = 0;
+    yyjson_val *item;
+    yyjson_arr_iter iter;
+    yyjson_arr_iter_init(decs, &iter);
+    while ((item = yyjson_arr_iter_next(&iter))) {
+        if (yyjson_is_str(item)) {
+            out[idx++] = strdup(yyjson_get_str(item));
+        }
+    }
+    out[idx] = NULL;
+
+    yyjson_doc_free(doc);
+    if (idx > 0)
+        return out;
+    free(out);
+    return NULL;
+}
+
+/* Tokenize all decorators on a node into unique words.
+ * Returns heap-allocated array, caller frees each word and the array. */
+static int extract_decorator_words(const char *json, char ***out_words) {
+    char **decorators = extract_decorators_from_json(json);
+    if (!decorators) {
+        *out_words = NULL;
+        return 0;
+    }
+
+    /* Collect unique words from all decorators */
+    char *all_words[256];
+    int total = 0;
+    CBMHashTable *seen = cbm_ht_create(32);
+
+    for (int i = 0; decorators[i]; i++) {
+        char *tokens[32];
+        int tc = cbm_tokenize_decorator(decorators[i], tokens, 32);
+        for (int j = 0; j < tc; j++) {
+            if (!cbm_ht_get(seen, tokens[j]) && total < 256) {
+                cbm_ht_set(seen, tokens[j], (void *)1);
+                all_words[total++] = tokens[j];
+            } else {
+                free(tokens[j]);
+            }
+        }
+        free(decorators[i]);
+    }
+    free(decorators);
+    cbm_ht_free(seen);
+
+    if (total == 0) {
+        *out_words = NULL;
+        return 0;
+    }
+
+    *out_words = malloc(sizeof(char *) * total);
+    memcpy(*out_words, all_words, sizeof(char *) * total);
+    return total;
+}
+
+/* Insert "decorator_tags" into a properties_json string.
+ * Returns a newly allocated JSON string. Caller must free(). */
+static char *inject_decorator_tags(const char *json, char **tags, int tag_count) {
+    yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *mroot;
+
+    if (root && yyjson_is_obj(root)) {
+        mroot = yyjson_val_mut_copy(mdoc, root);
+    } else {
+        mroot = yyjson_mut_obj(mdoc);
+    }
+    yyjson_mut_doc_set_root(mdoc, mroot);
+
+    /* Remove existing decorator_tags if any */
+    yyjson_mut_obj_remove_key(mroot, "decorator_tags");
+
+    /* Add sorted tag array */
+    yyjson_mut_val *arr = yyjson_mut_arr(mdoc);
+    for (int i = 0; i < tag_count; i++) {
+        yyjson_mut_arr_add_str(mdoc, arr, tags[i]);
+    }
+    yyjson_mut_obj_add_val(mdoc, mroot, "decorator_tags", arr);
+
+    char *result = yyjson_mut_write(mdoc, 0, NULL);
+    yyjson_mut_doc_free(mdoc);
+    yyjson_doc_free(doc);
+    return result;
+}
+
+/* Simple string comparison for qsort */
+static int cmp_str(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
+    if (!store || !project)
+        return 0;
+
+    static const char *labels[] = {"Function", "Method", "Class"};
+    static const int nlabels = 3;
+
+    /* Phase 1: Collect decorated nodes and count word frequency */
+    tagged_node_t *nodes = NULL;
+    int node_count = 0;
+    int node_cap = 0;
+    CBMHashTable *word_counts = cbm_ht_create(128);
+
+    for (int l = 0; l < nlabels; l++) {
+        cbm_node_t *found = NULL;
+        int fc = 0;
+        cbm_store_find_nodes_by_label(store, project, labels[l], &found, &fc);
+        if (!found || fc <= 0)
+            continue;
+
+        for (int i = 0; i < fc; i++) {
+            char **words = NULL;
+            int wc = extract_decorator_words(found[i].properties_json, &words);
+            if (wc <= 0)
+                continue;
+
+            /* Grow array if needed */
+            if (node_count >= node_cap) {
+                node_cap = node_cap ? node_cap * 2 : 64;
+                nodes = safe_realloc(nodes, sizeof(tagged_node_t) * node_cap);
+            }
+
+            tagged_node_t *tn = &nodes[node_count++];
+            tn->node_id = found[i].id;
+            tn->qualified_name = strdup(found[i].qualified_name);
+            tn->words = words;
+            tn->word_count = wc;
+
+            /* Update word counts */
+            for (int w = 0; w < wc; w++) {
+                intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, words[w]);
+                cbm_ht_set(word_counts, words[w], (void *)(cnt + 1));
+            }
+        }
+
+        cbm_store_free_nodes(found, fc);
+    }
+
+    if (node_count == 0) {
+        cbm_ht_free(word_counts);
+        free(nodes);
+        return 0;
+    }
+
+    /* Phase 2: Determine candidates (words on 2+ nodes) */
+    CBMHashTable *candidates = cbm_ht_create(64);
+    int candidate_count = 0;
+
+    for (int n = 0; n < node_count; n++) {
+        for (int w = 0; w < nodes[n].word_count; w++) {
+            const char *word = nodes[n].words[w];
+            intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, word);
+            if (cnt >= 2 && !cbm_ht_get(candidates, word)) {
+                cbm_ht_set(candidates, word, (void *)1);
+                candidate_count++;
+            }
+        }
+    }
+
+    if (candidate_count == 0) {
+        for (int n = 0; n < node_count; n++) {
+            free(nodes[n].qualified_name);
+            for (int w = 0; w < nodes[n].word_count; w++)
+                free(nodes[n].words[w]);
+            free(nodes[n].words);
+        }
+        free(nodes);
+        cbm_ht_free(word_counts);
+        cbm_ht_free(candidates);
+        return 0;
+    }
+
+    /* Phase 3: Tag each node with its candidate words */
+    int tagged = 0;
+    for (int n = 0; n < node_count; n++) {
+        char *tag_words[256];
+        int tag_count = 0;
+        for (int w = 0; w < nodes[n].word_count; w++) {
+            if (cbm_ht_get(candidates, nodes[n].words[w]) && tag_count < 256) {
+                tag_words[tag_count++] = nodes[n].words[w];
+            }
+        }
+
+        if (tag_count == 0)
+            continue;
+
+        /* Sort tags alphabetically */
+        qsort(tag_words, tag_count, sizeof(char *), cmp_str);
+
+        /* Re-read node from store */
+        cbm_node_t node;
+        memset(&node, 0, sizeof(node));
+        if (cbm_store_find_node_by_qn(store, project, nodes[n].qualified_name, &node) != 0) {
+            continue;
+        }
+
+        /* Inject decorator_tags into properties_json */
+        const char *props = node.properties_json ? node.properties_json : "{}";
+        char *new_props = inject_decorator_tags(props, tag_words, tag_count);
+        if (new_props) {
+            cbm_node_t updated = node;
+            updated.properties_json = new_props;
+            cbm_store_upsert_node(store, &updated);
+            free(new_props);
+            tagged++;
+        }
+
+        /* Free node fields (not the node itself — it's on the stack) */
+        free((void *)node.project);
+        free((void *)node.label);
+        free((void *)node.name);
+        free((void *)node.qualified_name);
+        free((void *)node.file_path);
+        free((void *)node.properties_json);
+    }
+
+    /* Cleanup */
+    for (int n = 0; n < node_count; n++) {
+        free(nodes[n].qualified_name);
+        for (int w = 0; w < nodes[n].word_count; w++)
+            free(nodes[n].words[w]);
+        free(nodes[n].words);
+    }
+    free(nodes);
+    cbm_ht_free(word_counts);
+    cbm_ht_free(candidates);
+
+    cbm_log_info("pass.decorator_tags", "candidates", candidate_count > 0 ? "yes" : "0", "tagged",
+                 tagged > 0 ? "yes" : "0");
+    return tagged;
+}

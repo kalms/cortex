@@ -1,0 +1,36 @@
+# cppcheck suppressions file
+#
+# Suppress false positives and checks not relevant to our codebase.
+# Philosophy: suppress as little as possible.
+
+# We use _Thread_local extensively — cppcheck doesn't fully understand it
+threadsafety:*
+
+# Vendored code (tree-sitter grammars, yyjson, sqlite3)
+*:internal/cbm/vendored/*
+*:vendored/*
+
+# Test framework uses some patterns cppcheck doesn't like
+unusedFunction:tests/*
+
+# We intentionally use variable-length printf format strings
+formatStringUsedSafely
+
+# OOM handling: CLI tool — crash is acceptable on allocation failure.
+# Real bugs (unsafe realloc) are fixed; these are about NULL deref after
+# malloc/calloc which on modern systems means the process is dying anyway.
+nullPointerOutOfMemory
+nullPointerArithmeticOutOfMemory
+ctunullpointerOutOfMemory
+
+# Intentional (void*)1 sentinel pattern for hash table presence checks
+intToPointerCast
+
+# cbm_log_info() uses NULL sentinel — macro adds it automatically
+varFuncNullUB
+
+# Const correctness for vendor API types (yyjson, sqlite) — adding const
+# requires casts against their APIs. Low value, high churn.
+constVariablePointer
+constParameterPointer
+constVariable

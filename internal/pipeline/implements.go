@@ -61,7 +61,7 @@ func (p *Pipeline) implementsGo() (linkCount, overrideCount int) {
 
 // collectGoInterfaces returns Go interfaces with their method names.
 func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
-	interfaces, findErr := p.findNodesByLabel(p.ProjectName, "Interface")
+	interfaces, findErr := p.Store.FindNodesByLabel(p.ProjectName, "Interface")
 	if findErr != nil || len(interfaces) == 0 {
 		return nil
 	}
@@ -72,14 +72,14 @@ func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
 			continue
 		}
 
-		edges, edgeErr := p.findEdgesBySourceAndType(iface.ID, "DEFINES_METHOD")
+		edges, edgeErr := p.Store.FindEdgesBySourceAndType(iface.ID, "DEFINES_METHOD")
 		if edgeErr != nil || len(edges) == 0 {
 			continue
 		}
 
 		var methods []ifaceMethodInfo
 		for _, e := range edges {
-			methodNode, _ := p.findNodeByID(e.TargetID)
+			methodNode, _ := p.Store.FindNodeByID(e.TargetID)
 			if methodNode != nil {
 				methods = append(methods, ifaceMethodInfo{
 					name:          methodNode.Name,
@@ -98,7 +98,7 @@ func (p *Pipeline) collectGoInterfaces() []ifaceInfo {
 // collectStructMethods builds maps of receiver type -> method names and QN prefixes
 // from Go methods with receiver properties.
 func (p *Pipeline) collectStructMethods() (structMethods map[string]map[string]bool, structQNPrefix map[string]string) {
-	methodNodes, findErr := p.findNodesByLabel(p.ProjectName, "Method")
+	methodNodes, findErr := p.Store.FindNodesByLabel(p.ProjectName, "Method")
 	if findErr != nil {
 		return nil, nil
 	}
@@ -155,7 +155,7 @@ func (p *Pipeline) matchImplements(
 				continue
 			}
 
-			_ = p.insertEdge(&store.Edge{
+			_, _ = p.Store.InsertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: structNode.ID,
 				TargetID: iface.node.ID,
@@ -183,17 +183,17 @@ func (p *Pipeline) createOverrideEdges(
 	count := 0
 	for _, im := range ifaceMethods {
 		structMethodQN := prefix + "." + im.name
-		structMethodNode, _ := p.findNodeByQN(p.ProjectName, structMethodQN)
+		structMethodNode, _ := p.Store.FindNodeByQN(p.ProjectName, structMethodQN)
 		if structMethodNode == nil {
 			continue
 		}
 
-		ifaceMethodNode, _ := p.findNodeByQN(p.ProjectName, im.qualifiedName)
+		ifaceMethodNode, _ := p.Store.FindNodeByQN(p.ProjectName, im.qualifiedName)
 		if ifaceMethodNode == nil {
 			continue
 		}
 
-		_ = p.insertEdge(&store.Edge{
+		_, _ = p.Store.InsertEdge(&store.Edge{
 			Project:  p.ProjectName,
 			SourceID: structMethodNode.ID,
 			TargetID: ifaceMethodNode.ID,
@@ -208,12 +208,12 @@ func (p *Pipeline) createOverrideEdges(
 func (p *Pipeline) findStructNode(typeName string, structQNPrefix map[string]string) *store.Node {
 	if prefix, ok := structQNPrefix[typeName]; ok {
 		structQN := prefix + "." + typeName
-		if n, _ := p.findNodeByQN(p.ProjectName, structQN); n != nil {
+		if n, _ := p.Store.FindNodeByQN(p.ProjectName, structQN); n != nil {
 			return n
 		}
 	}
 
-	classes, _ := p.findNodesByLabel(p.ProjectName, "Class")
+	classes, _ := p.Store.FindNodesByLabel(p.ProjectName, "Class")
 	for _, c := range classes {
 		if c.Name == typeName && strings.HasSuffix(c.FilePath, ".go") {
 			return c
@@ -264,7 +264,7 @@ var explicitImplementsExts = map[lang.Language]string{
 // using CBM-extracted base_classes data from Class/Interface nodes.
 func (p *Pipeline) implementsExplicitCBM() (linkCount, overrideCount int) {
 	for _, label := range []string{"Class", "Interface"} {
-		nodes, err := p.findNodesByLabel(p.ProjectName, label)
+		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -309,11 +309,11 @@ func (p *Pipeline) processExplicitBases(classNode *store.Node) (linkCount, overr
 		if ifaceQN == "" {
 			continue
 		}
-		ifaceNode, _ := p.findNodeByQN(p.ProjectName, ifaceQN)
+		ifaceNode, _ := p.Store.FindNodeByQN(p.ProjectName, ifaceQN)
 		if ifaceNode == nil {
 			continue
 		}
-		_ = p.insertEdge(&store.Edge{
+		_, _ = p.Store.InsertEdge(&store.Edge{
 			Project:  p.ProjectName,
 			SourceID: classNode.ID,
 			TargetID: ifaceNode.ID,
@@ -329,13 +329,13 @@ func (p *Pipeline) processExplicitBases(classNode *store.Node) (linkCount, overr
 // between a class and an interface.
 func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node) int {
 	// Get interface methods
-	ifaceEdges, err := p.findEdgesBySourceAndType(ifaceNode.ID, "DEFINES_METHOD")
+	ifaceEdges, err := p.Store.FindEdgesBySourceAndType(ifaceNode.ID, "DEFINES_METHOD")
 	if err != nil || len(ifaceEdges) == 0 {
 		return 0
 	}
 
 	// Get class methods
-	classEdges, err := p.findEdgesBySourceAndType(classNode.ID, "DEFINES_METHOD")
+	classEdges, err := p.Store.FindEdgesBySourceAndType(classNode.ID, "DEFINES_METHOD")
 	if err != nil || len(classEdges) == 0 {
 		return 0
 	}
@@ -343,7 +343,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 	// Build class method name -> node ID map
 	classMethodByName := make(map[string]int64)
 	for _, e := range classEdges {
-		methodNode, _ := p.findNodeByID(e.TargetID)
+		methodNode, _ := p.Store.FindNodeByID(e.TargetID)
 		if methodNode != nil {
 			classMethodByName[methodNode.Name] = methodNode.ID
 		}
@@ -351,7 +351,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 
 	count := 0
 	for _, e := range ifaceEdges {
-		ifaceMethodNode, _ := p.findNodeByID(e.TargetID)
+		ifaceMethodNode, _ := p.Store.FindNodeByID(e.TargetID)
 		if ifaceMethodNode == nil {
 			continue
 		}
@@ -360,7 +360,7 @@ func (p *Pipeline) createOverrideEdgesExplicit(classNode, ifaceNode *store.Node)
 			continue
 		}
 
-		_ = p.insertEdge(&store.Edge{
+		_, _ = p.Store.InsertEdge(&store.Edge{
 			Project:  p.ProjectName,
 			SourceID: classMethodID,
 			TargetID: ifaceMethodNode.ID,
@@ -396,13 +396,13 @@ func (p *Pipeline) implementsRust() (linkCount, overrideCount int) {
 				continue
 			}
 
-			traitDBNode, _ := p.findNodeByQN(p.ProjectName, traitQN)
-			structDBNode, _ := p.findNodeByQN(p.ProjectName, structQN)
+			traitDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, traitQN)
+			structDBNode, _ := p.Store.FindNodeByQN(p.ProjectName, structQN)
 			if traitDBNode == nil || structDBNode == nil {
 				continue
 			}
 
-			_ = p.insertEdge(&store.Edge{
+			_, _ = p.Store.InsertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: structDBNode.ID,
 				TargetID: traitDBNode.ID,

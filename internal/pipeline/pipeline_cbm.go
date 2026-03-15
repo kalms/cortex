@@ -19,6 +19,13 @@ type cachedExtraction struct {
 	Language lang.Language
 }
 
+// fileEntry pairs a file's relative path with its cached extraction.
+// Used by passCalls and batch LSP resolution.
+type fileEntry struct {
+	relPath string
+	ext     *cachedExtraction
+}
+
 // cbmParseFile reads a file, calls cbm.ExtractFile(), and converts the
 // result to the same parseResult format used by the batch write infrastructure.
 // Keeps a copy of the source bytes on parseResult.Source for the sourceStore.
@@ -240,16 +247,11 @@ func inferTypesCBM(
 }
 
 // resolveFileCallsCBM resolves all call targets using pre-extracted CBM data.
-// Replaces resolveFileCalls() — no AST walking needed.
+// Cross-file LSP results are pre-populated by batch phase in passCalls().
+// This function handles registry + fuzzy resolution only (no CGo).
 func (p *Pipeline) resolveFileCallsCBM(relPath string, ext *cachedExtraction) []resolvedEdge {
 	moduleQN := fqn.ModuleQN(p.ProjectName, relPath)
 	importMap := p.importMaps[moduleQN]
-
-	// Cross-file LSP resolution for Go files
-	p.runGoLSPCrossFileResolution(ext, moduleQN, relPath, importMap)
-
-	// Cross-file LSP resolution for C/C++/CUDA files
-	p.runCLSPCrossFileResolution(ext, moduleQN, relPath)
 
 	// Build type map from CBM type assignments
 	typeMap := inferTypesCBM(ext.Result.TypeAssigns, p.registry, moduleQN, importMap)
@@ -267,48 +269,130 @@ func (p *Pipeline) resolveFileCallsCBM(relPath string, ext *cachedExtraction) []
 	return edges
 }
 
-// runGoLSPCrossFileResolution re-runs LSP with cross-file definitions from imported packages.
-func (p *Pipeline) runGoLSPCrossFileResolution(ext *cachedExtraction, moduleQN, relPath string, importMap map[string]string) {
-	if ext.Language != lang.Go || p.goLSPIdx == nil {
+// batchGoLSPCrossFileResolution collects all Go files needing cross-file LSP,
+// prepares their data, and resolves them in ONE CGo call via BatchGoLSPCrossFile.
+func (p *Pipeline) batchGoLSPCrossFileResolution(files []fileEntry) {
+	if p.goLSPIdx == nil {
 		return
 	}
-	crossDefs := p.goLSPIdx.collectCrossFileDefs(importMap)
-	if len(crossDefs) == 0 {
+
+	type goLSPFile struct {
+		fileIdx int
+		input   cbm.BatchLSPInput
+	}
+
+	var batch []goLSPFile
+	for i, fe := range files {
+		if fe.ext.Language != lang.Go || fe.ext.Result == nil {
+			continue
+		}
+		moduleQN := fqn.ModuleQN(p.ProjectName, fe.relPath)
+		importMap := p.importMaps[moduleQN]
+		crossDefs := p.goLSPIdx.collectCrossFileDefs(importMap)
+		if len(crossDefs) == 0 {
+			continue
+		}
+		source := readFileSource(p, fe.relPath)
+		if len(source) == 0 {
+			continue
+		}
+		fileDefs := cbm.DefsToLSPDefs(fe.ext.Result.Definitions, moduleQN)
+		batch = append(batch, goLSPFile{
+			fileIdx: i,
+			input: cbm.BatchLSPInput{
+				Source:     source,
+				ModuleQN:   moduleQN,
+				FileDefs:   fileDefs,
+				CrossDefs:  crossDefs,
+				Imports:    fe.ext.Result.Imports,
+				CachedTree: fe.ext.Result.TreeHandle,
+			},
+		})
+	}
+
+	if len(batch) == 0 {
 		return
 	}
-	source := readFileSource(p, relPath)
-	if len(source) == 0 {
-		return
+
+	// Build flat input slice for ONE CGo call
+	inputs := make([]cbm.BatchLSPInput, len(batch))
+	for i := range batch {
+		inputs[i] = batch[i].input
 	}
-	fileDefs := cbm.DefsToLSPDefs(ext.Result.Definitions, moduleQN)
-	resolved := cbm.RunGoLSPCrossFile(source, moduleQN, fileDefs, crossDefs, ext.Result.Imports)
-	if len(resolved) > 0 {
-		ext.Result.ResolvedCalls = resolved
+
+	slog.Info("go_lsp.batch", "files", len(inputs))
+	results := cbm.BatchGoLSPCrossFile(inputs)
+
+	// Distribute results back to extraction cache
+	for i, result := range results {
+		if len(result) > 0 {
+			files[batch[i].fileIdx].ext.Result.ResolvedCalls = result
+		}
 	}
 }
 
-// runCLSPCrossFileResolution re-runs LSP with cross-file definitions from included headers.
-func (p *Pipeline) runCLSPCrossFileResolution(ext *cachedExtraction, moduleQN, relPath string) {
-	if !isCOrCPP(ext.Language) || p.cLSPIdx == nil {
+// batchCLSPCrossFileResolution collects all C/C++/CUDA files needing cross-file LSP,
+// prepares their data, and resolves them in ONE CGo call via BatchCLSPCrossFile.
+func (p *Pipeline) batchCLSPCrossFileResolution(files []fileEntry) {
+	if p.cLSPIdx == nil {
 		return
 	}
-	incDirs := p.getRelativeIncludeDirs(relPath)
-	if incDirs == nil {
-		incDirs = p.getAllRelativeIncludeDirs()
+
+	type cLSPFile struct {
+		fileIdx int
+		input   cbm.BatchCLSPInput
 	}
-	crossDefs := p.cLSPIdx.collectCrossFileDefs(ext.Result.Imports, relPath, incDirs)
-	if len(crossDefs) == 0 {
+
+	var batch []cLSPFile
+	for i, fe := range files {
+		if !isCOrCPP(fe.ext.Language) || fe.ext.Result == nil {
+			continue
+		}
+		moduleQN := fqn.ModuleQN(p.ProjectName, fe.relPath)
+		incDirs := p.getRelativeIncludeDirs(fe.relPath)
+		if incDirs == nil {
+			incDirs = p.getAllRelativeIncludeDirs()
+		}
+		crossDefs := p.cLSPIdx.collectCrossFileDefs(fe.ext.Result.Imports, fe.relPath, incDirs)
+		if len(crossDefs) == 0 {
+			continue
+		}
+		source := readFileSource(p, fe.relPath)
+		if len(source) == 0 {
+			continue
+		}
+		cppMode := fe.ext.Language == lang.CPP || fe.ext.Language == lang.CUDA
+		fileDefs := cbm.DefsToLSPDefs(fe.ext.Result.Definitions, moduleQN)
+		batch = append(batch, cLSPFile{
+			fileIdx: i,
+			input: cbm.BatchCLSPInput{
+				Source:     source,
+				ModuleQN:   moduleQN,
+				CppMode:    cppMode,
+				FileDefs:   fileDefs,
+				CrossDefs:  crossDefs,
+				Includes:   fe.ext.Result.Imports,
+				CachedTree: fe.ext.Result.TreeHandle,
+			},
+		})
+	}
+
+	if len(batch) == 0 {
 		return
 	}
-	source := readFileSource(p, relPath)
-	if len(source) == 0 {
-		return
+
+	inputs := make([]cbm.BatchCLSPInput, len(batch))
+	for i := range batch {
+		inputs[i] = batch[i].input
 	}
-	cppMode := ext.Language == lang.CPP || ext.Language == lang.CUDA
-	fileDefs := cbm.DefsToLSPDefs(ext.Result.Definitions, moduleQN)
-	resolved := cbm.RunCLSPCrossFile(source, moduleQN, cppMode, fileDefs, crossDefs, ext.Result.Imports)
-	if len(resolved) > 0 {
-		ext.Result.ResolvedCalls = resolved
+
+	slog.Info("c_lsp.batch", "files", len(inputs))
+	results := cbm.BatchCLSPCrossFile(inputs)
+
+	for i, result := range results {
+		if len(result) > 0 {
+			files[batch[i].fileIdx].ext.Result.ResolvedCalls = result
+		}
 	}
 }
 

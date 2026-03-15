@@ -94,6 +94,30 @@ void cbm_run_go_lsp_cross(
     const char* module_qn,
     CBMLSPDef* defs, int def_count,
     const char** import_names, const char** import_qns, int import_count,
+    TSTree* cached_tree,           // NULL = parse internally
+    CBMResolvedCallArray* out);
+
+// --- Batch cross-file LSP ---
+
+// Per-file input for batch Go LSP processing.
+typedef struct {
+    const char* source;
+    int source_len;
+    const char* module_qn;
+    TSTree* cached_tree;           // from TSTree caching (NULL = parse internally)
+    CBMLSPDef* defs;               // combined file-local + cross-file defs
+    int def_count;
+    const char** import_names;     // parallel arrays, import_count long
+    const char** import_qns;
+    int import_count;
+} CBMBatchGoLSPFile;
+
+// Process multiple Go files' cross-file LSP in one CGo call.
+// out must point to file_count pre-zeroed CBMResolvedCallArray structs.
+// Uses per-file arenas internally; results are copied to the output arena.
+void cbm_batch_go_lsp_cross(
+    CBMArena* arena,
+    CBMBatchGoLSPFile* files, int file_count,
     CBMResolvedCallArray* out);
 
 #endif // CBM_LSP_GO_LSP_H

@@ -20,6 +20,37 @@ type Querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// StoreBackend abstracts the graph store so pipeline passes can run against
+// either a SQLite-backed Store or an in-memory GraphBuffer. Methods cover
+// all node/edge CRUD needed by pipeline passes + httplink.
+type StoreBackend interface {
+	// Nodes
+	UpsertNode(n *Node) (int64, error)
+	UpsertNodeBatch(nodes []*Node) (map[string]int64, error)
+	FindNodeByID(id int64) (*Node, error)
+	FindNodeByQN(project, qn string) (*Node, error)
+	FindNodesByLabel(project, label string) ([]*Node, error)
+	FindNodesByName(project, name string) ([]*Node, error)
+	FindNodesByIDs(ids []int64) (map[int64]*Node, error)
+	FindNodeIDsByQNs(project string, qns []string) (map[string]int64, error)
+	DeleteNodesByLabel(project, label string) error
+	CountNodes(project string) (int, error)
+	// Edges
+	InsertEdge(e *Edge) (int64, error)
+	InsertEdgeBatch(edges []*Edge) error
+	FindEdgesBySourceAndType(sourceID int64, edgeType string) ([]*Edge, error)
+	FindEdgesByTargetAndType(targetID int64, edgeType string) ([]*Edge, error)
+	FindEdgesByType(project, edgeType string) ([]*Edge, error)
+	DeleteEdgesByType(project, edgeType string) error
+	CountEdgesByType(project, edgeType string) (int, error)
+	CountEdges(project string) (int, error)
+	// Project
+	GetProject(name string) (*Project, error)
+}
+
+// Compile-time assertion: *Store implements StoreBackend.
+var _ StoreBackend = (*Store)(nil)
+
 // Store wraps a SQLite connection for graph storage.
 type Store struct {
 	db     *sql.DB

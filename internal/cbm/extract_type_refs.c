@@ -6,43 +6,43 @@
 #include <ctype.h>
 
 // Builtin types that should not generate USES_TYPE edges.
-static bool is_builtin_type(const char* name) {
-    if (!name || !name[0]) return true;
-    if (strlen(name) <= 1) return true;
+static bool is_builtin_type(const char *name) {
+    if (!name || !name[0])
+        return true;
+    if (strlen(name) <= 1)
+        return true;
 
     // Common primitives
-    if (strcmp(name, "int") == 0 || strcmp(name, "string") == 0 ||
-        strcmp(name, "bool") == 0 || strcmp(name, "float") == 0 ||
-        strcmp(name, "float32") == 0 || strcmp(name, "float64") == 0 ||
-        strcmp(name, "int8") == 0 || strcmp(name, "int16") == 0 ||
-        strcmp(name, "int32") == 0 || strcmp(name, "int64") == 0 ||
-        strcmp(name, "uint") == 0 || strcmp(name, "uint8") == 0 ||
-        strcmp(name, "uint16") == 0 || strcmp(name, "uint32") == 0 ||
-        strcmp(name, "uint64") == 0 || strcmp(name, "uintptr") == 0 ||
-        strcmp(name, "byte") == 0 || strcmp(name, "rune") == 0 ||
-        strcmp(name, "void") == 0 || strcmp(name, "char") == 0 ||
-        strcmp(name, "double") == 0 || strcmp(name, "long") == 0 ||
-        strcmp(name, "short") == 0 || strcmp(name, "unsigned") == 0 ||
-        strcmp(name, "error") == 0 || strcmp(name, "any") == 0 ||
+    if (strcmp(name, "int") == 0 || strcmp(name, "string") == 0 || strcmp(name, "bool") == 0 ||
+        strcmp(name, "float") == 0 || strcmp(name, "float32") == 0 ||
+        strcmp(name, "float64") == 0 || strcmp(name, "int8") == 0 || strcmp(name, "int16") == 0 ||
+        strcmp(name, "int32") == 0 || strcmp(name, "int64") == 0 || strcmp(name, "uint") == 0 ||
+        strcmp(name, "uint8") == 0 || strcmp(name, "uint16") == 0 || strcmp(name, "uint32") == 0 ||
+        strcmp(name, "uint64") == 0 || strcmp(name, "uintptr") == 0 || strcmp(name, "byte") == 0 ||
+        strcmp(name, "rune") == 0 || strcmp(name, "void") == 0 || strcmp(name, "char") == 0 ||
+        strcmp(name, "double") == 0 || strcmp(name, "long") == 0 || strcmp(name, "short") == 0 ||
+        strcmp(name, "unsigned") == 0 || strcmp(name, "error") == 0 || strcmp(name, "any") == 0 ||
         strcmp(name, "interface") == 0 || strcmp(name, "object") == 0 ||
-        strcmp(name, "Object") == 0 || strcmp(name, "None") == 0 ||
-        strcmp(name, "nil") == 0 || strcmp(name, "null") == 0 ||
-        strcmp(name, "undefined") == 0 || strcmp(name, "number") == 0 ||
-        strcmp(name, "boolean") == 0 || strcmp(name, "str") == 0 ||
-        strcmp(name, "dict") == 0 || strcmp(name, "list") == 0 ||
-        strcmp(name, "tuple") == 0 || strcmp(name, "set") == 0 ||
-        strcmp(name, "complex128") == 0 || strcmp(name, "complex64") == 0) {
+        strcmp(name, "Object") == 0 || strcmp(name, "None") == 0 || strcmp(name, "nil") == 0 ||
+        strcmp(name, "null") == 0 || strcmp(name, "undefined") == 0 ||
+        strcmp(name, "number") == 0 || strcmp(name, "boolean") == 0 || strcmp(name, "str") == 0 ||
+        strcmp(name, "dict") == 0 || strcmp(name, "list") == 0 || strcmp(name, "tuple") == 0 ||
+        strcmp(name, "set") == 0 || strcmp(name, "complex128") == 0 ||
+        strcmp(name, "complex64") == 0) {
         return true;
     }
     return false;
 }
 
 // Strip pointer/reference/slice/optional markers from a type name.
-static const char* clean_type_name(CBMArena* a, const char* name) {
-    if (!name || !name[0]) return name;
+static const char *clean_type_name(CBMArena *a, const char *name) {
+    if (!name || !name[0])
+        return name;
     // Skip leading *, &, [], ?
-    while (*name == '*' || *name == '&' || *name == '?' || *name == '[' || *name == ']') name++;
-    if (!*name) return NULL;
+    while (*name == '*' || *name == '&' || *name == '?' || *name == '[' || *name == ']')
+        name++;
+    if (!*name)
+        return NULL;
     // Take only the base type before any < or [
     size_t len = strlen(name);
     for (size_t i = 0; i < len; i++) {
@@ -51,15 +51,15 @@ static const char* clean_type_name(CBMArena* a, const char* name) {
         }
     }
     // Strip trailing ? (optionals)
-    if (len > 0 && name[len-1] == '?') {
-        return cbm_arena_strndup(a, name, len-1);
+    if (len > 0 && name[len - 1] == '?') {
+        return cbm_arena_strndup(a, name, len - 1);
     }
     return name;
 }
 
 // Extract type name from a type annotation node.
-static const char* extract_type_text(CBMArena* a, TSNode node, const char* source) {
-    const char* kind = ts_node_type(node);
+static const char *extract_type_text(CBMArena *a, TSNode node, const char *source) {
+    const char *kind = ts_node_type(node);
     // For type_identifier / identifier, just get text
     if (strcmp(kind, "type_identifier") == 0 || strcmp(kind, "identifier") == 0 ||
         strcmp(kind, "simple_identifier") == 0 || strcmp(kind, "name") == 0) {
@@ -76,20 +76,25 @@ static const char* extract_type_text(CBMArena* a, TSNode node, const char* sourc
         strcmp(kind, "slice_type") == 0 || strcmp(kind, "array_type") == 0) {
         // Get the element type
         TSNode elem = ts_node_child_by_field_name(node, "element", 7);
-        if (!ts_node_is_null(elem)) return extract_type_text(a, elem, source);
+        if (!ts_node_is_null(elem))
+            return extract_type_text(a, elem, source);
         TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
-        if (!ts_node_is_null(type_node)) return extract_type_text(a, type_node, source);
+        if (!ts_node_is_null(type_node))
+            return extract_type_text(a, type_node, source);
     }
     // Fallback: full text cleaned
     return clean_type_name(a, cbm_node_text(a, node, source));
 }
 
 // Add a type reference for a function.
-static void add_type_ref(CBMExtractCtx* ctx, const char* type_name, const char* func_qn) {
-    if (!type_name || !type_name[0]) return;
+static void add_type_ref(CBMExtractCtx *ctx, const char *type_name, const char *func_qn) {
+    if (!type_name || !type_name[0])
+        return;
     type_name = clean_type_name(ctx->arena, type_name);
-    if (!type_name || !type_name[0]) return;
-    if (is_builtin_type(type_name)) return;
+    if (!type_name || !type_name[0])
+        return;
+    if (is_builtin_type(type_name))
+        return;
 
     CBMTypeRef tr;
     tr.type_name = type_name;
@@ -98,25 +103,25 @@ static void add_type_ref(CBMExtractCtx* ctx, const char* type_name, const char* 
 }
 
 // Extract parameter types from a parameters/formal_parameters node.
-static void extract_param_type_refs(CBMExtractCtx* ctx, TSNode params, const char* func_qn) {
+static void extract_param_type_refs(CBMExtractCtx *ctx, TSNode params, const char *func_qn) {
     uint32_t count = ts_node_child_count(params);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(params, i);
         TSNode type_node = ts_node_child_by_field_name(child, "type", 4);
         if (!ts_node_is_null(type_node)) {
-            const char* tname = extract_type_text(ctx->arena, type_node, ctx->source);
+            const char *tname = extract_type_text(ctx->arena, type_node, ctx->source);
             add_type_ref(ctx, tname, func_qn);
         }
     }
 }
 
 // Extract return type references.
-static void extract_return_type_refs(CBMExtractCtx* ctx, TSNode func_node, const char* func_qn) {
-    const char* fields[] = {"result", "return_type", "type", NULL};
-    for (const char** f = fields; *f; f++) {
+static void extract_return_type_refs(CBMExtractCtx *ctx, TSNode func_node, const char *func_qn) {
+    const char *fields[] = {"result", "return_type", "type", NULL};
+    for (const char **f = fields; *f; f++) {
         TSNode rt = ts_node_child_by_field_name(func_node, *f, (uint32_t)strlen(*f));
         if (!ts_node_is_null(rt)) {
-            const char* tname = extract_type_text(ctx->arena, rt, ctx->source);
+            const char *tname = extract_type_text(ctx->arena, rt, ctx->source);
             add_type_ref(ctx, tname, func_qn);
             break;
         }
@@ -124,20 +129,22 @@ static void extract_return_type_refs(CBMExtractCtx* ctx, TSNode func_node, const
 }
 
 // Walk function body for type references (casts, type assertions, local var types, generics).
-static void walk_body_type_refs(CBMExtractCtx* ctx, TSNode node, const char* func_qn) {
-    const char* kind = ts_node_type(node);
+static void walk_body_type_refs(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+    const char *kind = ts_node_type(node);
 
     switch (ctx->language) {
     case CBM_LANG_GO:
         if (strcmp(kind, "var_spec") == 0 || strcmp(kind, "type_assertion") == 0 ||
-            strcmp(kind, "type_conversion_expression") == 0 || strcmp(kind, "composite_literal") == 0) {
+            strcmp(kind, "type_conversion_expression") == 0 ||
+            strcmp(kind, "composite_literal") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
                 add_type_ref(ctx, extract_type_text(ctx->arena, type_node, ctx->source), func_qn);
             }
         }
         break;
-    case CBM_LANG_TYPESCRIPT: case CBM_LANG_TSX:
+    case CBM_LANG_TYPESCRIPT:
+    case CBM_LANG_TSX:
         if (strcmp(kind, "as_expression") == 0 || strcmp(kind, "satisfies_expression") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
@@ -160,14 +167,16 @@ static void walk_body_type_refs(CBMExtractCtx* ctx, TSNode node, const char* fun
                 if (strcmp(ts_node_type(child), "type_annotation") == 0) {
                     if (ts_node_child_count(child) > 0) {
                         TSNode inner = ts_node_child(child, ts_node_child_count(child) - 1);
-                        add_type_ref(ctx, extract_type_text(ctx->arena, inner, ctx->source), func_qn);
+                        add_type_ref(ctx, extract_type_text(ctx->arena, inner, ctx->source),
+                                     func_qn);
                     }
                 }
             }
         }
         break;
     case CBM_LANG_JAVA:
-        if (strcmp(kind, "local_variable_declaration") == 0 || strcmp(kind, "cast_expression") == 0) {
+        if (strcmp(kind, "local_variable_declaration") == 0 ||
+            strcmp(kind, "cast_expression") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
                 add_type_ref(ctx, extract_type_text(ctx->arena, type_node, ctx->source), func_qn);
@@ -217,16 +226,19 @@ static void walk_body_type_refs(CBMExtractCtx* ctx, TSNode node, const char* fun
 }
 
 // Walk AST for function nodes, extract type references from signatures and bodies.
-static void walk_type_refs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) {
-    if (!spec->function_node_types || !spec->function_node_types[0]) return;
+static void walk_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
+    if (!spec->function_node_types || !spec->function_node_types[0])
+        return;
 
     if (cbm_kind_in_set(node, spec->function_node_types)) {
         TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(name_node)) goto recurse;
-        char* func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
-        if (!func_name || !func_name[0]) goto recurse;
+        if (ts_node_is_null(name_node))
+            goto recurse;
+        char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
+        if (!func_name || !func_name[0])
+            goto recurse;
 
-        const char* func_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
+        const char *func_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
 
         // Signature types
         TSNode params = ts_node_child_by_field_name(node, "parameters", 10);
@@ -237,24 +249,25 @@ static void walk_type_refs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* s
 
         // Body types
         TSNode body = ts_node_child_by_field_name(node, "body", 4);
-        if (ts_node_is_null(body)) body = ts_node_child_by_field_name(node, "block", 5);
+        if (ts_node_is_null(body))
+            body = ts_node_child_by_field_name(node, "block", 5);
         if (!ts_node_is_null(body)) {
             walk_body_type_refs(ctx, body, func_qn);
         }
         return; // Don't recurse into function internals again
     }
 
-recurse:
-    ;
+recurse:;
     uint32_t count = ts_node_child_count(node);
     for (uint32_t i = 0; i < count; i++) {
         walk_type_refs(ctx, ts_node_child(node, i), spec);
     }
 }
 
-void cbm_extract_type_refs(CBMExtractCtx* ctx) {
-    const CBMLangSpec* spec = cbm_lang_spec(ctx->language);
-    if (!spec) return;
+void cbm_extract_type_refs(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+    if (!spec)
+        return;
 
     walk_type_refs(ctx, ctx->root, spec);
 }
@@ -265,17 +278,20 @@ void cbm_extract_type_refs(CBMExtractCtx* ctx) {
 // The cursor visits both, so this single handler replaces the old
 // walk_type_refs + walk_body_type_refs split.
 
-void handle_type_refs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, WalkState* state) {
-    if (!spec->function_node_types || !spec->function_node_types[0]) return;
+void handle_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+    if (!spec->function_node_types || !spec->function_node_types[0])
+        return;
 
     // Function signature: extract param and return type refs
     if (cbm_kind_in_set(node, spec->function_node_types)) {
         TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(name_node)) return;
-        char* func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
-        if (!func_name || !func_name[0]) return;
+        if (ts_node_is_null(name_node))
+            return;
+        char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
+        if (!func_name || !func_name[0])
+            return;
 
-        const char* func_qn;
+        const char *func_qn;
         if (state->enclosing_class_qn) {
             func_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", state->enclosing_class_qn, func_name);
         } else {
@@ -291,20 +307,22 @@ void handle_type_refs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, 
     }
 
     // Body type refs: use enclosing_func_qn from state
-    const char* kind = ts_node_type(node);
-    const char* func_qn = state->enclosing_func_qn;
+    const char *kind = ts_node_type(node);
+    const char *func_qn = state->enclosing_func_qn;
 
     switch (ctx->language) {
     case CBM_LANG_GO:
         if (strcmp(kind, "var_spec") == 0 || strcmp(kind, "type_assertion") == 0 ||
-            strcmp(kind, "type_conversion_expression") == 0 || strcmp(kind, "composite_literal") == 0) {
+            strcmp(kind, "type_conversion_expression") == 0 ||
+            strcmp(kind, "composite_literal") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
                 add_type_ref(ctx, extract_type_text(ctx->arena, type_node, ctx->source), func_qn);
             }
         }
         break;
-    case CBM_LANG_TYPESCRIPT: case CBM_LANG_TSX:
+    case CBM_LANG_TYPESCRIPT:
+    case CBM_LANG_TSX:
         if (strcmp(kind, "as_expression") == 0 || strcmp(kind, "satisfies_expression") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
@@ -326,14 +344,16 @@ void handle_type_refs(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, 
                 if (strcmp(ts_node_type(child), "type_annotation") == 0) {
                     if (ts_node_child_count(child) > 0) {
                         TSNode inner = ts_node_child(child, ts_node_child_count(child) - 1);
-                        add_type_ref(ctx, extract_type_text(ctx->arena, inner, ctx->source), func_qn);
+                        add_type_ref(ctx, extract_type_text(ctx->arena, inner, ctx->source),
+                                     func_qn);
                     }
                 }
             }
         }
         break;
     case CBM_LANG_JAVA:
-        if (strcmp(kind, "local_variable_declaration") == 0 || strcmp(kind, "cast_expression") == 0) {
+        if (strcmp(kind, "local_variable_declaration") == 0 ||
+            strcmp(kind, "cast_expression") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
                 add_type_ref(ctx, extract_type_text(ctx->arena, type_node, ctx->source), func_qn);

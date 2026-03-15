@@ -165,6 +165,99 @@ static const char* c_lookup_fp_target(CLSPContext* ctx, const char* var_name) {
     return NULL;
 }
 
+// --- Helper: extract function name from DLL/dynamic resolver call ---
+// Heuristic: if an expression is a call (possibly cast-wrapped) with a string
+// literal argument, the string is likely an external function name being resolved
+// dynamically (GetProcAddress, dlsym, or custom resolver).
+// Returns the function name string (without quotes), or NULL.
+// Sets *out_has_cast to true if the expression was wrapped in a cast.
+static const char* c_extract_dll_resolve_name(CLSPContext* ctx, TSNode expr, bool* out_has_cast) {
+    if (ts_node_is_null(expr)) return NULL;
+    *out_has_cast = false;
+
+    // Unwrap cast expressions to find inner call
+    TSNode inner = expr;
+    const char* ik = ts_node_type(inner);
+    for (int unwrap_depth = 0; unwrap_depth < 8; unwrap_depth++) {
+        // Standard cast nodes: (Type)expr, static_cast<T>(expr) etc.
+        if (strcmp(ik, "cast_expression") == 0 ||
+            strcmp(ik, "static_cast_expression") == 0 ||
+            strcmp(ik, "reinterpret_cast_expression") == 0 ||
+            strcmp(ik, "dynamic_cast_expression") == 0 ||
+            strcmp(ik, "const_cast_expression") == 0) {
+            *out_has_cast = true;
+            uint32_t nc = ts_node_named_child_count(inner);
+            if (nc == 0) return NULL;
+            inner = ts_node_named_child(inner, nc - 1);
+            if (ts_node_is_null(inner)) return NULL;
+            ik = ts_node_type(inner);
+            continue;
+        }
+        // C++ named casts may parse as call_expression with template_function:
+        // static_cast<T>(expr) → call_expression(template_function("static_cast",<T>), (expr))
+        if (strcmp(ik, "call_expression") == 0) {
+            TSNode fn = ts_node_child_by_field_name(inner, "function", 8);
+            if (!ts_node_is_null(fn)) {
+                char* fname = NULL;
+                const char* fk = ts_node_type(fn);
+                if (strcmp(fk, "template_function") == 0) {
+                    TSNode nn = ts_node_child_by_field_name(fn, "name", 4);
+                    if (!ts_node_is_null(nn)) fname = c_node_text(ctx, nn);
+                } else if (strcmp(fk, "identifier") == 0) {
+                    fname = c_node_text(ctx, fn);
+                }
+                if (fname && (strcmp(fname, "static_cast") == 0 ||
+                              strcmp(fname, "reinterpret_cast") == 0 ||
+                              strcmp(fname, "dynamic_cast") == 0 ||
+                              strcmp(fname, "const_cast") == 0)) {
+                    *out_has_cast = true;
+                    TSNode cargs = ts_node_child_by_field_name(inner, "arguments", 9);
+                    if (!ts_node_is_null(cargs) && ts_node_named_child_count(cargs) > 0) {
+                        inner = ts_node_named_child(cargs, 0);
+                        if (ts_node_is_null(inner)) return NULL;
+                        ik = ts_node_type(inner);
+                        continue;
+                    }
+                    return NULL;
+                }
+            }
+        }
+        break;
+    }
+
+    // Must be a call_expression
+    if (strcmp(ik, "call_expression") != 0) return NULL;
+
+    // Scan call arguments for a string literal
+    TSNode args = ts_node_child_by_field_name(inner, "arguments", 9);
+    if (ts_node_is_null(args)) return NULL;
+
+    uint32_t anc = ts_node_named_child_count(args);
+    for (uint32_t i = 0; i < anc; i++) {
+        TSNode arg = ts_node_named_child(args, i);
+        if (ts_node_is_null(arg)) continue;
+        const char* ak = ts_node_type(arg);
+        if (strcmp(ak, "string_literal") != 0 && strcmp(ak, "raw_string_literal") != 0)
+            continue;
+        char* text = c_node_text(ctx, arg);
+        if (!text) continue;
+        size_t len = strlen(text);
+        if (len < 2 || text[0] != '"' || text[len - 1] != '"') continue;
+        char* name = cbm_arena_strndup(ctx->arena, text + 1, len - 2);
+        if (!name || !name[0]) continue;
+        // Validate: function names are identifiers (no spaces, path separators, dots)
+        bool valid = true;
+        for (const char* p = name; *p; p++) {
+            if (*p == ' ' || *p == '/' || *p == '\\' || *p == '.') {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) return name;
+    }
+    return NULL;
+}
+
 // --- Helper: pending template calls (member calls on TYPE_PARAM inside templates) ---
 static void c_add_pending_template_call(CLSPContext* ctx, const char* func_qn,
     const char* type_param, const char* method_name, int arg_count) {
@@ -2460,6 +2553,24 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                 }
                             }
                         }
+
+                        // DLL/dynamic resolver heuristic: fp = (FuncType)Resolve("FuncName")
+                        // If RHS is a call (possibly cast-wrapped) with a string literal arg,
+                        // and variable has function-pointer-like type or RHS has a cast,
+                        // treat the string as an external function name.
+                        if (!c_lookup_fp_target(ctx, var_name) && !ts_node_is_null(value)) {
+                            bool has_cast = false;
+                            const char* dll_func = c_extract_dll_resolve_name(ctx, value, &has_cast);
+                            if (dll_func) {
+                                bool is_fp_type = var_type && (var_type->kind == CBM_TYPE_FUNC ||
+                                                               var_type->kind == CBM_TYPE_POINTER);
+                                if (is_fp_type || has_cast) {
+                                    const char* target_qn = cbm_arena_sprintf(ctx->arena,
+                                        "external.%s", dll_func);
+                                    c_add_fp_target(ctx, var_name, target_qn);
+                                }
+                            }
+                        }
                     }
                 }
             } else if (strcmp(ck, "identifier") == 0) {
@@ -3085,7 +3196,11 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                     // parse as pointer(int) in scope, not as FUNC type.
                     const char* fp_target = c_lookup_fp_target(ctx, name);
                     if (fp_target) {
-                        c_emit_resolved_call(ctx, fp_target, "lsp_func_ptr", 0.85f);
+                        // Distinguish DLL/dynamic resolution from static fp targets
+                        bool is_dll = (strncmp(fp_target, "external.", 9) == 0);
+                        c_emit_resolved_call(ctx, fp_target,
+                            is_dll ? "lsp_dll_resolve" : "lsp_func_ptr",
+                            is_dll ? 0.80f : 0.85f);
                         goto recurse;
                     }
 
@@ -4080,14 +4195,17 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
 // Process file: top-level walk
 // ============================================================================
 
+__attribute__((no_sanitize("address")))
 void c_lsp_process_file(CLSPContext* ctx, TSNode root) {
     if (ts_node_is_null(root)) return;
 
     uint32_t nc = ts_node_child_count(root);
+    TSNode child;   // Hoisted: prevents ASan stack-use-after-scope between passes
+    TSNode inner;
 
     // Pass 1: process using declarations and global variables
     for (uint32_t i = 0; i < nc; i++) {
-        TSNode child = ts_node_child(root, i);
+        child = ts_node_child(root, i);
         if (ts_node_is_null(child)) continue;
         const char* ck = ts_node_type(child);
 
@@ -4103,7 +4221,7 @@ void c_lsp_process_file(CLSPContext* ctx, TSNode root) {
             // Unwrap template_declaration to process inner alias/typedef
             uint32_t tnc = ts_node_named_child_count(child);
             for (uint32_t ti = 0; ti < tnc; ti++) {
-                TSNode inner = ts_node_named_child(child, ti);
+                inner = ts_node_named_child(child, ti);
                 const char* ik = ts_node_type(inner);
                 if (strcmp(ik, "alias_declaration") == 0 ||
                     strcmp(ik, "type_definition") == 0) {
@@ -4115,7 +4233,7 @@ void c_lsp_process_file(CLSPContext* ctx, TSNode root) {
 
     // Pass 2: process functions, namespaces, classes, templates
     for (uint32_t i = 0; i < nc; i++) {
-        TSNode child = ts_node_child(root, i);
+        child = ts_node_child(root, i);
         if (ts_node_is_null(child)) continue;
         c_process_body_child(ctx, child);
     }
@@ -4417,6 +4535,7 @@ void cbm_run_c_lsp_cross(
     bool cpp_mode,
     CBMLSPDef* defs, int def_count,
     const char** include_paths, const char** include_ns_qns, int include_count,
+    TSTree* cached_tree,
     CBMResolvedCallArray* out) {
 
     if (!source || source_len == 0 || !out) return;
@@ -4540,17 +4659,21 @@ void cbm_run_c_lsp_cross(
         }
     }
 
-    // Parse the source with tree-sitter
-    TSParser* parser = ts_parser_new();
-    if (!parser) return;
-
-    const TSLanguage* ts_lang = cpp_mode ?
-        tree_sitter_cpp() : tree_sitter_c();
-    ts_parser_set_language(parser, ts_lang);
-
-    TSTree* tree = ts_parser_parse_string(parser, NULL, source, source_len);
-    ts_parser_delete(parser);
-    if (!tree) return;
+    // Use cached tree if available, otherwise parse fresh
+    TSParser* parser = NULL;
+    TSTree* tree = cached_tree;
+    bool owns_tree = false;
+    if (!tree) {
+        parser = ts_parser_new();
+        if (!parser) return;
+        const TSLanguage* ts_lang = cpp_mode ?
+            tree_sitter_cpp() : tree_sitter_c();
+        ts_parser_set_language(parser, ts_lang);
+        tree = ts_parser_parse_string(parser, NULL, source, source_len);
+        ts_parser_delete(parser);
+        owns_tree = true;
+        if (!tree) return;
+    }
 
     TSNode root = ts_tree_root_node(tree);
 
@@ -4565,5 +4688,60 @@ void cbm_run_c_lsp_cross(
 
     c_lsp_process_file(&ctx, root);
 
-    ts_tree_delete(tree);
+    if (owns_tree) {
+        ts_tree_delete(tree);
+    }
+}
+
+// --- Batch cross-file LSP ---
+
+void cbm_batch_c_lsp_cross(
+    CBMArena* arena,
+    CBMBatchCLSPFile* files, int file_count,
+    CBMResolvedCallArray* out)
+{
+    if (!files || file_count <= 0 || !out) return;
+
+    for (int f = 0; f < file_count; f++) {
+        CBMBatchCLSPFile* file = &files[f];
+        memset(&out[f], 0, sizeof(CBMResolvedCallArray));
+
+        if (!file->source || file->source_len <= 0 || file->def_count <= 0) continue;
+
+        // Per-file arena: registry + temp data freed after each file
+        CBMArena file_arena;
+        cbm_arena_init(&file_arena);
+
+        CBMResolvedCallArray file_out;
+        memset(&file_out, 0, sizeof(file_out));
+
+        // Delegate to existing per-file function
+        cbm_run_c_lsp_cross(
+            &file_arena,
+            file->source, file->source_len,
+            file->module_qn,
+            file->cpp_mode,
+            file->defs, file->def_count,
+            file->include_paths, file->include_ns_qns, file->include_count,
+            file->cached_tree,
+            &file_out);
+
+        // Copy results to output arena (must outlive per-file arena)
+        if (file_out.count > 0) {
+            out[f].count = file_out.count;
+            out[f].items = (CBMResolvedCall*)cbm_arena_alloc(arena,
+                file_out.count * sizeof(CBMResolvedCall));
+            for (int j = 0; j < file_out.count; j++) {
+                CBMResolvedCall* src = &file_out.items[j];
+                CBMResolvedCall* dst = &out[f].items[j];
+                dst->caller_qn = src->caller_qn ? cbm_arena_strdup(arena, src->caller_qn) : NULL;
+                dst->callee_qn = src->callee_qn ? cbm_arena_strdup(arena, src->callee_qn) : NULL;
+                dst->strategy  = src->strategy  ? cbm_arena_strdup(arena, src->strategy)  : NULL;
+                dst->confidence = src->confidence;
+                dst->reason    = src->reason    ? cbm_arena_strdup(arena, src->reason)    : NULL;
+            }
+        }
+
+        cbm_arena_destroy(&file_arena);
+    }
 }

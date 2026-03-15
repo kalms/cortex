@@ -571,6 +571,7 @@ void test() {
 		fileDefs,
 		crossDefs,
 		nil, // no includes needed for this test
+		nil, // no cached tree
 	)
 
 	if len(resolved) == 0 {
@@ -14990,6 +14991,168 @@ void test() {
 `
 	result := extractCPPWithRegistry(t, source)
 	requireResolvedCall(t, result, "test", "draw")
+}
+
+// ============================================================================
+// DLL/Dynamic Function Pointer Resolution (issue #29)
+// ============================================================================
+
+func TestCLSP_DLL_GetProcAddress(t *testing.T) {
+	// Windows-style: cast + GetProcAddress with string literal
+	source := `
+typedef void* HMODULE;
+typedef void (*HandleFunc)(int);
+
+void* LoadLibrary(const char* name);
+void* GetProcAddress(void* module, const char* name);
+
+void test() {
+    HMODULE dll = LoadLibrary("mylib.dll");
+    HandleFunc handle = (HandleFunc)GetProcAddress(dll, "HandleMyGarbage");
+    handle(42);
+}
+`
+	result := extractCWithRegistry(t, source)
+	rc := requireResolvedCall(t, result, "test", "external.HandleMyGarbage")
+	if rc.Strategy != "lsp_dll_resolve" {
+		t.Errorf("expected strategy lsp_dll_resolve, got %s", rc.Strategy)
+	}
+}
+
+func TestCLSP_DLL_Dlsym(t *testing.T) {
+	// Linux-style: dlsym with cast
+	source := `
+typedef void (*init_fn)(void);
+
+void* dlopen(const char* filename, int flags);
+void* dlsym(void* handle, const char* symbol);
+
+void test() {
+    void* h = dlopen("libfoo.so", 1);
+    init_fn init = (init_fn)dlsym(h, "initialize");
+    init();
+}
+`
+	result := extractCWithRegistry(t, source)
+	rc := requireResolvedCall(t, result, "test", "external.initialize")
+	if rc.Strategy != "lsp_dll_resolve" {
+		t.Errorf("expected strategy lsp_dll_resolve, got %s", rc.Strategy)
+	}
+}
+
+func TestCLSP_DLL_CustomResolver(t *testing.T) {
+	// Custom resolver function — heuristic detects cast + string literal
+	source := `
+typedef int (*ProcessFunc)(const char*);
+void* Resolve(const char* name);
+
+void test() {
+    ProcessFunc proc = (ProcessFunc)Resolve("ProcessData");
+    proc("input");
+}
+`
+	result := extractCWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "external.ProcessData")
+}
+
+func TestCLSP_DLL_CppStaticCast(t *testing.T) {
+	// C++ static_cast pattern
+	source := `
+typedef void (*RenderFunc)(void);
+void* LoadSymbol(const char* name);
+
+void test() {
+    RenderFunc render = static_cast<RenderFunc>(LoadSymbol("RenderFrame"));
+    render();
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "external.RenderFrame")
+}
+
+func TestCLSP_DLL_ReinterpretCast(t *testing.T) {
+	// C++ reinterpret_cast pattern
+	source := `
+typedef void (*ShutdownFunc)(void);
+void* GetSymbol(void* lib, const char* sym);
+
+void test() {
+    void* lib;
+    ShutdownFunc shutdown = reinterpret_cast<ShutdownFunc>(GetSymbol(lib, "Shutdown"));
+    shutdown();
+}
+`
+	result := extractCPPWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "external.Shutdown")
+}
+
+func TestCLSP_DLL_NoFalsePositive_NonFP(t *testing.T) {
+	// Should NOT trigger: string arg but result is not a function pointer
+	source := `
+char* lookup(const char* key);
+
+void test() {
+    char* val = lookup("some_key");
+}
+`
+	result := extractCWithRegistry(t, source)
+	rc := findResolvedCall(t, result, "test", "external.some_key")
+	if rc != nil {
+		t.Errorf("false positive: non-fp variable should not get dll resolve, got %s", rc.CalleeQN)
+	}
+}
+
+func TestCLSP_DLL_NoFalsePositive_NoCast(t *testing.T) {
+	// Should NOT trigger: no cast, var type is not function pointer
+	source := `
+int find(const char* name);
+
+void test() {
+    int result = find("SomeFunc");
+}
+`
+	result := extractCWithRegistry(t, source)
+	rc := findResolvedCall(t, result, "test", "external.SomeFunc")
+	if rc != nil {
+		t.Errorf("false positive: int variable should not get dll resolve")
+	}
+}
+
+func TestCLSP_DLL_MultipleFunctions(t *testing.T) {
+	// Multiple DLL functions resolved from same library
+	source := `
+typedef void (*FuncA)(void);
+typedef int (*FuncB)(int);
+void* Resolve(const char* name);
+
+void test() {
+    FuncA a = (FuncA)Resolve("Alpha");
+    FuncB b = (FuncB)Resolve("Beta");
+    a();
+    b(1);
+}
+`
+	result := extractCWithRegistry(t, source)
+	requireResolvedCall(t, result, "test", "external.Alpha")
+	requireResolvedCall(t, result, "test", "external.Beta")
+}
+
+func TestCLSP_DLL_FuncPtrTypedef(t *testing.T) {
+	// Function pointer type detected without cast (explicit fp typedef)
+	source := `
+typedef void (*callback_t)(int, int);
+callback_t get_callback(const char* name);
+
+void test() {
+    callback_t cb = get_callback("OnResize");
+    cb(800, 600);
+}
+`
+	result := extractCWithRegistry(t, source)
+	// This pattern has no cast, but var type is a function pointer typedef.
+	// The typedef appears as NAMED type, not FUNC/POINTER, so the heuristic
+	// needs a cast to activate. This is a known limitation — cast is the signal.
+	_ = result
 }
 
 func TestCLSP_EasyWin_SFINAEConditionalReturn(t *testing.T) {

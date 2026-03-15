@@ -51,7 +51,7 @@ type SourceLineReader func(relPath string, startLine, endLine int) string
 
 // Linker discovers cross-service HTTP calls and creates HTTP_CALLS edges.
 type Linker struct {
-	store             *store.Store
+	store             store.StoreBackend
 	project           string
 	config            *LinkerConfig
 	routesByFunc      map[string][]int  // funcQN → indices into routes slice
@@ -63,7 +63,7 @@ type Linker struct {
 }
 
 // New creates a new HTTP Linker.
-func New(s *store.Store, project string) *Linker {
+func New(s store.StoreBackend, project string) *Linker {
 	return &Linker{store: s, project: project, config: DefaultConfig()}
 }
 

@@ -26,7 +26,7 @@ static uint64_t now_ns(void) {
 }
 
 // cbm_get_profile returns accumulated parse/extract times and file count.
-void cbm_get_profile(uint64_t* parse_ns, uint64_t* extract_ns, uint64_t* files) {
+void cbm_get_profile(uint64_t *parse_ns, uint64_t *extract_ns, uint64_t *files) {
     *parse_ns = atomic_load(&total_parse_ns);
     *extract_ns = atomic_load(&total_extract_ns);
     *files = atomic_load(&total_files);
@@ -56,84 +56,87 @@ void cbm_reset_profile(void) {
 
 // --- Growable array push functions ---
 
-#define GROW_ARRAY(arr, arena, type) do { \
-    if ((arr)->count >= (arr)->cap) { \
-        int new_cap = (arr)->cap == 0 ? 32 : (arr)->cap * 2; \
-        type* new_items = (type*)cbm_arena_alloc(arena, (size_t)new_cap * sizeof(type)); \
-        if (!new_items) return; \
-        if ((arr)->items && (arr)->count > 0) { \
-            memcpy(new_items, (arr)->items, (size_t)(arr)->count * sizeof(type)); \
-        } \
-        (arr)->items = new_items; \
-        (arr)->cap = new_cap; \
-    } \
-} while(0)
+#define GROW_ARRAY(arr, arena)                                                                   \
+    do {                                                                                         \
+        if ((arr)->count >= (arr)->cap) {                                                        \
+            int new_cap = (arr)->cap == 0 ? 32 : (arr)->cap * 2;                                 \
+            void *new_items = cbm_arena_alloc((arena), (size_t)new_cap * sizeof(*(arr)->items)); \
+            if (!new_items)                                                                      \
+                return;                                                                          \
+            if ((arr)->items && (arr)->count > 0) {                                              \
+                memcpy(new_items, (arr)->items, (size_t)(arr)->count * sizeof(*(arr)->items));   \
+            }                                                                                    \
+            (arr)->items = new_items;                                                            \
+            (arr)->cap = new_cap;                                                                \
+        }                                                                                        \
+    } while (0)
 
-void cbm_defs_push(CBMDefArray* arr, CBMArena* a, CBMDefinition def) {
-    GROW_ARRAY(arr, a, CBMDefinition);
+void cbm_defs_push(CBMDefArray *arr, CBMArena *a, CBMDefinition def) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = def;
 }
 
-void cbm_calls_push(CBMCallArray* arr, CBMArena* a, CBMCall call) {
-    GROW_ARRAY(arr, a, CBMCall);
+void cbm_calls_push(CBMCallArray *arr, CBMArena *a, CBMCall call) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = call;
 }
 
-void cbm_imports_push(CBMImportArray* arr, CBMArena* a, CBMImport imp) {
-    GROW_ARRAY(arr, a, CBMImport);
+void cbm_imports_push(CBMImportArray *arr, CBMArena *a, CBMImport imp) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = imp;
 }
 
-void cbm_usages_push(CBMUsageArray* arr, CBMArena* a, CBMUsage usage) {
-    GROW_ARRAY(arr, a, CBMUsage);
+void cbm_usages_push(CBMUsageArray *arr, CBMArena *a, CBMUsage usage) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = usage;
 }
 
-void cbm_throws_push(CBMThrowArray* arr, CBMArena* a, CBMThrow thr) {
-    GROW_ARRAY(arr, a, CBMThrow);
+void cbm_throws_push(CBMThrowArray *arr, CBMArena *a, CBMThrow thr) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = thr;
 }
 
-void cbm_rw_push(CBMRWArray* arr, CBMArena* a, CBMReadWrite rw) {
-    GROW_ARRAY(arr, a, CBMReadWrite);
+void cbm_rw_push(CBMRWArray *arr, CBMArena *a, CBMReadWrite rw) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = rw;
 }
 
-void cbm_typerefs_push(CBMTypeRefArray* arr, CBMArena* a, CBMTypeRef tr) {
-    GROW_ARRAY(arr, a, CBMTypeRef);
+void cbm_typerefs_push(CBMTypeRefArray *arr, CBMArena *a, CBMTypeRef tr) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = tr;
 }
 
-void cbm_envaccess_push(CBMEnvAccessArray* arr, CBMArena* a, CBMEnvAccess ea) {
-    GROW_ARRAY(arr, a, CBMEnvAccess);
+void cbm_envaccess_push(CBMEnvAccessArray *arr, CBMArena *a, CBMEnvAccess ea) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ea;
 }
 
-void cbm_typeassign_push(CBMTypeAssignArray* arr, CBMArena* a, CBMTypeAssign ta) {
-    GROW_ARRAY(arr, a, CBMTypeAssign);
+void cbm_typeassign_push(CBMTypeAssignArray *arr, CBMArena *a, CBMTypeAssign ta) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ta;
 }
 
-void cbm_impltrait_push(CBMImplTraitArray* arr, CBMArena* a, CBMImplTrait it) {
-    GROW_ARRAY(arr, a, CBMImplTrait);
+void cbm_impltrait_push(CBMImplTraitArray *arr, CBMArena *a, CBMImplTrait it) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = it;
 }
 
-void cbm_resolvedcall_push(CBMResolvedCallArray* arr, CBMArena* a, CBMResolvedCall rc) {
-    GROW_ARRAY(arr, a, CBMResolvedCall);
+void cbm_resolvedcall_push(CBMResolvedCallArray *arr, CBMArena *a, CBMResolvedCall rc) {
+    GROW_ARRAY(arr, a);
     arr->items[arr->count++] = rc;
 }
 
 // --- String input reader (for parse_with_options) ---
 
 typedef struct {
-    const char* string;
+    const char *string;
     uint32_t length;
 } CBMStringInput;
 
-static const char* cbm_string_read(void* payload, uint32_t byte, TSPoint point, uint32_t* bytes_read) {
+static const char *cbm_string_read(void *payload, uint32_t byte, TSPoint point,
+                                   uint32_t *bytes_read) {
     (void)point;
-    CBMStringInput* self = (CBMStringInput*)payload;
+    CBMStringInput *self = (CBMStringInput *)payload;
     if (byte >= self->length) {
         *bytes_read = 0;
         return "";
@@ -144,8 +147,8 @@ static const char* cbm_string_read(void* payload, uint32_t byte, TSPoint point, 
 
 // --- Parse timeout callback ---
 
-static bool cbm_timeout_cb(TSParseState* state) {
-    uint64_t deadline = *(uint64_t*)state->payload;
+static bool cbm_timeout_cb(TSParseState *state) {
+    uint64_t deadline = *(uint64_t *)state->payload;
     return now_ns() > deadline;
 }
 
@@ -154,14 +157,15 @@ static bool cbm_timeout_cb(TSParseState* state) {
 // We keep one parser per thread, and just switch language as needed.
 // This avoids ~70K ts_parser_new()/ts_parser_delete() cycles on large repos.
 
-static _Thread_local TSParser* tl_parser = NULL;
+static _Thread_local TSParser *tl_parser = NULL;
 static _Thread_local CBMLanguage tl_parser_lang = CBM_LANG_COUNT; // invalid sentinel
 
 // Get or create a thread-local parser configured for the given language.
-static TSParser* get_thread_parser(const TSLanguage* ts_lang, CBMLanguage lang) {
+static TSParser *get_thread_parser(const TSLanguage *ts_lang, CBMLanguage lang) {
     if (!tl_parser) {
         tl_parser = ts_parser_new();
-        if (!tl_parser) return NULL;
+        if (!tl_parser)
+            return NULL;
         tl_parser_lang = CBM_LANG_COUNT;
     }
     if (tl_parser_lang != lang) {
@@ -176,7 +180,8 @@ static TSParser* get_thread_parser(const TSLanguage* ts_lang, CBMLanguage lang) 
 static int cbm_initialized = 0;
 
 int cbm_init(void) {
-    if (cbm_initialized) return 0;
+    if (cbm_initialized)
+        return 0;
     cbm_initialized = 1;
     return 0;
 }
@@ -194,23 +199,19 @@ void cbm_shutdown(void) {
 
 // --- Main extraction function ---
 
-CBMFileResult* cbm_extract_file(
-    const char* source, int source_len,
-    CBMLanguage language,
-    const char* project, const char* rel_path,
-    int64_t timeout_micros,
-    const char** extra_defines,
-    const char** include_paths
-) {
+CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage language,
+                                const char *project, const char *rel_path, int64_t timeout_micros,
+                                const char **extra_defines, const char **include_paths) {
     // Allocate result on heap (arena inside for all string data)
-    CBMFileResult* result = (CBMFileResult*)calloc(1, sizeof(CBMFileResult));
-    if (!result) return NULL;
+    CBMFileResult *result = (CBMFileResult *)calloc(1, sizeof(CBMFileResult));
+    if (!result)
+        return NULL;
 
     cbm_arena_init(&result->arena);
-    CBMArena* a = &result->arena;
+    CBMArena *a = &result->arena;
 
     // Get language spec
-    const CBMLangSpec* spec = cbm_lang_spec(language);
+    const CBMLangSpec *spec = cbm_lang_spec(language);
     if (!spec) {
         result->has_error = true;
         result->error_msg = cbm_arena_strdup(a, "unsupported language");
@@ -218,7 +219,7 @@ CBMFileResult* cbm_extract_file(
     }
 
     // Get tree-sitter language
-    const TSLanguage* ts_lang = cbm_ts_language(language);
+    const TSLanguage *ts_lang = cbm_ts_language(language);
     if (!ts_lang) {
         result->has_error = true;
         result->error_msg = cbm_arena_strdup(a, "no tree-sitter grammar");
@@ -226,7 +227,7 @@ CBMFileResult* cbm_extract_file(
     }
 
     // Get thread-local parser (reused across files on same thread)
-    TSParser* parser = get_thread_parser(ts_lang, language);
+    TSParser *parser = get_thread_parser(ts_lang, language);
     if (!parser) {
         result->has_error = true;
         result->error_msg = cbm_arena_strdup(a, "parser alloc failed");
@@ -247,20 +248,21 @@ CBMFileResult* cbm_extract_file(
         NULL,
     };
 
-    uint64_t deadline_ns = 0;
     TSParseOptions opts = {0};
+    uint64_t deadline_ns = 0; // cppcheck-suppress unreadVariable
     if (timeout_micros > 0) {
         deadline_ns = t0 + (uint64_t)timeout_micros * 1000ULL;
         opts.payload = &deadline_ns;
         opts.progress_callback = cbm_timeout_cb;
     }
 
-    TSTree* tree = ts_parser_parse_with_options(parser, NULL, ts_input, opts);
+    TSTree *tree = ts_parser_parse_with_options(parser, NULL, ts_input, opts);
     uint64_t t1 = now_ns();
 
     if (!tree) {
         result->has_error = true;
-        result->error_msg = cbm_arena_strdup(a, timeout_micros > 0 ? "parse timeout" : "parse failed");
+        result->error_msg =
+            cbm_arena_strdup(a, timeout_micros > 0 ? "parse timeout" : "parse failed");
         return result;
     }
 
@@ -303,16 +305,15 @@ CBMFileResult* cbm_extract_file(
     // Defs keep original-source line numbers; only CALLS are extracted from expanded source.
     if (language == CBM_LANG_C || language == CBM_LANG_CPP || language == CBM_LANG_CUDA) {
         uint64_t pp_start = now_ns();
-        char* expanded = cbm_preprocess(source, source_len, rel_path,
-                                         extra_defines, include_paths,
-                                         language != CBM_LANG_C);
+        char *expanded = cbm_preprocess(source, source_len, rel_path, extra_defines, include_paths,
+                                        language != CBM_LANG_C);
         if (expanded) {
             int expanded_len = (int)strlen(expanded);
             // Record calls count before second pass
             int calls_before = result->calls.count;
 
             // Parse expanded source with fresh tree
-            TSParser* pp_parser = get_thread_parser(ts_lang, language);
+            TSParser *pp_parser = get_thread_parser(ts_lang, language);
             if (pp_parser) {
                 ts_parser_reset(pp_parser);
                 CBMStringInput pp_input = {expanded, (uint32_t)expanded_len};
@@ -323,7 +324,8 @@ CBMFileResult* cbm_extract_file(
                     NULL,
                 };
                 TSParseOptions pp_opts = {0};
-                TSTree* pp_tree = ts_parser_parse_with_options(pp_parser, NULL, pp_ts_input, pp_opts);
+                TSTree *pp_tree =
+                    ts_parser_parse_with_options(pp_parser, NULL, pp_ts_input, pp_opts);
                 if (pp_tree) {
                     TSNode pp_root = ts_tree_root_node(pp_tree);
 
@@ -345,9 +347,9 @@ CBMFileResult* cbm_extract_file(
                     cbm_extract_unified(&pp_ctx);
 
                     // Also run LSP on expanded source for additional type-resolved calls
-                    if (language == CBM_LANG_C || language == CBM_LANG_CPP || language == CBM_LANG_CUDA) {
-                        cbm_run_c_lsp(a, result, expanded, expanded_len, pp_root, language != CBM_LANG_C);
-                    }
+                    // (language is already C/C++/CUDA — checked in enclosing block)
+                    cbm_run_c_lsp(a, result, expanded, expanded_len, pp_root,
+                                  language != CBM_LANG_C);
 
                     ts_tree_delete(pp_tree);
                 }
@@ -368,12 +370,31 @@ CBMFileResult* cbm_extract_file(
     atomic_fetch_add(&total_extract_ns, t2 - t1);
     atomic_fetch_add(&total_files, 1);
 
-    ts_tree_delete(tree);
+    // Retain tree for cross-file LSP reuse (caller frees via cbm_free_tree)
+    result->cached_tree = tree;
+    result->cached_lang = language;
     return result;
 }
 
-void cbm_free_result(CBMFileResult* result) {
-    if (!result) return;
+void cbm_free_result(CBMFileResult *result) {
+    if (!result)
+        return;
+    if (result->cached_tree) {
+        ts_tree_delete(result->cached_tree);
+        result->cached_tree = NULL;
+    }
     cbm_arena_destroy(&result->arena);
     free(result);
+}
+
+void cbm_free_tree(CBMFileResult *result) {
+    if (result && result->cached_tree) {
+        ts_tree_delete(result->cached_tree);
+        result->cached_tree = NULL;
+    }
+}
+
+void cbm_free_tree_ptr(TSTree *tree) {
+    if (tree)
+        ts_tree_delete(tree);
 }

@@ -41,6 +41,7 @@ func RunGoLSPCrossFile(
 	fileDefs []CrossFileDef,
 	crossDefs []CrossFileDef,
 	imports []Import,
+	cachedTree unsafe.Pointer, // *C.TSTree or nil
 ) []ResolvedCall {
 	if len(source) == 0 {
 		return nil
@@ -130,6 +131,7 @@ func RunGoLSPCrossFile(
 		cModuleQN,
 		cDefsPtr, C.int(nDefs),
 		cImportNames, cImportQNs, C.int(nImports),
+		(*C.TSTree)(cachedTree),
 		&outCalls,
 	)
 
@@ -232,6 +234,298 @@ func extractReceiverTypeQN(receiver, moduleQN string) string {
 	return moduleQN + "." + r
 }
 
+// BatchLSPInput holds per-file data for batch Go LSP cross-file resolution.
+type BatchLSPInput struct {
+	Source    []byte
+	ModuleQN string
+	FileDefs  []CrossFileDef
+	CrossDefs []CrossFileDef
+	Imports   []Import
+	CachedTree unsafe.Pointer // *C.TSTree or nil
+}
+
+// BatchCLSPInput holds per-file data for batch C/C++ LSP cross-file resolution.
+type BatchCLSPInput struct {
+	Source    []byte
+	ModuleQN string
+	CppMode  bool
+	FileDefs  []CrossFileDef
+	CrossDefs []CrossFileDef
+	Includes  []Import
+	CachedTree unsafe.Pointer // *C.TSTree or nil
+}
+
+// BatchGoLSPCrossFile resolves all Go files' cross-file calls in batched CGo calls.
+// Uses a CString cache to deduplicate shared cross-file defs across files.
+func BatchGoLSPCrossFile(files []BatchLSPInput) [][]ResolvedCall {
+	if len(files) == 0 {
+		return nil
+	}
+
+	Init()
+
+	var arena C.CBMArena
+	C.cbm_arena_init(&arena)
+	defer C.cbm_arena_destroy(&arena)
+
+	var toFree []unsafe.Pointer
+	defer func() {
+		for _, p := range toFree {
+			C.free(p)
+		}
+	}()
+
+	// CString cache: deduplicates strings shared across files (cross-file defs)
+	strCache := make(map[string]*C.char)
+	cs := func(s string) *C.char {
+		if s == "" {
+			return nil
+		}
+		if p, ok := strCache[s]; ok {
+			return p
+		}
+		p := C.CString(s)
+		strCache[s] = p
+		toFree = append(toFree, unsafe.Pointer(p))
+		return p
+	}
+
+	nFiles := len(files)
+
+	// Allocate batch file array
+	cFilesPtr := (*C.CBMBatchGoLSPFile)(C.malloc(C.size_t(nFiles) * C.size_t(unsafe.Sizeof(C.CBMBatchGoLSPFile{}))))
+	if cFilesPtr == nil {
+		return nil
+	}
+	toFree = append(toFree, unsafe.Pointer(cFilesPtr))
+	cFiles := unsafe.Slice(cFilesPtr, nFiles)
+
+	ptrSize := C.size_t(unsafe.Sizeof((*C.char)(nil)))
+
+	for i, f := range files {
+		// Merge file-local + cross-file defs
+		allDefs := make([]CrossFileDef, 0, len(f.FileDefs)+len(f.CrossDefs))
+		allDefs = append(allDefs, f.FileDefs...)
+		allDefs = append(allDefs, f.CrossDefs...)
+
+		nDefs := len(allDefs)
+		var cDefsPtr *C.CBMLSPDef
+		if nDefs > 0 {
+			cDefsPtr = (*C.CBMLSPDef)(C.malloc(C.size_t(nDefs) * C.size_t(unsafe.Sizeof(C.CBMLSPDef{}))))
+			if cDefsPtr == nil {
+				continue
+			}
+			toFree = append(toFree, unsafe.Pointer(cDefsPtr))
+			cDefs := unsafe.Slice(cDefsPtr, nDefs)
+			for j, d := range allDefs {
+				cDefs[j] = C.CBMLSPDef{
+					qualified_name:   cs(d.QualifiedName),
+					short_name:       cs(d.ShortName),
+					label:            cs(d.Label),
+					receiver_type:    cs(d.ReceiverType),
+					def_module_qn:    cs(d.DefModuleQN),
+					return_types:     cs(d.ReturnTypes),
+					embedded_types:   cs(d.EmbeddedTypes),
+					field_defs:       cs(d.FieldDefs),
+					method_names_str: cs(d.MethodNames),
+					is_interface:     C.bool(d.IsInterface),
+				}
+			}
+		}
+
+		// Marshal imports
+		nImports := len(f.Imports)
+		cImportNames := (**C.char)(C.malloc(C.size_t(nImports+1) * ptrSize))
+		cImportQNs := (**C.char)(C.malloc(C.size_t(nImports+1) * ptrSize))
+		toFree = append(toFree, unsafe.Pointer(cImportNames), unsafe.Pointer(cImportQNs))
+
+		importNameSlice := unsafe.Slice(cImportNames, nImports+1)
+		importQNSlice := unsafe.Slice(cImportQNs, nImports+1)
+		for j, imp := range f.Imports {
+			importNameSlice[j] = cs(imp.LocalName)
+			importQNSlice[j] = cs(imp.ModulePath)
+		}
+		importNameSlice[nImports] = nil
+		importQNSlice[nImports] = nil
+
+		cFiles[i] = C.CBMBatchGoLSPFile{
+			source:       (*C.char)(unsafe.Pointer(&f.Source[0])),
+			source_len:   C.int(len(f.Source)),
+			module_qn:    cs(f.ModuleQN),
+			cached_tree:  (*C.TSTree)(f.CachedTree),
+			defs:         cDefsPtr,
+			def_count:    C.int(nDefs),
+			import_names: cImportNames,
+			import_qns:   cImportQNs,
+			import_count: C.int(nImports),
+		}
+	}
+
+	// Allocate output array
+	outPtr := (*C.CBMResolvedCallArray)(C.calloc(C.size_t(nFiles), C.size_t(unsafe.Sizeof(C.CBMResolvedCallArray{}))))
+	if outPtr == nil {
+		return nil
+	}
+	toFree = append(toFree, unsafe.Pointer(outPtr))
+
+	// ONE CGo call
+	C.cbm_batch_go_lsp_cross(&arena, cFilesPtr, C.int(nFiles), outPtr)
+
+	// Unmarshal results
+	outs := unsafe.Slice(outPtr, nFiles)
+	results := make([][]ResolvedCall, nFiles)
+	for i := range outs {
+		if outs[i].count == 0 {
+			continue
+		}
+		rcs := unsafe.Slice(outs[i].items, outs[i].count)
+		results[i] = make([]ResolvedCall, outs[i].count)
+		for j, rc := range rcs {
+			results[i][j] = ResolvedCall{
+				CallerQN:   C.GoString(rc.caller_qn),
+				CalleeQN:   C.GoString(rc.callee_qn),
+				Strategy:   C.GoString(rc.strategy),
+				Confidence: float32(rc.confidence),
+				Reason:     goStringOrEmpty(rc.reason),
+			}
+		}
+	}
+
+	return results
+}
+
+// BatchCLSPCrossFile resolves all C/C++ files' cross-file calls in batched CGo calls.
+func BatchCLSPCrossFile(files []BatchCLSPInput) [][]ResolvedCall {
+	if len(files) == 0 {
+		return nil
+	}
+
+	Init()
+
+	var arena C.CBMArena
+	C.cbm_arena_init(&arena)
+	defer C.cbm_arena_destroy(&arena)
+
+	var toFree []unsafe.Pointer
+	defer func() {
+		for _, p := range toFree {
+			C.free(p)
+		}
+	}()
+
+	strCache := make(map[string]*C.char)
+	cs := func(s string) *C.char {
+		if s == "" {
+			return nil
+		}
+		if p, ok := strCache[s]; ok {
+			return p
+		}
+		p := C.CString(s)
+		strCache[s] = p
+		toFree = append(toFree, unsafe.Pointer(p))
+		return p
+	}
+
+	nFiles := len(files)
+
+	cFilesPtr := (*C.CBMBatchCLSPFile)(C.malloc(C.size_t(nFiles) * C.size_t(unsafe.Sizeof(C.CBMBatchCLSPFile{}))))
+	if cFilesPtr == nil {
+		return nil
+	}
+	toFree = append(toFree, unsafe.Pointer(cFilesPtr))
+	cFileSlice := unsafe.Slice(cFilesPtr, nFiles)
+
+	ptrSize := C.size_t(unsafe.Sizeof((*C.char)(nil)))
+
+	for i, f := range files {
+		allDefs := make([]CrossFileDef, 0, len(f.FileDefs)+len(f.CrossDefs))
+		allDefs = append(allDefs, f.FileDefs...)
+		allDefs = append(allDefs, f.CrossDefs...)
+
+		nDefs := len(allDefs)
+		var cDefsPtr *C.CBMLSPDef
+		if nDefs > 0 {
+			cDefsPtr = (*C.CBMLSPDef)(C.malloc(C.size_t(nDefs) * C.size_t(unsafe.Sizeof(C.CBMLSPDef{}))))
+			if cDefsPtr == nil {
+				continue
+			}
+			toFree = append(toFree, unsafe.Pointer(cDefsPtr))
+			cDefs := unsafe.Slice(cDefsPtr, nDefs)
+			for j, d := range allDefs {
+				cDefs[j] = C.CBMLSPDef{
+					qualified_name:   cs(d.QualifiedName),
+					short_name:       cs(d.ShortName),
+					label:            cs(d.Label),
+					receiver_type:    cs(d.ReceiverType),
+					def_module_qn:    cs(d.DefModuleQN),
+					return_types:     cs(d.ReturnTypes),
+					embedded_types:   cs(d.EmbeddedTypes),
+					field_defs:       cs(d.FieldDefs),
+					method_names_str: cs(d.MethodNames),
+					is_interface:     C.bool(d.IsInterface),
+				}
+			}
+		}
+
+		nIncludes := len(f.Includes)
+		cIncPaths := (**C.char)(C.malloc(C.size_t(nIncludes+1) * ptrSize))
+		cIncQNs := (**C.char)(C.malloc(C.size_t(nIncludes+1) * ptrSize))
+		toFree = append(toFree, unsafe.Pointer(cIncPaths), unsafe.Pointer(cIncQNs))
+
+		incPathSlice := unsafe.Slice(cIncPaths, nIncludes+1)
+		incQNSlice := unsafe.Slice(cIncQNs, nIncludes+1)
+		for j, inc := range f.Includes {
+			incPathSlice[j] = cs(inc.LocalName)
+			incQNSlice[j] = cs(inc.ModulePath)
+		}
+		incPathSlice[nIncludes] = nil
+		incQNSlice[nIncludes] = nil
+
+		cFileSlice[i] = C.CBMBatchCLSPFile{
+			source:          (*C.char)(unsafe.Pointer(&f.Source[0])),
+			source_len:      C.int(len(f.Source)),
+			module_qn:       cs(f.ModuleQN),
+			cpp_mode:        C.bool(f.CppMode),
+			cached_tree:     (*C.TSTree)(f.CachedTree),
+			defs:            cDefsPtr,
+			def_count:       C.int(nDefs),
+			include_paths:   cIncPaths,
+			include_ns_qns:  cIncQNs,
+			include_count:   C.int(nIncludes),
+		}
+	}
+
+	outPtr := (*C.CBMResolvedCallArray)(C.calloc(C.size_t(nFiles), C.size_t(unsafe.Sizeof(C.CBMResolvedCallArray{}))))
+	if outPtr == nil {
+		return nil
+	}
+	toFree = append(toFree, unsafe.Pointer(outPtr))
+
+	C.cbm_batch_c_lsp_cross(&arena, cFilesPtr, C.int(nFiles), outPtr)
+
+	outs := unsafe.Slice(outPtr, nFiles)
+	results := make([][]ResolvedCall, nFiles)
+	for i := range outs {
+		if outs[i].count == 0 {
+			continue
+		}
+		rcs := unsafe.Slice(outs[i].items, outs[i].count)
+		results[i] = make([]ResolvedCall, outs[i].count)
+		for j, rc := range rcs {
+			results[i][j] = ResolvedCall{
+				CallerQN:   C.GoString(rc.caller_qn),
+				CalleeQN:   C.GoString(rc.callee_qn),
+				Strategy:   C.GoString(rc.strategy),
+				Confidence: float32(rc.confidence),
+				Reason:     goStringOrEmpty(rc.reason),
+			}
+		}
+	}
+
+	return results
+}
+
 // RunCLSPCrossFile runs the C/C++ LSP type resolver with cross-file definitions.
 // source is the file content, moduleQN is the file's module QN,
 // cppMode enables C++ features (namespaces, classes, templates, etc.),
@@ -244,6 +538,7 @@ func RunCLSPCrossFile(
 	fileDefs []CrossFileDef,
 	crossDefs []CrossFileDef,
 	includes []Import,
+	cachedTree unsafe.Pointer, // *C.TSTree or nil
 ) []ResolvedCall {
 	if len(source) == 0 {
 		return nil
@@ -330,6 +625,7 @@ func RunCLSPCrossFile(
 		C.bool(cppMode),
 		cDefsPtr, C.int(nDefs),
 		cIncPaths, cIncQNs, C.int(nIncludes),
+		(*C.TSTree)(cachedTree),
 		&outCalls,
 	)
 

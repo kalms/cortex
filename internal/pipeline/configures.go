@@ -95,7 +95,7 @@ func extractModuleConstants(modules []*store.Node, index map[string]string) {
 // buildEnvIndex creates a mapping from env var key → module QN
 // by scanning Module node constants and config Variable nodes.
 func (p *Pipeline) buildEnvIndex() map[string]string {
-	modules, err := p.findNodesByLabel(p.ProjectName, "Module")
+	modules, err := p.Store.FindNodesByLabel(p.ProjectName, "Module")
 	if err != nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (p *Pipeline) buildEnvIndex() map[string]string {
 	// Also scan config Variable nodes for env-var-like names.
 	// Only add if key not already in index — existing Module constants
 	// (which carry URL values for HTTP linking) always take priority.
-	variables, err := p.findNodesByLabel(p.ProjectName, "Variable")
+	variables, err := p.Store.FindNodesByLabel(p.ProjectName, "Variable")
 	if err == nil {
 		added := 0
 		for _, v := range variables {

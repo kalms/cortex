@@ -6,14 +6,15 @@
 #include <ctype.h>
 
 // Forward declaration
-static void walk_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec);
+static void walk_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
 
 // Check if a node is inside a call expression (to avoid double-counting as usage)
-static bool is_inside_call(TSNode node, const CBMLangSpec* spec) {
+static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < 10) {
-        if (cbm_kind_in_set(cur, spec->call_node_types)) return true;
+        if (cbm_kind_in_set(cur, spec->call_node_types))
+            return true;
         cur = ts_node_parent(cur);
         depth++;
     }
@@ -21,12 +22,14 @@ static bool is_inside_call(TSNode node, const CBMLangSpec* spec) {
 }
 
 // Check if a node is inside an import statement
-static bool is_inside_import(TSNode node, const CBMLangSpec* spec) {
-    if (!spec->import_node_types || !spec->import_node_types[0]) return false;
+static bool is_inside_import(TSNode node, const CBMLangSpec *spec) {
+    if (!spec->import_node_types || !spec->import_node_types[0])
+        return false;
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < 10) {
-        if (cbm_kind_in_set(cur, spec->import_node_types)) return true;
+        if (cbm_kind_in_set(cur, spec->import_node_types))
+            return true;
         cur = ts_node_parent(cur);
         depth++;
     }
@@ -35,45 +38,41 @@ static bool is_inside_import(TSNode node, const CBMLangSpec* spec) {
 
 // Is this an identifier-like node that represents a reference?
 static bool is_reference_node(TSNode node, CBMLanguage lang) {
-    const char* kind = ts_node_type(node);
+    const char *kind = ts_node_type(node);
 
     // Common identifier types across languages
-    if (strcmp(kind, "identifier") == 0 ||
-        strcmp(kind, "simple_identifier") == 0 ||
+    if (strcmp(kind, "identifier") == 0 || strcmp(kind, "simple_identifier") == 0 ||
         strcmp(kind, "type_identifier") == 0) {
         return true;
     }
 
     // Language-specific reference types
     switch (lang) {
-        case CBM_LANG_GO:
-            return strcmp(kind, "field_identifier") == 0 ||
-                   strcmp(kind, "package_identifier") == 0;
-        case CBM_LANG_PYTHON:
-            return strcmp(kind, "attribute") == 0;
-        case CBM_LANG_RUST:
-            return strcmp(kind, "field_identifier") == 0 ||
-                   strcmp(kind, "scoped_identifier") == 0;
-        case CBM_LANG_HASKELL:
-            return strcmp(kind, "variable") == 0 ||
-                   strcmp(kind, "constructor") == 0;
-        case CBM_LANG_OCAML:
-            return strcmp(kind, "value_path") == 0 ||
-                   strcmp(kind, "constructor_path") == 0;
-        case CBM_LANG_ERLANG:
-            return strcmp(kind, "atom") == 0 ||
-                   strcmp(kind, "var") == 0;
-        default:
-            return false;
+    case CBM_LANG_GO:
+        return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "package_identifier") == 0;
+    case CBM_LANG_PYTHON:
+        return strcmp(kind, "attribute") == 0;
+    case CBM_LANG_RUST:
+        return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "scoped_identifier") == 0;
+    case CBM_LANG_HASKELL:
+        return strcmp(kind, "variable") == 0 || strcmp(kind, "constructor") == 0;
+    case CBM_LANG_OCAML:
+        return strcmp(kind, "value_path") == 0 || strcmp(kind, "constructor_path") == 0;
+    case CBM_LANG_ERLANG:
+        return strcmp(kind, "atom") == 0 || strcmp(kind, "var") == 0;
+    default:
+        return false;
     }
 }
 
-static void walk_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec) {
+static void walk_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
     if (is_reference_node(node, ctx->language)) {
         // Skip if inside a call (already counted as CALLS edge)
-        if (is_inside_call(node, spec)) goto recurse;
+        if (is_inside_call(node, spec))
+            goto recurse;
         // Skip if inside an import
-        if (is_inside_import(node, spec)) goto recurse;
+        if (is_inside_import(node, spec))
+            goto recurse;
         // Skip if it's a definition name (left side of assignment, function name)
         TSNode parent = ts_node_parent(node);
         if (!ts_node_is_null(parent)) {
@@ -86,7 +85,7 @@ static void walk_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec
             }
         }
 
-        char* name = cbm_node_text(ctx->arena, node, ctx->source);
+        char *name = cbm_node_text(ctx->arena, node, ctx->source);
         if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
             CBMUsage usage;
             usage.ref_name = name;
@@ -95,17 +94,17 @@ static void walk_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec
         }
     }
 
-recurse:
-    ;
+recurse:;
     uint32_t count = ts_node_child_count(node);
     for (uint32_t i = 0; i < count; i++) {
         walk_usages(ctx, ts_node_child(node, i), spec);
     }
 }
 
-void cbm_extract_usages(CBMExtractCtx* ctx) {
-    const CBMLangSpec* spec = cbm_lang_spec(ctx->language);
-    if (!spec) return;
+void cbm_extract_usages(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+    if (!spec)
+        return;
 
     walk_usages(ctx, ctx->root, spec);
 }
@@ -113,13 +112,16 @@ void cbm_extract_usages(CBMExtractCtx* ctx) {
 // --- Unified handler: called once per node by the cursor walk ---
 // Uses WalkState flags instead of parent-chain walks for O(1) context checks.
 
-void handle_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, WalkState* state) {
-    if (!is_reference_node(node, ctx->language)) return;
+void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+    if (!is_reference_node(node, ctx->language))
+        return;
 
     // Skip if inside a call (already counted as CALLS edge) — O(1) via state
-    if (state->inside_call) return;
+    if (state->inside_call)
+        return;
     // Skip if inside an import
-    if (state->inside_import) return;
+    if (state->inside_import)
+        return;
 
     // Skip if it's a definition name (left side of assignment, function name)
     TSNode parent = ts_node_parent(node);
@@ -132,7 +134,7 @@ void handle_usages(CBMExtractCtx* ctx, TSNode node, const CBMLangSpec* spec, Wal
         }
     }
 
-    char* name = cbm_node_text(ctx->arena, node, ctx->source);
+    char *name = cbm_node_text(ctx->arena, node, ctx->source);
     if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
         CBMUsage usage;
         usage.ref_name = name;

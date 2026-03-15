@@ -110,6 +110,7 @@ void cbm_run_c_lsp_cross(
     bool cpp_mode,
     CBMLSPDef* defs, int def_count,
     const char** include_paths, const char** include_ns_qns, int include_count,
+    TSTree* cached_tree,           // NULL = parse internally
     CBMResolvedCallArray* out);
 
 // Register C stdlib types and functions into a registry.
@@ -117,5 +118,28 @@ void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
 
 // Register C++ stdlib types and functions into a registry.
 void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
+
+// --- Batch cross-file LSP ---
+
+// Per-file input for batch C/C++ LSP processing.
+typedef struct {
+    const char* source;
+    int source_len;
+    const char* module_qn;
+    bool cpp_mode;
+    TSTree* cached_tree;           // from TSTree caching (NULL = parse internally)
+    CBMLSPDef* defs;               // combined file-local + cross-file defs
+    int def_count;
+    const char** include_paths;    // parallel arrays, include_count long
+    const char** include_ns_qns;
+    int include_count;
+} CBMBatchCLSPFile;
+
+// Process multiple C/C++ files' cross-file LSP in one CGo call.
+// out must point to file_count pre-zeroed CBMResolvedCallArray structs.
+void cbm_batch_c_lsp_cross(
+    CBMArena* arena,
+    CBMBatchCLSPFile* files, int file_count,
+    CBMResolvedCallArray* out);
 
 #endif // CBM_LSP_C_LSP_H

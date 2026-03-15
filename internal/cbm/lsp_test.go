@@ -702,7 +702,7 @@ func doQuery() {
 		{LocalName: "db", ModulePath: "myapp/db"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -787,7 +787,7 @@ func showUser() {
 		{LocalName: "repo", ModulePath: "myapp/repo"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -1416,7 +1416,7 @@ func handler(b svc.Binder) {
 		{LocalName: "svc", ModulePath: "myapp/svc"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -1509,7 +1509,7 @@ func (c *Context) process() {
 		{LocalName: "echo", ModulePath: "myapp/echo"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -1577,7 +1577,7 @@ func dispatch(vhosts map[string]*echo.Echo, host string) {
 		{LocalName: "echo", ModulePath: "myapp/echo"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -1630,7 +1630,7 @@ func process(ctx context.Context) {
 		{LocalName: "context", ModulePath: "context"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {
@@ -1693,7 +1693,7 @@ func process(s svc.Store) {
 		{LocalName: "svc", ModulePath: "myapp/svc"},
 	}
 
-	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports)
+	resolved := RunGoLSPCrossFile([]byte(source), moduleQN, fileDefs, crossDefs, imports, nil)
 
 	t.Logf("Resolved calls (%d):", len(resolved))
 	for _, rc := range resolved {

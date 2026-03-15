@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,12 +29,13 @@ import (
 // Pipeline orchestrates the 3-pass indexing of a repository.
 type Pipeline struct {
 	ctx         context.Context
-	Store       *store.Store
+	Store       store.StoreBackend // graph ops (buffer or SQLite)
+	diskStore   *store.Store       // SQLite-specific: project mgmt, file hashes, backup
 	RepoPath    string
 	ProjectName string
 	Mode        discover.IndexMode
-	// buf holds all nodes/edges in memory during full-index passes 1-14.
-	// nil during incremental mode and post-flush passes 15-18.
+	// buf holds typed reference to GraphBuffer for FlushTo during dump.
+	// During full index, p.Store points to the same object.
 	buf *GraphBuffer
 	// extractionCache maps file rel_path -> CBM extraction result for all post-definition passes
 	extractionCache map[string]*cachedExtraction
@@ -74,7 +74,8 @@ func New(ctx context.Context, s *store.Store, repoPath string, mode discover.Ind
 	projectName := ProjectNameFromPath(repoPath)
 	return &Pipeline{
 		ctx:             ctx,
-		Store:           s,
+		Store:           s, // StoreBackend interface — initially the disk store
+		diskStore:       s, // always the disk store
 		RepoPath:        repoPath,
 		ProjectName:     projectName,
 		Mode:            mode,
@@ -113,76 +114,6 @@ func ProjectNameFromPath(absPath string) string {
 // checkCancel returns ctx.Err() if the pipeline's context has been cancelled.
 func (p *Pipeline) checkCancel() error {
 	return p.ctx.Err()
-}
-
-// --- Bridge methods: dispatch to in-memory buffer or SQLite store ---
-
-func (p *Pipeline) upsertNode(n *store.Node) error {
-	if p.buf != nil {
-		p.buf.UpsertNode(n)
-		return nil
-	}
-	_, err := p.Store.UpsertNode(n)
-	return err
-}
-
-func (p *Pipeline) upsertNodeBatch(nodes []*store.Node) (map[string]int64, error) {
-	if p.buf != nil {
-		return p.buf.UpsertNodeBatch(nodes), nil
-	}
-	return p.Store.UpsertNodeBatch(nodes)
-}
-
-func (p *Pipeline) insertEdge(e *store.Edge) error {
-	if p.buf != nil {
-		p.buf.InsertEdge(e)
-		return nil
-	}
-	_, err := p.Store.InsertEdge(e)
-	return err
-}
-
-func (p *Pipeline) insertEdgeBatch(edges []*store.Edge) error {
-	if p.buf != nil {
-		p.buf.InsertEdgeBatch(edges)
-		return nil
-	}
-	return p.Store.InsertEdgeBatch(edges)
-}
-
-func (p *Pipeline) findNodesByLabel(project, label string) ([]*store.Node, error) {
-	if p.buf != nil {
-		return p.buf.FindNodesByLabel(label), nil
-	}
-	return p.Store.FindNodesByLabel(project, label)
-}
-
-func (p *Pipeline) findNodeByQN(project, qn string) (*store.Node, error) {
-	if p.buf != nil {
-		return p.buf.FindNodeByQN(qn), nil
-	}
-	return p.Store.FindNodeByQN(project, qn)
-}
-
-func (p *Pipeline) findNodeByID(id int64) (*store.Node, error) {
-	if p.buf != nil {
-		return p.buf.FindNodeByID(id), nil
-	}
-	return p.Store.FindNodeByID(id)
-}
-
-func (p *Pipeline) findNodeIDsByQNs(project string, qns []string) (map[string]int64, error) {
-	if p.buf != nil {
-		return p.buf.FindNodeIDsByQNs(qns), nil
-	}
-	return p.Store.FindNodeIDsByQNs(project, qns)
-}
-
-func (p *Pipeline) findEdgesBySourceAndType(sourceID int64, edgeType string) ([]*store.Edge, error) {
-	if p.buf != nil {
-		return p.buf.FindEdgesBySourceAndType(sourceID, edgeType), nil
-	}
-	return p.Store.FindEdgesBySourceAndType(sourceID, edgeType)
 }
 
 // Run executes the full 3-pass pipeline within a single transaction.
@@ -231,227 +162,14 @@ func (p *Pipeline) Run() error {
 	ec, _ := p.Store.CountEdges(p.ProjectName)
 	logHeapStats("post_index")
 	slog.Info("pipeline.done", "nodes", nc, "edges", ec, "total_elapsed", time.Since(runStart))
-	return nil
-}
 
-// runFullIndex creates an in-memory SQLite store, runs all full-index passes
-// on it, then restores the result to the disk store via the Backup API.
-func (p *Pipeline) runFullIndex(files []discover.FileInfo, _ time.Time) error {
-	memStore, err := store.OpenMemory()
-	if err != nil {
-		return fmt.Errorf("open memory store: %w", err)
-	}
-	defer memStore.Close()
-
-	// Swap to in-memory store for all passes
-	diskStore := p.Store
-	p.Store = memStore
-	defer func() { p.Store = diskStore }()
-
-	if err := p.Store.UpsertProject(p.ProjectName, p.RepoPath); err != nil {
-		return fmt.Errorf("upsert project: %w", err)
-	}
-
-	if err := p.runFullPasses(files); err != nil {
-		return err
-	}
-
-	// Restore in-memory DB → disk store via SQLite Backup API
-	t := time.Now()
-	if err := diskStore.RestoreFrom(memStore); err != nil {
-		return fmt.Errorf("restore from memory: %w", err)
-	}
-	slog.Info("db.restore", "elapsed", time.Since(t))
-	return nil
-}
-
-// runIncrementalIndex runs the incremental pipeline on the disk-backed store.
-func (p *Pipeline) runIncrementalIndex(files, changed, unchanged []discover.FileInfo, _ time.Time) error {
-	slog.Info("incremental.classify", "changed", len(changed), "unchanged", len(unchanged), "total", len(files))
-
-	// Fast path: nothing changed → skip all heavy passes
-	if len(changed) == 0 {
-		slog.Info("incremental.noop", "reason", "no_changes")
-		return nil
-	}
-
-	// Use MEMORY journal mode during incremental writes
-	p.Store.BeginBulkWrite(p.ctx)
-
-	if err := p.Store.WithTransaction(p.ctx, func(txStore *store.Store) error {
-		origStore := p.Store
-		p.Store = txStore
-		defer func() { p.Store = origStore }()
-
-		if err := p.Store.UpsertProject(p.ProjectName, p.RepoPath); err != nil {
-			return fmt.Errorf("upsert project: %w", err)
-		}
-		return p.runIncrementalPasses(files, changed, unchanged)
-	}); err != nil {
-		p.Store.EndBulkWrite(p.ctx)
-		return err
-	}
-
-	p.Store.EndBulkWrite(p.ctx)
-
-	walBefore := p.Store.WALSize()
-	p.Store.Checkpoint(p.ctx)
-	walAfter := p.Store.WALSize()
-	slog.Info("wal.checkpoint", "before_mb", walBefore/(1<<20), "after_mb", walAfter/(1<<20))
-	return nil
-}
-
-// runFullPasses runs the complete pipeline (no incremental optimization).
-func (p *Pipeline) runFullPasses(files []discover.FileInfo) error {
-	// Initialize in-memory graph buffer for passes 1-14.
-	// All node/edge writes go to RAM; flushed to SQLite after pass 14.
-	p.buf = newGraphBuffer(p.ProjectName)
-
-	t := time.Now()
-	if err := p.passStructure(files); err != nil {
-		return fmt.Errorf("pass1 structure: %w", err)
-	}
-	slog.Info("pass.timing", "pass", "structure", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// Bulk load: read all files, xxh3 hash, LZ4 HC compress → RAM.
-	// This is the ONLY bulk disk read. All subsequent passes decompress from RAM.
-	t = time.Now()
-	p.bulkLoadSources(files)
-	slog.Info("pass.timing", "pass", "bulk_load", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.passDefinitions(files) // includes Variable extraction + enrichment
-	slog.Info("pass.timing", "pass", "definitions", "elapsed", time.Since(t))
-	logHeapStats("post_definitions")
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.passDecoratorTags() // auto-discover decorator semantic tags
-	slog.Info("pass.timing", "pass", "decorator_tags", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.buildRegistry() // includes Variable label
-	slog.Info("pass.timing", "pass", "registry", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.passInherits() // INHERITS edges from base_classes
-	slog.Info("pass.timing", "pass", "inherits", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passDecorates() // DECORATES edges from decorators
-	slog.Info("pass.timing", "pass", "decorates", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.passImports()
-	slog.Info("pass.timing", "pass", "imports", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.buildReturnTypeMap()
-	p.goLSPIdx = p.buildGoLSPDefIndex()
-	if p.goLSPIdx != nil {
-		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
-	}
-	p.cLSPIdx = p.buildCLSPDefIndex()
-	p.passCalls()
-	slog.Info("pass.timing", "pass", "calls", "elapsed", time.Since(t))
-	// Release heavy fields no longer needed after call resolution.
-	// Definitions + Calls + TypeAssigns + Imports dominate extractionCache memory
-	// (~160 KB/file → 16 GB for 100K-file repos). Nil them to halve peak RSS.
-	p.releaseExtractionFields(fieldsPostCalls)
-	p.goLSPIdx = nil // no longer needed after call resolution
-	p.cLSPIdx = nil
-	logHeapStats("post_calls")
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	p.passUsages()
-	slog.Info("pass.timing", "pass", "usages", "elapsed", time.Since(t))
-	p.releaseExtractionFields(fieldsPostUsages)
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	p.runSemanticEdgePasses()
-	// All semantic fields consumed — release remaining before implements.
-	p.releaseExtractionFields(fieldsPostSemantic)
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// passImplements needs extractionCache for Rust impl traits,
-	// so it must run before cleanupASTCache.
-	t = time.Now()
-	p.passImplements()
-	slog.Info("pass.timing", "pass", "implements", "elapsed", time.Since(t))
-
-	p.cleanupASTCache()
-	logHeapStats("post_cleanup")
-
-	// Flush in-memory buffer to SQLite with deferred index creation.
-	if err := p.buf.FlushTo(p.ctx, p.Store); err != nil {
-		return fmt.Errorf("graph_buffer flush: %w", err)
-	}
+	// Final cleanup: release remaining heavy fields and return memory to OS.
+	// Pipeline is a local var in callers, but explicit nil + FreeOSMemory
+	// ensures RSS drops immediately rather than waiting for next GC cycle.
+	p.compileFlags = nil
 	p.buf = nil
-
-	// Post-flush passes use Store directly (need indexes).
-	return p.runPostFlushPasses(files)
-}
-
-// runPostFlushPasses runs passes that require SQLite indexes (post graph-buffer flush).
-func (p *Pipeline) runPostFlushPasses(files []discover.FileInfo) error {
-	t := time.Now()
-	p.passTests() // TESTS/TESTS_FILE edges (DB-only)
-	slog.Info("pass.timing", "pass", "tests", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passCommunities() // Community nodes + MEMBER_OF edges (DB-only)
-	slog.Info("pass.timing", "pass", "communities", "elapsed", time.Since(t))
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	t = time.Now()
-	if err := p.passHTTPLinks(); err != nil {
-		slog.Warn("pass.httplink.err", "err", err)
-	}
-	slog.Info("pass.timing", "pass", "httplinks", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passConfigLinker()
-	slog.Info("pass.timing", "pass", "configlinker", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.passGitHistory()
-	slog.Info("pass.timing", "pass", "githistory", "elapsed", time.Since(t))
-
-	t = time.Now()
-	p.updateFileHashes(files)
-	slog.Info("pass.timing", "pass", "filehashes", "elapsed", time.Since(t))
-
-	// Release source store — all passes done, no more source reads needed
 	p.sourceStore = nil
-
-	// Observability: per-edge-type counts
-	p.logEdgeCounts()
+	debug.FreeOSMemory()
 
 	return nil
 }
@@ -492,330 +210,6 @@ func (p *Pipeline) logEdgeCounts() {
 	}
 }
 
-// runIncrementalPasses re-indexes only changed files + their dependents.
-func (p *Pipeline) runIncrementalPasses(
-	allFiles []discover.FileInfo,
-	changed, unchanged []discover.FileInfo,
-) error {
-	// Pass 1: Structure always runs on all files (fast, idempotent upserts)
-	if err := p.passStructure(allFiles); err != nil {
-		return fmt.Errorf("pass1 structure: %w", err)
-	}
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// Remove stale nodes/edges for deleted files
-	p.removeDeletedFiles(allFiles)
-
-	// Delete nodes for changed files (will be re-created in pass 2)
-	for _, f := range changed {
-		_ = p.Store.DeleteNodesByFile(p.ProjectName, f.RelPath)
-	}
-
-	// Pass 2: Parse changed files only
-	p.passDefinitions(changed)
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// Re-compute decorator tags globally (threshold is across all nodes)
-	p.passDecoratorTags()
-
-	// Build full registry: includes nodes from unchanged files (already in DB)
-	// plus newly parsed nodes from changed files
-	p.buildRegistry()
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// Re-build import maps for changed files (already done in passDefinitions)
-	// Also load import maps for unchanged files from their AST (not cached)
-	// For correctness, we need the full import map, but unchanged files don't
-	// have ASTs cached. Rebuild imports only for changed files is sufficient
-	// since unchanged file import edges still exist in DB.
-	p.passImports()
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// Determine which files need call re-resolution:
-	// changed files + files that import any changed module
-	dependents := p.findDependentFiles(changed, unchanged)
-	filesToResolve := mergeFiles(changed, dependents)
-	slog.Info("incremental.resolve", "changed", len(changed), "dependents", len(dependents))
-
-	// Delete edges for files being re-resolved (all AST-derived edge types)
-	for _, f := range filesToResolve {
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "CALLS")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "USAGE")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "USES_TYPE")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "THROWS")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "RAISES")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "READS")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "WRITES")
-		_ = p.Store.DeleteEdgesBySourceFile(p.ProjectName, f.RelPath, "CONFIGURES")
-	}
-
-	// Re-resolve calls + usages for changed + dependent files
-	p.buildReturnTypeMap()
-	p.goLSPIdx = p.buildGoLSPDefIndex()
-	if p.goLSPIdx != nil {
-		p.goLSPIdx.integrateThirdPartyDeps(p.RepoPath, p.importMaps)
-	}
-	p.cLSPIdx = p.buildCLSPDefIndex()
-	p.passCallsForFiles(filesToResolve)
-	p.releaseExtractionFields(fieldsPostCalls)
-	p.goLSPIdx = nil
-	p.cLSPIdx = nil
-	p.passUsagesForFiles(filesToResolve)
-	p.releaseExtractionFields(fieldsPostUsages)
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// AST-dependent passes (run on cached files before cleanup)
-	p.passUsesType()
-	p.passThrows()
-	p.passReadsWrites()
-	p.passConfigures()
-	p.releaseExtractionFields(fieldsPostSemantic)
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	p.cleanupASTCache()
-
-	// DB-derived edge types: delete all and re-run (cheap)
-	_ = p.Store.DeleteEdgesByType(p.ProjectName, "TESTS")
-	_ = p.Store.DeleteEdgesByType(p.ProjectName, "TESTS_FILE")
-	p.passTests()
-
-	_ = p.Store.DeleteEdgesByType(p.ProjectName, "INHERITS")
-	p.passInherits()
-
-	_ = p.Store.DeleteEdgesByType(p.ProjectName, "DECORATES")
-	p.passDecorates()
-
-	// Community detection: delete old communities and MEMBER_OF, re-run
-	_ = p.Store.DeleteEdgesByType(p.ProjectName, "MEMBER_OF")
-	_ = p.Store.DeleteNodesByLabel(p.ProjectName, "Community")
-	p.passCommunities()
-	if err := p.checkCancel(); err != nil {
-		return err
-	}
-
-	// HTTP linking, config linking, and implements always run fully (they clean up first)
-	if err := p.passHTTPLinks(); err != nil {
-		slog.Warn("pass.httplink.err", "err", err)
-	}
-	p.passConfigLinker()
-	p.passImplements()
-	p.passGitHistory()
-
-	p.updateFileHashes(allFiles)
-
-	// Observability
-	p.logEdgeCounts()
-
-	return nil
-}
-
-// classifyFiles splits files into changed and unchanged based on stored hashes.
-// Uses stat (mtime+size) as a fast pre-filter: files whose mtime and size match
-// the stored values are assumed unchanged without reading/hashing. Only files
-// with changed stat (or missing from the store) are hashed.
-func (p *Pipeline) classifyFiles(files []discover.FileInfo) (changed, unchanged []discover.FileInfo) {
-	storedHashes, err := p.Store.GetFileHashes(p.ProjectName)
-	if err != nil || len(storedHashes) == 0 {
-		return files, nil // no hashes → full index
-	}
-
-	// Stage 1: stat pre-filter — separate files into "stat-unchanged" and "needs-hash"
-	var needsHash []discover.FileInfo
-	for _, f := range files {
-		stored, ok := storedHashes[f.RelPath]
-		if !ok {
-			needsHash = append(needsHash, f) // new file
-			continue
-		}
-		fi, statErr := os.Stat(f.Path)
-		if statErr != nil {
-			needsHash = append(needsHash, f) // stat failed → hash it
-			continue
-		}
-		if fi.ModTime().UnixNano() == stored.MtimeNs && fi.Size() == stored.Size && stored.MtimeNs != 0 {
-			// Stat matches — trust the stored hash
-			unchanged = append(unchanged, f)
-		} else {
-			needsHash = append(needsHash, f)
-		}
-	}
-
-	if len(needsHash) == 0 {
-		return changed, unchanged // nothing to hash
-	}
-
-	// Stage 2: hash only files that need it
-	type hashResult struct {
-		Hash string
-		Err  error
-	}
-
-	results := make([]hashResult, len(needsHash))
-	numWorkers := runtime.NumCPU()
-	if numWorkers > len(needsHash) {
-		numWorkers = len(needsHash)
-	}
-
-	g := new(errgroup.Group)
-	g.SetLimit(numWorkers)
-	for i, f := range needsHash {
-		g.Go(func() error {
-			hash, hashErr := fileHash(f.Path)
-			results[i] = hashResult{Hash: hash, Err: hashErr}
-			return nil
-		})
-	}
-	_ = g.Wait()
-
-	for i, f := range needsHash {
-		r := results[i]
-		if r.Err != nil {
-			changed = append(changed, f)
-			continue
-		}
-		if stored, ok := storedHashes[f.RelPath]; ok && stored.SHA256 == r.Hash {
-			unchanged = append(unchanged, f)
-		} else {
-			changed = append(changed, f)
-		}
-	}
-	return changed, unchanged
-}
-
-// findDependentFiles finds unchanged files that import any changed file's module.
-func (p *Pipeline) findDependentFiles(changed, unchanged []discover.FileInfo) []discover.FileInfo {
-	// Build set of module QNs for changed files
-	changedModules := make(map[string]bool, len(changed))
-	for _, f := range changed {
-		mqn := fqn.ModuleQN(p.ProjectName, f.RelPath)
-		changedModules[mqn] = true
-		// Also add folder QN (for Go package-level imports)
-		dir := filepath.Dir(f.RelPath)
-		if dir != "." {
-			changedModules[fqn.FolderQN(p.ProjectName, dir)] = true
-		}
-	}
-
-	var dependents []discover.FileInfo
-	for _, f := range unchanged {
-		mqn := fqn.ModuleQN(p.ProjectName, f.RelPath)
-		importMap := p.importMaps[mqn]
-		// If no cached import map, check the store for IMPORTS edges
-		if len(importMap) == 0 {
-			importMap = p.loadImportMapFromDB(mqn)
-		}
-		for _, targetQN := range importMap {
-			if changedModules[targetQN] {
-				dependents = append(dependents, f)
-				break
-			}
-		}
-	}
-	return dependents
-}
-
-// loadImportMapFromDB reconstructs an import map from stored IMPORTS edges.
-func (p *Pipeline) loadImportMapFromDB(moduleQN string) map[string]string {
-	moduleNode, err := p.Store.FindNodeByQN(p.ProjectName, moduleQN)
-	if err != nil || moduleNode == nil {
-		return nil
-	}
-	edges, err := p.Store.FindEdgesBySourceAndType(moduleNode.ID, "IMPORTS")
-	if err != nil {
-		return nil
-	}
-	result := make(map[string]string, len(edges))
-	for _, e := range edges {
-		target, tErr := p.Store.FindNodeByID(e.TargetID)
-		if tErr != nil || target == nil {
-			continue
-		}
-		alias := ""
-		if a, ok := e.Properties["alias"].(string); ok {
-			alias = a
-		}
-		if alias != "" {
-			result[alias] = target.QualifiedName
-		}
-	}
-	return result
-}
-
-// passCallsForFiles resolves calls only for the specified files (incremental).
-func (p *Pipeline) passCallsForFiles(files []discover.FileInfo) {
-	slog.Info("pass3.calls.incremental", "files", len(files))
-	for _, f := range files {
-		if p.ctx.Err() != nil {
-			return
-		}
-		ext, ok := p.extractionCache[f.RelPath]
-		if !ok {
-			// File not in extraction cache — need to extract it
-			source, err := os.ReadFile(f.Path)
-			if err != nil {
-				continue
-			}
-			source = stripBOM(source)
-			cbmResult, err := cbm.ExtractFile(source, f.Language, p.ProjectName, f.RelPath)
-			if err != nil {
-				continue
-			}
-			ext = &cachedExtraction{Result: cbmResult, Language: f.Language}
-			p.extractionCache[f.RelPath] = ext
-		}
-		edges := p.resolveFileCallsCBM(f.RelPath, ext)
-		// Release Definitions/Imports per-file after call resolution
-		if ext.Result != nil {
-			ext.Result.Definitions = nil
-			ext.Result.Imports = nil
-		}
-		for _, re := range edges {
-			callerNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.CallerQN)
-			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, re.TargetQN)
-			if callerNode != nil && targetNode != nil {
-				_, _ = p.Store.InsertEdge(&store.Edge{
-					Project:    p.ProjectName,
-					SourceID:   callerNode.ID,
-					TargetID:   targetNode.ID,
-					Type:       re.Type,
-					Properties: re.Properties,
-				})
-			}
-		}
-	}
-}
-
-// removeDeletedFiles removes nodes/edges for files that no longer exist on disk.
-func (p *Pipeline) removeDeletedFiles(currentFiles []discover.FileInfo) {
-	currentSet := make(map[string]bool, len(currentFiles))
-	for _, f := range currentFiles {
-		currentSet[f.RelPath] = true
-	}
-	indexed, err := p.Store.ListFilesForProject(p.ProjectName)
-	if err != nil {
-		return
-	}
-	for _, filePath := range indexed {
-		if !currentSet[filePath] {
-			_ = p.Store.DeleteNodesByFile(p.ProjectName, filePath)
-			_ = p.Store.DeleteFileHash(p.ProjectName, filePath)
-			slog.Info("incremental.removed", "file", filePath)
-		}
-	}
-}
-
 // fieldGroup identifies which FileResult fields to release after a pass.
 type fieldGroup int
 
@@ -852,7 +246,14 @@ func (p *Pipeline) releaseExtractionFields(group fieldGroup) {
 }
 
 func (p *Pipeline) cleanupASTCache() {
-	// Release extraction cache (Go GC handles the cbm.FileResult structs)
+	// Free C-allocated TSTree handles before dropping Go references.
+	// Without this, the Go GC reclaims FileResult structs but the C trees
+	// (allocated via ts_parser_parse_string, held as unsafe.Pointer) leak.
+	for _, ext := range p.extractionCache {
+		if ext.Result != nil {
+			ext.Result.FreeTree()
+		}
+	}
 	p.extractionCache = nil
 	// Prompt the Go runtime to return freed pages to the OS.
 	// Especially useful under GOMEMLIMIT to keep RSS closer to actual usage.
@@ -1027,89 +428,6 @@ func logHeapStats(stage string) {
 	)
 }
 
-func (p *Pipeline) updateFileHashes(files []discover.FileInfo) {
-	// Fast path: use pre-computed hashes from sourceStore (bulk load)
-	if p.sourceStore != nil {
-		batch := make([]store.FileHash, 0, len(files))
-		for _, f := range files {
-			if hash, mtimeNs, size, ok := p.getHash(f.RelPath); ok {
-				batch = append(batch, store.FileHash{
-					Project: p.ProjectName,
-					RelPath: f.RelPath,
-					SHA256:  hash,
-					MtimeNs: mtimeNs,
-					Size:    size,
-				})
-			}
-		}
-		_ = p.Store.UpsertFileHashBatch(batch)
-		return
-	}
-
-	// Slow path: read from disk (incremental mode)
-	type hashResult struct {
-		Hash    string
-		MtimeNs int64
-		Size    int64
-		Err     error
-	}
-
-	results := make([]hashResult, len(files))
-	numWorkers := runtime.NumCPU()
-	if numWorkers > len(files) {
-		numWorkers = len(files)
-	}
-
-	g := new(errgroup.Group)
-	g.SetLimit(numWorkers)
-	for i, f := range files {
-		g.Go(func() error {
-			hash, hashErr := fileHash(f.Path)
-			r := hashResult{Hash: hash, Err: hashErr}
-			if hashErr == nil {
-				if fi, statErr := os.Stat(f.Path); statErr == nil {
-					r.MtimeNs = fi.ModTime().UnixNano()
-					r.Size = fi.Size()
-				}
-			}
-			results[i] = r
-			return nil
-		})
-	}
-	_ = g.Wait()
-
-	// Collect successful hashes for batch upsert
-	batch := make([]store.FileHash, 0, len(files))
-	for i, f := range files {
-		if results[i].Err == nil {
-			batch = append(batch, store.FileHash{
-				Project: p.ProjectName,
-				RelPath: f.RelPath,
-				SHA256:  results[i].Hash,
-				MtimeNs: results[i].MtimeNs,
-				Size:    results[i].Size,
-			})
-		}
-	}
-	_ = p.Store.UpsertFileHashBatch(batch)
-}
-
-// mergeFiles returns the union of two file slices (deduped by RelPath).
-func mergeFiles(a, b []discover.FileInfo) []discover.FileInfo {
-	seen := make(map[string]bool, len(a))
-	result := make([]discover.FileInfo, 0, len(a)+len(b))
-	for _, f := range a {
-		seen[f.RelPath] = true
-		result = append(result, f)
-	}
-	for _, f := range b {
-		if !seen[f.RelPath] {
-			result = append(result, f)
-		}
-	}
-	return result
-}
-
 // passStructure creates Project, Folder, Package, File nodes and containment edges.
 // Collects all nodes/edges in memory first, then batch-writes to DB.
 func (p *Pipeline) passStructure(files []discover.FileInfo) error {
@@ -1232,7 +550,7 @@ func (p *Pipeline) buildFileNodesEdges(files []discover.FileInfo) ([]*store.Node
 }
 
 func (p *Pipeline) batchWriteStructure(nodes []*store.Node, edges []pendingEdge) error {
-	idMap, err := p.upsertNodeBatch(nodes)
+	idMap, err := p.Store.UpsertNodeBatch(nodes)
 	if err != nil {
 		return fmt.Errorf("pass1 batch upsert: %w", err)
 	}
@@ -1252,7 +570,7 @@ func (p *Pipeline) batchWriteStructure(nodes []*store.Node, edges []pendingEdge)
 		}
 	}
 
-	if err := p.insertEdgeBatch(realEdges); err != nil {
+	if err := p.Store.InsertEdgeBatch(realEdges); err != nil {
 		return fmt.Errorf("pass1 batch edges: %w", err)
 	}
 	return nil
@@ -1379,7 +697,7 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) { //nolint:gocogni
 		)
 	}
 
-	// Stage 2: Sequential cache population + batch DB writes
+	// Stage 2: Sequential cache population + batch DB writes + inline registry build
 	t2 := time.Now()
 	var allNodes []*store.Node
 	var allPendingEdges []pendingEdge
@@ -1418,6 +736,13 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) { //nolint:gocogni
 		if len(r.ImportMap) > 0 {
 			p.importMaps[moduleQN] = r.ImportMap
 		}
+		// Inline registry build: register each callable node as it's collected,
+		// eliminating the separate buildRegistry() scan over the entire store.
+		for _, n := range r.Nodes {
+			if isRegistrableLabel(n.Label) {
+				p.registry.Register(n.Name, n.QualifiedName, n.Label)
+			}
+		}
 		allNodes = append(allNodes, r.Nodes...)
 		allPendingEdges = append(allPendingEdges, r.PendingEdges...)
 	}
@@ -1426,7 +751,7 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) { //nolint:gocogni
 
 	// Batch insert all nodes
 	t3 := time.Now()
-	idMap, err := p.upsertNodeBatch(allNodes)
+	idMap, err := p.Store.UpsertNodeBatch(allNodes)
 	if err != nil {
 		slog.Warn("pass2.batch_upsert.err", "err", err)
 		return
@@ -1450,18 +775,28 @@ func (p *Pipeline) passDefinitions(files []discover.FileInfo) { //nolint:gocogni
 		}
 	}
 
-	if err := p.insertEdgeBatch(edges); err != nil {
+	if err := p.Store.InsertEdgeBatch(edges); err != nil {
 		slog.Warn("pass2.batch_edges.err", "err", err)
 	}
 	slog.Info("pass2.stage4.insert_edges", "edges", len(edges), "elapsed", time.Since(t4))
 }
 
+// isRegistrableLabel returns true if nodes with this label should be registered
+// in the FunctionRegistry for call resolution.
+func isRegistrableLabel(label string) bool {
+	switch label {
+	case "Function", "Method", "Class", "Type", "Interface", "Enum", "Macro", "Variable":
+		return true
+	}
+	return false
+}
+
 // buildRegistry populates the FunctionRegistry from all Function, Method,
-// and Class nodes in the store.
+// and Class nodes in the store. Used by the incremental path where inline
+// registration during passDefinitions isn't available for existing nodes.
 func (p *Pipeline) buildRegistry() {
-	labels := []string{"Function", "Method", "Class", "Type", "Interface", "Enum", "Macro", "Variable"}
-	for _, label := range labels {
-		nodes, err := p.findNodesByLabel(p.ProjectName, label)
+	for _, label := range []string{"Function", "Method", "Class", "Type", "Interface", "Enum", "Macro", "Variable"} {
+		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -1477,7 +812,7 @@ func (p *Pipeline) buildRegistry() {
 func (p *Pipeline) buildReturnTypeMap() {
 	p.returnTypes = make(ReturnTypeMap)
 	for _, label := range []string{"Function", "Method"} {
-		nodes, err := p.findNodesByLabel(p.ProjectName, label)
+		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -1518,15 +853,13 @@ type resolvedEdge struct {
 }
 
 // passCalls resolves call targets and creates CALLS edges.
-// Uses parallel per-file resolution (Stage 1) followed by batch DB writes (Stage 2).
+// Phase 1: Batch cross-file LSP (Go + C/C++) — one CGo call per language family.
+// Phase 2: Parallel per-file registry + fuzzy resolution (pure Go, no CGo).
+// Phase 3: Batch QN→ID resolution + edge insert.
 func (p *Pipeline) passCalls() {
 	slog.Info("pass3.calls")
 
 	// Collect files to process from extraction cache
-	type fileEntry struct {
-		relPath string
-		ext     *cachedExtraction
-	}
 	var files []fileEntry
 	for relPath, ext := range p.extractionCache {
 		if lang.ForLanguage(ext.Language) != nil {
@@ -1538,7 +871,26 @@ func (p *Pipeline) passCalls() {
 		return
 	}
 
-	// Stage 1: Parallel per-file call resolution using CBM data
+	// Phase 1: Batch cross-file LSP — partitioned for parallel CGo calls
+	p.batchGoLSPCrossFileResolution(files)
+	p.batchCLSPCrossFileResolution(files)
+
+	// Free cached trees — no longer needed after cross-file LSP
+	for _, fe := range files {
+		if fe.ext.Result != nil {
+			fe.ext.Result.FreeTree()
+		}
+	}
+
+	// Release Definitions + Imports — only needed for cross-file LSP
+	for _, fe := range files {
+		if fe.ext.Result != nil {
+			fe.ext.Result.Definitions = nil
+			fe.ext.Result.Imports = nil
+		}
+	}
+
+	// Phase 2: Parallel per-file call resolution (registry + fuzzy, no CGo)
 	results := make([][]resolvedEdge, len(files))
 	numWorkers := runtime.NumCPU()
 	if numWorkers > len(files) {
@@ -1553,14 +905,6 @@ func (p *Pipeline) passCalls() {
 				return gctx.Err()
 			}
 			results[i] = p.resolveFileCallsCBM(fe.relPath, fe.ext)
-			// Release heavy fields per-file immediately after call resolution.
-			// Definitions + Imports are only needed for Go LSP cross-file inside
-			// resolveFileCallsCBM. Releasing here reduces peak from O(all_files)
-			// to O(concurrent_workers) for these fields.
-			if fe.ext.Result != nil {
-				fe.ext.Result.Definitions = nil
-				fe.ext.Result.Imports = nil
-			}
 			return nil
 		})
 	}
@@ -1582,7 +926,7 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 	for qn := range qnSet {
 		qns = append(qns, qn)
 	}
-	qnToID, err := p.findNodeIDsByQNs(p.ProjectName, qns)
+	qnToID, err := p.Store.FindNodeIDsByQNs(p.ProjectName, qns)
 	if err != nil {
 		slog.Warn("pass3.resolve_ids.err", "err", err)
 		return
@@ -1593,7 +937,7 @@ func (p *Pipeline) flushResolvedEdges(results [][]resolvedEdge) {
 
 	// Build and insert edges
 	edges := buildEdgesFromResults(results, qnToID, p.ProjectName, totalEdges)
-	if err := p.insertEdgeBatch(edges); err != nil {
+	if err := p.Store.InsertEdgeBatch(edges); err != nil {
 		slog.Warn("pass3.batch_edges.err", "err", err)
 	}
 }
@@ -1648,7 +992,7 @@ func (p *Pipeline) createLSPStubNodes(results [][]resolvedEdge, qnToID map[strin
 		}
 	}
 	if len(stubs) > 0 {
-		stubIDs, err := p.upsertNodeBatch(stubs)
+		stubIDs, err := p.Store.UpsertNodeBatch(stubs)
 		if err != nil {
 			slog.Warn("pass3.stub_nodes.err", "err", err)
 		} else {
@@ -1748,25 +1092,25 @@ func (p *Pipeline) passImports() {
 	slog.Info("pass2b.imports")
 	count := 0
 	for moduleQN, importMap := range p.importMaps {
-		moduleNode, _ := p.findNodeByQN(p.ProjectName, moduleQN)
+		moduleNode, _ := p.Store.FindNodeByQN(p.ProjectName, moduleQN)
 		if moduleNode == nil {
 			continue
 		}
 		for localName, targetQN := range importMap {
 			// Try to find the target as a Module node first
-			targetNode, _ := p.findNodeByQN(p.ProjectName, targetQN)
+			targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetQN)
 			if targetNode == nil {
 				// Try treating import path as a relative file path (e.g. "utils.mag", "lib/helpers.h")
 				resolvedQN := fqn.ModuleQN(p.ProjectName, targetQN)
 				if resolvedQN != targetQN {
-					targetNode, _ = p.findNodeByQN(p.ProjectName, resolvedQN)
+					targetNode, _ = p.Store.FindNodeByQN(p.ProjectName, resolvedQN)
 				}
 			}
 			if targetNode == nil {
 				logImportDrop(moduleQN, localName, targetQN)
 				continue
 			}
-			_ = p.insertEdge(&store.Edge{
+			_, _ = p.Store.InsertEdge(&store.Edge{
 				Project:  p.ProjectName,
 				SourceID: moduleNode.ID,
 				TargetID: targetNode.ID,
@@ -2104,7 +1448,7 @@ func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
 	}
 
 	moduleQN := fqn.ModuleQN(p.ProjectName, f.RelPath)
-	return p.upsertNode(&store.Node{
+	_, err := p.Store.UpsertNode(&store.Node{
 		Project:       p.ProjectName,
 		Label:         "Module",
 		Name:          filepath.Base(f.RelPath),
@@ -2112,6 +1456,7 @@ func (p *Pipeline) processJSONFile(f discover.FileInfo) error {
 		FilePath:      f.RelPath,
 		Properties:    map[string]any{"constants": constants},
 	})
+	return err
 }
 
 // extractJSONURLValues recursively extracts key=value pairs from JSON where
@@ -2169,17 +1514,4 @@ func stripBOM(source []byte) []byte {
 		return source[3:]
 	}
 	return source
-}
-
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := xxh3.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

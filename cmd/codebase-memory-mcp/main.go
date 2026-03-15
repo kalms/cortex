@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"runtime/pprof"
 	"strings"
+	"syscall"
 
 	"github.com/DeusData/codebase-memory-mcp/internal/cbm"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
@@ -83,15 +85,25 @@ func main() {
 	srv := tools.NewServer(router, tools.WithConfig(cfg))
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Handle SIGTERM/SIGINT for graceful shutdown.
+	// Without this, process kill leaves TSParsers, SQLite handles,
+	// and in-flight C allocations unreleased.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		sig := <-sigCh
+		log.Printf("signal=%v shutdown", sig)
+		cancel()
+	}()
+
 	router.StartEvictor(ctx)
 	srv.StartWatcher(ctx)
 
 	runErr := srv.MCPServer().Run(ctx, &mcp.StdioTransport{})
 	cancel()
+	signal.Stop(sigCh)
 
-	// Shutdown frees the calling thread's TLS tree-sitter parser pool.
-	// Main goroutine doesn't run extraction, so this frees 0 bytes at runtime,
-	// but signals clean shutdown for Valgrind/ASan runs.
 	cbm.Shutdown()
 
 	if pprofOnExit != "" {

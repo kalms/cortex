@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DeusData/codebase-memory-mcp/internal/fqn"
 	"github.com/DeusData/codebase-memory-mcp/internal/store"
 )
 
@@ -213,14 +214,7 @@ func (p *Pipeline) createCouplingEdges(couplings []ChangeCoupling) int {
 
 // findFileNode looks up the File node for a given relative path.
 func (p *Pipeline) findFileNode(relPath string) *store.Node {
-	nodes, err := p.Store.FindNodesByFile(p.ProjectName, relPath)
-	if err != nil || len(nodes) == 0 {
-		return nil
-	}
-	for _, n := range nodes {
-		if n.Label == "File" {
-			return n
-		}
-	}
-	return nodes[0]
+	fileQN := fqn.Compute(p.ProjectName, relPath, "") + ".__file__"
+	n, _ := p.Store.FindNodeByQN(p.ProjectName, fileQN)
+	return n
 }

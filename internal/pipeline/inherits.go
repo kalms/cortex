@@ -13,7 +13,7 @@ func (p *Pipeline) passInherits() {
 
 	count := 0
 	for _, label := range []string{"Class", "Type", "Interface", "Enum"} {
-		nodes, err := p.findNodesByLabel(p.ProjectName, label)
+		nodes, err := p.Store.FindNodesByLabel(p.ProjectName, label)
 		if err != nil {
 			continue
 		}
@@ -42,12 +42,12 @@ func (p *Pipeline) passInherits() {
 					continue
 				}
 
-				targetNode, _ := p.findNodeByQN(p.ProjectName, targetQN)
+				targetNode, _ := p.Store.FindNodeByQN(p.ProjectName, targetQN)
 				if targetNode == nil {
 					continue
 				}
 
-				_ = p.insertEdge(&store.Edge{
+				_, _ = p.Store.InsertEdge(&store.Edge{
 					Project:  p.ProjectName,
 					SourceID: n.ID,
 					TargetID: targetNode.ID,

@@ -4,8 +4,9 @@
 
 // --- Scope stack management ---
 
-static void push_scope(WalkState* state, uint8_t kind, uint32_t depth, const char* qn) {
-    if (state->scope_top >= MAX_SCOPES) return;
+static void push_scope(WalkState *state, uint8_t kind, uint32_t depth, const char *qn) {
+    if (state->scope_top >= MAX_SCOPES)
+        return;
     state->scopes[state->scope_top].kind = kind;
     state->scopes[state->scope_top].depth = depth;
     state->scopes[state->scope_top].qn = qn;
@@ -13,15 +14,14 @@ static void push_scope(WalkState* state, uint8_t kind, uint32_t depth, const cha
 }
 
 // Pop scopes that we've ascended out of (depth >= current cursor depth).
-static void pop_expired_scopes(WalkState* state, uint32_t cur_depth) {
-    while (state->scope_top > 0 &&
-           state->scopes[state->scope_top - 1].depth >= cur_depth) {
+static void pop_expired_scopes(WalkState *state, uint32_t cur_depth) {
+    while (state->scope_top > 0 && state->scopes[state->scope_top - 1].depth >= cur_depth) {
         state->scope_top--;
     }
 }
 
 // Recompute state flags from the current scope stack.
-static void recompute_state(WalkState* state, const char* module_qn) {
+static void recompute_state(WalkState *state, const char *module_qn) {
     state->enclosing_func_qn = module_qn;
     state->enclosing_class_qn = NULL;
     state->inside_call = false;
@@ -41,24 +41,26 @@ static void recompute_state(WalkState* state, const char* module_qn) {
         case SCOPE_IMPORT:
             state->inside_import = true;
             break;
+        default:
+            break;
         }
     }
 }
 
 // Compute function QN for scope tracking (mirrors cbm_enclosing_func_qn logic).
-static const char* compute_func_qn(CBMExtractCtx* ctx, TSNode node,
-                                     const CBMLangSpec* spec, WalkState* state) {
+static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+                                   WalkState *state) {
     // Wolfram: set_delayed_top/set_top/set_delayed/set — LHS is apply(user_symbol("f"), ...)
     if (ctx->language == CBM_LANG_WOLFRAM) {
-        const char* nk = ts_node_type(node);
+        const char *nk = ts_node_type(node);
         if (strcmp(nk, "set_delayed_top") == 0 || strcmp(nk, "set_top") == 0 ||
-            strcmp(nk, "set_delayed") == 0     || strcmp(nk, "set") == 0) {
+            strcmp(nk, "set_delayed") == 0 || strcmp(nk, "set") == 0) {
             if (ts_node_named_child_count(node) > 0) {
                 TSNode lhs = ts_node_named_child(node, 0);
                 if (strcmp(ts_node_type(lhs), "apply") == 0 && ts_node_named_child_count(lhs) > 0) {
                     TSNode head = ts_node_named_child(lhs, 0);
                     if (strcmp(ts_node_type(head), "user_symbol") == 0) {
-                        char* name = cbm_node_text(ctx->arena, head, ctx->source);
+                        char *name = cbm_node_text(ctx->arena, head, ctx->source);
                         if (name && name[0])
                             return cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, name);
                     }
@@ -73,16 +75,17 @@ static const char* compute_func_qn(CBMExtractCtx* ctx, TSNode node,
     // Arrow function: name from parent variable_declarator
     if (ts_node_is_null(name_node) && strcmp(ts_node_type(node), "arrow_function") == 0) {
         TSNode parent = ts_node_parent(node);
-        if (!ts_node_is_null(parent) &&
-            strcmp(ts_node_type(parent), "variable_declarator") == 0) {
+        if (!ts_node_is_null(parent) && strcmp(ts_node_type(parent), "variable_declarator") == 0) {
             name_node = ts_node_child_by_field_name(parent, "name", 4);
         }
     }
 
-    if (ts_node_is_null(name_node)) return NULL;
+    if (ts_node_is_null(name_node))
+        return NULL;
 
-    char* name = cbm_node_text(ctx->arena, name_node, ctx->source);
-    if (!name || !name[0]) return NULL;
+    char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
+    if (!name || !name[0])
+        return NULL;
 
     if (state->enclosing_class_qn) {
         return cbm_arena_sprintf(ctx->arena, "%s.%s", state->enclosing_class_qn, name);
@@ -91,21 +94,24 @@ static const char* compute_func_qn(CBMExtractCtx* ctx, TSNode node,
 }
 
 // Compute class QN for scope tracking.
-static const char* compute_class_qn(CBMExtractCtx* ctx, TSNode node) {
+static const char *compute_class_qn(CBMExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-    if (ts_node_is_null(name_node)) return NULL;
+    if (ts_node_is_null(name_node))
+        return NULL;
 
-    char* name = cbm_node_text(ctx->arena, name_node, ctx->source);
-    if (!name || !name[0]) return NULL;
+    char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
+    if (!name || !name[0])
+        return NULL;
 
     return cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, name);
 }
 
 // --- Main unified cursor walk ---
 
-void cbm_extract_unified(CBMExtractCtx* ctx) {
-    const CBMLangSpec* spec = cbm_lang_spec(ctx->language);
-    if (!spec) return;
+void cbm_extract_unified(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+    if (!spec)
+        return;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     WalkState state;
@@ -133,20 +139,21 @@ void cbm_extract_unified(CBMExtractCtx* ctx) {
 
         // 4. Push scope markers for boundary nodes
         if (spec->function_node_types && cbm_kind_in_set(node, spec->function_node_types)) {
-            const char* fqn = compute_func_qn(ctx, node, spec, &state);
-            if (fqn) push_scope(&state, SCOPE_FUNC, depth, fqn);
+            const char *fqn = compute_func_qn(ctx, node, spec, &state);
+            if (fqn)
+                push_scope(&state, SCOPE_FUNC, depth, fqn);
         } else if (spec->class_node_types && cbm_kind_in_set(node, spec->class_node_types)) {
-            const char* cqn = compute_class_qn(ctx, node);
-            if (cqn) push_scope(&state, SCOPE_CLASS, depth, cqn);
-        } else if (ctx->language == CBM_LANG_RUST &&
-                   strcmp(ts_node_type(node), "impl_item") == 0) {
+            const char *cqn = compute_class_qn(ctx, node);
+            if (cqn)
+                push_scope(&state, SCOPE_CLASS, depth, cqn);
+        } else if (ctx->language == CBM_LANG_RUST && strcmp(ts_node_type(node), "impl_item") == 0) {
             // Rust impl block acts as class scope for methods
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
             if (!ts_node_is_null(type_node)) {
-                char* type_name = cbm_node_text(ctx->arena, type_node, ctx->source);
+                char *type_name = cbm_node_text(ctx->arena, type_node, ctx->source);
                 if (type_name && type_name[0]) {
-                    const char* tqn = cbm_fqn_compute(ctx->arena, ctx->project,
-                                                       ctx->rel_path, type_name);
+                    const char *tqn =
+                        cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, type_name);
                     push_scope(&state, SCOPE_CLASS, depth, tqn);
                 }
             }
@@ -176,7 +183,8 @@ void cbm_extract_unified(CBMExtractCtx* ctx) {
                 break;
             }
         }
-        if (!found) break;
+        if (!found)
+            break;
     }
 
     ts_tree_cursor_delete(&cursor);
