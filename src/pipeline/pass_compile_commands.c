@@ -4,6 +4,7 @@
  * Parses compile_commands.json to extract per-file include paths, defines,
  * and C/C++ standard flags.
  */
+// NOLINTNEXTLINE(misc-include-cleaner) — pipeline.h included for interface contract
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
 
@@ -13,8 +14,9 @@
 #include "yyjson/yyjson.h"
 
 int cbm_split_command(const char *cmd, char **out, int max_out) {
-    if (!cmd || !out || max_out <= 0)
+    if (!cmd || !out || max_out <= 0) {
         return 0;
+    }
 
     int count = 0;
     char current[4096];
@@ -27,20 +29,23 @@ int cbm_split_command(const char *cmd, char **out, int max_out) {
             if (c == in_quote) {
                 in_quote = 0;
             } else {
-                if (clen < (int)sizeof(current) - 1)
+                if (clen < (int)sizeof(current) - 1) {
                     current[clen++] = c;
+                }
             }
         } else if (c == '"' || c == '\'') {
             in_quote = c;
         } else if (c == ' ' || c == '\t') {
             if (clen > 0 && count < max_out) {
                 current[clen] = '\0';
+                // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
                 out[count++] = strdup(current);
                 clen = 0;
             }
         } else {
-            if (clen < (int)sizeof(current) - 1)
+            if (clen < (int)sizeof(current) - 1) {
                 current[clen++] = c;
+            }
         }
     }
     if (clen > 0 && count < max_out) {
@@ -52,8 +57,9 @@ int cbm_split_command(const char *cmd, char **out, int max_out) {
 
 /* Resolve a path: if relative, join with directory. */
 static char *resolve_path(const char *path, const char *directory) {
-    if (!path)
+    if (!path) {
         return NULL;
+    }
 
     /* Absolute path */
     if (path[0] == '/') {
@@ -72,11 +78,14 @@ static char *resolve_path(const char *path, const char *directory) {
 
 cbm_compile_flags_t *cbm_extract_flags(const char **args, int argc, const char *directory) {
     cbm_compile_flags_t *f = calloc(1, sizeof(*f));
-    if (!f)
+    if (!f) {
         return NULL;
+    }
 
     /* Pre-allocate arrays */
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     f->include_paths = calloc(argc, sizeof(char *));
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     f->defines = calloc(argc, sizeof(char *));
 
     for (int i = 0; i < argc; i++) {
@@ -126,27 +135,34 @@ cbm_compile_flags_t *cbm_extract_flags(const char **args, int argc, const char *
 }
 
 void cbm_compile_flags_free(cbm_compile_flags_t *f) {
-    if (!f)
+    if (!f) {
         return;
-    for (int i = 0; i < f->include_count; i++)
+    }
+    for (int i = 0; i < f->include_count; i++) {
         free(f->include_paths[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(f->include_paths);
-    for (int i = 0; i < f->define_count; i++)
+    for (int i = 0; i < f->define_count; i++) {
         free(f->defines[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(f->defines);
     free(f);
 }
 
 int cbm_parse_compile_commands(const char *json_data, const char *repo_path, char ***out_paths,
                                cbm_compile_flags_t ***out_flags) {
-    if (!json_data || !repo_path || !out_paths || !out_flags)
+    if (!json_data || !repo_path || !out_paths || !out_flags) {
         return -1;
+    }
     *out_paths = NULL;
     *out_flags = NULL;
 
     yyjson_doc *doc = yyjson_read(json_data, strlen(json_data), 0);
-    if (!doc)
+    if (!doc) {
         return -1;
+    }
 
     yyjson_val *root = yyjson_doc_get_root(doc);
     if (!yyjson_is_arr(root)) {
@@ -160,7 +176,9 @@ int cbm_parse_compile_commands(const char *json_data, const char *repo_path, cha
         return 0;
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     char **paths = calloc(arr_len, sizeof(char *));
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     cbm_compile_flags_t **flags = calloc(arr_len, sizeof(cbm_compile_flags_t *));
     int count = 0;
 
@@ -174,12 +192,14 @@ int cbm_parse_compile_commands(const char *json_data, const char *repo_path, cha
         yyjson_val *cmd_val = yyjson_obj_get(entry, "command");
         yyjson_val *args_val = yyjson_obj_get(entry, "arguments");
 
-        if (!file_val)
+        if (!file_val) {
             continue;
+        }
         const char *directory = dir_val ? yyjson_get_str(dir_val) : "";
         const char *file_path = yyjson_get_str(file_val);
-        if (!file_path)
+        if (!file_path) {
             continue;
+        }
 
         /* Build arguments array */
         char *split_args[256];
@@ -192,8 +212,9 @@ int cbm_parse_compile_commands(const char *json_data, const char *repo_path, cha
             yyjson_arr_iter_init(args_val, &aiter);
             while ((a = yyjson_arr_iter_next(&aiter)) && flag_argc < 256) {
                 const char *s = yyjson_get_str(a);
-                if (s)
+                if (s) {
                     flag_args[flag_argc++] = s;
+                }
             }
         } else if (cmd_val && yyjson_is_str(cmd_val)) {
             int n = cbm_split_command(yyjson_get_str(cmd_val), split_args, 256);
@@ -203,19 +224,22 @@ int cbm_parse_compile_commands(const char *json_data, const char *repo_path, cha
             flag_argc = n;
         }
 
-        if (flag_argc == 0)
+        if (flag_argc == 0) {
             continue;
+        }
 
         cbm_compile_flags_t *f = cbm_extract_flags(flag_args, flag_argc, directory);
 
         /* Free split_args if we used splitCommand */
         if (cmd_val && yyjson_is_str(cmd_val)) {
-            for (int j = 0; j < flag_argc; j++)
+            for (int j = 0; j < flag_argc; j++) {
                 free(split_args[j]);
+            }
         }
 
-        if (!f)
+        if (!f) {
             continue;
+        }
 
         /* Compute relative path */
         char abs_path[4096];

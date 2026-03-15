@@ -56,7 +56,7 @@ TEST(arena_alloc_alignment) {
     ASSERT_EQ((uintptr_t)p1 % 8, 0);
     ASSERT_EQ((uintptr_t)p2 % 8, 0);
     /* And 8 bytes apart */
-    ASSERT_EQ((char*)p2 - (char*)p1, 8);
+    ASSERT_EQ((char *)p2 - (char *)p1, 8);
     cbm_arena_destroy(&a);
     PASS();
 }

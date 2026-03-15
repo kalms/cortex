@@ -23,73 +23,71 @@
 
 static char g_tmpdir[256];
 static char g_dbpath[512];
-static cbm_mcp_server_t* g_srv = NULL;
-static char* g_project = NULL;
+static cbm_mcp_server_t *g_srv = NULL;
+static char *g_project = NULL;
 
 /* Create source files in temp directory */
 static int create_test_project(void) {
     snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_integ_XXXXXX");
-    if (!mkdtemp(g_tmpdir)) return -1;
+    if (!mkdtemp(g_tmpdir))
+        return -1;
 
     char path[512];
-    FILE* f;
+    FILE *f;
 
     /* Python file with function calls */
     snprintf(path, sizeof(path), "%s/main.py", g_tmpdir);
     f = fopen(path, "w");
-    if (!f) return -1;
-    fprintf(f,
-        "def greet(name):\n"
-        "    return 'Hello ' + name\n"
-        "\n"
-        "def farewell(name):\n"
-        "    return 'Goodbye ' + name\n"
-        "\n"
-        "def main():\n"
-        "    msg = greet('World')\n"
-        "    msg2 = farewell('World')\n"
-        "    print(msg, msg2)\n"
-    );
+    if (!f)
+        return -1;
+    fprintf(f, "def greet(name):\n"
+               "    return 'Hello ' + name\n"
+               "\n"
+               "def farewell(name):\n"
+               "    return 'Goodbye ' + name\n"
+               "\n"
+               "def main():\n"
+               "    msg = greet('World')\n"
+               "    msg2 = farewell('World')\n"
+               "    print(msg, msg2)\n");
     fclose(f);
 
     /* Go file with function calls */
     snprintf(path, sizeof(path), "%s/utils.go", g_tmpdir);
     f = fopen(path, "w");
-    if (!f) return -1;
-    fprintf(f,
-        "package utils\n"
-        "\n"
-        "func Add(a, b int) int {\n"
-        "    return a + b\n"
-        "}\n"
-        "\n"
-        "func Multiply(a, b int) int {\n"
-        "    sum := Add(a, b)\n"
-        "    return sum * 2\n"
-        "}\n"
-        "\n"
-        "func Compute(x int) int {\n"
-        "    return Multiply(x, Add(x, 1))\n"
-        "}\n"
-    );
+    if (!f)
+        return -1;
+    fprintf(f, "package utils\n"
+               "\n"
+               "func Add(a, b int) int {\n"
+               "    return a + b\n"
+               "}\n"
+               "\n"
+               "func Multiply(a, b int) int {\n"
+               "    sum := Add(a, b)\n"
+               "    return sum * 2\n"
+               "}\n"
+               "\n"
+               "func Compute(x int) int {\n"
+               "    return Multiply(x, Add(x, 1))\n"
+               "}\n");
     fclose(f);
 
     /* JavaScript file */
     snprintf(path, sizeof(path), "%s/app.js", g_tmpdir);
     f = fopen(path, "w");
-    if (!f) return -1;
-    fprintf(f,
-        "function validate(input) {\n"
-        "    return input != null;\n"
-        "}\n"
-        "\n"
-        "function process(data) {\n"
-        "    if (validate(data)) {\n"
-        "        return data.toUpperCase();\n"
-        "    }\n"
-        "    return null;\n"
-        "}\n"
-    );
+    if (!f)
+        return -1;
+    fprintf(f, "function validate(input) {\n"
+               "    return input != null;\n"
+               "}\n"
+               "\n"
+               "function process(data) {\n"
+               "    if (validate(data)) {\n"
+               "        return data.toUpperCase();\n"
+               "    }\n"
+               "    return null;\n"
+               "}\n");
     fclose(f);
 
     return 0;
@@ -97,22 +95,23 @@ static int create_test_project(void) {
 
 /* Set up: create project, index it through MCP (production flow) */
 static int integration_setup(void) {
-    if (create_test_project() != 0) return -1;
+    if (create_test_project() != 0)
+        return -1;
 
     /* Derive project name (same logic the pipeline uses) */
     g_project = cbm_project_name_from_path(g_tmpdir);
-    if (!g_project) return -1;
+    if (!g_project)
+        return -1;
 
     /* Build db path for direct store queries (pipeline writes here) */
-    const char* home = getenv("HOME");
-    if (!home) home = "/tmp";
-    snprintf(g_dbpath, sizeof(g_dbpath),
-             "%s/.cache/codebase-memory-mcp/%s.db", home, g_project);
+    const char *home = getenv("HOME");
+    if (!home)
+        home = "/tmp";
+    snprintf(g_dbpath, sizeof(g_dbpath), "%s/.cache/codebase-memory-mcp/%s.db", home, g_project);
 
     /* Ensure cache dir exists */
     char cache_dir[512];
-    snprintf(cache_dir, sizeof(cache_dir),
-             "%s/.cache/codebase-memory-mcp", home);
+    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
     mkdir(cache_dir, 0755);
 
     /* Remove stale db from previous test runs */
@@ -125,13 +124,15 @@ static int integration_setup(void) {
      *   4. Server reopens from that db
      * This exercises the exact same path as real usage. */
     g_srv = cbm_mcp_server_new(NULL);
-    if (!g_srv) return -1;
+    if (!g_srv)
+        return -1;
 
     /* Index our temp project via MCP tool handler */
     char args[512];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", g_tmpdir);
-    char* resp = cbm_mcp_handle_tool(g_srv, "index_repository", args);
-    if (!resp) return -1;
+    char *resp = cbm_mcp_handle_tool(g_srv, "index_repository", args);
+    if (!resp)
+        return -1;
 
     /* Verify indexing succeeded */
     bool ok = strstr(resp, "indexed") != NULL;
@@ -166,14 +167,15 @@ static void integration_teardown(void) {
  * ══════════════════════════════════════════════════════════════════ */
 
 /* Helper: call a tool and return response JSON. Caller must free(). */
-static char* call_tool(const char* tool, const char* args) {
-    if (!g_srv) return NULL;
+static char *call_tool(const char *tool, const char *args) {
+    if (!g_srv)
+        return NULL;
     return cbm_mcp_handle_tool(g_srv, tool, args);
 }
 
 TEST(integ_index_has_nodes) {
     /* Open the indexed db directly and check node counts */
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     int nodes = cbm_store_count_nodes(store, g_project);
@@ -186,7 +188,7 @@ TEST(integ_index_has_nodes) {
 }
 
 TEST(integ_index_has_edges) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     int edges = cbm_store_count_edges(store, g_project);
@@ -198,10 +200,10 @@ TEST(integ_index_has_edges) {
 }
 
 TEST(integ_index_has_functions) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t* funcs = NULL;
+    cbm_node_t *funcs = NULL;
     int count = 0;
     int rc = cbm_store_find_nodes_by_label(store, g_project, "Function", &funcs, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -228,10 +230,10 @@ TEST(integ_index_has_functions) {
 }
 
 TEST(integ_index_has_files) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t* files = NULL;
+    cbm_node_t *files = NULL;
     int count = 0;
     int rc = cbm_store_find_nodes_by_label(store, g_project, "File", &files, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -256,7 +258,7 @@ TEST(integ_index_has_files) {
 }
 
 TEST(integ_index_has_calls) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     int call_count = cbm_store_count_edges_by_type(store, g_project, "CALLS");
@@ -274,7 +276,7 @@ TEST(integ_index_has_calls) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(integ_mcp_list_projects) {
-    char* resp = call_tool("list_projects", "{}");
+    char *resp = call_tool("list_projects", "{}");
     ASSERT_NOT_NULL(resp);
     /* Should contain the project name derived from temp path */
     ASSERT_NOT_NULL(strstr(resp, "project"));
@@ -284,10 +286,10 @@ TEST(integ_mcp_list_projects) {
 
 TEST(integ_mcp_search_graph_by_label) {
     char args[256];
-    snprintf(args, sizeof(args),
-             "{\"label\":\"Function\",\"project\":\"%s\",\"limit\":20}", g_project);
+    snprintf(args, sizeof(args), "{\"label\":\"Function\",\"project\":\"%s\",\"limit\":20}",
+             g_project);
 
-    char* resp = call_tool("search_graph", args);
+    char *resp = call_tool("search_graph", args);
     ASSERT_NOT_NULL(resp);
     /* Should return function nodes */
     ASSERT_NOT_NULL(strstr(resp, "Function"));
@@ -299,10 +301,9 @@ TEST(integ_mcp_search_graph_by_label) {
 
 TEST(integ_mcp_search_graph_by_name) {
     char args[256];
-    snprintf(args, sizeof(args),
-             "{\"name_pattern\":\".*Add.*\",\"project\":\"%s\"}", g_project);
+    snprintf(args, sizeof(args), "{\"name_pattern\":\".*Add.*\",\"project\":\"%s\"}", g_project);
 
-    char* resp = call_tool("search_graph", args);
+    char *resp = call_tool("search_graph", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "Add"));
     free(resp);
@@ -313,15 +314,15 @@ TEST(integ_mcp_query_graph_functions) {
     char args[512];
     snprintf(args, sizeof(args),
              "{\"query\":\"MATCH (f:Function) WHERE f.project = '%s' "
-             "RETURN f.name LIMIT 20\"}", g_project);
+             "RETURN f.name LIMIT 20\"}",
+             g_project);
 
-    char* resp = call_tool("query_graph", args);
+    char *resp = call_tool("query_graph", args);
     ASSERT_NOT_NULL(resp);
     /* Should return results (may be in various formats depending on Cypher output).
      * At minimum, should not be an error. */
-    ASSERT_TRUE(strstr(resp, "row") || strstr(resp, "greet") ||
-                strstr(resp, "Add") || strstr(resp, "result") ||
-                strstr(resp, "f.name"));
+    ASSERT_TRUE(strstr(resp, "row") || strstr(resp, "greet") || strstr(resp, "Add") ||
+                strstr(resp, "result") || strstr(resp, "f.name"));
     free(resp);
     PASS();
 }
@@ -330,9 +331,10 @@ TEST(integ_mcp_query_graph_calls) {
     char args[512];
     snprintf(args, sizeof(args),
              "{\"query\":\"MATCH (a)-[r:CALLS]->(b) WHERE a.project = '%s' "
-             "RETURN a.name, b.name LIMIT 20\"}", g_project);
+             "RETURN a.name, b.name LIMIT 20\"}",
+             g_project);
 
-    char* resp = call_tool("query_graph", args);
+    char *resp = call_tool("query_graph", args);
     ASSERT_NOT_NULL(resp);
     /* Should have some call relationships */
     ASSERT_NOT_NULL(strstr(resp, "name"));
@@ -344,7 +346,7 @@ TEST(integ_mcp_get_graph_schema) {
     char args[128];
     snprintf(args, sizeof(args), "{\"project\":\"%s\"}", g_project);
 
-    char* resp = call_tool("get_graph_schema", args);
+    char *resp = call_tool("get_graph_schema", args);
     ASSERT_NOT_NULL(resp);
     /* Schema should include node labels and edge types */
     ASSERT_NOT_NULL(strstr(resp, "Function"));
@@ -357,7 +359,7 @@ TEST(integ_mcp_get_architecture) {
     char args[128];
     snprintf(args, sizeof(args), "{\"project\":\"%s\"}", g_project);
 
-    char* resp = call_tool("get_architecture", args);
+    char *resp = call_tool("get_architecture", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "total_nodes"));
     free(resp);
@@ -369,15 +371,14 @@ TEST(integ_mcp_trace_call_path) {
     char args[256];
     snprintf(args, sizeof(args),
              "{\"function_name\":\"Compute\",\"project\":\"%s\","
-             "\"direction\":\"outbound\",\"max_depth\":3}", g_project);
+             "\"direction\":\"outbound\",\"max_depth\":3}",
+             g_project);
 
-    char* resp = call_tool("trace_call_path", args);
+    char *resp = call_tool("trace_call_path", args);
     ASSERT_NOT_NULL(resp);
     /* Should find the function and show some path */
     /* Either finds the function, or returns not found if name doesn't match exactly */
-    ASSERT_TRUE(strstr(resp, "Compute") ||
-                strstr(resp, "Multiply") ||
-                strstr(resp, "not found"));
+    ASSERT_TRUE(strstr(resp, "Compute") || strstr(resp, "Multiply") || strstr(resp, "not found"));
     free(resp);
     PASS();
 }
@@ -386,7 +387,7 @@ TEST(integ_mcp_index_status) {
     char args[128];
     snprintf(args, sizeof(args), "{\"project\":\"%s\"}", g_project);
 
-    char* resp = call_tool("index_status", args);
+    char *resp = call_tool("index_status", args);
     ASSERT_NOT_NULL(resp);
     /* Should show indexed status with node/edge counts */
     ASSERT_NOT_NULL(strstr(resp, g_project));
@@ -399,14 +400,13 @@ TEST(integ_mcp_delete_project) {
     char args[256];
     snprintf(args, sizeof(args), "{\"project_name\":\"%s\"}", g_project);
 
-    char* resp = call_tool("delete_project", args);
+    char *resp = call_tool("delete_project", args);
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "deleted"));
     free(resp);
 
     /* After deletion, search should return empty */
-    snprintf(args, sizeof(args),
-             "{\"label\":\"Function\",\"project\":\"%s\"}", g_project);
+    snprintf(args, sizeof(args), "{\"label\":\"Function\",\"project\":\"%s\"}", g_project);
     resp = call_tool("search_graph", args);
     ASSERT_NOT_NULL(resp);
     /* Should show 0 results or empty */
@@ -420,7 +420,7 @@ TEST(integ_mcp_delete_project) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(integ_pipeline_fqn_compute) {
-    char* fqn = cbm_pipeline_fqn_compute("myproject", "src/utils.go", "Add");
+    char *fqn = cbm_pipeline_fqn_compute("myproject", "src/utils.go", "Add");
     ASSERT_NOT_NULL(fqn);
     ASSERT_STR_EQ(fqn, "myproject.src.utils.Add");
     free(fqn);
@@ -428,7 +428,7 @@ TEST(integ_pipeline_fqn_compute) {
 }
 
 TEST(integ_pipeline_fqn_module) {
-    char* fqn = cbm_pipeline_fqn_module("myproject", "src/utils.go");
+    char *fqn = cbm_pipeline_fqn_module("myproject", "src/utils.go");
     ASSERT_NOT_NULL(fqn);
     ASSERT_STR_EQ(fqn, "myproject.src.utils");
     free(fqn);
@@ -436,7 +436,7 @@ TEST(integ_pipeline_fqn_module) {
 }
 
 TEST(integ_pipeline_project_name) {
-    char* name = cbm_project_name_from_path("/home/user/my-project");
+    char *name = cbm_project_name_from_path("/home/user/my-project");
     ASSERT_NOT_NULL(name);
     /* Should contain "my-project" or a sanitized version */
     ASSERT_NOT_NULL(strstr(name, "my-project"));
@@ -446,7 +446,7 @@ TEST(integ_pipeline_project_name) {
 
 TEST(integ_pipeline_cancel) {
     /* Create and immediately cancel a pipeline */
-    cbm_pipeline_t* p = cbm_pipeline_new(g_tmpdir, NULL, CBM_MODE_FULL);
+    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, NULL, CBM_MODE_FULL);
     ASSERT_NOT_NULL(p);
 
     cbm_pipeline_cancel(p);
@@ -464,7 +464,7 @@ TEST(integ_pipeline_cancel) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(integ_store_search_by_degree) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     /* Find functions with at least 1 outbound call */
@@ -487,10 +487,10 @@ TEST(integ_store_search_by_degree) {
 }
 
 TEST(integ_store_find_by_file) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t* nodes = NULL;
+    cbm_node_t *nodes = NULL;
     int count = 0;
     int rc = cbm_store_find_nodes_by_file(store, g_project, "main.py", &nodes, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -503,19 +503,18 @@ TEST(integ_store_find_by_file) {
 }
 
 TEST(integ_store_bfs_traversal) {
-    cbm_store_t* store = cbm_store_open_path(g_dbpath);
+    cbm_store_t *store = cbm_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     /* Find a function node to start BFS from */
-    cbm_node_t* results = NULL;
+    cbm_node_t *results = NULL;
     int count = 0;
     cbm_store_find_nodes_by_name(store, g_project, "Multiply", &results, &count);
 
     if (count > 0) {
         /* BFS outbound from Multiply */
         cbm_traverse_result_t trav = {0};
-        int rc = cbm_store_bfs(store, results[0].id, "outbound",
-                               NULL, 0, 3, 20, &trav);
+        int rc = cbm_store_bfs(store, results[0].id, "outbound", NULL, 0, 3, 20, &trav);
         ASSERT_EQ(rc, CBM_STORE_OK);
         /* Should visit at least Add */
         ASSERT_TRUE(trav.visited_count >= 0); /* might be 0 if no edges */

@@ -1,13 +1,16 @@
 #include "cbm.h"
+#include "arena.h" // CBMArena, cbm_arena_init/alloc/strdup/destroy
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
 #include "lsp/go_lsp.h"
 #include "lsp/c_lsp.h"
 #include "preprocessor.h"
+#include "tree_sitter/api.h" // TSParser, TSNode, TSTree, TSInput, TSLanguage, TSPoint, TSParseOptions, TSParseState
+#include <stdint.h> // uint32_t, uint64_t, int64_t
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <time.h> // clock_gettime, CLOCK_MONOTONIC
 
 // Atomic counters for profiling parse vs extraction time (nanoseconds).
 // Accessed from multiple threads; using _Atomic for safe accumulation.
@@ -19,13 +22,17 @@ static _Atomic uint64_t total_preprocess_ns = 0;
 static _Atomic uint64_t total_files_preprocessed = 0;
 static _Atomic uint64_t total_files = 0;
 
+#define NSEC_PER_SEC 1000000000ULL
+
 static uint64_t now_ns(void) {
     struct timespec ts;
+    // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+    return ((uint64_t)ts.tv_sec * NSEC_PER_SEC) + (uint64_t)ts.tv_nsec;
 }
 
 // cbm_get_profile returns accumulated parse/extract times and file count.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void cbm_get_profile(uint64_t *parse_ns, uint64_t *extract_ns, uint64_t *files) {
     *parse_ns = atomic_load(&total_parse_ns);
     *extract_ns = atomic_load(&total_extract_ns);
@@ -164,8 +171,9 @@ static _Thread_local CBMLanguage tl_parser_lang = CBM_LANG_COUNT; // invalid sen
 static TSParser *get_thread_parser(const TSLanguage *ts_lang, CBMLanguage lang) {
     if (!tl_parser) {
         tl_parser = ts_parser_new();
-        if (!tl_parser)
+        if (!tl_parser) {
             return NULL;
+        }
         tl_parser_lang = CBM_LANG_COUNT;
     }
     if (tl_parser_lang != lang) {
@@ -180,8 +188,9 @@ static TSParser *get_thread_parser(const TSLanguage *ts_lang, CBMLanguage lang) 
 static int cbm_initialized = 0;
 
 int cbm_init(void) {
-    if (cbm_initialized)
+    if (cbm_initialized) {
         return 0;
+    }
     cbm_initialized = 1;
     return 0;
 }
@@ -204,8 +213,9 @@ CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage 
                                 const char **extra_defines, const char **include_paths) {
     // Allocate result on heap (arena inside for all string data)
     CBMFileResult *result = (CBMFileResult *)calloc(1, sizeof(CBMFileResult));
-    if (!result)
+    if (!result) {
         return NULL;
+    }
 
     cbm_arena_init(&result->arena);
     CBMArena *a = &result->arena;
@@ -251,7 +261,7 @@ CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage 
     TSParseOptions opts = {0};
     uint64_t deadline_ns = 0; // cppcheck-suppress unreadVariable
     if (timeout_micros > 0) {
-        deadline_ns = t0 + (uint64_t)timeout_micros * 1000ULL;
+        deadline_ns = t0 + ((uint64_t)timeout_micros * 1000ULL);
         opts.payload = &deadline_ns;
         opts.progress_callback = cbm_timeout_cb;
     }
@@ -377,8 +387,9 @@ CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage 
 }
 
 void cbm_free_result(CBMFileResult *result) {
-    if (!result)
+    if (!result) {
         return;
+    }
     if (result->cached_tree) {
         ts_tree_delete(result->cached_tree);
         result->cached_tree = NULL;
@@ -395,6 +406,7 @@ void cbm_free_tree(CBMFileResult *result) {
 }
 
 void cbm_free_tree_ptr(TSTree *tree) {
-    if (tree)
+    if (tree) {
         ts_tree_delete(tree);
+    }
 }

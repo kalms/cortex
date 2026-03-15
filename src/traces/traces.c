@@ -1,3 +1,4 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * traces.c — OTLP trace processing helpers.
  */
@@ -10,8 +11,9 @@
 /* ── extractServiceName ──────────────────────────────────────────── */
 
 const char *cbm_extract_service_name(const cbm_trace_resource_t *r) {
-    if (!r)
+    if (!r) {
         return "";
+    }
     for (int i = 0; i < r->attr_count; i++) {
         if (r->attributes[i].key && strcmp(r->attributes[i].key, "service.name") == 0) {
             return r->attributes[i].string_value ? r->attributes[i].string_value : "";
@@ -24,8 +26,9 @@ const char *cbm_extract_service_name(const cbm_trace_resource_t *r) {
 
 const char *cbm_extract_path_from_url(const char *url, char *buf, size_t buf_sz) {
     if (!url || !buf || buf_sz == 0) {
-        if (buf)
+        if (buf) {
             buf[0] = '\0';
+        }
         return buf ? buf : "";
     }
 
@@ -57,9 +60,11 @@ const char *cbm_extract_path_from_url(const char *url, char *buf, size_t buf_sz)
 
 /* ── parseDuration ───────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(misc-include-cleaner) — int64_t provided by standard header
 int64_t cbm_parse_duration(const char *start_nano, const char *end_nano) {
-    if (!start_nano || !end_nano)
+    if (!start_nano || !end_nano) {
         return 0;
+    }
     int64_t start = strtoll(start_nano, NULL, 10);
     int64_t end = strtoll(end_nano, NULL, 10);
     return (end > start) ? (end - start) : 0;
@@ -69,8 +74,9 @@ int64_t cbm_parse_duration(const char *start_nano, const char *end_nano) {
 
 bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_name,
                            cbm_http_span_info_t *out) {
-    if (!span || !out)
+    if (!span || !out) {
         return false;
+    }
     memset(out, 0, sizeof(*out));
     out->service_name = service_name ? service_name : "";
     out->span_kind = span->kind;
@@ -81,8 +87,9 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
     for (int i = 0; i < span->attr_count; i++) {
         const char *key = span->attributes[i].key;
         const char *val = span->attributes[i].string_value;
-        if (!key || !val)
+        if (!key || !val) {
             continue;
+        }
 
         if (strcmp(key, "http.method") == 0 || strcmp(key, "http.request.method") == 0) {
             out->method = val;
@@ -102,8 +109,9 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
         }
     }
 
-    if (!has_http || !out->path || out->path[0] == '\0')
+    if (!has_http || !out->path || out->path[0] == '\0') {
         return false;
+    }
 
     out->duration_ns = cbm_parse_duration(span->start_time, span->end_time);
     return true;
@@ -111,6 +119,7 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
 
 /* ── calculateP99 ────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_int64(const void *a, const void *b) {
     int64_t va = *(const int64_t *)a;
     int64_t vb = *(const int64_t *)b;
@@ -118,11 +127,15 @@ static int cmp_int64(const void *a, const void *b) {
 }
 
 int64_t cbm_calculate_p99(int64_t *values, int count) {
-    if (!values || count <= 0)
+    if (!values || count <= 0) {
         return 0;
+    }
     qsort(values, count, sizeof(int64_t), cmp_int64);
     int idx = (int)((double)count * 0.99);
-    if (idx >= count)
+    if (idx >= count) {
         idx = count - 1;
+    }
     return values[idx];
 }
+
+// NOLINTEND(readability-magic-numbers)

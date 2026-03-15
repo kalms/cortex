@@ -462,25 +462,27 @@ typedef struct {
 } cbm_file_tree_entry_t;
 
 typedef struct {
+    /* Pointers first to minimize padding */
     cbm_language_count_t *languages;
-    int language_count;
     cbm_package_summary_t *packages;
-    int package_count;
     cbm_entry_point_t *entry_points;
-    int entry_point_count;
     cbm_route_info_t *routes;
-    int route_count;
     cbm_hotspot_t *hotspots;
-    int hotspot_count;
     cbm_cross_pkg_boundary_t *boundaries;
-    int boundary_count;
     cbm_service_link_t *services;
-    int service_count;
     cbm_package_layer_t *layers;
-    int layer_count;
     cbm_cluster_info_t *clusters;
-    int cluster_count;
     cbm_file_tree_entry_t *file_tree;
+    /* Counts after pointers */
+    int language_count;
+    int package_count;
+    int entry_point_count;
+    int route_count;
+    int hotspot_count;
+    int boundary_count;
+    int service_count;
+    int layer_count;
+    int cluster_count;
     int file_tree_count;
 } cbm_architecture_info_t;
 

@@ -58,8 +58,8 @@ TEST(poll_interval_small) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(watcher_create_free) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
     ASSERT_NOT_NULL(w);
     ASSERT_EQ(cbm_watcher_watch_count(w), 0);
     cbm_watcher_free(w);
@@ -68,8 +68,8 @@ TEST(watcher_create_free) {
 }
 
 TEST(watcher_watch_unwatch) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
 
     cbm_watcher_watch(w, "project-a", "/tmp/project-a");
     ASSERT_EQ(cbm_watcher_watch_count(w), 1);
@@ -89,8 +89,8 @@ TEST(watcher_watch_unwatch) {
 }
 
 TEST(watcher_unwatch_nonexistent) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
 
     /* Should not crash */
     cbm_watcher_unwatch(w, "nonexistent");
@@ -102,8 +102,8 @@ TEST(watcher_unwatch_nonexistent) {
 }
 
 TEST(watcher_watch_replace) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
 
     cbm_watcher_watch(w, "project-a", "/tmp/old-path");
     ASSERT_EQ(cbm_watcher_watch_count(w), 1);
@@ -134,15 +134,17 @@ TEST(watcher_null_safety) {
 
 /* Index callback counter */
 static int index_call_count = 0;
-static int index_callback(const char* name, const char* path, void* ud) {
-    (void)name; (void)path; (void)ud;
+static int index_callback(const char *name, const char *path, void *ud) {
+    (void)name;
+    (void)path;
+    (void)ud;
     index_call_count++;
     return 0;
 }
 
 TEST(watcher_poll_no_projects) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     int reindexed = cbm_watcher_poll_once(w);
     ASSERT_EQ(reindexed, 0);
@@ -153,8 +155,8 @@ TEST(watcher_poll_no_projects) {
 }
 
 TEST(watcher_poll_nonexistent_path) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "ghost", "/tmp/cbm_test_nonexistent_path_12345");
 
@@ -171,8 +173,8 @@ TEST(watcher_poll_nonexistent_path) {
 
 TEST(watcher_poll_this_repo) {
     /* Use this project's own repo as a real git repo test */
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     /* Watch our own repo root (we know it's a git repo) */
     char cwd[4096];
@@ -205,8 +207,8 @@ TEST(watcher_poll_this_repo) {
 }
 
 TEST(watcher_stop_flag) {
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
 
     /* Set stop flag */
     cbm_watcher_stop(w);
@@ -227,21 +229,23 @@ TEST(watcher_stop_flag) {
 TEST(watcher_detects_git_commit) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_test_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "temp-repo", tmpdir);
     index_call_count = 0;
@@ -252,8 +256,9 @@ TEST(watcher_detects_git_commit) {
 
     /* Make a change: new commit */
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && echo 'world' >> file.txt && "
-        "git add file.txt && git commit -q -m 'add world'", tmpdir);
+             "cd '%s' && echo 'world' >> file.txt && "
+             "git add file.txt && git commit -q -m 'add world'",
+             tmpdir);
     system(cmd);
 
     /* Touch to bypass interval, then poll */
@@ -277,21 +282,23 @@ TEST(watcher_detects_git_commit) {
 TEST(watcher_detects_dirty_worktree) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_dirty_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "dirty-repo", tmpdir);
     index_call_count = 0;
@@ -300,8 +307,7 @@ TEST(watcher_detects_dirty_worktree) {
     cbm_watcher_poll_once(w);
 
     /* Make working tree dirty (uncommitted change) */
-    snprintf(cmd, sizeof(cmd),
-        "cd '%s' && echo 'modified' >> file.txt", tmpdir);
+    snprintf(cmd, sizeof(cmd), "cd '%s' && echo 'modified' >> file.txt", tmpdir);
     system(cmd);
 
     /* Poll → should detect dirty worktree */
@@ -320,21 +326,23 @@ TEST(watcher_detects_dirty_worktree) {
 TEST(watcher_detects_new_file) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_newf_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "newf-repo", tmpdir);
     index_call_count = 0;
@@ -344,8 +352,7 @@ TEST(watcher_detects_new_file) {
     ASSERT_EQ(index_call_count, 0);
 
     /* Add a new untracked file */
-    snprintf(cmd, sizeof(cmd),
-        "echo 'new content' > '%s/newfile.go'", tmpdir);
+    snprintf(cmd, sizeof(cmd), "echo 'new content' > '%s/newfile.go'", tmpdir);
     system(cmd);
 
     /* Touch to bypass interval, then poll */
@@ -364,21 +371,23 @@ TEST(watcher_detects_new_file) {
 TEST(watcher_no_change_no_reindex) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_nochg_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "nochg-repo", tmpdir);
     index_call_count = 0;
@@ -406,23 +415,30 @@ TEST(watcher_multiple_projects) {
     /* Create two temporary git repos */
     char tmpdirA[] = "/tmp/cbm_watcher_mA_XXXXXX";
     char tmpdirB[] = "/tmp/cbm_watcher_mB_XXXXXX";
-    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'a' > a.txt && "
-        "git add a.txt && git commit -q -m 'init'", tmpdirA);
-    if (system(cmd) != 0) { SKIP("git not available"); }
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'a' > a.txt && "
+             "git add a.txt && git commit -q -m 'init'",
+             tmpdirA);
+    if (system(cmd) != 0) {
+        SKIP("git not available");
+    }
 
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'b' > b.txt && "
-        "git add b.txt && git commit -q -m 'init'", tmpdirB);
-    if (system(cmd) != 0) { SKIP("git not available"); }
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'b' > b.txt && "
+             "git add b.txt && git commit -q -m 'init'",
+             tmpdirB);
+    if (system(cmd) != 0) {
+        SKIP("git not available");
+    }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     cbm_watcher_watch(w, "projA", tmpdirA);
     cbm_watcher_watch(w, "projB", tmpdirB);
@@ -434,8 +450,7 @@ TEST(watcher_multiple_projects) {
     ASSERT_EQ(index_call_count, 0);
 
     /* Modify only A */
-    snprintf(cmd, sizeof(cmd),
-        "echo 'modified' >> '%s/a.txt'", tmpdirA);
+    snprintf(cmd, sizeof(cmd), "echo 'modified' >> '%s/a.txt'", tmpdirA);
     system(cmd);
 
     /* Poll — only A should trigger */
@@ -460,15 +475,16 @@ TEST(watcher_non_git_skips) {
     /* Non-git dir → baseline sets is_git=false → poll never reindexes.
      * Port of TestProbeStrategyNonGit behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_nongit_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     /* Create a file so it's not empty */
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "echo 'hello' > '%s/file.txt'", tmpdir);
     system(cmd);
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "nongit", tmpdir);
     index_call_count = 0;
 
@@ -508,21 +524,23 @@ TEST(watcher_interval_blocks_repoll) {
      * immediate re-polling. Without touch(), the next poll is a no-op.
      * Port of TestWatcherGitNoChanges' interval behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_intv_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "intv-repo", tmpdir);
     index_call_count = 0;
 
@@ -552,23 +570,19 @@ TEST(watcher_interval_blocks_repoll) {
 
 TEST(watcher_poll_interval_full_table) {
     /* Full table-driven test matching Go TestPollInterval exactly */
-    struct { int files; int expected_ms; } tests[] = {
-        {0,      5000},
-        {70,     5000},
-        {499,    5000},
-        {500,    6000},
-        {2000,   9000},
-        {5000,  15000},
-        {10000, 25000},
-        {50000, 60000},
-        {100000, 60000},
+    struct {
+        int files;
+        int expected_ms;
+    } tests[] = {
+        {0, 5000},     {70, 5000},     {499, 5000},    {500, 6000},     {2000, 9000},
+        {5000, 15000}, {10000, 25000}, {50000, 60000}, {100000, 60000},
     };
     int n = (int)(sizeof(tests) / sizeof(tests[0]));
     for (int i = 0; i < n; i++) {
         int got = cbm_watcher_poll_interval_ms(tests[i].files);
         if (got != tests[i].expected_ms) {
-            fprintf(stderr, "FAIL pollInterval(%d) = %d, want %d\n",
-                    tests[i].files, got, tests[i].expected_ms);
+            fprintf(stderr, "FAIL pollInterval(%d) = %d, want %d\n", tests[i].files, got,
+                    tests[i].expected_ms);
             return 1;
         }
     }
@@ -584,21 +598,23 @@ TEST(watcher_git_removed_no_crash) {
      * Port of TestStrategyDowngradeGitToDirMtime behavior (C version
      * doesn't downgrade — just git commands fail silently). */
     char tmpdir[] = "/tmp/cbm_watcher_rmgit_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "rmgit-repo", tmpdir);
     index_call_count = 0;
 
@@ -627,21 +643,23 @@ TEST(watcher_continued_dirty) {
     /* If working tree stays dirty, each poll should re-trigger reindex.
      * Port of repeated git sentinel detection behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_cont_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "cont-repo", tmpdir);
     index_call_count = 0;
 
@@ -664,8 +682,7 @@ TEST(watcher_continued_dirty) {
     ASSERT_EQ(index_call_count, 2);
 
     /* Commit to clean up, then poll — should not trigger */
-    snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git add file.txt && git commit -q -m 'clean'", tmpdir);
+    snprintf(cmd, sizeof(cmd), "cd '%s' && git add file.txt && git commit -q -m 'clean'", tmpdir);
     system(cmd);
 
     /* HEAD changed → will trigger one more reindex */
@@ -694,13 +711,15 @@ TEST(watcher_baseline_dirty_repo) {
     /* Baseline on a repo that already has uncommitted changes.
      * Port of TestGitSentinelDetectsEdit (dirty from the start). */
     char tmpdir[] = "/tmp/cbm_watcher_bld_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
@@ -711,8 +730,8 @@ TEST(watcher_baseline_dirty_repo) {
     snprintf(cmd, sizeof(cmd), "echo 'dirty from start' >> '%s/file.txt'", tmpdir);
     system(cmd);
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "bld-repo", tmpdir);
     index_call_count = 0;
 
@@ -736,21 +755,23 @@ TEST(watcher_unwatch_prunes_state) {
     /* Watch, baseline, unwatch → project state removed.
      * Port of TestPollAllPrunesUnwatched + TestWatcherPrunesDeletedProjects. */
     char tmpdir[] = "/tmp/cbm_watcher_prune_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "prune-repo", tmpdir);
     ASSERT_EQ(cbm_watcher_watch_count(w), 1);
     index_call_count = 0;
@@ -780,21 +801,23 @@ TEST(watcher_watch_after_unwatch) {
     /* Re-watching after unwatch should start fresh (new baseline).
      * Tests lifecycle correctness. */
     char tmpdir[] = "/tmp/cbm_watcher_rewatch_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     /* Watch → baseline → unwatch */
     cbm_watcher_watch(w, "rewatch-repo", tmpdir);
@@ -839,22 +862,24 @@ TEST(watcher_detects_file_delete) {
     /* Port of TestFSNotifyDetectsFileDelete:
      * Delete a tracked file → git status shows change → reindex triggered. */
     char tmpdir[] = "/tmp/cbm_watcher_del_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "echo 'todelete' > todelete.go && "
-        "git add -A && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "echo 'todelete' > todelete.go && "
+             "git add -A && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "del-repo", tmpdir);
     index_call_count = 0;
 
@@ -882,21 +907,23 @@ TEST(watcher_detects_subdir_file) {
     /* Port of TestFSNotifyWatchesNewSubdir:
      * Create new subdir + file in it → git detects untracked → reindex. */
     char tmpdir[] = "/tmp/cbm_watcher_sub_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > main.go && "
-        "git add main.go && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > main.go && "
+             "git add main.go && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "sub-repo", tmpdir);
     index_call_count = 0;
 
@@ -905,9 +932,8 @@ TEST(watcher_detects_subdir_file) {
     ASSERT_EQ(index_call_count, 0);
 
     /* Create new subdir and file in it */
-    snprintf(cmd, sizeof(cmd),
-        "mkdir -p '%s/pkg' && echo 'package pkg' > '%s/pkg/lib.go'",
-        tmpdir, tmpdir);
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s/pkg' && echo 'package pkg' > '%s/pkg/lib.go'", tmpdir,
+             tmpdir);
     system(cmd);
 
     /* Touch + poll → should detect untracked file in subdir */
@@ -926,8 +952,8 @@ TEST(watcher_free_idempotent) {
     /* Port of TestFSNotifyCleanup:
      * Verify that free() properly cleans up, and free(NULL) is safe.
      * Tests resource cleanup correctness. */
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, NULL, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, NULL, NULL);
     ASSERT_NOT_NULL(w);
 
     /* Watch some projects to create internal state */
@@ -952,21 +978,23 @@ TEST(watcher_full_flow_new_file) {
      * This is a more thorough version of watcher_detects_new_file
      * that mirrors the Go test's structure exactly. */
     char tmpdir[] = "/tmp/cbm_watcher_ffnf_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'package main' > main.go && "
-        "git add main.go && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'package main' > main.go && "
+             "git add main.go && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "ffnf-repo", tmpdir);
     index_call_count = 0;
 
@@ -979,8 +1007,7 @@ TEST(watcher_full_flow_new_file) {
     ASSERT_EQ(index_call_count, 0);
 
     /* Create a new file */
-    snprintf(cmd, sizeof(cmd),
-        "echo 'package main' > '%s/util.go'", tmpdir);
+    snprintf(cmd, sizeof(cmd), "echo 'package main' > '%s/util.go'", tmpdir);
     system(cmd);
 
     /* Touch to bypass interval, then poll — should detect */
@@ -1001,21 +1028,23 @@ TEST(watcher_fallback_still_detects) {
      * still detects changes. In C, we test that after removing .git
      * and re-creating it, changes are still detected on re-watch. */
     char tmpdir[] = "/tmp/cbm_watcher_fb_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > main.go && "
-        "git add main.go && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > main.go && "
+             "git add main.go && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "fb-repo", tmpdir);
     index_call_count = 0;
 
@@ -1025,10 +1054,10 @@ TEST(watcher_fallback_still_detects) {
 
     /* Remove .git and re-init (simulates strategy reset) */
     snprintf(cmd, sizeof(cmd),
-        "rm -rf '%s/.git' && cd '%s' && git init -q && "
-        "git config user.email test@test && git config user.name test && "
-        "git add -A && git commit -q -m 'reinit'",
-        tmpdir, tmpdir);
+             "rm -rf '%s/.git' && cd '%s' && git init -q && "
+             "git config user.email test@test && git config user.name test && "
+             "git add -A && git commit -q -m 'reinit'",
+             tmpdir, tmpdir);
     system(cmd);
 
     /* Re-watch with fresh state */
@@ -1037,8 +1066,7 @@ TEST(watcher_fallback_still_detects) {
     cbm_watcher_poll_once(w); /* new baseline */
 
     /* Add new file */
-    snprintf(cmd, sizeof(cmd),
-        "echo 'package main' > '%s/new.go'", tmpdir);
+    snprintf(cmd, sizeof(cmd), "echo 'package main' > '%s/new.go'", tmpdir);
     system(cmd);
 
     /* Detect change with fresh git strategy */
@@ -1059,24 +1087,31 @@ TEST(watcher_poll_only_watched_projects) {
      * gets polled and can trigger reindex. */
     char tmpdirA[] = "/tmp/cbm_watcher_owA_XXXXXX";
     char tmpdirB[] = "/tmp/cbm_watcher_owB_XXXXXX";
-    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     /* Init both repos */
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'a' > a.txt && "
-        "git add a.txt && git commit -q -m 'init'", tmpdirA);
-    if (system(cmd) != 0) { SKIP("git not available"); }
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'a' > a.txt && "
+             "git add a.txt && git commit -q -m 'init'",
+             tmpdirA);
+    if (system(cmd) != 0) {
+        SKIP("git not available");
+    }
 
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'b' > b.txt && "
-        "git add b.txt && git commit -q -m 'init'", tmpdirB);
-    if (system(cmd) != 0) { SKIP("git not available"); }
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'b' > b.txt && "
+             "git add b.txt && git commit -q -m 'init'",
+             tmpdirB);
+    if (system(cmd) != 0) {
+        SKIP("git not available");
+    }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
 
     /* Only watch A — B is NOT watched */
     cbm_watcher_watch(w, "projA-ow", tmpdirA);
@@ -1110,21 +1145,23 @@ TEST(watcher_touch_resets_immediate) {
      * Verify that touch() resets the adaptive backoff so the next
      * poll actually checks for changes immediately. */
     char tmpdir[] = "/tmp/cbm_watcher_tch_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'hello' > file.txt && "
-        "git add file.txt && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'hello' > file.txt && "
+             "git add file.txt && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "tch-repo", tmpdir);
     index_call_count = 0;
 
@@ -1158,21 +1195,23 @@ TEST(watcher_modify_tracked_file) {
      * Similar to watcher_detects_dirty_worktree but modifies specific
      * tracked file content rather than appending. */
     char tmpdir[] = "/tmp/cbm_watcher_mod_XXXXXX";
-    if (!mkdtemp(tmpdir)) SKIP("mkdtemp failed");
+    if (!mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "cd '%s' && git init -q && git config user.email test@test && "
-        "git config user.name test && echo 'package main' > main.go && "
-        "git add main.go && git commit -q -m 'init'", tmpdir);
+             "cd '%s' && git init -q && git config user.email test@test && "
+             "git config user.name test && echo 'package main' > main.go && "
+             "git add main.go && git commit -q -m 'init'",
+             tmpdir);
     if (system(cmd) != 0) {
         snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmpdir);
         system(cmd);
         SKIP("git not available");
     }
 
-    cbm_store_t* store = cbm_store_open_memory();
-    cbm_watcher_t* w = cbm_watcher_new(store, index_callback, NULL);
+    cbm_store_t *store = cbm_store_open_memory();
+    cbm_watcher_t *w = cbm_watcher_new(store, index_callback, NULL);
     cbm_watcher_watch(w, "mod-repo", tmpdir);
     index_call_count = 0;
 
@@ -1186,8 +1225,7 @@ TEST(watcher_modify_tracked_file) {
     ASSERT_EQ(index_call_count, 0);
 
     /* Overwrite file with new content */
-    snprintf(cmd, sizeof(cmd),
-        "echo 'package main\n\nfunc main() {}' > '%s/main.go'", tmpdir);
+    snprintf(cmd, sizeof(cmd), "echo 'package main\n\nfunc main() {}' > '%s/main.go'", tmpdir);
     system(cmd);
 
     /* Touch + poll → should detect modification */

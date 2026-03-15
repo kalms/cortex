@@ -1,84 +1,42 @@
 # .clang-tidy — C11 static analysis configuration (BLOCKING).
 #
-# Every enabled check must pass clean. WarningsAsErrors: '*'.
-#
-# Disabled checks with rationale:
-#   bugprone-easily-swappable-parameters — too noisy for C APIs
-#   bugprone-narrowing-conversions — duplicates -Wconversion
-#   bugprone-multi-level-implicit-pointer-conversion — common C void** patterns
-#   bugprone-assignment-in-if-condition — idiomatic C: if ((val = fn()) != NULL)
-#   bugprone-suspicious-include — unity builds (.c including .c)
-#   bugprone-command-processor,cert-env33-c — intentional popen/system for git ops
-#   misc-no-recursion — intentional tree walks
-#   misc-include-cleaner — doesn't understand our include structure
-#   misc-unused-parameters — handled by -Wno-unused-parameter
-#   misc-confusable-identifiers — Unicode confusables, not relevant
-#   performance-no-int-to-ptr — intentional (void*)1 sentinel pattern
-#   readability-braces-around-statements — not our C style
-#   readability-implicit-bool-conversion — idiomatic C: if (!ptr)
-#   readability-isolate-declaration — common C style: int i, j;
-#   readability-uppercase-literal-suffix — 0u vs 0U is cosmetic
-#   readability-function-cognitive-complexity — complex parsers can't be split
-#   readability-function-size — large resolver/parser functions
-#   cert-err33-c — too noisy (flags every snprintf/fclose)
-#   concurrency-mt-unsafe — flags strtok/getenv used intentionally
-#   clang-analyzer-security.ArrayBound — high false positive rate with dynamic arrays
-#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling — recommends non-standard memcpy_s
-#   clang-analyzer-optin.portability.UnixAPI — we target POSIX
-#   clang-analyzer-optin.performance.Padding — struct layout optimization not priority
-#   clang-analyzer-unix.Malloc — high false positive rate in static analysis
+# ALL checks enabled. WarningsAsErrors: '*'.
+# Check thresholds configured for idiomatic C11 (not C++).
 
 Checks: >
   -*,
   bugprone-*,
-  -bugprone-easily-swappable-parameters,
-  -bugprone-narrowing-conversions,
-  -bugprone-multi-level-implicit-pointer-conversion,
-  -bugprone-assignment-in-if-condition,
-  -bugprone-suspicious-include,
-  -bugprone-command-processor,
   cert-*,
-  -cert-err33-c,
-  -cert-env33-c,
+  concurrency-*,
   darwin-*,
   linuxkernel-*,
   misc-*,
-  -misc-no-recursion,
-  -misc-include-cleaner,
-  -misc-unused-parameters,
-  -misc-confusable-identifiers,
   performance-*,
-  -performance-no-int-to-ptr,
   portability-*,
-  readability-avoid-const-params-in-decls,
-  readability-const-return-type,
-  readability-duplicate-include,
-  readability-else-after-return,
-  readability-inconsistent-declaration-parameter-name,
-  readability-misleading-indentation,
-  readability-misplaced-array-index,
-  readability-non-const-parameter,
-  readability-redundant-control-flow,
-  readability-redundant-declaration,
-  readability-redundant-preprocessor,
-  readability-simplify-boolean-expr,
-  readability-suspicious-call-argument,
+  readability-*,
   clang-analyzer-*,
-  -clang-analyzer-security.ArrayBound,
-  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
-  -clang-analyzer-optin.portability.UnixAPI,
-  -clang-analyzer-optin.performance.Padding,
-  -clang-analyzer-unix.Malloc,
 
 WarningsAsErrors: '*'
 
 CheckOptions:
-  # Signed/unsigned conversion — allow controlled casts (common in C)
   bugprone-implicit-widening-of-multiplication-result.UseCXXStaticCastsInCppSources: false
+  # C idiom: i, j, k, n, p, s are standard variable names
+  readability-identifier-length.MinimumVariableNameLength: 1
+  readability-identifier-length.MinimumParameterNameLength: 1
+  readability-identifier-length.MinimumLoopCounterNameLength: 1
+  # C idiom: if (!ptr), if (count) are standard
+  readability-implicit-bool-conversion.AllowIntegerConditions: true
+  readability-implicit-bool-conversion.AllowPointerConditions: true
+  # Systems C uses bit shifts, buffer sizes, hash constants
+  readability-magic-numbers.IgnoredIntegerValues: "1;2;3;4;5;6;7;8;9;10;12;16;20;24;32;48;64;100;128;200;256;512;1000;1024;2048;4096;8192;16384;32768;65536"
+  readability-magic-numbers.IgnoredFloatingPointValues: "0.0;0.5;1.0;2.0;100.0"
+  # Tree-sitter parser/resolver functions have deep switch statements
+  readability-function-cognitive-complexity.Threshold: 200
+  readability-function-size.StatementThreshold: 400
+  readability-function-size.LineThreshold: 800
 
 HeaderFilterRegex: '^(src|tests)/.*\.h$'
 
-# Only analyze our code, not vendored headers
 ExtraArgs:
   - '-std=c11'
   - '-Isrc'

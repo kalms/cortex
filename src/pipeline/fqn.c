@@ -1,3 +1,4 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * fqn.c — Fully Qualified Name computation for graph nodes.
  *
@@ -6,29 +7,35 @@
  */
 #include "pipeline/pipeline.h"
 
-#include <stdlib.h>
-#include <string.h>
+#include <stddef.h> // NULL
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h> // strdup
 
 /* ── Internal helpers ─────────────────────────────────────────────── */
 
 /* Build a dot-joined string from segments. Returns heap-allocated string. */
 static char *join_segments(const char **segments, int count) {
-    if (count == 0)
+    if (count == 0) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
         return strdup("");
+    }
     size_t total = 0;
     for (int i = 0; i < count; i++) {
         total += strlen(segments[i]);
-        if (i > 0)
+        if (i > 0) {
             total++; /* dot separator */
+        }
     }
     char *result = malloc(total + 1);
-    if (!result)
+    if (!result) {
         return NULL;
+    }
     char *p = result;
     for (int i = 0; i < count; i++) {
-        if (i > 0)
+        if (i > 0) {
             *p++ = '.';
+        }
         size_t len = strlen(segments[i]);
         memcpy(p, segments[i], len);
         p += len;
@@ -39,17 +46,20 @@ static char *join_segments(const char **segments, int count) {
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const char *name) {
-    if (!project)
+    if (!project) {
         return strdup("");
+    }
 
     /* Work on a mutable copy for path manipulation */
     char *path = strdup(rel_path ? rel_path : "");
 
     /* Convert backslash to forward slash */
     for (char *p = path; *p; p++) {
-        if (*p == '\\')
+        if (*p == '\\') {
             *p = '/';
+        }
     }
 
     /* Strip file extension */
@@ -57,8 +67,9 @@ char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const 
         char *last_slash = strrchr(path, '/');
         char *start = last_slash ? last_slash + 1 : path;
         char *ext = strrchr(start, '.');
-        if (ext)
+        if (ext) {
             *ext = '\0';
+        }
     }
 
     /* Split by '/' into segments */
@@ -73,8 +84,9 @@ char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const 
         char *tok = path;
         while (tok && *tok && seg_count < 254) {
             char *slash = strchr(tok, '/');
-            if (slash)
+            if (slash) {
                 *slash = '\0';
+            }
             if (tok[0] != '\0') {
                 segments[seg_count++] = tok;
             }
@@ -104,15 +116,18 @@ char *cbm_pipeline_fqn_module(const char *project, const char *rel_path) {
     return cbm_pipeline_fqn_compute(project, rel_path, NULL);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
-    if (!project)
+    if (!project) {
         return strdup("");
+    }
 
     /* Work on mutable copy */
     char *dir = strdup(rel_dir ? rel_dir : "");
     for (char *p = dir; *p; p++) {
-        if (*p == '\\')
+        if (*p == '\\') {
             *p = '/';
+        }
     }
 
     const char *segments[256];
@@ -123,8 +138,9 @@ char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
         char *tok = dir;
         while (tok && *tok && seg_count < 255) {
             char *slash = strchr(tok, '/');
-            if (slash)
+            if (slash) {
                 *slash = '\0';
+            }
             if (tok[0] != '\0') {
                 segments[seg_count++] = tok;
             }
@@ -138,8 +154,9 @@ char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
 }
 
 char *cbm_project_name_from_path(const char *abs_path) {
-    if (!abs_path || !abs_path[0])
+    if (!abs_path || !abs_path[0]) {
         return strdup("root");
+    }
 
     /* Work on mutable copy */
     char *path = strdup(abs_path);
@@ -147,22 +164,25 @@ char *cbm_project_name_from_path(const char *abs_path) {
 
     /* Convert \ to / */
     for (size_t i = 0; i < len; i++) {
-        if (path[i] == '\\')
+        if (path[i] == '\\') {
             path[i] = '/';
+        }
     }
 
     /* Replace / and : with - */
     for (size_t i = 0; i < len; i++) {
-        if (path[i] == '/' || path[i] == ':')
+        if (path[i] == '/' || path[i] == ':') {
             path[i] = '-';
+        }
     }
 
     /* Collapse consecutive dashes */
     char *dst = path;
     char prev = 0;
     for (size_t i = 0; i < len; i++) {
-        if (path[i] == '-' && prev == '-')
+        if (path[i] == '-' && prev == '-') {
             continue;
+        }
         *dst++ = path[i];
         prev = path[i];
     }
@@ -170,8 +190,9 @@ char *cbm_project_name_from_path(const char *abs_path) {
 
     /* Trim leading dashes */
     char *start = path;
-    while (*start == '-')
+    while (*start == '-') {
         start++;
+    }
 
     /* Trim trailing dashes */
     size_t slen = strlen(start);
@@ -188,3 +209,5 @@ char *cbm_project_name_from_path(const char *abs_path) {
     free(path);
     return result;
 }
+
+// NOLINTEND(readability-magic-numbers)

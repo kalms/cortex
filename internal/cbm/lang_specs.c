@@ -1,4 +1,6 @@
 #include "lang_specs.h"
+#include "cbm.h"             // CBMLanguage, CBM_LANG_*
+#include "tree_sitter/api.h" // TSLanguage
 
 // -- Extern declarations for tree-sitter grammar functions --
 // These symbols are defined in the grammar C code compiled by Go tree-sitter modules.
@@ -1042,8 +1044,9 @@ static const CBMLangSpec lang_specs[CBM_LANG_COUNT] = {
 };
 
 const CBMLangSpec *cbm_lang_spec(CBMLanguage lang) {
-    if (lang < 0 || lang >= CBM_LANG_COUNT)
+    if (lang < 0 || lang >= CBM_LANG_COUNT) {
         return NULL;
+    }
     return &lang_specs[lang];
 }
 

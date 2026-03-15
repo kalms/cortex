@@ -11,20 +11,21 @@
 /* Declarations from ac.c (no public header yet — these are the C API) */
 typedef struct CBMAutomaton CBMAutomaton;
 
-CBMAutomaton *cbm_ac_build(
-    const char **patterns, const int *lengths, int count,
-    const uint8_t *alpha_map, int alpha_size);
+CBMAutomaton *cbm_ac_build(const char **patterns, const int *lengths, int count,
+                           const uint8_t *alpha_map, int alpha_size);
 void cbm_ac_free(CBMAutomaton *ac);
 uint64_t cbm_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_len);
 int cbm_ac_num_states(const CBMAutomaton *ac);
 int cbm_ac_num_patterns(const CBMAutomaton *ac);
 int cbm_ac_table_bytes(const CBMAutomaton *ac);
 
-typedef struct { int name_index; int pattern_id; } CBMMatchResult;
-int cbm_ac_scan_batch(
-    const CBMAutomaton *ac,
-    const char *names_buf, const int *name_offsets, const int *name_lengths,
-    int num_names, CBMMatchResult *out_matches, int max_matches);
+typedef struct {
+    int name_index;
+    int pattern_id;
+} CBMMatchResult;
+int cbm_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *name_offsets,
+                      const int *name_lengths, int num_names, CBMMatchResult *out_matches,
+                      int max_matches);
 
 /* ── Tests ─────────────────────────────────────────────────────── */
 
@@ -113,7 +114,8 @@ TEST(ac_scan_empty_text) {
 TEST(ac_custom_alphabet) {
     /* Use a compact alphabet mapping only lowercase letters */
     uint8_t alpha_map[256] = {0};
-    for (int c = 'a'; c <= 'z'; c++) alpha_map[c] = (uint8_t)(c - 'a' + 1);
+    for (int c = 'a'; c <= 'z'; c++)
+        alpha_map[c] = (uint8_t)(c - 'a' + 1);
     int alpha_size = 27; /* 0=other, 1-26=a-z */
 
     const char *patterns[] = {"hello"};
@@ -205,14 +207,20 @@ extern int cbm_lz4_compress_hc(const char *src, int srcLen, char *dst, int dstCa
 extern int cbm_lz4_bound(int inputSize);
 
 /* Structs defined in ac.c */
-typedef struct { const char *data; int compressed_len; int original_len; } CBMLz4Entry;
-typedef struct { int file_index; uint64_t bitmask; } CBMLz4Match;
+typedef struct {
+    const char *data;
+    int compressed_len;
+    int original_len;
+} CBMLz4Entry;
+typedef struct {
+    int file_index;
+    uint64_t bitmask;
+} CBMLz4Match;
 
-extern uint64_t cbm_ac_scan_lz4_bitmask(
-    const CBMAutomaton *ac, const char *compressed, int compressed_len, int original_len);
-extern int cbm_ac_scan_lz4_batch(
-    const CBMAutomaton *ac, const CBMLz4Entry *entries, int num_entries,
-    CBMLz4Match *out_matches, int max_matches);
+extern uint64_t cbm_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed,
+                                        int compressed_len, int original_len);
+extern int cbm_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries,
+                                 int num_entries, CBMLz4Match *out_matches, int max_matches);
 
 TEST(ac_scan_lz4_bitmask) {
     const char *patterns[] = {"http.Get", "fetch("};
@@ -220,11 +228,10 @@ TEST(ac_scan_lz4_bitmask) {
     CBMAutomaton *ac = cbm_ac_build(patterns, lengths, 2, NULL, 256);
     ASSERT_NOT_NULL(ac);
 
-    const char *source =
-        "package main\nimport \"net/http\"\n"
-        "func doStuff() {\n"
-        "    resp, err := http.Get(\"https://example.com\")\n"
-        "    _ = resp\n    _ = err\n}\n";
+    const char *source = "package main\nimport \"net/http\"\n"
+                         "func doStuff() {\n"
+                         "    resp, err := http.Get(\"https://example.com\")\n"
+                         "    _ = resp\n    _ = err\n}\n";
     int src_len = (int)strlen(source);
     int bound = cbm_lz4_bound(src_len);
     char *compressed = malloc(bound);
@@ -258,11 +265,9 @@ TEST(ac_scan_lz4_batch) {
     ASSERT_NOT_NULL(ac);
 
     /* Three files: one with http.Get, one empty, one with Route::get */
-    const char *files[] = {
-        "resp := http.Get(\"https://example.com\")",
-        "func main() { println(42) }",
-        "Route::get(\"/users\", \"UserController@index\")"
-    };
+    const char *files[] = {"resp := http.Get(\"https://example.com\")",
+                           "func main() { println(42) }",
+                           "Route::get(\"/users\", \"UserController@index\")"};
     CBMLz4Entry entries[3];
     char *comp_bufs[3];
     for (int i = 0; i < 3; i++) {
@@ -283,7 +288,8 @@ TEST(ac_scan_lz4_batch) {
     ASSERT_EQ(matches[1].file_index, 2);
     ASSERT(matches[1].bitmask & 4ULL); /* Route::get */
 
-    for (int i = 0; i < 3; i++) free(comp_bufs[i]);
+    for (int i = 0; i < 3; i++)
+        free(comp_bufs[i]);
     cbm_ac_free(ac);
     PASS();
 }
@@ -305,47 +311,44 @@ TEST(ac_scan_lz4_batch_empty) {
 TEST(ac_large_pattern_set) {
     /* All httplink keywords — real-world pattern count */
     const char *patterns[] = {
-        "requests.get", "requests.post", "requests.put", "requests.delete", "requests.patch",
-        "httpx.", "aiohttp.", "urllib.request",
-        "http.Get", "http.Post", "http.NewRequest", "client.Do(",
-        "fetch(", "axios.", ".ajax(",
-        "HttpClient", "RestTemplate", "WebClient", "OkHttpClient",
-        "HttpURLConnection", "openConnection(",
-        "reqwest::", "hyper::", "surf::", "ureq::",
-        "curl_exec", "curl_init", "Guzzle", "Http::get", "Http::post",
-        "sttp.", "http4s", "wsClient",
-        "curl_easy", "cpr::Get", "cpr::Post", "httplib::",
-        "socket.http", "http.request",
-        "RestClient", "HttpWebRequest",
-        "ktor.client",
-        "send_request", "http_client",
-        "CreateTask", "create_task",
-        "topic.Publish", "publisher.publish", "topic.publish",
-        "sqs.send_message", "sns.publish",
-        "basic_publish",
-        "producer.send", "producer.Send",
+        "requests.get",    "requests.post",    "requests.put",    "requests.delete",
+        "requests.patch",  "httpx.",           "aiohttp.",        "urllib.request",
+        "http.Get",        "http.Post",        "http.NewRequest", "client.Do(",
+        "fetch(",          "axios.",           ".ajax(",          "HttpClient",
+        "RestTemplate",    "WebClient",        "OkHttpClient",    "HttpURLConnection",
+        "openConnection(", "reqwest::",        "hyper::",         "surf::",
+        "ureq::",          "curl_exec",        "curl_init",       "Guzzle",
+        "Http::get",       "Http::post",       "sttp.",           "http4s",
+        "wsClient",        "curl_easy",        "cpr::Get",        "cpr::Post",
+        "httplib::",       "socket.http",      "http.request",    "RestClient",
+        "HttpWebRequest",  "ktor.client",      "send_request",    "http_client",
+        "CreateTask",      "create_task",      "topic.Publish",   "publisher.publish",
+        "topic.publish",   "sqs.send_message", "sns.publish",     "basic_publish",
+        "producer.send",   "producer.Send",
     };
     int count = sizeof(patterns) / sizeof(patterns[0]);
     int *lengths = malloc(count * sizeof(int));
-    for (int i = 0; i < count; i++) lengths[i] = (int)strlen(patterns[i]);
+    for (int i = 0; i < count; i++)
+        lengths[i] = (int)strlen(patterns[i]);
 
     CBMAutomaton *ac = cbm_ac_build(patterns, lengths, count, NULL, 256);
     ASSERT_NOT_NULL(ac);
     ASSERT_GT(cbm_ac_num_states(ac), 0);
 
     /* Scan Go source with http.Get and CreateTask */
-    const char *source =
-        "package main\nimport \"net/http\"\n"
-        "func callAPI() {\n"
-        "    resp, _ := http.Get(\"https://api.example.com/data\")\n"
-        "    defer resp.Body.Close()\n}\n"
-        "func createTask() {\n    client.CreateTask(ctx, req)\n}\n";
+    const char *source = "package main\nimport \"net/http\"\n"
+                         "func callAPI() {\n"
+                         "    resp, _ := http.Get(\"https://api.example.com/data\")\n"
+                         "    defer resp.Body.Close()\n}\n"
+                         "func createTask() {\n    client.CreateTask(ctx, req)\n}\n";
     uint64_t mask = cbm_ac_scan_bitmask(ac, source, (int)strlen(source));
     /* Find indices for http.Get and CreateTask */
     int http_get_idx = -1, create_task_idx = -1;
     for (int i = 0; i < count; i++) {
-        if (strcmp(patterns[i], "http.Get") == 0) http_get_idx = i;
-        if (strcmp(patterns[i], "CreateTask") == 0) create_task_idx = i;
+        if (strcmp(patterns[i], "http.Get") == 0)
+            http_get_idx = i;
+        if (strcmp(patterns[i], "CreateTask") == 0)
+            create_task_idx = i;
     }
     ASSERT(mask & (1ULL << http_get_idx));
     ASSERT(mask & (1ULL << create_task_idx));
@@ -367,7 +370,10 @@ TEST(ac_http_patterns) {
     ASSERT_NOT_NULL(ac);
     ASSERT_EQ(cbm_ac_num_patterns(ac), 4);
 
-    struct { const char *input; uint64_t expected; } tests[] = {
+    struct {
+        const char *input;
+        uint64_t expected;
+    } tests[] = {
         {"resp := http.Get(url)", 1ULL << 0},
         {"const r = fetch(url)", 1ULL << 1},
         {"requests.post(url, data)", 1ULL << 2},
@@ -389,8 +395,10 @@ TEST(ac_compact_alphabet_extended) {
     /* Build a-z=1..26, 0-9=27..36, _=37 */
     uint8_t alpha_map[256] = {0};
     uint8_t idx = 1;
-    for (int c = 'a'; c <= 'z'; c++) alpha_map[c] = idx++;
-    for (int c = '0'; c <= '9'; c++) alpha_map[c] = idx++;
+    for (int c = 'a'; c <= 'z'; c++)
+        alpha_map[c] = idx++;
+    for (int c = '0'; c <= '9'; c++)
+        alpha_map[c] = idx++;
     alpha_map['_'] = idx;
     int alpha_size = (int)idx + 1; /* 38 */
 
@@ -442,10 +450,14 @@ TEST(ac_batch_scan_detailed) {
     /* Build lookup: name_index → list of pattern_ids */
     int found_name0 = 0, found_name1 = 0, found_name3_db = 0, found_name3_host = 0;
     for (int i = 0; i < n; i++) {
-        if (matches[i].name_index == 0 && matches[i].pattern_id == 0) found_name0 = 1;
-        if (matches[i].name_index == 1 && matches[i].pattern_id == 1) found_name1 = 1;
-        if (matches[i].name_index == 3 && matches[i].pattern_id == 0) found_name3_db = 1;
-        if (matches[i].name_index == 3 && matches[i].pattern_id == 2) found_name3_host = 1;
+        if (matches[i].name_index == 0 && matches[i].pattern_id == 0)
+            found_name0 = 1;
+        if (matches[i].name_index == 1 && matches[i].pattern_id == 1)
+            found_name1 = 1;
+        if (matches[i].name_index == 3 && matches[i].pattern_id == 0)
+            found_name3_db = 1;
+        if (matches[i].name_index == 3 && matches[i].pattern_id == 2)
+            found_name3_host = 1;
     }
     ASSERT_TRUE(found_name0);
     ASSERT_TRUE(found_name1);

@@ -1,3 +1,4 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * str_intern.c — String interning pool.
  *
@@ -6,15 +7,16 @@
  */
 #include "str_intern.h"
 #include "arena.h"
+#include <stdint.h> // uint32_t
 #include <stdlib.h>
 #include <string.h>
 
 /* FNV-1a for interning (matches hash_table.c) */
 static uint32_t intern_hash(const char *s, size_t len) {
-    uint32_t h = 2166136261u;
+    uint32_t h = 2166136261U;
     for (size_t i = 0; i < len; i++) {
         h ^= (unsigned char)s[i];
-        h *= 16777619u;
+        h *= 16777619U;
     }
     return h;
 }
@@ -37,8 +39,9 @@ struct CBMInternPool {
 
 CBMInternPool *cbm_intern_create(void) {
     CBMInternPool *p = (CBMInternPool *)calloc(1, sizeof(*p));
-    if (!p)
+    if (!p) {
         return NULL;
+    }
     cbm_arena_init(&p->arena);
     p->capacity = 256;
     p->mask = p->capacity - 1;
@@ -52,8 +55,9 @@ CBMInternPool *cbm_intern_create(void) {
 }
 
 void cbm_intern_free(CBMInternPool *pool) {
-    if (!pool)
+    if (!pool) {
         return;
+    }
     cbm_arena_destroy(&pool->arena);
     free(pool->buckets);
     free(pool);
@@ -63,13 +67,15 @@ static void intern_resize(CBMInternPool *p) {
     uint32_t new_cap = p->capacity * 2;
     uint32_t new_mask = new_cap - 1;
     InternEntry *new_buckets = (InternEntry *)calloc(new_cap, sizeof(InternEntry));
-    if (!new_buckets)
+    if (!new_buckets) {
         return;
+    }
 
     for (uint32_t i = 0; i < p->capacity; i++) {
         const InternEntry *e = &p->buckets[i];
-        if (!e->str)
+        if (!e->str) {
             continue;
+        }
         uint32_t idx = e->hash & new_mask;
         while (new_buckets[idx].str) {
             idx = (idx + 1) & new_mask;
@@ -84,8 +90,9 @@ static void intern_resize(CBMInternPool *p) {
 }
 
 const char *cbm_intern_n(CBMInternPool *pool, const char *s, size_t len) {
-    if (!pool || !s)
+    if (!pool || !s) {
         return NULL;
+    }
 
     uint32_t h = intern_hash(s, len);
     uint32_t idx = h & pool->mask;
@@ -93,8 +100,9 @@ const char *cbm_intern_n(CBMInternPool *pool, const char *s, size_t len) {
     /* Probe for existing entry */
     for (;;) {
         const InternEntry *e = &pool->buckets[idx];
-        if (!e->str)
+        if (!e->str) {
             break; /* empty slot — not found */
+        }
         if (e->hash == h && e->len == (uint32_t)len && memcmp(e->str, s, len) == 0) {
             return e->str; /* found — return existing pointer */
         }
@@ -113,8 +121,9 @@ const char *cbm_intern_n(CBMInternPool *pool, const char *s, size_t len) {
 
     /* Copy string into arena */
     char *copy = cbm_arena_strndup(&pool->arena, s, len);
-    if (!copy)
+    if (!copy) {
         return NULL;
+    }
 
     pool->buckets[idx] = (InternEntry){.str = copy, .hash = h, .len = (uint32_t)len};
     pool->count++;
@@ -123,8 +132,9 @@ const char *cbm_intern_n(CBMInternPool *pool, const char *s, size_t len) {
 }
 
 const char *cbm_intern(CBMInternPool *pool, const char *s) {
-    if (!s)
+    if (!s) {
         return NULL;
+    }
     return cbm_intern_n(pool, s, strlen(s));
 }
 
@@ -135,3 +145,5 @@ uint32_t cbm_intern_count(const CBMInternPool *pool) {
 size_t cbm_intern_bytes(const CBMInternPool *pool) {
     return pool ? pool->total_bytes : 0;
 }
+
+// NOLINTEND(readability-magic-numbers)

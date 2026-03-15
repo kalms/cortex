@@ -15,9 +15,8 @@
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(jsonrpc_parse_request) {
-    const char* line =
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
-        "\"params\":{\"capabilities\":{}}}";
+    const char *line = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+                       "\"params\":{\"capabilities\":{}}}";
     cbm_jsonrpc_request_t req = {0};
     int rc = cbm_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
@@ -31,8 +30,7 @@ TEST(jsonrpc_parse_request) {
 }
 
 TEST(jsonrpc_parse_notification) {
-    const char* line =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}";
+    const char *line = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}";
     cbm_jsonrpc_request_t req = {0};
     int rc = cbm_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
@@ -51,10 +49,9 @@ TEST(jsonrpc_parse_invalid) {
 }
 
 TEST(jsonrpc_parse_tools_call) {
-    const char* line =
-        "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"search_graph\","
-        "\"arguments\":{\"label\":\"Function\",\"limit\":5}}}";
+    const char *line = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\","
+                       "\"params\":{\"name\":\"search_graph\","
+                       "\"arguments\":{\"label\":\"Function\",\"limit\":5}}}";
     cbm_jsonrpc_request_t req = {0};
     int rc = cbm_jsonrpc_parse(line, &req);
     ASSERT_EQ(rc, 0);
@@ -74,7 +71,7 @@ TEST(jsonrpc_format_response) {
         .id = 1,
         .result_json = "{\"name\":\"codebase-memory-mcp\"}",
     };
-    char* json = cbm_jsonrpc_format_response(&resp);
+    char *json = cbm_jsonrpc_format_response(&resp);
     ASSERT_NOT_NULL(json);
     /* Should contain jsonrpc, id, and result */
     ASSERT_NOT_NULL(strstr(json, "\"jsonrpc\":\"2.0\""));
@@ -85,7 +82,7 @@ TEST(jsonrpc_format_response) {
 }
 
 TEST(jsonrpc_format_error) {
-    char* json = cbm_jsonrpc_format_error(5, -32600, "Invalid Request");
+    char *json = cbm_jsonrpc_format_error(5, -32600, "Invalid Request");
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"id\":5"));
     ASSERT_NOT_NULL(strstr(json, "\"error\""));
@@ -100,7 +97,7 @@ TEST(jsonrpc_format_error) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(mcp_initialize_response) {
-    char* json = cbm_mcp_initialize_response();
+    char *json = cbm_mcp_initialize_response();
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "codebase-memory-mcp"));
     ASSERT_NOT_NULL(strstr(json, "capabilities"));
@@ -110,7 +107,7 @@ TEST(mcp_initialize_response) {
 }
 
 TEST(mcp_tools_list) {
-    char* json = cbm_mcp_tools_list();
+    char *json = cbm_mcp_tools_list();
     ASSERT_NOT_NULL(json);
     /* Should contain all 14 tools */
     ASSERT_NOT_NULL(strstr(json, "index_repository"));
@@ -132,7 +129,7 @@ TEST(mcp_tools_list) {
 }
 
 TEST(mcp_text_result) {
-    char* json = cbm_mcp_text_result("{\"total\":5}", false);
+    char *json = cbm_mcp_text_result("{\"total\":5}", false);
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"type\":\"text\""));
     /* The text value is JSON-escaped inside the "text" field */
@@ -143,7 +140,7 @@ TEST(mcp_text_result) {
 }
 
 TEST(mcp_text_result_error) {
-    char* json = cbm_mcp_text_result("something failed", true);
+    char *json = cbm_mcp_text_result("something failed", true);
     ASSERT_NOT_NULL(json);
     ASSERT_NOT_NULL(strstr(json, "\"isError\":true"));
     ASSERT_NOT_NULL(strstr(json, "something failed"));
@@ -156,9 +153,8 @@ TEST(mcp_text_result_error) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(mcp_get_tool_name) {
-    const char* params =
-        "{\"name\":\"search_graph\",\"arguments\":{\"label\":\"Function\"}}";
-    char* name = cbm_mcp_get_tool_name(params);
+    const char *params = "{\"name\":\"search_graph\",\"arguments\":{\"label\":\"Function\"}}";
+    char *name = cbm_mcp_get_tool_name(params);
     ASSERT_NOT_NULL(name);
     ASSERT_STR_EQ(name, "search_graph");
     free(name);
@@ -166,9 +162,9 @@ TEST(mcp_get_tool_name) {
 }
 
 TEST(mcp_get_arguments) {
-    const char* params =
+    const char *params =
         "{\"name\":\"search_graph\",\"arguments\":{\"label\":\"Function\",\"limit\":5}}";
-    char* args = cbm_mcp_get_arguments(params);
+    char *args = cbm_mcp_get_arguments(params);
     ASSERT_NOT_NULL(args);
     ASSERT_NOT_NULL(strstr(args, "\"label\":\"Function\""));
     ASSERT_NOT_NULL(strstr(args, "\"limit\":5"));
@@ -177,8 +173,8 @@ TEST(mcp_get_arguments) {
 }
 
 TEST(mcp_get_string_arg) {
-    const char* args = "{\"label\":\"Function\",\"name_pattern\":\".*Order.*\"}";
-    char* val = cbm_mcp_get_string_arg(args, "label");
+    const char *args = "{\"label\":\"Function\",\"name_pattern\":\".*Order.*\"}";
+    char *val = cbm_mcp_get_string_arg(args, "label");
     ASSERT_NOT_NULL(val);
     ASSERT_STR_EQ(val, "Function");
     free(val);
@@ -194,7 +190,7 @@ TEST(mcp_get_string_arg) {
 }
 
 TEST(mcp_get_int_arg) {
-    const char* args = "{\"limit\":10,\"offset\":5}";
+    const char *args = "{\"limit\":10,\"offset\":5}";
     int val = cbm_mcp_get_int_arg(args, "limit", 0);
     ASSERT_EQ(val, 10);
     val = cbm_mcp_get_int_arg(args, "offset", 0);
@@ -205,7 +201,7 @@ TEST(mcp_get_int_arg) {
 }
 
 TEST(mcp_get_bool_arg) {
-    const char* args = "{\"include_connected\":true,\"regex\":false}";
+    const char *args = "{\"include_connected\":true,\"regex\":false}";
     bool val = cbm_mcp_get_bool_arg(args, "include_connected");
     ASSERT_TRUE(val);
     val = cbm_mcp_get_bool_arg(args, "regex");
@@ -220,12 +216,12 @@ TEST(mcp_get_bool_arg) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(server_handle_initialize) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
     ASSERT_NOT_NULL(srv);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
-        "\"params\":{\"capabilities\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+                                   "\"params\":{\"capabilities\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":1"));
     ASSERT_NOT_NULL(strstr(resp, "codebase-memory-mcp"));
@@ -237,11 +233,11 @@ TEST(server_handle_initialize) {
 }
 
 TEST(server_handle_initialized_notification) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
     /* Notification has no id → no response */
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+    char *resp = cbm_mcp_server_handle(
+        srv, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
     ASSERT_NULL(resp);
 
     cbm_mcp_server_free(srv);
@@ -249,10 +245,10 @@ TEST(server_handle_initialized_notification) {
 }
 
 TEST(server_handle_tools_list) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":2"));
     ASSERT_NOT_NULL(strstr(resp, "search_graph"));
@@ -264,10 +260,10 @@ TEST(server_handle_tools_list) {
 }
 
 TEST(server_handle_unknown_method) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"unknown/method\"}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"unknown/method\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"error\""));
     ASSERT_NOT_NULL(strstr(resp, "-32601")); /* Method not found */
@@ -282,17 +278,17 @@ TEST(server_handle_unknown_method) {
  * ══════════════════════════════════════════════════════════════════ */
 
 /* Helper: create a server with an in-memory store populated with test data */
-static cbm_mcp_server_t* setup_mcp_with_data(void) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL); /* NULL = in-memory */
+static cbm_mcp_server_t *setup_mcp_with_data(void) {
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL); /* NULL = in-memory */
     return srv;
 }
 
 TEST(tool_list_projects_empty) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"list_projects\",\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"list_projects\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"id\":10"));
     /* Should return a result (possibly empty list) */
@@ -304,11 +300,11 @@ TEST(tool_list_projects_empty) {
 }
 
 TEST(tool_get_graph_schema_empty) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"get_graph_schema\",\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"get_graph_schema\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
@@ -318,11 +314,11 @@ TEST(tool_get_graph_schema_empty) {
 }
 
 TEST(tool_unknown_tool) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"nonexistent_tool\",\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"nonexistent_tool\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return result with isError */
     ASSERT_NOT_NULL(strstr(resp, "isError"));
@@ -333,13 +329,13 @@ TEST(tool_unknown_tool) {
 }
 
 TEST(tool_search_graph_basic) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
     /* search_graph with no project → should work on empty store */
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"search_graph\","
-        "\"arguments\":{\"label\":\"Function\",\"limit\":10}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"search_graph\","
+                                   "\"arguments\":{\"label\":\"Function\",\"limit\":10}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
@@ -349,12 +345,12 @@ TEST(tool_search_graph_basic) {
 }
 
 TEST(tool_query_graph_basic) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"query_graph\","
-        "\"arguments\":{\"query\":\"MATCH (f:Function) RETURN f.name\"}}}");
+    char *resp = cbm_mcp_server_handle(
+        srv, "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\","
+             "\"params\":{\"name\":\"query_graph\","
+             "\"arguments\":{\"query\":\"MATCH (f:Function) RETURN f.name\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     free(resp);
@@ -364,11 +360,11 @@ TEST(tool_query_graph_basic) {
 }
 
 TEST(tool_index_status_no_project) {
-    cbm_mcp_server_t* srv = setup_mcp_with_data();
+    cbm_mcp_server_t *srv = setup_mcp_with_data();
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"index_status\",\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"index_status\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return error or empty status */
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
@@ -382,14 +378,13 @@ TEST(tool_index_status_no_project) {
  *  TOOL HANDLERS WITH DATA
  * ══════════════════════════════════════════════════════════════════ */
 
-
 TEST(tool_trace_call_path_not_found) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"trace_call_path\","
-        "\"arguments\":{\"function_name\":\"NonExistent\"}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"trace_call_path\","
+                                   "\"arguments\":{\"function_name\":\"NonExistent\"}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return error about function not found */
     ASSERT_NOT_NULL(strstr(resp, "not found"));
@@ -400,12 +395,12 @@ TEST(tool_trace_call_path_not_found) {
 }
 
 TEST(tool_trace_missing_function_name) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"trace_call_path\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"trace_call_path\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
@@ -415,12 +410,12 @@ TEST(tool_trace_missing_function_name) {
 }
 
 TEST(tool_delete_project_not_found) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"delete_project\","
-        "\"arguments\":{\"project_name\":\"nonexistent\"}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"delete_project\","
+                                   "\"arguments\":{\"project_name\":\"nonexistent\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not_found"));
     free(resp);
@@ -430,11 +425,11 @@ TEST(tool_delete_project_not_found) {
 }
 
 TEST(tool_get_architecture_empty) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"get_architecture\",\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"get_architecture\",\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"result\""));
     ASSERT_NOT_NULL(strstr(resp, "total_nodes"));
@@ -445,12 +440,12 @@ TEST(tool_get_architecture_empty) {
 }
 
 TEST(tool_query_graph_missing_query) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"query_graph\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"query_graph\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     /* Should return error about missing query */
     ASSERT_NOT_NULL(strstr(resp, "required"));
@@ -465,12 +460,12 @@ TEST(tool_query_graph_missing_query) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(tool_index_repository_missing_path) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"index_repository\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"index_repository\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
@@ -480,12 +475,12 @@ TEST(tool_index_repository_missing_path) {
 }
 
 TEST(tool_get_code_snippet_missing_qn) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"get_code_snippet\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"get_code_snippet\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
@@ -495,12 +490,12 @@ TEST(tool_get_code_snippet_missing_qn) {
 }
 
 TEST(tool_get_code_snippet_not_found) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"get_code_snippet\","
-        "\"arguments\":{\"qualified_name\":\"nonexistent.func\"}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"get_code_snippet\","
+                                   "\"arguments\":{\"qualified_name\":\"nonexistent.func\"}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
@@ -510,12 +505,12 @@ TEST(tool_get_code_snippet_not_found) {
 }
 
 TEST(tool_search_code_missing_pattern) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"search_code\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"search_code\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "required"));
     free(resp);
@@ -525,12 +520,12 @@ TEST(tool_search_code_missing_pattern) {
 }
 
 TEST(tool_search_code_no_project) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"search_code\","
-        "\"arguments\":{\"pattern\":\"func main\"}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"search_code\","
+                                   "\"arguments\":{\"pattern\":\"func main\"}}}");
     ASSERT_NOT_NULL(resp);
     /* No project indexed → error */
     ASSERT_TRUE(strstr(resp, "not found") || strstr(resp, "not indexed"));
@@ -541,12 +536,12 @@ TEST(tool_search_code_no_project) {
 }
 
 TEST(tool_detect_changes_no_project) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"detect_changes\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"detect_changes\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
@@ -556,12 +551,12 @@ TEST(tool_detect_changes_no_project) {
 }
 
 TEST(tool_manage_adr_no_project) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"manage_adr\","
-        "\"arguments\":{}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"manage_adr\","
+                                   "\"arguments\":{}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "not found"));
     free(resp);
@@ -571,12 +566,12 @@ TEST(tool_manage_adr_no_project) {
 }
 
 TEST(tool_ingest_traces_basic) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"ingest_traces\","
-        "\"arguments\":{\"traces\":[{\"caller\":\"a\",\"callee\":\"b\"}]}}}");
+    char *resp = cbm_mcp_server_handle(
+        srv, "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"tools/call\","
+             "\"params\":{\"name\":\"ingest_traces\","
+             "\"arguments\":{\"traces\":[{\"caller\":\"a\",\"callee\":\"b\"}]}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "accepted"));
     ASSERT_NOT_NULL(strstr(resp, "traces_received"));
@@ -587,12 +582,12 @@ TEST(tool_ingest_traces_basic) {
 }
 
 TEST(tool_ingest_traces_empty) {
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
 
-    char* resp = cbm_mcp_server_handle(srv,
-        "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\","
-        "\"params\":{\"name\":\"ingest_traces\","
-        "\"arguments\":{\"traces\":[]}}}");
+    char *resp =
+        cbm_mcp_server_handle(srv, "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\","
+                                   "\"params\":{\"name\":\"ingest_traces\","
+                                   "\"arguments\":{\"traces\":[]}}}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "accepted"));
     free(resp);
@@ -656,10 +651,11 @@ TEST(parse_file_uri_invalid) {
  * Writes a source file to tmp_dir/project/main.go.
  * Caller must free the server with cbm_mcp_server_free and
  * unlink the source file + rmdir manually. */
-static cbm_mcp_server_t* setup_snippet_server(char* tmp_dir, size_t tmp_sz) {
+static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     /* Create temp dir */
     snprintf(tmp_dir, tmp_sz, "/tmp/cbm_snippet_test_XXXXXX");
-    if (!mkdtemp(tmp_dir)) return NULL;
+    if (!mkdtemp(tmp_dir))
+        return NULL;
 
     char proj_dir[512];
     snprintf(proj_dir, sizeof(proj_dir), "%s/project", tmp_dir);
@@ -668,32 +664,36 @@ static cbm_mcp_server_t* setup_snippet_server(char* tmp_dir, size_t tmp_sz) {
     /* Write sample source file */
     char src_path[512];
     snprintf(src_path, sizeof(src_path), "%s/main.go", proj_dir);
-    FILE* fp = fopen(src_path, "w");
-    if (!fp) return NULL;
-    fprintf(fp,
-        "package main\n"
-        "\n"
-        "func HandleRequest() error {\n"
-        "\treturn nil\n"
-        "}\n"
-        "\n"
-        "func ProcessOrder(id int) {\n"
-        "\t// process\n"
-        "}\n"
-        "\n"
-        "func Run() {\n"
-        "\t// server\n"
-        "}\n");
+    FILE *fp = fopen(src_path, "w");
+    if (!fp)
+        return NULL;
+    fprintf(fp, "package main\n"
+                "\n"
+                "func HandleRequest() error {\n"
+                "\treturn nil\n"
+                "}\n"
+                "\n"
+                "func ProcessOrder(id int) {\n"
+                "\t// process\n"
+                "}\n"
+                "\n"
+                "func Run() {\n"
+                "\t// server\n"
+                "}\n");
     fclose(fp);
 
     /* Create server with in-memory store */
-    cbm_mcp_server_t* srv = cbm_mcp_server_new(NULL);
-    if (!srv) return NULL;
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    if (!srv)
+        return NULL;
 
-    cbm_store_t* st = cbm_mcp_server_store(srv);
-    if (!st) { cbm_mcp_server_free(srv); return NULL; }
+    cbm_store_t *st = cbm_mcp_server_store(srv);
+    if (!st) {
+        cbm_mcp_server_free(srv);
+        return NULL;
+    }
 
-    const char* proj_name = "test-project";
+    const char *proj_name = "test-project";
     cbm_store_upsert_project(st, proj_name, proj_dir);
 
     /* Create nodes */
@@ -742,10 +742,11 @@ static cbm_mcp_server_t* setup_snippet_server(char* tmp_dir, size_t tmp_sz) {
     cbm_store_upsert_node(st, &n_run2);
 
     /* Create edges: HandleRequest -> ProcessOrder, HandleRequest -> Run1 */
-    cbm_edge_t e1 = { .project = proj_name, .source_id = id_hr, .target_id = id_po, .type = "CALLS" };
+    cbm_edge_t e1 = {.project = proj_name, .source_id = id_hr, .target_id = id_po, .type = "CALLS"};
     cbm_store_insert_edge(st, &e1);
 
-    cbm_edge_t e2 = { .project = proj_name, .source_id = id_hr, .target_id = id_run1, .type = "CALLS" };
+    cbm_edge_t e2 = {
+        .project = proj_name, .source_id = id_hr, .target_id = id_run1, .type = "CALLS"};
     cbm_store_insert_edge(st, &e2);
     (void)id_run1; /* run1 used for edge above */
 
@@ -753,7 +754,7 @@ static cbm_mcp_server_t* setup_snippet_server(char* tmp_dir, size_t tmp_sz) {
 }
 
 /* Cleanup temp files created by setup_snippet_server */
-static void cleanup_snippet_dir(const char* tmp_dir) {
+static void cleanup_snippet_dir(const char *tmp_dir) {
     char path[512];
     snprintf(path, sizeof(path), "%s/project/main.go", tmp_dir);
     unlink(path);
@@ -765,27 +766,35 @@ static void cleanup_snippet_dir(const char* tmp_dir) {
 /* Extract the inner "text" value from an MCP tool result JSON.
  * The MCP envelope is: {"content":[{"type":"text","text":"<inner json>"}]}
  * This returns the unescaped inner JSON. Caller must free. */
-static char* extract_text_content(const char* mcp_result) {
-    if (!mcp_result) return NULL;
-    yyjson_doc* doc = yyjson_read(mcp_result, strlen(mcp_result), 0);
-    if (!doc) return strdup(mcp_result);  /* fallback */
-    yyjson_val* root = yyjson_doc_get_root(doc);
-    yyjson_val* content = yyjson_obj_get(root, "content");
-    if (!content || !yyjson_is_arr(content)) { yyjson_doc_free(doc); return strdup(mcp_result); }
-    yyjson_val* item = yyjson_arr_get(content, 0);
-    if (!item) { yyjson_doc_free(doc); return strdup(mcp_result); }
-    yyjson_val* text = yyjson_obj_get(item, "text");
-    const char* str = yyjson_get_str(text);
-    char* result = str ? strdup(str) : strdup(mcp_result);
+static char *extract_text_content(const char *mcp_result) {
+    if (!mcp_result)
+        return NULL;
+    yyjson_doc *doc = yyjson_read(mcp_result, strlen(mcp_result), 0);
+    if (!doc)
+        return strdup(mcp_result); /* fallback */
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *content = yyjson_obj_get(root, "content");
+    if (!content || !yyjson_is_arr(content)) {
+        yyjson_doc_free(doc);
+        return strdup(mcp_result);
+    }
+    yyjson_val *item = yyjson_arr_get(content, 0);
+    if (!item) {
+        yyjson_doc_free(doc);
+        return strdup(mcp_result);
+    }
+    yyjson_val *text = yyjson_obj_get(item, "text");
+    const char *str = yyjson_get_str(text);
+    char *result = str ? strdup(str) : strdup(mcp_result);
     yyjson_doc_free(doc);
     return result;
 }
 
 /* Call get_code_snippet and extract inner text content.
  * Caller must free returned string. */
-static char* call_snippet(cbm_mcp_server_t* srv, const char* args_json) {
-    char* raw = cbm_mcp_handle_tool(srv, "get_code_snippet", args_json);
-    char* text = extract_text_content(raw);
+static char *call_snippet(cbm_mcp_server_t *srv, const char *args_json) {
+    char *raw = cbm_mcp_handle_tool(srv, "get_code_snippet", args_json);
+    char *text = extract_text_content(raw);
     free(raw);
     return text;
 }
@@ -794,12 +803,12 @@ static char* call_snippet(cbm_mcp_server_t* srv, const char* args_json) {
 
 TEST(snippet_exact_qn) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp =
+        call_snippet(srv, "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
+                          "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"name\":\"HandleRequest\""));
     ASSERT_NOT_NULL(strstr(resp, "\"source\""));
@@ -822,12 +831,11 @@ TEST(snippet_exact_qn) {
 
 TEST(snippet_qn_suffix) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"main.HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"main.HandleRequest\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"name\":\"HandleRequest\""));
     ASSERT_NOT_NULL(strstr(resp, "\"match_method\":\"suffix\""));
@@ -843,13 +851,12 @@ TEST(snippet_qn_suffix) {
 
 TEST(snippet_unique_short_name) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "ProcessOrder" is unique — suffix tier matches (QN ends with .ProcessOrder) */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"ProcessOrder\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"ProcessOrder\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"name\":\"ProcessOrder\""));
     ASSERT_NOT_NULL(strstr(resp, "\"match_method\":\"suffix\""));
@@ -865,13 +872,12 @@ TEST(snippet_unique_short_name) {
 
 TEST(snippet_name_tier) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "HandleRequest" — suffix tier finds it (QN ends with .HandleRequest) */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"HandleRequest\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"name\":\"HandleRequest\""));
     ASSERT_NOT_NULL(strstr(resp, "\"match_method\":\"suffix\""));
@@ -886,13 +892,12 @@ TEST(snippet_name_tier) {
 
 TEST(snippet_ambiguous_short_name) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" matches 2 nodes — should return suggestions */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"Run\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"Run\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"status\":\"ambiguous\""));
     ASSERT_NOT_NULL(strstr(resp, "\"message\""));
@@ -915,12 +920,11 @@ TEST(snippet_ambiguous_short_name) {
 
 TEST(snippet_not_found) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"CompletelyNonexistentFunctionXYZ123\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"CompletelyNonexistentFunctionXYZ123\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     /* Should return error or suggestions */
     ASSERT_TRUE(strstr(resp, "not found") || strstr(resp, "suggestions"));
@@ -935,13 +939,12 @@ TEST(snippet_not_found) {
 
 TEST(snippet_fuzzy_suggestions) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Handle" should fuzzy-match "HandleRequest" */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"Handle\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"Handle\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     /* Should have suggestions containing HandleRequest */
     if (strstr(resp, "\"suggestions\"")) {
@@ -961,12 +964,12 @@ TEST(snippet_fuzzy_suggestions) {
 
 TEST(snippet_enriched_properties) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp =
+        call_snippet(srv, "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
+                          "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"signature\""));
     ASSERT_NOT_NULL(strstr(resp, "\"return_type\""));
@@ -982,13 +985,12 @@ TEST(snippet_enriched_properties) {
 
 TEST(snippet_fuzzy_last_segment) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "auth.handlers.HandleRequest" — last segment is "HandleRequest" */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"auth.handlers.HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"auth.handlers.HandleRequest\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     /* Should find HandleRequest via fuzzy last-segment extraction */
     if (strstr(resp, "\"suggestions\"")) {
@@ -1008,13 +1010,12 @@ TEST(snippet_fuzzy_last_segment) {
 
 TEST(snippet_auto_resolve_default) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" is ambiguous (2 candidates). Without auto_resolve → suggestions */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"Run\","
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"Run\","
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"status\":\"ambiguous\""));
     ASSERT_NULL(strstr(resp, "\"source\""));
@@ -1029,13 +1030,12 @@ TEST(snippet_auto_resolve_default) {
 
 TEST(snippet_auto_resolve_enabled) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
     /* "Run" with auto_resolve=true → pick best (server.Run has 1 inbound edge) */
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"Run\",\"auto_resolve\":true,"
-        "\"project\":\"test-project\"}");
+    char *resp = call_snippet(srv, "{\"qualified_name\":\"Run\",\"auto_resolve\":true,"
+                                   "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"source\""));
     ASSERT_NOT_NULL(strstr(resp, "\"match_method\":\"auto_best\""));
@@ -1053,12 +1053,12 @@ TEST(snippet_auto_resolve_enabled) {
 
 TEST(snippet_include_neighbors_default) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
-        "\"project\":\"test-project\"}");
+    char *resp =
+        call_snippet(srv, "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
+                          "\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     /* Without include_neighbors → NO caller_names/callee_names */
     ASSERT_NULL(strstr(resp, "\"caller_names\""));
@@ -1077,12 +1077,12 @@ TEST(snippet_include_neighbors_default) {
 
 TEST(snippet_include_neighbors_enabled) {
     char tmp[256];
-    cbm_mcp_server_t* srv = setup_snippet_server(tmp, sizeof(tmp));
+    cbm_mcp_server_t *srv = setup_snippet_server(tmp, sizeof(tmp));
     ASSERT_NOT_NULL(srv);
 
-    char* resp = call_snippet(srv,
-        "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
-        "\"include_neighbors\":true,\"project\":\"test-project\"}");
+    char *resp =
+        call_snippet(srv, "{\"qualified_name\":\"test-project.cmd.server.main.HandleRequest\","
+                          "\"include_neighbors\":true,\"project\":\"test-project\"}");
     ASSERT_NOT_NULL(resp);
     ASSERT_NOT_NULL(strstr(resp, "\"source\""));
     /* HandleRequest has 0 callers → no caller_names array */

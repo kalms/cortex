@@ -1,3 +1,4 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pass_infrascan.c — Infrastructure file detection and parsing helpers.
  *
@@ -18,21 +19,26 @@
 static void to_lower(const char *src, char *dst, size_t dst_sz) {
     size_t i;
     size_t len = strlen(src);
-    if (len >= dst_sz)
+    if (len >= dst_sz) {
         len = dst_sz - 1;
-    for (i = 0; i < len; i++)
+    }
+    for (i = 0; i < len; i++) {
         dst[i] = (char)tolower((unsigned char)src[i]);
+    }
     dst[i] = '\0';
 }
 
 /* Case-insensitive substring search */
 static const char *ci_strstr(const char *haystack, const char *needle) {
-    if (!*needle)
+    if (!*needle) {
         return haystack;
+    }
     size_t nlen = strlen(needle);
     for (; *haystack; haystack++) {
-        if (strncasecmp(haystack, needle, nlen) == 0)
+        // NOLINTNEXTLINE(misc-include-cleaner) — strncasecmp provided by standard header
+        if (strncasecmp(haystack, needle, nlen) == 0) {
             return haystack;
+        }
     }
     return NULL;
 }
@@ -40,23 +46,26 @@ static const char *ci_strstr(const char *haystack, const char *needle) {
 /* Count consecutive alphanumeric characters */
 static int count_alnum(const char *s) {
     int n = 0;
-    while (isalnum((unsigned char)s[n]))
+    while (isalnum((unsigned char)s[n])) {
         n++;
+    }
     return n;
 }
 
 /* Count consecutive alphanumeric or dash characters */
 static int count_alnum_dash(const char *s) {
     int n = 0;
-    while (isalnum((unsigned char)s[n]) || s[n] == '-')
+    while (isalnum((unsigned char)s[n]) || s[n] == '-') {
         n++;
+    }
     return n;
 }
 
 /* Skip whitespace, return pointer past it */
 static const char *skip_ws(const char *p) {
-    while (*p == ' ' || *p == '\t')
+    while (*p == ' ' || *p == '\t') {
         p++;
+    }
     return p;
 }
 
@@ -94,72 +103,92 @@ static void rtrim(char *s) {
 /* ── File identification ────────────────────────────────────────── */
 
 bool cbm_is_dockerfile(const char *name) {
-    if (!name)
+    if (!name) {
         return false;
+    }
     char lower[256];
     to_lower(name, lower, sizeof(lower));
 
-    if (strcmp(lower, "dockerfile") == 0)
+    if (strcmp(lower, "dockerfile") == 0) {
         return true;
-    if (strncmp(lower, "dockerfile.", 11) == 0)
+    }
+    if (strncmp(lower, "dockerfile.", 11) == 0) {
         return true;
+    }
     size_t len = strlen(lower);
-    if (len > 11 && strcmp(lower + len - 11, ".dockerfile") == 0)
+    if (len > 11 && strcmp(lower + len - 11, ".dockerfile") == 0) {
         return true;
+    }
     return false;
 }
 
 bool cbm_is_compose_file(const char *name) {
-    if (!name)
+    if (!name) {
         return false;
+    }
     char lower[256];
     to_lower(name, lower, sizeof(lower));
 
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool prefix_match = (strncmp(lower, "docker-compose", 14) == 0) ||
                         (strcmp(lower, "compose.yml") == 0) || (strcmp(lower, "compose.yaml") == 0);
-    if (!prefix_match)
+    if (!prefix_match) {
         return false;
+    }
 
     const char *ext = strrchr(lower, '.');
-    if (!ext)
+    if (!ext) {
         return false;
+    }
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return (strcmp(ext, ".yml") == 0 || strcmp(ext, ".yaml") == 0);
 }
 
 bool cbm_is_cloudbuild_file(const char *name) {
-    if (!name)
+    if (!name) {
         return false;
+    }
     char lower[256];
     to_lower(name, lower, sizeof(lower));
 
-    if (strncmp(lower, "cloudbuild", 10) != 0)
+    if (strncmp(lower, "cloudbuild", 10) != 0) {
         return false;
+    }
     const char *ext = strrchr(lower, '.');
-    if (!ext)
+    if (!ext) {
         return false;
+    }
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return (strcmp(ext, ".yml") == 0 || strcmp(ext, ".yaml") == 0);
 }
 
 bool cbm_is_env_file(const char *name) {
-    if (!name)
+    if (!name) {
         return false;
+    }
     char lower[256];
     to_lower(name, lower, sizeof(lower));
 
-    if (strcmp(lower, ".env") == 0)
+    if (strcmp(lower, ".env") == 0) {
         return true;
-    if (strncmp(lower, ".env.", 5) == 0)
+    }
+    if (strncmp(lower, ".env.", 5) == 0) {
         return true;
+    }
     size_t len = strlen(lower);
-    if (len > 4 && strcmp(lower + len - 4, ".env") == 0)
+    if (len > 4 && strcmp(lower + len - 4, ".env") == 0) {
         return true;
+    }
     return false;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool cbm_is_shell_script(const char *name, const char *ext) {
     (void)name;
-    if (!ext)
+    if (!ext) {
         return false;
+    }
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return (strcmp(ext, ".sh") == 0 || strcmp(ext, ".bash") == 0 || strcmp(ext, ".zsh") == 0);
 }
 
@@ -172,40 +201,52 @@ static bool key_is_secret(const char *key) {
         "client_secret",   "signing_key", "encryption_key", "ssh_key",    "deploy_key",
         "service_account", "bearer",      "jwt_secret",     NULL};
     for (int i = 0; patterns[i]; i++) {
-        if (ci_strstr(key, patterns[i]))
+        if (ci_strstr(key, patterns[i])) {
             return true;
+        }
     }
     return false;
 }
 
 bool cbm_is_secret_value(const char *value) {
-    if (!value || !*value)
+    if (!value || !*value) {
         return false;
+    }
 
     /* -----BEGIN (PEM key) */
-    if (ci_strstr(value, "-----BEGIN"))
+    if (ci_strstr(value, "-----BEGIN")) {
         return true;
+    }
 
     /* Substring searches — Go uses regex MatchString which finds anywhere */
     const char *p;
 
     /* AKIA + 16 alnum (AWS key) */
-    if ((p = ci_strstr(value, "AKIA")) && count_alnum(p + 4) >= 16)
+    // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
+    if ((p = ci_strstr(value, "AKIA")) && count_alnum(p + 4) >= 16) {
         return true;
+    }
 
     /* sk- + 20 alnum (API key) */
-    if ((p = ci_strstr(value, "sk-")) && count_alnum(p + 3) >= 20)
+    // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
+    if ((p = ci_strstr(value, "sk-")) && count_alnum(p + 3) >= 20) {
         return true;
+    }
 
     /* ghp_ + 36 alnum (GitHub PAT) */
-    if ((p = ci_strstr(value, "ghp_")) && count_alnum(p + 4) >= 36)
+    // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
+    if ((p = ci_strstr(value, "ghp_")) && count_alnum(p + 4) >= 36) {
         return true;
+    }
 
     /* glpat- + 20 alnum/dash (GitLab PAT) */
-    if ((p = ci_strstr(value, "glpat-")) && count_alnum_dash(p + 6) >= 20)
+    // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
+    if ((p = ci_strstr(value, "glpat-")) && count_alnum_dash(p + 6) >= 20) {
         return true;
+    }
 
     /* xox[bps]- (Slack token) */
+    // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
     if ((p = ci_strstr(value, "xox")) && p[3] &&
         (tolower((unsigned char)p[3]) == 'b' || tolower((unsigned char)p[3]) == 'p' ||
          tolower((unsigned char)p[3]) == 's') &&
@@ -216,19 +257,23 @@ bool cbm_is_secret_value(const char *value) {
     return false;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool cbm_is_secret_binding(const char *key, const char *value) {
-    if (key && key_is_secret(key))
+    if (key && key_is_secret(key)) {
         return true;
-    if (value && cbm_is_secret_value(value))
+    }
+    if (value && cbm_is_secret_value(value)) {
         return true;
+    }
     return false;
 }
 
 /* ── Clean JSON brackets ────────────────────────────────────────── */
 
 void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
-    if (!s || !out || out_sz == 0)
+    if (!s || !out || out_sz == 0) {
         return;
+    }
 
     size_t len = strlen(s);
     if (len >= 2 && s[0] == '[' && s[len - 1] == ']') {
@@ -236,10 +281,12 @@ void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
         bool in_space = false;
         for (size_t i = 1; i < len - 1 && pos < out_sz - 1; i++) {
             char c = s[i];
-            if (c == '"')
+            if (c == '"') {
                 continue; /* strip quotes */
-            if (c == ',')
+            }
+            if (c == ',') {
                 c = ' '; /* commas → spaces */
+            }
             if (c == ' ' || c == '\t') {
                 if (!in_space && pos > 0) {
                     out[pos++] = ' ';
@@ -251,8 +298,9 @@ void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
             }
         }
         /* Trim trailing space */
-        while (pos > 0 && out[pos - 1] == ' ')
+        while (pos > 0 && out[pos - 1] == ' ') {
             pos--;
+        }
         out[pos] = '\0';
     } else {
         snprintf(out, out_sz, "%s", s);
@@ -262,22 +310,26 @@ void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
 /* ── Dockerfile parser ──────────────────────────────────────────── */
 
 static void df_parse_from(const char *line, cbm_dockerfile_result_t *r) {
-    if (strncasecmp(line, "FROM", 4) != 0)
+    if (strncasecmp(line, "FROM", 4) != 0) {
         return;
+    }
     const char *p = line + 4;
-    if (*p != ' ' && *p != '\t')
+    if (*p != ' ' && *p != '\t') {
         return;
+    }
     p = skip_ws(p);
 
     /* Extract image */
-    if (r->stage_count >= 16)
+    if (r->stage_count >= 16) {
         return;
+    }
     int idx = r->stage_count;
     extract_token(p, r->stage_images[idx], sizeof(r->stage_images[idx]));
 
     /* Advance past image */
-    while (*p && *p != ' ' && *p != '\t')
+    while (*p && *p != ' ' && *p != '\t') {
         p++;
+    }
     p = skip_ws(p);
 
     /* Check for AS <name> */
@@ -290,24 +342,28 @@ static void df_parse_from(const char *line, cbm_dockerfile_result_t *r) {
 }
 
 static void df_parse_expose(const char *line, cbm_dockerfile_result_t *r) {
-    if (strncasecmp(line, "EXPOSE", 6) != 0)
+    if (strncasecmp(line, "EXPOSE", 6) != 0) {
         return;
+    }
     const char *p = line + 6;
-    if (*p != ' ' && *p != '\t')
+    if (*p != ' ' && *p != '\t') {
         return;
+    }
     p = skip_ws(p);
 
     /* Parse space-separated ports */
     while (*p && r->port_count < 16) {
         char port[32];
         int n = extract_token(p, port, sizeof(port));
-        if (n == 0)
+        if (n == 0) {
             break;
+        }
 
         /* Strip protocol suffix (e.g. 8080/tcp) */
         char *slash = strchr(port, '/');
-        if (slash)
+        if (slash) {
             *slash = '\0';
+        }
 
         snprintf(r->exposed_ports[r->port_count], sizeof(r->exposed_ports[0]), "%s", port);
         r->port_count++;
@@ -318,30 +374,36 @@ static void df_parse_expose(const char *line, cbm_dockerfile_result_t *r) {
 }
 
 static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
-    if (strncasecmp(line, "ENV", 3) != 0)
+    if (strncasecmp(line, "ENV", 3) != 0) {
         return;
+    }
     const char *p = line + 3;
-    if (*p != ' ' && *p != '\t')
+    if (*p != ' ' && *p != '\t') {
         return;
+    }
     p = skip_ws(p);
 
-    if (r->env_count >= 64)
+    if (r->env_count >= 64) {
         return;
+    }
 
     /* Extract key */
     char key[128];
     int klen = extract_word(p, key, sizeof(key));
-    if (klen == 0)
+    if (klen == 0) {
         return;
+    }
     p += klen;
 
     /* Separator: = or space */
-    if (*p != '=' && *p != ' ' && *p != '\t')
+    if (*p != '=' && *p != ' ' && *p != '\t') {
         return;
+    }
     p++;
     /* Skip additional whitespace after separator */
-    while (*p == ' ' || *p == '\t')
+    while (*p == ' ' || *p == '\t') {
         p++;
+    }
 
     /* Value is rest of line (trimmed) */
     char value[512];
@@ -349,8 +411,9 @@ static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
     rtrim(value);
 
     /* Filter secrets */
-    if (cbm_is_secret_binding(key, value))
+    if (cbm_is_secret_binding(key, value)) {
         return;
+    }
 
     snprintf(r->env_vars[r->env_count].key, sizeof(r->env_vars[0].key), "%s", key);
     snprintf(r->env_vars[r->env_count].value, sizeof(r->env_vars[0].value), "%s", value);
@@ -358,18 +421,22 @@ static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
 }
 
 static void df_parse_arg(const char *line, cbm_dockerfile_result_t *r) {
-    if (strncasecmp(line, "ARG", 3) != 0)
+    if (strncasecmp(line, "ARG", 3) != 0) {
         return;
+    }
     const char *p = line + 3;
-    if (*p != ' ' && *p != '\t')
+    if (*p != ' ' && *p != '\t') {
         return;
+    }
     p = skip_ws(p);
 
-    if (r->build_arg_count >= 32)
+    if (r->build_arg_count >= 32) {
         return;
+    }
     extract_word(p, r->build_args[r->build_arg_count], sizeof(r->build_args[0]));
-    if (r->build_args[r->build_arg_count][0])
+    if (r->build_args[r->build_arg_count][0]) {
         r->build_arg_count++;
+    }
 }
 
 static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
@@ -417,8 +484,9 @@ static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
 }
 
 int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out) {
-    if (!source || !out)
+    if (!source || !out) {
         return -1;
+    }
     memset(out, 0, sizeof(*out));
 
     /* Process line by line */
@@ -429,21 +497,24 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
         /* Extract one line */
         const char *eol = strchr(p, '\n');
         size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
-        if (line_len >= sizeof(line))
+        if (line_len >= sizeof(line)) {
             line_len = sizeof(line) - 1;
+        }
         memcpy(line, p, line_len);
         line[line_len] = '\0';
         p = eol ? eol + 1 : p + line_len;
 
         /* Trim */
         char *trimmed = line;
-        while (*trimmed == ' ' || *trimmed == '\t')
+        while (*trimmed == ' ' || *trimmed == '\t') {
             trimmed++;
+        }
         rtrim(trimmed);
 
         /* Skip empty lines and comments */
-        if (*trimmed == '\0' || *trimmed == '#')
+        if (*trimmed == '\0' || *trimmed == '#') {
             continue;
+        }
 
         df_parse_from(trimmed, out);
         df_parse_expose(trimmed, out);
@@ -453,8 +524,9 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
     }
 
     /* No stages = empty/invalid Dockerfile */
-    if (out->stage_count == 0)
+    if (out->stage_count == 0) {
         return -1;
+    }
 
     /* base_image = last stage's image */
     snprintf(out->base_image, sizeof(out->base_image), "%s",
@@ -466,8 +538,9 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
 /* ── Dotenv parser ──────────────────────────────────────────────── */
 
 int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
-    if (!source || !out)
+    if (!source || !out) {
         return -1;
+    }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
@@ -476,19 +549,22 @@ int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
     while (*p) {
         const char *eol = strchr(p, '\n');
         size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
-        if (line_len >= sizeof(line))
+        if (line_len >= sizeof(line)) {
             line_len = sizeof(line) - 1;
+        }
         memcpy(line, p, line_len);
         line[line_len] = '\0';
         p = eol ? eol + 1 : p + line_len;
 
         char *trimmed = line;
-        while (*trimmed == ' ' || *trimmed == '\t')
+        while (*trimmed == ' ' || *trimmed == '\t') {
             trimmed++;
+        }
         rtrim(trimmed);
 
-        if (*trimmed == '\0' || *trimmed == '#')
+        if (*trimmed == '\0' || *trimmed == '#') {
             continue;
+        }
 
         /* Match: KEY=VALUE where KEY starts with [A-Za-z_] */
         char key[128];
@@ -496,8 +572,9 @@ int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
         if (isalpha((unsigned char)trimmed[0]) || trimmed[0] == '_') {
             klen = extract_word(trimmed, key, sizeof(key));
         }
-        if (klen == 0 || trimmed[klen] != '=')
+        if (klen == 0 || trimmed[klen] != '=') {
             continue;
+        }
 
         /* Value: strip surrounding quotes */
         const char *val_start = trimmed + klen + 1;
@@ -514,11 +591,13 @@ int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
         }
 
         /* Filter secrets */
-        if (cbm_is_secret_binding(key, value))
+        if (cbm_is_secret_binding(key, value)) {
             continue;
+        }
 
-        if (out->env_count >= 64)
+        if (out->env_count >= 64) {
             continue;
+        }
         snprintf(out->env_vars[out->env_count].key, sizeof(out->env_vars[0].key), "%s", key);
         snprintf(out->env_vars[out->env_count].value, sizeof(out->env_vars[0].value), "%s", value);
         out->env_count++;
@@ -531,14 +610,16 @@ int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
 
 static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
     /* export VAR=VALUE */
-    if (strncmp(line, "export", 6) != 0 || (line[6] != ' ' && line[6] != '\t'))
+    if (strncmp(line, "export", 6) != 0 || (line[6] != ' ' && line[6] != '\t')) {
         return;
+    }
     const char *p = skip_ws(line + 7);
 
     char key[128];
     int klen = extract_word(p, key, sizeof(key));
-    if (klen == 0 || p[klen] != '=')
+    if (klen == 0 || p[klen] != '=') {
         return;
+    }
 
     const char *val_start = p + klen + 1;
     char value[512];
@@ -553,10 +634,12 @@ static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
         value[vlen - 2] = '\0';
     }
 
-    if (cbm_is_secret_binding(key, value))
+    if (cbm_is_secret_binding(key, value)) {
         return;
-    if (r->env_count >= 64)
+    }
+    if (r->env_count >= 64) {
         return;
+    }
     snprintf(r->env_vars[r->env_count].key, sizeof(r->env_vars[0].key), "%s", key);
     snprintf(r->env_vars[r->env_count].value, sizeof(r->env_vars[0].value), "%s", value);
     r->env_count++;
@@ -564,13 +647,15 @@ static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
 
 static void shell_parse_plain_var(const char *line, cbm_shell_result_t *r) {
     /* VAR=VALUE (only if no spaces in line — avoids matching commands) */
-    if (strchr(line, ' ') || strchr(line, '\t'))
+    if (strchr(line, ' ') || strchr(line, '\t')) {
         return;
+    }
 
     char key[128];
     int klen = extract_word(line, key, sizeof(key));
-    if (klen == 0 || line[klen] != '=')
+    if (klen == 0 || line[klen] != '=') {
         return;
+    }
 
     const char *val_start = line + klen + 1;
     char value[512];
@@ -585,10 +670,12 @@ static void shell_parse_plain_var(const char *line, cbm_shell_result_t *r) {
         value[vlen - 2] = '\0';
     }
 
-    if (cbm_is_secret_binding(key, value))
+    if (cbm_is_secret_binding(key, value)) {
         return;
-    if (r->env_count >= 64)
+    }
+    if (r->env_count >= 64) {
         return;
+    }
     snprintf(r->env_vars[r->env_count].key, sizeof(r->env_vars[0].key), "%s", key);
     snprintf(r->env_vars[r->env_count].value, sizeof(r->env_vars[0].value), "%s", value);
     r->env_count++;
@@ -602,11 +689,13 @@ static void shell_parse_source(const char *line, cbm_shell_result_t *r) {
     } else if (line[0] == '.' && (line[1] == ' ' || line[1] == '\t')) {
         p = skip_ws(line + 2);
     }
-    if (!p)
+    if (!p) {
         return;
+    }
 
-    if (r->source_count >= 16)
+    if (r->source_count >= 16) {
         return;
+    }
 
     /* Strip surrounding quotes */
     char path[256];
@@ -621,8 +710,9 @@ static void shell_parse_source(const char *line, cbm_shell_result_t *r) {
 
     /* Extract just the path token (no trailing args) */
     char *space = strchr(path, ' ');
-    if (space)
+    if (space) {
         *space = '\0';
+    }
 
     snprintf(r->sources[r->source_count], sizeof(r->sources[0]), "%s", path);
     r->source_count++;
@@ -640,11 +730,13 @@ static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
         tool = "docker";
         p = skip_ws(line + 7);
     }
-    if (!tool || !p || !*p)
+    if (!tool || !p || !*p) {
         return;
+    }
 
-    if (r->docker_cmd_count >= 16)
+    if (r->docker_cmd_count >= 16) {
         return;
+    }
 
     char subcmd[64];
     extract_word(p, subcmd, sizeof(subcmd));
@@ -656,8 +748,9 @@ static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
 }
 
 int cbm_parse_shell_source(const char *source, cbm_shell_result_t *out) {
-    if (!source || !out)
+    if (!source || !out) {
         return -1;
+    }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
@@ -667,26 +760,30 @@ int cbm_parse_shell_source(const char *source, cbm_shell_result_t *out) {
     while (*p) {
         const char *eol = strchr(p, '\n');
         size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
-        if (line_len >= sizeof(line))
+        if (line_len >= sizeof(line)) {
             line_len = sizeof(line) - 1;
+        }
         memcpy(line, p, line_len);
         line[line_len] = '\0';
         p = eol ? eol + 1 : p + line_len;
 
         char *trimmed = line;
-        while (*trimmed == ' ' || *trimmed == '\t')
+        while (*trimmed == ' ' || *trimmed == '\t') {
             trimmed++;
+        }
         rtrim(trimmed);
 
-        if (*trimmed == '\0')
+        if (*trimmed == '\0') {
             continue;
+        }
 
         /* Check shebang (first non-empty line starting with #!) */
         if (!shebang_checked && out->shebang[0] == '\0') {
             if (trimmed[0] == '#' && trimmed[1] == '!') {
                 const char *sb = trimmed + 2;
-                while (*sb == ' ')
+                while (*sb == ' ') {
                     sb++;
+                }
                 snprintf(out->shebang, sizeof(out->shebang), "%s", sb);
                 rtrim(out->shebang);
                 shebang_checked = true;
@@ -696,8 +793,9 @@ int cbm_parse_shell_source(const char *source, cbm_shell_result_t *out) {
         }
 
         /* Skip comments */
-        if (*trimmed == '#')
+        if (*trimmed == '#') {
             continue;
+        }
 
         /* Try export first */
         if (strncmp(trimmed, "export", 6) == 0) {
@@ -723,8 +821,10 @@ int cbm_parse_shell_source(const char *source, cbm_shell_result_t *out) {
     /* Result is non-empty if we have more than just infra_type.
      * In Go: len(props) > 1, where props always has infra_type.
      * Here: check if we have shebang OR env_vars OR sources OR docker_cmds. */
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool has_content = out->shebang[0] != '\0' || out->env_count > 0 || out->source_count > 0 ||
                        out->docker_cmd_count > 0;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return has_content ? 0 : -1;
 }
 
@@ -739,14 +839,17 @@ typedef enum {
 
 /* Extract a double-quoted string value after = sign.
  * Handles: key = "value" and key = value */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void tf_extract_quoted(const char *line, const char *prefix, char *out, size_t out_sz) {
     const char *p = skip_ws(line);
     size_t plen = strlen(prefix);
-    if (strncmp(p, prefix, plen) != 0)
+    if (strncmp(p, prefix, plen) != 0) {
         return;
+    }
     p = skip_ws(p + plen);
-    if (*p != '=')
+    if (*p != '=') {
         return;
+    }
     p = skip_ws(p + 1);
 
     /* Strip optional quotes */
@@ -754,8 +857,9 @@ static void tf_extract_quoted(const char *line, const char *prefix, char *out, s
         p++;
         const char *end = strchr(p, '"');
         size_t vlen = end ? (size_t)(end - p) : strlen(p);
-        if (vlen >= out_sz)
+        if (vlen >= out_sz) {
             vlen = out_sz - 1;
+        }
         memcpy(out, p, vlen);
         out[vlen] = '\0';
     } else {
@@ -766,9 +870,11 @@ static void tf_extract_quoted(const char *line, const char *prefix, char *out, s
 /* Count occurrences of a character in a string */
 static int count_char(const char *s, char c) {
     int n = 0;
-    for (; *s; s++)
-        if (*s == c)
+    for (; *s; s++) {
+        if (*s == c) {
             n++;
+        }
+    }
     return n;
 }
 
@@ -777,26 +883,31 @@ static int count_char(const char *s, char c) {
  * Returns number of chars consumed from p, or 0 if no match. */
 static int tf_extract_ident(const char *p, const char *keyword, char *out, size_t out_sz) {
     size_t klen = strlen(keyword);
-    if (strncmp(p, keyword, klen) != 0)
+    if (strncmp(p, keyword, klen) != 0) {
         return 0;
+    }
     const char *after = skip_ws(p + klen);
-    if (*after != '"')
+    if (*after != '"') {
         return 0;
+    }
     after++;
     const char *end = strchr(after, '"');
-    if (!end)
+    if (!end) {
         return 0;
+    }
     size_t ilen = (size_t)(end - after);
-    if (ilen >= out_sz)
+    if (ilen >= out_sz) {
         ilen = out_sz - 1;
+    }
     memcpy(out, after, ilen);
     out[ilen] = '\0';
     return (int)(end - p + 1);
 }
 
 int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) {
-    if (!source || !out)
+    if (!source || !out) {
         return -1;
+    }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
@@ -811,26 +922,30 @@ int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) 
     while (*p) {
         const char *eol = strchr(p, '\n');
         size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
-        if (line_len >= sizeof(line))
+        if (line_len >= sizeof(line)) {
             line_len = sizeof(line) - 1;
+        }
         memcpy(line, p, line_len);
         line[line_len] = '\0';
         p = eol ? eol + 1 : p + line_len;
 
         char *trimmed = line;
-        while (*trimmed == ' ' || *trimmed == '\t')
+        while (*trimmed == ' ' || *trimmed == '\t') {
             trimmed++;
+        }
         rtrim(trimmed);
 
-        if (*trimmed == '\0' || *trimmed == '#' || (trimmed[0] == '/' && trimmed[1] == '/'))
+        if (*trimmed == '\0' || *trimmed == '#' || (trimmed[0] == '/' && trimmed[1] == '/')) {
             continue;
+        }
 
         /* Track brace depth */
         brace_depth += count_char(trimmed, '{') - count_char(trimmed, '}');
 
         /* At top level (depth <= 1), detect block headers */
         if (brace_depth <= 1 && cur_block == TF_BLOCK_NONE) {
-            char ident1[128], ident2[128];
+            char ident1[128];
+            char ident2[128];
 
             /* resource "type" "name" */
             int consumed = tf_extract_ident(trimmed, "resource", ident1, sizeof(ident1));
@@ -843,8 +958,9 @@ int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) 
                     const char *end = strchr(rest, '"');
                     if (end) {
                         size_t len = (size_t)(end - rest);
-                        if (len >= sizeof(ident2))
+                        if (len >= sizeof(ident2)) {
                             len = sizeof(ident2) - 1;
+                        }
                         memcpy(ident2, rest, len);
                         ident2[len] = '\0';
                     }
@@ -908,8 +1024,9 @@ int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) 
                     const char *end = strchr(rest, '"');
                     if (end) {
                         size_t len = (size_t)(end - rest);
-                        if (len >= sizeof(ident2))
+                        if (len >= sizeof(ident2)) {
                             len = sizeof(ident2) - 1;
+                        }
                         memcpy(ident2, rest, len);
                         ident2[len] = '\0';
                     }
@@ -997,19 +1114,23 @@ int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) 
     }
 
     /* Check if we extracted anything useful */
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool has_content = out->resource_count > 0 || out->variable_count > 0 ||
                        out->output_count > 0 || out->provider_count > 0 || out->module_count > 0 ||
                        out->data_source_count > 0 || out->backend[0] != '\0' || out->has_locals;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return has_content ? 0 : -1;
 }
 
 /* ── Infra QN helper ────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 char *cbm_infra_qn(const char *project_name, const char *rel_path, const char *infra_type,
                    const char *service_name) {
     char *base = cbm_pipeline_fqn_compute(project_name, rel_path, "");
-    if (!base)
+    if (!base) {
         return NULL;
+    }
 
     char result[1024];
     if (service_name && service_name[0] && infra_type &&
@@ -1020,5 +1141,8 @@ char *cbm_infra_qn(const char *project_name, const char *rel_path, const char *i
     }
 
     free(base);
+    // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
     return strdup(result);
 }
+
+// NOLINTEND(readability-magic-numbers)

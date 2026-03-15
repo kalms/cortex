@@ -1,12 +1,19 @@
 #include "extract_unified.h"
+#include "arena.h" // cbm_arena_sprintf
+#include "cbm.h"   // CBMExtractCtx
 #include "helpers.h"
+#include "lang_specs.h"      // CBMLangSpec, cbm_lang_spec, CBM_LANG_*
+#include "tree_sitter/api.h" // TSNode, TSTreeCursor, ts_tree_cursor_*, ts_node_*
+#include <stdint.h>          // uint32_t, uint8_t
 #include <string.h>
 
 // --- Scope stack management ---
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void push_scope(WalkState *state, uint8_t kind, uint32_t depth, const char *qn) {
-    if (state->scope_top >= MAX_SCOPES)
+    if (state->scope_top >= MAX_SCOPES) {
         return;
+    }
     state->scopes[state->scope_top].kind = kind;
     state->scopes[state->scope_top].depth = depth;
     state->scopes[state->scope_top].qn = qn;
@@ -50,6 +57,7 @@ static void recompute_state(WalkState *state, const char *module_qn) {
 // Compute function QN for scope tracking (mirrors cbm_enclosing_func_qn logic).
 static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
                                    WalkState *state) {
+    (void)spec;
     // Wolfram: set_delayed_top/set_top/set_delayed/set — LHS is apply(user_symbol("f"), ...)
     if (ctx->language == CBM_LANG_WOLFRAM) {
         const char *nk = ts_node_type(node);
@@ -61,8 +69,9 @@ static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLan
                     TSNode head = ts_node_named_child(lhs, 0);
                     if (strcmp(ts_node_type(head), "user_symbol") == 0) {
                         char *name = cbm_node_text(ctx->arena, head, ctx->source);
-                        if (name && name[0])
+                        if (name && name[0]) {
                             return cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, name);
+                        }
                     }
                 }
             }
@@ -80,12 +89,14 @@ static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLan
         }
     }
 
-    if (ts_node_is_null(name_node))
+    if (ts_node_is_null(name_node)) {
         return NULL;
+    }
 
     char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return NULL;
+    }
 
     if (state->enclosing_class_qn) {
         return cbm_arena_sprintf(ctx->arena, "%s.%s", state->enclosing_class_qn, name);
@@ -96,12 +107,14 @@ static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLan
 // Compute class QN for scope tracking.
 static const char *compute_class_qn(CBMExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-    if (ts_node_is_null(name_node))
+    if (ts_node_is_null(name_node)) {
         return NULL;
+    }
 
     char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return NULL;
+    }
 
     return cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, name);
 }
@@ -110,8 +123,9 @@ static const char *compute_class_qn(CBMExtractCtx *ctx, TSNode node) {
 
 void cbm_extract_unified(CBMExtractCtx *ctx) {
     const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
-    if (!spec)
+    if (!spec) {
         return;
+    }
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     WalkState state;
@@ -140,12 +154,14 @@ void cbm_extract_unified(CBMExtractCtx *ctx) {
         // 4. Push scope markers for boundary nodes
         if (spec->function_node_types && cbm_kind_in_set(node, spec->function_node_types)) {
             const char *fqn = compute_func_qn(ctx, node, spec, &state);
-            if (fqn)
+            if (fqn) {
                 push_scope(&state, SCOPE_FUNC, depth, fqn);
+            }
         } else if (spec->class_node_types && cbm_kind_in_set(node, spec->class_node_types)) {
             const char *cqn = compute_class_qn(ctx, node);
-            if (cqn)
+            if (cqn) {
                 push_scope(&state, SCOPE_CLASS, depth, cqn);
+            }
         } else if (ctx->language == CBM_LANG_RUST && strcmp(ts_node_type(node), "impl_item") == 0) {
             // Rust impl block acts as class scope for methods
             TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
@@ -183,8 +199,9 @@ void cbm_extract_unified(CBMExtractCtx *ctx) {
                 break;
             }
         }
-        if (!found)
+        if (!found) {
             break;
+        }
     }
 
     ts_tree_cursor_delete(&cursor);

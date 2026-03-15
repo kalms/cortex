@@ -11,8 +11,8 @@
 #include <stdio.h>
 
 /* Helper: create a store with project + N nodes (A, B, C, ...) */
-static cbm_store_t* setup_store_with_nodes(int n, int64_t* ids) {
-    cbm_store_t* s = cbm_store_open_memory();
+static cbm_store_t *setup_store_with_nodes(int n, int64_t *ids) {
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     char name[8], qn[32];
@@ -20,9 +20,7 @@ static cbm_store_t* setup_store_with_nodes(int n, int64_t* ids) {
         snprintf(name, sizeof(name), "%c", 'A' + i);
         snprintf(qn, sizeof(qn), "test.%c", 'A' + i);
         cbm_node_t node = {
-            .project = "test", .label = "Function",
-            .name = name, .qualified_name = qn
-        };
+            .project = "test", .label = "Function", .name = name, .qualified_name = qn};
         ids[i] = cbm_store_upsert_node(s, &node);
     }
     return s;
@@ -32,15 +30,15 @@ static cbm_store_t* setup_store_with_nodes(int n, int64_t* ids) {
 
 TEST(store_edge_insert_find) {
     int64_t ids[2];
-    cbm_store_t* s = setup_store_with_nodes(2, ids);
+    cbm_store_t *s = setup_store_with_nodes(2, ids);
 
     /* Insert edge */
-    cbm_edge_t e = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
+    cbm_edge_t e = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
     int64_t eid = cbm_store_insert_edge(s, &e);
     ASSERT_GT(eid, 0);
 
     /* Find by source */
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     int rc = cbm_store_find_edges_by_source(s, ids[0], &edges, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -66,10 +64,10 @@ TEST(store_edge_insert_find) {
 
 TEST(store_edge_dedup) {
     int64_t ids[2];
-    cbm_store_t* s = setup_store_with_nodes(2, ids);
+    cbm_store_t *s = setup_store_with_nodes(2, ids);
 
     /* Insert same edge twice — should not duplicate */
-    cbm_edge_t e = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
+    cbm_edge_t e = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
     cbm_store_insert_edge(s, &e);
     cbm_store_insert_edge(s, &e);
 
@@ -82,14 +80,15 @@ TEST(store_edge_dedup) {
 
 TEST(store_edge_find_by_source_type) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="IMPORTS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {
+        .project = "test", .source_id = ids[0], .target_id = ids[2], .type = "IMPORTS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     int rc = cbm_store_find_edges_by_source_type(s, ids[0], "CALLS", &edges, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -103,14 +102,15 @@ TEST(store_edge_find_by_source_type) {
 
 TEST(store_edge_find_by_target_type) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[1], .target_id=ids[2], .type="IMPORTS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[2], .type = "CALLS"};
+    cbm_edge_t e2 = {
+        .project = "test", .source_id = ids[1], .target_id = ids[2], .type = "IMPORTS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     int rc = cbm_store_find_edges_by_target_type(s, ids[2], "CALLS", &edges, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -123,16 +123,17 @@ TEST(store_edge_find_by_target_type) {
 
 TEST(store_edge_find_by_type) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[1], .target_id=ids[2], .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="IMPORTS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = ids[1], .target_id = ids[2], .type = "CALLS"};
+    cbm_edge_t e3 = {
+        .project = "test", .source_id = ids[0], .target_id = ids[2], .type = "IMPORTS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     int rc = cbm_store_find_edges_by_type(s, "test", "CALLS", &edges, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -145,11 +146,12 @@ TEST(store_edge_find_by_type) {
 
 TEST(store_edge_count_by_type) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[1], .target_id=ids[2], .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="IMPORTS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = ids[1], .target_id = ids[2], .type = "CALLS"};
+    cbm_edge_t e3 = {
+        .project = "test", .source_id = ids[0], .target_id = ids[2], .type = "IMPORTS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
@@ -169,10 +171,11 @@ TEST(store_edge_count_by_type) {
 
 TEST(store_edge_delete_by_type) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="IMPORTS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {
+        .project = "test", .source_id = ids[0], .target_id = ids[2], .type = "IMPORTS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
 
@@ -188,16 +191,16 @@ TEST(store_edge_delete_by_type) {
 
 TEST(store_edge_properties_json) {
     int64_t ids[2];
-    cbm_store_t* s = setup_store_with_nodes(2, ids);
+    cbm_store_t *s = setup_store_with_nodes(2, ids);
 
-    cbm_edge_t e = {
-        .project = "test", .source_id = ids[0], .target_id = ids[1],
-        .type = "HTTP_CALLS",
-        .properties_json = "{\"url_path\":\"/api/orders/create\",\"confidence\":0.8}"
-    };
+    cbm_edge_t e = {.project = "test",
+                    .source_id = ids[0],
+                    .target_id = ids[1],
+                    .type = "HTTP_CALLS",
+                    .properties_json = "{\"url_path\":\"/api/orders/create\",\"confidence\":0.8}"};
     cbm_store_insert_edge(s, &e);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_source(s, ids[0], &edges, &count);
     ASSERT_EQ(count, 1);
@@ -212,15 +215,16 @@ TEST(store_edge_properties_json) {
 
 TEST(store_edge_null_properties) {
     int64_t ids[2];
-    cbm_store_t* s = setup_store_with_nodes(2, ids);
+    cbm_store_t *s = setup_store_with_nodes(2, ids);
 
-    cbm_edge_t e = {
-        .project = "test", .source_id = ids[0], .target_id = ids[1],
-        .type = "CALLS", .properties_json = NULL
-    };
+    cbm_edge_t e = {.project = "test",
+                    .source_id = ids[0],
+                    .target_id = ids[1],
+                    .type = "CALLS",
+                    .properties_json = NULL};
     cbm_store_insert_edge(s, &e);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_source(s, ids[0], &edges, &count);
     ASSERT_EQ(count, 1);
@@ -236,15 +240,13 @@ TEST(store_edge_null_properties) {
 
 TEST(store_edge_batch_insert) {
     int64_t ids[10];
-    cbm_store_t* s = setup_store_with_nodes(10, ids);
+    cbm_store_t *s = setup_store_with_nodes(10, ids);
 
     /* Create edges: each node calls the next */
     cbm_edge_t edges[9];
     for (int i = 0; i < 9; i++) {
         edges[i] = (cbm_edge_t){
-            .project = "test", .source_id = ids[i], .target_id = ids[i+1],
-            .type = "CALLS"
-        };
+            .project = "test", .source_id = ids[i], .target_id = ids[i + 1], .type = "CALLS"};
     }
 
     int rc = cbm_store_insert_edge_batch(s, edges, 9);
@@ -264,7 +266,7 @@ TEST(store_edge_batch_insert) {
 }
 
 TEST(store_edge_batch_empty) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     int rc = cbm_store_insert_edge_batch(s, NULL, 0);
     ASSERT_EQ(rc, CBM_STORE_OK);
     cbm_store_close(s);
@@ -275,11 +277,11 @@ TEST(store_edge_batch_empty) {
 
 TEST(store_edge_cascade_on_node_delete) {
     int64_t ids[3];
-    cbm_store_t* s = setup_store_with_nodes(3, ids);
+    cbm_store_t *s = setup_store_with_nodes(3, ids);
 
     /* A→B, A→C */
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="CALLS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = ids[0], .target_id = ids[2], .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
 

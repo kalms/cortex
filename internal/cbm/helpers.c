@@ -1,5 +1,9 @@
 #include "helpers.h"
+#include "arena.h" // CBMArena, cbm_arena_alloc/strdup/strndup/sprintf
+#include "cbm.h"   // CBMExtractCtx, CBMLanguage, CBM_LANG_*, EFCEntry, EFC_SIZE
 #include "lang_specs.h"
+#include "tree_sitter/api.h" // TSNode, ts_node_*
+#include <stdint.h>          // uint32_t
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -9,8 +13,9 @@
 char *cbm_node_text(CBMArena *a, TSNode node, const char *source) {
     uint32_t start = ts_node_start_byte(node);
     uint32_t end = ts_node_end_byte(node);
-    if (end <= start)
+    if (end <= start) {
         return cbm_arena_strdup(a, "");
+    }
     return cbm_arena_strndup(a, source + start, end - start);
 }
 
@@ -90,8 +95,9 @@ static const char *generic_keywords[] = {
     "await",    "yield",     NULL};
 
 bool cbm_is_keyword(const char *name, CBMLanguage lang) {
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return true;
+    }
 
     const char **keywords;
     switch (lang) {
@@ -120,8 +126,9 @@ bool cbm_is_keyword(const char *name, CBMLanguage lang) {
     }
 
     for (const char **kw = keywords; *kw; kw++) {
-        if (strcmp(name, *kw) == 0)
+        if (strcmp(name, *kw) == 0) {
             return true;
+        }
     }
     return false;
 }
@@ -129,17 +136,20 @@ bool cbm_is_keyword(const char *name, CBMLanguage lang) {
 // --- Export detection ---
 
 bool cbm_is_exported(const char *name, CBMLanguage lang) {
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return false;
+    }
     switch (lang) {
     case CBM_LANG_GO:
-        return name[0] >= 'A' && name[0] <= 'Z';
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+        return (name[0] >= 'A' && name[0] <= 'Z');
     case CBM_LANG_PYTHON:
-        return name[0] != '_';
+        return (name[0] != '_');
     case CBM_LANG_JAVA:
     case CBM_LANG_CSHARP:
     case CBM_LANG_KOTLIN:
-        return name[0] >= 'A' && name[0] <= 'Z';
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+        return (name[0] >= 'A' && name[0] <= 'Z');
     default:
         return true;
     }
@@ -150,8 +160,9 @@ bool cbm_is_exported(const char *name, CBMLanguage lang) {
 static bool has_suffix(const char *str, const char *suffix) {
     size_t slen = strlen(str);
     size_t xlen = strlen(suffix);
-    if (xlen > slen)
+    if (xlen > slen) {
         return false;
+    }
     return strcmp(str + slen - xlen, suffix) == 0;
 }
 
@@ -170,8 +181,9 @@ static void strip_ext(const char *base, char *buf, size_t buflen) {
     const char *dot = strrchr(base, '.');
     if (dot && dot != base) {
         size_t len = (size_t)(dot - base);
-        if (len >= buflen)
+        if (len >= buflen) {
             len = buflen - 1;
+        }
         memcpy(buf, base, len);
         buf[len] = '\0';
     } else {
@@ -180,20 +192,23 @@ static void strip_ext(const char *base, char *buf, size_t buflen) {
 }
 
 bool cbm_is_test_file(const char *rel_path, CBMLanguage lang) {
-    if (!rel_path)
+    if (!rel_path) {
         return false;
+    }
     const char *base = path_basename(rel_path);
 
     switch (lang) {
     case CBM_LANG_GO:
         return has_suffix(base, "_test.go");
     case CBM_LANG_PYTHON:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_prefix(base, "test_") || has_suffix(base, "_test.py");
     case CBM_LANG_JAVASCRIPT:
     case CBM_LANG_TYPESCRIPT:
     case CBM_LANG_TSX: {
         char noext[256];
         strip_ext(base, noext, sizeof(noext));
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(noext, ".test") || has_suffix(noext, ".spec") ||
                has_suffix(noext, "_test") || has_suffix(noext, "_spec") ||
                has_prefix(base, "test_");
@@ -201,25 +216,31 @@ bool cbm_is_test_file(const char *rel_path, CBMLanguage lang) {
     case CBM_LANG_JAVA:
     case CBM_LANG_KOTLIN:
     case CBM_LANG_SCALA:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(base, "Test.java") || has_suffix(base, "Tests.java") ||
                has_suffix(base, "Spec.java") || has_suffix(base, "Test.kt") ||
                has_suffix(base, "Spec.kt") || has_suffix(base, "Test.scala") ||
                has_suffix(base, "Spec.scala");
     case CBM_LANG_RUST:
         // Rust tests are typically mod tests inside the file, but test files too
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(base, "_test.rs") || has_prefix(base, "test_");
     case CBM_LANG_RUBY:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(base, "_test.rb") || has_suffix(base, "_spec.rb") ||
                has_prefix(base, "test_");
     case CBM_LANG_PHP:
         return has_suffix(base, "Test.php");
     case CBM_LANG_CSHARP:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(base, "Tests.cs") || has_suffix(base, "Test.cs");
     case CBM_LANG_CPP:
     case CBM_LANG_C:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_suffix(base, "_test.c") || has_suffix(base, "_test.cc") ||
                has_suffix(base, "_test.cpp") || has_prefix(base, "test_");
     case CBM_LANG_MATLAB:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return has_prefix(base, "test_") || has_prefix(base, "Test");
     default:
         return false;
@@ -241,12 +262,14 @@ TSNode cbm_find_child_by_kind(TSNode parent, const char *kind) {
 }
 
 bool cbm_kind_in_set(TSNode node, const char **types) {
-    if (!types)
+    if (!types) {
         return false;
+    }
     const char *kind = ts_node_type(node);
     for (const char **t = types; *t; t++) {
-        if (strcmp(kind, *t) == 0)
+        if (strcmp(kind, *t) == 0) {
             return true;
+        }
     }
     return false;
 }
@@ -255,16 +278,19 @@ bool cbm_has_ancestor_kind(TSNode node, const char *kind, int max_depth) {
     TSNode cur = node;
     for (int i = 0; i < max_depth; i++) {
         TSNode parent = ts_node_parent(cur);
-        if (ts_node_is_null(parent))
+        if (ts_node_is_null(parent)) {
             return false;
-        if (strcmp(ts_node_type(parent), kind) == 0)
+        }
+        if (strcmp(ts_node_type(parent), kind) == 0) {
             return true;
+        }
         cur = parent;
     }
     return false;
 }
 
 // Recursive branching count
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static int count_branching_rec(TSNode node, const char **types) {
     int count = 0;
     const char *kind = ts_node_type(node);
@@ -282,8 +308,9 @@ static int count_branching_rec(TSNode node, const char **types) {
 }
 
 int cbm_count_branching(TSNode node, const char **branching_types) {
-    if (!branching_types)
+    if (!branching_types) {
         return 0;
+    }
     return count_branching_rec(node, branching_types);
 }
 
@@ -380,12 +407,15 @@ TSNode cbm_find_enclosing_func(TSNode node, CBMLanguage lang) {
     TSNode cur = node;
     for (;;) {
         TSNode parent = ts_node_parent(cur);
-        if (ts_node_is_null(parent))
+        if (ts_node_is_null(parent)) {
             break;
+        }
         const char *pk = ts_node_type(parent);
+        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
         for (const char **k = kinds; *k; k++) {
-            if (strcmp(pk, *k) == 0)
+            if (strcmp(pk, *k) == 0) {
                 return parent;
+            }
         }
         cur = parent;
     }
@@ -405,8 +435,9 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
                 TSNode lhs = ts_node_named_child(func_node, 0);
                 if (strcmp(ts_node_type(lhs), "apply") == 0 && ts_node_named_child_count(lhs) > 0) {
                     TSNode head = ts_node_named_child(lhs, 0);
-                    if (strcmp(ts_node_type(head), "user_symbol") == 0)
+                    if (strcmp(ts_node_type(head), "user_symbol") == 0) {
                         return cbm_node_text(a, head, source);
+                    }
                 }
             }
             return NULL;
@@ -430,7 +461,9 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
     return NULL;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 const char *cbm_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, const char *source,
+                                  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                                   const char *project, const char *rel_path,
                                   const char *module_qn) {
     TSNode func_node = cbm_find_enclosing_func(node, lang);
@@ -528,16 +561,19 @@ static const char *module_parents_magma[] = {"source_file", NULL};
 
 bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
     TSNode parent = ts_node_parent(node);
-    if (ts_node_is_null(parent))
+    if (ts_node_is_null(parent)) {
         return false;
+    }
     const char *pk = ts_node_type(parent);
 
     // Python: module or expression_statement -> module
     if (lang == CBM_LANG_PYTHON) {
-        if (strcmp(pk, "module") == 0)
+        if (strcmp(pk, "module") == 0) {
             return true;
+        }
         if (strcmp(pk, "expression_statement") == 0) {
             TSNode gp = ts_node_parent(parent);
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             return !ts_node_is_null(gp) && strcmp(ts_node_type(gp), "module") == 0;
         }
         return false;
@@ -545,10 +581,12 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
 
     // JS/TS: program, or export_statement -> program
     if (lang == CBM_LANG_JAVASCRIPT || lang == CBM_LANG_TYPESCRIPT || lang == CBM_LANG_TSX) {
-        if (strcmp(pk, "program") == 0)
+        if (strcmp(pk, "program") == 0) {
             return true;
+        }
         if (strcmp(pk, "export_statement") == 0) {
             TSNode gp = ts_node_parent(parent);
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             return !ts_node_is_null(gp) && strcmp(ts_node_type(gp), "program") == 0;
         }
         return false;
@@ -556,11 +594,13 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
 
     // Lua: chunk
     if (lang == CBM_LANG_LUA) {
-        if (strcmp(pk, "chunk") == 0)
+        if (strcmp(pk, "chunk") == 0) {
             return true;
+        }
         // assignment_statement -> chunk
         if (strcmp(pk, "assignment_statement") == 0) {
             TSNode gp = ts_node_parent(parent);
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             return !ts_node_is_null(gp) && strcmp(ts_node_type(gp), "chunk") == 0;
         }
         return false;
@@ -568,6 +608,7 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
 
     // YAML: document or stream
     if (lang == CBM_LANG_YAML) {
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(pk, "document") == 0 || strcmp(pk, "stream") == 0 ||
                strcmp(pk, "block_mapping") == 0;
     }
@@ -679,9 +720,11 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
         return false;
     }
     if (parents) {
+        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
         for (const char **p = parents; *p; p++) {
-            if (strcmp(pk, *p) == 0)
+            if (strcmp(pk, *p) == 0) {
                 return true;
+            }
         }
     }
     return false;
@@ -693,10 +736,12 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
 // Internal helper: find extension start in basename (returns length without ext)
 static size_t strip_ext_len(const char *s, size_t len) {
     for (size_t i = len; i > 0; i--) {
-        if (s[i - 1] == '.')
+        if (s[i - 1] == '.') {
             return i - 1;
-        if (s[i - 1] == '/')
+        }
+        if (s[i - 1] == '/') {
             break;
+        }
     }
     return len;
 }
@@ -712,8 +757,9 @@ char *cbm_fqn_compute(CBMArena *a, const char *project, const char *rel_path, co
     // Worst case: project + . + path (with / -> .) + . + name + NUL
     size_t max_len = proj_len + 1 + path_len + 1 + name_len + 1;
     char *buf = (char *)cbm_arena_alloc(a, max_len);
-    if (!buf)
+    if (!buf) {
         return NULL;
+    }
 
     char *out = buf;
     memcpy(out, project, proj_len);
@@ -736,10 +782,12 @@ char *cbm_fqn_compute(CBMArena *a, const char *project, const char *rel_path, co
             bool is_last = (part_end == end_ptr);
             bool skip = false;
             if (is_last) {
-                if (part_len == 8 && memcmp(start, "__init__", 8) == 0)
+                if (part_len == 8 && memcmp(start, "__init__", 8) == 0) {
                     skip = true;
-                if (part_len == 5 && memcmp(start, "index", 5) == 0)
+                }
+                if (part_len == 5 && memcmp(start, "index", 5) == 0) {
                     skip = true;
+                }
             }
             if (!skip) {
                 *out++ = '.';
@@ -769,8 +817,9 @@ char *cbm_fqn_folder(CBMArena *a, const char *project, const char *rel_dir) {
     size_t dir_len = strlen(rel_dir);
     size_t max_len = proj_len + 1 + dir_len + 1;
     char *buf = (char *)cbm_arena_alloc(a, max_len);
-    if (!buf)
+    if (!buf) {
         return NULL;
+    }
 
     char *out = buf;
     memcpy(out, project, proj_len);

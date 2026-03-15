@@ -1,3 +1,4 @@
+// NOLINTBEGIN(performance-no-int-to-ptr) — sentinel value, not a real pointer
 /*
  * pass_enrichment.c — Decorator tokenization, camelCase splitting,
  * and decorator_tags pass (post-flush enrichment).
@@ -23,18 +24,21 @@ static bool is_decorator_stopword(const char *w) {
                                       "for",   "if",   "the",   "and",    "or",     "not",
                                       "with",  "from", "app",   "router", NULL};
     for (int i = 0; stopwords[i]; i++) {
-        if (strcmp(w, stopwords[i]) == 0)
+        if (strcmp(w, stopwords[i]) == 0) {
             return true;
+        }
     }
     return false;
 }
 
 int cbm_split_camel_case(const char *s, char **out, int max_out) {
-    if (!s || !out || max_out <= 0)
+    if (!s || !out || max_out <= 0) {
         return 0;
+    }
     size_t len = strlen(s);
-    if (len == 0)
+    if (len == 0) {
         return 0;
+    }
 
     int count = 0;
     size_t start = 0;
@@ -42,6 +46,7 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
     for (size_t i = 1; i < len; i++) {
         if (s[i] >= 'A' && s[i] <= 'Z' && s[i - 1] >= 'a' && s[i - 1] <= 'z') {
             if (count < max_out) {
+                // NOLINTNEXTLINE(misc-include-cleaner) — strndup provided by standard header
                 out[count] = strndup(s + start, i - start);
                 count++;
             }
@@ -57,34 +62,39 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
 }
 
 int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
-    if (!dec || !out || max_out <= 0)
+    if (!dec || !out || max_out <= 0) {
         return 0;
+    }
 
     /* Work on a copy */
     char buf[256];
     size_t len = strlen(dec);
-    if (len >= sizeof(buf))
+    if (len >= sizeof(buf)) {
         len = sizeof(buf) - 1;
+    }
     memcpy(buf, dec, len);
     buf[len] = '\0';
 
     char *p = buf;
 
     /* Strip leading @ */
-    if (*p == '@')
+    if (*p == '@') {
         p++;
+    }
     /* Strip leading #[ and trailing ] */
     if (p[0] == '#' && p[1] == '[') {
         p += 2;
         size_t plen = strlen(p);
-        if (plen > 0 && p[plen - 1] == ']')
+        if (plen > 0 && p[plen - 1] == ']') {
             p[plen - 1] = '\0';
+        }
     }
 
     /* Strip arguments: everything from first ( onwards */
     char *paren = strchr(p, '(');
-    if (paren)
+    if (paren) {
         *paren = '\0';
+    }
 
     /* Replace delimiters with spaces: . _ - : / */
     for (char *c = p; *c; c++) {
@@ -96,6 +106,7 @@ int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
     /* Process each part: split camelCase, lowercase, filter stopwords */
     int count = 0;
     char *saveptr = NULL;
+    // NOLINTNEXTLINE(misc-include-cleaner) — strtok_r provided by standard header
     char *part = strtok_r(p, " ", &saveptr);
 
     while (part && count < max_out) {
@@ -136,6 +147,7 @@ int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
 
 /* Per-node tokenization state */
 typedef struct {
+    // NOLINTNEXTLINE(misc-include-cleaner) — int64_t provided by standard header
     int64_t node_id;
     char *qualified_name;
     char **words;
@@ -145,12 +157,14 @@ typedef struct {
 /* Extract the "decorators" array from a properties_json string.
  * Returns a NULL-terminated array of strings. Caller must free array and strings. */
 static char **extract_decorators_from_json(const char *json) {
-    if (!json)
+    if (!json) {
         return NULL;
+    }
 
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
-    if (!doc)
+    if (!doc) {
         return NULL;
+    }
 
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *decs = yyjson_obj_get(root, "decorators");
@@ -165,6 +179,7 @@ static char **extract_decorators_from_json(const char *json) {
         return NULL;
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     char **out = calloc(cnt + 1, sizeof(char *));
     size_t idx = 0;
     yyjson_val *item;
@@ -172,14 +187,17 @@ static char **extract_decorators_from_json(const char *json) {
     yyjson_arr_iter_init(decs, &iter);
     while ((item = yyjson_arr_iter_next(&iter))) {
         if (yyjson_is_str(item)) {
+            // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
             out[idx++] = strdup(yyjson_get_str(item));
         }
     }
     out[idx] = NULL;
 
     yyjson_doc_free(doc);
-    if (idx > 0)
+    if (idx > 0) {
         return out;
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(out);
     return NULL;
 }
@@ -211,6 +229,7 @@ static int extract_decorator_words(const char *json, char ***out_words) {
         }
         free(decorators[i]);
     }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(decorators);
     cbm_ht_free(seen);
 
@@ -219,7 +238,9 @@ static int extract_decorator_words(const char *json, char ***out_words) {
         return 0;
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     *out_words = malloc(sizeof(char *) * total);
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     memcpy(*out_words, all_words, sizeof(char *) * total);
     return total;
 }
@@ -262,8 +283,9 @@ static int cmp_str(const void *a, const void *b) {
 }
 
 int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
-    if (!store || !project)
+    if (!store || !project) {
         return 0;
+    }
 
     static const char *labels[] = {"Function", "Method", "Class"};
     static const int nlabels = 3;
@@ -278,14 +300,16 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
         cbm_node_t *found = NULL;
         int fc = 0;
         cbm_store_find_nodes_by_label(store, project, labels[l], &found, &fc);
-        if (!found || fc <= 0)
+        if (!found || fc <= 0) {
             continue;
+        }
 
         for (int i = 0; i < fc; i++) {
             char **words = NULL;
             int wc = extract_decorator_words(found[i].properties_json, &words);
-            if (wc <= 0)
+            if (wc <= 0) {
                 continue;
+            }
 
             /* Grow array if needed */
             if (node_count >= node_cap) {
@@ -301,6 +325,7 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
 
             /* Update word counts */
             for (int w = 0; w < wc; w++) {
+                // NOLINTNEXTLINE(misc-include-cleaner) — intptr_t provided by standard header
                 intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, words[w]);
                 cbm_ht_set(word_counts, words[w], (void *)(cnt + 1));
             }
@@ -333,8 +358,10 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
     if (candidate_count == 0) {
         for (int n = 0; n < node_count; n++) {
             free(nodes[n].qualified_name);
-            for (int w = 0; w < nodes[n].word_count; w++)
+            for (int w = 0; w < nodes[n].word_count; w++) {
                 free(nodes[n].words[w]);
+            }
+            // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
             free(nodes[n].words);
         }
         free(nodes);
@@ -354,10 +381,12 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
             }
         }
 
-        if (tag_count == 0)
+        if (tag_count == 0) {
             continue;
+        }
 
         /* Sort tags alphabetically */
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         qsort(tag_words, tag_count, sizeof(char *), cmp_str);
 
         /* Re-read node from store */
@@ -390,8 +419,10 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
     /* Cleanup */
     for (int n = 0; n < node_count; n++) {
         free(nodes[n].qualified_name);
-        for (int w = 0; w < nodes[n].word_count; w++)
+        for (int w = 0; w < nodes[n].word_count; w++) {
             free(nodes[n].words[w]);
+        }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         free(nodes[n].words);
     }
     free(nodes);
@@ -402,3 +433,5 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
                  tagged > 0 ? "yes" : "0");
     return tagged;
 }
+
+// NOLINTEND(performance-no-int-to-ptr)

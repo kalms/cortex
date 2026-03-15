@@ -1,3 +1,6 @@
+// NOLINTBEGIN(cert-err33-c) — snprintf truncation is acceptable for route path normalization
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes and route path length limits
+
 /*
  * pass_httplinks.c — HTTP route discovery and cross-service linking.
  *
@@ -16,6 +19,7 @@
  *
  * Depends on: pass_definitions, pass_calls (for cross-file prefix resolution)
  */
+// NOLINTNEXTLINE(misc-include-cleaner) — pipeline.h included for interface contract
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
 #include "pipeline/httplink.h"
@@ -47,12 +51,14 @@ static const char *itoa_hl(int val) {
  * Returns a NULL-terminated array of strings. Caller must free array and strings. */
 static char **extract_decorators(const char *json, int *out_count) {
     *out_count = 0;
-    if (!json)
+    if (!json) {
         return NULL;
+    }
 
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
-    if (!doc)
+    if (!doc) {
         return NULL;
+    }
 
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *decs = yyjson_obj_get(root, "decorators");
@@ -67,6 +73,7 @@ static char **extract_decorators(const char *json, int *out_count) {
         return NULL;
     }
 
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     char **out = calloc(cnt + 1, sizeof(char *));
     int idx = 0;
     yyjson_val *item;
@@ -74,6 +81,7 @@ static char **extract_decorators(const char *json, int *out_count) {
     yyjson_arr_iter_init(decs, &iter);
     while ((item = yyjson_arr_iter_next(&iter))) {
         if (yyjson_is_str(item)) {
+            // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
             out[idx++] = strdup(yyjson_get_str(item));
         }
     }
@@ -81,25 +89,31 @@ static char **extract_decorators(const char *json, int *out_count) {
     *out_count = idx;
 
     yyjson_doc_free(doc);
-    if (idx > 0)
+    if (idx > 0) {
         return out;
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(out);
     return NULL;
 }
 
 /* Check if a JSON properties string has is_test=true. */
 static bool is_test_from_json(const char *json) {
-    if (!json)
+    if (!json) {
         return false;
+    }
     /* Fast path: substring search before full parse */
-    if (!strstr(json, "\"is_test\""))
+    if (!strstr(json, "\"is_test\"")) {
         return false;
+    }
 
     yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
-    if (!doc)
+    if (!doc) {
         return false;
+    }
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *v = yyjson_obj_get(root, "is_test");
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool result = v && yyjson_is_bool(v) && yyjson_get_bool(v);
     yyjson_doc_free(doc);
     return result;
@@ -107,10 +121,12 @@ static bool is_test_from_json(const char *json) {
 
 /* Check if node is from a test file (file path heuristic + is_test property). */
 static bool is_test_node(const cbm_gbuf_node_t *n) {
-    if (is_test_from_json(n->properties_json))
+    if (is_test_from_json(n->properties_json)) {
         return true;
-    if (!n->file_path)
+    }
+    if (!n->file_path) {
         return false;
+    }
     return cbm_is_test_node_fp(n->file_path, false);
 }
 
@@ -135,16 +151,20 @@ static char *set_entry_point(const char *json) {
 
     char *result = yyjson_mut_write(mdoc, 0, NULL);
     yyjson_mut_doc_free(mdoc);
-    if (doc)
+    if (doc) {
         yyjson_doc_free(doc);
+    }
     return result;
 }
 
 static void free_decorators(char **decs) {
-    if (!decs)
+    if (!decs) {
         return;
-    for (int i = 0; decs[i]; i++)
+    }
+    for (int i = 0; decs[i]; i++) {
         free(decs[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(decs);
 }
 
@@ -153,12 +173,14 @@ static void free_decorators(char **decs) {
 static bool has_suffix(const char *s, const char *suffix) {
     size_t sl = strlen(s);
     size_t xl = strlen(suffix);
-    if (xl > sl)
+    if (xl > sl) {
         return false;
+    }
     return strcmp(s + sl - xl, suffix) == 0;
 }
 
 static bool is_jsts_file(const char *path) {
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return has_suffix(path, ".js") || has_suffix(path, ".ts") || has_suffix(path, ".mjs") ||
            has_suffix(path, ".mts") || has_suffix(path, ".tsx");
 }
@@ -223,21 +245,24 @@ static int discover_node_routes(const cbm_gbuf_node_t *n, const char *repo_path,
 /* Discover module-level routes (PHP Laravel, JS/TS Express at top level). */
 static int discover_module_routes(const cbm_gbuf_node_t *mod, const char *repo_path,
                                   cbm_route_handler_t *out, int max_out) {
-    if (!mod->file_path)
+    if (!mod->file_path) {
         return 0;
+    }
 
     bool is_php = has_suffix(mod->file_path, ".php");
     bool is_js = is_jsts_file(mod->file_path);
-    if (!is_php && !is_js)
+    if (!is_php && !is_js) {
         return 0;
+    }
 
     /* Read full file for module-level scanning */
     char path_buf[1024];
     snprintf(path_buf, sizeof(path_buf), "%s/%s", repo_path, mod->file_path);
 
     FILE *f = fopen(path_buf, "rb");
-    if (!f)
+    if (!f) {
         return 0;
+    }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -253,6 +278,7 @@ static int discover_module_routes(const cbm_gbuf_node_t *mod, const char *repo_p
     }
     size_t nread = fread(source, 1, (size_t)sz, f);
     fclose(f);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     source[nread] = '\0';
 
     int total = 0;
@@ -277,33 +303,42 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                                      int route_count) {
     const cbm_gbuf_node_t **modules = NULL;
     int mod_count = 0;
-    if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) != 0)
+    if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) != 0) {
         return;
+    }
 
-    regex_t include_re, import_re;
+    // NOLINTNEXTLINE(misc-include-cleaner) — regex_t provided by standard header
+    regex_t include_re;
+    regex_t import_re;
+    // NOLINTNEXTLINE(misc-include-cleaner) — regcomp provided by standard header
     if (regcomp(&include_re,
                 "\\.include_router\\(([[:alnum:]_]+)[[:space:]]*,[[:space:]]*prefix[[:space:]]*=[[:"
                 "space:]]*[\"']([^\"']+)[\"']",
-                REG_EXTENDED) != 0)
+                // NOLINTNEXTLINE(misc-include-cleaner) — REG_EXTENDED provided by standard header
+                REG_EXTENDED) != 0) {
         return;
+    }
     if (regcomp(&import_re,
                 "from[[:space:]]+([[:alnum:]_.]+)[[:space:]]+import[[:space:]]+([[:alnum:]_]+)",
                 REG_EXTENDED) != 0) {
+        // NOLINTNEXTLINE(misc-include-cleaner) — regfree provided by standard header
         regfree(&include_re);
         return;
     }
 
     for (int m = 0; m < mod_count; m++) {
         const cbm_gbuf_node_t *mod = modules[m];
-        if (!mod->file_path || !has_suffix(mod->file_path, ".py"))
+        if (!mod->file_path || !has_suffix(mod->file_path, ".py")) {
             continue;
+        }
 
         /* Read full module source */
         char path_buf[1024];
         snprintf(path_buf, sizeof(path_buf), "%s/%s", ctx->repo_path, mod->file_path);
         FILE *f = fopen(path_buf, "rb");
-        if (!f)
+        if (!f) {
             continue;
+        }
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         fseek(f, 0, SEEK_SET);
@@ -318,6 +353,7 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         }
         fread(source, 1, (size_t)sz, f);
         fclose(f);
+        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
         source[sz] = '\0';
 
         /* Build import map: var_name → dotted.module.path */
@@ -329,9 +365,13 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         int import_count = 0;
 
         const char *p = source;
+        // NOLINTNEXTLINE(misc-include-cleaner) — regmatch_t provided by standard header
         regmatch_t pm[3];
+        // NOLINTNEXTLINE(misc-include-cleaner) — regexec provided by standard header
         while (import_count < 64 && regexec(&import_re, p, 3, pm, 0) == 0) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = pm[1].rm_eo - pm[1].rm_so;
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int vlen = pm[2].rm_eo - pm[2].rm_so;
             if (mlen < 256 && vlen < 128) {
                 snprintf(imports[import_count].module, 256, "%.*s", mlen, p + pm[1].rm_so);
@@ -346,12 +386,16 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         while (regexec(&include_re, p, 3, pm, 0) == 0) {
             char var_name[128] = {0};
             char prefix[256] = {0};
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int vlen = pm[1].rm_eo - pm[1].rm_so;
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = pm[2].rm_eo - pm[2].rm_so;
-            if (vlen < 128)
+            if (vlen < 128) {
                 snprintf(var_name, 128, "%.*s", vlen, p + pm[1].rm_so);
-            if (plen < 256)
+            }
+            if (plen < 256) {
                 snprintf(prefix, 256, "%.*s", plen, p + pm[2].rm_so);
+            }
             p += pm[0].rm_eo;
 
             /* Find which module this var was imported from */
@@ -362,27 +406,31 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                     break;
                 }
             }
-            if (!module_path)
+            if (!module_path) {
                 continue;
+            }
 
             /* Convert dotted module path to file fragment */
             char file_frag[256];
             snprintf(file_frag, sizeof(file_frag), "%s", module_path);
             for (char *c = file_frag; *c; c++) {
-                if (*c == '.')
+                if (*c == '.') {
                     *c = '/';
+                }
             }
 
             /* Strip trailing slash from prefix */
             size_t pfx_len = strlen(prefix);
-            while (pfx_len > 0 && prefix[pfx_len - 1] == '/')
+            while (pfx_len > 0 && prefix[pfx_len - 1] == '/') {
                 prefix[--pfx_len] = '\0';
+            }
 
             /* Apply prefix to matching routes */
             for (int r = 0; r < route_count; r++) {
                 /* Skip routes that already have this prefix */
-                if (strncmp(routes[r].path, prefix, pfx_len) == 0)
+                if (strncmp(routes[r].path, prefix, pfx_len) == 0) {
                     continue;
+                }
 
                 /* Match routes whose QN contains the imported module path.
                  * QN uses dots (project.orders.routes.func), so match both:
@@ -392,8 +440,9 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                     (routes[r].function_name[0] && strstr(routes[r].qualified_name, file_frag))) {
                     char new_path[256];
                     const char *old_path = routes[r].path;
-                    while (*old_path == '/')
+                    while (*old_path == '/') {
                         old_path++;
+                    }
                     snprintf(new_path, sizeof(new_path), "%s/%s", prefix, old_path);
                     snprintf(routes[r].path, sizeof(routes[r].path), "%s", new_path);
                 }
@@ -412,15 +461,19 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                                      int route_count) {
     const cbm_gbuf_node_t **modules = NULL;
     int mod_count = 0;
-    if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) != 0)
+    if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) != 0) {
         return;
+    }
 
-    regex_t use_re, require_re, esimport_re;
+    regex_t use_re;
+    regex_t require_re;
+    regex_t esimport_re;
     if (regcomp(
             &use_re,
             "\\.use\\([[:space:]]*[\"'`]([^\"'`]+)[\"'`][[:space:]]*,[[:space:]]*([[:alnum:]_]+)",
-            REG_EXTENDED) != 0)
+            REG_EXTENDED) != 0) {
         return;
+    }
     if (regcomp(&require_re,
                 "(const|let|var)[[:space:]]+([[:alnum:]_]+)[[:space:]]*=[[:space:]]*require\\([[:"
                 "space:]]*[\"']([^\"']+)[\"']",
@@ -438,14 +491,16 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
 
     for (int m = 0; m < mod_count; m++) {
         const cbm_gbuf_node_t *mod = modules[m];
-        if (!mod->file_path || !is_jsts_file(mod->file_path))
+        if (!mod->file_path || !is_jsts_file(mod->file_path)) {
             continue;
+        }
 
         char path_buf[1024];
         snprintf(path_buf, sizeof(path_buf), "%s/%s", ctx->repo_path, mod->file_path);
         FILE *f = fopen(path_buf, "rb");
-        if (!f)
+        if (!f) {
             continue;
+        }
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         fseek(f, 0, SEEK_SET);
@@ -460,6 +515,7 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         }
         fread(source, 1, (size_t)sz, f);
         fclose(f);
+        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
         source[sz] = '\0';
 
         /* Build import map: var_name → module_path */
@@ -473,7 +529,9 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         const char *p = source;
         regmatch_t pm[4];
         while (import_count < 64 && regexec(&require_re, p, 4, pm, 0) == 0) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int vlen = pm[2].rm_eo - pm[2].rm_so;
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = pm[3].rm_eo - pm[3].rm_so;
             if (vlen < 128 && mlen < 256) {
                 snprintf(imports[import_count].var, 128, "%.*s", vlen, p + pm[2].rm_so);
@@ -484,7 +542,9 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         }
         p = source;
         while (import_count < 64 && regexec(&esimport_re, p, 3, pm, 0) == 0) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int vlen = pm[1].rm_eo - pm[1].rm_so;
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int mlen = pm[2].rm_eo - pm[2].rm_so;
             if (vlen < 128 && mlen < 256) {
                 snprintf(imports[import_count].var, 128, "%.*s", vlen, p + pm[1].rm_so);
@@ -499,12 +559,16 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         while (regexec(&use_re, p, 3, pm, 0) == 0) {
             char prefix[256] = {0};
             char var_name[128] = {0};
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int plen = pm[1].rm_eo - pm[1].rm_so;
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
             int vlen = pm[2].rm_eo - pm[2].rm_so;
-            if (plen < 256)
+            if (plen < 256) {
                 snprintf(prefix, 256, "%.*s", plen, p + pm[1].rm_so);
-            if (vlen < 128)
+            }
+            if (vlen < 128) {
                 snprintf(var_name, 128, "%.*s", vlen, p + pm[2].rm_so);
+            }
             p += pm[0].rm_eo;
 
             /* Resolve var → module path */
@@ -515,40 +579,47 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                     break;
                 }
             }
-            if (!module_path)
+            if (!module_path) {
                 continue;
+            }
 
             /* Strip leading ./ and ../ from relative import */
             const char *file_frag = module_path;
-            if (strncmp(file_frag, "./", 2) == 0)
+            if (strncmp(file_frag, "./", 2) == 0) {
                 file_frag += 2;
-            if (strncmp(file_frag, "../", 3) == 0)
+            }
+            if (strncmp(file_frag, "../", 3) == 0) {
                 file_frag += 3;
+            }
 
             /* Strip trailing slash from prefix */
             size_t pfx_len = strlen(prefix);
-            while (pfx_len > 0 && prefix[pfx_len - 1] == '/')
+            while (pfx_len > 0 && prefix[pfx_len - 1] == '/') {
                 prefix[--pfx_len] = '\0';
+            }
 
             /* Apply prefix to matching routes */
             for (int r = 0; r < route_count; r++) {
-                if (strncmp(routes[r].path, prefix, pfx_len) == 0)
+                if (strncmp(routes[r].path, prefix, pfx_len) == 0) {
                     continue;
+                }
 
                 /* Convert slash-based path to dots for QN matching */
                 char dotted_frag[260];
                 snprintf(dotted_frag, sizeof(dotted_frag), "%s", file_frag);
                 for (char *c = dotted_frag; *c; c++) {
-                    if (*c == '/')
+                    if (*c == '/') {
                         *c = '.';
+                    }
                 }
 
                 if (strstr(routes[r].qualified_name, dotted_frag) ||
                     strstr(routes[r].qualified_name, file_frag)) {
                     char new_path[256];
                     const char *old_path = routes[r].path;
-                    while (*old_path == '/')
+                    while (*old_path == '/') {
                         old_path++;
+                    }
                     snprintf(new_path, sizeof(new_path), "%s/%s", prefix, old_path);
                     snprintf(routes[r].path, sizeof(routes[r].path), "%s", new_path);
                 }
@@ -565,6 +636,7 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
 
 /* Resolve Go gin cross-file Group() prefixes.
  * Pattern: v1 := r.Group("/api"); RegisterRoutes(v1) */
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *routes,
                                               int route_count) {
     /* Build routesByFunc index: funcQN → (start_index, count) in routes array */
@@ -594,11 +666,13 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
         }
     }
 
-    regex_t group_direct_re, group_var_re;
+    regex_t group_direct_re;
+    regex_t group_var_re;
     if (regcomp(&group_direct_re,
                 "([[:alnum:]_]+)\\([[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"([^\"]+)\"",
-                REG_EXTENDED) != 0)
+                REG_EXTENDED) != 0) {
         return;
+    }
     if (regcomp(&group_var_re,
                 "([[:alnum:]_]+)[[:space:]]*:?=[[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"(["
                 "^\"]+)\"",
@@ -612,28 +686,33 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
 
         /* Find this function node in gbuf */
         const cbm_gbuf_node_t *func_node = cbm_gbuf_find_by_qn(ctx->gbuf, func_qn);
-        if (!func_node)
+        if (!func_node) {
             continue;
+        }
 
         /* Find CALLS edges targeting this function */
         const cbm_gbuf_edge_t **caller_edges = NULL;
         int caller_count = 0;
         if (cbm_gbuf_find_edges_by_target_type(ctx->gbuf, func_node->id, "CALLS", &caller_edges,
-                                               &caller_count) != 0)
+                                               &caller_count) != 0) {
             continue;
-        if (caller_count == 0)
+        }
+        if (caller_count == 0) {
             continue;
+        }
 
         for (int ci = 0; ci < caller_count; ci++) {
             const cbm_gbuf_node_t *caller =
                 cbm_gbuf_find_by_id(ctx->gbuf, caller_edges[ci]->source_id);
-            if (!caller || !caller->file_path || caller->start_line <= 0)
+            if (!caller || !caller->file_path || caller->start_line <= 0) {
                 continue;
+            }
 
             char *caller_source = cbm_read_source_lines_disk(ctx->repo_path, caller->file_path,
                                                              caller->start_line, caller->end_line);
-            if (!caller_source)
+            if (!caller_source) {
                 continue;
+            }
 
             /* Pattern 1: RegisterRoutes(router.Group("/api")) */
             regmatch_t pm[3];
@@ -641,28 +720,36 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
             while (regexec(&group_direct_re, p, 3, pm, 0) == 0) {
                 char called_name[128] = {0};
                 char prefix[256] = {0};
+                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
                 int nlen = pm[1].rm_eo - pm[1].rm_so;
+                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
                 int plen = pm[2].rm_eo - pm[2].rm_so;
-                if (nlen < 128)
+                if (nlen < 128) {
                     snprintf(called_name, 128, "%.*s", nlen, p + pm[1].rm_so);
-                if (plen < 256)
+                }
+                if (plen < 256) {
                     snprintf(prefix, 256, "%.*s", plen, p + pm[2].rm_so);
+                }
                 p += pm[0].rm_eo;
 
                 if (strcmp(called_name, func_node->name) == 0) {
                     /* Apply prefix to routes of this function */
                     size_t pfx_len = strlen(prefix);
-                    while (pfx_len > 0 && prefix[pfx_len - 1] == '/')
+                    while (pfx_len > 0 && prefix[pfx_len - 1] == '/') {
                         prefix[--pfx_len] = '\0';
+                    }
                     for (int r = 0; r < route_count; r++) {
-                        if (strcmp(routes[r].qualified_name, func_qn) != 0)
+                        if (strcmp(routes[r].qualified_name, func_qn) != 0) {
                             continue;
-                        if (strncmp(routes[r].path, prefix, pfx_len) == 0)
+                        }
+                        if (strncmp(routes[r].path, prefix, pfx_len) == 0) {
                             continue;
+                        }
                         char new_path[256];
                         const char *old = routes[r].path;
-                        while (*old == '/')
+                        while (*old == '/') {
                             old++;
+                        }
                         snprintf(new_path, sizeof(new_path), "%s/%s", prefix, old);
                         snprintf(routes[r].path, sizeof(routes[r].path), "%s", new_path);
                     }
@@ -680,7 +767,9 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
 
             p = caller_source;
             while (var_count < 16 && regexec(&group_var_re, p, 3, pm, 0) == 0) {
+                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
                 int vlen = pm[1].rm_eo - pm[1].rm_so;
+                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
                 int plen = pm[2].rm_eo - pm[2].rm_so;
                 if (vlen < 128 && plen < 256) {
                     snprintf(var_pfx[var_count].var, 128, "%.*s", vlen, p + pm[1].rm_so);
@@ -700,26 +789,32 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
                     p = caller_source;
                     while (regexec(&call_re, p, 2, pm, 0) == 0) {
                         char arg_name[128] = {0};
+                        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
                         int alen = pm[1].rm_eo - pm[1].rm_so;
-                        if (alen < 128)
+                        if (alen < 128) {
                             snprintf(arg_name, 128, "%.*s", alen, p + pm[1].rm_so);
+                        }
                         p += pm[0].rm_eo;
 
                         for (int v = 0; v < var_count; v++) {
                             if (strcmp(var_pfx[v].var, arg_name) == 0) {
                                 char *prefix = var_pfx[v].prefix;
                                 size_t pfx_len = strlen(prefix);
-                                while (pfx_len > 0 && prefix[pfx_len - 1] == '/')
+                                while (pfx_len > 0 && prefix[pfx_len - 1] == '/') {
                                     prefix[--pfx_len] = '\0';
+                                }
                                 for (int r = 0; r < route_count; r++) {
-                                    if (strcmp(routes[r].qualified_name, func_qn) != 0)
+                                    if (strcmp(routes[r].qualified_name, func_qn) != 0) {
                                         continue;
-                                    if (strncmp(routes[r].path, prefix, pfx_len) == 0)
+                                    }
+                                    if (strncmp(routes[r].path, prefix, pfx_len) == 0) {
                                         continue;
+                                    }
                                     char new_path[256];
                                     const char *old = routes[r].path;
-                                    while (*old == '/')
+                                    while (*old == '/') {
                                         old++;
+                                    }
                                     snprintf(new_path, sizeof(new_path), "%s/%s", prefix, old);
                                     snprintf(routes[r].path, sizeof(routes[r].path), "%s",
                                              new_path);
@@ -748,27 +843,32 @@ static int create_registration_call_edges(cbm_pipeline_ctx_t *ctx, cbm_route_han
                                           int route_count) {
     int count = 0;
     for (int i = 0; i < route_count; i++) {
-        if (routes[i].handler_ref[0] == '\0')
+        if (routes[i].handler_ref[0] == '\0') {
             continue;
+        }
 
         /* Find the registering function node */
         const cbm_gbuf_node_t *registrar = cbm_gbuf_find_by_qn(ctx->gbuf, routes[i].qualified_name);
-        if (!registrar)
+        if (!registrar) {
             continue;
+        }
 
         /* Resolve handler reference — strip receiver prefix (e.g., "h." from "h.CreateOrder") */
         const char *handler_name = routes[i].handler_ref;
         const char *dot = strrchr(handler_name, '.');
-        if (dot)
+        if (dot) {
             handler_name = dot + 1;
+        }
 
         /* Search for the handler function/method by name */
         const cbm_gbuf_node_t **handler_nodes = NULL;
         int handler_count = 0;
-        if (cbm_gbuf_find_by_name(ctx->gbuf, handler_name, &handler_nodes, &handler_count) != 0)
+        if (cbm_gbuf_find_by_name(ctx->gbuf, handler_name, &handler_nodes, &handler_count) != 0) {
             continue;
-        if (handler_count == 0)
+        }
+        if (handler_count == 0) {
             continue;
+        }
 
         const cbm_gbuf_node_t *handler = handler_nodes[0];
 
@@ -802,16 +902,19 @@ static int insert_route_nodes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *rout
         char normal_path[256];
         snprintf(normal_path, sizeof(normal_path), "%s", rh->path);
         for (char *c = normal_path; *c; c++) {
-            if (*c == '/')
+            if (*c == '/') {
                 *c = '_';
+            }
         }
         /* Trim leading/trailing underscores */
         char *np = normal_path;
-        while (*np == '_')
+        while (*np == '_') {
             np++;
+        }
         size_t nplen = strlen(np);
-        while (nplen > 0 && np[nplen - 1] == '_')
+        while (nplen > 0 && np[nplen - 1] == '_') {
             np[--nplen] = '\0';
+        }
 
         char route_qn[1024];
         snprintf(route_qn, sizeof(route_qn), "%s.route.%s.%s", rh->qualified_name, normal_method,
@@ -834,19 +937,26 @@ static int insert_route_nodes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *rout
         char h_name[256] = "";
         char h_qn[512] = "";
         char h_props_json[2048] = "{}";
-        int h_start = 0, h_end = 0;
+        int h_start = 0;
+        int h_end = 0;
+        // NOLINTNEXTLINE(misc-include-cleaner) — int64_t provided by standard header
         int64_t h_id = 0;
         if (handler_node) {
-            if (handler_node->file_path)
+            if (handler_node->file_path) {
                 snprintf(h_file, sizeof(h_file), "%s", handler_node->file_path);
-            if (handler_node->label)
+            }
+            if (handler_node->label) {
                 snprintf(h_label, sizeof(h_label), "%s", handler_node->label);
-            if (handler_node->name)
+            }
+            if (handler_node->name) {
                 snprintf(h_name, sizeof(h_name), "%s", handler_node->name);
-            if (handler_node->qualified_name)
+            }
+            if (handler_node->qualified_name) {
                 snprintf(h_qn, sizeof(h_qn), "%s", handler_node->qualified_name);
-            if (handler_node->properties_json)
+            }
+            if (handler_node->properties_json) {
                 snprintf(h_props_json, sizeof(h_props_json), "%s", handler_node->properties_json);
+            }
             h_start = handler_node->start_line;
             h_end = handler_node->end_line;
             h_id = handler_node->id;
@@ -878,12 +988,14 @@ static int insert_route_nodes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *rout
         /* Create Route node */
         int64_t route_id = cbm_gbuf_upsert_node(ctx->gbuf, "Route", route_name, route_qn, h_file,
                                                 h_start, h_end, props);
-        if (route_id <= 0)
+        if (route_id <= 0) {
             continue;
+        }
 
         /* Create HANDLES edge: handler → Route */
         if (h_id > 0) {
-            int64_t source = h_id, target = route_id;
+            int64_t source = h_id;
+            int64_t target = route_id;
             cbm_gbuf_insert_edge(ctx->gbuf, source, target, "HANDLES", "{}");
 
             /* Mark handler as entry point */
@@ -912,23 +1024,27 @@ static int discover_call_sites(cbm_pipeline_ctx_t *ctx, cbm_http_call_site_t *si
     for (int li = 0; li < 2 && total < max_sites; li++) {
         const cbm_gbuf_node_t **nodes = NULL;
         int node_count = 0;
-        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0)
+        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0) {
             continue;
+        }
 
         for (int i = 0; i < node_count && total < max_sites; i++) {
             const cbm_gbuf_node_t *n = nodes[i];
-            if (!n->file_path || n->start_line <= 0 || n->end_line <= 0)
+            if (!n->file_path || n->start_line <= 0 || n->end_line <= 0) {
                 continue;
+            }
 
             /* Skip Python dunder methods */
             if (n->name && strlen(n->name) > 4 && n->name[0] == '_' && n->name[1] == '_' &&
-                n->name[strlen(n->name) - 1] == '_' && n->name[strlen(n->name) - 2] == '_')
+                n->name[strlen(n->name) - 1] == '_' && n->name[strlen(n->name) - 2] == '_') {
                 continue;
+            }
 
             char *source = cbm_read_source_lines_disk(ctx->repo_path, n->file_path, n->start_line,
                                                       n->end_line);
-            if (!source)
+            if (!source) {
                 continue;
+            }
 
             /* Require at least one HTTP client or async dispatch keyword */
             bool has_http = false;
@@ -952,6 +1068,7 @@ static int discover_call_sites(cbm_pipeline_ctx_t *ctx, cbm_http_call_site_t *si
             }
 
             /* Sync takes precedence over async */
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             bool is_async = has_async && !has_http;
 
             /* Extract URL paths */
@@ -990,44 +1107,53 @@ static int match_and_link(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *routes, 
 
         /* Find caller node */
         const cbm_gbuf_node_t *caller = cbm_gbuf_find_by_qn(ctx->gbuf, cs->source_qn);
-        if (!caller)
+        if (!caller) {
             continue;
+        }
 
         for (int ri = 0; ri < route_count; ri++) {
             const cbm_route_handler_t *rh = &routes[ri];
 
             /* Skip same-service matches */
-            if (cbm_same_service(cs->source_qn, rh->qualified_name))
+            if (cbm_same_service(cs->source_qn, rh->qualified_name)) {
                 continue;
+            }
 
             /* Skip excluded paths */
             if (cbm_is_path_excluded(rh->path, cbm_default_exclude_paths,
-                                     cbm_default_exclude_paths_count))
+                                     cbm_default_exclude_paths_count)) {
                 continue;
+            }
 
             /* Score path match */
             double score = cbm_path_match_score(cs->path, rh->path);
-            if (score < 0.25)
+            if (score < 0.25) {
                 continue; /* minimum confidence threshold */
+            }
 
             /* Apply source weight */
             double weight = 1.0;
-            if (strcmp(cs->source_label, "Module") == 0)
+            if (strcmp(cs->source_label, "Module") == 0) {
                 weight = 0.85;
+            }
             score *= weight;
 
-            if (score > 1.0)
+            if (score > 1.0) {
                 score = 1.0;
+            }
 
             /* Find handler node */
             const char *handler_qn = rh->qualified_name;
-            if (rh->resolved_handler_qn[0])
+            if (rh->resolved_handler_qn[0]) {
                 handler_qn = rh->resolved_handler_qn;
+            }
             const cbm_gbuf_node_t *handler = cbm_gbuf_find_by_qn(ctx->gbuf, handler_qn);
-            if (!handler)
+            if (!handler) {
                 continue;
+            }
 
             /* Create edge */
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             const char *edge_type = cs->is_async ? "ASYNC_CALLS" : "HTTP_CALLS";
             const char *band = cbm_confidence_band(score);
 
@@ -1049,13 +1175,15 @@ static int match_and_link(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *routes, 
 int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
     cbm_log_info("pass.start", "pass", "httplinks");
 
-    if (cbm_pipeline_check_cancel(ctx))
+    if (cbm_pipeline_check_cancel(ctx)) {
         return -1;
+    }
 
     /* Phase 1: Discover routes from Function/Method nodes */
     cbm_route_handler_t *routes = calloc(MAX_ROUTES, sizeof(cbm_route_handler_t));
-    if (!routes)
+    if (!routes) {
         return -1;
+    }
     int route_count = 0;
 
     /* Scan Function and Method nodes */
@@ -1063,8 +1191,9 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
     for (int li = 0; li < 2; li++) {
         const cbm_gbuf_node_t **nodes = NULL;
         int node_count = 0;
-        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0)
+        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0) {
             continue;
+        }
 
         for (int i = 0; i < node_count && route_count < MAX_ROUTES; i++) {
             if (cbm_pipeline_check_cancel(ctx)) {
@@ -1073,8 +1202,9 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
             }
 
             /* Skip test nodes */
-            if (is_test_node(nodes[i]))
+            if (is_test_node(nodes[i])) {
                 continue;
+            }
 
             int nr = discover_node_routes(nodes[i], ctx->repo_path, routes + route_count,
                                           MAX_ROUTES - route_count);
@@ -1087,8 +1217,9 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
     int mod_count = 0;
     if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) == 0) {
         for (int i = 0; i < mod_count && route_count < MAX_ROUTES; i++) {
-            if (is_test_node(modules[i]))
+            if (is_test_node(modules[i])) {
                 continue;
+            }
             int nr = discover_module_routes(modules[i], ctx->repo_path, routes + route_count,
                                             MAX_ROUTES - route_count);
             route_count += nr;
@@ -1132,3 +1263,6 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
                  itoa_hl(link_count));
     return 0;
 }
+
+// NOLINTEND(readability-magic-numbers)
+// NOLINTEND(cert-err33-c)

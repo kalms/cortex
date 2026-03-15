@@ -78,7 +78,10 @@ TEST(da_reserve) {
 }
 
 TEST(da_struct_type) {
-    typedef struct { int x; float y; } Point;
+    typedef struct {
+        int x;
+        float y;
+    } Point;
     CBM_DYN_ARRAY(Point) pts = {0};
     cbm_da_push(&pts, ((Point){.x = 1, .y = 2.5f}));
     cbm_da_push(&pts, ((Point){.x = 3, .y = 4.5f}));
@@ -90,7 +93,7 @@ TEST(da_struct_type) {
 }
 
 TEST(da_string_ptrs) {
-    CBM_DYN_ARRAY(const char*) strs = {0};
+    CBM_DYN_ARRAY(const char *) strs = {0};
     cbm_da_push(&strs, "hello");
     cbm_da_push(&strs, "world");
     ASSERT_EQ(strs.count, 2);

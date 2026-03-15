@@ -24,16 +24,24 @@ static int lz4_roundtrip(const char *data, int len) {
     }
 
     int bound = cbm_lz4_bound(len);
-    if (bound <= 0) return -1;
+    if (bound <= 0)
+        return -1;
 
     char *cbuf = malloc(bound);
-    if (!cbuf) return -1;
+    if (!cbuf)
+        return -1;
 
     int clen = cbm_lz4_compress_hc(data, len, cbuf, bound);
-    if (clen <= 0) { free(cbuf); return -1; }
+    if (clen <= 0) {
+        free(cbuf);
+        return -1;
+    }
 
     char *dbuf = malloc(len);
-    if (!dbuf) { free(cbuf); return -1; }
+    if (!dbuf) {
+        free(cbuf);
+        return -1;
+    }
 
     int dlen = cbm_lz4_decompress(cbuf, clen, dbuf, len);
     int ok = (dlen == len && memcmp(dbuf, data, len) == 0) ? 0 : -1;
@@ -64,7 +72,8 @@ TEST(lz4_roundtrip_repeated) {
     int len = 10000 * 4;
     char *data = malloc(len);
     ASSERT_NOT_NULL(data);
-    for (int i = 0; i < 10000; i++) memcpy(data + i * 4, "ABCD", 4);
+    for (int i = 0; i < 10000; i++)
+        memcpy(data + i * 4, "ABCD", 4);
 
     int rc = lz4_roundtrip(data, len);
     free(data);
@@ -73,14 +82,13 @@ TEST(lz4_roundtrip_repeated) {
 }
 
 TEST(lz4_roundtrip_source_code) {
-    const char *code =
-        "package main\n"
-        "import \"fmt\"\n"
-        "func main() {\n"
-        "\tfor i := 0; i < 100; i++ {\n"
-        "\t\tfmt.Println(\"Hello, World!\", i)\n"
-        "\t}\n"
-        "}\n";
+    const char *code = "package main\n"
+                       "import \"fmt\"\n"
+                       "func main() {\n"
+                       "\tfor i := 0; i < 100; i++ {\n"
+                       "\t\tfmt.Println(\"Hello, World!\", i)\n"
+                       "\t}\n"
+                       "}\n";
     int rc = lz4_roundtrip(code, (int)strlen(code));
     ASSERT_EQ(rc, 0);
     PASS();
@@ -94,7 +102,8 @@ TEST(lz4_compression_ratio) {
 
     char *data = malloc(total);
     ASSERT_NOT_NULL(data);
-    for (int i = 0; i < 1000; i++) memcpy(data + i * line_len, line, line_len);
+    for (int i = 0; i < 1000; i++)
+        memcpy(data + i * line_len, line, line_len);
 
     int bound = cbm_lz4_bound(total);
     char *cbuf = malloc(bound);
@@ -132,7 +141,7 @@ TEST(lz4_decompress_wrong_len) {
     /* LZ4_decompress_safe won't crash — it either succeeds partially
      * or returns a negative error code. The key property is no buffer overflow. */
     int dlen = cbm_lz4_decompress(cbuf, clen, dbuf, wrong_len);
-    (void)dlen;  /* result may vary; safety is what matters */
+    (void)dlen; /* result may vary; safety is what matters */
 
     free(cbuf);
     free(dbuf);

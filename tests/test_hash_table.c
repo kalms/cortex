@@ -19,7 +19,7 @@ TEST(ht_set_get) {
     ASSERT_NULL(prev); /* first insert */
     void *got = cbm_ht_get(ht, "hello");
     ASSERT_EQ(got, &val);
-    ASSERT_EQ(*(int*)got, 42);
+    ASSERT_EQ(*(int *)got, 42);
     ASSERT_EQ(cbm_ht_count(ht), 1);
     cbm_ht_free(ht);
     PASS();
@@ -31,7 +31,7 @@ TEST(ht_set_overwrite) {
     cbm_ht_set(ht, "key", &v1);
     void *prev = cbm_ht_set(ht, "key", &v2);
     ASSERT_EQ(prev, &v1); /* returns old value */
-    ASSERT_EQ(*(int*)cbm_ht_get(ht, "key"), 2);
+    ASSERT_EQ(*(int *)cbm_ht_get(ht, "key"), 2);
     ASSERT_EQ(cbm_ht_count(ht), 1); /* still 1 entry */
     cbm_ht_free(ht);
     PASS();
@@ -90,7 +90,7 @@ TEST(ht_many_entries) {
     for (int i = 0; i < 200; i++) {
         void *got = cbm_ht_get(ht, keys[i]);
         ASSERT_NOT_NULL(got);
-        ASSERT_EQ(*(int*)got, i * 10);
+        ASSERT_EQ(*(int *)got, i * 10);
     }
     cbm_ht_free(ht);
     PASS();
@@ -102,7 +102,7 @@ TEST(ht_delete_then_reinsert) {
     cbm_ht_set(ht, "key", &v1);
     cbm_ht_delete(ht, "key");
     cbm_ht_set(ht, "key", &v2);
-    ASSERT_EQ(*(int*)cbm_ht_get(ht, "key"), 2);
+    ASSERT_EQ(*(int *)cbm_ht_get(ht, "key"), 2);
     ASSERT_EQ(cbm_ht_count(ht), 1);
     cbm_ht_free(ht);
     PASS();
@@ -110,8 +110,9 @@ TEST(ht_delete_then_reinsert) {
 
 static int foreach_sum;
 static void sum_values(const char *key, void *value, void *userdata) {
-    (void)key; (void)userdata;
-    foreach_sum += *(int*)value;
+    (void)key;
+    (void)userdata;
+    foreach_sum += *(int *)value;
 }
 
 TEST(ht_foreach) {
@@ -144,7 +145,7 @@ TEST(ht_empty_string_key) {
     CBMHashTable *ht = cbm_ht_create(8);
     int v = 42;
     cbm_ht_set(ht, "", &v);
-    ASSERT_EQ(*(int*)cbm_ht_get(ht, ""), 42);
+    ASSERT_EQ(*(int *)cbm_ht_get(ht, ""), 42);
     cbm_ht_free(ht);
     PASS();
 }
@@ -157,7 +158,7 @@ TEST(ht_long_key) {
     long_key[200] = '\0';
     int v = 99;
     cbm_ht_set(ht, long_key, &v);
-    ASSERT_EQ(*(int*)cbm_ht_get(ht, long_key), 99);
+    ASSERT_EQ(*(int *)cbm_ht_get(ht, long_key), 99);
     cbm_ht_free(ht);
     PASS();
 }

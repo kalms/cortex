@@ -2,6 +2,8 @@
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "tree_sitter/api.h" // TSNode, ts_node_*
+#include <stdint.h>          // uint32_t
 #include <string.h>
 #include <ctype.h>
 
@@ -13,8 +15,9 @@ static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < 10) {
-        if (cbm_kind_in_set(cur, spec->call_node_types))
+        if (cbm_kind_in_set(cur, spec->call_node_types)) {
             return true;
+        }
         cur = ts_node_parent(cur);
         depth++;
     }
@@ -23,13 +26,15 @@ static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
 
 // Check if a node is inside an import statement
 static bool is_inside_import(TSNode node, const CBMLangSpec *spec) {
-    if (!spec->import_node_types || !spec->import_node_types[0])
+    if (!spec->import_node_types || !spec->import_node_types[0]) {
         return false;
+    }
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < 10) {
-        if (cbm_kind_in_set(cur, spec->import_node_types))
+        if (cbm_kind_in_set(cur, spec->import_node_types)) {
             return true;
+        }
         cur = ts_node_parent(cur);
         depth++;
     }
@@ -49,30 +54,38 @@ static bool is_reference_node(TSNode node, CBMLanguage lang) {
     // Language-specific reference types
     switch (lang) {
     case CBM_LANG_GO:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "package_identifier") == 0;
     case CBM_LANG_PYTHON:
         return strcmp(kind, "attribute") == 0;
     case CBM_LANG_RUST:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "scoped_identifier") == 0;
     case CBM_LANG_HASKELL:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(kind, "variable") == 0 || strcmp(kind, "constructor") == 0;
     case CBM_LANG_OCAML:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(kind, "value_path") == 0 || strcmp(kind, "constructor_path") == 0;
     case CBM_LANG_ERLANG:
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         return strcmp(kind, "atom") == 0 || strcmp(kind, "var") == 0;
     default:
         return false;
     }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
     if (is_reference_node(node, ctx->language)) {
         // Skip if inside a call (already counted as CALLS edge)
-        if (is_inside_call(node, spec))
+        if (is_inside_call(node, spec)) {
             goto recurse;
+        }
         // Skip if inside an import
-        if (is_inside_import(node, spec))
+        if (is_inside_import(node, spec)) {
             goto recurse;
+        }
         // Skip if it's a definition name (left side of assignment, function name)
         TSNode parent = ts_node_parent(node);
         if (!ts_node_is_null(parent)) {
@@ -103,8 +116,9 @@ recurse:;
 
 void cbm_extract_usages(CBMExtractCtx *ctx) {
     const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
-    if (!spec)
+    if (!spec) {
         return;
+    }
 
     walk_usages(ctx, ctx->root, spec);
 }
@@ -113,15 +127,19 @@ void cbm_extract_usages(CBMExtractCtx *ctx) {
 // Uses WalkState flags instead of parent-chain walks for O(1) context checks.
 
 void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
-    if (!is_reference_node(node, ctx->language))
+    (void)spec;
+    if (!is_reference_node(node, ctx->language)) {
         return;
+    }
 
     // Skip if inside a call (already counted as CALLS edge) — O(1) via state
-    if (state->inside_call)
+    if (state->inside_call) {
         return;
+    }
     // Skip if inside an import
-    if (state->inside_import)
+    if (state->inside_import) {
         return;
+    }
 
     // Skip if it's a definition name (left side of assignment, function name)
     TSNode parent = ts_node_parent(node);

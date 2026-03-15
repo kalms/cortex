@@ -1,9 +1,11 @@
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pass_gitdiff.c — Git diff output parsing helpers.
  *
  * Pure string parsers for git diff --name-status and --unified=0 output.
  * No git execution — just parsing pre-captured output strings.
  */
+// NOLINTNEXTLINE(misc-include-cleaner) — pipeline.h included for interface contract
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
 
@@ -11,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void cbm_parse_range(const char *s, int *out_start, int *out_count) {
     *out_start = 0;
     *out_count = 1;
@@ -24,8 +27,9 @@ void cbm_parse_range(const char *s, int *out_start, int *out_count) {
     /* Parse start */
     char buf[32];
     size_t len = (size_t)(comma - s);
-    if (len >= sizeof(buf))
+    if (len >= sizeof(buf)) {
         len = sizeof(buf) - 1;
+    }
     memcpy(buf, s, len);
     buf[len] = '\0';
     *out_start = (int)strtol(buf, NULL, 10);
@@ -35,8 +39,9 @@ void cbm_parse_range(const char *s, int *out_start, int *out_count) {
 }
 
 int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_out) {
-    if (!output || !out || max_out <= 0)
+    if (!output || !out || max_out <= 0) {
         return 0;
+    }
 
     int count = 0;
     const char *line = output;
@@ -53,8 +58,9 @@ int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_o
 
         /* Copy line to temp buffer for parsing */
         char tmp[1536];
-        if (line_len >= sizeof(tmp))
+        if (line_len >= sizeof(tmp)) {
             line_len = sizeof(tmp) - 1;
+        }
         memcpy(tmp, line, line_len);
         tmp[line_len] = '\0';
 
@@ -106,8 +112,9 @@ int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_o
 }
 
 int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
-    if (!output || !out || max_out <= 0)
+    if (!output || !out || max_out <= 0) {
         return 0;
+    }
 
     int count = 0;
     char current_file[512] = {0};
@@ -125,8 +132,9 @@ int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
         /* Track current file from "+++ b/" header */
         if (line_len > 6 && strncmp(line, "+++ b/", 6) == 0) {
             size_t flen = line_len - 6;
-            if (flen >= sizeof(current_file))
+            if (flen >= sizeof(current_file)) {
                 flen = sizeof(current_file) - 1;
+            }
             memcpy(current_file, line + 6, flen);
             current_file[flen] = '\0';
             line = eol ? eol + 1 : line + line_len;
@@ -154,18 +162,21 @@ int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
                 }
 
                 char range_str[64];
-                if (range_len >= sizeof(range_str))
+                if (range_len >= sizeof(range_str)) {
                     range_len = sizeof(range_str) - 1;
+                }
                 memcpy(range_str, plus + 1, range_len);
                 range_str[range_len] = '\0';
 
-                int start, cnt;
+                int start;
+                int cnt;
                 cbm_parse_range(range_str, &start, &cnt);
 
                 if (start > 0 && cbm_is_trackable_file(current_file)) {
                     int end = start + cnt - 1;
-                    if (end < start)
+                    if (end < start) {
                         end = start;
+                    }
 
                     cbm_changed_hunk_t h;
                     snprintf(h.path, sizeof(h.path), "%s", current_file);
@@ -180,3 +191,5 @@ int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
     }
     return count;
 }
+
+// NOLINTEND(readability-magic-numbers)

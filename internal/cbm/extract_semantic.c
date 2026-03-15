@@ -2,11 +2,17 @@
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "tree_sitter/api.h" // TSNode, ts_node_*
+#include <stdint.h>          // uint32_t
 #include <string.h>
 #include <ctype.h>
 
+// Field name length for ts_node_child_by_field_name() calls.
+#define FIELD_LEN_CONSTRUCTOR 11 // strlen("constructor")
+
 // --- Throw/Raise extraction ---
 
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
     const char *kind = ts_node_type(node);
 
@@ -22,11 +28,13 @@ static void walk_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec
             TSNode child = ts_node_child(node, i);
             const char *ck = ts_node_type(child);
             // Skip keywords
-            if (strcmp(ck, "raise") == 0 || strcmp(ck, "throw") == 0)
+            if (strcmp(ck, "raise") == 0 || strcmp(ck, "throw") == 0) {
                 continue;
+            }
             // Skip semicolons and other punctuation
-            if (ck[0] == ';' || ck[0] == '(' || ck[0] == ')')
+            if (ck[0] == ';' || ck[0] == '(' || ck[0] == ')') {
                 continue;
+            }
 
             if (strcmp(ck, "call") == 0 || strcmp(ck, "call_expression") == 0 ||
                 strcmp(ck, "new_expression") == 0 ||
@@ -34,10 +42,12 @@ static void walk_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec
                 strcmp(ck, "instance_expression") == 0) {
                 // Call/new: get the function/type name
                 TSNode fn = ts_node_child_by_field_name(child, "function", 8);
-                if (ts_node_is_null(fn))
-                    fn = ts_node_child_by_field_name(child, "constructor", 11);
-                if (ts_node_is_null(fn))
+                if (ts_node_is_null(fn)) {
+                    fn = ts_node_child_by_field_name(child, "constructor", FIELD_LEN_CONSTRUCTOR);
+                }
+                if (ts_node_is_null(fn)) {
                     fn = ts_node_child_by_field_name(child, "type", 4);
+                }
                 // Fallback: first named child (skips 'new' keyword)
                 if (ts_node_is_null(fn) && ts_node_named_child_count(child) > 0) {
                     fn = ts_node_named_child(child, 0);
@@ -54,8 +64,9 @@ static void walk_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec
 
         if (exc_name && exc_name[0]) {
             // Truncate long exception names
-            if (strlen(exc_name) > 100)
+            if (strlen(exc_name) > 100) {
                 exc_name[100] = '\0';
+            }
 
             CBMThrow thr;
             thr.exception_name = exc_name;
@@ -99,6 +110,7 @@ static void walk_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec
 
 // --- Read/Write detection ---
 
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
     // Check if this is an assignment node
     if (cbm_kind_in_set(node, spec->assignment_node_types)) {
@@ -106,8 +118,9 @@ static void walk_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         if (ts_node_is_null(left)) {
             // Try first child as left-hand side
-            if (ts_node_child_count(node) > 0)
+            if (ts_node_child_count(node) > 0) {
                 left = ts_node_child(node, 0);
+            }
         }
 
         if (!ts_node_is_null(left)) {
@@ -134,8 +147,9 @@ static void walk_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *
 
 void cbm_extract_semantic(CBMExtractCtx *ctx) {
     const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
-    if (!spec)
+    if (!spec) {
         return;
+    }
 
     // Throws
     if ((spec->throw_node_types && spec->throw_node_types[0]) ||
@@ -152,10 +166,13 @@ void cbm_extract_semantic(CBMExtractCtx *ctx) {
 // --- Unified handlers ---
 
 void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion) — pointer-to-bool check for NULL array
     bool has_throws = spec->throw_node_types && spec->throw_node_types[0];
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion) — pointer-to-bool check for NULL array
     bool has_clause = spec->throws_clause_field && spec->throws_clause_field[0];
-    if (!has_throws && !has_clause)
+    if (!has_throws && !has_clause) {
         return;
+    }
 
     const char *kind = ts_node_type(node);
 
@@ -165,20 +182,24 @@ void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
         for (uint32_t i = 0; i < nc; i++) {
             TSNode child = ts_node_child(node, i);
             const char *ck = ts_node_type(child);
-            if (strcmp(ck, "raise") == 0 || strcmp(ck, "throw") == 0)
+            if (strcmp(ck, "raise") == 0 || strcmp(ck, "throw") == 0) {
                 continue;
-            if (ck[0] == ';' || ck[0] == '(' || ck[0] == ')')
+            }
+            if (ck[0] == ';' || ck[0] == '(' || ck[0] == ')') {
                 continue;
+            }
 
             if (strcmp(ck, "call") == 0 || strcmp(ck, "call_expression") == 0 ||
                 strcmp(ck, "new_expression") == 0 ||
                 strcmp(ck, "object_creation_expression") == 0 ||
                 strcmp(ck, "instance_expression") == 0) {
                 TSNode fn = ts_node_child_by_field_name(child, "function", 8);
-                if (ts_node_is_null(fn))
-                    fn = ts_node_child_by_field_name(child, "constructor", 11);
-                if (ts_node_is_null(fn))
+                if (ts_node_is_null(fn)) {
+                    fn = ts_node_child_by_field_name(child, "constructor", FIELD_LEN_CONSTRUCTOR);
+                }
+                if (ts_node_is_null(fn)) {
                     fn = ts_node_child_by_field_name(child, "type", 4);
+                }
                 if (ts_node_is_null(fn) && ts_node_named_child_count(child) > 0) {
                     fn = ts_node_named_child(child, 0);
                 }
@@ -193,8 +214,9 @@ void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
         }
 
         if (exc_name && exc_name[0]) {
-            if (strlen(exc_name) > 100)
+            if (strlen(exc_name) > 100) {
                 exc_name[100] = '\0';
+            }
             CBMThrow thr;
             thr.exception_name = exc_name;
             thr.enclosing_func_qn = state->enclosing_func_qn;
@@ -229,14 +251,16 @@ void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
 }
 
 void handle_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
-    if (!spec->assignment_node_types || !spec->assignment_node_types[0])
+    if (!spec->assignment_node_types || !spec->assignment_node_types[0]) {
         return;
+    }
 
     if (cbm_kind_in_set(node, spec->assignment_node_types)) {
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         if (ts_node_is_null(left)) {
-            if (ts_node_child_count(node) > 0)
+            if (ts_node_child_count(node) > 0) {
                 left = ts_node_child(node, 0);
+            }
         }
 
         if (!ts_node_is_null(left)) {

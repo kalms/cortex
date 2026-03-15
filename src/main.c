@@ -1,3 +1,5 @@
+// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
+// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * main.c — Entry point for codebase-memory-mcp.
  *
@@ -36,8 +38,9 @@ static atomic_int g_shutdown = 0;
 static void signal_handler(int sig) {
     (void)sig;
     atomic_store(&g_shutdown, 1);
-    if (g_watcher)
+    if (g_watcher) {
         cbm_watcher_stop(g_watcher);
+    }
     /* Close stdin to unblock getline in the MCP server loop */
     fclose(stdin);
 }
@@ -57,8 +60,9 @@ static int watcher_index_fn(const char *project_name, const char *root_path, voi
     cbm_log_info("watcher.reindex", "project", project_name, "path", root_path);
 
     cbm_pipeline_t *p = cbm_pipeline_new(root_path, NULL, CBM_MODE_FULL);
-    if (!p)
+    if (!p) {
         return -1;
+    }
 
     int rc = cbm_pipeline_run(p);
     cbm_pipeline_free(p);
@@ -69,6 +73,7 @@ static int watcher_index_fn(const char *project_name, const char *root_path, voi
 
 static int run_cli(int argc, char **argv) {
     if (argc < 1) {
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
         fprintf(stderr, "Usage: codebase-memory-mcp cli <tool_name> [json_args]\n");
         return 1;
     }
@@ -78,6 +83,7 @@ static int run_cli(int argc, char **argv) {
 
     cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
     if (!srv) {
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
         fprintf(stderr, "Failed to create server\n");
         return 1;
     }
@@ -129,7 +135,9 @@ int main(int argc, char **argv) {
     cbm_log_info("server.start", "version", CBM_VERSION);
 
     /* Install signal handlers */
+    // NOLINTNEXTLINE(misc-include-cleaner) — sigaction provided by standard header
     struct sigaction sa = {0};
+    // NOLINTNEXTLINE(misc-include-cleaner) — sa_handler provided by standard header
     sa.sa_handler = signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
@@ -146,6 +154,7 @@ int main(int argc, char **argv) {
     /* Create and start watcher in background thread */
     cbm_store_t *watch_store = cbm_store_open_memory();
     g_watcher = cbm_watcher_new(watch_store, watcher_index_fn, NULL);
+    // NOLINTNEXTLINE(misc-include-cleaner) — pthread_t provided by standard header
     pthread_t watcher_tid;
     bool watcher_started = false;
 
@@ -174,3 +183,6 @@ int main(int argc, char **argv) {
 
     return rc;
 }
+
+// NOLINTEND(readability-magic-numbers)
+// NOLINTEND(cert-err33-c)

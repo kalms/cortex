@@ -35,7 +35,8 @@ static const char *capture_end(void) {
     close(saved_stderr);
     ssize_t n = read(pipe_fds[0], log_buf, sizeof(log_buf) - 1);
     close(pipe_fds[0]);
-    if (n < 0) n = 0;
+    if (n < 0)
+        n = 0;
     log_buf[n] = '\0';
     return log_buf;
 }

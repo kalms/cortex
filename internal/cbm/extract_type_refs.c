@@ -1,16 +1,21 @@
 #include "cbm.h"
+#include "arena.h" // CBMArena, cbm_arena_sprintf/strndup
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "tree_sitter/api.h" // TSNode, ts_node_*
+#include <stdint.h>          // uint32_t
 #include <string.h>
 #include <ctype.h>
 
 // Builtin types that should not generate USES_TYPE edges.
 static bool is_builtin_type(const char *name) {
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return true;
-    if (strlen(name) <= 1)
+    }
+    if (strlen(name) <= 1) {
         return true;
+    }
 
     // Common primitives
     if (strcmp(name, "int") == 0 || strcmp(name, "string") == 0 || strcmp(name, "bool") == 0 ||
@@ -36,13 +41,16 @@ static bool is_builtin_type(const char *name) {
 
 // Strip pointer/reference/slice/optional markers from a type name.
 static const char *clean_type_name(CBMArena *a, const char *name) {
-    if (!name || !name[0])
+    if (!name || !name[0]) {
         return name;
+    }
     // Skip leading *, &, [], ?
-    while (*name == '*' || *name == '&' || *name == '?' || *name == '[' || *name == ']')
+    while (*name == '*' || *name == '&' || *name == '?' || *name == '[' || *name == ']') {
         name++;
-    if (!*name)
+    }
+    if (!*name) {
         return NULL;
+    }
     // Take only the base type before any < or [
     size_t len = strlen(name);
     for (size_t i = 0; i < len; i++) {
@@ -58,6 +66,7 @@ static const char *clean_type_name(CBMArena *a, const char *name) {
 }
 
 // Extract type name from a type annotation node.
+// NOLINTNEXTLINE(misc-no-recursion)
 static const char *extract_type_text(CBMArena *a, TSNode node, const char *source) {
     const char *kind = ts_node_type(node);
     // For type_identifier / identifier, just get text
@@ -76,25 +85,31 @@ static const char *extract_type_text(CBMArena *a, TSNode node, const char *sourc
         strcmp(kind, "slice_type") == 0 || strcmp(kind, "array_type") == 0) {
         // Get the element type
         TSNode elem = ts_node_child_by_field_name(node, "element", 7);
-        if (!ts_node_is_null(elem))
+        if (!ts_node_is_null(elem)) {
             return extract_type_text(a, elem, source);
+        }
         TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
-        if (!ts_node_is_null(type_node))
+        if (!ts_node_is_null(type_node)) {
             return extract_type_text(a, type_node, source);
+        }
     }
     // Fallback: full text cleaned
     return clean_type_name(a, cbm_node_text(a, node, source));
 }
 
 // Add a type reference for a function.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void add_type_ref(CBMExtractCtx *ctx, const char *type_name, const char *func_qn) {
-    if (!type_name || !type_name[0])
+    if (!type_name || !type_name[0]) {
         return;
+    }
     type_name = clean_type_name(ctx->arena, type_name);
-    if (!type_name || !type_name[0])
+    if (!type_name || !type_name[0]) {
         return;
-    if (is_builtin_type(type_name))
+    }
+    if (is_builtin_type(type_name)) {
         return;
+    }
 
     CBMTypeRef tr;
     tr.type_name = type_name;
@@ -129,6 +144,7 @@ static void extract_return_type_refs(CBMExtractCtx *ctx, TSNode func_node, const
 }
 
 // Walk function body for type references (casts, type assertions, local var types, generics).
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_body_type_refs(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
     const char *kind = ts_node_type(node);
 
@@ -226,17 +242,21 @@ static void walk_body_type_refs(CBMExtractCtx *ctx, TSNode node, const char *fun
 }
 
 // Walk AST for function nodes, extract type references from signatures and bodies.
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
-    if (!spec->function_node_types || !spec->function_node_types[0])
+    if (!spec->function_node_types || !spec->function_node_types[0]) {
         return;
+    }
 
     if (cbm_kind_in_set(node, spec->function_node_types)) {
         TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(name_node))
+        if (ts_node_is_null(name_node)) {
             goto recurse;
+        }
         char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
-        if (!func_name || !func_name[0])
+        if (!func_name || !func_name[0]) {
             goto recurse;
+        }
 
         const char *func_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
 
@@ -249,8 +269,9 @@ static void walk_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *s
 
         // Body types
         TSNode body = ts_node_child_by_field_name(node, "body", 4);
-        if (ts_node_is_null(body))
+        if (ts_node_is_null(body)) {
             body = ts_node_child_by_field_name(node, "block", 5);
+        }
         if (!ts_node_is_null(body)) {
             walk_body_type_refs(ctx, body, func_qn);
         }
@@ -266,8 +287,9 @@ recurse:;
 
 void cbm_extract_type_refs(CBMExtractCtx *ctx) {
     const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
-    if (!spec)
+    if (!spec) {
         return;
+    }
 
     walk_type_refs(ctx, ctx->root, spec);
 }
@@ -279,17 +301,20 @@ void cbm_extract_type_refs(CBMExtractCtx *ctx) {
 // walk_type_refs + walk_body_type_refs split.
 
 void handle_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
-    if (!spec->function_node_types || !spec->function_node_types[0])
+    if (!spec->function_node_types || !spec->function_node_types[0]) {
         return;
+    }
 
     // Function signature: extract param and return type refs
     if (cbm_kind_in_set(node, spec->function_node_types)) {
         TSNode name_node = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(name_node))
+        if (ts_node_is_null(name_node)) {
             return;
+        }
         char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
-        if (!func_name || !func_name[0])
+        if (!func_name || !func_name[0]) {
             return;
+        }
 
         const char *func_qn;
         if (state->enclosing_class_qn) {

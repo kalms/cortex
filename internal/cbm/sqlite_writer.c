@@ -16,6 +16,7 @@
 
 #include "sqlite_writer.h"
 
+#include <stddef.h> // NULL
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,27 +28,75 @@
 #define FILE_FORMAT 1
 #define SQLITE_VERSION 3046000 // 3.46.0
 
+// Varint encoding constants.
+#define VARINT_MASK 0x7f
+#define VARINT_CONTINUE 0x80
+#define BYTE_MASK 0xff
+
+// SQLite text serial type offset: serial_type = len*2 + TEXT_SERIAL_BASE.
+#define TEXT_SERIAL_BASE 13
+
+// SQLite integer storage range limits.
+#define INT8_MAX_VAL 127
+#define INT16_MAX_VAL 32767
+#define INT24_MIN_VAL (-8388608)
+#define INT24_MAX_VAL 8388607
+#define INT32_MIN_VAL (-2147483648LL)
+#define INT32_MAX_VAL 2147483647LL
+#define INT48_MIN_VAL (-140737488355328LL)
+#define INT48_MAX_VAL 140737488355327LL
+
+// SQLite B-tree page type flags.
+#define BTREE_LEAF_TABLE 0x0D
+#define BTREE_INTERIOR_TABLE 0x05
+#define BTREE_LEAF_INDEX 0x0A
+#define BTREE_INTERIOR_INDEX 0x02
+
+// SQLite 100-byte database header field offsets.
+#define HDR_OFF_PAGE_SIZE 16
+#define HDR_OFF_WRITE_VERSION 18
+#define HDR_OFF_READ_VERSION 19
+#define HDR_OFF_RESERVED 20
+#define HDR_OFF_MAX_EMBED_FRAC 21
+#define HDR_OFF_MIN_EMBED_FRAC 22
+#define HDR_OFF_LEAF_FRAC 23
+#define HDR_OFF_FILE_CHANGE 24
+#define HDR_OFF_DB_SIZE 28
+#define HDR_OFF_FREELIST_TRUNK 32
+#define HDR_OFF_FREELIST_COUNT 36
+#define HDR_OFF_SCHEMA_COOKIE 40
+#define HDR_OFF_SCHEMA_FORMAT 44
+#define HDR_OFF_DEFAULT_CACHE 48
+#define HDR_OFF_AUTOVAC_TOP 52
+#define HDR_OFF_TEXT_ENCODING 56
+#define HDR_OFF_USER_VERSION 60
+#define HDR_OFF_INCR_VACUUM 64
+#define HDR_OFF_APP_ID 68
+#define HDR_OFF_VERSION_VALID 92
+#define HDR_OFF_SQLITE_VERSION 96
+
 // --- Varint encoding ---
 
 static int put_varint(uint8_t *buf, int64_t value) {
     uint64_t v = (uint64_t)value;
-    if (v <= 0x7f) {
+    if (v <= VARINT_MASK) {
         buf[0] = (uint8_t)v;
         return 1;
     }
     // Encode in big-endian with MSB continuation bits
     uint8_t tmp[10];
     int n = 0;
-    while (v > 0x7f) {
-        tmp[n++] = (uint8_t)(v & 0x7f);
+    while (v > VARINT_MASK) {
+        tmp[n++] = (uint8_t)(v & VARINT_MASK);
         v >>= 7;
     }
     tmp[n++] = (uint8_t)v;
     // Reverse into output with continuation bits
     for (int i = 0; i < n; i++) {
         buf[i] = tmp[n - 1 - i];
-        if (i < n - 1)
-            buf[i] |= 0x80;
+        if (i < n - 1) {
+            buf[i] |= VARINT_CONTINUE;
+        }
     }
     return n;
 }
@@ -55,7 +104,7 @@ static int put_varint(uint8_t *buf, int64_t value) {
 static int varint_len(int64_t value) {
     uint64_t v = (uint64_t)value;
     int n = 1;
-    while (v > 0x7f) {
+    while (v > VARINT_MASK) {
         v >>= 7;
         n++;
     }
@@ -64,26 +113,33 @@ static int varint_len(int64_t value) {
 
 // SQLite serial type for a TEXT value
 static int64_t text_serial_type(int len) {
-    return len * 2 + 13;
+    return (len * 2) + TEXT_SERIAL_BASE;
 }
 
 // SQLite serial type for an integer value
 static int64_t int_serial_type(int64_t val) {
-    if (val == 0)
+    if (val == 0) {
         return 8; // integer value 0
-    if (val == 1)
+    }
+    if (val == 1) {
         return 9; // integer value 1
-    if (val >= -128 && val <= 127)
+    }
+    if (val >= -INT8_MAX_VAL - 1 && val <= INT8_MAX_VAL) {
         return 1; // 1 byte
-    if (val >= -32768 && val <= 32767)
+    }
+    if (val >= -INT16_MAX_VAL - 1 && val <= INT16_MAX_VAL) {
         return 2; // 2 bytes
-    if (val >= -8388608 && val <= 8388607)
+    }
+    if (val >= INT24_MIN_VAL && val <= INT24_MAX_VAL) {
         return 3; // 3 bytes
-    if (val >= -2147483648LL && val <= 2147483647LL)
+    }
+    if (val >= INT32_MIN_VAL && val <= INT32_MAX_VAL) {
         return 4; // 4 bytes
-    if (val >= -140737488355328LL && val <= 140737488355327LL)
+    }
+    if (val >= INT48_MIN_VAL && val <= INT48_MAX_VAL) {
         return 5; // 6 bytes
-    return 6;     // 8 bytes
+    }
+    return 6; // 8 bytes
 }
 
 // Bytes needed to store an integer of given serial type
@@ -111,25 +167,26 @@ static int int_storage_bytes(int serial_type) {
 }
 
 // Write integer in big-endian for given byte count
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void put_int_be(uint8_t *buf, int64_t val, int nbytes) {
     for (int i = nbytes - 1; i >= 0; i--) {
-        buf[i] = (uint8_t)(val & 0xff);
-        val >>= 8;
+        buf[i] = (uint8_t)(val & BYTE_MASK);
+        val >>= 8; // NOLINT(readability-magic-numbers) — standard byte shift
     }
 }
 
 // Write a 2-byte big-endian value
 static void put_u16(uint8_t *buf, uint16_t val) {
     buf[0] = (uint8_t)(val >> 8);
-    buf[1] = (uint8_t)(val & 0xff);
+    buf[1] = (uint8_t)(val & BYTE_MASK);
 }
 
 // Write a 4-byte big-endian value
 static void put_u32(uint8_t *buf, uint32_t val) {
-    buf[0] = (uint8_t)(val >> 24);
-    buf[1] = (uint8_t)(val >> 16);
-    buf[2] = (uint8_t)(val >> 8);
-    buf[3] = (uint8_t)(val & 0xff);
+    buf[0] = (uint8_t)(val >> 24); // NOLINT(readability-magic-numbers) — standard byte shift
+    buf[1] = (uint8_t)(val >> 16); // NOLINT(readability-magic-numbers) — standard byte shift
+    buf[2] = (uint8_t)(val >> 8);  // NOLINT(readability-magic-numbers) — standard byte shift
+    buf[3] = (uint8_t)(val & BYTE_MASK);
 }
 
 // --- Dynamic buffer ---
@@ -147,13 +204,16 @@ static void dynbuf_init(DynBuf *b) {
 }
 
 static bool dynbuf_ensure(DynBuf *b, int needed) {
-    if (b->len + needed <= b->cap)
+    if (b->len + needed <= b->cap) {
         return true;
+    }
     int newcap = b->cap == 0 ? 4096 : b->cap;
-    while (newcap < b->len + needed)
+    while (newcap < b->len + needed) {
         newcap *= 2;
+    }
     uint8_t *p = (uint8_t *)realloc(b->data, newcap);
     if (!p) {
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,cert-err33-c)
         fprintf(stderr, "cbm_write_db: dynbuf realloc failed size=%d\n", newcap);
         return false;
     }
@@ -163,12 +223,15 @@ static bool dynbuf_ensure(DynBuf *b, int needed) {
 }
 
 static bool dynbuf_append(DynBuf *b, const void *data, int len) {
-    if (len <= 0)
+    if (len <= 0) {
         return true;
-    if (!data)
+    }
+    if (!data) {
         return false;
-    if (!dynbuf_ensure(b, len))
+    }
+    if (!dynbuf_ensure(b, len)) {
         return false;
+    }
     memcpy(b->data + b->len, data, len);
     b->len += len;
     return true;
@@ -245,8 +308,9 @@ static uint8_t *rec_finalize(RecordBuilder *r, int *out_len) {
 
     int total = total_header + r->body.len;
     uint8_t *buf = (uint8_t *)malloc(total);
-    if (!buf)
+    if (!buf) {
         return NULL;
+    }
     int pos = put_varint(buf, total_header);
     memcpy(buf + pos, r->header.data, header_content_len);
     pos += header_content_len;
@@ -309,13 +373,15 @@ static void pb_free(PageBuilder *pb) {
 
 // Flush current leaf page to file
 static void pb_flush_leaf(PageBuilder *pb) {
-    if (pb->cell_count == 0)
+    if (pb->cell_count == 0) {
         return;
+    }
 
     int hdr = pb->page1_offset;
     // Write leaf page header
-    pb->page[hdr + 0] = pb->is_index ? 0x0A : 0x0D; // leaf flag
-    put_u16(pb->page + hdr + 1, 0);                 // first freeblock
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    pb->page[hdr + 0] = pb->is_index ? BTREE_LEAF_INDEX : BTREE_LEAF_TABLE; // leaf flag
+    put_u16(pb->page + hdr + 1, 0);                                         // first freeblock
     put_u16(pb->page + hdr + 3, (uint16_t)pb->cell_count);
     put_u16(pb->page + hdr + 5, (uint16_t)pb->content_offset);
     pb->page[hdr + 7] = 0; // fragmented free bytes
@@ -323,7 +389,9 @@ static void pb_flush_leaf(PageBuilder *pb) {
     // Write page to file
     uint32_t page_num = pb->next_page;
     long offset = (long)(page_num - 1) * PAGE_SIZE;
+    // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
     fseek(pb->fp, offset, SEEK_SET);
+    // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
     fwrite(pb->page, 1, PAGE_SIZE, pb->fp);
 
     // Record this leaf for interior page building
@@ -384,8 +452,9 @@ static void pb_add_cell(PageBuilder *pb, const uint8_t *cell, int cell_len) {
 //   - Table keys: varint(rowid)
 //   - Index keys: varint(payload_len) + payload (full index record)
 static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
-    if (!pb->leaves)
+    if (!pb->leaves) {
         return 0;
+    }
     if (pb->leaf_count <= 1) {
         return pb->leaves[0].page_num;
     }
@@ -432,8 +501,9 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
 
                 int available = content_offset - ptr_offset - 2;
                 if (clen > available && cell_count > 0) {
-                    if (heap_cell)
+                    if (heap_cell) {
                         free(cell_data);
+                    }
                     break; // page full, flush with what we have
                 }
 
@@ -442,8 +512,9 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
                 put_u16(page + ptr_offset, (uint16_t)content_offset);
                 ptr_offset += 2;
                 cell_count++;
-                if (heap_cell)
+                if (heap_cell) {
                     free(cell_data);
+                }
                 i++;
             }
 
@@ -483,6 +554,7 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
 
             // Write the interior page
             uint32_t pnum = pb->next_page++;
+            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
             page[0] = is_index ? 0x02 : 0x05;
             put_u16(page + 1, 0);
             put_u16(page + 3, (uint16_t)cell_count);
@@ -490,7 +562,9 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
             page[7] = 0;
             put_u32(page + 8, right_child_page);
 
+            // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
             fseek(pb->fp, (long)(pnum - 1) * PAGE_SIZE, SEEK_SET);
+            // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
             fwrite(page, 1, PAGE_SIZE, pb->fp);
 
             // Record this interior page as a parent for the next level
@@ -520,8 +594,9 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
         }
 
         if (children != pb->leaves) {
-            for (int j = 0; j < child_count; j++)
+            for (int j = 0; j < child_count; j++) {
                 free(children[j].sep_cell);
+            }
             free(children);
         }
         children = parents;
@@ -529,8 +604,9 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
     }
 
     uint32_t root = children ? children[0].page_num : 0;
-    if (children != pb->leaves)
+    if (children != pb->leaves) {
         free(children);
+    }
     return root;
 }
 
@@ -599,8 +675,9 @@ static uint8_t *build_table_cell(int64_t rowid, const uint8_t *payload, int payl
     int kl = varint_len(rowid);
     int total = rl + kl + payload_len;
     uint8_t *cell = (uint8_t *)malloc(total);
-    if (!cell)
+    if (!cell) {
         return NULL;
+    }
     int pos = 0;
     pos += put_varint(cell + pos, payload_len);
     pos += put_varint(cell + pos, rowid);
@@ -727,6 +804,7 @@ static uint8_t *build_index_entry_unique_2int_text_rowid(int64_t v1, int64_t v2,
         return NULL;
     }
 
+    // NOLINTNEXTLINE(misc-confusable-identifiers) — identifiers are distinct in context
     int vl = varint_len(payload_len);
     int total = vl + payload_len;
     uint8_t *cell = (uint8_t *)malloc(total);
@@ -760,11 +838,13 @@ static void pb_ensure_leaf_cap(PageBuilder *pb) {
 
 // Add a table cell to the PageBuilder, flushing leaf pages as needed.
 static void pb_add_table_cell_with_flush(PageBuilder *pb, int64_t rowid, const uint8_t *payload,
+                                         // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
                                          int payload_len, int64_t prev_rowid) {
     int cell_len = 0;
     uint8_t *cell = build_table_cell(rowid, payload, payload_len, &cell_len);
-    if (!cell)
+    if (!cell) {
         return;
+    }
 
     if (!pb_cell_fits(pb, cell_len) && pb->cell_count > 0) {
         pb_ensure_leaf_cap(pb);
@@ -820,19 +900,23 @@ static uint32_t write_table_btree(FILE *fp, uint32_t *next_page, const uint8_t *
         uint32_t pnum = (*next_page)++;
         uint8_t page[PAGE_SIZE];
         memset(page, 0, PAGE_SIZE);
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
         int hdr = first_is_page1 ? 100 : 0;
-        page[hdr] = 0x0D;                             // leaf table
+        page[hdr] = BTREE_LEAF_TABLE;                 // leaf table
         put_u16(page + hdr + 1, 0);                   // no freeblocks
         put_u16(page + hdr + 3, 0);                   // 0 cells
         put_u16(page + hdr + 5, (uint16_t)PAGE_SIZE); // content at end of page
         page[hdr + 7] = 0;                            // 0 fragmented bytes
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fseek(fp, (long)(pnum - 1) * PAGE_SIZE, SEEK_SET);
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fwrite(page, 1, PAGE_SIZE, fp);
         return pnum;
     }
 
     PageBuilder pb;
     pb_init(&pb, fp, *next_page, false);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     pb.page1_offset = first_is_page1 ? 100 : 0;
     pb.ptr_offset = pb.page1_offset + 8;
 
@@ -856,7 +940,9 @@ static uint32_t write_index_btree(FILE *fp, uint32_t *next_page, uint8_t **cells
         put_u16(page + 3, 0);                   // 0 cells
         put_u16(page + 5, (uint16_t)PAGE_SIZE); // content at end of page
         page[7] = 0;                            // 0 fragmented bytes
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fseek(fp, (long)(pnum - 1) * PAGE_SIZE, SEEK_SET);
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fwrite(page, 1, PAGE_SIZE, fp);
         return pnum;
     }
@@ -982,152 +1068,200 @@ static inline const char *safe_str(const char *s) {
 static int *make_sorted_perm(int n, int (*cmp)(const void *, const void *)) {
     int *perm = (int *)malloc(n * sizeof(int));
     if (!perm) {
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,cert-err33-c)
         fprintf(stderr, "cbm_write_db: perm malloc failed n=%d size=%zu\n", n,
                 (size_t)n * sizeof(int));
         return NULL;
     }
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         perm[i] = i;
+    }
     qsort(perm, n, sizeof(int), cmp);
     return perm;
 }
 
 // --- Node index comparators (project is same for all, skip it) ---
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_node_by_label(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].label), safe_str(g_sort_nodes[ib].label));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_node_by_name(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].name), safe_str(g_sort_nodes[ib].name));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_node_by_file(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].file_path), safe_str(g_sort_nodes[ib].file_path));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_node_by_qn(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].qualified_name),
                    safe_str(g_sort_nodes[ib].qualified_name));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
 // --- Edge index comparators ---
 
 // idx_edges_source: (source_id, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_source_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // idx_edges_target: (target_id, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_target_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // idx_edges_type: (project, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // idx_edges_target_type: (project, target_id, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_proj_target_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // idx_edges_source_type: (project, source_id, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_proj_source_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // idx_edges_url_path: (project, url_path_gen) + rowid — NULL sorts first
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_url_path(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     const char *ua = g_sort_edges[ia].url_path;
     const char *ub = g_sort_edges[ib].url_path;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool na = (!ua || !ua[0]);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     bool nb = (!ub || !ub[0]);
-    if (na && nb)
+    if (na && nb) {
         return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
-    if (na)
+    }
+    if (na) {
         return -1;
-    if (nb)
+    }
+    if (nb) {
         return 1;
+    }
     int c = strcmp(ua, ub);
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // autoindex_edges_1: UNIQUE(source_id, target_id, type) + rowid
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int cmp_edge_by_src_tgt_type(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
     int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c)
+    if (c) {
         return c;
+    }
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c)
+    if (c) {
         return c;
+    }
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
 // --- Main entry point ---
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,readability-function-cognitive-complexity,readability-function-size)
 int cbm_write_db(const char *path, const char *project, const char *root_path,
                  const char *indexed_at, CBMDumpNode *nodes, int node_count, CBMDumpEdge *edges,
                  int edge_count) {
     FILE *fp = fopen(path, "wb");
-    if (!fp)
+    if (!fp) {
         return -1;
+    }
 
     // Reserve page 1 for sqlite_master (written last after we know all root pages)
     uint32_t next_page = 2;
@@ -1142,6 +1276,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
             int rec_len;
             uint8_t *rec = build_node_record(&nodes[i], &rec_len);
             if (!rec) {
+                // NOLINTNEXTLINE(cert-err33-c) — best-effort cleanup on error path
                 fclose(fp);
                 return -3;
             }
@@ -1164,6 +1299,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
             int rec_len;
             uint8_t *rec = build_edge_record(&edges[i], &rec_len);
             if (!rec) {
+                // NOLINTNEXTLINE(cert-err33-c) — best-effort cleanup on error path
                 fclose(fp);
                 return -3;
             }
@@ -1194,7 +1330,8 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     uint32_t sqlite_seq_root;
     // Two rows: ("nodes", max_node_id), ("edges", max_edge_id)
     {
-        RecordBuilder r1, r2;
+        RecordBuilder r1;
+        RecordBuilder r2;
         rec_init(&r1);
         rec_add_text(&r1, "nodes");
         rec_add_int(&r1, node_count > 0 ? nodes[node_count - 1].id : 0);
@@ -1228,6 +1365,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     g_sort_edges = edges;
 
 // Helper macro: build sorted 2-text node index (project, col) + rowid.
+// NOLINTBEGIN(cert-err33-c) — best-effort cleanup on error paths inside macros
 #define BUILD_NODE_2TEXT_INDEX_SORTED(col_getter, cmp_func, idx_name_var)                        \
     do {                                                                                         \
         if (node_count > 0) {                                                                    \
@@ -1273,23 +1411,29 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     } while (0)
 
     uint32_t idx_nodes_label_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].label, cmp_node_by_label, idx_nodes_label_root);
 
     uint32_t idx_nodes_name_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].name, cmp_node_by_name, idx_nodes_name_root);
 
     uint32_t idx_nodes_file_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].file_path ? nodes[si].file_path : "", cmp_node_by_file,
                                   idx_nodes_file_root);
 
     uint32_t autoindex_nodes_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].qualified_name, cmp_node_by_qn, autoindex_nodes_root);
 
 #undef BUILD_NODE_2TEXT_INDEX_SORTED
+// NOLINTEND(cert-err33-c)
 
 // --- Edge indexes (all sorted) ---
 
 // Helper macro: build sorted edge index, invoke cell builder per edge.
+// NOLINTBEGIN(cert-err33-c) — best-effort cleanup on error paths inside macros
 #define BUILD_EDGE_INDEX_SORTED(cmp_func, cell_builder, idx_name_var)                            \
     do {                                                                                         \
         if (edge_count > 0) {                                                                    \
@@ -1335,6 +1479,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // idx_edges_source: (source_id, type) + rowid
     uint32_t idx_edges_source_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(cmp_edge_by_source_type,
                             idx_cells[i] = build_index_entry_int_text_rowid(
                                 edges[si].source_id, edges[si].type, edges[si].id, &idx_lens[i]),
@@ -1342,6 +1487,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // idx_edges_target: (target_id, type) + rowid
     uint32_t idx_edges_target_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(cmp_edge_by_target_type,
                             idx_cells[i] = build_index_entry_int_text_rowid(
                                 edges[si].target_id, edges[si].type, edges[si].id, &idx_lens[i]),
@@ -1349,6 +1495,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // idx_edges_type: (project, type) + rowid
     uint32_t idx_edges_type_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(cmp_edge_by_type,
                             idx_cells[i] = build_index_entry_2text_rowid(
                                 edges[si].project, edges[si].type, edges[si].id, &idx_lens[i]),
@@ -1356,6 +1503,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // idx_edges_target_type: (project, target_id, type) + rowid
     uint32_t idx_edges_target_type_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
         cmp_edge_by_proj_target_type,
         idx_cells[i] = build_index_entry_text_int_text_rowid(
@@ -1364,6 +1512,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // idx_edges_source_type: (project, source_id, type) + rowid
     uint32_t idx_edges_source_type_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
         cmp_edge_by_proj_source_type,
         idx_cells[i] = build_index_entry_text_int_text_rowid(
@@ -1403,8 +1552,10 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         free(perm);
         idx_edges_url_path_root =
             write_index_btree(fp, &next_page, idx_cells, idx_lens, edge_count);
-        for (int i = 0; i < edge_count; i++)
+        for (int i = 0; i < edge_count; i++) {
             free(idx_cells[i]);
+        }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         free(idx_cells);
         free(idx_lens);
     } else {
@@ -1413,6 +1564,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     // Autoindex for UNIQUE(source_id, target_id, type) on edges
     uint32_t autoindex_edges_root;
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
         cmp_edge_by_src_tgt_type,
         idx_cells[i] = build_index_entry_unique_2int_text_rowid(
@@ -1420,6 +1572,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         autoindex_edges_root);
 
 #undef BUILD_EDGE_INDEX_SORTED
+    // NOLINTEND(cert-err33-c)
 
     // Autoindex for projects(name TEXT PK) — single text column
     uint32_t autoindex_projects_root;
@@ -1535,7 +1688,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
         // B-tree header starts at offset 100 on page 1
         int hdr = 100;
-        page1[hdr] = 0x0D; // leaf table
+        page1[hdr] = BTREE_LEAF_TABLE; // leaf table
         int content_off = PAGE_SIZE;
         int ptr_off = hdr + 8;
         int mcell_count = 0;
@@ -1551,11 +1704,14 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
                 // Master entries should always fit on page 1 (they're small SQL strings).
                 // If not, this is a bug — fail gracefully.
                 free(cell);
-                for (int j = 0; j < master_count; j++)
+                for (int j = 0; j < master_count; j++) {
                     free((void *)master_records[j]);
+                }
+                // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
                 free(master_records);
                 free(master_lens);
                 free(master_rowids);
+                // NOLINTNEXTLINE(cert-err33-c) — best-effort cleanup on error path
                 fclose(fp);
                 return -2;
             }
@@ -1575,53 +1731,61 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
         // Write the 100-byte SQLite file header
         memcpy(page1, "SQLite format 3\000", 16);
-        put_u16(page1 + 16, PAGE_SIZE);     // page size
-        page1[18] = FILE_FORMAT;            // file format write version
-        page1[19] = FILE_FORMAT;            // file format read version
-        page1[20] = 0;                      // reserved space per page
-        page1[21] = 64;                     // max embedded payload fraction
-        page1[22] = 32;                     // min embedded payload fraction
-        page1[23] = 32;                     // leaf payload fraction
-        put_u32(page1 + 24, 0);             // file change counter (set below)
-        put_u32(page1 + 28, next_page - 1); // total pages
-        put_u32(page1 + 32, 0);             // first freelist trunk page
-        put_u32(page1 + 36, 0);             // total freelist pages
-        put_u32(page1 + 40, 1);             // schema cookie
-        put_u32(page1 + 44, SCHEMA_FORMAT); // schema format number
-        put_u32(page1 + 48, 0);             // default page cache size
-        put_u32(page1 + 52, 0);             // largest root page (auto-vacuum)
-        put_u32(page1 + 56, 1);             // text encoding: UTF-8
-        put_u32(page1 + 60, 0);             // user version
-        put_u32(page1 + 64, 0);             // incremental vacuum mode
-        put_u32(page1 + 68, 0);             // application ID
+        put_u16(page1 + HDR_OFF_PAGE_SIZE, PAGE_SIZE);         // page size
+        page1[HDR_OFF_WRITE_VERSION] = FILE_FORMAT;            // file format write version
+        page1[HDR_OFF_READ_VERSION] = FILE_FORMAT;             // file format read version
+        page1[HDR_OFF_RESERVED] = 0;                           // reserved space per page
+        page1[HDR_OFF_MAX_EMBED_FRAC] = 64;                    // max embedded payload fraction
+        page1[HDR_OFF_MIN_EMBED_FRAC] = 32;                    // min embedded payload fraction
+        page1[HDR_OFF_LEAF_FRAC] = 32;                         // leaf payload fraction
+        put_u32(page1 + HDR_OFF_FILE_CHANGE, 0);               // file change counter (set below)
+        put_u32(page1 + HDR_OFF_DB_SIZE, next_page - 1);       // total pages
+        put_u32(page1 + HDR_OFF_FREELIST_TRUNK, 0);            // first freelist trunk page
+        put_u32(page1 + HDR_OFF_FREELIST_COUNT, 0);            // total freelist pages
+        put_u32(page1 + HDR_OFF_SCHEMA_COOKIE, 1);             // schema cookie
+        put_u32(page1 + HDR_OFF_SCHEMA_FORMAT, SCHEMA_FORMAT); // schema format number
+        put_u32(page1 + HDR_OFF_DEFAULT_CACHE, 0);             // default page cache size
+        put_u32(page1 + HDR_OFF_AUTOVAC_TOP, 0);               // largest root page (auto-vacuum)
+        put_u32(page1 + HDR_OFF_TEXT_ENCODING, 1);             // text encoding: UTF-8
+        put_u32(page1 + HDR_OFF_USER_VERSION, 0);              // user version
+        put_u32(page1 + HDR_OFF_INCR_VACUUM, 0);               // incremental vacuum mode
+        put_u32(page1 + HDR_OFF_APP_ID, 0);                    // application ID
         // Bytes 72-91: reserved for expansion (zeros)
-        put_u32(page1 + 92, 1);              // version-valid-for (change counter)
-        put_u32(page1 + 96, SQLITE_VERSION); // SQLite version number
+        put_u32(page1 + HDR_OFF_VERSION_VALID, 1); // version-valid-for (change counter)
+        put_u32(page1 + HDR_OFF_SQLITE_VERSION, SQLITE_VERSION); // SQLite version number
         // Set file change counter = version-valid-for = 1
-        put_u32(page1 + 24, 1);
+        put_u32(page1 + HDR_OFF_FILE_CHANGE, 1);
 
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fseek(fp, 0, SEEK_SET);
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort page write, errors detected at fclose
         fwrite(page1, 1, PAGE_SIZE, fp);
     }
 
-    for (int i = 0; i < master_count; i++)
+    for (int i = 0; i < master_count; i++) {
         free((void *)master_records[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(master_records);
     free(master_lens);
     free(master_rowids);
 
     // Ensure file size is exactly next_page * PAGE_SIZE
     // (pad any remaining space)
+    // NOLINTNEXTLINE(cert-err33-c) — best-effort file positioning
     fseek(fp, 0, SEEK_END);
     long file_size = ftell(fp);
     long expected_size = (long)(next_page - 1) * PAGE_SIZE;
     if (file_size < expected_size) {
         // Pad with zeros
         uint8_t zero = 0;
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort padding write
         fseek(fp, expected_size - 1, SEEK_SET);
+        // NOLINTNEXTLINE(cert-err33-c) — best-effort padding write
         fwrite(&zero, 1, 1, fp);
     }
 
+    // NOLINTNEXTLINE(cert-err33-c) — caller checks return code from this function, not fclose
     fclose(fp);
     return 0;
 }

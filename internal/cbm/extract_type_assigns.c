@@ -1,7 +1,10 @@
 #include "cbm.h"
+#include "arena.h" // CBMArena
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "tree_sitter/api.h" // TSNode, ts_node_*
+#include <stdint.h>          // uint32_t
 #include <string.h>
 #include <ctype.h>
 
@@ -64,8 +67,9 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
     if (lang == CBM_LANG_RUST) {
         if (strcmp(kind, "struct_expression") == 0) {
             TSNode name = ts_node_child_by_field_name(rhs, "name", 4);
-            if (!ts_node_is_null(name))
+            if (!ts_node_is_null(name)) {
                 return cbm_node_text(a, name, source);
+            }
         }
     }
 
@@ -73,6 +77,7 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
 }
 
 // Walk AST for assignment patterns where RHS is a constructor call.
+// NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
 static void walk_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
     const char *kind = ts_node_type(node);
 
@@ -80,8 +85,9 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec
     if (cbm_kind_in_set(node, spec->assignment_node_types)) {
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         TSNode right = ts_node_child_by_field_name(node, "right", 5);
-        if (ts_node_is_null(right))
+        if (ts_node_is_null(right)) {
             right = ts_node_child_by_field_name(node, "value", 5);
+        }
         if (!ts_node_is_null(left) && !ts_node_is_null(right)) {
             const char *lk = ts_node_type(left);
             if (strcmp(lk, "identifier") == 0 || strcmp(lk, "simple_identifier") == 0) {
@@ -106,11 +112,13 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec
     // Rust: let_declaration
     if (strcmp(kind, "short_var_declaration") == 0 || strcmp(kind, "var_spec") == 0) {
         TSNode left = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(left))
+        if (ts_node_is_null(left)) {
             left = ts_node_child_by_field_name(node, "left", 4);
+        }
         TSNode right = ts_node_child_by_field_name(node, "value", 5);
-        if (ts_node_is_null(right))
+        if (ts_node_is_null(right)) {
             right = ts_node_child_by_field_name(node, "right", 5);
+        }
         if (!ts_node_is_null(left) && !ts_node_is_null(right)) {
             char *var_name = cbm_node_text(ctx->arena, left, ctx->source);
             const char *type_name =
@@ -173,8 +181,9 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec
 
 void cbm_extract_type_assigns(CBMExtractCtx *ctx) {
     const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
-    if (!spec)
+    if (!spec) {
         return;
+    }
 
     walk_type_assigns(ctx, ctx->root, spec);
 }
@@ -189,8 +198,9 @@ void handle_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
     if (spec->assignment_node_types && cbm_kind_in_set(node, spec->assignment_node_types)) {
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         TSNode right = ts_node_child_by_field_name(node, "right", 5);
-        if (ts_node_is_null(right))
+        if (ts_node_is_null(right)) {
             right = ts_node_child_by_field_name(node, "value", 5);
+        }
         if (!ts_node_is_null(left) && !ts_node_is_null(right)) {
             const char *lk = ts_node_type(left);
             if (strcmp(lk, "identifier") == 0 || strcmp(lk, "simple_identifier") == 0) {
@@ -211,11 +221,13 @@ void handle_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
     // Go: short_var_declaration, var_spec
     if (strcmp(kind, "short_var_declaration") == 0 || strcmp(kind, "var_spec") == 0) {
         TSNode left = ts_node_child_by_field_name(node, "name", 4);
-        if (ts_node_is_null(left))
+        if (ts_node_is_null(left)) {
             left = ts_node_child_by_field_name(node, "left", 4);
+        }
         TSNode right = ts_node_child_by_field_name(node, "value", 5);
-        if (ts_node_is_null(right))
+        if (ts_node_is_null(right)) {
             right = ts_node_child_by_field_name(node, "right", 5);
+        }
         if (!ts_node_is_null(left) && !ts_node_is_null(right)) {
             char *var_name = cbm_node_text(ctx->arena, left, ctx->source);
             const char *type_name =

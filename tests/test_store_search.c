@@ -16,22 +16,31 @@
  *
  * Returns store handle. Fills ids[3].
  */
-static cbm_store_t* setup_search_store(int64_t* ids) {
-    cbm_store_t* s = cbm_store_open_memory();
+static cbm_store_t *setup_search_store(int64_t *ids) {
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n1 = {.project="test", .label="Function", .name="SubmitOrder",
-                      .qualified_name="test.main.SubmitOrder", .file_path="main.go"};
-    cbm_node_t n2 = {.project="test", .label="Function", .name="ProcessOrder",
-                      .qualified_name="test.service.ProcessOrder", .file_path="service.go"};
-    cbm_node_t n3 = {.project="test", .label="Class", .name="OrderService",
-                      .qualified_name="test.service.OrderService", .file_path="service.go"};
+    cbm_node_t n1 = {.project = "test",
+                     .label = "Function",
+                     .name = "SubmitOrder",
+                     .qualified_name = "test.main.SubmitOrder",
+                     .file_path = "main.go"};
+    cbm_node_t n2 = {.project = "test",
+                     .label = "Function",
+                     .name = "ProcessOrder",
+                     .qualified_name = "test.service.ProcessOrder",
+                     .file_path = "service.go"};
+    cbm_node_t n3 = {.project = "test",
+                     .label = "Class",
+                     .name = "OrderService",
+                     .qualified_name = "test.service.OrderService",
+                     .file_path = "service.go"};
 
     ids[0] = cbm_store_upsert_node(s, &n1);
     ids[1] = cbm_store_upsert_node(s, &n2);
     ids[2] = cbm_store_upsert_node(s, &n3);
 
-    cbm_edge_t e = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
+    cbm_edge_t e = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
     cbm_store_insert_edge(s, &e);
 
     return s;
@@ -41,10 +50,10 @@ static cbm_store_t* setup_search_store(int64_t* ids) {
 
 TEST(store_search_by_label) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
-    cbm_search_params_t params = {.project = "test", .label = "Function",
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {
+        .project = "test", .label = "Function", .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -60,10 +69,10 @@ TEST(store_search_by_label) {
 
 TEST(store_search_by_name_pattern) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
-    cbm_search_params_t params = {.project = "test", .name_pattern = ".*Submit.*",
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {
+        .project = "test", .name_pattern = ".*Submit.*", .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -79,10 +88,10 @@ TEST(store_search_by_name_pattern) {
 
 TEST(store_search_by_file_pattern) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
-    cbm_search_params_t params = {.project = "test", .file_pattern = "service*",
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {
+        .project = "test", .file_pattern = "service*", .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -97,11 +106,11 @@ TEST(store_search_by_file_pattern) {
 
 TEST(store_search_pagination) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
     /* limit=1 */
-    cbm_search_params_t params = {.project = "test", .limit = 1,
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {
+        .project = "test", .limit = 1, .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -133,14 +142,12 @@ TEST(store_search_pagination) {
 
 TEST(store_search_degree_filter) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
     /* SubmitOrder has out_degree=1, ProcessOrder has in_degree=1.
      * Degree filters: -1 = no filter, 0+ = active. */
     cbm_search_params_t params = {
-        .project = "test", .label = "Function",
-        .min_degree = 1, .max_degree = -1
-    };
+        .project = "test", .label = "Function", .min_degree = 1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -149,8 +156,8 @@ TEST(store_search_degree_filter) {
     cbm_store_search_free(&out);
 
     /* max_degree = 0 should find nodes with no CALLS edges */
-    params.min_degree = -1;  /* no min */
-    params.max_degree = 0;   /* only zero-degree nodes */
+    params.min_degree = -1; /* no min */
+    params.max_degree = 0;  /* only zero-degree nodes */
     params.label = "Function";
     rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -166,10 +173,9 @@ TEST(store_search_degree_filter) {
 
 TEST(store_search_all) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
-    cbm_search_params_t params = {.project = "test",
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {.project = "test", .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -185,28 +191,32 @@ TEST(store_search_all) {
 
 TEST(store_bfs_outbound) {
     int64_t ids[4];
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* A → B → C → D chain */
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
-    cbm_node_t nc = {.project="test", .label="Function", .name="C", .qualified_name="test.C"};
-    cbm_node_t nd = {.project="test", .label="Function", .name="D", .qualified_name="test.D"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
+    cbm_node_t nc = {
+        .project = "test", .label = "Function", .name = "C", .qualified_name = "test.C"};
+    cbm_node_t nd = {
+        .project = "test", .label = "Function", .name = "D", .qualified_name = "test.D"};
     ids[0] = cbm_store_upsert_node(s, &na);
     ids[1] = cbm_store_upsert_node(s, &nb);
     ids[2] = cbm_store_upsert_node(s, &nc);
     ids[3] = cbm_store_upsert_node(s, &nd);
 
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[1], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[1], .target_id=ids[2], .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=ids[2], .target_id=ids[3], .type="CALLS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = ids[1], .target_id = ids[2], .type = "CALLS"};
+    cbm_edge_t e3 = {.project = "test", .source_id = ids[2], .target_id = ids[3], .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
 
     /* BFS from A, outbound, depth 3 */
-    const char* types[] = {"CALLS"};
+    const char *types[] = {"CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, ids[0], "outbound", types, 1, 3, 100, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -226,24 +236,27 @@ TEST(store_bfs_outbound) {
 
 TEST(store_bfs_inbound) {
     int64_t ids[3];
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
-    cbm_node_t nc = {.project="test", .label="Function", .name="C", .qualified_name="test.C"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
+    cbm_node_t nc = {
+        .project = "test", .label = "Function", .name = "C", .qualified_name = "test.C"};
     ids[0] = cbm_store_upsert_node(s, &na);
     ids[1] = cbm_store_upsert_node(s, &nb);
     ids[2] = cbm_store_upsert_node(s, &nc);
 
     /* A → C, B → C */
-    cbm_edge_t e1 = {.project="test", .source_id=ids[0], .target_id=ids[2], .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=ids[1], .target_id=ids[2], .type="CALLS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = ids[0], .target_id = ids[2], .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = ids[1], .target_id = ids[2], .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
 
     /* BFS from C, inbound → should find A and B */
-    const char* types[] = {"CALLS"};
+    const char *types[] = {"CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, ids[2], "inbound", types, 1, 3, 100, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -257,12 +270,12 @@ TEST(store_bfs_inbound) {
 /* ── Transaction ────────────────────────────────────────────────── */
 
 TEST(store_transaction_commit) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_store_begin(s);
-    cbm_node_t n = {.project="test", .label="Function", .name="TxTest",
-                     .qualified_name="test.TxTest"};
+    cbm_node_t n = {
+        .project = "test", .label = "Function", .name = "TxTest", .qualified_name = "test.TxTest"};
     cbm_store_upsert_node(s, &n);
     cbm_store_commit(s);
 
@@ -274,12 +287,12 @@ TEST(store_transaction_commit) {
 }
 
 TEST(store_transaction_rollback) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_store_begin(s);
-    cbm_node_t n = {.project="test", .label="Function", .name="TxTest",
-                     .qualified_name="test.TxTest"};
+    cbm_node_t n = {
+        .project = "test", .label = "Function", .name = "TxTest", .qualified_name = "test.TxTest"};
     cbm_store_upsert_node(s, &n);
     cbm_store_rollback(s);
 
@@ -293,7 +306,7 @@ TEST(store_transaction_rollback) {
 /* ── Bulk write mode ────────────────────────────────────────────── */
 
 TEST(store_bulk_write_mode) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_store_begin_bulk(s);
@@ -304,8 +317,7 @@ TEST(store_bulk_write_mode) {
         char name[16], qn[32];
         snprintf(name, sizeof(name), "f%d", i);
         snprintf(qn, sizeof(qn), "test.f%d", i);
-        cbm_node_t n = {.project="test", .label="Function",
-                         .name=name, .qualified_name=qn};
+        cbm_node_t n = {.project = "test", .label = "Function", .name = name, .qualified_name = qn};
         cbm_store_upsert_node(s, &n);
     }
 
@@ -323,7 +335,7 @@ TEST(store_bulk_write_mode) {
 
 TEST(store_schema_info) {
     int64_t ids[3];
-    cbm_store_t* s = setup_search_store(ids);
+    cbm_store_t *s = setup_search_store(ids);
 
     cbm_schema_info_t schema = {0};
     int rc = cbm_store_get_schema(s, "test", &schema);
@@ -343,26 +355,38 @@ TEST(store_schema_info) {
 /* ── Search with exclude_labels ─────────────────────────────────── */
 
 TEST(store_search_exclude_labels) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Create nodes with different labels */
-    cbm_node_t n1 = {.project="test", .label="Function", .name="node_Function",
-                      .qualified_name="test.Function.node_0", .file_path="test.go"};
-    cbm_node_t n2 = {.project="test", .label="Route", .name="node_Route",
-                      .qualified_name="test.Route.node_1", .file_path="test.go"};
-    cbm_node_t n3 = {.project="test", .label="Method", .name="node_Method",
-                      .qualified_name="test.Method.node_2", .file_path="test.go"};
-    cbm_node_t n4 = {.project="test", .label="Route", .name="node_Route2",
-                      .qualified_name="test.Route.node_3", .file_path="test.go"};
+    cbm_node_t n1 = {.project = "test",
+                     .label = "Function",
+                     .name = "node_Function",
+                     .qualified_name = "test.Function.node_0",
+                     .file_path = "test.go"};
+    cbm_node_t n2 = {.project = "test",
+                     .label = "Route",
+                     .name = "node_Route",
+                     .qualified_name = "test.Route.node_1",
+                     .file_path = "test.go"};
+    cbm_node_t n3 = {.project = "test",
+                     .label = "Method",
+                     .name = "node_Method",
+                     .qualified_name = "test.Method.node_2",
+                     .file_path = "test.go"};
+    cbm_node_t n4 = {.project = "test",
+                     .label = "Route",
+                     .name = "node_Route2",
+                     .qualified_name = "test.Route.node_3",
+                     .file_path = "test.go"};
     cbm_store_upsert_node(s, &n1);
     cbm_store_upsert_node(s, &n2);
     cbm_store_upsert_node(s, &n3);
     cbm_store_upsert_node(s, &n4);
 
     /* Search without exclusion */
-    cbm_search_params_t params = {.project = "test", .limit = 100,
-                                   .min_degree = -1, .max_degree = -1};
+    cbm_search_params_t params = {
+        .project = "test", .limit = 100, .min_degree = -1, .max_degree = -1};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -371,10 +395,12 @@ TEST(store_search_exclude_labels) {
     cbm_store_search_free(&out);
 
     /* Search with Route excluded */
-    const char* excl[] = {"Route", NULL};
-    cbm_search_params_t params2 = {.project = "test", .limit = 100,
-                                    .min_degree = -1, .max_degree = -1,
-                                    .exclude_labels = excl};
+    const char *excl[] = {"Route", NULL};
+    cbm_search_params_t params2 = {.project = "test",
+                                   .limit = 100,
+                                   .min_degree = -1,
+                                   .max_degree = -1,
+                                   .exclude_labels = excl};
     cbm_search_output_t out2 = {0};
     rc = cbm_store_search(s, &params2, &out2);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -393,13 +419,17 @@ TEST(store_search_exclude_labels) {
 /* ── Dump to file ──────────────────────────────────────────────── */
 
 TEST(store_dump_to_file) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n = {.project="test", .label="Function", .name="Hello",
-                     .qualified_name="test.main.Hello", .file_path="main.go",
-                     .start_line=1, .end_line=5,
-                     .properties_json="{\"sig\":\"func Hello()\"}"};
+    cbm_node_t n = {.project = "test",
+                    .label = "Function",
+                    .name = "Hello",
+                    .qualified_name = "test.main.Hello",
+                    .file_path = "main.go",
+                    .start_line = 1,
+                    .end_line = 5,
+                    .properties_json = "{\"sig\":\"func Hello()\"}"};
     int64_t id = cbm_store_upsert_node(s, &n);
     ASSERT_TRUE(id > 0);
 
@@ -414,7 +444,7 @@ TEST(store_dump_to_file) {
     cbm_store_close(s);
 
     /* Open dumped file and verify data */
-    cbm_store_t* disk = cbm_store_open_path(path);
+    cbm_store_t *disk = cbm_store_open_path(path);
     ASSERT_NOT_NULL(disk);
 
     cbm_node_t found = {0};
@@ -430,19 +460,21 @@ TEST(store_dump_to_file) {
 /* ── BFS with cross-service (HTTP_CALLS) edges ─────────────────── */
 
 TEST(store_bfs_cross_service) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
     int64_t idA = cbm_store_upsert_node(s, &na);
     int64_t idB = cbm_store_upsert_node(s, &nb);
 
-    cbm_edge_t e = {.project="test", .source_id=idA, .target_id=idB, .type="HTTP_CALLS"};
+    cbm_edge_t e = {.project = "test", .source_id = idA, .target_id = idB, .type = "HTTP_CALLS"};
     cbm_store_insert_edge(s, &e);
 
     /* BFS from A with both CALLS and HTTP_CALLS */
-    const char* types[] = {"CALLS", "HTTP_CALLS"};
+    const char *types[] = {"CALLS", "HTTP_CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, idA, "outbound", types, 2, 1, 200, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -451,14 +483,16 @@ TEST(store_bfs_cross_service) {
     /* Verify that we found B via HTTP_CALLS */
     int found_b = 0;
     for (int i = 0; i < result.visited_count; i++) {
-        if (strcmp(result.visited[i].node.name, "B") == 0) found_b = 1;
+        if (strcmp(result.visited[i].node.name, "B") == 0)
+            found_b = 1;
     }
     ASSERT_TRUE(found_b);
 
     /* Check edges contain HTTP_CALLS type */
     int found_http = 0;
     for (int i = 0; i < result.edge_count; i++) {
-        if (strcmp(result.edges[i].type, "HTTP_CALLS") == 0) found_http = 1;
+        if (strcmp(result.edges[i].type, "HTTP_CALLS") == 0)
+            found_http = 1;
     }
     ASSERT_TRUE(found_http);
 
@@ -470,28 +504,32 @@ TEST(store_bfs_cross_service) {
 /* ── BFS depth-limited chain ───────────────────────────────────── */
 
 TEST(store_bfs_depth_chain) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Build chain: A → B → C → D */
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
-    cbm_node_t nc = {.project="test", .label="Function", .name="C", .qualified_name="test.C"};
-    cbm_node_t nd = {.project="test", .label="Function", .name="D", .qualified_name="test.D"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
+    cbm_node_t nc = {
+        .project = "test", .label = "Function", .name = "C", .qualified_name = "test.C"};
+    cbm_node_t nd = {
+        .project = "test", .label = "Function", .name = "D", .qualified_name = "test.D"};
     int64_t idA = cbm_store_upsert_node(s, &na);
     int64_t idB = cbm_store_upsert_node(s, &nb);
     int64_t idC = cbm_store_upsert_node(s, &nc);
     int64_t idD = cbm_store_upsert_node(s, &nd);
 
-    cbm_edge_t e1 = {.project="test", .source_id=idA, .target_id=idB, .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=idB, .target_id=idC, .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=idC, .target_id=idD, .type="CALLS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = idA, .target_id = idB, .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = idB, .target_id = idC, .type = "CALLS"};
+    cbm_edge_t e3 = {.project = "test", .source_id = idC, .target_id = idD, .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
 
     /* BFS from A, depth=3 should find B(hop1), C(hop2), D(hop3) */
-    const char* types[] = {"CALLS"};
+    const char *types[] = {"CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, idA, "outbound", types, 1, 3, 100, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -515,17 +553,21 @@ TEST(store_bfs_depth_chain) {
 /* ── Search case insensitive ───────────────────────────────────── */
 
 TEST(store_search_case_insensitive) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t n = {.project="test", .label="Function", .name="HandleRequest",
-                     .qualified_name="test.HandleRequest"};
+    cbm_node_t n = {.project = "test",
+                    .label = "Function",
+                    .name = "HandleRequest",
+                    .qualified_name = "test.HandleRequest"};
     cbm_store_upsert_node(s, &n);
 
     /* Case-insensitive search (default) */
-    cbm_search_params_t params = {.project = "test", .name_pattern = ".*handlerequest.*",
-                                   .min_degree = -1, .max_degree = -1,
-                                   .case_sensitive = false};
+    cbm_search_params_t params = {.project = "test",
+                                  .name_pattern = ".*handlerequest.*",
+                                  .min_degree = -1,
+                                  .max_degree = -1,
+                                  .case_sensitive = false};
     cbm_search_output_t out = {0};
     int rc = cbm_store_search(s, &params, &out);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -533,9 +575,11 @@ TEST(store_search_case_insensitive) {
     cbm_store_search_free(&out);
 
     /* Case-sensitive search — should NOT match */
-    cbm_search_params_t params2 = {.project = "test", .name_pattern = ".*handlerequest.*",
-                                    .min_degree = -1, .max_degree = -1,
-                                    .case_sensitive = true};
+    cbm_search_params_t params2 = {.project = "test",
+                                   .name_pattern = ".*handlerequest.*",
+                                   .min_degree = -1,
+                                   .max_degree = -1,
+                                   .case_sensitive = true};
     cbm_search_output_t out2 = {0};
     rc = cbm_store_search(s, &params2, &out2);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -562,11 +606,8 @@ TEST(store_hop_to_risk) {
 
 TEST(store_build_impact_summary) {
     cbm_node_hop_t hops[5] = {
-        {.node = {.id = 1}, .hop = 1},
-        {.node = {.id = 2}, .hop = 1},
-        {.node = {.id = 3}, .hop = 2},
-        {.node = {.id = 4}, .hop = 3},
-        {.node = {.id = 5}, .hop = 4},
+        {.node = {.id = 1}, .hop = 1}, {.node = {.id = 2}, .hop = 1}, {.node = {.id = 3}, .hop = 2},
+        {.node = {.id = 4}, .hop = 3}, {.node = {.id = 5}, .hop = 4},
     };
     cbm_edge_info_t edges[1] = {
         {.from_name = "A", .to_name = "B", .type = "CALLS"},
@@ -606,12 +647,12 @@ TEST(store_cross_service_detection) {
 TEST(store_deduplicate_hops) {
     cbm_node_hop_t hops[4] = {
         {.node = {.id = 1, .name = "A"}, .hop = 2},
-        {.node = {.id = 1, .name = "A"}, .hop = 3},  /* duplicate at higher hop */
+        {.node = {.id = 1, .name = "A"}, .hop = 3}, /* duplicate at higher hop */
         {.node = {.id = 2, .name = "B"}, .hop = 1},
         {.node = {.id = 3, .name = "C"}, .hop = 3},
     };
 
-    cbm_node_hop_t* result = NULL;
+    cbm_node_hop_t *result = NULL;
     int count = 0;
     int rc = cbm_deduplicate_hops(hops, 4, &result, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -634,33 +675,39 @@ TEST(store_deduplicate_hops) {
 /* ── BFS with risk labels (from store_test.go) ─────────────────── */
 
 TEST(store_bfs_with_risk_labels) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Build chain: A → B → C → D */
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
-    cbm_node_t nc = {.project="test", .label="Function", .name="C", .qualified_name="test.C"};
-    cbm_node_t nd = {.project="test", .label="Function", .name="D", .qualified_name="test.D"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
+    cbm_node_t nc = {
+        .project = "test", .label = "Function", .name = "C", .qualified_name = "test.C"};
+    cbm_node_t nd = {
+        .project = "test", .label = "Function", .name = "D", .qualified_name = "test.D"};
     int64_t idA = cbm_store_upsert_node(s, &na);
     (void)cbm_store_upsert_node(s, &nb);
     (void)cbm_store_upsert_node(s, &nc);
     (void)cbm_store_upsert_node(s, &nd);
 
-    cbm_edge_t e1 = {.project="test", .source_id=idA, .target_id=idA+1, .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=idA+1, .target_id=idA+2, .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=idA+2, .target_id=idA+3, .type="CALLS"};
+    cbm_edge_t e1 = {.project = "test", .source_id = idA, .target_id = idA + 1, .type = "CALLS"};
+    cbm_edge_t e2 = {
+        .project = "test", .source_id = idA + 1, .target_id = idA + 2, .type = "CALLS"};
+    cbm_edge_t e3 = {
+        .project = "test", .source_id = idA + 2, .target_id = idA + 3, .type = "CALLS"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
 
-    const char* types[] = {"CALLS"};
+    const char *types[] = {"CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, idA, "outbound", types, 1, 3, 200, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
 
     /* Deduplicate */
-    cbm_node_hop_t* deduped = NULL;
+    cbm_node_hop_t *deduped = NULL;
     int dcount = 0;
     cbm_deduplicate_hops(result.visited, result.visited_count, &deduped, &dcount);
     ASSERT_EQ(dcount, 3);
@@ -676,8 +723,8 @@ TEST(store_bfs_with_risk_labels) {
     }
 
     /* Build summary */
-    cbm_impact_summary_t summary = cbm_build_impact_summary(deduped, dcount,
-                                                             result.edges, result.edge_count);
+    cbm_impact_summary_t summary =
+        cbm_build_impact_summary(deduped, dcount, result.edges, result.edge_count);
     ASSERT_EQ(summary.critical, 1);
     ASSERT_EQ(summary.high, 1);
     ASSERT_EQ(summary.medium, 1);
@@ -692,24 +739,26 @@ TEST(store_bfs_with_risk_labels) {
 /* ── BFS cross-service summary ─────────────────────────────────── */
 
 TEST(store_bfs_cross_service_summary) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
     int64_t idA = cbm_store_upsert_node(s, &na);
     int64_t idB = cbm_store_upsert_node(s, &nb);
 
-    cbm_edge_t e = {.project="test", .source_id=idA, .target_id=idB, .type="HTTP_CALLS"};
+    cbm_edge_t e = {.project = "test", .source_id = idA, .target_id = idB, .type = "HTTP_CALLS"};
     cbm_store_insert_edge(s, &e);
 
-    const char* types[] = {"CALLS", "HTTP_CALLS"};
+    const char *types[] = {"CALLS", "HTTP_CALLS"};
     cbm_traverse_result_t result = {0};
     int rc = cbm_store_bfs(s, idA, "outbound", types, 2, 1, 200, &result);
     ASSERT_EQ(rc, CBM_STORE_OK);
 
     cbm_impact_summary_t summary = cbm_build_impact_summary(result.visited, result.visited_count,
-                                                              result.edges, result.edge_count);
+                                                            result.edges, result.edge_count);
     ASSERT_TRUE(summary.has_cross_service);
 
     cbm_store_traverse_free(&result);
@@ -720,19 +769,22 @@ TEST(store_bfs_cross_service_summary) {
 /* ── GlobToLike ─────────────────────────────────────────────────── */
 
 TEST(store_glob_to_like) {
-    struct { const char* pattern; const char* want; } tests[] = {
-        {"**/*.py",                   "%%.py"},
-        {"**/dir/**",                 "%dir%"},
-        {"*.go",                      "%.go"},
-        {"src/**",                    "src%"},
-        {"**/test_*.py",              "%test_%.py"},
-        {"file?.txt",                 "file_.txt"},
-        {"exact.go",                  "exact.go"},
-        {"**/custom-pip-package/**",  "%custom-pip-package%"},
+    struct {
+        const char *pattern;
+        const char *want;
+    } tests[] = {
+        {"**/*.py", "%%.py"},
+        {"**/dir/**", "%dir%"},
+        {"*.go", "%.go"},
+        {"src/**", "src%"},
+        {"**/test_*.py", "%test_%.py"},
+        {"file?.txt", "file_.txt"},
+        {"exact.go", "exact.go"},
+        {"**/custom-pip-package/**", "%custom-pip-package%"},
     };
 
     for (int i = 0; i < 8; i++) {
-        char* got = cbm_glob_to_like(tests[i].pattern);
+        char *got = cbm_glob_to_like(tests[i].pattern);
         ASSERT_NOT_NULL(got);
         ASSERT_STR_EQ(got, tests[i].want);
         free(got);
@@ -747,7 +799,7 @@ TEST(store_glob_to_like) {
 /* ── ExtractLikeHints ────────────────────────────────────────────── */
 
 TEST(store_extract_like_hints) {
-    char* hints[16];
+    char *hints[16];
     int n;
 
     /* Basic: .*handler.* → ["handler"] */
@@ -761,7 +813,8 @@ TEST(store_extract_like_hints) {
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(hints[0], "Order");
     ASSERT_STR_EQ(hints[1], "Handler");
-    free(hints[0]); free(hints[1]);
+    free(hints[0]);
+    free(hints[1]);
 
     /* Plain literal: "handler" → ["handler"] */
     n = cbm_extract_like_hints("handler", hints, 16);
@@ -805,7 +858,8 @@ TEST(store_extract_like_hints) {
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(hints[0], "test_");
     ASSERT_STR_EQ(hints[1], "helper");
-    free(hints[0]); free(hints[1]);
+    free(hints[0]);
+    free(hints[1]);
 
     /* NULL safety */
     n = cbm_extract_like_hints(NULL, hints, 16);
@@ -834,22 +888,25 @@ TEST(store_strip_case_flag) {
 }
 
 TEST(store_batch_count_degrees) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     ASSERT_NOT_NULL(s);
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* A -> B, A -> C, B -> C (CALLS), A -> C (USAGE) */
-    cbm_node_t na = {.project="test", .label="Function", .name="A", .qualified_name="test.A"};
-    cbm_node_t nb = {.project="test", .label="Function", .name="B", .qualified_name="test.B"};
-    cbm_node_t nc = {.project="test", .label="Function", .name="C", .qualified_name="test.C"};
+    cbm_node_t na = {
+        .project = "test", .label = "Function", .name = "A", .qualified_name = "test.A"};
+    cbm_node_t nb = {
+        .project = "test", .label = "Function", .name = "B", .qualified_name = "test.B"};
+    cbm_node_t nc = {
+        .project = "test", .label = "Function", .name = "C", .qualified_name = "test.C"};
     int64_t idA = cbm_store_upsert_node(s, &na);
     int64_t idB = cbm_store_upsert_node(s, &nb);
     int64_t idC = cbm_store_upsert_node(s, &nc);
 
-    cbm_edge_t e1 = {.project="test", .source_id=idA, .target_id=idB, .type="CALLS"};
-    cbm_edge_t e2 = {.project="test", .source_id=idA, .target_id=idC, .type="CALLS"};
-    cbm_edge_t e3 = {.project="test", .source_id=idB, .target_id=idC, .type="CALLS"};
-    cbm_edge_t e4 = {.project="test", .source_id=idA, .target_id=idC, .type="USAGE"};
+    cbm_edge_t e1 = {.project = "test", .source_id = idA, .target_id = idB, .type = "CALLS"};
+    cbm_edge_t e2 = {.project = "test", .source_id = idA, .target_id = idC, .type = "CALLS"};
+    cbm_edge_t e3 = {.project = "test", .source_id = idB, .target_id = idC, .type = "CALLS"};
+    cbm_edge_t e4 = {.project = "test", .source_id = idA, .target_id = idC, .type = "USAGE"};
     cbm_store_insert_edge(s, &e1);
     cbm_store_insert_edge(s, &e2);
     cbm_store_insert_edge(s, &e3);
@@ -885,7 +942,6 @@ TEST(store_batch_count_degrees) {
     cbm_store_close(s);
     PASS();
 }
-
 
 SUITE(store_search) {
     RUN_TEST(store_search_by_label);

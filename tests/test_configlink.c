@@ -19,7 +19,7 @@
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
 /* Helper to check if any CONFIGURES edge has a given strategy (parsed from JSON) */
-static bool has_strategy(cbm_edge_t* edges, int count, const char* strategy) {
+static bool has_strategy(cbm_edge_t *edges, int count, const char *strategy) {
     char needle[64];
     snprintf(needle, sizeof(needle), "\"strategy\":\"%s\"", strategy);
     for (int i = 0; i < count; i++) {
@@ -30,16 +30,15 @@ static bool has_strategy(cbm_edge_t* edges, int count, const char* strategy) {
 }
 
 /* Check if any CONFIGURES edge has given strategy AND confidence. */
-static bool has_strategy_with_confidence(cbm_edge_t* edges, int count,
-                                          const char* strategy, double confidence) {
+static bool has_strategy_with_confidence(cbm_edge_t *edges, int count, const char *strategy,
+                                         double confidence) {
     char strat_needle[64];
     snprintf(strat_needle, sizeof(strat_needle), "\"strategy\":\"%s\"", strategy);
     char conf_needle[64];
     snprintf(conf_needle, sizeof(conf_needle), "\"confidence\":%.2f", confidence);
 
     for (int i = 0; i < count; i++) {
-        if (edges[i].properties_json &&
-            strstr(edges[i].properties_json, strat_needle) &&
+        if (edges[i].properties_json && strstr(edges[i].properties_json, strat_needle) &&
             strstr(edges[i].properties_json, conf_needle))
             return true;
     }
@@ -47,16 +46,15 @@ static bool has_strategy_with_confidence(cbm_edge_t* edges, int count,
 }
 
 /* Check if any CONFIGURES edge has given strategy AND config_key. */
-static bool has_strategy_with_key(cbm_edge_t* edges, int count,
-                                   const char* strategy, const char* config_key) {
+static bool has_strategy_with_key(cbm_edge_t *edges, int count, const char *strategy,
+                                  const char *config_key) {
     char strat_needle[64];
     snprintf(strat_needle, sizeof(strat_needle), "\"strategy\":\"%s\"", strategy);
     char key_needle[128];
     snprintf(key_needle, sizeof(key_needle), "\"config_key\":\"%s\"", config_key);
 
     for (int i = 0; i < count; i++) {
-        if (edges[i].properties_json &&
-            strstr(edges[i].properties_json, strat_needle) &&
+        if (edges[i].properties_json && strstr(edges[i].properties_json, strat_needle) &&
             strstr(edges[i].properties_json, key_needle))
             return true;
     }
@@ -64,7 +62,7 @@ static bool has_strategy_with_key(cbm_edge_t* edges, int count,
 }
 
 /* Recursive remove */
-static void rm_rf(const char* path) {
+static void rm_rf(const char *path) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", path);
     (void)system(cmd);
@@ -75,12 +73,13 @@ static void rm_rf(const char* path) {
 /* Go: TestConfigKeySymbol_ExactMatch
  * config.toml has max_connections, main.go has getMaxConnections() */
 TEST(configlink_key_symbol_exact_match) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Config Variable node: max_connections from config.toml */
     cbm_node_t cfg_var = {
-        .project = "test", .label = "Variable",
+        .project = "test",
+        .label = "Variable",
         .name = "max_connections",
         .qualified_name = "test.config.max_connections",
         .file_path = "config.toml",
@@ -90,7 +89,8 @@ TEST(configlink_key_symbol_exact_match) {
 
     /* Code Function node: getMaxConnections from main.go */
     cbm_node_t func = {
-        .project = "test", .label = "Function",
+        .project = "test",
+        .label = "Function",
         .name = "getMaxConnections",
         .qualified_name = "test.main.getMaxConnections",
         .file_path = "main.go",
@@ -103,7 +103,7 @@ TEST(configlink_key_symbol_exact_match) {
     ASSERT_GT(n, 0);
 
     /* Check CONFIGURES edges */
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     int rc = cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     ASSERT_EQ(rc, CBM_STORE_OK);
@@ -116,11 +116,12 @@ TEST(configlink_key_symbol_exact_match) {
 /* Go: TestConfigKeySymbol_SubstringMatch
  * config.toml has request_timeout, main.go has getRequestTimeoutSeconds() */
 TEST(configlink_key_symbol_substring_match) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_node_t cfg_var = {
-        .project = "test", .label = "Variable",
+        .project = "test",
+        .label = "Variable",
         .name = "request_timeout",
         .qualified_name = "test.config.request_timeout",
         .file_path = "config.toml",
@@ -128,7 +129,8 @@ TEST(configlink_key_symbol_substring_match) {
     cbm_store_upsert_node(s, &cfg_var);
 
     cbm_node_t func = {
-        .project = "test", .label = "Function",
+        .project = "test",
+        .label = "Function",
         .name = "getRequestTimeoutSeconds",
         .qualified_name = "test.main.getRequestTimeoutSeconds",
         .file_path = "main.go",
@@ -137,7 +139,7 @@ TEST(configlink_key_symbol_substring_match) {
 
     cbm_pipeline_pass_configlink(s, "test", NULL);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     ASSERT_TRUE(has_strategy_with_confidence(edges, count, "key_symbol", 0.75));
@@ -149,16 +151,17 @@ TEST(configlink_key_symbol_substring_match) {
 /* Go: TestConfigKeySymbol_ShortKeySkipped
  * config.toml has port, host, name — all 1-token keys, should be skipped */
 TEST(configlink_key_symbol_short_key_skipped) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Short single-token config keys */
-    const char* short_keys[] = {"port", "host", "name"};
+    const char *short_keys[] = {"port", "host", "name"};
     for (int i = 0; i < 3; i++) {
         char qn[64];
         snprintf(qn, sizeof(qn), "test.config.%s", short_keys[i]);
         cbm_node_t v = {
-            .project = "test", .label = "Variable",
+            .project = "test",
+            .label = "Variable",
             .name = short_keys[i],
             .qualified_name = qn,
             .file_path = "config.toml",
@@ -167,7 +170,8 @@ TEST(configlink_key_symbol_short_key_skipped) {
     }
 
     cbm_node_t func = {
-        .project = "test", .label = "Function",
+        .project = "test",
+        .label = "Function",
         .name = "getPort",
         .qualified_name = "test.main.getPort",
         .file_path = "main.go",
@@ -176,7 +180,7 @@ TEST(configlink_key_symbol_short_key_skipped) {
 
     cbm_pipeline_pass_configlink(s, "test", NULL);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     /* No key_symbol edges for 1-token keys */
@@ -189,11 +193,12 @@ TEST(configlink_key_symbol_short_key_skipped) {
 /* Go: TestConfigKeySymbol_CamelCaseNormalization
  * config.json has maxRetryCount, handler.go has getMaxRetryCount() */
 TEST(configlink_key_symbol_camel_case) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_node_t cfg_var = {
-        .project = "test", .label = "Variable",
+        .project = "test",
+        .label = "Variable",
         .name = "maxRetryCount",
         .qualified_name = "test.config.maxRetryCount",
         .file_path = "config.json",
@@ -201,7 +206,8 @@ TEST(configlink_key_symbol_camel_case) {
     cbm_store_upsert_node(s, &cfg_var);
 
     cbm_node_t func = {
-        .project = "test", .label = "Function",
+        .project = "test",
+        .label = "Function",
         .name = "getMaxRetryCount",
         .qualified_name = "test.handler.getMaxRetryCount",
         .file_path = "handler.go",
@@ -210,7 +216,7 @@ TEST(configlink_key_symbol_camel_case) {
 
     cbm_pipeline_pass_configlink(s, "test", NULL);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     ASSERT_TRUE(has_strategy(edges, count, "key_symbol"));
@@ -222,11 +228,12 @@ TEST(configlink_key_symbol_camel_case) {
 /* Go: TestConfigKeySymbol_NoFalsePositive
  * config.toml has url — 1-token key, should not match parseURL */
 TEST(configlink_key_symbol_no_false_positive) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     cbm_node_t cfg_var = {
-        .project = "test", .label = "Variable",
+        .project = "test",
+        .label = "Variable",
         .name = "url",
         .qualified_name = "test.db.url",
         .file_path = "config.toml",
@@ -234,7 +241,8 @@ TEST(configlink_key_symbol_no_false_positive) {
     cbm_store_upsert_node(s, &cfg_var);
 
     cbm_node_t func = {
-        .project = "test", .label = "Function",
+        .project = "test",
+        .label = "Function",
         .name = "parseURL",
         .qualified_name = "test.main.parseURL",
         .file_path = "main.go",
@@ -243,7 +251,7 @@ TEST(configlink_key_symbol_no_false_positive) {
 
     cbm_pipeline_pass_configlink(s, "test", NULL);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     /* url is 1 token → skipped by key_symbol strategy */
@@ -258,12 +266,13 @@ TEST(configlink_key_symbol_no_false_positive) {
 /* Go: TestDependencyImport_PackageJson
  * package.json has express dep, app.js imports express */
 TEST(configlink_dep_import_package_json) {
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
     /* Dependency Variable in package.json */
     cbm_node_t dep_var = {
-        .project = "test", .label = "Variable",
+        .project = "test",
+        .label = "Variable",
         .name = "express",
         .qualified_name = "test.package.dependencies.express",
         .file_path = "package.json",
@@ -272,7 +281,8 @@ TEST(configlink_dep_import_package_json) {
 
     /* Module node for app.js (source of import) */
     cbm_node_t app_mod = {
-        .project = "test", .label = "Module",
+        .project = "test",
+        .label = "Module",
         .name = "app",
         .qualified_name = "test.app",
         .file_path = "app.js",
@@ -281,7 +291,8 @@ TEST(configlink_dep_import_package_json) {
 
     /* Import target node (what 'express' resolves to) */
     cbm_node_t import_target = {
-        .project = "test", .label = "Module",
+        .project = "test",
+        .label = "Module",
         .name = "express",
         .qualified_name = "test.node_modules.express",
         .file_path = "node_modules/express/index.js",
@@ -299,7 +310,7 @@ TEST(configlink_dep_import_package_json) {
 
     cbm_pipeline_pass_configlink(s, "test", NULL);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, "test", "CONFIGURES", &edges, &count);
     /* Should find dependency_import edge linking app.js to package.json dep */
@@ -326,7 +337,7 @@ TEST(configlink_file_ref_exact_path) {
 
     char cfg_path[512];
     snprintf(cfg_path, sizeof(cfg_path), "%s/config/database.toml", tmpdir);
-    FILE* f = fopen(cfg_path, "w");
+    FILE *f = fopen(cfg_path, "w");
     fprintf(f, "[database]\nhost = \"localhost\"\n");
     fclose(f);
 
@@ -340,20 +351,21 @@ TEST(configlink_file_ref_exact_path) {
     fclose(f);
 
     /* Derive project name like the pipeline does */
-    char* project = cbm_project_name_from_path(tmpdir);
+    char *project = cbm_project_name_from_path(tmpdir);
 
     /* Set up store */
-    cbm_store_t* s = cbm_store_open_memory();
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, project, tmpdir);
 
     /* Config Module node */
     char cfg_mod_qn[256];
-    char* tmp_qn = cbm_pipeline_fqn_module(project, "config/database.toml");
+    char *tmp_qn = cbm_pipeline_fqn_module(project, "config/database.toml");
     snprintf(cfg_mod_qn, sizeof(cfg_mod_qn), "%s", tmp_qn);
     free(tmp_qn);
 
     cbm_node_t cfg_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "database",
         .qualified_name = cfg_mod_qn,
         .file_path = "config/database.toml",
@@ -367,7 +379,8 @@ TEST(configlink_file_ref_exact_path) {
     free(tmp_qn);
 
     cbm_node_t main_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "main",
         .qualified_name = main_mod_qn,
         .file_path = "main.go",
@@ -377,7 +390,7 @@ TEST(configlink_file_ref_exact_path) {
     /* Run configlink with repo_path so strategy 3 can read files */
     cbm_pipeline_pass_configlink(s, project, tmpdir);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, project, "CONFIGURES", &edges, &count);
     ASSERT_TRUE(has_strategy(edges, count, "file_reference"));
@@ -399,7 +412,7 @@ TEST(configlink_file_ref_basename_match) {
     /* Create settings.yaml */
     char cfg_path[512];
     snprintf(cfg_path, sizeof(cfg_path), "%s/settings.yaml", tmpdir);
-    FILE* f = fopen(cfg_path, "w");
+    FILE *f = fopen(cfg_path, "w");
     fprintf(f, "database:\n  host: localhost\n");
     fclose(f);
 
@@ -412,14 +425,15 @@ TEST(configlink_file_ref_basename_match) {
                "\t_ = cfg\n}\n");
     fclose(f);
 
-    char* project = cbm_project_name_from_path(tmpdir);
-    cbm_store_t* s = cbm_store_open_memory();
+    char *project = cbm_project_name_from_path(tmpdir);
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, project, tmpdir);
 
     /* Config Module */
-    char* cfg_qn = cbm_pipeline_fqn_module(project, "settings.yaml");
+    char *cfg_qn = cbm_pipeline_fqn_module(project, "settings.yaml");
     cbm_node_t cfg_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "settings",
         .qualified_name = cfg_qn,
         .file_path = "settings.yaml",
@@ -427,9 +441,10 @@ TEST(configlink_file_ref_basename_match) {
     cbm_store_upsert_node(s, &cfg_mod);
 
     /* Source Module */
-    char* main_qn = cbm_pipeline_fqn_module(project, "main.go");
+    char *main_qn = cbm_pipeline_fqn_module(project, "main.go");
     cbm_node_t main_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "main",
         .qualified_name = main_qn,
         .file_path = "main.go",
@@ -438,7 +453,7 @@ TEST(configlink_file_ref_basename_match) {
 
     cbm_pipeline_pass_configlink(s, project, tmpdir);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, project, "CONFIGURES", &edges, &count);
     /* Basename match should produce file_reference edge */
@@ -463,7 +478,7 @@ TEST(configlink_file_ref_no_false_positive) {
     /* Create data.csv */
     char csv_path[512];
     snprintf(csv_path, sizeof(csv_path), "%s/data.csv", tmpdir);
-    FILE* f = fopen(csv_path, "w");
+    FILE *f = fopen(csv_path, "w");
     fprintf(f, "a,b,c\n");
     fclose(f);
 
@@ -476,14 +491,15 @@ TEST(configlink_file_ref_no_false_positive) {
                "\t_ = f\n}\n");
     fclose(f);
 
-    char* project = cbm_project_name_from_path(tmpdir);
-    cbm_store_t* s = cbm_store_open_memory();
+    char *project = cbm_project_name_from_path(tmpdir);
+    cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, project, tmpdir);
 
     /* data.csv Module (NOT a config extension) */
-    char* csv_qn = cbm_pipeline_fqn_module(project, "data.csv");
+    char *csv_qn = cbm_pipeline_fqn_module(project, "data.csv");
     cbm_node_t csv_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "data",
         .qualified_name = csv_qn,
         .file_path = "data.csv",
@@ -491,9 +507,10 @@ TEST(configlink_file_ref_no_false_positive) {
     cbm_store_upsert_node(s, &csv_mod);
 
     /* Source Module */
-    char* main_qn = cbm_pipeline_fqn_module(project, "main.go");
+    char *main_qn = cbm_pipeline_fqn_module(project, "main.go");
     cbm_node_t main_mod = {
-        .project = project, .label = "Module",
+        .project = project,
+        .label = "Module",
         .name = "main",
         .qualified_name = main_qn,
         .file_path = "main.go",
@@ -502,7 +519,7 @@ TEST(configlink_file_ref_no_false_positive) {
 
     cbm_pipeline_pass_configlink(s, project, tmpdir);
 
-    cbm_edge_t* edges = NULL;
+    cbm_edge_t *edges = NULL;
     int count = 0;
     cbm_store_find_edges_by_type(s, project, "CONFIGURES", &edges, &count);
     /* .csv is not a config extension — no file_reference edges */

@@ -1,3 +1,6 @@
+// NOLINTBEGIN(bugprone-command-processor,cert-env33-c) — intentional shell commands for git
+// operations NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity
+// constants
 /*
  * pass_githistory.c — Analyze git log to find change coupling.
  *
@@ -32,25 +35,29 @@ static const char *itoa_log(int val) {
 
 static bool ends_with(const char *s, size_t slen, const char *suffix) {
     size_t sflen = strlen(suffix);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
     return slen >= sflen && strcmp(s + slen - sflen, suffix) == 0;
 }
 
 bool cbm_is_trackable_file(const char *path) {
-    if (!path)
+    if (!path) {
         return false;
+    }
     /* Skip directory prefixes */
     if (strncmp(path, ".git/", 5) == 0 || strncmp(path, "node_modules/", 13) == 0 ||
         strncmp(path, "vendor/", 7) == 0 || strncmp(path, "__pycache__/", 12) == 0 ||
-        strncmp(path, ".cache/", 7) == 0)
+        strncmp(path, ".cache/", 7) == 0) {
         return false;
+    }
     /* Skip lock/generated file names */
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
     if (strcmp(base, "package-lock.json") == 0 || strcmp(base, "yarn.lock") == 0 ||
         strcmp(base, "pnpm-lock.yaml") == 0 || strcmp(base, "Cargo.lock") == 0 ||
         strcmp(base, "poetry.lock") == 0 || strcmp(base, "composer.lock") == 0 ||
-        strcmp(base, "Gemfile.lock") == 0 || strcmp(base, "Pipfile.lock") == 0)
+        strcmp(base, "Gemfile.lock") == 0 || strcmp(base, "Pipfile.lock") == 0) {
         return false;
+    }
     /* Skip non-source file extensions */
     size_t len = strlen(path);
     if (ends_with(path, len, ".lock") || ends_with(path, len, ".sum") ||
@@ -58,8 +65,9 @@ bool cbm_is_trackable_file(const char *path) {
         ends_with(path, len, ".map") || ends_with(path, len, ".wasm") ||
         ends_with(path, len, ".png") || ends_with(path, len, ".jpg") ||
         ends_with(path, len, ".gif") || ends_with(path, len, ".ico") ||
-        ends_with(path, len, ".svg"))
+        ends_with(path, len, ".svg")) {
         return false;
+    }
     return true;
 }
 
@@ -74,14 +82,18 @@ typedef struct {
 static void commit_add_file(commit_t *c, const char *file) {
     if (c->count >= c->cap) {
         c->cap = c->cap ? c->cap * 2 : 16;
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         c->files = safe_realloc(c->files, c->cap * sizeof(char *));
     }
+    // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
     c->files[c->count++] = strdup(file);
 }
 
 static void commit_free(commit_t *c) {
-    for (int i = 0; i < c->count; i++)
+    for (int i = 0; i < c->count; i++) {
         free(c->files[i]);
+    }
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
     free(c->files);
 }
 
@@ -95,9 +107,11 @@ static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) 
              "2>/dev/null",
              repo_path);
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — popen provided by standard header
     FILE *fp = popen(cmd, "r");
-    if (!fp)
+    if (!fp) {
         return -1;
+    }
 
     int cap = 64;
     commit_t *commits = malloc(cap * sizeof(commit_t));
@@ -107,10 +121,12 @@ static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) 
     char line[1024];
     while (fgets(line, sizeof(line), fp)) {
         size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
-        if (len == 0)
+        }
+        if (len == 0) {
             continue;
+        }
 
         if (strncmp(line, "COMMIT:", 7) == 0) {
             if (current.count > 0) {
@@ -138,6 +154,7 @@ static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) 
         commit_free(&current);
     }
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — pclose provided by standard header
     pclose(fp);
     *out = commits;
     *out_count = count;
@@ -145,6 +162,7 @@ static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) 
 }
 
 /* Callback to free hash table entries. */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void free_counter(const char *key, void *val, void *ud) {
     (void)ud;
     free((void *)key);
@@ -161,38 +179,46 @@ typedef struct {
     int max_out;
 } collect_coupling_ctx_t;
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void collect_coupling_cb(const char *pair_key, void *val, void *ud) {
     collect_coupling_ctx_t *cctx = ud;
     int co_count = *(int *)val;
-    if (co_count < 3)
+    if (co_count < 3) {
         return;
-    if (cctx->out_count >= cctx->max_out)
+    }
+    if (cctx->out_count >= cctx->max_out) {
         return;
+    }
 
     const char *sep = strchr(pair_key, '\x01');
-    if (!sep)
+    if (!sep) {
         return;
+    }
     size_t la = sep - pair_key;
     const char *file_b = sep + 1;
 
     char file_a_buf[512];
-    if (la >= sizeof(file_a_buf))
+    if (la >= sizeof(file_a_buf)) {
         return;
+    }
     memcpy(file_a_buf, pair_key, la);
     file_a_buf[la] = '\0';
 
     int *count_a = cbm_ht_get(cctx->file_counts, file_a_buf);
     int *count_b = cbm_ht_get(cctx->file_counts, file_b);
-    if (!count_a || !count_b)
+    if (!count_a || !count_b) {
         return;
+    }
 
     int min_total = *count_a < *count_b ? *count_a : *count_b;
-    if (min_total == 0)
+    if (min_total == 0) {
         return;
+    }
 
     double score = (double)co_count / (double)min_total;
-    if (score < 0.3)
+    if (score < 0.3) {
         return;
+    }
 
     cbm_change_coupling_t *cc = &cctx->out[cctx->out_count++];
     snprintf(cc->file_a, sizeof(cc->file_a), "%s", file_a_buf);
@@ -207,8 +233,9 @@ int cbm_compute_change_coupling(const cbm_commit_files_t *commits, int commit_co
     CBMHashTable *pair_counts = cbm_ht_create(2048);
 
     for (int c = 0; c < commit_count; c++) {
-        if (commits[c].count > 20)
+        if (commits[c].count > 20) {
             continue;
+        }
 
         for (int i = 0; i < commits[c].count; i++) {
             int *val = cbm_ht_get(file_counts, commits[c].files[i]);
@@ -230,7 +257,8 @@ int cbm_compute_change_coupling(const cbm_commit_files_t *commits, int commit_co
                     a = b;
                     b = t;
                 }
-                size_t la = strlen(a), lb = strlen(b);
+                size_t la = strlen(a);
+                size_t lb = strlen(b);
                 char *pk = malloc(la + 1 + lb + 1);
                 memcpy(pk, a, la);
                 pk[la] = '\x01';
@@ -275,38 +303,45 @@ typedef struct {
 } edge_create_ctx_t;
 
 /* Callback: for each pair with count >= 3, create FILE_CHANGES_WITH edge. */
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void create_coupling_edge(const char *pair_key, void *val, void *ud) {
     edge_create_ctx_t *ectx = ud;
     int co_count = *(int *)val;
-    if (co_count < 3)
+    if (co_count < 3) {
         return;
+    }
 
     /* Split pair_key on \x01 separator */
     const char *sep = strchr(pair_key, '\x01');
-    if (!sep)
+    if (!sep) {
         return;
+    }
     size_t la = sep - pair_key;
     const char *file_b = sep + 1;
 
     char file_a_buf[512];
-    if (la >= sizeof(file_a_buf))
+    if (la >= sizeof(file_a_buf)) {
         return;
+    }
     memcpy(file_a_buf, pair_key, la);
     file_a_buf[la] = '\0';
 
     /* Get per-file change counts */
     int *count_a = cbm_ht_get(ectx->file_counts, file_a_buf);
     int *count_b = cbm_ht_get(ectx->file_counts, file_b);
-    if (!count_a || !count_b)
+    if (!count_a || !count_b) {
         return;
+    }
 
     int min_total = *count_a < *count_b ? *count_a : *count_b;
-    if (min_total == 0)
+    if (min_total == 0) {
         return;
+    }
 
     double score = (double)co_count / (double)min_total;
-    if (score < 0.3)
+    if (score < 0.3) {
         return; /* below threshold */
+    }
 
     /* Find File nodes */
     char *qn_a = cbm_pipeline_fqn_compute(ectx->ctx->project_name, file_a_buf, "__file__");
@@ -318,8 +353,9 @@ static void create_coupling_edge(const char *pair_key, void *val, void *ud) {
     free(qn_a);
     free(qn_b);
 
-    if (!node_a || !node_b || node_a->id == node_b->id)
+    if (!node_a || !node_b || node_a->id == node_b->id) {
         return;
+    }
 
     char props[128];
     snprintf(props, sizeof(props), "{\"co_changes\":%d,\"coupling_score\":%.2f}", co_count, score);
@@ -348,8 +384,9 @@ int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx) {
 
     for (int c = 0; c < commit_count; c++) {
         commit_t *cm = &commits[c];
-        if (cm->count > 20)
+        if (cm->count > 20) {
             continue; /* skip large commits */
+        }
 
         for (int i = 0; i < cm->count; i++) {
             int *val = cbm_ht_get(file_counts, cm->files[i]);
@@ -371,7 +408,8 @@ int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx) {
                     a = b;
                     b = t;
                 }
-                size_t la = strlen(a), lb = strlen(b);
+                size_t la = strlen(a);
+                size_t lb = strlen(b);
                 char *pk = malloc(la + 1 + lb + 1);
                 memcpy(pk, a, la);
                 pk[la] = '\x01';
@@ -413,3 +451,6 @@ int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx) {
                  itoa_log(ectx.edge_count));
     return 0;
 }
+
+// NOLINTEND(readability-magic-numbers)
+// NOLINTEND(bugprone-command-processor,cert-env33-c)

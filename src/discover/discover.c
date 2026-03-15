@@ -9,11 +9,13 @@
  *   5. Language detection for accepted files
  */
 #include "discover/discover.h"
+#include "cbm.h" // CBMLanguage, CBM_LANG_COUNT, CBM_LANG_JSON
 
-#include <dirent.h>
+#include <dirent.h> // struct dirent
+#include <stdint.h> // int64_t
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h> // strdup
 #include <sys/stat.h>
 
 /* ── Hardcoded always-skip directories ───────────────────────────── */
@@ -101,8 +103,9 @@ static const char *IGNORED_JSON_FILES[] = {
 
 static bool str_in_list(const char *s, const char *const *list) {
     for (int i = 0; list[i]; i++) {
-        if (strcmp(s, list[i]) == 0)
+        if (strcmp(s, list[i]) == 0) {
             return true;
+        }
     }
     return false;
 }
@@ -112,8 +115,9 @@ static bool str_in_list(const char *s, const char *const *list) {
 static bool ends_with(const char *s, const char *suffix) {
     size_t slen = strlen(s);
     size_t sufflen = strlen(suffix);
-    if (sufflen > slen)
+    if (sufflen > slen) {
         return false;
+    }
     return strcmp(s + slen - sufflen, suffix) == 0;
 }
 
@@ -126,33 +130,39 @@ static bool str_contains(const char *s, const char *sub) {
 /* ── Public filter functions ─────────────────────────────────────── */
 
 bool cbm_should_skip_dir(const char *dirname, cbm_index_mode_t mode) {
-    if (!dirname)
+    if (!dirname) {
         return false;
+    }
 
-    if (str_in_list(dirname, ALWAYS_SKIP_DIRS))
+    if (str_in_list(dirname, ALWAYS_SKIP_DIRS)) {
         return true;
+    }
 
     if (mode == CBM_MODE_FAST) {
-        if (str_in_list(dirname, FAST_SKIP_DIRS))
+        if (str_in_list(dirname, FAST_SKIP_DIRS)) {
             return true;
+        }
     }
 
     return false;
 }
 
 bool cbm_has_ignored_suffix(const char *filename, cbm_index_mode_t mode) {
-    if (!filename)
+    if (!filename) {
         return false;
+    }
 
     for (int i = 0; ALWAYS_IGNORED_SUFFIXES[i]; i++) {
-        if (ends_with(filename, ALWAYS_IGNORED_SUFFIXES[i]))
+        if (ends_with(filename, ALWAYS_IGNORED_SUFFIXES[i])) {
             return true;
+        }
     }
 
     if (mode == CBM_MODE_FAST) {
         for (int i = 0; FAST_IGNORED_SUFFIXES[i]; i++) {
-            if (ends_with(filename, FAST_IGNORED_SUFFIXES[i]))
+            if (ends_with(filename, FAST_IGNORED_SUFFIXES[i])) {
                 return true;
+            }
         }
     }
 
@@ -160,24 +170,28 @@ bool cbm_has_ignored_suffix(const char *filename, cbm_index_mode_t mode) {
 }
 
 bool cbm_should_skip_filename(const char *filename, cbm_index_mode_t mode) {
-    if (!filename)
+    if (!filename) {
         return false;
+    }
 
     if (mode == CBM_MODE_FAST) {
-        if (str_in_list(filename, FAST_SKIP_FILENAMES))
+        if (str_in_list(filename, FAST_SKIP_FILENAMES)) {
             return true;
+        }
     }
 
     return false;
 }
 
 bool cbm_matches_fast_pattern(const char *filename, cbm_index_mode_t mode) {
-    if (!filename || mode != CBM_MODE_FAST)
+    if (!filename || mode != CBM_MODE_FAST) {
         return false;
+    }
 
     for (int i = 0; FAST_PATTERNS[i]; i++) {
-        if (str_contains(filename, FAST_PATTERNS[i]))
+        if (str_contains(filename, FAST_PATTERNS[i])) {
             return true;
+        }
     }
 
     return false;
@@ -191,18 +205,21 @@ typedef struct {
     int capacity;
 } file_list_t;
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void fl_add(file_list_t *fl, const char *abs_path, const char *rel_path, CBMLanguage lang,
                    int64_t size) {
     if (fl->count >= fl->capacity) {
         int new_cap = fl->capacity ? fl->capacity * 2 : 256;
         cbm_file_info_t *new_files = realloc(fl->files, new_cap * sizeof(cbm_file_info_t));
-        if (!new_files)
+        if (!new_files) {
             return;
+        }
         fl->files = new_files;
         fl->capacity = new_cap;
     }
 
     cbm_file_info_t *fi = &fl->files[fl->count++];
+    // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
     fi->path = strdup(abs_path);
     fi->rel_path = strdup(rel_path);
     fi->language = lang;
@@ -211,14 +228,18 @@ static void fl_add(file_list_t *fl, const char *abs_path, const char *rel_path, 
 
 /* ── Recursive walk ──────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,misc-no-recursion)
 static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_discover_opts_t *opts,
                      const cbm_gitignore_t *gitignore, const cbm_gitignore_t *cbmignore,
                      file_list_t *out) {
     DIR *d = opendir(dir_path);
-    if (!d)
+    if (!d) {
         return;
+    }
 
+    // NOLINTNEXTLINE(misc-include-cleaner) — dirent provided by standard header
     struct dirent *entry;
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) — single-threaded directory walk
     while ((entry = readdir(d)) != NULL) {
         /* Skip . and .. */
         if (entry->d_name[0] == '.' &&
@@ -237,12 +258,14 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
         }
 
         struct stat st;
-        if (lstat(abs_path, &st) != 0)
+        if (lstat(abs_path, &st) != 0) {
             continue;
+        }
 
         /* Skip symlinks */
-        if (S_ISLNK(st.st_mode))
+        if (S_ISLNK(st.st_mode)) {
             continue;
+        }
 
         if (S_ISDIR(st.st_mode)) {
             /* Check hardcoded directory skip */
@@ -322,16 +345,18 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
 
 int cbm_discover(const char *repo_path, const cbm_discover_opts_t *opts, cbm_file_info_t **out,
                  int *count) {
-    if (!repo_path || !out || !count)
+    if (!repo_path || !out || !count) {
         return -1;
+    }
 
     *out = NULL;
     *count = 0;
 
     /* Verify directory exists */
     struct stat st;
-    if (stat(repo_path, &st) != 0 || !S_ISDIR(st.st_mode))
+    if (stat(repo_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
         return -1;
+    }
 
     /* Load gitignore if .git directory exists */
     cbm_gitignore_t *gitignore = NULL;
@@ -366,8 +391,9 @@ int cbm_discover(const char *repo_path, const cbm_discover_opts_t *opts, cbm_fil
 }
 
 void cbm_discover_free(cbm_file_info_t *files, int count) {
-    if (!files)
+    if (!files) {
         return;
+    }
     for (int i = 0; i < count; i++) {
         free(files[i].path);
         free(files[i].rel_path);
