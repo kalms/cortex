@@ -25,12 +25,11 @@
 #include "pipeline/httplink.h"
 #include "cbm.h"
 
+#include <stdatomic.h>
 #include <stdint.h>
-#include <_time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
 #include <time.h>
 
 static uint64_t extract_now_ns(void) {
