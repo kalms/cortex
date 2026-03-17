@@ -1,4 +1,3 @@
-// NOLINTBEGIN(cert-err33-c) — best-effort file reading, errors handled by caller
 
 /*
  * gitignore.c — Gitignore-style pattern matching.
@@ -281,25 +280,25 @@ cbm_gitignore_t *cbm_gitignore_load(const char *path) {
     }
 
     /* Read entire file */
-    fseek(f, 0, SEEK_END);
+    (void)fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    (void)fseek(f, 0, SEEK_SET);
 
     if (size <= 0) {
-        fclose(f);
+        (void)fclose(f);
         return cbm_gitignore_parse("");
     }
 
     char *buf = malloc(size + 1);
     if (!buf) {
-        fclose(f);
+        (void)fclose(f);
         return NULL;
     }
 
     size_t n = fread(buf, 1, size, f);
     // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[n] = '\0';
-    fclose(f);
+    (void)fclose(f);
 
     cbm_gitignore_t *gi = cbm_gitignore_parse(buf);
     free(buf);
@@ -374,5 +373,3 @@ void cbm_gitignore_free(cbm_gitignore_t *gi) {
     free(gi->patterns);
     free(gi);
 }
-
-// NOLINTEND(cert-err33-c)

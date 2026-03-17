@@ -45,6 +45,8 @@ extern void suite_cli(void);
 extern void suite_system_info(void);
 extern void suite_worker_pool(void);
 extern void suite_parallel(void);
+extern void suite_mem(void);
+extern void suite_ui(void);
 extern void suite_integration(void);
 
 int main(void) {
@@ -121,6 +123,12 @@ int main(void) {
 
     /* Parallel pipeline */
     RUN_SUITE(parallel);
+
+    /* mem + arena + slab integration */
+    RUN_SUITE(mem);
+
+    /* UI (config, embedded assets, layout) */
+    RUN_SUITE(ui);
 
     /* Integration (end-to-end) */
     RUN_SUITE(integration);

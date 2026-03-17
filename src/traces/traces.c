@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * traces.c — OTLP trace processing helpers.
  */
@@ -131,11 +130,10 @@ int64_t cbm_calculate_p99(int64_t *values, int count) {
         return 0;
     }
     qsort(values, count, sizeof(int64_t), cmp_int64);
-    int idx = (int)((double)count * 0.99);
+#define P99_PERCENTILE 0.99
+    int idx = (int)((double)count * P99_PERCENTILE);
     if (idx >= count) {
         idx = count - 1;
     }
     return values[idx];
 }
-
-// NOLINTEND(readability-magic-numbers)

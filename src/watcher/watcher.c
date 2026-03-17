@@ -4,9 +4,6 @@
  * Strategy: git status + HEAD tracking (the most reliable approach).
  * For non-git projects, the watcher skips polling (no fsnotify/dirmtime yet).
  *
- * NOLINTBEGIN(readability-magic-numbers) — poll intervals, buffer sizes, and git command limits
- * NOLINTBEGIN(bugprone-command-processor,cert-env33-c) — intentional popen for git status/rev-parse
- * NOLINTBEGIN(concurrency-mt-unsafe) — single-threaded watcher loop
  *
  * Per-project state tracks:
  *   - Last git HEAD hash (detects commits, checkout, pull)
@@ -20,13 +17,14 @@
 #include "store/store.h"
 #include "foundation/log.h"
 #include "foundation/hash_table.h"
+#include "foundation/compat.h"
+#include "foundation/compat_fs.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <stdatomic.h>
-#include <unistd.h>
 #include <sys/stat.h>
 
 /* ── Per-project state ──────────────────────────────────────────── */
@@ -53,21 +51,35 @@ struct cbm_watcher {
     atomic_int stopped;
 };
 
+/* ── Constants ─────────────────────────────────────────────────── */
+
+/* Time unit conversions */
+#define NS_PER_SEC 1000000000LL
+#define US_PER_MS 1000000LL
+
+/* Adaptive poll interval parameters (ms) */
+#define POLL_BASE_MS 5000
+#define POLL_FILE_STEP 500 /* add 1s per this many files */
+#define POLL_MAX_MS 60000
+
+/* Sleep chunk for responsive shutdown (ms) */
+#define SLEEP_CHUNK_MS 500
+
 /* ── Time helper ────────────────────────────────────────────────── */
 
 static int64_t now_ns(void) {
     struct timespec ts;
     // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((int64_t)ts.tv_sec * 1000000000LL) + ts.tv_nsec;
+    return ((int64_t)ts.tv_sec * NS_PER_SEC) + ts.tv_nsec;
 }
 
 /* ── Adaptive interval ──────────────────────────────────────────── */
 
 int cbm_watcher_poll_interval_ms(int file_count) {
-    int ms = 5000 + ((file_count / 500) * 1000);
-    if (ms > 60000) {
-        ms = 60000;
+    int ms = POLL_BASE_MS + ((file_count / POLL_FILE_STEP) * 1000);
+    if (ms > POLL_MAX_MS) {
+        ms = POLL_MAX_MS;
     }
     return ms;
 }
@@ -77,14 +89,15 @@ int cbm_watcher_poll_interval_ms(int file_count) {
 static bool is_git_repo(const char *root_path) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "git -C '%s' rev-parse --git-dir >/dev/null 2>&1", root_path);
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c,concurrency-mt-unsafe)
     return system(cmd) == 0;
 }
 
 static int git_head(const char *root_path, char *out, size_t out_size) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "git -C '%s' rev-parse HEAD 2>/dev/null", root_path);
-    // NOLINTNEXTLINE(misc-include-cleaner) — popen provided by standard header
-    FILE *fp = popen(cmd, "r");
+    // NOLINTNEXTLINE(misc-include-cleaner,bugprone-command-processor,cert-env33-c)
+    FILE *fp = cbm_popen(cmd, "r");
     if (!fp) {
         return -1;
     }
@@ -94,11 +107,10 @@ static int git_head(const char *root_path, char *out, size_t out_size) {
         while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r')) {
             out[--len] = '\0';
         }
-        // NOLINTNEXTLINE(misc-include-cleaner) — pclose provided by standard header
-        pclose(fp);
+        cbm_pclose(fp);
         return 0;
     }
-    pclose(fp);
+    cbm_pclose(fp);
     return -1;
 }
 
@@ -109,7 +121,8 @@ static bool git_is_dirty(const char *root_path) {
              "git --no-optional-locks -C '%s' status --porcelain "
              "--untracked-files=normal 2>/dev/null",
              root_path);
-    FILE *fp = popen(cmd, "r");
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
+    FILE *fp = cbm_popen(cmd, "r");
     if (!fp) {
         return false;
     }
@@ -126,7 +139,7 @@ static bool git_is_dirty(const char *root_path) {
             dirty = true;
         }
     }
-    pclose(fp);
+    cbm_pclose(fp);
     return dirty;
 }
 
@@ -134,7 +147,8 @@ static bool git_is_dirty(const char *root_path) {
 static int git_file_count(const char *root_path) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "git -C '%s' ls-files 2>/dev/null | wc -l", root_path);
-    FILE *fp = popen(cmd, "r");
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
+    FILE *fp = cbm_popen(cmd, "r");
     if (!fp) {
         return 0;
     }
@@ -144,7 +158,7 @@ static int git_file_count(const char *root_path) {
     if (fgets(line, sizeof(line), fp)) {
         count = (int)strtol(line, NULL, 10);
     }
-    pclose(fp);
+    cbm_pclose(fp);
     return count;
 }
 
@@ -158,7 +172,7 @@ static project_state_t *state_new(const char *name, const char *root_path) {
     // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
     s->project_name = strdup(name);
     s->root_path = strdup(root_path);
-    s->interval_ms = 5000; /* default */
+    s->interval_ms = POLL_BASE_MS;
     return s;
 }
 
@@ -277,7 +291,7 @@ static void init_baseline(project_state_t *s) {
         cbm_log_info("watcher.baseline", "project", s->project_name, "strategy", "none");
     }
 
-    s->next_poll_ns = now_ns() + ((int64_t)s->interval_ms * 1000000LL);
+    s->next_poll_ns = now_ns() + ((int64_t)s->interval_ms * US_PER_MS);
 }
 
 /* Check if a project has changes. Returns true if reindex needed. */
@@ -336,7 +350,7 @@ static void poll_project(const char *key, void *val, void *ud) {
     /* Check for changes */
     bool changed = check_changes(s);
     if (!changed) {
-        s->next_poll_ns = ctx->now + ((int64_t)s->interval_ms * 1000000LL);
+        s->next_poll_ns = ctx->now + ((int64_t)s->interval_ms * US_PER_MS);
         return;
     }
 
@@ -356,7 +370,7 @@ static void poll_project(const char *key, void *val, void *ud) {
         }
     }
 
-    s->next_poll_ns = ctx->now + ((int64_t)s->interval_ms * 1000000LL);
+    s->next_poll_ns = ctx->now + ((int64_t)s->interval_ms * US_PER_MS);
 }
 
 int cbm_watcher_poll_once(cbm_watcher_t *w) {
@@ -386,7 +400,7 @@ int cbm_watcher_run(cbm_watcher_t *w, int base_interval_ms) {
         return -1;
     }
     if (base_interval_ms <= 0) {
-        base_interval_ms = 5000;
+        base_interval_ms = POLL_BASE_MS;
     }
 
     cbm_log_info("watcher.start", "interval_ms", base_interval_ms > 999 ? "multi-sec" : "fast");
@@ -398,10 +412,10 @@ int cbm_watcher_run(cbm_watcher_t *w, int base_interval_ms) {
         int slept = 0;
         while (slept < base_interval_ms && !atomic_load(&w->stopped)) {
             int chunk = base_interval_ms - slept;
-            if (chunk > 500) {
-                chunk = 500;
+            if (chunk > SLEEP_CHUNK_MS) {
+                chunk = SLEEP_CHUNK_MS;
             }
-            usleep(chunk * 1000);
+            cbm_usleep((unsigned)chunk * 1000);
             slept += chunk;
         }
     }
@@ -409,7 +423,3 @@ int cbm_watcher_run(cbm_watcher_t *w, int base_interval_ms) {
     cbm_log_info("watcher.stop");
     return 0;
 }
-
-// NOLINTEND(concurrency-mt-unsafe)
-// NOLINTEND(bugprone-command-processor,cert-env33-c)
-// NOLINTEND(readability-magic-numbers)

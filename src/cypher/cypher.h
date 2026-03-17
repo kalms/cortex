@@ -37,6 +37,63 @@ typedef enum {
     TOK_NOT,
     TOK_ASC,
     TOK_DESC,
+    TOK_NEQ,  /* <> or != */
+    TOK_ENDS, /* ENDS (as in ENDS WITH) */
+    TOK_IN,
+    TOK_IS,
+    TOK_NULL_KW, /* NULL keyword */
+    TOK_XOR,
+    TOK_SKIP,
+    TOK_UNION,
+    TOK_UNWIND,
+
+    /* Aggregate functions */
+    TOK_SUM,
+    TOK_AVG,
+    TOK_MIN_KW,
+    TOK_MAX_KW,
+    TOK_COLLECT,
+
+    /* String functions — recognized as keywords */
+    TOK_TOLOWER,
+    TOK_TOUPPER,
+    TOK_TOSTRING,
+
+    /* CASE expression */
+    TOK_CASE,
+    TOK_WHEN,
+    TOK_THEN,
+    TOK_ELSE,
+    TOK_END,
+
+    /* Recognized-but-unsupported write/admin keywords */
+    TOK_CREATE,
+    TOK_DELETE,
+    TOK_DETACH,
+    TOK_SET,
+    TOK_REMOVE,
+    TOK_MERGE,
+    TOK_OPTIONAL,
+    TOK_YIELD,
+    TOK_CALL,
+    TOK_ALL,
+    TOK_TRUE,
+    TOK_FALSE,
+    TOK_EXISTS,
+    TOK_MANDATORY,
+    TOK_FOREACH,
+    TOK_ON,
+    TOK_ADD,
+    TOK_CONSTRAINT,
+    TOK_DO,
+    TOK_DROP,
+    TOK_FOR,
+    TOK_FROM,
+    TOK_GRAPH,
+    TOK_OF,
+    TOK_REQUIRE,
+    TOK_SCALAR,
+    TOK_UNIQUE,
 
     /* Symbols */
     TOK_LPAREN,
@@ -128,39 +185,91 @@ typedef struct {
 typedef struct {
     const char *variable;
     const char *property;
-    const char *op; /* "=", "=~", "CONTAINS", "STARTS WITH", ">", "<", ">=", "<=" */
+    const char *op; /* "=", "<>", "=~", "CONTAINS", "STARTS WITH", "ENDS WITH",
+                       ">", "<", ">=", "<=", "IN", "IS NULL", "IS NOT NULL" */
     const char *value;
+    bool negated;           /* NOT prefix */
+    const char **in_values; /* IN [...] list */
+    int in_value_count;
 } cbm_condition_t;
 
+/* Expression tree for WHERE clause */
+typedef enum {
+    EXPR_CONDITION, /* leaf: single condition */
+    EXPR_AND,
+    EXPR_OR,
+    EXPR_NOT,
+    EXPR_XOR
+} cbm_expr_type_t;
+
+typedef struct cbm_expr cbm_expr_t;
+struct cbm_expr {
+    cbm_expr_type_t type;
+    cbm_condition_t cond; /* leaf (EXPR_CONDITION only) */
+    cbm_expr_t *left;     /* AND/OR/XOR left; NOT child */
+    cbm_expr_t *right;    /* AND/OR/XOR right; NULL for NOT */
+};
+
 typedef struct {
+    cbm_expr_t *root; /* expression tree (NULL = use legacy conditions) */
+    /* Legacy flat model — kept during migration, removed after Phase 2 */
     cbm_condition_t *conditions;
     int count;
     const char *op; /* "AND" or "OR" */
 } cbm_where_clause_t;
 
+/* CASE expression: CASE WHEN expr THEN val [ELSE val] END */
+typedef struct {
+    cbm_expr_t *when_expr; /* condition */
+    const char *then_val;  /* result if true */
+} cbm_case_branch_t;
+
+typedef struct {
+    cbm_case_branch_t *branches;
+    int branch_count;
+    const char *else_val; /* NULL if no ELSE */
+} cbm_case_expr_t;
+
 /* RETURN item */
 typedef struct {
     const char *variable;
-    const char *property; /* NULL for whole node */
-    const char *alias;    /* NULL if no alias */
-    const char *func;     /* "COUNT" or NULL */
+    const char *property;  /* NULL for whole node */
+    const char *alias;     /* NULL if no alias */
+    const char *func;      /* "COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT",
+                              "toLower", "toUpper", "toString" or NULL */
+    cbm_case_expr_t *kase; /* CASE expression (NULL if not CASE) */
 } cbm_return_item_t;
 
 typedef struct {
     cbm_return_item_t *items;
     int count;
     bool distinct;
+    bool star;             /* RETURN * */
     const char *order_by;  /* "variable.property" or "COUNT(var)" or alias */
     const char *order_dir; /* "ASC" or "DESC", NULL = default */
+    int skip;              /* SKIP N, 0 = none */
     int limit;             /* 0 = default */
 } cbm_return_clause_t;
 
 /* Full query AST */
-typedef struct {
-    cbm_pattern_t pattern;
-    cbm_where_clause_t *where; /* NULL if no WHERE */
-    cbm_return_clause_t *ret;  /* NULL if no RETURN */
-} cbm_query_t;
+typedef struct cbm_query cbm_query_t;
+struct cbm_query {
+    cbm_pattern_t *patterns; /* array of patterns (first = main MATCH) */
+    int pattern_count;
+    bool *pattern_optional;              /* pattern_optional[i] = true → OPTIONAL MATCH */
+    cbm_where_clause_t *where;           /* NULL if no WHERE */
+    cbm_return_clause_t *with_clause;    /* WITH clause (NULL if none) */
+    cbm_where_clause_t *post_with_where; /* WHERE after WITH */
+    cbm_return_clause_t *ret;            /* NULL if no RETURN */
+    cbm_query_t *union_next;             /* next query in UNION chain (NULL if none) */
+    bool union_all;                      /* true = UNION ALL, false = UNION */
+    /* UNWIND expr AS var */
+    const char *unwind_expr;  /* expression (literal list or var ref) */
+    const char *unwind_alias; /* variable name */
+};
+
+/* Convenience: access first pattern (backwards compat) */
+#define cbm_query_pattern(q) ((q)->patterns[0])
 
 /* ── Parser ─────────────────────────────────────────────────────── */
 
@@ -182,11 +291,14 @@ typedef struct {
     /* rows[row_idx][col_idx] = string value */
     const char ***rows;
     int row_count;
+    /* Non-NULL when the query was rejected (e.g. result too large) */
+    char *error;
 } cbm_cypher_result_t;
 
 /* Execute a Cypher query against a store.
- * max_rows: limit on output rows (0 = default 200).
- * project: project name filter (NULL = all projects). */
+ * max_rows: limit on output rows (0 = use virtual ceiling of 100k).
+ * project: project name filter (NULL = all projects).
+ * Returns -1 on error (check out->error for message). */
 int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *project, int max_rows,
                        cbm_cypher_result_t *out);
 

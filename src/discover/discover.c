@@ -11,7 +11,7 @@
 #include "discover/discover.h"
 #include "cbm.h" // CBMLanguage, CBM_LANG_COUNT, CBM_LANG_JSON
 
-#include <dirent.h> // struct dirent
+#include "foundation/compat_fs.h"
 #include <stdint.h> // int64_t
 #include <stdio.h>
 #include <stdlib.h>
@@ -232,29 +232,22 @@ static void fl_add(file_list_t *fl, const char *abs_path, const char *rel_path, 
 static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_discover_opts_t *opts,
                      const cbm_gitignore_t *gitignore, const cbm_gitignore_t *cbmignore,
                      file_list_t *out) {
-    DIR *d = opendir(dir_path);
+    cbm_dir_t *d = cbm_opendir(dir_path);
     if (!d) {
         return;
     }
 
-    // NOLINTNEXTLINE(misc-include-cleaner) — dirent provided by standard header
-    struct dirent *entry;
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) — single-threaded directory walk
-    while ((entry = readdir(d)) != NULL) {
-        /* Skip . and .. */
-        if (entry->d_name[0] == '.' &&
-            (entry->d_name[1] == '\0' || (entry->d_name[1] == '.' && entry->d_name[2] == '\0'))) {
-            continue;
-        }
+    cbm_dirent_t *entry;
+    while ((entry = cbm_readdir(d)) != NULL) {
 
         /* Build full and relative paths */
         char abs_path[4096];
         char rel_path[4096];
-        snprintf(abs_path, sizeof(abs_path), "%s/%s", dir_path, entry->d_name);
+        snprintf(abs_path, sizeof(abs_path), "%s/%s", dir_path, entry->name);
         if (rel_prefix[0]) {
-            snprintf(rel_path, sizeof(rel_path), "%s/%s", rel_prefix, entry->d_name);
+            snprintf(rel_path, sizeof(rel_path), "%s/%s", rel_prefix, entry->name);
         } else {
-            snprintf(rel_path, sizeof(rel_path), "%s", entry->d_name);
+            snprintf(rel_path, sizeof(rel_path), "%s", entry->name);
         }
 
         struct stat st;
@@ -269,7 +262,7 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
 
         if (S_ISDIR(st.st_mode)) {
             /* Check hardcoded directory skip */
-            if (cbm_should_skip_dir(entry->d_name, opts ? opts->mode : CBM_MODE_FULL)) {
+            if (cbm_should_skip_dir(entry->name, opts ? opts->mode : CBM_MODE_FULL)) {
                 continue;
             }
 
@@ -287,17 +280,17 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
             cbm_index_mode_t mode = opts ? opts->mode : CBM_MODE_FULL;
 
             /* Check suffix filter */
-            if (cbm_has_ignored_suffix(entry->d_name, mode)) {
+            if (cbm_has_ignored_suffix(entry->name, mode)) {
                 continue;
             }
 
             /* Check fast-mode filename skip */
-            if (cbm_should_skip_filename(entry->d_name, mode)) {
+            if (cbm_should_skip_filename(entry->name, mode)) {
                 continue;
             }
 
             /* Check fast-mode patterns */
-            if (cbm_matches_fast_pattern(entry->d_name, mode)) {
+            if (cbm_matches_fast_pattern(entry->name, mode)) {
                 continue;
             }
 
@@ -315,7 +308,7 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
             }
 
             /* Detect language */
-            CBMLanguage lang = cbm_language_for_filename(entry->d_name);
+            CBMLanguage lang = cbm_language_for_filename(entry->name);
 
             /* Handle .m disambiguation */
             if (lang == CBM_LANG_COUNT) {
@@ -324,13 +317,13 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
             }
 
             /* Special: .m files need content-based disambiguation */
-            const char *dot = strrchr(entry->d_name, '.');
+            const char *dot = strrchr(entry->name, '.');
             if (dot && strcmp(dot, ".m") == 0) {
                 lang = cbm_disambiguate_m(abs_path);
             }
 
             /* Check ignored JSON files */
-            if (lang == CBM_LANG_JSON && str_in_list(entry->d_name, IGNORED_JSON_FILES)) {
+            if (lang == CBM_LANG_JSON && str_in_list(entry->name, IGNORED_JSON_FILES)) {
                 continue;
             }
 
@@ -338,7 +331,7 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
         }
     }
 
-    closedir(d);
+    cbm_closedir(d);
 }
 
 /* ── Public API ──────────────────────────────────────────────────── */

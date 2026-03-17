@@ -1,4 +1,3 @@
-// NOLINTBEGIN(performance-no-int-to-ptr) — sentinel value, not a real pointer
 /*
  * pass_enrichment.c — Decorator tokenization, camelCase splitting,
  * and decorator_tags pass (post-flush enrichment).
@@ -8,7 +7,7 @@
  */
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
-#include "store/store.h"
+#include "graph_buffer/graph_buffer.h"
 #include "foundation/log.h"
 #include "foundation/hash_table.h"
 #include "foundation/platform.h"
@@ -282,8 +281,8 @@ static int cmp_str(const void *a, const void *b) {
     return strcmp(*(const char **)a, *(const char **)b);
 }
 
-int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
-    if (!store || !project) {
+int cbm_pipeline_pass_decorator_tags(cbm_gbuf_t *gbuf, const char *project) {
+    if (!gbuf || !project) {
         return 0;
     }
 
@@ -297,16 +296,16 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
     CBMHashTable *word_counts = cbm_ht_create(128);
 
     for (int l = 0; l < nlabels; l++) {
-        cbm_node_t *found = NULL;
+        const cbm_gbuf_node_t **found = NULL;
         int fc = 0;
-        cbm_store_find_nodes_by_label(store, project, labels[l], &found, &fc);
+        cbm_gbuf_find_by_label(gbuf, labels[l], &found, &fc);
         if (!found || fc <= 0) {
             continue;
         }
 
         for (int i = 0; i < fc; i++) {
             char **words = NULL;
-            int wc = extract_decorator_words(found[i].properties_json, &words);
+            int wc = extract_decorator_words(found[i]->properties_json, &words);
             if (wc <= 0) {
                 continue;
             }
@@ -318,8 +317,9 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
             }
 
             tagged_node_t *tn = &nodes[node_count++];
-            tn->node_id = found[i].id;
-            tn->qualified_name = strdup(found[i].qualified_name);
+            tn->node_id = found[i]->id;
+            // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
+            tn->qualified_name = strdup(found[i]->qualified_name);
             tn->words = words;
             tn->word_count = wc;
 
@@ -327,11 +327,11 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
             for (int w = 0; w < wc; w++) {
                 // NOLINTNEXTLINE(misc-include-cleaner) — intptr_t provided by standard header
                 intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, words[w]);
+                // NOLINTNEXTLINE(performance-no-int-to-ptr)
                 cbm_ht_set(word_counts, words[w], (void *)(cnt + 1));
             }
         }
-
-        cbm_store_free_nodes(found, fc);
+        /* gbuf data is borrowed — no free needed */
     }
 
     if (node_count == 0) {
@@ -389,31 +389,22 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
         // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
         qsort(tag_words, tag_count, sizeof(char *), cmp_str);
 
-        /* Re-read node from store */
-        cbm_node_t node;
-        memset(&node, 0, sizeof(node));
-        if (cbm_store_find_node_by_qn(store, project, nodes[n].qualified_name, &node) != 0) {
+        /* Look up node in gbuf (borrowed pointer) */
+        const cbm_gbuf_node_t *gn = cbm_gbuf_find_by_qn(gbuf, nodes[n].qualified_name);
+        if (!gn) {
             continue;
         }
 
         /* Inject decorator_tags into properties_json */
-        const char *props = node.properties_json ? node.properties_json : "{}";
+        const char *props = gn->properties_json ? gn->properties_json : "{}";
         char *new_props = inject_decorator_tags(props, tag_words, tag_count);
         if (new_props) {
-            cbm_node_t updated = node;
-            updated.properties_json = new_props;
-            cbm_store_upsert_node(store, &updated);
+            /* Re-upsert with updated properties — gbuf frees old, copies new */
+            cbm_gbuf_upsert_node(gbuf, gn->label, gn->name, gn->qualified_name, gn->file_path,
+                                 gn->start_line, gn->end_line, new_props);
             free(new_props);
             tagged++;
         }
-
-        /* Free node fields (not the node itself — it's on the stack) */
-        free((void *)node.project);
-        free((void *)node.label);
-        free((void *)node.name);
-        free((void *)node.qualified_name);
-        free((void *)node.file_path);
-        free((void *)node.properties_json);
     }
 
     /* Cleanup */
@@ -433,5 +424,3 @@ int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project) {
                  tagged > 0 ? "yes" : "0");
     return tagged;
 }
-
-// NOLINTEND(performance-no-int-to-ptr)

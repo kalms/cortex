@@ -127,6 +127,16 @@ static inline const char *tf_reset(void) {
         }                                                                                 \
     } while (0)
 
+#define ASSERT_LTE(a, b)                                                                   \
+    do {                                                                                   \
+        long long _a = (long long)(a), _b = (long long)(b);                                \
+        if (_a > _b) {                                                                     \
+            printf("  %sFAIL%s %s:%d: %s (%lld) not <= %s (%lld)\n", tf_red(), tf_reset(), \
+                   __FILE__, __LINE__, #a, _a, #b, _b);                                    \
+            return 1;                                                                      \
+        }                                                                                  \
+    } while (0)
+
 #define ASSERT_STR_EQ(a, b)                                                                \
     do {                                                                                   \
         const char *_a = (a), *_b = (b);                                                   \

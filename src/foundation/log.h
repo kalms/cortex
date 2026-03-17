@@ -49,4 +49,8 @@ void cbm_log(CBMLogLevel level, const char *msg, ...);
 /* Log with integer value (avoids sprintf for common case). */
 void cbm_log_int(CBMLogLevel level, const char *msg, const char *key, int64_t value);
 
+/* Optional log sink callback — called with the formatted log line. */
+typedef void (*cbm_log_sink_fn)(const char *line);
+void cbm_log_set_sink(cbm_log_sink_fn fn);
+
 #endif /* CBM_LOG_H */

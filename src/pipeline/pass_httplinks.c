@@ -1,5 +1,3 @@
-// NOLINTBEGIN(cert-err33-c) — snprintf truncation is acceptable for route path normalization
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes and route path length limits
 
 /*
  * pass_httplinks.c — HTTP route discovery and cross-service linking.
@@ -23,26 +21,74 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
 #include "pipeline/httplink.h"
+#include "pipeline/worker_pool.h"
 #include "graph_buffer/graph_buffer.h"
+// NOLINTNEXTLINE(misc-include-cleaner) — platform.h included for worker count
+#include "foundation/platform.h"
 #include "foundation/log.h"
+#include "foundation/compat.h"
+#include "foundation/compat_regex.h"
 
 #include "yyjson/yyjson.h"
 
 #include <ctype.h>
-#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
+
+/* ── Constants ────────────────────────────────────────────────── */
+#define DOTTED_FRAG_BUF 260      /* buffer for slash-to-dot path conversion */
+#define MIN_PATH_CONFIDENCE 0.25 /* minimum score to create HTTP_CALLS edge */
+#define MODULE_WEIGHT 0.85       /* confidence weight for Module-sourced calls */
 
 /* ── Format int to string for logging ──────────────────────────── */
 
 static const char *itoa_hl(int val) {
-    static char bufs[4][32];
-    static int idx = 0;
+    static CBM_TLS char bufs[4][32];
+    static CBM_TLS int idx = 0;
     int i = idx;
     idx = (idx + 1) & 3;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
     return bufs[i];
+}
+
+/* ── Source cache helpers ──────────────────────────────────────── */
+
+/* Read source lines from disk (used for route discovery which processes
+ * few files filtered by language extension). */
+static char *read_source_lines(const cbm_pipeline_ctx_t *ctx, const char *rel_path, int start_line,
+                               int end_line) {
+    return cbm_read_source_lines_disk(ctx->repo_path, rel_path, start_line, end_line);
+}
+
+/* Read full source file, using cache if available. Returns malloc'd copy (caller must free). */
+/* Read full source from disk (used for module route discovery — few files,
+ * filtered by .php/.js extension). */
+static char *read_full_source(const cbm_pipeline_ctx_t *ctx, const char *rel_path) {
+    char path_buf[2048];
+    snprintf(path_buf, sizeof(path_buf), "%s/%s", ctx->repo_path, rel_path);
+    FILE *f = fopen(path_buf, "rb");
+    if (!f) {
+        return NULL;
+    }
+    (void)fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    (void)fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > (long)10 * 1024 * 1024) {
+        (void)fclose(f);
+        return NULL;
+    }
+    char *source = malloc((size_t)sz + 1);
+    if (!source) {
+        (void)fclose(f);
+        return NULL;
+    }
+    size_t nread = fread(source, 1, (size_t)sz, f);
+    (void)fclose(f);
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
+    source[nread] = '\0';
+    return source;
 }
 
 /* ── JSON helpers ──────────────────────────────────────────────── */
@@ -192,7 +238,7 @@ static bool is_jsts_file(const char *path) {
 #define MAX_CALL_SITES 4096
 
 /* Discover routes from a single Function/Method node. */
-static int discover_node_routes(const cbm_gbuf_node_t *n, const char *repo_path,
+static int discover_node_routes(const cbm_gbuf_node_t *n, const cbm_pipeline_ctx_t *ctx,
                                 cbm_route_handler_t *out, int max_out) {
     int total = 0;
 
@@ -216,8 +262,7 @@ static int discover_node_routes(const cbm_gbuf_node_t *n, const char *repo_path,
 
     /* 2. Source-based routes (Go gin/chi, Express, Laravel, Ktor) */
     if (n->file_path && n->start_line > 0 && n->end_line > 0 && total < max_out) {
-        char *source =
-            cbm_read_source_lines_disk(repo_path, n->file_path, n->start_line, n->end_line);
+        char *source = read_source_lines(ctx, n->file_path, n->start_line, n->end_line);
         if (source) {
             int nr = cbm_extract_go_routes(n->name, n->qualified_name, source, out + total,
                                            max_out - total);
@@ -243,7 +288,7 @@ static int discover_node_routes(const cbm_gbuf_node_t *n, const char *repo_path,
 }
 
 /* Discover module-level routes (PHP Laravel, JS/TS Express at top level). */
-static int discover_module_routes(const cbm_gbuf_node_t *mod, const char *repo_path,
+static int discover_module_routes(const cbm_gbuf_node_t *mod, const cbm_pipeline_ctx_t *ctx,
                                   cbm_route_handler_t *out, int max_out) {
     if (!mod->file_path) {
         return 0;
@@ -255,31 +300,11 @@ static int discover_module_routes(const cbm_gbuf_node_t *mod, const char *repo_p
         return 0;
     }
 
-    /* Read full file for module-level scanning */
-    char path_buf[1024];
-    snprintf(path_buf, sizeof(path_buf), "%s/%s", repo_path, mod->file_path);
-
-    FILE *f = fopen(path_buf, "rb");
-    if (!f) {
-        return 0;
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0 || sz > (long)10 * 1024 * 1024) {
-        fclose(f);
-        return 0;
-    }
-
-    char *source = malloc((size_t)sz + 1);
+    /* Read full file (from cache or disk) */
+    char *source = read_full_source(ctx, mod->file_path);
     if (!source) {
-        fclose(f);
         return 0;
     }
-    size_t nread = fread(source, 1, (size_t)sz, f);
-    fclose(f);
-    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
-    source[nread] = '\0';
 
     int total = 0;
     if (is_php) {
@@ -307,22 +332,19 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         return;
     }
 
-    // NOLINTNEXTLINE(misc-include-cleaner) — regex_t provided by standard header
-    regex_t include_re;
-    regex_t import_re;
-    // NOLINTNEXTLINE(misc-include-cleaner) — regcomp provided by standard header
-    if (regcomp(&include_re,
-                "\\.include_router\\(([[:alnum:]_]+)[[:space:]]*,[[:space:]]*prefix[[:space:]]*=[[:"
-                "space:]]*[\"']([^\"']+)[\"']",
-                // NOLINTNEXTLINE(misc-include-cleaner) — REG_EXTENDED provided by standard header
-                REG_EXTENDED) != 0) {
+    cbm_regex_t include_re;
+    cbm_regex_t import_re;
+    if (cbm_regcomp(
+            &include_re,
+            "\\.include_router\\(([[:alnum:]_]+)[[:space:]]*,[[:space:]]*prefix[[:space:]]*=[[:"
+            "space:]]*[\"']([^\"']+)[\"']",
+            CBM_REG_EXTENDED) != 0) {
         return;
     }
-    if (regcomp(&import_re,
-                "from[[:space:]]+([[:alnum:]_.]+)[[:space:]]+import[[:space:]]+([[:alnum:]_]+)",
-                REG_EXTENDED) != 0) {
-        // NOLINTNEXTLINE(misc-include-cleaner) — regfree provided by standard header
-        regfree(&include_re);
+    if (cbm_regcomp(&import_re,
+                    "from[[:space:]]+([[:alnum:]_.]+)[[:space:]]+import[[:space:]]+([[:alnum:]_]+)",
+                    CBM_REG_EXTENDED) != 0) {
+        cbm_regfree(&include_re);
         return;
     }
 
@@ -332,29 +354,11 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
             continue;
         }
 
-        /* Read full module source */
-        char path_buf[1024];
-        snprintf(path_buf, sizeof(path_buf), "%s/%s", ctx->repo_path, mod->file_path);
-        FILE *f = fopen(path_buf, "rb");
-        if (!f) {
-            continue;
-        }
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (sz <= 0 || sz > (long)10 * 1024 * 1024) {
-            fclose(f);
-            continue;
-        }
-        char *source = malloc((size_t)sz + 1);
+        /* Read full module source (from cache or disk) */
+        char *source = read_full_source(ctx, mod->file_path);
         if (!source) {
-            fclose(f);
             continue;
         }
-        fread(source, 1, (size_t)sz, f);
-        fclose(f);
-        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
-        source[sz] = '\0';
 
         /* Build import map: var_name → dotted.module.path */
         typedef struct {
@@ -365,14 +369,10 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         int import_count = 0;
 
         const char *p = source;
-        // NOLINTNEXTLINE(misc-include-cleaner) — regmatch_t provided by standard header
-        regmatch_t pm[3];
-        // NOLINTNEXTLINE(misc-include-cleaner) — regexec provided by standard header
-        while (import_count < 64 && regexec(&import_re, p, 3, pm, 0) == 0) {
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int mlen = pm[1].rm_eo - pm[1].rm_so;
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int vlen = pm[2].rm_eo - pm[2].rm_so;
+        cbm_regmatch_t pm[3];
+        while (import_count < 64 && cbm_regexec(&import_re, p, 3, pm, 0) == 0) {
+            int mlen = (pm[1].rm_eo - pm[1].rm_so);
+            int vlen = (pm[2].rm_eo - pm[2].rm_so);
             if (mlen < 256 && vlen < 128) {
                 snprintf(imports[import_count].module, 256, "%.*s", mlen, p + pm[1].rm_so);
                 snprintf(imports[import_count].var, 128, "%.*s", vlen, p + pm[2].rm_so);
@@ -383,13 +383,11 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
 
         /* Find include_router calls */
         p = source;
-        while (regexec(&include_re, p, 3, pm, 0) == 0) {
+        while (cbm_regexec(&include_re, p, 3, pm, 0) == 0) {
             char var_name[128] = {0};
             char prefix[256] = {0};
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int vlen = pm[1].rm_eo - pm[1].rm_so;
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int plen = pm[2].rm_eo - pm[2].rm_so;
+            int vlen = (pm[1].rm_eo - pm[1].rm_so);
+            int plen = (pm[2].rm_eo - pm[2].rm_so);
             if (vlen < 128) {
                 snprintf(var_name, 128, "%.*s", vlen, p + pm[1].rm_so);
             }
@@ -452,8 +450,8 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         free(source);
     }
 
-    regfree(&include_re);
-    regfree(&import_re);
+    cbm_regfree(&include_re);
+    cbm_regfree(&import_re);
 }
 
 /* Resolve Express app.use("/prefix", routerVar) prefixes. */
@@ -465,27 +463,29 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         return;
     }
 
-    regex_t use_re;
-    regex_t require_re;
-    regex_t esimport_re;
-    if (regcomp(
+    cbm_regex_t use_re;
+    cbm_regex_t require_re;
+    cbm_regex_t esimport_re;
+    if (cbm_regcomp(
             &use_re,
             "\\.use\\([[:space:]]*[\"'`]([^\"'`]+)[\"'`][[:space:]]*,[[:space:]]*([[:alnum:]_]+)",
-            REG_EXTENDED) != 0) {
+            CBM_REG_EXTENDED) != 0) {
         return;
     }
-    if (regcomp(&require_re,
-                "(const|let|var)[[:space:]]+([[:alnum:]_]+)[[:space:]]*=[[:space:]]*require\\([[:"
-                "space:]]*[\"']([^\"']+)[\"']",
-                REG_EXTENDED) != 0) {
-        regfree(&use_re);
+    if (cbm_regcomp(
+            &require_re,
+            "(const|let|var)[[:space:]]+([[:alnum:]_]+)[[:space:]]*=[[:space:]]*require\\([[:"
+            "space:]]*[\"']([^\"']+)[\"']",
+            CBM_REG_EXTENDED) != 0) {
+        cbm_regfree(&use_re);
         return;
     }
-    if (regcomp(&esimport_re,
-                "import[[:space:]]+([[:alnum:]_]+)[[:space:]]+from[[:space:]]+[\"']([^\"']+)[\"']",
-                REG_EXTENDED) != 0) {
-        regfree(&use_re);
-        regfree(&require_re);
+    if (cbm_regcomp(
+            &esimport_re,
+            "import[[:space:]]+([[:alnum:]_]+)[[:space:]]+from[[:space:]]+[\"']([^\"']+)[\"']",
+            CBM_REG_EXTENDED) != 0) {
+        cbm_regfree(&use_re);
+        cbm_regfree(&require_re);
         return;
     }
 
@@ -495,28 +495,11 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
             continue;
         }
 
-        char path_buf[1024];
-        snprintf(path_buf, sizeof(path_buf), "%s/%s", ctx->repo_path, mod->file_path);
-        FILE *f = fopen(path_buf, "rb");
-        if (!f) {
-            continue;
-        }
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (sz <= 0 || sz > (long)10 * 1024 * 1024) {
-            fclose(f);
-            continue;
-        }
-        char *source = malloc((size_t)sz + 1);
+        /* Read full module source (from cache or disk) */
+        char *source = read_full_source(ctx, mod->file_path);
         if (!source) {
-            fclose(f);
             continue;
         }
-        fread(source, 1, (size_t)sz, f);
-        fclose(f);
-        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
-        source[sz] = '\0';
 
         /* Build import map: var_name → module_path */
         typedef struct {
@@ -527,12 +510,10 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         int import_count = 0;
 
         const char *p = source;
-        regmatch_t pm[4];
-        while (import_count < 64 && regexec(&require_re, p, 4, pm, 0) == 0) {
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int vlen = pm[2].rm_eo - pm[2].rm_so;
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int mlen = pm[3].rm_eo - pm[3].rm_so;
+        cbm_regmatch_t pm[4];
+        while (import_count < 64 && cbm_regexec(&require_re, p, 4, pm, 0) == 0) {
+            int vlen = (pm[2].rm_eo - pm[2].rm_so);
+            int mlen = (pm[3].rm_eo - pm[3].rm_so);
             if (vlen < 128 && mlen < 256) {
                 snprintf(imports[import_count].var, 128, "%.*s", vlen, p + pm[2].rm_so);
                 snprintf(imports[import_count].module, 256, "%.*s", mlen, p + pm[3].rm_so);
@@ -541,11 +522,9 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
             p += pm[0].rm_eo;
         }
         p = source;
-        while (import_count < 64 && regexec(&esimport_re, p, 3, pm, 0) == 0) {
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int vlen = pm[1].rm_eo - pm[1].rm_so;
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int mlen = pm[2].rm_eo - pm[2].rm_so;
+        while (import_count < 64 && cbm_regexec(&esimport_re, p, 3, pm, 0) == 0) {
+            int vlen = (pm[1].rm_eo - pm[1].rm_so);
+            int mlen = (pm[2].rm_eo - pm[2].rm_so);
             if (vlen < 128 && mlen < 256) {
                 snprintf(imports[import_count].var, 128, "%.*s", vlen, p + pm[1].rm_so);
                 snprintf(imports[import_count].module, 256, "%.*s", mlen, p + pm[2].rm_so);
@@ -556,13 +535,11 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
 
         /* Find .use("/prefix", var) calls */
         p = source;
-        while (regexec(&use_re, p, 3, pm, 0) == 0) {
+        while (cbm_regexec(&use_re, p, 3, pm, 0) == 0) {
             char prefix[256] = {0};
             char var_name[128] = {0};
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int plen = pm[1].rm_eo - pm[1].rm_so;
-            // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-            int vlen = pm[2].rm_eo - pm[2].rm_so;
+            int plen = (pm[1].rm_eo - pm[1].rm_so);
+            int vlen = (pm[2].rm_eo - pm[2].rm_so);
             if (plen < 256) {
                 snprintf(prefix, 256, "%.*s", plen, p + pm[1].rm_so);
             }
@@ -605,7 +582,7 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
                 }
 
                 /* Convert slash-based path to dots for QN matching */
-                char dotted_frag[260];
+                char dotted_frag[DOTTED_FRAG_BUF];
                 snprintf(dotted_frag, sizeof(dotted_frag), "%s", file_frag);
                 for (char *c = dotted_frag; *c; c++) {
                     if (*c == '/') {
@@ -629,9 +606,9 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
         free(source);
     }
 
-    regfree(&use_re);
-    regfree(&require_re);
-    regfree(&esimport_re);
+    cbm_regfree(&use_re);
+    cbm_regfree(&require_re);
+    cbm_regfree(&esimport_re);
 }
 
 /* Resolve Go gin cross-file Group() prefixes.
@@ -666,18 +643,20 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
         }
     }
 
-    regex_t group_direct_re;
-    regex_t group_var_re;
-    if (regcomp(&group_direct_re,
-                "([[:alnum:]_]+)\\([[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"([^\"]+)\"",
-                REG_EXTENDED) != 0) {
+    cbm_regex_t group_direct_re;
+    cbm_regex_t group_var_re;
+    if (cbm_regcomp(
+            &group_direct_re,
+            "([[:alnum:]_]+)\\([[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"([^\"]+)\"",
+            CBM_REG_EXTENDED) != 0) {
         return;
     }
-    if (regcomp(&group_var_re,
-                "([[:alnum:]_]+)[[:space:]]*:?=[[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"(["
-                "^\"]+)\"",
-                REG_EXTENDED) != 0) {
-        regfree(&group_direct_re);
+    if (cbm_regcomp(
+            &group_var_re,
+            "([[:alnum:]_]+)[[:space:]]*:?=[[:space:]]*[[:alnum:]_]+\\.Group\\([[:space:]]*\"(["
+            "^\"]+)\"",
+            CBM_REG_EXTENDED) != 0) {
+        cbm_regfree(&group_direct_re);
         return;
     }
 
@@ -708,22 +687,20 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
                 continue;
             }
 
-            char *caller_source = cbm_read_source_lines_disk(ctx->repo_path, caller->file_path,
-                                                             caller->start_line, caller->end_line);
+            char *caller_source =
+                read_source_lines(ctx, caller->file_path, caller->start_line, caller->end_line);
             if (!caller_source) {
                 continue;
             }
 
             /* Pattern 1: RegisterRoutes(router.Group("/api")) */
-            regmatch_t pm[3];
+            cbm_regmatch_t pm[3];
             const char *p = caller_source;
-            while (regexec(&group_direct_re, p, 3, pm, 0) == 0) {
+            while (cbm_regexec(&group_direct_re, p, 3, pm, 0) == 0) {
                 char called_name[128] = {0};
                 char prefix[256] = {0};
-                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                int nlen = pm[1].rm_eo - pm[1].rm_so;
-                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                int plen = pm[2].rm_eo - pm[2].rm_so;
+                int nlen = (pm[1].rm_eo - pm[1].rm_so);
+                int plen = (pm[2].rm_eo - pm[2].rm_so);
                 if (nlen < 128) {
                     snprintf(called_name, 128, "%.*s", nlen, p + pm[1].rm_so);
                 }
@@ -766,11 +743,9 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
             int var_count = 0;
 
             p = caller_source;
-            while (var_count < 16 && regexec(&group_var_re, p, 3, pm, 0) == 0) {
-                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                int vlen = pm[1].rm_eo - pm[1].rm_so;
-                // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                int plen = pm[2].rm_eo - pm[2].rm_so;
+            while (var_count < 16 && cbm_regexec(&group_var_re, p, 3, pm, 0) == 0) {
+                int vlen = (pm[1].rm_eo - pm[1].rm_so);
+                int plen = (pm[2].rm_eo - pm[2].rm_so);
                 if (vlen < 128 && plen < 256) {
                     snprintf(var_pfx[var_count].var, 128, "%.*s", vlen, p + pm[1].rm_so);
                     snprintf(var_pfx[var_count].prefix, 256, "%.*s", plen, p + pm[2].rm_so);
@@ -784,13 +759,12 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
                 char call_pat[256];
                 snprintf(call_pat, sizeof(call_pat), "%s[[:space:]]*\\([[:space:]]*([[:alnum:]_]+)",
                          func_node->name);
-                regex_t call_re;
-                if (regcomp(&call_re, call_pat, REG_EXTENDED) == 0) {
+                cbm_regex_t call_re;
+                if (cbm_regcomp(&call_re, call_pat, CBM_REG_EXTENDED) == 0) {
                     p = caller_source;
-                    while (regexec(&call_re, p, 2, pm, 0) == 0) {
+                    while (cbm_regexec(&call_re, p, 2, pm, 0) == 0) {
                         char arg_name[128] = {0};
-                        // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                        int alen = pm[1].rm_eo - pm[1].rm_so;
+                        int alen = (pm[1].rm_eo - pm[1].rm_so);
                         if (alen < 128) {
                             snprintf(arg_name, 128, "%.*s", alen, p + pm[1].rm_so);
                         }
@@ -823,7 +797,7 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
                             }
                         }
                     }
-                    regfree(&call_re);
+                    cbm_regfree(&call_re);
                 }
             }
 
@@ -831,8 +805,8 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
         }
     }
 
-    regfree(&group_direct_re);
-    regfree(&group_var_re);
+    cbm_regfree(&group_direct_re);
+    cbm_regfree(&group_var_re);
 }
 
 /* ── Registration call edges ───────────────────────────────────── */
@@ -973,7 +947,7 @@ static int insert_route_nodes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *rout
                           rh->protocol);
         } else if (h_id > 0 && h_file[0] && h_start > 0) {
             /* Detect protocol from handler source */
-            char *hsource = cbm_read_source_lines_disk(ctx->repo_path, h_file, h_start, h_end);
+            char *hsource = read_source_lines(ctx, h_file, h_start, h_end);
             if (hsource) {
                 const char *proto = cbm_detect_protocol(hsource);
                 if (proto[0]) {
@@ -1012,89 +986,6 @@ static int insert_route_nodes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *rout
     return count;
 }
 
-/* ── Call site discovery ───────────────────────────────────────── */
-
-/* Discover HTTP call sites from function source code. */
-static int discover_call_sites(cbm_pipeline_ctx_t *ctx, cbm_http_call_site_t *sites,
-                               int max_sites) {
-    int total = 0;
-
-    /* Scan Function and Method nodes */
-    const char *labels[] = {"Function", "Method"};
-    for (int li = 0; li < 2 && total < max_sites; li++) {
-        const cbm_gbuf_node_t **nodes = NULL;
-        int node_count = 0;
-        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0) {
-            continue;
-        }
-
-        for (int i = 0; i < node_count && total < max_sites; i++) {
-            const cbm_gbuf_node_t *n = nodes[i];
-            if (!n->file_path || n->start_line <= 0 || n->end_line <= 0) {
-                continue;
-            }
-
-            /* Skip Python dunder methods */
-            if (n->name && strlen(n->name) > 4 && n->name[0] == '_' && n->name[1] == '_' &&
-                n->name[strlen(n->name) - 1] == '_' && n->name[strlen(n->name) - 2] == '_') {
-                continue;
-            }
-
-            char *source = cbm_read_source_lines_disk(ctx->repo_path, n->file_path, n->start_line,
-                                                      n->end_line);
-            if (!source) {
-                continue;
-            }
-
-            /* Require at least one HTTP client or async dispatch keyword */
-            bool has_http = false;
-            for (int k = 0; k < cbm_http_client_keywords_count; k++) {
-                if (strstr(source, cbm_http_client_keywords[k])) {
-                    has_http = true;
-                    break;
-                }
-            }
-            bool has_async = false;
-            for (int k = 0; k < cbm_async_dispatch_keywords_count; k++) {
-                if (strstr(source, cbm_async_dispatch_keywords[k])) {
-                    has_async = true;
-                    break;
-                }
-            }
-
-            if (!has_http && !has_async) {
-                free(source);
-                continue;
-            }
-
-            /* Sync takes precedence over async */
-            // NOLINTNEXTLINE(readability-implicit-bool-conversion)
-            bool is_async = has_async && !has_http;
-
-            /* Extract URL paths */
-            char *paths[64];
-            int path_count = cbm_extract_url_paths(source, paths, 64);
-
-            for (int p = 0; p < path_count; p++) {
-                if (total < max_sites) {
-                    cbm_http_call_site_t *site = &sites[total];
-                    snprintf(site->path, sizeof(site->path), "%s", paths[p]);
-                    site->method[0] = '\0';
-                    snprintf(site->source_name, sizeof(site->source_name), "%s", n->name);
-                    snprintf(site->source_qn, sizeof(site->source_qn), "%s", n->qualified_name);
-                    snprintf(site->source_label, sizeof(site->source_label), "%s", labels[li]);
-                    site->is_async = is_async;
-                    total++;
-                }
-                free(paths[p]);
-            }
-
-            free(source);
-        }
-    }
-    return total;
-}
-
 /* ── Match and link ────────────────────────────────────────────── */
 
 /* Match call sites to routes and create HTTP_CALLS/ASYNC_CALLS edges. */
@@ -1127,14 +1018,14 @@ static int match_and_link(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *routes, 
 
             /* Score path match */
             double score = cbm_path_match_score(cs->path, rh->path);
-            if (score < 0.25) {
+            if (score < MIN_PATH_CONFIDENCE) {
                 continue; /* minimum confidence threshold */
             }
 
             /* Apply source weight */
             double weight = 1.0;
             if (strcmp(cs->source_label, "Module") == 0) {
-                weight = 0.85;
+                weight = MODULE_WEIGHT;
             }
             score *= weight;
 
@@ -1170,6 +1061,164 @@ static int match_and_link(cbm_pipeline_ctx_t *ctx, cbm_route_handler_t *routes, 
     return link_count;
 }
 
+/* ── Parallel route discovery ──────────────────────────────────── */
+
+/* Node entry for flat work array (tagged union of Function/Method/Module). */
+typedef struct {
+    const cbm_gbuf_node_t *node;
+    bool is_module; /* true = Module, false = Function/Method */
+} hl_work_item_t;
+
+/* Per-worker buffer for route discovery. */
+#define HL_ROUTES_PER_WORKER 512
+typedef struct {
+    cbm_route_handler_t routes[HL_ROUTES_PER_WORKER];
+    int count;
+} hl_route_buf_t;
+
+/* Context for parallel route discovery. */
+typedef struct {
+    const hl_work_item_t *items;
+    int item_count;
+    const cbm_pipeline_ctx_t *ctx;
+    hl_route_buf_t *worker_bufs; /* one per worker */
+    int worker_count;
+    _Atomic int next_idx;
+    _Atomic int *cancelled;
+} hl_route_ctx_t;
+
+static void hl_route_worker(int worker_id, void *arg) {
+    hl_route_ctx_t *rc = arg;
+    hl_route_buf_t *buf = &rc->worker_bufs[worker_id];
+
+    while (1) {
+        int idx = atomic_fetch_add_explicit(&rc->next_idx, 1, memory_order_relaxed);
+        if (idx >= rc->item_count) {
+            break;
+        }
+        if (atomic_load_explicit(rc->cancelled, memory_order_relaxed)) {
+            break;
+        }
+
+        const hl_work_item_t *item = &rc->items[idx];
+
+        /* Skip test nodes */
+        if (is_test_node(item->node)) {
+            continue;
+        }
+
+        int space = HL_ROUTES_PER_WORKER - buf->count;
+        if (space <= 0) {
+            continue; /* worker buffer full */
+        }
+
+        int nr;
+        if (item->is_module) {
+            nr = discover_module_routes(item->node, rc->ctx, buf->routes + buf->count, space);
+        } else {
+            nr = discover_node_routes(item->node, rc->ctx, buf->routes + buf->count, space);
+        }
+        buf->count += nr;
+    }
+}
+
+/* Per-worker buffer for call site discovery. */
+#define HL_SITES_PER_WORKER 512
+typedef struct {
+    cbm_http_call_site_t sites[HL_SITES_PER_WORKER];
+    int count;
+} hl_site_buf_t;
+
+/* Context for parallel call site discovery. */
+typedef struct {
+    const cbm_gbuf_node_t **nodes;
+    const char **labels; /* "Function" or "Method" per node */
+    int node_count;
+    const cbm_pipeline_ctx_t *ctx;
+    hl_site_buf_t *worker_bufs;
+    int worker_count;
+    _Atomic int next_idx;
+    _Atomic int *cancelled;
+} hl_site_ctx_t;
+
+static void hl_site_worker(int worker_id, void *arg) {
+    hl_site_ctx_t *sc = arg;
+    hl_site_buf_t *buf = &sc->worker_bufs[worker_id];
+
+    while (1) {
+        int idx = atomic_fetch_add_explicit(&sc->next_idx, 1, memory_order_relaxed);
+        if (idx >= sc->node_count) {
+            break;
+        }
+        if (atomic_load_explicit(sc->cancelled, memory_order_relaxed)) {
+            break;
+        }
+
+        const cbm_gbuf_node_t *n = sc->nodes[idx];
+        if (!n->file_path || n->start_line <= 0 || n->end_line <= 0) {
+            continue;
+        }
+
+        /* Skip Python dunder methods */
+        if (n->name && strlen(n->name) > 4 && n->name[0] == '_' && n->name[1] == '_' &&
+            n->name[strlen(n->name) - 1] == '_' && n->name[strlen(n->name) - 2] == '_') {
+            continue;
+        }
+
+        char *source = read_source_lines(sc->ctx, n->file_path, n->start_line, n->end_line);
+        if (!source) {
+            continue;
+        }
+
+        /* Require at least one HTTP client or async dispatch keyword */
+        bool has_http = false;
+        for (int k = 0; k < cbm_http_client_keywords_count; k++) {
+            if (strstr(source, cbm_http_client_keywords[k])) {
+                has_http = true;
+                break;
+            }
+        }
+        bool has_async = false;
+        for (int k = 0; k < cbm_async_dispatch_keywords_count; k++) {
+            if (strstr(source, cbm_async_dispatch_keywords[k])) {
+                has_async = true;
+                break;
+            }
+        }
+
+        if (!has_http && !has_async) {
+            free(source);
+            continue;
+        }
+
+        // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+        bool is_async = has_async && !has_http;
+
+        /* Extract URL paths */
+        char *paths[64];
+        int path_count = cbm_extract_url_paths(source, paths, 64);
+
+        int space = HL_SITES_PER_WORKER - buf->count;
+        for (int p = 0; p < path_count && space > 0; p++) {
+            cbm_http_call_site_t *site = &buf->sites[buf->count];
+            snprintf(site->path, sizeof(site->path), "%s", paths[p]);
+            site->method[0] = '\0';
+            snprintf(site->source_name, sizeof(site->source_name), "%s", n->name);
+            snprintf(site->source_qn, sizeof(site->source_qn), "%s", n->qualified_name);
+            snprintf(site->source_label, sizeof(site->source_label), "%s", sc->labels[idx]);
+            site->is_async = is_async;
+            buf->count++;
+            space--;
+        }
+        /* Free any remaining paths we couldn't store */
+        for (int p = 0; p < path_count; p++) {
+            free(paths[p]);
+        }
+
+        free(source);
+    }
+}
+
 /* ── Main pass entry point ─────────────────────────────────────── */
 
 int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
@@ -1179,78 +1228,210 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
         return -1;
     }
 
-    /* Phase 1: Discover routes from Function/Method nodes */
+    int worker_count = cbm_default_worker_count(true);
+    if (worker_count < 1) {
+        worker_count = 1;
+    }
+
+    /* ── Phase 1: Route collection from prescan or parallel discovery ── */
+
+    /* Need label_counts for fallback path */
+    const char *route_labels[] = {"Function", "Method", "Module"};
+    const cbm_gbuf_node_t **label_nodes[3] = {NULL, NULL, NULL};
+    int label_counts[3] = {0, 0, 0};
+
+    for (int li = 0; li < 3; li++) {
+        cbm_gbuf_find_by_label(ctx->gbuf, route_labels[li], &label_nodes[li], &label_counts[li]);
+    }
+
     cbm_route_handler_t *routes = calloc(MAX_ROUTES, sizeof(cbm_route_handler_t));
     if (!routes) {
         return -1;
     }
     int route_count = 0;
 
-    /* Scan Function and Method nodes */
-    const char *labels[] = {"Function", "Method"};
-    for (int li = 0; li < 2; li++) {
-        const cbm_gbuf_node_t **nodes = NULL;
-        int node_count = 0;
-        if (cbm_gbuf_find_by_label(ctx->gbuf, labels[li], &nodes, &node_count) != 0) {
-            continue;
+    if (ctx->prescan_cache) {
+        /* Fast path: routes were extracted during the extraction phase.
+         * Zero disk reads, zero JSON parsing, zero node iteration. */
+        for (int fi = 0; fi < ctx->prescan_count; fi++) {
+            const cbm_prescan_t *ps = &ctx->prescan_cache[fi];
+            for (int ri = 0; ri < ps->route_count && route_count < MAX_ROUTES; ri++) {
+                const cbm_prescan_route_t *src = &ps->routes[ri];
+                cbm_route_handler_t *dst = &routes[route_count];
+                snprintf(dst->path, sizeof(dst->path), "%s", src->path);
+                snprintf(dst->method, sizeof(dst->method), "%s", src->method);
+                snprintf(dst->function_name, sizeof(dst->function_name), "%s", src->function_name);
+                snprintf(dst->qualified_name, sizeof(dst->qualified_name), "%s",
+                         src->qualified_name);
+                snprintf(dst->handler_ref, sizeof(dst->handler_ref), "%s", src->handler_ref);
+                dst->resolved_handler_qn[0] = '\0';
+                snprintf(dst->protocol, sizeof(dst->protocol), "%s", src->protocol);
+                route_count++;
+            }
+        }
+    } else {
+        /* Fallback: parallel route discovery from disk (sequential pipeline path) */
+        int total_route_nodes = 0;
+        for (int li = 0; li < 3; li++) {
+            total_route_nodes += label_counts[li];
         }
 
-        for (int i = 0; i < node_count && route_count < MAX_ROUTES; i++) {
-            if (cbm_pipeline_check_cancel(ctx)) {
-                free(routes);
-                return -1;
-            }
-
-            /* Skip test nodes */
-            if (is_test_node(nodes[i])) {
-                continue;
-            }
-
-            int nr = discover_node_routes(nodes[i], ctx->repo_path, routes + route_count,
-                                          MAX_ROUTES - route_count);
-            route_count += nr;
+        hl_work_item_t *work_items = NULL;
+        if (total_route_nodes > 0) {
+            work_items = malloc((size_t)total_route_nodes * sizeof(hl_work_item_t));
         }
-    }
 
-    /* Scan Module nodes for top-level routes (PHP, JS/TS) */
-    const cbm_gbuf_node_t **modules = NULL;
-    int mod_count = 0;
-    if (cbm_gbuf_find_by_label(ctx->gbuf, "Module", &modules, &mod_count) == 0) {
-        for (int i = 0; i < mod_count && route_count < MAX_ROUTES; i++) {
-            if (is_test_node(modules[i])) {
-                continue;
+        int wi = 0;
+        if (work_items) {
+            for (int li = 0; li < 3; li++) {
+                for (int i = 0; i < label_counts[li]; i++) {
+                    work_items[wi].node = label_nodes[li][i];
+                    work_items[wi].is_module = (li == 2);
+                    wi++;
+                }
             }
-            int nr = discover_module_routes(modules[i], ctx->repo_path, routes + route_count,
-                                            MAX_ROUTES - route_count);
-            route_count += nr;
         }
+
+        hl_route_buf_t *route_bufs = calloc((size_t)worker_count, sizeof(hl_route_buf_t));
+
+        if (work_items && route_bufs && wi > 0) {
+            hl_route_ctx_t rc = {
+                .items = work_items,
+                .item_count = wi,
+                .ctx = ctx,
+                .worker_bufs = route_bufs,
+                .worker_count = worker_count,
+                .cancelled = ctx->cancelled,
+            };
+            atomic_init(&rc.next_idx, 0);
+
+            cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+            cbm_parallel_for(worker_count, hl_route_worker, &rc, opts);
+
+            for (int w = 0; w < worker_count; w++) {
+                int to_copy = route_bufs[w].count;
+                if (to_copy > MAX_ROUTES - route_count) {
+                    to_copy = MAX_ROUTES - route_count;
+                }
+                if (to_copy > 0) {
+                    memcpy(routes + route_count, route_bufs[w].routes,
+                           (size_t)to_copy * sizeof(cbm_route_handler_t));
+                    route_count += to_copy;
+                }
+            }
+        }
+        free(work_items);
+        free(route_bufs);
     }
 
     cbm_log_info("httplink.routes", "count", itoa_hl(route_count));
 
-    /* Phase 2: Resolve cross-file prefixes */
+    /* ── Phase 2: Resolve cross-file prefixes (serial) ────────── */
     resolve_cross_file_group_prefixes(ctx, routes, route_count);
     resolve_fastapi_prefixes(ctx, routes, route_count);
     resolve_express_prefixes(ctx, routes, route_count);
 
-    /* Phase 3: Create registration call edges (registrar → handler) */
+    /* ── Phase 3: Registration edges (serial) ─────────────────── */
     int reg_edges = create_registration_call_edges(ctx, routes, route_count);
     if (reg_edges > 0) {
         cbm_log_info("httplink.registration_edges", "count", itoa_hl(reg_edges));
     }
 
-    /* Phase 4: Insert Route nodes and HANDLES edges */
+    /* ── Phase 4: Route nodes + HANDLES edges (serial) ────────── */
     int route_nodes = insert_route_nodes(ctx, routes, route_count);
 
-    /* Phase 5: Discover HTTP call sites */
+    /* ── Phase 5: Call site collection from prescan cache ────────── */
+    /* During extraction, each file's source was scanned for HTTP/async
+     * keywords and URL paths. Results are in ctx->prescan_cache[file_idx].
+     * This eliminates 2M+ disk reads (the old approach read every function
+     * from disk just to check for keywords, then discarded 99.9%). */
+
     cbm_http_call_site_t *sites = calloc(MAX_CALL_SITES, sizeof(cbm_http_call_site_t));
     int site_count = 0;
-    if (sites) {
-        site_count = discover_call_sites(ctx, sites, MAX_CALL_SITES);
-        cbm_log_info("httplink.callsites", "count", itoa_hl(site_count));
+
+    if (sites && ctx->prescan_cache) {
+        for (int fi = 0; fi < ctx->prescan_count; fi++) {
+            const cbm_prescan_t *ps = &ctx->prescan_cache[fi];
+            for (int si = 0; si < ps->http_site_count && site_count < MAX_CALL_SITES; si++) {
+                const cbm_prescan_http_site_t *src = &ps->http_sites[si];
+                cbm_http_call_site_t *dst = &sites[site_count];
+                snprintf(dst->path, sizeof(dst->path), "%s", src->path);
+                snprintf(dst->method, sizeof(dst->method), "%s", src->method);
+                snprintf(dst->source_name, sizeof(dst->source_name), "%s", src->source_name);
+                snprintf(dst->source_qn, sizeof(dst->source_qn), "%s", src->source_qn);
+                snprintf(dst->source_label, sizeof(dst->source_label), "%s", src->source_label);
+                dst->is_async = src->is_async;
+                site_count++;
+            }
+        }
+    } else if (sites) {
+        /* Fallback: no prescan (sequential pipeline path).
+         * Use the old parallel disk-reading approach. */
+        const char *site_labels[] = {"Function", "Method"};
+        const cbm_gbuf_node_t **all_site_nodes = NULL;
+        const char **all_site_labels = NULL;
+        int total_site_nodes = 0;
+
+        for (int li = 0; li < 2; li++) {
+            total_site_nodes += label_counts[li];
+        }
+
+        if (total_site_nodes > 0) {
+            all_site_nodes = malloc((size_t)total_site_nodes * sizeof(cbm_gbuf_node_t *));
+            // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+            all_site_labels = malloc((size_t)total_site_nodes * sizeof(const char *));
+        }
+
+        if (all_site_nodes && all_site_labels) {
+            int si2 = 0;
+            for (int li = 0; li < 2; li++) {
+                for (int i = 0; i < label_counts[li]; i++) {
+                    all_site_nodes[si2] = label_nodes[li][i];
+                    all_site_labels[si2] = site_labels[li];
+                    si2++;
+                }
+            }
+
+            hl_site_buf_t *site_bufs = calloc((size_t)worker_count, sizeof(hl_site_buf_t));
+            if (site_bufs && si2 > 0) {
+                hl_site_ctx_t sc = {
+                    .nodes = all_site_nodes,
+                    .labels = all_site_labels,
+                    .node_count = si2,
+                    .ctx = ctx,
+                    .worker_bufs = site_bufs,
+                    .worker_count = worker_count,
+                    .cancelled = ctx->cancelled,
+                };
+                atomic_init(&sc.next_idx, 0);
+
+                cbm_parallel_for_opts_t opts = {.max_workers = worker_count,
+                                                .force_pthreads = false};
+                cbm_parallel_for(worker_count, hl_site_worker, &sc, opts);
+
+                for (int w = 0; w < worker_count; w++) {
+                    int to_copy = site_bufs[w].count;
+                    if (to_copy > MAX_CALL_SITES - site_count) {
+                        to_copy = MAX_CALL_SITES - site_count;
+                    }
+                    if (to_copy > 0) {
+                        memcpy(sites + site_count, site_bufs[w].sites,
+                               (size_t)to_copy * sizeof(cbm_http_call_site_t));
+                        site_count += to_copy;
+                    }
+                }
+            }
+            free(site_bufs);
+        }
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+        free(all_site_nodes);
+        // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+        free(all_site_labels);
     }
 
-    /* Phase 6: Match call sites to routes and create edges */
+    cbm_log_info("httplink.callsites", "count", itoa_hl(site_count));
+
+    /* ── Phase 6: Match and link (serial) ─────────────────────── */
     int link_count = 0;
     if (sites && site_count > 0 && route_count > 0) {
         link_count = match_and_link(ctx, routes, route_count, sites, site_count);
@@ -1263,6 +1444,3 @@ int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx) {
                  itoa_hl(link_count));
     return 0;
 }
-
-// NOLINTEND(readability-magic-numbers)
-// NOLINTEND(cert-err33-c)

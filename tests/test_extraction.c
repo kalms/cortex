@@ -1918,6 +1918,83 @@ TEST(markdown_no_headings) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+ * Python __init__.py Module QN collision regression
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(python_init_module_qn_not_collide_with_folder) {
+    /* Bug: __init__.py Module QN was identical to the Folder QN for the
+     * same directory, causing the Folder node to be overwritten when the
+     * Module was upserted. The Module QN must contain "__init__" to
+     * distinguish it from the Folder QN. */
+    CBMFileResult *r = extract("class Config:\n    DEBUG = True\n\ndef setup():\n    pass\n",
+                               CBM_LANG_PYTHON, "proj", "mypackage/__init__.py");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+
+    /* Module node must exist */
+    ASSERT_GTE(r->defs.count, 1);
+    ASSERT_STR_EQ(r->defs.items[0].label, "Module");
+
+    /* Module QN must contain __init__ (not be stripped to just "proj.mypackage") */
+    ASSERT_NOT_NULL(r->module_qn);
+    ASSERT_NOT_NULL(strstr(r->module_qn, "__init__"));
+
+    /* But symbols inside __init__.py should NOT have __init__ in their QN */
+    int found_config = 0;
+    for (int i = 0; i < r->defs.count; i++) {
+        if (strcmp(r->defs.items[i].name, "Config") == 0) {
+            ASSERT_NOT_NULL(r->defs.items[i].qualified_name);
+            /* Should be "proj.mypackage.Config", NOT "proj.mypackage.__init__.Config" */
+            ASSERT_STR_EQ(r->defs.items[i].qualified_name, "proj.mypackage.Config");
+            found_config = 1;
+        }
+    }
+    ASSERT_EQ(found_config, 1);
+
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(python_init_nested_module_qn) {
+    /* Deeply nested __init__.py — same collision must not happen */
+    CBMFileResult *r = extract("def greet():\n    return 'hello'\n", CBM_LANG_PYTHON, "proj",
+                               "docker-images/cloud-runs/bq-sync-api/__init__.py");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_NOT_NULL(r->module_qn);
+    /* Must contain __init__ to not collide with Folder QN */
+    ASSERT_NOT_NULL(strstr(r->module_qn, "__init__"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(js_index_module_qn_not_collide_with_folder) {
+    /* Same bug for JS/TS index.ts files */
+    CBMFileResult *r = extract("export function App() { return null; }\n", CBM_LANG_TYPESCRIPT,
+                               "proj", "src/components/index.ts");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_NOT_NULL(r->module_qn);
+    /* Must contain "index" to not collide with Folder QN */
+    ASSERT_NOT_NULL(strstr(r->module_qn, "index"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(python_regular_module_qn_unchanged) {
+    /* Non-__init__.py Python files should be unaffected */
+    CBMFileResult *r =
+        extract("def helper():\n    pass\n", CBM_LANG_PYTHON, "proj", "mypackage/utils.py");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_NOT_NULL(r->module_qn);
+    /* Regular module QN should not contain __init__ or index */
+    ASSERT_STR_EQ(r->module_qn, "proj.mypackage.utils");
+    cbm_free_result(r);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
  * Suite
  * ═══════════════════════════════════════════════════════════════════ */
 
@@ -2097,6 +2174,12 @@ SUITE(extraction) {
     RUN_TEST(markdown_setext_headings);
     RUN_TEST(markdown_heading_content);
     RUN_TEST(markdown_no_headings);
+
+    /* __init__.py / index.ts Module QN collision regression */
+    RUN_TEST(python_init_module_qn_not_collide_with_folder);
+    RUN_TEST(python_init_nested_module_qn);
+    RUN_TEST(js_index_module_qn_not_collide_with_folder);
+    RUN_TEST(python_regular_module_qn_unchanged);
 
     cbm_shutdown();
 }

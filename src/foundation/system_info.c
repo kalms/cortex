@@ -3,6 +3,7 @@
  *
  * macOS: sysctlbyname for core counts + cache, vm_statistics64 for free RAM.
  * Linux: sysconf + /proc/meminfo + sysinfo().
+ * Windows: GetSystemInfo + GlobalMemoryStatusEx.
  *
  * Results are cached after first call (immutable hardware properties).
  */
@@ -10,17 +11,22 @@
 #include <stdint.h> // uint64_t
 #include <string.h>
 
-#ifdef __APPLE__
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
 #include <sys/sysctl.h>
 #include <mach/mach_host.h> // host_info64_t, host_page_size, HOST_VM_INFO64, mach_host_self, mach_port_t
-#include <mach/mach_init.h>   // mach_host_self (direct provider)
-#include <mach/kern_return.h> // KERN_SUCCESS
+#include <mach/mach_init.h>     // mach_host_self (direct provider)
+#include <mach/kern_return.h>   // KERN_SUCCESS
 // NOLINTNEXTLINE(misc-include-cleaner) — vm_types.h included for interface contract
-#include <mach/vm_types.h> // vm_size_t
+#include <mach/vm_types.h>      // vm_size_t
 // NOLINTNEXTLINE(misc-include-cleaner) — mach_types.h included for interface contract
 #include <mach/mach_types.h>    // mach_msg_type_number_t
 #include <mach/vm_statistics.h> // vm_statistics64_data_t, HOST_VM_INFO64_COUNT
-#else
+#else                           /* Linux */
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #include <stdio.h>
@@ -152,7 +158,38 @@ static cbm_system_info_t detect_system_linux(void) {
     return info;
 }
 
-#endif /* __APPLE__ */
+#endif /* __APPLE__ / Linux */
+
+/* ── Windows detection ───────────────────────────────────────────── */
+
+#ifdef _WIN32
+static cbm_system_info_t detect_system_windows(void) {
+    cbm_system_info_t info;
+    memset(&info, 0, sizeof(info));
+
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    info.total_cores = (int)si.dwNumberOfProcessors;
+    if (info.total_cores < 1) {
+        info.total_cores = 1;
+    }
+    info.perf_cores = info.total_cores; /* Windows doesn't expose P/E cores */
+    info.efficiency_cores = 0;
+
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof(ms);
+    if (GlobalMemoryStatusEx(&ms)) {
+        info.total_ram = (size_t)ms.ullTotalPhys;
+        info.free_ram = (size_t)ms.ullAvailPhys;
+    }
+
+    info.cache_line_size = 64; /* Standard for x86-64 */
+    info.l2_cache_perf = 0;    /* TODO: GetLogicalProcessorInformation for cache topology */
+    info.l2_cache_eff = 0;
+
+    return info;
+}
+#endif
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
@@ -161,7 +198,9 @@ static cbm_system_info_t cached_info;
 
 cbm_system_info_t cbm_system_info(void) {
     if (!info_cached) {
-#ifdef __APPLE__
+#ifdef _WIN32
+        cached_info = detect_system_windows();
+#elif defined(__APPLE__)
         cached_info = detect_system_macos();
 #else
         cached_info = detect_system_linux();

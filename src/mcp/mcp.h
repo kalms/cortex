@@ -97,10 +97,24 @@ char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line);
 /* Handle a tools/call request. Returns MCP tool result JSON. */
 char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const char *args_json);
 
+/* ── Idle store eviction ──────────────────────────────────────── */
+
+/* Evict the cached project store if idle for more than timeout_s seconds.
+ * Protects initial in-memory stores (those never accessed via a named project).
+ * Called automatically by the event loop on poll() timeout. */
+void cbm_mcp_server_evict_idle(cbm_mcp_server_t *srv, int timeout_s);
+
+/* Check if the server currently has a cached store open. */
+bool cbm_mcp_server_has_cached_store(cbm_mcp_server_t *srv);
+
 /* ── Testing helpers ───────────────────────────────────────────── */
 
 /* Get the store handle from a server (for test setup). */
 cbm_store_t *cbm_mcp_server_store(cbm_mcp_server_t *srv);
+
+/* Set the project name associated with the server's current store (for test setup).
+ * This prevents resolve_store() from trying to open a .db file when tools specify a project. */
+void cbm_mcp_server_set_project(cbm_mcp_server_t *srv, const char *project);
 
 /* ── URI helpers ───────────────────────────────────────────────── */
 

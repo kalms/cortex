@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pipeline.c — Indexing pipeline orchestrator.
  *
@@ -16,12 +15,14 @@
 // NOLINTNEXTLINE(misc-include-cleaner) — worker_pool.h included for interface contract
 #include "pipeline/worker_pool.h"
 #include "graph_buffer/graph_buffer.h"
-#include "store/store.h"
 #include "discover/discover.h"
 #include "foundation/platform.h"
 #include "foundation/log.h"
 #include "foundation/hash_table.h"
+#include "foundation/compat.h"
+#include "foundation/compat_thread.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,7 +40,6 @@ struct cbm_pipeline {
 
     /* Indexing state (set during run) */
     cbm_gbuf_t *gbuf;
-    cbm_store_t *store;
     cbm_registry_t *registry;
 };
 
@@ -49,14 +49,14 @@ static double elapsed_ms(struct timespec start) {
     struct timespec now;
     // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
     clock_gettime(CLOCK_MONOTONIC, &now);
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-    return ((now.tv_sec - start.tv_sec) * 1000.0) + ((now.tv_nsec - start.tv_nsec) / 1e6);
+    return ((double)(now.tv_sec - start.tv_sec) * CBM_MS_PER_SEC) +
+           ((double)(now.tv_nsec - start.tv_nsec) / CBM_US_PER_SEC_F);
 }
 
 /* Format int to string for logging. Thread-safe via TLS rotating buffers. */
 static const char *itoa_buf(int val) {
-    static _Thread_local char bufs[4][32];
-    static _Thread_local int idx = 0;
+    static CBM_TLS char bufs[4][32];
+    static CBM_TLS int idx = 0;
     int i = idx;
     idx = (idx + 1) & 3;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -250,6 +250,19 @@ static int pass_structure(cbm_pipeline_t *p, const cbm_file_info_t *files, int f
 
 /* Implemented in pass_definitions.c via cbm_pipeline_pass_definitions() */
 
+/* ── Githistory compute thread (for fused post-pass parallelism) ─── */
+
+typedef struct {
+    const char *repo_path;
+    cbm_githistory_result_t *result;
+} gh_compute_arg_t;
+
+static void *gh_compute_thread_fn(void *arg) {
+    gh_compute_arg_t *a = arg;
+    cbm_pipeline_githistory_compute(a->repo_path, a->result);
+    return NULL;
+}
+
 /* ── Pipeline run ────────────────────────────────────────────────── */
 
 int cbm_pipeline_run(cbm_pipeline_t *p) {
@@ -310,8 +323,9 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
 
     /* Decide: parallel or sequential pipeline */
     int worker_count = cbm_default_worker_count(true);
+#define MIN_FILES_FOR_PARALLEL 50
     // NOLINTNEXTLINE(readability-implicit-bool-conversion)
-    bool use_parallel = (worker_count > 1 && file_count > 50);
+    bool use_parallel = (worker_count > 1 && file_count > MIN_FILES_FOR_PARALLEL);
 
     if (use_parallel) {
         cbm_log_info("pipeline.mode", "mode", "parallel", "workers", itoa_buf(worker_count),
@@ -332,6 +346,20 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
             rc = -1;
             goto cleanup;
         }
+
+        /* Allocate prescan cache: HTTP sites + config refs extracted during
+         * extraction phase while source is in memory. Eliminates all disk
+         * re-reads in httplinks (2M+ reads) and configlink (62K+ reads). */
+        cbm_prescan_t *prescan_cache = calloc(file_count, sizeof(cbm_prescan_t));
+        ctx.prescan_cache = prescan_cache;
+        ctx.prescan_count = file_count;
+
+        /* Build path → file_idx map for prescan lookup by rel_path */
+        CBMHashTable *prescan_map = cbm_ht_create(0);
+        for (int i = 0; i < file_count; i++) {
+            cbm_ht_set(prescan_map, files[i].rel_path, (void *)((intptr_t)i + 1));
+        }
+        ctx.prescan_path_map = prescan_map;
 
         /* Phase 3A: Parallel extract + definition nodes */
         clock_gettime(CLOCK_MONOTONIC, &t);
@@ -409,49 +437,73 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
     } else {
         cbm_log_info("pipeline.mode", "mode", "sequential", "files", itoa_buf(file_count));
 
+        /* Allocate result cache: pass_definitions stores results for reuse
+         * by pass_calls/usages/semantic, avoiding 3x redundant file I/O + parsing */
+        // NOLINTNEXTLINE(misc-include-cleaner)
+        CBMFileResult **seq_cache = (CBMFileResult **)calloc(file_count, sizeof(CBMFileResult *));
+        if (seq_cache) {
+            ctx.result_cache = seq_cache;
+        }
+
         /* Sequential fallback: original 4-pass chain */
         clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_definitions(&ctx, files, file_count);
         if (rc != 0) {
-            goto cleanup;
+            goto seq_cleanup;
         }
         cbm_log_info("pass.timing", "pass", "definitions", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
         if (check_cancel(p)) {
             rc = -1;
-            goto cleanup;
+            goto seq_cleanup;
         }
 
         clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_calls(&ctx, files, file_count);
         if (rc != 0) {
-            goto cleanup;
+            goto seq_cleanup;
         }
         cbm_log_info("pass.timing", "pass", "calls", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
         if (check_cancel(p)) {
             rc = -1;
-            goto cleanup;
+            goto seq_cleanup;
         }
 
         clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_usages(&ctx, files, file_count);
         if (rc != 0) {
-            goto cleanup;
+            goto seq_cleanup;
         }
         cbm_log_info("pass.timing", "pass", "usages", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
         if (check_cancel(p)) {
             rc = -1;
-            goto cleanup;
+            goto seq_cleanup;
         }
 
         clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_semantic(&ctx, files, file_count);
         if (rc != 0) {
-            goto cleanup;
+            goto seq_cleanup;
         }
         cbm_log_info("pass.timing", "pass", "semantic", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
         if (check_cancel(p)) {
             rc = -1;
+            goto seq_cleanup;
+        }
+
+    seq_cleanup:
+        /* Free cached extraction results */
+        if (seq_cache) {
+            for (int i = 0; i < file_count; i++) {
+                if (seq_cache[i]) {
+                    cbm_free_result(seq_cache[i]);
+                }
+            }
+            // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+            free(seq_cache);
+            ctx.result_cache = NULL;
+        }
+        if (rc != 0) {
             goto cleanup;
         }
     }
@@ -468,62 +520,125 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         goto cleanup;
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    rc = cbm_pipeline_pass_githistory(&ctx);
-    if (rc != 0) {
-        goto cleanup;
-    }
-    cbm_log_info("pass.timing", "pass", "githistory", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
-    if (check_cancel(p)) {
-        rc = -1;
-        goto cleanup;
+    /* ── Fused post-passes: githistory (I/O) + httplinks (CPU) in parallel ── */
+    {
+        struct timespec t_gh;
+        struct timespec t_hl;
+        clock_gettime(CLOCK_MONOTONIC, &t_gh);
+        clock_gettime(CLOCK_MONOTONIC, &t_hl);
+
+        cbm_githistory_result_t gh_result = {0};
+        cbm_thread_t gh_thread;
+        bool gh_threaded = false;
+        gh_compute_arg_t gh_arg = {.repo_path = ctx.repo_path, .result = &gh_result};
+
+        /* Skip githistory entirely in fast mode */
+        if (p->mode != CBM_MODE_FAST) {
+
+            /* Only parallelize if we have multiple cores */
+            if (cbm_default_worker_count(true) > 1) {
+                if (cbm_thread_create(&gh_thread, 0, gh_compute_thread_fn, &gh_arg) == 0) {
+                    gh_threaded = true;
+                }
+            }
+
+            /* If threading failed or single-core, run githistory serially first */
+            if (!gh_threaded) {
+                cbm_pipeline_githistory_compute(ctx.repo_path, &gh_result);
+                cbm_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
+                             itoa_buf((int)elapsed_ms(t_gh)));
+            }
+        } else {
+            cbm_log_info("pass.skip", "pass", "githistory", "reason", "fast_mode");
+        }
+
+        /* Run httplinks on main thread (CPU-bound) */
+        rc = cbm_pipeline_pass_httplinks(&ctx);
+        cbm_log_info("pass.timing", "pass", "httplinks", "elapsed_ms",
+                     itoa_buf((int)elapsed_ms(t_hl)));
+
+        /* Wait for githistory thread to complete */
+        if (gh_threaded) {
+            cbm_thread_join(&gh_thread);
+            cbm_log_info("pass.timing", "pass", "githistory_compute", "elapsed_ms",
+                         itoa_buf((int)elapsed_ms(t_gh)));
+        }
+
+        if (rc != 0) {
+            free(gh_result.couplings);
+            goto cleanup;
+        }
+        if (check_cancel(p)) {
+            free(gh_result.couplings);
+            rc = -1;
+            goto cleanup;
+        }
+
+        /* Apply githistory edges (serial, writes to gbuf) */
+        int gh_edges = 0;
+        if (gh_result.count > 0) {
+            gh_edges = cbm_pipeline_githistory_apply(&ctx, &gh_result);
+        }
+        cbm_log_info("pass.done", "pass", "githistory", "commits", itoa_buf(gh_result.commit_count),
+                     "edges", itoa_buf(gh_edges));
+        free(gh_result.couplings);
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    rc = cbm_pipeline_pass_httplinks(&ctx);
-    if (rc != 0) {
-        goto cleanup;
-    }
-    cbm_log_info("pass.timing", "pass", "httplinks", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
-    if (check_cancel(p)) {
-        rc = -1;
-        goto cleanup;
-    }
-
-    /* Phase 4: Dump to SQLite */
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    if (p->db_path) {
-        p->store = cbm_store_open_path(p->db_path);
-    } else {
-        p->store = cbm_store_open(p->project_name);
-    }
-    if (!p->store) {
-        cbm_log_error("pipeline.err", "phase", "store_open");
-        rc = -1;
-        goto cleanup;
-    }
-
-    rc = cbm_gbuf_flush_to_store(p->gbuf, p->store);
-    if (rc != 0) {
-        cbm_log_error("pipeline.err", "phase", "flush");
-        goto cleanup;
-    }
-    cbm_store_checkpoint(p->store);
-    cbm_log_info("pass.timing", "pass", "dump", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
-
-    /* Post-flush passes (operate on store, not graph buffer) */
+    /* Pre-dump passes (operate on graph buffer, not store) */
     if (!check_cancel(p)) {
         clock_gettime(CLOCK_MONOTONIC, &t);
-        cbm_pipeline_pass_decorator_tags(p->store, p->project_name);
+        cbm_pipeline_pass_decorator_tags(p->gbuf, p->project_name);
         cbm_log_info("pass.timing", "pass", "decorator_tags", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
     }
 
     if (!check_cancel(p)) {
         clock_gettime(CLOCK_MONOTONIC, &t);
-        cbm_pipeline_pass_configlink(p->store, p->project_name, p->repo_path);
+        cbm_pipeline_pass_configlink(&ctx);
         cbm_log_info("pass.timing", "pass", "configlink", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
+    }
+
+    /* Free prescan cache — no longer needed after httplinks + configlink */
+    if (ctx.prescan_cache) {
+        for (int i = 0; i < ctx.prescan_count; i++) {
+            free(ctx.prescan_cache[i].http_sites);
+            free(ctx.prescan_cache[i].config_refs);
+            free(ctx.prescan_cache[i].routes);
+        }
+        free(ctx.prescan_cache);
+        ctx.prescan_cache = NULL;
+    }
+    if (ctx.prescan_path_map) {
+        cbm_ht_free(ctx.prescan_path_map);
+        ctx.prescan_path_map = NULL;
+    }
+
+    /* Direct dump: construct B-tree pages in C, fwrite() to .db file.
+     * Zero SQLite library involvement — cbm_write_db() builds the binary
+     * format directly from flat arrays. Atomic: writes .tmp then renames. */
+    if (!check_cancel(p)) {
+        clock_gettime(CLOCK_MONOTONIC, &t);
+
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) — called once during single-threaded dump
+        const char *home = getenv("HOME");
+        char db_path[1024];
+        if (p->db_path) {
+            snprintf(db_path, sizeof(db_path), "%s", p->db_path);
+        } else {
+            if (!home) {
+                home = "/tmp";
+            }
+            snprintf(db_path, sizeof(db_path), "%s/.cache/codebase-memory-mcp/%s.db", home,
+                     p->project_name);
+        }
+
+        rc = cbm_gbuf_dump_to_sqlite(p->gbuf, db_path);
+        if (rc != 0) {
+            cbm_log_error("pipeline.err", "phase", "dump");
+            goto cleanup;
+        }
+        cbm_log_info("pass.timing", "pass", "dump", "elapsed_ms", itoa_buf((int)elapsed_ms(t)));
     }
 
     cbm_log_info("pipeline.done", "nodes", itoa_buf(cbm_gbuf_node_count(p->gbuf)), "edges",
@@ -531,16 +646,24 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
                  itoa_buf((int)elapsed_ms(t0)));
 
 cleanup:
+    /* Free prescan if not already freed */
+    if (ctx.prescan_cache) {
+        for (int i = 0; i < ctx.prescan_count; i++) {
+            free(ctx.prescan_cache[i].http_sites);
+            free(ctx.prescan_cache[i].config_refs);
+            free(ctx.prescan_cache[i].routes);
+        }
+        free(ctx.prescan_cache);
+        ctx.prescan_cache = NULL;
+    }
+    if (ctx.prescan_path_map) {
+        cbm_ht_free(ctx.prescan_path_map);
+        ctx.prescan_path_map = NULL;
+    }
     cbm_discover_free(files, file_count);
     cbm_gbuf_free(p->gbuf);
     p->gbuf = NULL;
     cbm_registry_free(p->registry);
     p->registry = NULL;
-    if (p->store) {
-        cbm_store_close(p->store);
-        p->store = NULL;
-    }
     return rc;
 }
-
-// NOLINTEND(readability-magic-numbers)

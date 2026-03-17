@@ -1,5 +1,3 @@
-// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pass_definitions.c — Extract definitions from source files.
  *
@@ -16,6 +14,7 @@
 #include "pipeline/pipeline_internal.h"
 #include "graph_buffer/graph_buffer.h"
 #include "foundation/log.h"
+#include "foundation/compat.h"
 #include "cbm.h"
 
 #include <stdio.h>
@@ -30,23 +29,23 @@ static char *read_file(const char *path, int *out_len) {
         return NULL;
     }
 
-    fseek(f, 0, SEEK_END);
+    (void)fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    (void)fseek(f, 0, SEEK_SET);
 
     if (size <= 0 || size > (long)100 * 1024 * 1024) { /* 100 MB sanity limit */
-        fclose(f);
+        (void)fclose(f);
         return NULL;
     }
 
     char *buf = malloc(size + 1);
     if (!buf) {
-        fclose(f);
+        (void)fclose(f);
         return NULL;
     }
 
     size_t nread = fread(buf, 1, size, f);
-    fclose(f);
+    (void)fclose(f);
 
     // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[nread] = '\0';
@@ -56,8 +55,8 @@ static char *read_file(const char *path, int *out_len) {
 
 /* Format int to string for logging. Thread-safe via TLS. */
 static const char *itoa_log(int val) {
-    static _Thread_local char bufs[4][32];
-    static _Thread_local int idx = 0;
+    static CBM_TLS char bufs[4][32];
+    static CBM_TLS int idx = 0;
     int i = idx;
     idx = (idx + 1) & 3;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -222,10 +221,10 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
         }
 
         /* Extract */
-        CBMFileResult *result = cbm_extract_file(source, source_len, lang, ctx->project_name, rel,
-                                                 5000000,   /* 5s timeout per file */
-                                                 NULL, NULL /* no extra defines or include paths */
-        );
+        CBMFileResult *result =
+            cbm_extract_file(source, source_len, lang, ctx->project_name, rel, CBM_EXTRACT_BUDGET,
+                             NULL, NULL /* no extra defines or include paths */
+            );
         free(source);
 
         if (!result) {
@@ -306,7 +305,12 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
             free(file_qn);
         }
 
-        cbm_free_result(result);
+        /* Cache or free the extraction result */
+        if (ctx->result_cache) {
+            ctx->result_cache[i] = result;
+        } else {
+            cbm_free_result(result);
+        }
     }
 
     cbm_log_info("pass.done", "pass", "definitions", "defs", itoa_log(total_defs), "calls",
@@ -314,6 +318,3 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
                  itoa_log(errors));
     return 0;
 }
-
-// NOLINTEND(readability-magic-numbers)
-// NOLINTEND(cert-err33-c)
