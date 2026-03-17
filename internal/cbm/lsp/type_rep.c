@@ -1,4 +1,5 @@
 #include "type_rep.h"
+#include <stdint.h>
 #include <string.h>
 
 // Singleton UNKNOWN type (no allocation needed).
@@ -199,7 +200,11 @@ const CBMType* cbm_type_elem(const CBMType* t) {
 }
 
 bool cbm_type_is_unknown(const CBMType* t) {
-    return !t || t->kind == CBM_TYPE_UNKNOWN;
+    if (!t) return true;
+    /* Guard against dangling pointers from stale field_types entries.
+     * Check alignment before dereferencing — misaligned pointer means garbage. */
+    if (((uintptr_t)t & (_Alignof(CBMType) - 1)) != 0) return true;
+    return t->kind == CBM_TYPE_UNKNOWN;
 }
 
 bool cbm_type_is_interface(const CBMType* t) {

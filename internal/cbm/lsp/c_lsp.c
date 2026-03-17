@@ -4446,7 +4446,7 @@ void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
                 if (new_fnames && new_ftypes) {
                     for (int j = 0; j < existing; j++) {
                         new_fnames[j] = parent_rt->field_names[j];
-                        new_ftypes[j] = parent_rt->field_types[j];
+                        new_ftypes[j] = parent_rt->field_types ? parent_rt->field_types[j] : NULL;
                     }
                     new_fnames[existing] = d->name;
                     new_ftypes[existing] = c_parse_return_type_text(arena, d->return_type, module_qn);
