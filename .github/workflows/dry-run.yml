@@ -16,13 +16,26 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsqlite3-dev zlib1g-dev cppcheck
+          sudo apt-get install -y libsqlite3-dev zlib1g-dev cmake
+          # LLVM 20 from apt.llvm.org (matches Homebrew LLVM)
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm-20.list
+          sudo apt-get update
+          sudo apt-get install -y clang-format-20 clang-tidy-20
+          # cppcheck 2.20 from source (Ubuntu only packages 2.13)
+          git clone --depth 1 --branch 2.20 https://github.com/danmar/cppcheck.git /tmp/cppcheck
+          cmake -S /tmp/cppcheck -B /tmp/cppcheck/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/cppcheck/build -j$(nproc)
+          sudo cmake --install /tmp/cppcheck/build
 
       - name: clang-format
-        run: make -f Makefile.cbm lint-format CLANG_FORMAT=clang-format-18
+        run: make -f Makefile.cbm lint-format CLANG_FORMAT=clang-format-20
 
       - name: cppcheck
         run: make -f Makefile.cbm lint-cppcheck
+
+      - name: clang-tidy
+        run: make -f Makefile.cbm lint-tidy CLANG_TIDY=clang-tidy-20
 
   # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
   test:
