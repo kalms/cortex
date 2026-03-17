@@ -71,6 +71,94 @@ TEST(fqn_root_file) {
     PASS();
 }
 
+/* ── FQN collision regression tests ──────────────────────────────── */
+/* Bug: __init__.py Module QN collided with Folder QN, causing Folder
+ * nodes to be overwritten during extraction. Symbols inside __init__.py
+ * must still get clean package QNs (no __init__ in their QN). */
+
+TEST(fqn_init_module_distinct_from_folder) {
+    /* Module QN for __init__.py must differ from Folder QN for same dir */
+    char *mod_qn = cbm_pipeline_fqn_module("proj", "pkg/__init__.py");
+    char *folder_qn = cbm_pipeline_fqn_folder("proj", "pkg");
+    ASSERT_NOT_NULL(mod_qn);
+    ASSERT_NOT_NULL(folder_qn);
+    /* These MUST be different — the old bug was they were both "proj.pkg" */
+    ASSERT_STR_NEQ(mod_qn, folder_qn);
+    /* Module should contain __init__ as disambiguator */
+    ASSERT_NOT_NULL(strstr(mod_qn, "__init__"));
+    /* Folder should NOT contain __init__ */
+    ASSERT_EQ(strstr(folder_qn, "__init__"), NULL);
+    free(mod_qn);
+    free(folder_qn);
+    PASS();
+}
+
+TEST(fqn_init_nested_module_distinct) {
+    /* Same collision test for deeply nested __init__.py */
+    char *mod_qn =
+        cbm_pipeline_fqn_module("proj", "docker-images/cloud-runs/bq-sync-api/__init__.py");
+    char *folder_qn = cbm_pipeline_fqn_folder("proj", "docker-images/cloud-runs/bq-sync-api");
+    ASSERT_NOT_NULL(mod_qn);
+    ASSERT_NOT_NULL(folder_qn);
+    ASSERT_STR_NEQ(mod_qn, folder_qn);
+    free(mod_qn);
+    free(folder_qn);
+    PASS();
+}
+
+TEST(fqn_index_ts_module_distinct_from_folder) {
+    /* Same collision for JS/TS index.ts */
+    char *mod_qn = cbm_pipeline_fqn_module("proj", "src/components/index.ts");
+    char *folder_qn = cbm_pipeline_fqn_folder("proj", "src/components");
+    ASSERT_NOT_NULL(mod_qn);
+    ASSERT_NOT_NULL(folder_qn);
+    ASSERT_STR_NEQ(mod_qn, folder_qn);
+    free(mod_qn);
+    free(folder_qn);
+    PASS();
+}
+
+TEST(fqn_init_symbols_get_clean_package_qn) {
+    /* Symbols inside __init__.py must NOT have __init__ in their QN.
+     * "proj.pkg.Foo" not "proj.pkg.__init__.Foo" */
+    char *sym_qn = cbm_pipeline_fqn_compute("proj", "pkg/__init__.py", "Foo");
+    ASSERT_NOT_NULL(sym_qn);
+    ASSERT_STR_EQ(sym_qn, "proj.pkg.Foo");
+    ASSERT_EQ(strstr(sym_qn, "__init__"), NULL);
+    free(sym_qn);
+    PASS();
+}
+
+TEST(fqn_index_symbols_get_clean_qn) {
+    /* Symbols inside index.ts must NOT have index in their QN */
+    char *sym_qn = cbm_pipeline_fqn_compute("proj", "src/index.ts", "App");
+    ASSERT_NOT_NULL(sym_qn);
+    ASSERT_STR_EQ(sym_qn, "proj.src.App");
+    free(sym_qn);
+    PASS();
+}
+
+TEST(fqn_init_file_node_distinct) {
+    /* File node QN (name="__file__") for __init__.py must be distinct from Folder */
+    char *file_qn = cbm_pipeline_fqn_compute("proj", "pkg/__init__.py", "__file__");
+    char *folder_qn = cbm_pipeline_fqn_folder("proj", "pkg");
+    ASSERT_NOT_NULL(file_qn);
+    ASSERT_NOT_NULL(folder_qn);
+    ASSERT_STR_NEQ(file_qn, folder_qn);
+    free(file_qn);
+    free(folder_qn);
+    PASS();
+}
+
+TEST(fqn_regular_module_unchanged) {
+    /* Non-init modules should be unaffected by the fix */
+    char *qn = cbm_pipeline_fqn_module("proj", "pkg/utils.py");
+    ASSERT_NOT_NULL(qn);
+    ASSERT_STR_EQ(qn, "proj.pkg.utils");
+    free(qn);
+    PASS();
+}
+
 TEST(project_name_from_path) {
     char *name = cbm_project_name_from_path("/Users/dev/project");
     ASSERT_NOT_NULL(name);
@@ -503,6 +591,14 @@ SUITE(registry) {
     RUN_TEST(fqn_module);
     RUN_TEST(fqn_folder);
     RUN_TEST(fqn_root_file);
+    /* FQN collision regression (Folder vs __init__.py Module) */
+    RUN_TEST(fqn_init_module_distinct_from_folder);
+    RUN_TEST(fqn_init_nested_module_distinct);
+    RUN_TEST(fqn_index_ts_module_distinct_from_folder);
+    RUN_TEST(fqn_init_symbols_get_clean_package_qn);
+    RUN_TEST(fqn_index_symbols_get_clean_qn);
+    RUN_TEST(fqn_init_file_node_distinct);
+    RUN_TEST(fqn_regular_module_unchanged);
     RUN_TEST(project_name_from_path);
     RUN_TEST(project_name_from_root);
     /* Registry lifecycle */

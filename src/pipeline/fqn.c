@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * fqn.c — Fully Qualified Name computation for graph nodes.
  *
@@ -11,6 +10,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> // strdup
+
+/* Maximum path segments in a FQN (256 slots total, -2 for project + name) */
+#define FQN_MAX_PATH_SEGS 254
+#define FQN_MAX_DIR_SEGS 255
 
 /* ── Internal helpers ─────────────────────────────────────────────── */
 
@@ -82,7 +85,7 @@ char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const 
     /* Add path segments */
     if (path[0] != '\0') {
         char *tok = path;
-        while (tok && *tok && seg_count < 254) {
+        while (tok && *tok && seg_count < FQN_MAX_PATH_SEGS) {
             char *slash = strchr(tok, '/');
             if (slash) {
                 *slash = '\0';
@@ -94,11 +97,20 @@ char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const 
         }
     }
 
-    /* Strip __init__ (Python) and index (JS/TS) from last segment */
+    /* Handle __init__ (Python) and index (JS/TS):
+     * Strip from module QN to get the package name, BUT only when a name
+     * suffix is provided (e.g., fqn_compute("proj", "pkg/__init__.py", "MyClass")
+     * → "proj.pkg.MyClass"). When no name is given (fqn_module for the file
+     * itself), keep "__init__" to avoid QN collision with the Folder node
+     * for the same directory. */
     if (seg_count > 1) {
         const char *last = segments[seg_count - 1];
         if (strcmp(last, "__init__") == 0 || strcmp(last, "index") == 0) {
-            seg_count--;
+            if (name && name[0] != '\0') {
+                /* Has a symbol name — strip __init__ so symbols get clean package QN */
+                seg_count--;
+            }
+            /* else: no name → keep __init__/index as disambiguator */
         }
     }
 
@@ -136,7 +148,7 @@ char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
 
     if (dir[0] != '\0') {
         char *tok = dir;
-        while (tok && *tok && seg_count < 255) {
+        while (tok && *tok && seg_count < FQN_MAX_DIR_SEGS) {
             char *slash = strchr(tok, '/');
             if (slash) {
                 *slash = '\0';
@@ -209,5 +221,3 @@ char *cbm_project_name_from_path(const char *abs_path) {
     free(path);
     return result;
 }
-
-// NOLINTEND(readability-magic-numbers)

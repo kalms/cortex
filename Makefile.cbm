@@ -20,17 +20,30 @@ CXX = c++
 CBM_DIR = internal/cbm
 TS_INCLUDE = $(CBM_DIR)/vendored/ts_runtime/include
 
+# ── Optional libgit2 (faster git history parsing) ────────────────
+# Auto-detected via pkg-config. Falls back to popen("git log ...") if absent.
+LIBGIT2_CFLAGS := $(shell pkg-config --cflags libgit2 2>/dev/null)
+LIBGIT2_LIBS := $(shell pkg-config --libs libgit2 2>/dev/null)
+ifneq ($(LIBGIT2_LIBS),)
+LIBGIT2_FLAGS = -DHAVE_LIBGIT2 $(LIBGIT2_CFLAGS)
+else
+LIBGIT2_FLAGS =
+LIBGIT2_LIBS =
+endif
+
 CFLAGS_COMMON = -std=c11 -Wall -Wextra -Werror \
                 -Wno-unused-parameter -Wno-sign-compare \
                 -Isrc -Ivendored -Ivendored/sqlite3 \
-                -I$(CBM_DIR) -I$(TS_INCLUDE)
+                -Ivendored/mimalloc/include \
+                -I$(CBM_DIR) -I$(TS_INCLUDE) \
+                $(LIBGIT2_FLAGS)
 
 CXXFLAGS_COMMON = -std=c++14 -Wall -Wextra -Werror \
                   -Wno-unused-parameter \
                   -I$(CBM_DIR) -I$(TS_INCLUDE)
 
-# Production flags
-CFLAGS_PROD = $(CFLAGS_COMMON) -O2
+# Production flags (CFLAGS_EXTRA allows CI to inject -DCBM_VERSION)
+CFLAGS_PROD = $(CFLAGS_COMMON) -O2 $(CFLAGS_EXTRA)
 CXXFLAGS_PROD = $(CXXFLAGS_COMMON) -O2
 
 # Test flags: debug + sanitizers
@@ -47,9 +60,9 @@ CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
 CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
                 -fsanitize=thread -fno-omit-frame-pointer
 
-LDFLAGS = -lm -lstdc++ -lpthread -lsqlite3 -lz
-LDFLAGS_TEST = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=address,undefined
-LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=thread
+LDFLAGS = -lm -lstdc++ -lpthread -lsqlite3 -lz $(LIBGIT2_LIBS)
+LDFLAGS_TEST = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=address,undefined $(LIBGIT2_LIBS)
+LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=thread $(LIBGIT2_LIBS)
 
 # ── Source files ─────────────────────────────────────────────────
 
@@ -61,7 +74,13 @@ FOUNDATION_SRCS = \
     src/foundation/str_util.c \
     src/foundation/platform.c \
     src/foundation/system_info.c \
-    src/foundation/yaml.c
+    src/foundation/slab_alloc.c \
+    src/foundation/yaml.c \
+    src/foundation/compat.c \
+    src/foundation/compat_thread.c \
+    src/foundation/compat_fs.c \
+    src/foundation/compat_regex.c \
+    src/foundation/mem.c
 
 # Existing extraction C code (compiled from current location)
 EXTRACTION_SRCS = \
@@ -146,11 +165,35 @@ WATCHER_SRCS = src/watcher/watcher.c
 # CLI module (new)
 CLI_SRCS = src/cli/cli.c
 
+# UI module (graph visualization)
+UI_SRCS = \
+    src/ui/config.c \
+    src/ui/http_server.c \
+    src/ui/layout3d.c \
+    src/ui/embedded_stub.c
+
+# Mongoose HTTP library (vendored, compiled with relaxed warnings)
+MONGOOSE_SRC = vendored/mongoose/mongoose.c
+MONGOOSE_CFLAGS = -std=c11 -O2 -w -Ivendored -DMG_ENABLE_LOG=0
+MONGOOSE_CFLAGS_TEST = -std=c11 -g -O1 -w -Ivendored -DMG_ENABLE_LOG=0 \
+                       -fsanitize=address,undefined -fno-omit-frame-pointer
+
+# mimalloc (vendored, global allocator override)
+MIMALLOC_SRC = vendored/mimalloc/src/static.c
+MIMALLOC_CFLAGS = -std=c11 -O2 -w \
+                  -Ivendored/mimalloc/include \
+                  -Ivendored/mimalloc/src \
+                  -DMI_OVERRIDE=1
+MIMALLOC_CFLAGS_TEST = -std=c11 -g -O1 -w \
+                       -Ivendored/mimalloc/include \
+                       -Ivendored/mimalloc/src \
+                       -DMI_OVERRIDE=0
+
 # yyjson (vendored)
 YYJSON_SRC = vendored/yyjson/yyjson.c
 
 # All production sources
-PROD_SRCS = $(FOUNDATION_SRCS) $(STORE_SRCS) $(CYPHER_SRCS) $(MCP_SRCS) $(DISCOVER_SRCS) $(GRAPH_BUFFER_SRCS) $(PIPELINE_SRCS) $(TRACES_SRCS) $(WATCHER_SRCS) $(CLI_SRCS) $(YYJSON_SRC)
+PROD_SRCS = $(FOUNDATION_SRCS) $(STORE_SRCS) $(CYPHER_SRCS) $(MCP_SRCS) $(DISCOVER_SRCS) $(GRAPH_BUFFER_SRCS) $(PIPELINE_SRCS) $(TRACES_SRCS) $(WATCHER_SRCS) $(CLI_SRCS) $(UI_SRCS) $(YYJSON_SRC)
 EXISTING_C_SRCS = $(EXTRACTION_SRCS) $(LSP_SRCS) $(TS_RUNTIME_SRC) \
                   $(GRAMMAR_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC)
 
@@ -209,7 +252,11 @@ TEST_HTTPLINK_SRCS = tests/test_httplink.c
 
 TEST_CLI_SRCS = tests/test_cli.c
 
-ALL_TEST_SRCS = $(TEST_FOUNDATION_SRCS) $(TEST_EXTRACTION_SRCS) $(TEST_STORE_SRCS) $(TEST_CYPHER_SRCS) $(TEST_MCP_SRCS) $(TEST_DISCOVER_SRCS) $(TEST_GRAPH_BUFFER_SRCS) $(TEST_PIPELINE_SRCS) $(TEST_WATCHER_SRCS) $(TEST_LZ4_SRCS) $(TEST_SQLITE_WRITER_SRCS) $(TEST_GO_LSP_SRCS) $(TEST_C_LSP_SRCS) $(TEST_TRACES_SRCS) $(TEST_HTTPLINK_SRCS) $(TEST_CLI_SRCS) $(TEST_INTEGRATION_SRCS)
+TEST_MEM_SRCS = tests/test_mem.c
+
+TEST_UI_SRCS = tests/test_ui.c
+
+ALL_TEST_SRCS = $(TEST_FOUNDATION_SRCS) $(TEST_EXTRACTION_SRCS) $(TEST_STORE_SRCS) $(TEST_CYPHER_SRCS) $(TEST_MCP_SRCS) $(TEST_DISCOVER_SRCS) $(TEST_GRAPH_BUFFER_SRCS) $(TEST_PIPELINE_SRCS) $(TEST_WATCHER_SRCS) $(TEST_LZ4_SRCS) $(TEST_SQLITE_WRITER_SRCS) $(TEST_GO_LSP_SRCS) $(TEST_C_LSP_SRCS) $(TEST_TRACES_SRCS) $(TEST_HTTPLINK_SRCS) $(TEST_CLI_SRCS) $(TEST_MEM_SRCS) $(TEST_UI_SRCS) $(TEST_INTEGRATION_SRCS)
 
 # ── Build directories ────────────────────────────────────────────
 
@@ -232,7 +279,7 @@ PP_OBJ_TEST = $(BUILD_DIR)/preprocessor.o
 
 # ── Targets ──────────────────────────────────────────────────────
 
-.PHONY: test test-foundation test-tsan cbm clean-c lint lint-tidy lint-cppcheck lint-format
+.PHONY: test test-foundation test-tsan cbm cbm-with-ui frontend embed clean-c lint lint-tidy lint-cppcheck lint-format
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -261,7 +308,27 @@ $(BUILD_DIR)/preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
 
 # ── Full test binary ─────────────────────────────────────────────
 
-OBJS_VENDORED_TEST = $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST)
+# Mongoose object files (compiled with relaxed warnings, no -Werror)
+MONGOOSE_OBJ_TEST = $(BUILD_DIR)/mongoose.o
+MONGOOSE_OBJ_PROD = $(BUILD_DIR)/prod_mongoose.o
+
+$(BUILD_DIR)/mongoose.o: $(MONGOOSE_SRC) | $(BUILD_DIR)
+	$(CC) $(MONGOOSE_CFLAGS_TEST) -c -o $@ $<
+
+$(BUILD_DIR)/prod_mongoose.o: $(MONGOOSE_SRC) | $(BUILD_DIR)
+	$(CC) $(MONGOOSE_CFLAGS) -c -o $@ $<
+
+# mimalloc object files
+MIMALLOC_OBJ_TEST = $(BUILD_DIR)/mimalloc.o
+MIMALLOC_OBJ_PROD = $(BUILD_DIR)/prod_mimalloc.o
+
+$(BUILD_DIR)/mimalloc.o: $(MIMALLOC_SRC) | $(BUILD_DIR)
+	$(CC) $(MIMALLOC_CFLAGS_TEST) -c -o $@ $<
+
+$(BUILD_DIR)/prod_mimalloc.o: $(MIMALLOC_SRC) | $(BUILD_DIR)
+	$(CC) $(MIMALLOC_CFLAGS) -c -o $@ $<
+
+OBJS_VENDORED_TEST = $(MIMALLOC_OBJ_TEST) $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST) $(MONGOOSE_OBJ_TEST)
 
 $(BUILD_DIR)/test-runner: $(ALL_TEST_SRCS) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_TEST) | $(BUILD_DIR)
 	$(CC) $(CFLAGS_TEST) -o $@ \
@@ -298,7 +365,7 @@ $(BUILD_DIR)/prod_lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
 $(BUILD_DIR)/prod_preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS_PROD) -w -I$(CBM_DIR)/vendored -c -o $@ $<
 
-OBJS_VENDORED_PROD = $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD)
+OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(MONGOOSE_OBJ_PROD)
 
 MAIN_SRC = src/main.c
 
@@ -311,6 +378,30 @@ $(BUILD_DIR)/codebase-memory-mcp: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(
 
 cbm: $(BUILD_DIR)/codebase-memory-mcp
 	@echo "Built: $(BUILD_DIR)/codebase-memory-mcp"
+
+# ── Build with embedded UI (requires Node.js) ───────────────────
+
+# Swap embedded_stub.c for the generated embedded_assets.c
+UI_SRCS_WITH_ASSETS = $(subst src/ui/embedded_stub.c,src/ui/embedded_assets.c,$(UI_SRCS))
+PROD_SRCS_WITH_ASSETS = $(subst src/ui/embedded_stub.c,src/ui/embedded_assets.c,$(PROD_SRCS))
+
+# Embedded asset object files (generated by embed script)
+EMBED_OBJS = $(wildcard $(BUILD_DIR)/embedded/embed_*.o)
+
+frontend:
+	cd graph-ui && npm ci && npm run build
+
+embed: frontend
+	scripts/embed-frontend.sh graph-ui/dist $(BUILD_DIR)/embedded
+
+cbm-with-ui: embed
+	$(CC) $(CFLAGS_PROD) -o $(BUILD_DIR)/codebase-memory-mcp \
+		$(MAIN_SRC) $(PROD_SRCS_WITH_ASSETS) \
+		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
+		$(OBJS_VENDORED_PROD) \
+		$(wildcard $(BUILD_DIR)/embedded/embed_*.o) \
+		$(LDFLAGS)
+	@echo "Built with UI: $(BUILD_DIR)/codebase-memory-mcp"
 
 clean-c:
 	rm -rf $(BUILD_DIR)

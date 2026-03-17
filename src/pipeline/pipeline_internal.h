@@ -10,8 +10,59 @@
 #include "pipeline/pipeline.h"
 #include "graph_buffer/graph_buffer.h"
 #include "discover/discover.h"
+#include "foundation/hash_table.h"
 #include "cbm.h"
 #include <stdatomic.h>
+
+/* ── Shared pipeline constants ─────────────────────────────────── */
+
+/* Maximum byte budget for tree-sitter extraction per file */
+#define CBM_EXTRACT_BUDGET 5000000
+
+/* Time unit conversions */
+#define CBM_NS_PER_SEC 1000000000LL
+#define CBM_US_PER_SEC 1000000LL
+#define CBM_MS_PER_SEC 1000.0
+#define CBM_US_PER_SEC_F 1e6
+
+/* ── Pre-scan results (extracted during parallel phase) ──────────── */
+
+/* HTTP call site discovered during extraction (source already in memory).
+ * Eliminates 2M+ disk reads in httplinks pass. */
+typedef struct {
+    char path[256];        /* extracted URL path */
+    char method[16];       /* HTTP method (empty if unknown) */
+    char source_name[256]; /* function name */
+    char source_qn[512];   /* function qualified name */
+    char source_label[32]; /* "Function" or "Method" */
+    bool is_async;         /* async dispatch vs HTTP call */
+} cbm_prescan_http_site_t;
+
+/* Config file reference found in source during extraction.
+ * Eliminates 62K+ disk reads in configlink pass. */
+typedef struct {
+    char ref_path[256]; /* referenced config file path (e.g. "config.yaml") */
+} cbm_prescan_config_ref_t;
+
+/* HTTP route discovered during extraction. */
+typedef struct {
+    char path[256];
+    char method[16];
+    char function_name[256];
+    char qualified_name[512];
+    char handler_ref[256];
+    char protocol[8]; /* "ws", "sse", or "" */
+} cbm_prescan_route_t;
+
+/* Per-file prescan results, parallel to result_cache[file_idx]. */
+typedef struct {
+    cbm_prescan_http_site_t *http_sites;
+    int http_site_count;
+    cbm_prescan_config_ref_t *config_refs;
+    int config_ref_count;
+    cbm_prescan_route_t *routes;
+    int route_count;
+} cbm_prescan_t;
 
 /* ── Pipeline context (internal) ─────────────────────────────────── */
 
@@ -23,6 +74,24 @@ typedef struct {
     cbm_gbuf_t *gbuf;         /* owned by pipeline */
     cbm_registry_t *registry; /* owned by pipeline */
     atomic_int *cancelled;    /* pointer to pipeline's cancelled flag */
+
+    /* Extraction result cache (sequential pipeline optimization).
+     * When non-NULL, pass_definitions stores results here instead of freeing,
+     * and pass_calls/usages/semantic reuse cached results instead of re-extracting.
+     * Indexed by file position in the files[] array. Owned by pipeline.c. */
+    CBMFileResult **result_cache;
+
+    /* Pre-scan cache — indexed by file position, parallel to result_cache.
+     * Populated during extraction phase while source is in memory.
+     * Contains HTTP call sites and config file references extracted from source.
+     * Eliminates disk re-reads in httplinks and configlink passes. */
+    cbm_prescan_t *prescan_cache;
+    int prescan_count;
+
+    /* File path → index hash map for prescan lookup by rel_path.
+     * Allows httplinks (which iterates graph nodes, not files) to find
+     * prescan data by node->file_path. */
+    CBMHashTable *prescan_path_map;
 } cbm_pipeline_ctx_t;
 
 /* Check cancellation. Returns non-zero if cancelled. */
@@ -295,14 +364,28 @@ int cbm_pipeline_pass_tests(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *file
 
 int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx);
 
+/* Pre-computed git history result for fused post-pass parallelism. */
+typedef struct {
+    cbm_change_coupling_t *couplings;
+    int count;
+    int commit_count;
+} cbm_githistory_result_t;
+
+/* Compute change couplings without touching the graph buffer.
+ * Can run on a separate thread while other passes use the gbuf. */
+int cbm_pipeline_githistory_compute(const char *repo_path, cbm_githistory_result_t *result);
+
+/* Apply pre-computed couplings to the graph buffer (main thread only). */
+int cbm_pipeline_githistory_apply(cbm_pipeline_ctx_t *ctx, const cbm_githistory_result_t *result);
+
 int cbm_pipeline_pass_httplinks(cbm_pipeline_ctx_t *ctx);
 
-/* Post-flush pass: decorator tags enrichment (operates on store, not gbuf). */
-int cbm_pipeline_pass_decorator_tags(cbm_store_t *store, const char *project);
+/* Pre-dump pass: decorator tags enrichment (operates on gbuf). */
+int cbm_pipeline_pass_decorator_tags(cbm_gbuf_t *gbuf, const char *project);
 
-/* Post-flush pass: config ↔ code linking (operates on store, not gbuf).
- * repo_path needed for strategy 3 (file reference scanning). */
-int cbm_pipeline_pass_configlink(cbm_store_t *store, const char *project, const char *repo_path);
+/* Pre-dump pass: config ↔ code linking.
+ * Uses prescan cache when available, falls back to disk reads. */
+int cbm_pipeline_pass_configlink(cbm_pipeline_ctx_t *ctx);
 
 /* ── Env URL scanner (pass_envscan.c) ────────────────────────────── */
 

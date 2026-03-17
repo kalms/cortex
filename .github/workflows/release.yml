@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. v0.0.2)"
+        description: "Release version (e.g. v0.8.0)"
         required: true
         type: string
       release_notes:
@@ -21,22 +21,7 @@ permissions:
   contents: write
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-
-      - uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.10
-          args: --timeout=5m
-
   build-unix:
-    needs: [lint]
     strategy:
       matrix:
         include:
@@ -56,81 +41,114 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
+      - name: Install deps (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
 
-      - name: Run tests
-        run: go test ./...
+      - name: Run C tests
+        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
 
-      - name: Build binary
+      # ── Standard binary (no UI, no Node.js needed) ──
+      - name: Build standard binary
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # Strip leading 'v' — version var should be bare semver (e.g. 0.4.0)
           CLEAN_VERSION="${VERSION#v}"
-          CGO_ENABLED=1 go build \
-            -ldflags "-X main.version=$CLEAN_VERSION" \
-            -o codebase-memory-mcp \
-            ./cmd/codebase-memory-mcp/
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm \
+            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
-      - name: Smoke test
-        run: bash scripts/smoke-test.sh ./codebase-memory-mcp
+      - name: Smoke test (standard)
+        run: ./build/c/codebase-memory-mcp --version
 
-      - name: Create archive
-        run: tar -czf codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz codebase-memory-mcp
+      - name: Archive standard binary
+        run: |
+          tar -czf codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
+            -C build/c codebase-memory-mcp
+
+      # ── UI binary (embedded frontend, needs Node.js) ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build UI binary
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          CLEAN_VERSION="${VERSION#v}"
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui \
+            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+
+      - name: Smoke test (UI)
+        run: ./build/c/codebase-memory-mcp --version
+
+      - name: Archive UI binary
+        run: |
+          tar -czf codebase-memory-mcp-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
+            -C build/c codebase-memory-mcp
 
       - uses: actions/upload-artifact@v4
         with:
-          name: codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
           path: "*.tar.gz"
 
   build-windows:
-    needs: [lint]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
 
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           path-type: inherit
-          install: mingw-w64-ucrt-x86_64-gcc
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-sqlite3
+            mingw-w64-ucrt-x86_64-zlib
+            make
 
-      - name: Run tests
-        shell: msys2 {0}
-        run: |
-          which go
-          go version
-          go test ./...
-
-      - name: Build binary
+      # ── Standard binary ──
+      - name: Build standard binary
         shell: msys2 {0}
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # Strip leading 'v' — version var should be bare semver (e.g. 0.4.0)
           CLEAN_VERSION="${VERSION#v}"
-          CGO_ENABLED=1 CC=gcc go build \
-            -ldflags "-X main.version=$CLEAN_VERSION -extldflags '-static'" \
-            -o codebase-memory-mcp.exe \
-            ./cmd/codebase-memory-mcp/
+          make -j$(nproc) -f Makefile.cbm cbm \
+            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
       - name: Smoke test
         shell: msys2 {0}
-        run: bash scripts/smoke-test.sh ./codebase-memory-mcp.exe
+        run: ./build/c/codebase-memory-mcp --version
 
-      - name: Create archive
+      - name: Archive standard binary
         shell: pwsh
-        run: Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
+        run: |
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
+          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
+
+      # ── UI binary ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build UI binary
+        shell: msys2 {0}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          CLEAN_VERSION="${VERSION#v}"
+          make -j$(nproc) -f Makefile.cbm cbm-with-ui \
+            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+
+      - name: Archive UI binary
+        shell: pwsh
+        run: |
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe -Force
+          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: codebase-memory-mcp-windows-amd64
+          name: binaries-windows-amd64
           path: "*.zip"
 
   release:
@@ -144,6 +162,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la *.tar.gz *.zip
 
       - name: Generate checksums
         run: sha256sum *.tar.gz *.zip > checksums.txt

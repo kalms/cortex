@@ -6,6 +6,8 @@
  *   - cbm_arena_calloc() for zero-initialized allocations
  *   - cbm_arena_reset() for reuse without full destroy
  *   - cbm_arena_total() for allocation tracking
+ *
+ * Arena blocks use malloc/free (= mimalloc in production builds).
  */
 #include "arena.h"
 #include <stdlib.h>
@@ -25,6 +27,7 @@ void cbm_arena_init_sized(CBMArena *a, size_t block_size) {
     a->block_size = block_size;
     a->blocks[0] = (char *)malloc(block_size);
     if (a->blocks[0]) {
+        a->block_sizes[0] = block_size;
         a->nblocks = 1;
     }
 }
@@ -42,6 +45,7 @@ static int arena_grow(CBMArena *a, size_t min_size) {
         return 0;
     }
     a->blocks[a->nblocks] = block;
+    a->block_sizes[a->nblocks] = new_size;
     a->nblocks++;
     a->block_size = new_size;
     a->used = 0;
@@ -125,10 +129,9 @@ void cbm_arena_reset(CBMArena *a) {
     for (int i = 1; i < a->nblocks; i++) {
         free(a->blocks[i]);
         a->blocks[i] = NULL;
+        a->block_sizes[i] = 0;
     }
     if (a->nblocks > 1) {
-        /* Reset block_size to original first block's size.
-         * We don't track original size, so just keep whatever it was. */
         a->nblocks = 1;
     }
     a->used = 0;

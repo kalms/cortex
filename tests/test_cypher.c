@@ -166,10 +166,10 @@ TEST(cypher_parse_simple_node) {
     ASSERT_NULL(err);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_EQ(q->pattern.node_count, 1);
-    ASSERT_EQ(q->pattern.rel_count, 0);
-    ASSERT_STR_EQ(q->pattern.nodes[0].variable, "f");
-    ASSERT_STR_EQ(q->pattern.nodes[0].label, "Function");
+    ASSERT_EQ(cbm_query_pattern(q).node_count, 1);
+    ASSERT_EQ(cbm_query_pattern(q).rel_count, 0);
+    ASSERT_STR_EQ(cbm_query_pattern(q).nodes[0].variable, "f");
+    ASSERT_STR_EQ(cbm_query_pattern(q).nodes[0].label, "Function");
 
     cbm_query_free(q);
     PASS();
@@ -182,12 +182,12 @@ TEST(cypher_parse_relationship_outbound) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_EQ(q->pattern.node_count, 2);
-    ASSERT_EQ(q->pattern.rel_count, 1);
-    ASSERT_STR_EQ(q->pattern.rels[0].types[0], "CALLS");
-    ASSERT_STR_EQ(q->pattern.rels[0].direction, "outbound");
-    ASSERT_EQ(q->pattern.rels[0].min_hops, 1);
-    ASSERT_EQ(q->pattern.rels[0].max_hops, 1);
+    ASSERT_EQ(cbm_query_pattern(q).node_count, 2);
+    ASSERT_EQ(cbm_query_pattern(q).rel_count, 1);
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].types[0], "CALLS");
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].direction, "outbound");
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].min_hops, 1);
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].max_hops, 1);
 
     cbm_query_free(q);
     PASS();
@@ -200,7 +200,7 @@ TEST(cypher_parse_relationship_inbound) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_STR_EQ(q->pattern.rels[0].direction, "inbound");
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].direction, "inbound");
 
     cbm_query_free(q);
     PASS();
@@ -213,7 +213,7 @@ TEST(cypher_parse_relationship_any) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_STR_EQ(q->pattern.rels[0].direction, "any");
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].direction, "any");
 
     cbm_query_free(q);
     PASS();
@@ -226,8 +226,8 @@ TEST(cypher_parse_variable_length) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_EQ(q->pattern.rels[0].min_hops, 1);
-    ASSERT_EQ(q->pattern.rels[0].max_hops, 3);
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].min_hops, 1);
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].max_hops, 3);
 
     cbm_query_free(q);
     PASS();
@@ -240,8 +240,8 @@ TEST(cypher_parse_variable_length_unbounded) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_EQ(q->pattern.rels[0].min_hops, 1);
-    ASSERT_EQ(q->pattern.rels[0].max_hops, 0); /* 0 = unbounded */
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].min_hops, 1);
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].max_hops, 0); /* 0 = unbounded */
 
     cbm_query_free(q);
     PASS();
@@ -254,9 +254,9 @@ TEST(cypher_parse_multiple_edge_types) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
 
-    ASSERT_EQ(q->pattern.rels[0].type_count, 2);
-    ASSERT_STR_EQ(q->pattern.rels[0].types[0], "CALLS");
-    ASSERT_STR_EQ(q->pattern.rels[0].types[1], "HTTP_CALLS");
+    ASSERT_EQ(cbm_query_pattern(q).rels[0].type_count, 2);
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].types[0], "CALLS");
+    ASSERT_STR_EQ(cbm_query_pattern(q).rels[0].types[1], "HTTP_CALLS");
 
     cbm_query_free(q);
     PASS();
@@ -269,11 +269,12 @@ TEST(cypher_parse_where_clause) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
     ASSERT_NOT_NULL(q->where);
-    ASSERT_EQ(q->where->count, 1);
-    ASSERT_STR_EQ(q->where->conditions[0].variable, "f");
-    ASSERT_STR_EQ(q->where->conditions[0].property, "name");
-    ASSERT_STR_EQ(q->where->conditions[0].op, "=");
-    ASSERT_STR_EQ(q->where->conditions[0].value, "Foo");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.variable, "f");
+    ASSERT_STR_EQ(q->where->root->cond.property, "name");
+    ASSERT_STR_EQ(q->where->root->cond.op, "=");
+    ASSERT_STR_EQ(q->where->root->cond.value, "Foo");
 
     cbm_query_free(q);
     PASS();
@@ -284,8 +285,10 @@ TEST(cypher_parse_where_regex) {
     char *err = NULL;
     int rc = cbm_cypher_parse("MATCH (f:Function) WHERE f.name =~ \".*Order.*\"", &q, &err);
     ASSERT_EQ(rc, 0);
-    ASSERT_STR_EQ(q->where->conditions[0].op, "=~");
-    ASSERT_STR_EQ(q->where->conditions[0].value, ".*Order.*");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, "=~");
+    ASSERT_STR_EQ(q->where->root->cond.value, ".*Order.*");
 
     cbm_query_free(q);
     PASS();
@@ -297,8 +300,10 @@ TEST(cypher_parse_where_and) {
     int rc = cbm_cypher_parse("MATCH (f:Function) WHERE f.name = \"A\" AND f.label = \"Function\"",
                               &q, &err);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(q->where->count, 2);
-    ASSERT_STR_EQ(q->where->op, "AND");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_AND);
+    ASSERT_NOT_NULL(q->where->root->left);
+    ASSERT_NOT_NULL(q->where->root->right);
 
     cbm_query_free(q);
     PASS();
@@ -363,9 +368,9 @@ TEST(cypher_parse_inline_props) {
     char *err = NULL;
     int rc = cbm_cypher_parse("MATCH (f:Function {name: \"Foo\"})", &q, &err);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(q->pattern.nodes[0].prop_count, 1);
-    ASSERT_STR_EQ(q->pattern.nodes[0].props[0].key, "name");
-    ASSERT_STR_EQ(q->pattern.nodes[0].props[0].value, "Foo");
+    ASSERT_EQ(cbm_query_pattern(q).nodes[0].prop_count, 1);
+    ASSERT_STR_EQ(cbm_query_pattern(q).nodes[0].props[0].key, "name");
+    ASSERT_STR_EQ(cbm_query_pattern(q).nodes[0].props[0].value, "Foo");
 
     cbm_query_free(q);
     PASS();
@@ -740,9 +745,10 @@ TEST(cypher_parse_where_starts_with) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
     ASSERT_NOT_NULL(q->where);
-    ASSERT_EQ(q->where->count, 1);
-    ASSERT_STR_EQ(q->where->conditions[0].op, "STARTS WITH");
-    ASSERT_STR_EQ(q->where->conditions[0].value, "Send");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, "STARTS WITH");
+    ASSERT_STR_EQ(q->where->root->cond.value, "Send");
     cbm_query_free(q);
     PASS();
 }
@@ -756,9 +762,10 @@ TEST(cypher_parse_where_contains) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
     ASSERT_NOT_NULL(q->where);
-    ASSERT_EQ(q->where->count, 1);
-    ASSERT_STR_EQ(q->where->conditions[0].op, "CONTAINS");
-    ASSERT_STR_EQ(q->where->conditions[0].value, "Handler");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, "CONTAINS");
+    ASSERT_STR_EQ(q->where->root->cond.value, "Handler");
     cbm_query_free(q);
     PASS();
 }
@@ -771,9 +778,10 @@ TEST(cypher_parse_where_numeric) {
     ASSERT_EQ(rc, 0);
     ASSERT_NOT_NULL(q);
     ASSERT_NOT_NULL(q->where);
-    ASSERT_EQ(q->where->count, 1);
-    ASSERT_STR_EQ(q->where->conditions[0].op, ">");
-    ASSERT_STR_EQ(q->where->conditions[0].value, "10");
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, ">");
+    ASSERT_STR_EQ(q->where->root->cond.value, "10");
     cbm_query_free(q);
     PASS();
 }
@@ -1175,6 +1183,881 @@ TEST(cypher_apply_limit) {
     PASS();
 }
 
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 1: SIMPLE OPERATORS
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_lex_neq_operators) {
+    cbm_lex_result_t r = {0};
+    int rc = cbm_lex("<> !=", &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_GTE(r.count, 2);
+    ASSERT_EQ(r.tokens[0].type, TOK_NEQ);
+    ASSERT_EQ(r.tokens[1].type, TOK_NEQ);
+    cbm_lex_free(&r);
+    PASS();
+}
+
+TEST(cypher_lex_ends_keyword) {
+    cbm_lex_result_t r = {0};
+    int rc = cbm_lex("ENDS WITH", &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_GTE(r.count, 2);
+    ASSERT_EQ(r.tokens[0].type, TOK_ENDS);
+    ASSERT_EQ(r.tokens[1].type, TOK_WITH);
+    cbm_lex_free(&r);
+    PASS();
+}
+
+TEST(cypher_lex_in_is_null) {
+    cbm_lex_result_t r = {0};
+    int rc = cbm_lex("IN IS NULL", &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_GTE(r.count, 3);
+    ASSERT_EQ(r.tokens[0].type, TOK_IN);
+    ASSERT_EQ(r.tokens[1].type, TOK_IS);
+    ASSERT_EQ(r.tokens[2].type, TOK_NULL_KW);
+    cbm_lex_free(&r);
+    PASS();
+}
+
+TEST(cypher_exec_where_neq) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name <> \"HandleOrder\" RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 3); /* ValidateOrder, SubmitOrder, LogError */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_neq_bang) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name != \"HandleOrder\" RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 3);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_ends_with) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name ENDS WITH \"Order\" RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* HandleOrder, ValidateOrder, SubmitOrder */
+    ASSERT_EQ(r.row_count, 3);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_not) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE NOT f.name = \"HandleOrder\" RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 3);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_in) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f) WHERE f.label IN [\"Function\", \"Module\"] RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 5); /* 4 Functions + 1 Module */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_not_in) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f) WHERE NOT f.label IN [\"Module\"] RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 4); /* 4 Functions only */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_is_null) {
+    /* SubmitOrder has no start_line (defaults to 0, so start_line prop = "0") */
+    /* But file_path is set for all. Use a node with missing data. */
+    cbm_store_t *s = cbm_store_open_memory();
+    cbm_store_upsert_project(s, "test", "/tmp/test");
+    cbm_node_t n1 = {.project = "test",
+                     .label = "Function",
+                     .name = "WithFile",
+                     .qualified_name = "test.WithFile",
+                     .file_path = "a.go"};
+    cbm_node_t n2 = {.project = "test",
+                     .label = "Function",
+                     .name = "NoFile",
+                     .qualified_name = "test.NoFile",
+                     .file_path = NULL};
+    cbm_store_upsert_node(s, &n1);
+    cbm_store_upsert_node(s, &n2);
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) WHERE f.file_path IS NULL RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1); /* NoFile has NULL file_path */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_is_not_null) {
+    cbm_store_t *s = cbm_store_open_memory();
+    cbm_store_upsert_project(s, "test", "/tmp/test");
+    cbm_node_t n1 = {.project = "test",
+                     .label = "Function",
+                     .name = "WithFile",
+                     .qualified_name = "test.WithFile",
+                     .file_path = "a.go"};
+    cbm_node_t n2 = {.project = "test",
+                     .label = "Function",
+                     .name = "NoFile",
+                     .qualified_name = "test.NoFile",
+                     .file_path = NULL};
+    cbm_store_upsert_node(s, &n1);
+    cbm_store_upsert_node(s, &n2);
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) WHERE f.file_path IS NOT NULL RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1); /* WithFile */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_return_star) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) RETURN * LIMIT 3", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 3);
+    /* Should have columns: f.name, f.qualified_name, f.label, f.file_path */
+    ASSERT_EQ(r.col_count, 4);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_neq) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f:Function) WHERE f.name <> \"X\"", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->where);
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, "<>");
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_in) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f) WHERE f.label IN [\"Function\", \"Module\"]", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_CONDITION);
+    ASSERT_STR_EQ(q->where->root->cond.op, "IN");
+    ASSERT_EQ(q->where->root->cond.in_value_count, 2);
+    ASSERT_STR_EQ(q->where->root->cond.in_values[0], "Function");
+    ASSERT_STR_EQ(q->where->root->cond.in_values[1], "Module");
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_is_null) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f) WHERE f.file_path IS NULL", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_STR_EQ(q->where->root->cond.op, "IS NULL");
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 2: EXPRESSION TREE
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_where_or) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s,
+        "MATCH (f:Function) WHERE f.name = \"HandleOrder\" OR f.name = \"LogError\" RETURN f.name",
+        "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 2);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_complex_bool) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* (name CONTAINS "Order" OR name = "LogError") AND label = "Function" */
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f) WHERE (f.name CONTAINS \"Order\" OR f.name = "
+                                "\"LogError\") AND f.label = \"Function\" "
+                                "RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 4); /* HandleOrder, ValidateOrder, SubmitOrder, LogError */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_xor) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* name CONTAINS "Handle" XOR name CONTAINS "Order" → XOR = true when exactly one is true
+     * HandleOrder: both true → false
+     * ValidateOrder: false, true → true
+     * SubmitOrder: false, true → true
+     * LogError: false, false → false */
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name CONTAINS \"Handle\" XOR f.name "
+                                "CONTAINS \"Order\" RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 2); /* ValidateOrder, SubmitOrder */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_where_not_prefix) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE NOT (f.name CONTAINS \"Order\") RETURN f.name", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1); /* LogError */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_expr_tree_and_or) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc =
+        cbm_cypher_parse("MATCH (f) WHERE f.a = \"1\" AND f.b = \"2\" OR f.c = \"3\"", &q, &err);
+    ASSERT_EQ(rc, 0);
+    /* Precedence: AND binds tighter than OR → root is OR */
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_OR);
+    ASSERT_EQ(q->where->root->left->type, EXPR_AND);
+    ASSERT_EQ(q->where->root->right->type, EXPR_CONDITION);
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_expr_tree_nested) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc =
+        cbm_cypher_parse("MATCH (f) WHERE (f.a = \"1\" OR f.b = \"2\") AND f.c = \"3\"", &q, &err);
+    ASSERT_EQ(rc, 0);
+    /* Parens override precedence: root is AND, left is OR */
+    ASSERT_NOT_NULL(q->where->root);
+    ASSERT_EQ(q->where->root->type, EXPR_AND);
+    ASSERT_EQ(q->where->root->left->type, EXPR_OR);
+    ASSERT_EQ(q->where->root->right->type, EXPR_CONDITION);
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 3: UNSUPPORTED KEYWORD ERRORS
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_error_create) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("CREATE (n:Node {name: \"X\"})", &q, &err);
+    ASSERT_EQ(rc, -1);
+    ASSERT_NOT_NULL(err);
+    ASSERT(strstr(err, "CREATE") != NULL);
+    free(err);
+    PASS();
+}
+
+TEST(cypher_error_delete) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("DELETE n", &q, &err);
+    ASSERT_EQ(rc, -1);
+    ASSERT_NOT_NULL(err);
+    ASSERT(strstr(err, "DELETE") != NULL);
+    free(err);
+    PASS();
+}
+
+TEST(cypher_error_set) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("SET n.name = \"X\"", &q, &err);
+    ASSERT_EQ(rc, -1);
+    ASSERT_NOT_NULL(err);
+    ASSERT(strstr(err, "SET") != NULL);
+    free(err);
+    PASS();
+}
+
+TEST(cypher_error_merge) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MERGE (n:Node)", &q, &err);
+    ASSERT_EQ(rc, -1);
+    ASSERT_NOT_NULL(err);
+    ASSERT(strstr(err, "MERGE") != NULL);
+    free(err);
+    PASS();
+}
+
+TEST(cypher_error_call) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("CALL db.labels()", &q, &err);
+    ASSERT_EQ(rc, -1);
+    ASSERT_NOT_NULL(err);
+    ASSERT(strstr(err, "CALL") != NULL);
+    free(err);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 4: SKIP + GENERALIZED AGGREGATION
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_skip) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) RETURN f.name ORDER BY f.name ASC SKIP 2",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* 4 functions ordered: HandleOrder, LogError, SubmitOrder, ValidateOrder → skip 2 = 2 */
+    ASSERT_EQ(r.row_count, 2);
+    ASSERT_STR_EQ(r.rows[0][0], "SubmitOrder");
+    ASSERT_STR_EQ(r.rows[1][0], "ValidateOrder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_skip_limit) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) RETURN f.name ORDER BY f.name ASC SKIP 1 LIMIT 2", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 2);
+    ASSERT_STR_EQ(r.rows[0][0], "LogError");
+    ASSERT_STR_EQ(r.rows[1][0], "SubmitOrder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_sum) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* start_lines: HandleOrder=10, ValidateOrder=5, SubmitOrder=0, LogError=0 → sum=15 */
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) RETURN SUM(f.start_line) AS total", "test",
+                                0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "15");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_avg) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* start_lines: 10, 5, 0, 0 → avg = 3.75 */
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) RETURN AVG(f.start_line) AS avg_line",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "3.75");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_min) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* Among functions with nonzero: HandleOrder=10, ValidateOrder=5 → but MIN is 0 from others */
+    int rc =
+        cbm_cypher_execute(s, "MATCH (f:Function) RETURN MIN(f.start_line) AS mn", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "0");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_max) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc =
+        cbm_cypher_execute(s, "MATCH (f:Function) RETURN MAX(f.start_line) AS mx", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "10");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_collect) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function)-[:CALLS]->(g:Function) "
+                                "WHERE f.name = \"HandleOrder\" "
+                                "RETURN f.name, COLLECT(g.name) AS callees",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    /* Should be a JSON array like ["ValidateOrder","LogError"] */
+    ASSERT_STR_EQ(r.rows[0][0], "HandleOrder");
+    ASSERT(strstr(r.rows[0][1], "ValidateOrder") != NULL);
+    ASSERT(strstr(r.rows[0][1], "LogError") != NULL);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_count_star) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s, "MATCH (f:Function) RETURN COUNT(*) AS n", "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "4");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_skip) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f) RETURN f.name SKIP 5 LIMIT 10", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->ret);
+    ASSERT_EQ(q->ret->skip, 5);
+    ASSERT_EQ(q->ret->limit, 10);
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_sum_avg) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f) RETURN SUM(f.x) AS s, AVG(f.y) AS a", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(q->ret->count, 2);
+    ASSERT_STR_EQ(q->ret->items[0].func, "SUM");
+    ASSERT_STR_EQ(q->ret->items[0].alias, "s");
+    ASSERT_STR_EQ(q->ret->items[1].func, "AVG");
+    ASSERT_STR_EQ(q->ret->items[1].alias, "a");
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_collect) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f)-[:CALLS]->(g) RETURN f.name, COLLECT(g.name) AS names", &q,
+                              &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(q->ret->count, 2);
+    ASSERT_STR_EQ(q->ret->items[1].func, "COLLECT");
+    ASSERT_STR_EQ(q->ret->items[1].alias, "names");
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 5: STRING FUNCTIONS + CASE
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_tolower) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN toLower(f.name) AS lower_name",
+        "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "handleorder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_toupper) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN toUpper(f.name) AS upper_name",
+        "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "HANDLEORDER");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_tostring) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s, "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN toString(f.start_line) AS sl",
+        "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "10");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_case) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(
+        s,
+        "MATCH (f:Function) WHERE f.name = \"HandleOrder\" "
+        "RETURN CASE WHEN f.start_line > \"5\" THEN \"high\" ELSE \"low\" END AS pos",
+        "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "high");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_tolower) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f) RETURN toLower(f.name) AS n", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_STR_EQ(q->ret->items[0].func, "toLower");
+    ASSERT_STR_EQ(q->ret->items[0].alias, "n");
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_case) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse(
+        "MATCH (f) RETURN CASE WHEN f.x = \"1\" THEN \"a\" ELSE \"b\" END AS val", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->ret->items[0].kase);
+    ASSERT_EQ(q->ret->items[0].kase->branch_count, 1);
+    ASSERT_STR_EQ(q->ret->items[0].kase->branches[0].then_val, "a");
+    ASSERT_STR_EQ(q->ret->items[0].kase->else_val, "b");
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 6: WITH CLAUSE
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_with_rename) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" "
+                                "WITH f.name AS fname RETURN fname",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "HandleOrder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_with_count) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function)-[:CALLS]->(g:Function) "
+                                "WITH f.name AS caller, COUNT(g) AS cnt "
+                                "RETURN caller, cnt ORDER BY cnt DESC",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_GTE(r.row_count, 1);
+    /* HandleOrder calls 2 (ValidateOrder, LogError), ValidateOrder calls 1 (SubmitOrder) */
+    ASSERT_STR_EQ(r.rows[0][0], "HandleOrder");
+    ASSERT_STR_EQ(r.rows[0][1], "2");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_with_where) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function)-[:CALLS]->(g:Function) "
+                                "WITH f.name AS caller, COUNT(g) AS cnt "
+                                "WHERE cnt > \"1\" "
+                                "RETURN caller, cnt",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* Only HandleOrder has cnt > 1 (cnt=2) */
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "HandleOrder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_with_orderby_limit) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function)-[:CALLS]->(g:Function) "
+                                "WITH f.name AS caller, COUNT(g) AS cnt "
+                                "ORDER BY cnt DESC LIMIT 1 "
+                                "RETURN caller, cnt",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "HandleOrder");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_with) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse(
+        "MATCH (f)-[:CALLS]->(g) WITH f.name AS caller, COUNT(g) AS cnt RETURN caller, cnt", &q,
+        &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->with_clause);
+    ASSERT_EQ(q->with_clause->count, 2);
+    ASSERT_STR_EQ(q->with_clause->items[0].alias, "caller");
+    ASSERT_STR_EQ(q->with_clause->items[1].func, "COUNT");
+    ASSERT_NOT_NULL(q->ret);
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_with_where) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("MATCH (f)-[:CALLS]->(g) WITH f.name AS caller, COUNT(g) AS cnt "
+                              "WHERE cnt > \"1\" RETURN caller",
+                              &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->with_clause);
+    ASSERT_NOT_NULL(q->post_with_where);
+    ASSERT_NOT_NULL(q->post_with_where->root);
+    ASSERT_NOT_NULL(q->ret);
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 7: OPTIONAL MATCH + MULTIPLE MATCH
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_optional_match_no_result) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* LogError has no CALLS outbound edges → OPTIONAL MATCH keeps binding with empty target */
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name = \"LogError\" "
+                                "OPTIONAL MATCH (f)-[:CALLS]->(g:Function) "
+                                "RETURN f.name, g.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 1);
+    ASSERT_STR_EQ(r.rows[0][0], "LogError");
+    /* g.name should be empty since OPTIONAL MATCH found nothing */
+    ASSERT_STR_EQ(r.rows[0][1], "");
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_optional_match_has_result) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" "
+                                "OPTIONAL MATCH (f)-[:CALLS]->(g:Function) "
+                                "RETURN f.name, g.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(r.row_count, 2); /* ValidateOrder, LogError */
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_multi_match) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    /* Two MATCH clauses: first finds a module, second finds functions */
+    int rc =
+        cbm_cypher_execute(s,
+                           "MATCH (m:Module) MATCH (f:Function) WHERE f.name CONTAINS \"Order\" "
+                           "RETURN m.name, f.name",
+                           "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* 1 module × 3 *Order functions = 3 */
+    ASSERT_EQ(r.row_count, 3);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_optional_match) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse(
+        "MATCH (f:Function) OPTIONAL MATCH (f)-[:CALLS]->(g) RETURN f.name, g.name", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(q->pattern_count, 2);
+    ASSERT(!q->pattern_optional[0]);
+    ASSERT(q->pattern_optional[1]);
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_multi_match) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc =
+        cbm_cypher_parse("MATCH (a:Module) MATCH (b:Function) RETURN a.name, b.name", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(q->pattern_count, 2);
+    ASSERT(!q->pattern_optional[0]);
+    ASSERT(!q->pattern_optional[1]);
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 8: UNION / UNION ALL
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_exec_union) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN f.name "
+                                "UNION "
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* UNION deduplicates → 1 row */
+    ASSERT_EQ(r.row_count, 1);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_exec_union_all) {
+    cbm_store_t *s = setup_cypher_store();
+    cbm_cypher_result_t r = {0};
+    int rc = cbm_cypher_execute(s,
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN f.name "
+                                "UNION ALL "
+                                "MATCH (f:Function) WHERE f.name = \"HandleOrder\" RETURN f.name",
+                                "test", 0, &r);
+    ASSERT_EQ(rc, 0);
+    /* UNION ALL keeps duplicates → 2 rows */
+    ASSERT_EQ(r.row_count, 2);
+    cbm_cypher_result_free(&r);
+    cbm_store_close(s);
+    PASS();
+}
+
+TEST(cypher_parse_union) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc =
+        cbm_cypher_parse("MATCH (f) RETURN f.name UNION ALL MATCH (g) RETURN g.name", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT(q->union_all);
+    ASSERT_NOT_NULL(q->union_next);
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ *  PHASE 9: UNWIND
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(cypher_parse_unwind) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc =
+        cbm_cypher_parse("UNWIND [\"a\", \"b\", \"c\"] AS x MATCH (f) RETURN f.name", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(q->unwind_expr);
+    ASSERT_STR_EQ(q->unwind_alias, "x");
+    cbm_query_free(q);
+    PASS();
+}
+
+TEST(cypher_parse_unwind_var) {
+    cbm_query_t *q = NULL;
+    char *err = NULL;
+    int rc = cbm_cypher_parse("UNWIND items AS item MATCH (f) RETURN f.name", &q, &err);
+    ASSERT_EQ(rc, 0);
+    ASSERT_STR_EQ(q->unwind_expr, "items");
+    ASSERT_STR_EQ(q->unwind_alias, "item");
+    cbm_query_free(q);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+
 SUITE(cypher) {
     /* Lexer */
     RUN_TEST(cypher_lex_simple_match);
@@ -1241,4 +2124,72 @@ SUITE(cypher) {
     RUN_TEST(cypher_edge_filter_regex);
     RUN_TEST(cypher_edge_builtin_type_filter);
     RUN_TEST(cypher_apply_limit);
+    /* Phase 1: Simple operators */
+    RUN_TEST(cypher_lex_neq_operators);
+    RUN_TEST(cypher_lex_ends_keyword);
+    RUN_TEST(cypher_lex_in_is_null);
+    RUN_TEST(cypher_exec_where_neq);
+    RUN_TEST(cypher_exec_where_neq_bang);
+    RUN_TEST(cypher_exec_where_ends_with);
+    RUN_TEST(cypher_exec_where_not);
+    RUN_TEST(cypher_exec_where_in);
+    RUN_TEST(cypher_exec_where_not_in);
+    RUN_TEST(cypher_exec_where_is_null);
+    RUN_TEST(cypher_exec_where_is_not_null);
+    RUN_TEST(cypher_exec_return_star);
+    RUN_TEST(cypher_parse_neq);
+    RUN_TEST(cypher_parse_in);
+    RUN_TEST(cypher_parse_is_null);
+    /* Phase 2: Expression tree */
+    RUN_TEST(cypher_exec_where_or);
+    RUN_TEST(cypher_exec_where_complex_bool);
+    RUN_TEST(cypher_exec_where_xor);
+    RUN_TEST(cypher_exec_where_not_prefix);
+    RUN_TEST(cypher_parse_expr_tree_and_or);
+    RUN_TEST(cypher_parse_expr_tree_nested);
+    /* Phase 3: Unsupported keyword errors */
+    RUN_TEST(cypher_error_create);
+    RUN_TEST(cypher_error_delete);
+    RUN_TEST(cypher_error_set);
+    RUN_TEST(cypher_error_merge);
+    RUN_TEST(cypher_error_call);
+    /* Phase 4: SKIP + aggregation */
+    RUN_TEST(cypher_exec_skip);
+    RUN_TEST(cypher_exec_skip_limit);
+    RUN_TEST(cypher_exec_sum);
+    RUN_TEST(cypher_exec_avg);
+    RUN_TEST(cypher_exec_min);
+    RUN_TEST(cypher_exec_max);
+    RUN_TEST(cypher_exec_collect);
+    RUN_TEST(cypher_exec_count_star);
+    RUN_TEST(cypher_parse_skip);
+    RUN_TEST(cypher_parse_sum_avg);
+    RUN_TEST(cypher_parse_collect);
+    /* Phase 5: String functions + CASE */
+    RUN_TEST(cypher_exec_tolower);
+    RUN_TEST(cypher_exec_toupper);
+    RUN_TEST(cypher_exec_tostring);
+    RUN_TEST(cypher_exec_case);
+    RUN_TEST(cypher_parse_tolower);
+    RUN_TEST(cypher_parse_case);
+    /* Phase 6: WITH clause */
+    RUN_TEST(cypher_exec_with_rename);
+    RUN_TEST(cypher_exec_with_count);
+    RUN_TEST(cypher_exec_with_where);
+    RUN_TEST(cypher_exec_with_orderby_limit);
+    RUN_TEST(cypher_parse_with);
+    RUN_TEST(cypher_parse_with_where);
+    /* Phase 7: OPTIONAL MATCH + multiple MATCH */
+    RUN_TEST(cypher_exec_optional_match_no_result);
+    RUN_TEST(cypher_exec_optional_match_has_result);
+    RUN_TEST(cypher_exec_multi_match);
+    RUN_TEST(cypher_parse_optional_match);
+    RUN_TEST(cypher_parse_multi_match);
+    /* Phase 8: UNION */
+    RUN_TEST(cypher_exec_union);
+    RUN_TEST(cypher_exec_union_all);
+    RUN_TEST(cypher_parse_union);
+    /* Phase 9: UNWIND */
+    RUN_TEST(cypher_parse_unwind);
+    RUN_TEST(cypher_parse_unwind_var);
 }

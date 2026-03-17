@@ -597,6 +597,86 @@ TEST(tool_ingest_traces_empty) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+ *  IDLE STORE EVICTION
+ * ══════════════════════════════════════════════════════════════════ */
+
+TEST(store_idle_eviction) {
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_set_project(srv, "test-evict");
+
+    /* Trigger resolve_store via a tool call to set store_last_used */
+    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    free(resp);
+
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    /* Evict with 0s timeout → should evict immediately */
+    cbm_mcp_server_evict_idle(srv, 0);
+    ASSERT_FALSE(cbm_mcp_server_has_cached_store(srv));
+
+    cbm_mcp_server_free(srv);
+    PASS();
+}
+
+TEST(store_idle_no_eviction_within_timeout) {
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_set_project(srv, "test-evict");
+
+    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    free(resp);
+
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    /* Evict with large timeout → should NOT evict */
+    cbm_mcp_server_evict_idle(srv, 99999);
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    cbm_mcp_server_free(srv);
+    PASS();
+}
+
+TEST(store_idle_evict_protects_initial_store) {
+    /* Evicting with NULL server should not crash */
+    cbm_mcp_server_evict_idle(NULL, 0);
+
+    /* Evicting server whose store was never accessed via a named project
+     * should NOT evict the initial in-memory store (store_last_used == 0). */
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+    cbm_mcp_server_evict_idle(srv, 0);
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    cbm_mcp_server_free(srv);
+    PASS();
+}
+
+TEST(store_idle_evict_access_resets_timer) {
+    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    cbm_mcp_server_set_project(srv, "test-evict");
+
+    /* First access */
+    char *resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    free(resp);
+
+    /* Second access (resets timer) */
+    resp = cbm_mcp_handle_tool(srv, "get_graph_schema", "{\"project\":\"test-evict\"}");
+    free(resp);
+
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    /* With large timeout, store should survive */
+    cbm_mcp_server_evict_idle(srv, 99999);
+    ASSERT_TRUE(cbm_mcp_server_has_cached_store(srv));
+
+    /* With 0 timeout, store should be evicted */
+    cbm_mcp_server_evict_idle(srv, 0);
+    ASSERT_FALSE(cbm_mcp_server_has_cached_store(srv));
+
+    cbm_mcp_server_free(srv);
+    PASS();
+}
+
+/* ══════════════════════════════════════════════════════════════════
  *  URI HELPERS
  * ══════════════════════════════════════════════════════════════════ */
 
@@ -694,6 +774,7 @@ static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     }
 
     const char *proj_name = "test-project";
+    cbm_mcp_server_set_project(srv, proj_name);
     cbm_store_upsert_project(st, proj_name, proj_dir);
 
     /* Create nodes */
@@ -1157,6 +1238,12 @@ SUITE(mcp) {
     RUN_TEST(tool_manage_adr_no_project);
     RUN_TEST(tool_ingest_traces_basic);
     RUN_TEST(tool_ingest_traces_empty);
+
+    /* Idle store eviction */
+    RUN_TEST(store_idle_eviction);
+    RUN_TEST(store_idle_no_eviction_within_timeout);
+    RUN_TEST(store_idle_evict_protects_initial_store);
+    RUN_TEST(store_idle_evict_access_resets_timer);
 
     /* URI helpers */
     RUN_TEST(parse_file_uri_unix);
