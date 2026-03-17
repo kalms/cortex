@@ -7,6 +7,7 @@ permissions:
   contents: read
 
 jobs:
+  # ── Step 1: Lint ──────────────────────────────────────────────
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +31,9 @@ jobs:
       - name: clang-tidy
         run: make -f Makefile.cbm lint-tidy
 
+  # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
   test:
+    needs: [lint]
     strategy:
       matrix:
         include:
@@ -53,8 +56,105 @@ jobs:
       - name: Run C tests (ASan + UBSan)
         run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
 
+  # ── Step 3: Build binaries (standard + UI, all OS) ───────────
   build-unix:
-    needs: [lint, test]
+    needs: [test]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build standard binary
+        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm
+
+      - name: Archive standard binary
+        run: |
+          tar -czf codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
+            -C build/c codebase-memory-mcp
+
+      - name: Build UI binary
+        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui
+
+      - name: Archive UI binary
+        run: |
+          tar -czf codebase-memory-mcp-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
+            -C build/c codebase-memory-mcp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: "*.tar.gz"
+
+  build-windows:
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-sqlite3
+            mingw-w64-ucrt-x86_64-zlib
+            make
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build standard binary
+        shell: msys2 {0}
+        run: make -j$(nproc) -f Makefile.cbm cbm
+
+      - name: Archive standard binary
+        shell: pwsh
+        run: |
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
+          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
+
+      - name: Build UI binary
+        shell: msys2 {0}
+        run: make -j$(nproc) -f Makefile.cbm cbm-with-ui
+
+      - name: Archive UI binary
+        shell: pwsh
+        run: |
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp-ui.exe -Force
+          Compress-Archive -Path codebase-memory-mcp-ui.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-windows-amd64
+          path: "*.zip"
+
+  # ── Step 4: Smoke test every binary ──────────────────────────
+  smoke-unix:
+    needs: [build-unix]
     strategy:
       matrix:
         include:
@@ -75,39 +175,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install deps (Ubuntu)
-        if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
-
-      - name: Build standard binary
-        if: matrix.variant == 'standard'
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm
-
-      - uses: actions/setup-node@v4
-        if: matrix.variant == 'ui'
+      - uses: actions/download-artifact@v4
         with:
-          node-version: "22"
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
 
-      - name: Build UI binary
-        if: matrix.variant == 'ui'
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui
-
-      - name: Smoke test
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
-
-      - name: Archive binary
+      - name: Extract binary
         run: |
           SUFFIX=${{ matrix.variant == 'ui' && '-ui' || '' }}
-          tar -czf codebase-memory-mcp${SUFFIX}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
-            -C build/c codebase-memory-mcp
+          tar -xzf codebase-memory-mcp${SUFFIX}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          chmod +x codebase-memory-mcp
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.variant }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: "*.tar.gz"
+      - name: Smoke test (${{ matrix.variant }}, ${{ matrix.goos }}-${{ matrix.goarch }})
+        run: scripts/smoke-test.sh ./codebase-memory-mcp
 
-  build-windows:
-    needs: [lint, test]
+  smoke-windows:
+    needs: [build-windows]
     strategy:
       matrix:
         variant: [standard, ui]
@@ -120,39 +202,18 @@ jobs:
           msystem: UCRT64
           path-type: inherit
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-sqlite3
-            mingw-w64-ucrt-x86_64-zlib
             mingw-w64-ucrt-x86_64-python3
-            make
 
-      - name: Build standard binary
-        if: matrix.variant == 'standard'
-        shell: msys2 {0}
-        run: make -j$(nproc) -f Makefile.cbm cbm
-
-      - uses: actions/setup-node@v4
-        if: matrix.variant == 'ui'
+      - uses: actions/download-artifact@v4
         with:
-          node-version: "22"
+          name: binaries-windows-amd64
 
-      - name: Build UI binary
-        if: matrix.variant == 'ui'
-        shell: msys2 {0}
-        run: make -j$(nproc) -f Makefile.cbm cbm-with-ui
-
-      - name: Smoke test
-        shell: msys2 {0}
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
-
-      - name: Archive binary
+      - name: Extract binary
         shell: pwsh
         run: |
           $suffix = if ("${{ matrix.variant }}" -eq "ui") { "-ui" } else { "" }
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
-          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath "codebase-memory-mcp${suffix}-windows-amd64.zip"
+          Expand-Archive -Path "codebase-memory-mcp${suffix}-windows-amd64.zip" -DestinationPath .
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.variant }}-windows-amd64
-          path: "*.zip"
+      - name: Smoke test (${{ matrix.variant }}, windows-amd64)
+        shell: msys2 {0}
+        run: scripts/smoke-test.sh ./codebase-memory-mcp.exe
