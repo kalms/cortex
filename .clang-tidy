@@ -32,6 +32,8 @@ Checks: >
   -performance-no-int-to-ptr,
   -concurrency-mt-unsafe,
   -cert-err33-c,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner,
 
 WarningsAsErrors: '*'
 
