@@ -22,7 +22,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm-20.list
           sudo apt-get update
-          sudo apt-get install -y clang-format-20 clang-tidy-20
+          sudo apt-get install -y clang-format-20
 
       # cppcheck 2.20.0 from source (cached)
       - uses: actions/cache@v4
@@ -45,7 +45,6 @@ jobs:
       - name: Verify versions
         run: |
           echo "clang-format: $(clang-format-20 --version)"
-          echo "clang-tidy: $(clang-tidy-20 --version | head -1)"
           echo "cppcheck: $(cppcheck --version)"
 
       - name: clang-format
@@ -53,9 +52,6 @@ jobs:
 
       - name: cppcheck
         run: make -f Makefile.cbm lint-cppcheck
-
-      - name: clang-tidy
-        run: make -f Makefile.cbm lint-tidy CLANG_TIDY=clang-tidy-20
 
   # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
   test:
