@@ -7,7 +7,30 @@ permissions:
   contents: read
 
 jobs:
-  test-unix:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev cppcheck
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
+          sudo apt-get update && sudo apt-get install -y clang-tidy-18 clang-format-18
+          sudo ln -sf /usr/bin/clang-tidy-18 /usr/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-format-18 /usr/bin/clang-format
+
+      - name: clang-format
+        run: make -f Makefile.cbm lint-format
+
+      - name: cppcheck
+        run: make -f Makefile.cbm lint-cppcheck
+
+      - name: clang-tidy
+        run: make -f Makefile.cbm lint-tidy
+
+  test:
     strategy:
       matrix:
         include:
@@ -30,28 +53,64 @@ jobs:
       - name: Run C tests (ASan + UBSan)
         run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
 
+  build-unix:
+    needs: [lint, test]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+        variant: [standard, ui]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
+
       - name: Build standard binary
+        if: matrix.variant == 'standard'
         run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm
 
-      - name: Smoke test (standard)
-        run: |
-          ./build/c/codebase-memory-mcp --version
-          echo '{}' | timeout 3 ./build/c/codebase-memory-mcp 2>&1 || true
-          echo "Smoke test passed"
-
       - uses: actions/setup-node@v4
+        if: matrix.variant == 'ui'
         with:
           node-version: "22"
 
       - name: Build UI binary
+        if: matrix.variant == 'ui'
         run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui
 
-      - name: Smoke test (UI)
-        run: |
-          ./build/c/codebase-memory-mcp --version
-          echo "UI binary smoke test passed"
+      - name: Smoke test
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
-  test-windows:
+      - name: Archive binary
+        run: |
+          SUFFIX=${{ matrix.variant == 'ui' && '-ui' || '' }}
+          tar -czf codebase-memory-mcp${SUFFIX}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
+            -C build/c codebase-memory-mcp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: "*.tar.gz"
+
+  build-windows:
+    needs: [lint, test]
+    strategy:
+      matrix:
+        variant: [standard, ui]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +123,36 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-sqlite3
             mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-python3
             make
 
       - name: Build standard binary
+        if: matrix.variant == 'standard'
         shell: msys2 {0}
         run: make -j$(nproc) -f Makefile.cbm cbm
 
+      - uses: actions/setup-node@v4
+        if: matrix.variant == 'ui'
+        with:
+          node-version: "22"
+
+      - name: Build UI binary
+        if: matrix.variant == 'ui'
+        shell: msys2 {0}
+        run: make -j$(nproc) -f Makefile.cbm cbm-with-ui
+
       - name: Smoke test
         shell: msys2 {0}
-        run: ./build/c/codebase-memory-mcp.exe --version || ./build/c/codebase-memory-mcp --version
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
+
+      - name: Archive binary
+        shell: pwsh
+        run: |
+          $suffix = if ("${{ matrix.variant }}" -eq "ui") { "-ui" } else { "" }
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
+          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath "codebase-memory-mcp${suffix}-windows-amd64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}-windows-amd64
+          path: "*.zip"
