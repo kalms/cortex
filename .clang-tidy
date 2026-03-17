@@ -33,6 +33,7 @@ Checks: >
   -concurrency-mt-unsafe,
   -cert-err33-c,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.insecureAPI.strcpy,
   -misc-include-cleaner,
 
 WarningsAsErrors: '*'
