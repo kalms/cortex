@@ -6,27 +6,37 @@
  */
 #include "cli/cli.h"
 
-// NOLINTBEGIN(cert-err33-c)
-// NOLINTBEGIN(readability-magic-numbers)
-// NOLINTBEGIN(concurrency-mt-unsafe)
-// NOLINTBEGIN(performance-no-int-to-ptr)
-
-// NOLINTBEGIN(misc-include-cleaner) — macOS declares POSIX symbols in internal sub-headers;
 // the correct standard headers are included below but clang-tidy doesn't map them.
 #include <ctype.h>
-#include <dirent.h> // struct dirent
+#include "foundation/compat_fs.h"
 #include <errno.h>  // EEXIST
 #include <stdint.h> // uintptr_t
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>   // strtok_r
 #include <sys/stat.h> // mode_t, S_IXUSR
-#include <unistd.h>
-#include <zlib.h> // MAX_WBITS
-// NOLINTEND(misc-include-cleaner)
+#include <zlib.h>     // MAX_WBITS
 
 /* yyjson for JSON read-modify-write */
 #include "yyjson/yyjson.h"
+
+/* ── Constants ────────────────────────────────────────────────── */
+
+/* Directory permissions: rwxr-x--- */
+#define DIR_PERMS 0750
+
+/* Decompression buffer cap (500 MB) */
+#define DECOMPRESS_MAX_BYTES ((size_t)500 * 1024 * 1024)
+
+/* Tar header field offsets */
+#define TAR_NAME_LEN 101    /* filename field: bytes 0-99 + NUL */
+#define TAR_SIZE_OFFSET 124 /* octal size field offset */
+#define TAR_SIZE_LEN 13     /* octal size field: bytes 124-135 + NUL */
+#define TAR_TYPE_OFFSET 156 /* type flag byte */
+#define TAR_BINARY_NAME "codebase-memory-mcp"
+#define TAR_BINARY_NAME_LEN 19
+#define TAR_BLOCK_SIZE 512 /* tar record alignment */
+#define TAR_BLOCK_MASK 511 /* TAR_BLOCK_SIZE - 1 */
 
 /* ── Version ──────────────────────────────────────────────────── */
 
@@ -108,6 +118,7 @@ const char *cbm_detect_shell_rc(const char *home_dir) {
         return "";
     }
 
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     const char *shell = getenv("SHELL");
     if (!shell) {
         shell = "";
@@ -146,6 +157,7 @@ const char *cbm_find_cli(const char *name, const char *home_dir) {
     }
 
     /* Check PATH first */
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     const char *path_env = getenv("PATH");
     if (path_env) {
         char path_copy[4096];
@@ -210,7 +222,7 @@ int cbm_copy_file(const char *src, const char *dst) {
 
     FILE *out = fopen(dst, "wb");
     if (!out) {
-        fclose(in);
+        (void)fclose(in);
         return -1;
     }
 
@@ -228,12 +240,12 @@ int cbm_copy_file(const char *src, const char *dst) {
     }
 
     if (err || ferror(in)) {
-        fclose(in);
-        fclose(out);
+        (void)fclose(in);
+        (void)fclose(out);
         return -1;
     }
 
-    fclose(in);
+    (void)fclose(in);
     int rc = fclose(out);
     return rc == 0 ? 0 : -1;
 }
@@ -380,51 +392,34 @@ const char *cbm_get_codex_instructions(void) {
     return codex_instructions_content;
 }
 
-/* ── Recursive mkdir ──────────────────────────────────────────── */
+/* ── Recursive mkdir (via compat_fs) ──────────────────────────── */
 
-// NOLINTNEXTLINE(misc-include-cleaner) — mode_t provided by standard header
-static int mkdirp(const char *path, mode_t mode) {
-    char tmp[1024];
-    snprintf(tmp, sizeof(tmp), "%s", path);
-    for (char *p = tmp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = '\0';
-            // NOLINTNEXTLINE(misc-include-cleaner) — EEXIST provided by standard header
-            if (mkdir(tmp, mode) != 0 && errno != EEXIST) {
-                return -1;
-            }
-            *p = '/';
-        }
-    }
-    return mkdir(tmp, mode) == 0 || errno == EEXIST ? 0 : -1;
+static int mkdirp(const char *path, int mode) {
+    return (int)cbm_mkdir_p(path, mode) ? 0 : -1;
 }
 
 /* ── Recursive rmdir ──────────────────────────────────────────── */
 
 // NOLINTNEXTLINE(misc-no-recursion) — intentional recursive directory removal
 static int rmdir_recursive(const char *path) {
-    DIR *d = opendir(path);
+    cbm_dir_t *d = cbm_opendir(path);
     if (!d) {
         return -1;
     }
 
-    // NOLINTNEXTLINE(misc-include-cleaner) — dirent provided by standard header
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
-            continue;
-        }
+    cbm_dirent_t *ent;
+    while ((ent = cbm_readdir(d)) != NULL) {
         char child[1024];
-        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+        snprintf(child, sizeof(child), "%s/%s", path, ent->name);
         struct stat st;
         if (stat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
             rmdir_recursive(child);
         } else {
-            unlink(child);
+            cbm_unlink(child);
         }
     }
-    closedir(d);
-    return rmdir(path);
+    cbm_closedir(d);
+    return cbm_rmdir(path);
 }
 
 /* ── Skill management ─────────────────────────────────────────── */
@@ -454,7 +449,7 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
             continue;
         }
 
-        if (mkdirp(skill_path, 0750) != 0) {
+        if (mkdirp(skill_path, DIR_PERMS) != 0) {
             continue;
         }
 
@@ -462,8 +457,8 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
         if (!f) {
             continue;
         }
-        fwrite(skills[i].content, 1, strlen(skills[i].content), f);
-        fclose(f);
+        (void)fwrite(skills[i].content, 1, strlen(skills[i].content), f);
+        (void)fclose(f);
         count++;
     }
     return count;
@@ -522,23 +517,23 @@ static yyjson_doc *read_json_file(const char *path) {
         return NULL;
     }
 
-    fseek(f, 0, SEEK_END);
+    (void)fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    (void)fseek(f, 0, SEEK_SET);
 
     if (size <= 0 || size > 10L * 1024 * 1024) {
-        fclose(f);
+        (void)fclose(f);
         return NULL;
     }
 
     char *buf = malloc((size_t)size + 1);
     if (!buf) {
-        fclose(f);
+        (void)fclose(f);
         return NULL;
     }
 
     size_t nread = fread(buf, 1, (size_t)size, f);
-    fclose(f);
+    (void)fclose(f);
     // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[nread] = '\0';
 
@@ -555,7 +550,7 @@ static int write_json_file(const char *path, yyjson_mut_doc *doc) {
     char *last_slash = strrchr(dir, '/');
     if (last_slash) {
         *last_slash = '\0';
-        mkdirp(dir, 0750);
+        mkdirp(dir, DIR_PERMS);
     }
 
     yyjson_write_flag flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
@@ -573,8 +568,8 @@ static int write_json_file(const char *path, yyjson_mut_doc *doc) {
 
     size_t written = fwrite(json, 1, len, f);
     /* Add trailing newline */
-    fputc('\n', f);
-    fclose(f);
+    (void)fputc('\n', f);
+    (void)fclose(f);
     free(json);
 
     return written == len ? 0 : -1;
@@ -827,11 +822,11 @@ int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
         char buf[2048];
         while (fgets(buf, sizeof(buf), f)) {
             if (strstr(buf, line)) {
-                fclose(f);
+                (void)fclose(f);
                 return 1; /* already present */
             }
         }
-        fclose(f);
+        (void)fclose(f);
     }
 
     if (dry_run) {
@@ -844,8 +839,8 @@ int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
     }
 
     // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-    fprintf(f, "\n# Added by codebase-memory-mcp install\n%s\n", line);
-    fclose(f);
+    (void)fprintf(f, "\n# Added by codebase-memory-mcp install\n%s\n", line);
+    (void)fclose(f);
     return 0;
 }
 
@@ -859,6 +854,7 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
 
     /* Decompress gzip */
     z_stream strm = {0};
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     strm.next_in = (unsigned char *)(uintptr_t)data;
     strm.avail_in = (unsigned int)data_len;
 
@@ -872,8 +868,8 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
     if (buf_cap < 4096) {
         buf_cap = 4096;
     }
-    if (buf_cap > (size_t)500 * 1024 * 1024) {
-        buf_cap = (size_t)500 * 1024 * 1024;
+    if (buf_cap > DECOMPRESS_MAX_BYTES) {
+        buf_cap = DECOMPRESS_MAX_BYTES;
     }
     unsigned char *decompressed = malloc(buf_cap);
     if (!decompressed) {
@@ -886,7 +882,7 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
     do {
         if (total >= buf_cap) {
             size_t new_cap = buf_cap * 2;
-            if (new_cap > (size_t)500 * 1024 * 1024) {
+            if (new_cap > DECOMPRESS_MAX_BYTES) {
                 free(decompressed);
                 inflateEnd(&strm);
                 return NULL;
@@ -931,16 +927,16 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
         }
 
         /* Extract filename (bytes 0-99) */
-        char name[101] = {0};
-        memcpy(name, hdr, 100);
+        char name[TAR_NAME_LEN] = {0};
+        memcpy(name, hdr, TAR_NAME_LEN - 1);
 
-        /* Extract size from octal field (bytes 124-135) */
-        char size_str[13] = {0};
-        memcpy(size_str, hdr + 124, 12);
+        /* Extract size from octal field */
+        char size_str[TAR_SIZE_LEN] = {0};
+        memcpy(size_str, hdr + TAR_SIZE_OFFSET, TAR_SIZE_LEN - 1);
         long file_size = strtol(size_str, NULL, 8);
 
         /* Extract type flag (byte 156) */
-        char typeflag = (char)hdr[156];
+        char typeflag = (char)hdr[TAR_TYPE_OFFSET];
 
         pos += 512; /* skip header */
 
@@ -950,7 +946,7 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
             const char *basename = strrchr(name, '/');
             basename = basename ? basename + 1 : name;
 
-            if (strncmp(basename, "codebase-memory-mcp", 19) == 0) {
+            if (strncmp(basename, TAR_BINARY_NAME, TAR_BINARY_NAME_LEN) == 0) {
                 if (pos + (size_t)file_size <= total) {
                     unsigned char *result = malloc((size_t)file_size);
                     if (result) {
@@ -964,15 +960,10 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
         }
 
         /* Skip to next 512-byte boundary */
-        size_t blocks = ((size_t)file_size + 511) / 512;
+        size_t blocks = ((size_t)file_size + TAR_BLOCK_MASK) / TAR_BLOCK_SIZE;
         pos += blocks * 512;
     }
 
     free(decompressed);
     return NULL; /* binary not found */
 }
-
-// NOLINTEND(performance-no-int-to-ptr)
-// NOLINTEND(concurrency-mt-unsafe)
-// NOLINTEND(readability-magic-numbers)
-// NOLINTEND(cert-err33-c)

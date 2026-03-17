@@ -1,6 +1,3 @@
-// NOLINTBEGIN(bugprone-command-processor,cert-env33-c) — intentional shell commands for git
-// operations NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity
-// constants
 /*
  * pass_githistory.c — Analyze git log to find change coupling.
  *
@@ -19,14 +16,19 @@
 #include "foundation/hash_table.h"
 #include "foundation/log.h"
 #include "foundation/platform.h"
+#include "foundation/compat.h"
+#include "foundation/compat_fs.h"
+
+/* Minimum coupling score to create an edge */
+#define MIN_COUPLING_SCORE 0.3
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static const char *itoa_log(int val) {
-    static char bufs[4][32];
-    static int idx = 0;
+    static CBM_TLS char bufs[4][32];
+    static CBM_TLS int idx = 0;
     int i = idx;
     idx = (idx + 1) & 3;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -44,7 +46,9 @@ bool cbm_is_trackable_file(const char *path) {
         return false;
     }
     /* Skip directory prefixes */
-    if (strncmp(path, ".git/", 5) == 0 || strncmp(path, "node_modules/", 13) == 0 ||
+#define LEN_NODE_MODULES_SLASH 13 /* strlen("node_modules/") */
+    if (strncmp(path, ".git/", 5) == 0 ||
+        strncmp(path, "node_modules/", LEN_NODE_MODULES_SLASH) == 0 ||
         strncmp(path, "vendor/", 7) == 0 || strncmp(path, "__pycache__/", 12) == 0 ||
         strncmp(path, ".cache/", 7) == 0) {
         return false;
@@ -97,18 +101,127 @@ static void commit_free(commit_t *c) {
     free(c->files);
 }
 
+/* ── libgit2-based git log parsing (preferred) ────────────────────── */
+
+#ifdef HAVE_LIBGIT2
+#include <git2.h>
+#include <time.h>
+
+static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) {
+    *out = NULL;
+    *out_count = 0;
+
+    git_libgit2_init();
+
+    git_repository *repo = NULL;
+    if (git_repository_open(&repo, repo_path) != 0) {
+        git_libgit2_shutdown();
+        return -1;
+    }
+
+    /* Walk from HEAD, sorted chronologically */
+    git_revwalk *walker = NULL;
+    if (git_revwalk_new(&walker, repo) != 0) {
+        git_repository_free(repo);
+        git_libgit2_shutdown();
+        return -1;
+    }
+    git_revwalk_sorting(walker, GIT_SORT_TIME);
+    git_revwalk_push_head(walker);
+
+    /* 1 year cutoff, max 10k commits */
+    time_t cutoff = time(NULL) - (365L * 24 * 3600);
+    int max_commits = 10000;
+
+    int cap = 64;
+    commit_t *commits = malloc(cap * sizeof(commit_t));
+    int count = 0;
+
+    git_oid oid;
+    while (git_revwalk_next(&oid, walker) == 0 && count < max_commits) {
+        git_commit *commit = NULL;
+        if (git_commit_lookup(&commit, repo, &oid) != 0) {
+            continue;
+        }
+
+        /* Check if commit is within the 6-month window */
+        git_time_t ct = git_commit_time(commit);
+        if ((time_t)ct < cutoff) {
+            git_commit_free(commit);
+            break; /* sorted by time — all subsequent commits are older */
+        }
+
+        /* Get commit tree and parent tree for diff */
+        git_tree *tree = NULL;
+        git_tree *parent_tree = NULL;
+        git_commit_tree(&tree, commit);
+
+        unsigned int nparents = git_commit_parentcount(commit);
+        if (nparents > 0) {
+            git_commit *parent = NULL;
+            if (git_commit_parent(&parent, commit, 0) == 0) {
+                git_commit_tree(&parent_tree, parent);
+                git_commit_free(parent);
+            }
+        }
+
+        /* Diff parent_tree → tree to find changed files */
+        git_diff *diff = NULL;
+        git_diff_options diff_opts = GIT_DIFF_OPTIONS_INIT;
+        if (git_diff_tree_to_tree(&diff, repo, parent_tree, tree, &diff_opts) == 0) {
+            commit_t current = {0};
+
+            size_t ndeltas = git_diff_num_deltas(diff);
+            for (size_t d = 0; d < ndeltas; d++) {
+                const git_diff_delta *delta = git_diff_get_delta(diff, d);
+                const char *path = delta->new_file.path;
+                if (path && cbm_is_trackable_file(path)) {
+                    commit_add_file(&current, path);
+                }
+            }
+
+            if (current.count > 0) {
+                if (count >= cap) {
+                    cap *= 2;
+                    commits = safe_realloc(commits, cap * sizeof(commit_t));
+                }
+                commits[count++] = current;
+            } else {
+                commit_free(&current);
+            }
+            git_diff_free(diff);
+        }
+
+        if (parent_tree) {
+            git_tree_free(parent_tree);
+        }
+        git_tree_free(tree);
+        git_commit_free(commit);
+    }
+
+    git_revwalk_free(walker);
+    git_repository_free(repo);
+    git_libgit2_shutdown();
+
+    *out = commits;
+    *out_count = count;
+    return 0;
+}
+
+#else /* !HAVE_LIBGIT2 — popen fallback */
+
 static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) {
     *out = NULL;
     *out_count = 0;
 
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-             "cd '%s' && git log --name-only --pretty=format:COMMIT:%%H --since='6 months ago' "
-             "2>/dev/null",
+             "cd '%s' && git log --name-only --pretty=format:COMMIT:%%H "
+             "--since='1 year ago' --max-count=10000 2>/dev/null",
              repo_path);
 
-    // NOLINTNEXTLINE(misc-include-cleaner) — popen provided by standard header
-    FILE *fp = popen(cmd, "r");
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
+    FILE *fp = cbm_popen(cmd, "r");
     if (!fp) {
         return -1;
     }
@@ -154,12 +267,13 @@ static int parse_git_log(const char *repo_path, commit_t **out, int *out_count) 
         commit_free(&current);
     }
 
-    // NOLINTNEXTLINE(misc-include-cleaner) — pclose provided by standard header
-    pclose(fp);
+    cbm_pclose(fp);
     *out = commits;
     *out_count = count;
     return 0;
 }
+
+#endif /* HAVE_LIBGIT2 */
 
 /* Callback to free hash table entries. */
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -216,7 +330,7 @@ static void collect_coupling_cb(const char *pair_key, void *val, void *ud) {
     }
 
     double score = (double)co_count / (double)min_total;
-    if (score < 0.3) {
+    if (score < MIN_COUPLING_SCORE) {
         return;
     }
 
@@ -293,164 +407,96 @@ int cbm_compute_change_coupling(const cbm_commit_files_t *commits, int commit_co
     return cctx.out_count;
 }
 
-/* ── Co-change edge creation callback ─────────────────────────────── */
+/* ── Split pass: compute (I/O-bound) + apply (gbuf writes) ───────── */
 
-/* Context for the hash table foreach callback. */
-typedef struct {
-    cbm_pipeline_ctx_t *ctx;
-    CBMHashTable *file_counts;
-    int edge_count;
-} edge_create_ctx_t;
+/* Pre-computed coupling result buffer for fused post-pass parallelism. */
+#define MAX_COUPLINGS 8192
 
-/* Callback: for each pair with count >= 3, create FILE_CHANGES_WITH edge. */
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static void create_coupling_edge(const char *pair_key, void *val, void *ud) {
-    edge_create_ctx_t *ectx = ud;
-    int co_count = *(int *)val;
-    if (co_count < 3) {
-        return;
-    }
-
-    /* Split pair_key on \x01 separator */
-    const char *sep = strchr(pair_key, '\x01');
-    if (!sep) {
-        return;
-    }
-    size_t la = sep - pair_key;
-    const char *file_b = sep + 1;
-
-    char file_a_buf[512];
-    if (la >= sizeof(file_a_buf)) {
-        return;
-    }
-    memcpy(file_a_buf, pair_key, la);
-    file_a_buf[la] = '\0';
-
-    /* Get per-file change counts */
-    int *count_a = cbm_ht_get(ectx->file_counts, file_a_buf);
-    int *count_b = cbm_ht_get(ectx->file_counts, file_b);
-    if (!count_a || !count_b) {
-        return;
-    }
-
-    int min_total = *count_a < *count_b ? *count_a : *count_b;
-    if (min_total == 0) {
-        return;
-    }
-
-    double score = (double)co_count / (double)min_total;
-    if (score < 0.3) {
-        return; /* below threshold */
-    }
-
-    /* Find File nodes */
-    char *qn_a = cbm_pipeline_fqn_compute(ectx->ctx->project_name, file_a_buf, "__file__");
-    char *qn_b = cbm_pipeline_fqn_compute(ectx->ctx->project_name, file_b, "__file__");
-
-    const cbm_gbuf_node_t *node_a = cbm_gbuf_find_by_qn(ectx->ctx->gbuf, qn_a);
-    const cbm_gbuf_node_t *node_b = cbm_gbuf_find_by_qn(ectx->ctx->gbuf, qn_b);
-
-    free(qn_a);
-    free(qn_b);
-
-    if (!node_a || !node_b || node_a->id == node_b->id) {
-        return;
-    }
-
-    char props[128];
-    snprintf(props, sizeof(props), "{\"co_changes\":%d,\"coupling_score\":%.2f}", co_count, score);
-
-    cbm_gbuf_insert_edge(ectx->ctx->gbuf, node_a->id, node_b->id, "FILE_CHANGES_WITH", props);
-    ectx->edge_count++;
-}
-
-/* ── Main pass ────────────────────────────────────────────────────── */
-
-int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx) {
-    cbm_log_info("pass.start", "pass", "githistory");
+/* Compute change couplings without touching the graph buffer.
+ * Can run on a separate thread while other passes use the gbuf. */
+int cbm_pipeline_githistory_compute(const char *repo_path, cbm_githistory_result_t *result) {
+    result->couplings = NULL;
+    result->count = 0;
+    result->commit_count = 0;
 
     commit_t *commits = NULL;
     int commit_count = 0;
-    int rc = parse_git_log(ctx->repo_path, &commits, &commit_count);
+    int rc = parse_git_log(repo_path, &commits, &commit_count);
     if (rc != 0 || commit_count == 0) {
-        cbm_log_info("pass.done", "pass", "githistory", "commits", "0", "edges", "0");
         free(commits);
         return 0;
     }
 
-    /* Count per-file changes and per-pair co-changes */
-    CBMHashTable *file_counts = cbm_ht_create(1024);
-    CBMHashTable *pair_counts = cbm_ht_create(2048);
+    result->commit_count = commit_count;
 
+    /* Convert to testable format */
+    cbm_commit_files_t *cf = malloc((size_t)commit_count * sizeof(cbm_commit_files_t));
     for (int c = 0; c < commit_count; c++) {
-        commit_t *cm = &commits[c];
-        if (cm->count > 20) {
-            continue; /* skip large commits */
-        }
-
-        for (int i = 0; i < cm->count; i++) {
-            int *val = cbm_ht_get(file_counts, cm->files[i]);
-            if (val) {
-                (*val)++;
-            } else {
-                int *nv = malloc(sizeof(int));
-                *nv = 1;
-                cbm_ht_set(file_counts, strdup(cm->files[i]), nv);
-            }
-        }
-
-        for (int i = 0; i < cm->count; i++) {
-            for (int j = i + 1; j < cm->count; j++) {
-                const char *a = cm->files[i];
-                const char *b = cm->files[j];
-                if (strcmp(a, b) > 0) {
-                    const char *t = a;
-                    a = b;
-                    b = t;
-                }
-                size_t la = strlen(a);
-                size_t lb = strlen(b);
-                char *pk = malloc(la + 1 + lb + 1);
-                memcpy(pk, a, la);
-                pk[la] = '\x01';
-                memcpy(pk + la + 1, b, lb + 1);
-
-                int *val = cbm_ht_get(pair_counts, pk);
-                if (val) {
-                    (*val)++;
-                    free(pk);
-                } else {
-                    int *nv = malloc(sizeof(int));
-                    *nv = 1;
-                    cbm_ht_set(pair_counts, pk, nv);
-                }
-            }
-        }
+        cf[c].files = commits[c].files;
+        cf[c].count = commits[c].count;
     }
 
-    /* Create edges for strongly coupled pairs */
-    edge_create_ctx_t ectx = {
-        .ctx = ctx,
-        .file_counts = file_counts,
-        .edge_count = 0,
-    };
-    cbm_ht_foreach(pair_counts, create_coupling_edge, &ectx);
+    cbm_change_coupling_t *couplings = malloc(MAX_COUPLINGS * sizeof(cbm_change_coupling_t));
+    int coupling_count = cbm_compute_change_coupling(cf, commit_count, couplings, MAX_COUPLINGS);
 
-    /* Cleanup */
-    cbm_ht_foreach(pair_counts, free_counter, NULL);
-    cbm_ht_free(pair_counts);
-    cbm_ht_foreach(file_counts, free_counter, NULL);
-    cbm_ht_free(file_counts);
-
+    free(cf);
     for (int c = 0; c < commit_count; c++) {
         commit_free(&commits[c]);
     }
     free(commits);
 
-    cbm_log_info("pass.done", "pass", "githistory", "commits", itoa_log(commit_count), "edges",
-                 itoa_log(ectx.edge_count));
+    result->couplings = couplings;
+    result->count = coupling_count;
     return 0;
 }
 
-// NOLINTEND(readability-magic-numbers)
-// NOLINTEND(bugprone-command-processor,cert-env33-c)
+/* Apply pre-computed couplings to the graph buffer (must be on main thread). */
+int cbm_pipeline_githistory_apply(cbm_pipeline_ctx_t *ctx, const cbm_githistory_result_t *result) {
+    int edge_count = 0;
+
+    for (int i = 0; i < result->count; i++) {
+        const cbm_change_coupling_t *cc = &result->couplings[i];
+
+        char *qn_a = cbm_pipeline_fqn_compute(ctx->project_name, cc->file_a, "__file__");
+        char *qn_b = cbm_pipeline_fqn_compute(ctx->project_name, cc->file_b, "__file__");
+
+        const cbm_gbuf_node_t *node_a = cbm_gbuf_find_by_qn(ctx->gbuf, qn_a);
+        const cbm_gbuf_node_t *node_b = cbm_gbuf_find_by_qn(ctx->gbuf, qn_b);
+
+        free(qn_a);
+        free(qn_b);
+
+        if (!node_a || !node_b || node_a->id == node_b->id) {
+            continue;
+        }
+
+        char props[128];
+        snprintf(props, sizeof(props), "{\"co_changes\":%d,\"coupling_score\":%.2f}",
+                 cc->co_change_count, cc->coupling_score);
+
+        cbm_gbuf_insert_edge(ctx->gbuf, node_a->id, node_b->id, "FILE_CHANGES_WITH", props);
+        edge_count++;
+    }
+
+    return edge_count;
+}
+
+/* ── Main pass (original serial interface) ───────────────────────── */
+
+int cbm_pipeline_pass_githistory(cbm_pipeline_ctx_t *ctx) {
+    cbm_log_info("pass.start", "pass", "githistory");
+
+    cbm_githistory_result_t result = {0};
+    cbm_pipeline_githistory_compute(ctx->repo_path, &result);
+
+    int edge_count = 0;
+    if (result.count > 0) {
+        edge_count = cbm_pipeline_githistory_apply(ctx, &result);
+    }
+
+    free(result.couplings);
+
+    cbm_log_info("pass.done", "pass", "githistory", "commits", itoa_log(result.commit_count),
+                 "edges", itoa_log(edge_count));
+    return 0;
+}

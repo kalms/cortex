@@ -1,4 +1,3 @@
-// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
 /*
  * language.c — Language detection from filename and extension.
  *
@@ -412,7 +411,7 @@ CBMLanguage cbm_disambiguate_m(const char *path) {
     char buf[4096 + 1];
     size_t n = fread(buf, 1, 4096, f);
     buf[n] = '\0';
-    fclose(f);
+    (void)fclose(f);
 
     /* Check Objective-C markers first */
     if (str_contains(buf, "@interface") || str_contains(buf, "@implementation") ||
@@ -476,5 +475,3 @@ CBMLanguage cbm_disambiguate_m(const char *path) {
     /* Default to MATLAB */
     return CBM_LANG_MATLAB;
 }
-
-// NOLINTEND(cert-err33-c)

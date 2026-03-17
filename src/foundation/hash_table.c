@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * hash_table.c — Robin Hood open-addressing hash table.
  *
@@ -14,12 +13,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* FNV-1a hash constants (published by Fowler/Noll/Vo) */
+#define FNV_OFFSET_BASIS 2166136261U
+#define FNV_PRIME 16777619U
+
 /* FNV-1a hash for strings */
 static uint32_t fnv1a(const char *key) {
-    uint32_t h = 2166136261U;
+    uint32_t h = FNV_OFFSET_BASIS;
     for (const unsigned char *p = (const unsigned char *)key; *p; p++) {
         h ^= *p;
-        h *= 16777619U;
+        h *= FNV_PRIME;
     }
     return h;
 }
@@ -251,5 +254,3 @@ void cbm_ht_clear(CBMHashTable *ht) {
     memset(ht->entries, 0, ht->capacity * sizeof(CBMHTEntry));
     ht->count = 0;
 }
-
-// NOLINTEND(readability-magic-numbers)

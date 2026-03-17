@@ -20,7 +20,7 @@ typedef struct {
 } Edit;
 
 #define TS_MAX_INLINE_TREE_LENGTH UINT8_MAX
-#define TS_MAX_TREE_POOL_SIZE 32
+#define TS_MAX_TREE_POOL_SIZE 512
 
 // ExternalScannerState
 

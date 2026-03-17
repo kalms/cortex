@@ -22,7 +22,7 @@
 // Forward declarations
 static void extract_func_def(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
 static void extract_class_def(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
-static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
+static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, int depth);
 static void extract_variables(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec);
 static void extract_class_variables(CBMExtractCtx *ctx, TSNode class_node, const CBMLangSpec *spec);
 static void extract_rust_impl(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec);
@@ -2660,7 +2660,7 @@ static void find_nested_classes(CBMExtractCtx *ctx, TSNode node, const CBMLangSp
         TSNode child = ts_node_child(node, i);
         if (cbm_kind_in_set(child, spec->class_node_types)) {
             // Found a nested class — process it via normal walk_defs
-            walk_defs(ctx, child, spec);
+            walk_defs(ctx, child, spec, 0);
         } else {
             const char *ck = ts_node_type(child);
             // Recurse into wrapper nodes that might contain nested classes
@@ -2673,8 +2673,17 @@ static void find_nested_classes(CBMExtractCtx *ctx, TSNode node, const CBMLangSp
     }
 }
 
+/* Max AST recursion depth — prevents stack overflow on pathological files.
+ * 256 levels is far beyond any real code nesting; 896+ was observed on
+ * generated Linux kernel headers with deeply nested preprocessor output. */
+#define CBM_WALK_DEFS_MAX_DEPTH 256
+
 // NOLINTNEXTLINE(misc-no-recursion) — intentional AST tree walk
-static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
+static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, int depth) {
+    if (depth >= CBM_WALK_DEFS_MAX_DEPTH) {
+        return;
+    }
+
     const char *kind = ts_node_type(node);
 
     // Elixir: all defs are call nodes
@@ -2762,7 +2771,7 @@ static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) 
         if (!found_body) {
             // Config languages (XML, TOML, JSON, etc.) — children are direct class nodes
             for (uint32_t ci = 0; ci < nc; ci++) {
-                walk_defs(ctx, ts_node_child(node, ci), spec);
+                walk_defs(ctx, ts_node_child(node, ci), spec, depth + 1);
             }
         }
         ctx->enclosing_class_qn = saved_enclosing;
@@ -2772,7 +2781,7 @@ static void walk_defs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) 
     // Recurse into children
     uint32_t count = ts_node_child_count(node);
     for (uint32_t i = 0; i < count; i++) {
-        walk_defs(ctx, ts_node_child(node, i), spec);
+        walk_defs(ctx, ts_node_child(node, i), spec, depth + 1);
     }
 }
 
@@ -2798,7 +2807,7 @@ void cbm_extract_definitions(CBMExtractCtx *ctx) {
     cbm_defs_push(&ctx->result->defs, a, mod);
 
     // Walk AST for function/class definitions
-    walk_defs(ctx, ctx->root, spec);
+    walk_defs(ctx, ctx->root, spec, 0);
 
     // Extract module-level variables
     extract_variables(ctx, ctx->root, spec);

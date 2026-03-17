@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pass_infrascan.c — Infrastructure file detection and parsing helpers.
  *
@@ -13,6 +12,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+/* ── Constants ───────────────────────────────────────────────────── */
+
+/* String length constants for keyword matching */
+#define LEN_DOCKERFILE 11          /* strlen("dockerfile.") == strlen(".dockerfile") */
+#define LEN_DOCKER_COMPOSE 14      /* strlen("docker-compose") */
+#define LEN_HEALTHCHECK 11         /* strlen("HEALTHCHECK") */
+#define LEN_DOCKER_COMPOSE_SKIP 15 /* strlen("docker-compose") + space */
+
+/* Minimum alnum chars after prefix for secret detection */
+#define GITHUB_PAT_MIN_ALNUM 36 /* ghp_ + 36 alnum chars */
 
 /* ── Internal helpers ────────────────────────────────────────────── */
 
@@ -112,11 +122,11 @@ bool cbm_is_dockerfile(const char *name) {
     if (strcmp(lower, "dockerfile") == 0) {
         return true;
     }
-    if (strncmp(lower, "dockerfile.", 11) == 0) {
+    if (strncmp(lower, "dockerfile.", LEN_DOCKERFILE) == 0) {
         return true;
     }
     size_t len = strlen(lower);
-    if (len > 11 && strcmp(lower + len - 11, ".dockerfile") == 0) {
+    if (len > LEN_DOCKERFILE && strcmp(lower + len - LEN_DOCKERFILE, ".dockerfile") == 0) {
         return true;
     }
     return false;
@@ -130,7 +140,7 @@ bool cbm_is_compose_file(const char *name) {
     to_lower(name, lower, sizeof(lower));
 
     // NOLINTNEXTLINE(readability-implicit-bool-conversion)
-    bool prefix_match = (strncmp(lower, "docker-compose", 14) == 0) ||
+    bool prefix_match = (strncmp(lower, "docker-compose", LEN_DOCKER_COMPOSE) == 0) ||
                         (strcmp(lower, "compose.yml") == 0) || (strcmp(lower, "compose.yaml") == 0);
     if (!prefix_match) {
         return false;
@@ -235,7 +245,7 @@ bool cbm_is_secret_value(const char *value) {
 
     /* ghp_ + 36 alnum (GitHub PAT) */
     // NOLINTNEXTLINE(bugprone-assignment-in-if-condition)
-    if ((p = ci_strstr(value, "ghp_")) && count_alnum(p + 4) >= 36) {
+    if ((p = ci_strstr(value, "ghp_")) && count_alnum(p + 4) >= GITHUB_PAT_MIN_ALNUM) {
         return true;
     }
 
@@ -458,7 +468,7 @@ static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
     }
     /* ENTRYPOINT */
     if (strncasecmp(line, "ENTRYPOINT", 10) == 0 && (line[10] == ' ' || line[10] == '\t')) {
-        const char *p = skip_ws(line + 11);
+        const char *p = skip_ws(line + LEN_HEALTHCHECK);
         char raw[512];
         snprintf(raw, sizeof(raw), "%s", p);
         rtrim(raw);
@@ -472,8 +482,9 @@ static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
         return;
     }
     /* HEALTHCHECK ... CMD <command> */
-    if (strncasecmp(line, "HEALTHCHECK", 11) == 0 && (line[11] == ' ' || line[11] == '\t')) {
-        const char *cmd_pos = ci_strstr(line + 11, "CMD");
+    if (strncasecmp(line, "HEALTHCHECK", LEN_HEALTHCHECK) == 0 &&
+        (line[LEN_HEALTHCHECK] == ' ' || line[LEN_HEALTHCHECK] == '\t')) {
+        const char *cmd_pos = ci_strstr(line + LEN_HEALTHCHECK, "CMD");
         if (cmd_pos) {
             cmd_pos += 3;
             cmd_pos = skip_ws(cmd_pos);
@@ -723,9 +734,10 @@ static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
     const char *p = NULL;
     const char *tool = NULL;
 
-    if (strncmp(line, "docker-compose", 14) == 0 && (line[14] == ' ' || line[14] == '\t')) {
+    if (strncmp(line, "docker-compose", LEN_DOCKER_COMPOSE) == 0 &&
+        (line[LEN_DOCKER_COMPOSE] == ' ' || line[LEN_DOCKER_COMPOSE] == '\t')) {
         tool = "docker-compose";
-        p = skip_ws(line + 15);
+        p = skip_ws(line + LEN_DOCKER_COMPOSE_SKIP);
     } else if (strncmp(line, "docker", 6) == 0 && (line[6] == ' ' || line[6] == '\t')) {
         tool = "docker";
         p = skip_ws(line + 7);
@@ -1144,5 +1156,3 @@ char *cbm_infra_qn(const char *project_name, const char *rel_path, const char *i
     // NOLINTNEXTLINE(misc-include-cleaner) — strdup provided by standard header
     return strdup(result);
 }
-
-// NOLINTEND(readability-magic-numbers)

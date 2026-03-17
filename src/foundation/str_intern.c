@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * str_intern.c — String interning pool.
  *
@@ -11,12 +10,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* FNV-1a hash constants (published by Fowler/Noll/Vo) */
+#define FNV_OFFSET_BASIS 2166136261U
+#define FNV_PRIME 16777619U
+
 /* FNV-1a for interning (matches hash_table.c) */
 static uint32_t intern_hash(const char *s, size_t len) {
-    uint32_t h = 2166136261U;
+    uint32_t h = FNV_OFFSET_BASIS;
     for (size_t i = 0; i < len; i++) {
         h ^= (unsigned char)s[i];
-        h *= 16777619U;
+        h *= FNV_PRIME;
     }
     return h;
 }
@@ -145,5 +148,3 @@ uint32_t cbm_intern_count(const CBMInternPool *pool) {
 size_t cbm_intern_bytes(const CBMInternPool *pool) {
     return pool ? pool->total_bytes : 0;
 }
-
-// NOLINTEND(readability-magic-numbers)

@@ -778,10 +778,15 @@ char *cbm_fqn_compute(CBMArena *a, const char *project, const char *rel_path, co
         size_t part_len = (size_t)(part_end - start);
 
         if (part_len > 0) {
-            // Skip __init__ (Python) and index (JS/TS) if it's the last part
+            /* Handle __init__ (Python) and index (JS/TS):
+             * Strip ONLY when a name suffix is provided, so that symbols
+             * inside __init__.py get clean package QNs (proj.pkg.MyClass).
+             * When no name is given (fqn_module for the file itself),
+             * keep __init__/index to avoid QN collision with the Folder
+             * node for the same directory. */
             bool is_last = (part_end == end_ptr);
             bool skip = false;
-            if (is_last) {
+            if (is_last && name && name_len > 0) {
                 if (part_len == 8 && memcmp(start, "__init__", 8) == 0) {
                     skip = true;
                 }

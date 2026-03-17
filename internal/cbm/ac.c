@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "ac.h"
+#include "foundation/compat.h"
 #include "lz4_store.h"
 
 // ─── Data structures ───────────────────────────────────────────────────────
@@ -248,10 +249,10 @@ uint64_t cbm_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_
 // ─── Fused LZ4 + AC scan ──────────────────────────────────────────────────
 
 // Thread-local reusable decompression buffer to avoid repeated malloc/free.
-// Each goroutine gets its own OS thread (via CGo), so _Thread_local is safe.
+// Each goroutine gets its own OS thread (via CGo), so CBM_TLS is safe.
 // NOLINTNEXTLINE(clang-analyzer-optin.portability.UnixAPI)
-static _Thread_local char *tls_decomp_buf = NULL;
-static _Thread_local int tls_decomp_cap = 0;
+static CBM_TLS char *tls_decomp_buf = NULL;
+static CBM_TLS int tls_decomp_cap = 0;
 
 static char *get_decomp_buf(int needed) {
     if (needed > tls_decomp_cap) {

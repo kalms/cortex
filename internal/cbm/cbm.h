@@ -314,6 +314,14 @@ void cbm_free_tree(CBMFileResult *result);
 // Free a standalone TSTree pointer (for Go layer cleanup).
 void cbm_free_tree_ptr(TSTree *tree);
 
+// Reset the thread-local parser's internal state, releasing slab-allocated
+// subtrees. Must be called BEFORE cbm_slab_reset_thread() so the slab rebuild
+// doesn't corrupt live parser state.
+void cbm_reset_thread_parser(void);
+
+// Destroy the thread-local parser. Call on worker thread exit.
+void cbm_destroy_thread_parser(void);
+
 // Shutdown the library. Call once at exit.
 void cbm_shutdown(void);
 

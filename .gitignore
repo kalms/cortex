@@ -33,3 +33,12 @@ Thumbs.db
 # Local project memory (Claude Code auto-memory)
 memory/
 reference/
+
+# Build artifacts
+build/
+node_modules/
+graph-ui/dist/
+
+# Generated reports
+BENCHMARK_REPORT.md
+TEST_PLAN.md

@@ -1,13 +1,11 @@
 /*
  * worker_pool.h — Generic parallel-for dispatch.
  *
- * Platform backends:
- *   macOS:       GCD dispatch_apply_f (default) with QOS_CLASS_USER_INITIATED
- *   macOS TSan:  pthreads fallback (TSan has known GCD issues)
- *   Linux:       pthreads with atomic work index
+ * Backend: pthreads with 8MB stacks and atomic work-stealing index.
+ * Each worker pulls from a shared counter — zero contention, natural
+ * load balancing across heterogeneous cores (P/E on Apple Silicon).
  *
- * Threshold: if count < 2 * workers, runs single-threaded (dispatch overhead
- * exceeds parallel gain for small workloads).
+ * Serial fallback when count <= 1 or max_workers <= 1.
  */
 #ifndef CBM_WORKER_POOL_H
 #define CBM_WORKER_POOL_H
@@ -20,7 +18,7 @@ typedef void (*cbm_parallel_fn)(int idx, void *ctx);
 /* Options for parallel dispatch. */
 typedef struct {
     int max_workers;     /* 0 = auto-detect from cbm_default_worker_count */
-    bool force_pthreads; /* bypass GCD on macOS (for TSan or testing) */
+    bool force_pthreads; /* unused, kept for API compat */
 } cbm_parallel_for_opts_t;
 
 /* Dispatch `count` iterations of `fn(idx, ctx)` across worker threads.
@@ -28,7 +26,7 @@ typedef struct {
  * Blocks until all iterations complete.
  *
  * If count <= 0, this is a no-op.
- * If count < 2 * workers, runs single-threaded (avoids dispatch overhead). */
+ * If count <= 1 or workers <= 1, runs single-threaded. */
 void cbm_parallel_for(int count, cbm_parallel_fn fn, void *ctx, cbm_parallel_for_opts_t opts);
 
 #endif /* CBM_WORKER_POOL_H */

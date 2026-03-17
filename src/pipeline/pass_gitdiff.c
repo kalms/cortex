@@ -1,4 +1,3 @@
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * pass_gitdiff.c — Git diff output parsing helpers.
  *
@@ -57,7 +56,8 @@ int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_o
         }
 
         /* Copy line to temp buffer for parsing */
-        char tmp[1536];
+#define HUNK_LINE_BUF 1536
+        char tmp[HUNK_LINE_BUF];
         if (line_len >= sizeof(tmp)) {
             line_len = sizeof(tmp) - 1;
         }
@@ -191,5 +191,3 @@ int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
     }
     return count;
 }
-
-// NOLINTEND(readability-magic-numbers)

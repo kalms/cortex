@@ -15,6 +15,7 @@
 //   - Varints: 1-9 bytes, big-endian, MSB continuation
 
 #include "sqlite_writer.h"
+#include "foundation/compat_thread.h"
 
 #include <stddef.h> // NULL
 #include <stdio.h>
@@ -23,7 +24,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PAGE_SIZE 4096
+#define PAGE_SIZE 65536
 #define SCHEMA_FORMAT 4
 #define FILE_FORMAT 1
 #define SQLITE_VERSION 3046000 // 3.46.0
@@ -1252,6 +1253,20 @@ static int cmp_edge_by_src_tgt_type(const void *a, const void *b) {
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
+// --- Parallel sort support ---
+
+typedef struct {
+    int count;
+    int (*cmp)(const void *, const void *);
+    int *perm; // output: sorted permutation array, caller frees
+} SortJob;
+
+static void *sort_worker(void *arg) {
+    SortJob *j = (SortJob *)arg;
+    j->perm = make_sorted_perm(j->count, j->cmp);
+    return NULL;
+}
+
 // --- Main entry point ---
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters,readability-function-cognitive-complexity,readability-function-size)
@@ -1364,12 +1379,48 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     g_sort_nodes = nodes;
     g_sort_edges = edges;
 
-// Helper macro: build sorted 2-text node index (project, col) + rowid.
-// NOLINTBEGIN(cert-err33-c) — best-effort cleanup on error paths inside macros
-#define BUILD_NODE_2TEXT_INDEX_SORTED(col_getter, cmp_func, idx_name_var)                        \
+    // Parallel sort: all 11 index permutations sorted simultaneously.
+    // Sorting is O(N log N) per index — the dominant CPU cost in index building.
+    // Cell building + B-tree writing remains serial (sequential page allocation).
+    SortJob nsorts[] = {
+        {node_count, cmp_node_by_label, NULL},
+        {node_count, cmp_node_by_name, NULL},
+        {node_count, cmp_node_by_file, NULL},
+        {node_count, cmp_node_by_qn, NULL},
+    };
+    SortJob esorts[] = {
+        {edge_count, cmp_edge_by_source_type, NULL},
+        {edge_count, cmp_edge_by_target_type, NULL},
+        {edge_count, cmp_edge_by_type, NULL},
+        {edge_count, cmp_edge_by_proj_target_type, NULL},
+        {edge_count, cmp_edge_by_proj_source_type, NULL},
+        {edge_count, cmp_edge_by_url_path, NULL},
+        {edge_count, cmp_edge_by_src_tgt_type, NULL},
+    };
+
+    {
+        cbm_thread_t st[11];
+        int nt = 0;
+        for (int i = 0; i < 4; i++) {
+            if (nsorts[i].count > 0) {
+                cbm_thread_create(&st[nt++], 0, sort_worker, &nsorts[i]);
+            }
+        }
+        for (int i = 0; i < 7; i++) {
+            if (esorts[i].count > 0) {
+                cbm_thread_create(&st[nt++], 0, sort_worker, &esorts[i]);
+            }
+        }
+        for (int i = 0; i < nt; i++) {
+            cbm_thread_join(&st[i]);
+        }
+    }
+
+// Helper macro: build 2-text node index from pre-sorted permutation.
+#define BUILD_NODE_2TEXT_INDEX_SORTED(col_getter, sorted_perm, idx_name_var)                     \
     do {                                                                                         \
         if (node_count > 0) {                                                                    \
-            int *perm = make_sorted_perm(node_count, (cmp_func));                                \
+            int *perm = (sorted_perm);                                                           \
             if (!perm) {                                                                         \
                 fclose(fp);                                                                      \
                 return -4;                                                                       \
@@ -1412,32 +1463,30 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
     uint32_t idx_nodes_label_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].label, cmp_node_by_label, idx_nodes_label_root);
+    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].label, nsorts[0].perm, idx_nodes_label_root);
 
     uint32_t idx_nodes_name_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].name, cmp_node_by_name, idx_nodes_name_root);
+    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].name, nsorts[1].perm, idx_nodes_name_root);
 
     uint32_t idx_nodes_file_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].file_path ? nodes[si].file_path : "", cmp_node_by_file,
+    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].file_path ? nodes[si].file_path : "", nsorts[2].perm,
                                   idx_nodes_file_root);
 
     uint32_t autoindex_nodes_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].qualified_name, cmp_node_by_qn, autoindex_nodes_root);
+    BUILD_NODE_2TEXT_INDEX_SORTED(nodes[si].qualified_name, nsorts[3].perm, autoindex_nodes_root);
 
 #undef BUILD_NODE_2TEXT_INDEX_SORTED
-// NOLINTEND(cert-err33-c)
 
 // --- Edge indexes (all sorted) ---
 
 // Helper macro: build sorted edge index, invoke cell builder per edge.
-// NOLINTBEGIN(cert-err33-c) — best-effort cleanup on error paths inside macros
-#define BUILD_EDGE_INDEX_SORTED(cmp_func, cell_builder, idx_name_var)                            \
+#define BUILD_EDGE_INDEX_SORTED(sorted_perm, cell_builder, idx_name_var)                         \
     do {                                                                                         \
         if (edge_count > 0) {                                                                    \
-            int *perm = make_sorted_perm(edge_count, (cmp_func));                                \
+            int *perm = (sorted_perm);                                                           \
             if (!perm) {                                                                         \
                 fclose(fp);                                                                      \
                 return -4;                                                                       \
@@ -1480,7 +1529,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // idx_edges_source: (source_id, type) + rowid
     uint32_t idx_edges_source_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_EDGE_INDEX_SORTED(cmp_edge_by_source_type,
+    BUILD_EDGE_INDEX_SORTED(esorts[0].perm,
                             idx_cells[i] = build_index_entry_int_text_rowid(
                                 edges[si].source_id, edges[si].type, edges[si].id, &idx_lens[i]),
                             idx_edges_source_root);
@@ -1488,7 +1537,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // idx_edges_target: (target_id, type) + rowid
     uint32_t idx_edges_target_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_EDGE_INDEX_SORTED(cmp_edge_by_target_type,
+    BUILD_EDGE_INDEX_SORTED(esorts[1].perm,
                             idx_cells[i] = build_index_entry_int_text_rowid(
                                 edges[si].target_id, edges[si].type, edges[si].id, &idx_lens[i]),
                             idx_edges_target_root);
@@ -1496,7 +1545,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // idx_edges_type: (project, type) + rowid
     uint32_t idx_edges_type_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
-    BUILD_EDGE_INDEX_SORTED(cmp_edge_by_type,
+    BUILD_EDGE_INDEX_SORTED(esorts[2].perm,
                             idx_cells[i] = build_index_entry_2text_rowid(
                                 edges[si].project, edges[si].type, edges[si].id, &idx_lens[i]),
                             idx_edges_type_root);
@@ -1505,7 +1554,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     uint32_t idx_edges_target_type_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
-        cmp_edge_by_proj_target_type,
+        esorts[3].perm,
         idx_cells[i] = build_index_entry_text_int_text_rowid(
             edges[si].project, edges[si].target_id, edges[si].type, edges[si].id, &idx_lens[i]),
         idx_edges_target_type_root);
@@ -1514,7 +1563,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     uint32_t idx_edges_source_type_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
-        cmp_edge_by_proj_source_type,
+        esorts[4].perm,
         idx_cells[i] = build_index_entry_text_int_text_rowid(
             edges[si].project, edges[si].source_id, edges[si].type, edges[si].id, &idx_lens[i]),
         idx_edges_source_type_root);
@@ -1522,7 +1571,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // idx_edges_url_path: (project, url_path_gen) + rowid
     uint32_t idx_edges_url_path_root;
     if (edge_count > 0) {
-        int *perm = make_sorted_perm(edge_count, cmp_edge_by_url_path);
+        int *perm = esorts[5].perm;
         idx_cells = (uint8_t **)malloc(edge_count * sizeof(uint8_t *));
         idx_lens = (int *)malloc(edge_count * sizeof(int));
         for (int i = 0; i < edge_count; i++) {
@@ -1566,13 +1615,12 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     uint32_t autoindex_edges_root;
     // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion,
     BUILD_EDGE_INDEX_SORTED(
-        cmp_edge_by_src_tgt_type,
+        esorts[6].perm,
         idx_cells[i] = build_index_entry_unique_2int_text_rowid(
             edges[si].source_id, edges[si].target_id, edges[si].type, edges[si].id, &idx_lens[i]),
         autoindex_edges_root);
 
 #undef BUILD_EDGE_INDEX_SORTED
-    // NOLINTEND(cert-err33-c)
 
     // Autoindex for projects(name TEXT PK) — single text column
     uint32_t autoindex_projects_root;
@@ -1731,7 +1779,8 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
 
         // Write the 100-byte SQLite file header
         memcpy(page1, "SQLite format 3\000", 16);
-        put_u16(page1 + HDR_OFF_PAGE_SIZE, PAGE_SIZE);         // page size
+        /* Page size 65536 is encoded as 1 in the 2-byte header field */
+        put_u16(page1 + HDR_OFF_PAGE_SIZE, (uint16_t)1);
         page1[HDR_OFF_WRITE_VERSION] = FILE_FORMAT;            // file format write version
         page1[HDR_OFF_READ_VERSION] = FILE_FORMAT;             // file format read version
         page1[HDR_OFF_RESERVED] = 0;                           // reserved space per page

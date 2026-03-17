@@ -1,5 +1,3 @@
-// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
-// NOLINTBEGIN(readability-magic-numbers) — buffer sizes, scoring weights, and capacity constants
 /*
  * main.c — Entry point for codebase-memory-mcp.
  *
@@ -8,21 +6,28 @@
  *   cli <tool> <json>  Run a single tool call and print result
  *   --version       Print version and exit
  *   --help          Print usage and exit
+ *   --ui=true/false Enable/disable HTTP UI server (persisted)
+ *   --port=N        Set HTTP UI port (persisted, default 9749)
  *
  * Signal handling: SIGTERM/SIGINT trigger graceful shutdown.
  * Watcher runs in a background thread, polling for git changes.
+ * HTTP UI server (optional) runs in a background thread on localhost.
  */
 #include "mcp/mcp.h"
 #include "watcher/watcher.h"
 #include "pipeline/pipeline.h"
 #include "store/store.h"
 #include "foundation/log.h"
+#include "foundation/compat_thread.h"
+#include "foundation/mem.h"
+#include "ui/config.h"
+#include "ui/http_server.h"
+#include "ui/embedded_assets.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
-#include <pthread.h>
 #include <stdatomic.h>
 
 #ifndef CBM_VERSION
@@ -33,6 +38,7 @@
 
 static cbm_watcher_t *g_watcher = NULL;
 static cbm_mcp_server_t *g_server = NULL;
+static cbm_http_server_t *g_http_server = NULL;
 static atomic_int g_shutdown = 0;
 
 static void signal_handler(int sig) {
@@ -41,15 +47,27 @@ static void signal_handler(int sig) {
     if (g_watcher) {
         cbm_watcher_stop(g_watcher);
     }
+    if (g_http_server) {
+        cbm_http_server_stop(g_http_server);
+    }
     /* Close stdin to unblock getline in the MCP server loop */
-    fclose(stdin);
+    (void)fclose(stdin);
 }
 
 /* ── Watcher background thread ──────────────────────────────────── */
 
 static void *watcher_thread(void *arg) {
     cbm_watcher_t *w = arg;
-    cbm_watcher_run(w, 5000); /* 5s base interval */
+#define WATCHER_BASE_INTERVAL_MS 5000
+    cbm_watcher_run(w, WATCHER_BASE_INTERVAL_MS);
+    return NULL;
+}
+
+/* ── HTTP UI background thread ──────────────────────────────────── */
+
+static void *http_thread(void *arg) {
+    cbm_http_server_t *srv = arg;
+    cbm_http_server_run(srv);
     return NULL;
 }
 
@@ -74,7 +92,7 @@ static int watcher_index_fn(const char *project_name, const char *root_path, voi
 static int run_cli(int argc, char **argv) {
     if (argc < 1) {
         // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-        fprintf(stderr, "Usage: codebase-memory-mcp cli <tool_name> [json_args]\n");
+        (void)fprintf(stderr, "Usage: codebase-memory-mcp cli <tool_name> [json_args]\n");
         return 1;
     }
 
@@ -84,7 +102,7 @@ static int run_cli(int argc, char **argv) {
     cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
     if (!srv) {
         // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-        fprintf(stderr, "Failed to create server\n");
+        (void)fprintf(stderr, "Failed to create server\n");
         return 1;
     }
 
@@ -107,6 +125,10 @@ static void print_help(void) {
     printf("  codebase-memory-mcp cli <tool> [json]  Run a single tool\n");
     printf("  codebase-memory-mcp --version    Print version\n");
     printf("  codebase-memory-mcp --help       Print this help\n");
+    printf("\nUI options:\n");
+    printf("  --ui=true    Enable HTTP graph visualization (persisted)\n");
+    printf("  --ui=false   Disable HTTP graph visualization (persisted)\n");
+    printf("  --port=N     Set UI port (default 9749, persisted)\n");
     printf("\nTools: index_repository, search_graph, query_graph, trace_call_path,\n");
     printf("  get_code_snippet, get_graph_schema, get_architecture, search_code,\n");
     printf("  list_projects, delete_project, index_status, detect_changes,\n");
@@ -127,12 +149,41 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (strcmp(argv[i], "cli") == 0) {
+            cbm_mem_init(0.5);
             return run_cli(argc - i - 1, argv + i + 1);
         }
     }
 
     /* Default: MCP server on stdio */
+    cbm_mem_init(0.5); /* 50% of RAM — safe now because mimalloc tracks ALL
+                        * memory (C + C++ allocations) via global override.
+                        * No more untracked heap blind spots. */
+    /* Store binary path for subprocess spawning + hook log sink */
+    cbm_http_server_set_binary_path(argv[0]);
+    cbm_log_set_sink(cbm_ui_log_append);
     cbm_log_info("server.start", "version", CBM_VERSION);
+
+    /* Parse --ui and --port flags (persisted config) */
+    cbm_ui_config_t ui_cfg;
+    cbm_ui_config_load(&ui_cfg);
+
+    bool config_changed = false;
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--ui=", 5) == 0) {
+            ui_cfg.ui_enabled = (strcmp(argv[i] + 5, "true") == 0);
+            config_changed = true;
+        }
+        if (strncmp(argv[i], "--port=", 7) == 0) {
+            int p = (int)strtol(argv[i] + 7, NULL, 10);
+            if (p > 0 && p < 65536) {
+                ui_cfg.ui_port = p;
+                config_changed = true;
+            }
+        }
+    }
+    if (config_changed) {
+        cbm_ui_config_save(&ui_cfg);
+    }
 
     /* Install signal handlers */
     // NOLINTNEXTLINE(misc-include-cleaner) — sigaction provided by standard header
@@ -154,14 +205,28 @@ int main(int argc, char **argv) {
     /* Create and start watcher in background thread */
     cbm_store_t *watch_store = cbm_store_open_memory();
     g_watcher = cbm_watcher_new(watch_store, watcher_index_fn, NULL);
-    // NOLINTNEXTLINE(misc-include-cleaner) — pthread_t provided by standard header
-    pthread_t watcher_tid;
+    cbm_thread_t watcher_tid;
     bool watcher_started = false;
 
     if (g_watcher) {
-        if (pthread_create(&watcher_tid, NULL, watcher_thread, g_watcher) == 0) {
+        if (cbm_thread_create(&watcher_tid, 0, watcher_thread, g_watcher) == 0) {
             watcher_started = true;
         }
+    }
+
+    /* Optionally start HTTP UI server in background thread */
+    cbm_thread_t http_tid;
+    bool http_started = false;
+
+    if (ui_cfg.ui_enabled && CBM_EMBEDDED_FILE_COUNT > 0) {
+        g_http_server = cbm_http_server_new(ui_cfg.ui_port);
+        if (g_http_server) {
+            if (cbm_thread_create(&http_tid, 0, http_thread, g_http_server) == 0) {
+                http_started = true;
+            }
+        }
+    } else if (ui_cfg.ui_enabled && CBM_EMBEDDED_FILE_COUNT == 0) {
+        cbm_log_warn("ui.no_assets", "hint", "rebuild with: make -f Makefile.cbm cbm-with-ui");
     }
 
     /* Run MCP event loop (blocks until EOF or signal) */
@@ -170,9 +235,16 @@ int main(int argc, char **argv) {
     /* Shutdown */
     cbm_log_info("server.shutdown");
 
+    if (http_started) {
+        cbm_http_server_stop(g_http_server);
+        cbm_thread_join(&http_tid);
+        cbm_http_server_free(g_http_server);
+        g_http_server = NULL;
+    }
+
     if (watcher_started) {
         cbm_watcher_stop(g_watcher);
-        pthread_join(watcher_tid, NULL);
+        cbm_thread_join(&watcher_tid);
     }
     cbm_watcher_free(g_watcher);
     cbm_store_close(watch_store);
@@ -183,6 +255,3 @@ int main(int argc, char **argv) {
 
     return rc;
 }
-
-// NOLINTEND(readability-magic-numbers)
-// NOLINTEND(cert-err33-c)

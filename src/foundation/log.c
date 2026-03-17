@@ -1,14 +1,19 @@
-// NOLINTBEGIN(cert-err33-c) — best-effort logging and snprintf truncation
 /*
  * log.c — Structured key-value logging to stderr.
  */
 #include "log.h"
+#include <_stdio.h>
 #include <inttypes.h> // PRId64
 #include <stdint.h>   // int64_t
 #include <stdio.h>
 #include <stdarg.h>
 
 static CBMLogLevel g_log_level = CBM_LOG_INFO;
+static cbm_log_sink_fn g_log_sink = NULL;
+
+void cbm_log_set_sink(cbm_log_sink_fn fn) {
+    g_log_sink = fn;
+}
 
 void cbm_log_set_level(CBMLogLevel level) {
     g_log_level = level;
@@ -38,8 +43,10 @@ void cbm_log(CBMLogLevel level, const char *msg, ...) {
         return;
     }
 
-    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-    fprintf(stderr, "level=%s msg=%s", level_str(level), msg ? msg : "");
+    /* Build the log line into a buffer ONCE — no double va_list iteration */
+    char line_buf[512];
+    int pos =
+        snprintf(line_buf, sizeof(line_buf), "level=%s msg=%s", level_str(level), msg ? msg : "");
 
     va_list args;
     va_start(args, msg);
@@ -52,21 +59,36 @@ void cbm_log(CBMLogLevel level, const char *msg, ...) {
         if (!val) {
             val = "";
         }
-        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-        fprintf(stderr, " %s=%s", key, val);
+        if ((size_t)pos < sizeof(line_buf) - 1) {
+            pos += snprintf(line_buf + pos, sizeof(line_buf) - (size_t)pos, " %s=%s", key, val);
+        }
     }
     va_end(args);
 
-    fputc('\n', stderr);
+    /* Write to stderr */
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    (void)fprintf(stderr, "%s\n", line_buf);
+
+    /* Send to sink if registered */
+    if (g_log_sink) {
+        g_log_sink(line_buf);
+    }
 }
 
 void cbm_log_int(CBMLogLevel level, const char *msg, const char *key, int64_t value) {
     if (level < g_log_level) {
         return;
     }
-    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,misc-include-cleaner)
-    fprintf(stderr, "level=%s msg=%s %s=%" PRId64 "\n", level_str(level), msg ? msg : "",
-            key ? key : "?", value);
-}
 
-// NOLINTEND(cert-err33-c)
+    char line_buf[256];
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    snprintf(line_buf, sizeof(line_buf), "level=%s msg=%s %s=%" PRId64, level_str(level),
+             msg ? msg : "", key ? key : "?", value);
+
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    (void)fprintf(stderr, "%s\n", line_buf);
+
+    if (g_log_sink) {
+        g_log_sink(line_buf);
+    }
+}

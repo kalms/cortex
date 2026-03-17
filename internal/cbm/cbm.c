@@ -6,6 +6,7 @@
 #include "lsp/go_lsp.h"
 #include "lsp/c_lsp.h"
 #include "preprocessor.h"
+#include "foundation/compat.h"
 #include "tree_sitter/api.h" // TSParser, TSNode, TSTree, TSInput, TSLanguage, TSPoint, TSParseOptions, TSParseState
 #include <stdint.h> // uint32_t, uint64_t, int64_t
 #include <stdlib.h>
@@ -164,8 +165,8 @@ static bool cbm_timeout_cb(TSParseState *state) {
 // We keep one parser per thread, and just switch language as needed.
 // This avoids ~70K ts_parser_new()/ts_parser_delete() cycles on large repos.
 
-static _Thread_local TSParser *tl_parser = NULL;
-static _Thread_local CBMLanguage tl_parser_lang = CBM_LANG_COUNT; // invalid sentinel
+static CBM_TLS TSParser *tl_parser = NULL;
+static CBM_TLS CBMLanguage tl_parser_lang = CBM_LANG_COUNT; // invalid sentinel
 
 // Get or create a thread-local parser configured for the given language.
 static TSParser *get_thread_parser(const TSLanguage *ts_lang, CBMLanguage lang) {
@@ -195,14 +196,28 @@ int cbm_init(void) {
     return 0;
 }
 
-void cbm_shutdown(void) {
-    // Clean up thread-local parser for the calling thread.
-    // Note: other threads' TLS parsers are freed when those threads exit.
+void cbm_reset_thread_parser(void) {
+    // Release parser's internal slab-allocated subtrees (stack, cached token).
+    // Must be called BEFORE cbm_slab_reset_thread() to avoid corrupting
+    // live slab chunks that the parser still references.
+    if (tl_parser) {
+        ts_parser_reset(tl_parser);
+    }
+}
+
+void cbm_destroy_thread_parser(void) {
+    // Full cleanup: delete the parser. Call on worker thread exit.
     if (tl_parser) {
         ts_parser_delete(tl_parser);
         tl_parser = NULL;
         tl_parser_lang = CBM_LANG_COUNT;
     }
+}
+
+void cbm_shutdown(void) {
+    // Clean up thread-local parser for the calling thread.
+    // Note: other threads' TLS parsers are freed when those threads exit.
+    cbm_destroy_thread_parser();
     cbm_initialized = 0;
 }
 

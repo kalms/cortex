@@ -126,6 +126,12 @@ int cbm_extract_laravel_routes(const char *name, const char *qn, const char *sou
 char *cbm_read_source_lines_disk(const char *root_dir, const char *rel_path, int start_line,
                                  int end_line);
 
+/* Read specific lines from a cached source buffer (no disk I/O).
+ * source is the full file content, source_len its byte length.
+ * Returns malloc'd string (caller must free), or NULL if out of range. */
+char *cbm_read_source_lines_cached(const char *source, int source_len, int start_line,
+                                   int end_line);
+
 /* ── Config ────────────────────────────────────────────────────── */
 
 /* Default exclude paths for HTTP link filtering. */
