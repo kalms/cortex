@@ -21,7 +21,33 @@ permissions:
   contents: write
 
 jobs:
+  # ── Step 1: Unit tests ───────────────────────────────────────
+  test:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+          - os: macos-14
+            arch: arm64
+          - os: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
+
+      - name: Run C tests (ASan + UBSan)
+        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
+
+  # ── Step 2: Build binaries (standard + UI, all OS) ──────────
   build-unix:
+    needs: [test]
     strategy:
       matrix:
         include:
@@ -45,10 +71,10 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
 
-      - name: Run C tests
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-      # ── Standard binary (no UI, no Node.js needed) ──
       - name: Build standard binary
         env:
           VERSION: ${{ inputs.version }}
@@ -57,18 +83,10 @@ jobs:
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
-      - name: Smoke test (standard)
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
-
       - name: Archive standard binary
         run: |
           tar -czf codebase-memory-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz \
             -C build/c codebase-memory-mcp
-
-      # ── UI binary (embedded frontend, needs Node.js) ──
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: Build UI binary
         env:
@@ -77,9 +95,6 @@ jobs:
           CLEAN_VERSION="${VERSION#v}"
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
-
-      - name: Smoke test (UI)
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
       - name: Archive UI binary
         run: |
@@ -92,6 +107,7 @@ jobs:
           path: "*.tar.gz"
 
   build-windows:
+    needs: [test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,10 +120,12 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-sqlite3
             mingw-w64-ucrt-x86_64-zlib
-            mingw-w64-ucrt-x86_64-python3
             make
 
-      # ── Standard binary ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Build standard binary
         shell: msys2 {0}
         env:
@@ -117,20 +135,11 @@ jobs:
           make -j$(nproc) -f Makefile.cbm cbm \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
-      - name: Smoke test (standard)
-        shell: msys2 {0}
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
-
       - name: Archive standard binary
         shell: pwsh
         run: |
           Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
           Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
-
-      # ── UI binary ──
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: Build UI binary
         shell: msys2 {0}
@@ -141,23 +150,86 @@ jobs:
           make -j$(nproc) -f Makefile.cbm cbm-with-ui \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
-      - name: Smoke test (UI)
-        shell: msys2 {0}
-        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
-
       - name: Archive UI binary
         shell: pwsh
         run: |
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe -Force
-          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
+          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp-ui.exe -Force
+          Compress-Archive -Path codebase-memory-mcp-ui.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: binaries-windows-amd64
           path: "*.zip"
 
+  # ── Step 3: Smoke test every binary on its target OS ─────────
+  smoke-unix:
+    needs: [build-unix]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+        variant: [standard, ui]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Extract binary
+        run: |
+          SUFFIX=${{ matrix.variant == 'ui' && '-ui' || '' }}
+          tar -xzf codebase-memory-mcp${SUFFIX}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          chmod +x codebase-memory-mcp
+
+      - name: Smoke test (${{ matrix.variant }}, ${{ matrix.goos }}-${{ matrix.goarch }})
+        run: scripts/smoke-test.sh ./codebase-memory-mcp
+
+  smoke-windows:
+    needs: [build-windows]
+    strategy:
+      matrix:
+        variant: [standard, ui]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-python3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries-windows-amd64
+
+      - name: Extract binary
+        shell: pwsh
+        run: |
+          $suffix = if ("${{ matrix.variant }}" -eq "ui") { "-ui" } else { "" }
+          Expand-Archive -Path "codebase-memory-mcp${suffix}-windows-amd64.zip" -DestinationPath .
+
+      - name: Smoke test (${{ matrix.variant }}, windows-amd64)
+        shell: msys2 {0}
+        run: scripts/smoke-test.sh ./codebase-memory-mcp.exe
+
+  # ── Step 4: Create GitHub release ────────────────────────────
   release:
-    needs: [build-unix, build-windows]
+    needs: [smoke-unix, smoke-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
