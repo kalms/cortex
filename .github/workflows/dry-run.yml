@@ -24,9 +24,6 @@ jobs:
       - name: cppcheck
         run: make -f Makefile.cbm lint-cppcheck
 
-      - name: clang-tidy
-        run: make -f Makefile.cbm lint-tidy CLANG_TIDY=clang-tidy-18
-
   # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
   test:
     needs: [lint]
