@@ -58,7 +58,7 @@ jobs:
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
       - name: Smoke test (standard)
-        run: ./build/c/codebase-memory-mcp --version
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
       - name: Archive standard binary
         run: |
@@ -79,7 +79,7 @@ jobs:
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
       - name: Smoke test (UI)
-        run: ./build/c/codebase-memory-mcp --version
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
       - name: Archive UI binary
         run: |
@@ -104,6 +104,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-sqlite3
             mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-python3
             make
 
       # ── Standard binary ──
@@ -116,9 +117,9 @@ jobs:
           make -j$(nproc) -f Makefile.cbm cbm \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
-      - name: Smoke test
+      - name: Smoke test (standard)
         shell: msys2 {0}
-        run: ./build/c/codebase-memory-mcp --version
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
       - name: Archive standard binary
         shell: pwsh
@@ -139,6 +140,10 @@ jobs:
           CLEAN_VERSION="${VERSION#v}"
           make -j$(nproc) -f Makefile.cbm cbm-with-ui \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+
+      - name: Smoke test (UI)
+        shell: msys2 {0}
+        run: scripts/smoke-test.sh ./build/c/codebase-memory-mcp
 
       - name: Archive UI binary
         shell: pwsh
