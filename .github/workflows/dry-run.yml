@@ -57,6 +57,7 @@ jobs:
   test:
     needs: [lint]
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
