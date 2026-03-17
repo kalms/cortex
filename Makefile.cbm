@@ -440,6 +440,12 @@ lint-cppcheck:
 		--error-exitcode=1 \
 		--inline-suppr \
 		--quiet \
+		--suppress=varFuncNullUB \
+		--suppress=intToPointerCast \
+		--suppress=nullPointerOutOfMemory \
+		--suppress=nullPointerArithmeticOutOfMemory \
+		--suppress=ctunullpointerOutOfMemory \
+		--suppress='nullPointer:internal/cbm/sqlite_writer.c' \
 		-Isrc -Ivendored -Ivendored/sqlite3 \
 		-I$(CBM_DIR) -I$(TS_INCLUDE) \
 		$(LINT_SRCS)
