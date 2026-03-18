@@ -112,7 +112,9 @@ jobs:
 
       - name: Test
         shell: msys2 {0}
-        run: scripts/test.sh CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/test.sh CC=clang CXX=clang++
 
   # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
@@ -194,7 +196,9 @@ jobs:
 
       - name: Build standard binary
         shell: msys2 {0}
-        run: scripts/build.sh --version ${{ inputs.version }} CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/build.sh --version ${{ inputs.version }} CC=clang CXX=clang++
 
       - name: Archive standard binary
         shell: pwsh
@@ -204,7 +208,9 @@ jobs:
 
       - name: Build UI binary
         shell: msys2 {0}
-        run: scripts/build.sh --with-ui --version ${{ inputs.version }} CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/build.sh --with-ui --version ${{ inputs.version }} CC=clang CXX=clang++
 
       - name: Archive UI binary
         shell: pwsh

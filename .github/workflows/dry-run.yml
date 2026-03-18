@@ -2,6 +2,11 @@ name: Dry Run
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_lint:
+        description: 'Skip lint step (faster iteration)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -9,6 +14,7 @@ permissions:
 jobs:
   # ── Step 1: Lint (clang-format + cppcheck) ───────────────────
   lint:
+    if: ${{ !inputs.skip_lint }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +54,7 @@ jobs:
   # Linux: use system gcc — full ASan/UBSan support
   # Windows: MSYS2 MinGW GCC
   test-unix:
+    if: ${{ always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
     needs: [lint]
     strategy:
       fail-fast: false
@@ -81,6 +88,7 @@ jobs:
         run: scripts/test.sh CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
   test-windows:
+    if: ${{ always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
     needs: [lint]
     runs-on: windows-latest
     steps:
@@ -98,7 +106,9 @@ jobs:
 
       - name: Test
         shell: msys2 {0}
-        run: scripts/test.sh CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/test.sh CC=clang CXX=clang++
 
   # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
@@ -180,7 +190,9 @@ jobs:
 
       - name: Build standard binary
         shell: msys2 {0}
-        run: scripts/build.sh CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/build.sh CC=clang CXX=clang++
 
       - name: Archive standard binary
         shell: pwsh
@@ -190,7 +202,9 @@ jobs:
 
       - name: Build UI binary
         shell: msys2 {0}
-        run: scripts/build.sh --with-ui CC=clang CXX=clang++ 'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition'
+        env:
+          WIN32_LIBS: -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+        run: scripts/build.sh --with-ui CC=clang CXX=clang++
 
       - name: Archive UI binary
         shell: pwsh
