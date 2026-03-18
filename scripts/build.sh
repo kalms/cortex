@@ -2,9 +2,11 @@
 # build.sh — Clean build of production binary (standard or with UI).
 #
 # Usage:
-#   scripts/build.sh                    # Standard binary
-#   scripts/build.sh --with-ui          # Binary with embedded UI
-#   scripts/build.sh --version v0.8.0   # With version stamp
+#   scripts/build.sh                              # Standard binary
+#   scripts/build.sh --with-ui                    # Binary with embedded UI
+#   scripts/build.sh --version v0.8.0             # With version stamp
+#   scripts/build.sh --arch x86_64                # Force x86_64 build
+#   scripts/build.sh CC=gcc-14 CXX=g++-14        # Override compiler
 #
 # This script is the SINGLE source of truth for building release binaries.
 # Used identically in local development and CI workflows.
@@ -14,34 +16,59 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Detect parallelism
-NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+# Pre-parse --arch flag before sourcing env.sh
+for arg in "$@"; do
+    case "$arg" in
+        --arch=*) export CBM_ARCH="${arg#--arch=}" ;;
+    esac
+done
+prev_arg=""
+for arg in "$@"; do
+    if [[ "${prev_arg:-}" == "--arch" ]]; then
+        export CBM_ARCH="$arg"
+    fi
+    prev_arg="$arg"
+done
 
-# Parse arguments
+# shellcheck source=env.sh
+source "$ROOT/scripts/env.sh"
+
+# Parse remaining arguments
 WITH_UI=false
 VERSION=""
 EXTRA_MAKE_ARGS=()
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
+prev_arg=""
+for arg in "$@"; do
+    # Skip --arch and its value (already handled)
+    if [[ "${prev_arg:-}" == "--arch" ]]; then
+        prev_arg="$arg"
+        continue
+    fi
+    case "$arg" in
         --with-ui)
             WITH_UI=true
-            shift
             ;;
         --version)
-            VERSION="$2"
-            shift 2
+            prev_arg="$arg"
+            continue
             ;;
+        --arch|--arch=*)
+            ;; # already handled
         CC=*|CXX=*)
-            export "${1?}"
-            EXTRA_MAKE_ARGS+=("$1")
-            shift
+            export "${arg}"
+            EXTRA_MAKE_ARGS+=("$arg")
             ;;
         *)
-            EXTRA_MAKE_ARGS+=("$1")
-            shift
+            # Check if this is the value for --version
+            if [[ "${prev_arg:-}" == "--version" ]]; then
+                VERSION="$arg"
+            else
+                EXTRA_MAKE_ARGS+=("$arg")
+            fi
             ;;
     esac
+    prev_arg="$arg"
 done
 
 # Version flag
@@ -51,17 +78,21 @@ if [[ -n "$VERSION" ]]; then
     CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 fi
 
-echo "=== build.sh: compiler=${CC:-default} ui=$WITH_UI version=${VERSION:-dev} cores=$NPROC ==="
+print_env "build.sh"
+echo "  ui=$WITH_UI version=${VERSION:-dev}"
+
+# Verify compiler supports target arch
+verify_compiler "${CC:-gcc-14}"
 
 # Step 1: Clean C build artifacts only (not node_modules — npm ci handles that)
 rm -rf "$ROOT/build/c"
 
-# Step 2: Build
+# Step 2: Build (with arch prefix on macOS)
 if $WITH_UI; then
-    make -j"$NPROC" -f Makefile.cbm cbm-with-ui \
+    $ARCH_PREFIX make -j"$NPROC" -f Makefile.cbm cbm-with-ui \
         CFLAGS_EXTRA="$CFLAGS_EXTRA" "${EXTRA_MAKE_ARGS[@]+"${EXTRA_MAKE_ARGS[@]}"}"
 else
-    make -j"$NPROC" -f Makefile.cbm cbm \
+    $ARCH_PREFIX make -j"$NPROC" -f Makefile.cbm cbm \
         CFLAGS_EXTRA="$CFLAGS_EXTRA" "${EXTRA_MAKE_ARGS[@]+"${EXTRA_MAKE_ARGS[@]}"}"
 fi
 

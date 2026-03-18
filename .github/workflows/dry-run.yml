@@ -44,6 +44,8 @@ jobs:
         run: scripts/lint.sh CLANG_FORMAT=clang-format-20
 
   # ── Step 2: Unit tests (ASan + UBSan) ───────────────────────
+  # macOS: use cc (Apple Clang) — GCC on macOS doesn't ship ASan runtime
+  # Linux: use system gcc — full ASan/UBSan support
   test:
     needs: [lint]
     strategy:
@@ -60,12 +62,12 @@ jobs:
             cxx: g++
           - os: macos-14
             arch: arm64
-            cc: gcc-14
-            cxx: g++-14
+            cc: cc
+            cxx: c++
           - os: macos-15-intel
             arch: amd64
-            cc: gcc-14
-            cxx: g++-14
+            cc: cc
+            cxx: c++
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -96,13 +98,13 @@ jobs:
           - os: macos-14
             goos: darwin
             goarch: arm64
-            cc: gcc-14
-            cxx: g++-14
+            cc: cc
+            cxx: c++
           - os: macos-15-intel
             goos: darwin
             goarch: amd64
-            cc: gcc-14
-            cxx: g++-14
+            cc: cc
+            cxx: c++
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
