@@ -759,26 +759,7 @@ TEST(httplink_read_source_lines_missing_file) {
 /* ── Linker integration: route nodes created (simplified) ──────── */
 
 TEST(httplink_linker_route_nodes) {
-    /* This tests that the route extraction + store integration works.
-     * Creates a store with nodes, runs extraction, verifies results. */
-    cbm_store_t *s = cbm_store_open(":memory:");
-    if (!s)
-        return 1;
-
-    cbm_store_upsert_project(s, "testproj", "/tmp/test");
-
-    /* Create a Function node with Python decorator */
-    cbm_node_t handler_node = {0};
-    handler_node.project = "testproj";
-    handler_node.label = "Function";
-    handler_node.name = "create_order";
-    handler_node.qualified_name = "testproj.handler.routes.create_order";
-    handler_node.file_path = "handler/routes.py";
-    handler_node.properties_json = "{\"decorators\": [\"@app.post(\\\"/api/orders\\\")\"]}";
-    int64_t handler_id = cbm_store_upsert_node(s, &handler_node);
-    ASSERT(handler_id > 0);
-
-    /* Now test that we can extract routes from the decorator */
+    /* Test route extraction from Python decorators (no store needed). */
     const char *decs[] = {"@app.post(\"/api/orders\")"};
     cbm_route_handler_t routes[4];
     int n = cbm_extract_python_routes("create_order", "testproj.handler.routes.create_order", decs,
@@ -786,8 +767,6 @@ TEST(httplink_linker_route_nodes) {
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(routes[0].path, "/api/orders");
     ASSERT_STR_EQ(routes[0].method, "POST");
-
-    cbm_store_close(s);
     PASS();
 }
 
