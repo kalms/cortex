@@ -65,12 +65,12 @@ services:
       - ..:/src
     command: >-
       make -j4 -f Makefile.cbm clean-c &&
-      make -j4 -f Makefile.cbm test
+      make -j4 -f Makefile.cbm build/c/test-runner
         CC=x86_64-w64-mingw32-clang
-        CXX=x86_64-w64-mingw32-clang++
-        WIN32_LIBS='-lws2_32 -lpsapi'
-        SANITIZE=
-      && echo '=== Windows test: OK ==='
+        CXX=x86_64-w64-mingw32-clang++ &&
+      echo '=== Running tests under Wine ===' &&
+      WINEDEBUG=-all wine64 build/c/test-runner.exe &&
+      echo '=== Windows test: OK ==='
 
   # ── Lint ────────────────────────────────────────────────────
   lint:
