@@ -251,14 +251,20 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const cbm_dis
         }
 
         struct stat st;
+#ifdef _WIN32
+        if (stat(abs_path, &st) != 0) {
+            continue;
+        }
+        /* Windows: no symlink detection via stat */
+#else
         if (lstat(abs_path, &st) != 0) {
             continue;
         }
-
         /* Skip symlinks */
         if (S_ISLNK(st.st_mode)) {
             continue;
         }
+#endif
 
         if (S_ISDIR(st.st_mode)) {
             /* Check hardcoded directory skip */

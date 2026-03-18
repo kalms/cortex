@@ -75,9 +75,13 @@ CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
 CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
                 -fsanitize=thread -fno-omit-frame-pointer
 
-LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS)
-LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz -fsanitize=address,undefined $(LIBGIT2_LIBS)
-LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lz -fsanitize=thread $(LIBGIT2_LIBS)
+# Windows needs ws2_32 (Winsock) and psapi (GetProcessMemoryInfo).
+# Override via: make WIN32_LIBS="-lws2_32 -lpsapi" for cross-compilation.
+WIN32_LIBS ?=
+
+LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS) $(WIN32_LIBS)
+LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz -fsanitize=address,undefined $(LIBGIT2_LIBS) $(WIN32_LIBS)
+LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lz -fsanitize=thread $(LIBGIT2_LIBS) $(WIN32_LIBS)
 
 # ── Source files ─────────────────────────────────────────────────
 

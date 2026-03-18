@@ -142,8 +142,11 @@ static sqlite3_stmt *prepare_cached(cbm_store_t *s, sqlite3_stmt **slot, const c
 static void iso_now(char *buf, size_t sz) {
     time_t t = time(NULL);
     struct tm tm;
-    // NOLINTNEXTLINE(misc-include-cleaner) — gmtime_r provided by standard header
+#ifdef _WIN32
+    gmtime_s(&tm, &t); /* Windows: reversed arg order */
+#else
     gmtime_r(&t, &tm);
+#endif
     (void)strftime(buf, sz, "%Y-%m-%dT%H:%M:%SZ",
                    &tm); // cert-err33-c: strftime only fails if buffer is too small — 21-byte ISO
                          // timestamp always fits in caller-provided buffers
@@ -490,8 +493,7 @@ int cbm_store_dump_to_file(cbm_store_t *s, const char *dest_path) {
     char *sl = strrchr(dir, '/');
     if (sl) {
         *sl = '\0';
-        // NOLINTNEXTLINE(misc-include-cleaner) — mkdir provided by sys/stat.h
-        (void)mkdir(dir, 0755);
+        (void)cbm_mkdir(dir);
     }
 
     /* Write to temp file for atomic swap */

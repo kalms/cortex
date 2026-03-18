@@ -19,6 +19,7 @@
 /* pipeline.h no longer needed — indexing runs as subprocess */
 #include "foundation/log.h"
 #include "foundation/platform.h"
+#include "foundation/compat.h"
 #include "foundation/compat_thread.h"
 
 #include <mongoose/mongoose.h>
@@ -28,7 +29,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#include <process.h>
+#include <psapi.h> /* GetProcessMemoryInfo */
+#else
 #include <unistd.h>
 #include <sys/wait.h>
 #endif
@@ -163,7 +168,9 @@ static void handle_logs(struct mg_connection *c, struct mg_http_message *hm) {
 
 /* ── Process monitoring ───────────────────────────────────────── */
 
+#ifndef _WIN32
 #include <sys/resource.h>
+#endif
 #include <signal.h>
 
 /* GET /api/processes — list codebase-memory-mcp processes via ps */
@@ -171,12 +178,33 @@ static void handle_processes(struct mg_connection *c) {
     char buf[8192];
     int pos = 0;
 
-    /* Self metrics via getrusage — always available */
+#ifdef _WIN32
+    /* Windows: GetProcessMemoryInfo + GetProcessTimes */
+    PROCESS_MEMORY_COUNTERS pmc;
+    FILETIME ft_create, ft_exit, ft_kernel, ft_user;
+    double user_s = 0, sys_s = 0;
+    size_t rss_bytes = 0;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        rss_bytes = pmc.WorkingSetSize;
+    if (GetProcessTimes(GetCurrentProcess(), &ft_create, &ft_exit, &ft_kernel, &ft_user)) {
+        ULARGE_INTEGER u, k;
+        u.LowPart = ft_user.dwLowDateTime;
+        u.HighPart = ft_user.dwHighDateTime;
+        k.LowPart = ft_kernel.dwLowDateTime;
+        k.HighPart = ft_kernel.dwHighDateTime;
+        user_s = (double)u.QuadPart / 1e7;
+        sys_s = (double)k.QuadPart / 1e7;
+    }
+    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos,
+                    "{\"self_pid\":%d,\"self_rss_mb\":%.1f,"
+                    "\"self_user_cpu_s\":%.1f,\"self_sys_cpu_s\":%.1f,\"processes\":[]}",
+                    (int)_getpid(), (double)rss_bytes / (1024.0 * 1024.0), user_s, sys_s);
+#else
     struct rusage ru;
     getrusage(RUSAGE_SELF, &ru);
     long rss_kb = ru.ru_maxrss;
 #ifdef __APPLE__
-    rss_kb /= 1024; /* macOS reports bytes, not KB */
+    rss_kb /= 1024;
 #endif
     pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos,
                     "{\"self_pid\":%d,\"self_rss_mb\":%.1f,"
@@ -185,7 +213,6 @@ static void handle_processes(struct mg_connection *c) {
                     (double)ru.ru_utime.tv_sec + (double)ru.ru_utime.tv_usec / 1e6,
                     (double)ru.ru_stime.tv_sec + (double)ru.ru_stime.tv_usec / 1e6);
 
-    /* ps for process list — best effort, don't fail if ps is slow */
     FILE *fp = popen("LC_ALL=C ps -eo pid,pcpu,rss,etime,comm 2>/dev/null"
                      " | grep '[c]odebase-memory-mcp'",
                      "r");
@@ -199,8 +226,6 @@ static void handle_processes(struct mg_connection *c) {
             char elapsed[64] = {0};
             char comm[256] = {0};
 
-            /* Use 'comm' (short name) instead of 'command' (full args) to avoid JSON escaping
-             * issues */
             if (sscanf(line, "%d %f %ld %63s %255s", &pid, &cpu, &rss, elapsed, comm) >= 4) {
                 if (proc_count > 0)
                     buf[pos++] = ',';
@@ -214,8 +239,9 @@ static void handle_processes(struct mg_connection *c) {
         }
         pclose(fp);
     }
-
     pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "]}");
+#endif
+
     mg_http_reply(c, 200, CORS_HEADERS "Content-Type: application/json\r\n", "%s", buf);
 }
 
@@ -248,18 +274,33 @@ static void handle_process_kill(struct mg_connection *c, struct mg_http_message 
     int target_pid = (int)yyjson_get_int(v_pid);
     yyjson_doc_free(doc);
 
-    /* Safety: don't kill ourselves */
+#ifdef _WIN32
+    if (target_pid == (int)_getpid()) {
+#else
     if (target_pid == (int)getpid()) {
+#endif
         mg_http_reply(c, 400, CORS_HEADERS "Content-Type: application/json\r\n",
                       "{\"error\":\"cannot kill self (use the UI server's own shutdown)\"}");
         return;
     }
 
+#ifdef _WIN32
+    HANDLE hproc = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)target_pid);
+    if (!hproc || !TerminateProcess(hproc, 1)) {
+        if (hproc)
+            CloseHandle(hproc);
+        mg_http_reply(c, 500, CORS_HEADERS "Content-Type: application/json\r\n",
+                      "{\"error\":\"kill failed\"}");
+        return;
+    }
+    CloseHandle(hproc);
+#else
     if (kill(target_pid, SIGTERM) != 0) {
         mg_http_reply(c, 500, CORS_HEADERS "Content-Type: application/json\r\n",
                       "{\"error\":\"kill failed\"}");
         return;
     }
+#endif
 
     mg_http_reply(c, 200, CORS_HEADERS "Content-Type: application/json\r\n", "{\"killed\":%d}",
                   target_pid);
@@ -495,7 +536,9 @@ static void *index_thread_fn(void *arg) {
     const char *bin = g_binary_path;
     char self_path[1024] = {0};
     if (!bin[0]) {
-#ifdef __APPLE__
+#ifdef _WIN32
+        GetModuleFileNameA(NULL, self_path, sizeof(self_path));
+#elif defined(__APPLE__)
         uint32_t sz = sizeof(self_path);
         _NSGetExecutablePath(self_path, &sz);
 #else
@@ -506,12 +549,69 @@ static void *index_thread_fn(void *arg) {
         bin = self_path[0] ? self_path : "codebase-memory-mcp";
     }
 
-    /* fork+exec: most reliable subprocess control */
     char log_file[256];
-    snprintf(log_file, sizeof(log_file), "/tmp/cbm_index_%d.log", (int)getpid());
-
     char json_arg[1200];
     snprintf(json_arg, sizeof(json_arg), "{\"repo_path\":\"%s\"}", job->root_path);
+
+#ifdef _WIN32
+    snprintf(log_file, sizeof(log_file), "%s\\cbm_index_%d.log",
+             getenv("TEMP") ? getenv("TEMP") : ".", (int)_getpid());
+
+    /* Build command line for CreateProcess */
+    char cmdline[2048];
+    snprintf(cmdline, sizeof(cmdline), "\"%s\" cli index_repository \"%s\"", bin, json_arg);
+
+    cbm_log_info("ui.index.spawn", "bin", bin, "log", log_file);
+
+    HANDLE hlog = CreateFileA(log_file, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, NULL);
+    STARTUPINFOA si_proc = {.cb = sizeof(si_proc)};
+    if (hlog != INVALID_HANDLE_VALUE) {
+        si_proc.dwFlags = STARTF_USESTDHANDLES;
+        si_proc.hStdError = hlog;
+        si_proc.hStdOutput = hlog;
+    }
+    PROCESS_INFORMATION pi = {0};
+    if (!CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si_proc, &pi)) {
+        snprintf(job->error_msg, sizeof(job->error_msg), "CreateProcess failed");
+        atomic_store(&job->status, 3);
+        if (hlog != INVALID_HANDLE_VALUE)
+            CloseHandle(hlog);
+        return NULL;
+    }
+    if (hlog != INVALID_HANDLE_VALUE)
+        CloseHandle(hlog);
+
+    /* Poll log file while child runs */
+    long tail_pos = 0;
+    for (;;) {
+        DWORD wait = WaitForSingleObject(pi.hProcess, 500);
+        FILE *lf = fopen(log_file, "r");
+        if (lf) {
+            fseek(lf, tail_pos, SEEK_SET);
+            char line[512];
+            while (fgets(line, sizeof(line), lf)) {
+                size_t l = strlen(line);
+                if (l > 0 && line[l - 1] == '\n')
+                    line[l - 1] = '\0';
+                if (line[0])
+                    cbm_ui_log_append(line);
+            }
+            tail_pos = ftell(lf);
+            fclose(lf);
+        }
+        if (wait == WAIT_OBJECT_0)
+            break;
+    }
+
+    DWORD win_exit = 1;
+    GetExitCodeProcess(pi.hProcess, &win_exit);
+    int exit_code = (int)win_exit;
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    (void)DeleteFileA(log_file);
+#else
+    snprintf(log_file, sizeof(log_file), "/tmp/cbm_index_%d.log", (int)getpid());
 
     cbm_log_info("ui.index.fork", "bin", bin, "log", log_file);
 
@@ -523,23 +623,19 @@ static void *index_thread_fn(void *arg) {
     }
 
     if (child_pid == 0) {
-        /* ── Child process ── */
         FILE *lf = freopen(log_file, "w", stderr);
         (void)lf;
         freopen("/dev/null", "w", stdout);
         execl(bin, bin, "cli", "index_repository", json_arg, (char *)NULL);
-        _exit(127); /* exec failed */
+        _exit(127);
     }
 
-    /* ── Parent: poll log file while child runs ── */
     long tail_pos = 0;
     for (;;) {
-        /* Check if child exited */
         int wstatus = 0;
         pid_t wr = waitpid(child_pid, &wstatus, WNOHANG);
         bool child_done = (wr == child_pid);
 
-        /* Read new lines from log file */
         FILE *lf = fopen(log_file, "r");
         if (lf) {
             fseek(lf, tail_pos, SEEK_SET);
@@ -555,20 +651,19 @@ static void *index_thread_fn(void *arg) {
             fclose(lf);
         }
 
-        if (child_done) {
+        if (child_done)
             break;
-        }
 
-        struct timespec ts = {0, 500000000}; /* 500ms */
-        nanosleep(&ts, NULL);
+        struct timespec ts = {0, 500000000};
+        cbm_nanosleep(&ts, NULL);
     }
 
-    /* Get exit code */
     int wstatus = 0;
     waitpid(child_pid, &wstatus, 0);
     int exit_code = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : -1;
 
     (void)unlink(log_file);
+#endif
 
     if (exit_code != 0) {
         snprintf(job->error_msg, sizeof(job->error_msg), "indexing failed (exit code %d)",

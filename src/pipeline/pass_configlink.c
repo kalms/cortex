@@ -13,6 +13,7 @@
 #include "graph_buffer/graph_buffer.h"
 #include "foundation/hash_table.h"
 #include "foundation/log.h"
+#include "foundation/compat.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -51,7 +52,7 @@ static bool is_dep_section(const char *s) {
                                  "dev-dependencies", "build-dependencies", NULL};
     for (int i = 0; secs[i]; i++) {
         // NOLINTNEXTLINE(misc-include-cleaner) — strcasestr provided by standard header
-        if (strcasestr(s, secs[i]) != NULL) {
+        if (cbm_strcasestr(s, secs[i]) != NULL) {
             return true;
         }
     }

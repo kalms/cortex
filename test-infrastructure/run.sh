@@ -1,20 +1,20 @@
 #!/bin/bash
-# Local CI testing — mirrors GitHub Actions for all Docker-capable platforms.
+# Local CI — test all platforms before pushing.
 #
 # Coverage:
-#   arm64:   Native on Apple Silicon (fast, ~3 min)
-#   amd64:   QEMU emulation (slower, ~8 min) — mirrors CI ubuntu-latest
-#   macOS:   Run natively: scripts/test.sh CC=cc CXX=c++
-#   Windows: CI only (no Docker support on Mac)
+#   Linux arm64:  test (ASan+LeakSan) + build (-O2)  [native, fast]
+#   Linux amd64:  test + build                        [QEMU, slower]
+#   Windows:      cross-compile with mingw-w64        [compile-check]
+#   macOS:        run natively (not in Docker)
 #
 # Usage:
-#   ./test-infrastructure/run.sh              # test + build arm64 (default)
-#   ./test-infrastructure/run.sh all          # test + build, arm64 + amd64
-#   ./test-infrastructure/run.sh test         # test only (ASan + LeakSan)
-#   ./test-infrastructure/run.sh build        # production build only (-O2 -Werror)
-#   ./test-infrastructure/run.sh amd64        # test + build amd64 only
+#   ./test-infrastructure/run.sh              # Linux test+build + Windows compile
+#   ./test-infrastructure/run.sh all          # above + amd64
+#   ./test-infrastructure/run.sh windows      # Windows cross-compile only
+#   ./test-infrastructure/run.sh test         # Linux arm64 test only
+#   ./test-infrastructure/run.sh build        # Linux arm64 build only
 #   ./test-infrastructure/run.sh lint         # clang-format + cppcheck
-#   ./test-infrastructure/run.sh shell        # debug shell (arm64)
+#   ./test-infrastructure/run.sh shell        # debug shell
 
 set -euo pipefail
 
@@ -23,9 +23,12 @@ COMPOSE="docker compose -f $ROOT/test-infrastructure/docker-compose.yml"
 
 case "${1:-full}" in
     full)
-        echo "=== Linux arm64: test (ASan+LeakSan) + production build (-O2) ==="
+        echo "=== Linux arm64: test + build ==="
         $COMPOSE run --rm test
         $COMPOSE run --rm build
+        echo "=== Windows: cross-compile ==="
+        $COMPOSE run --rm build-windows
+        echo "=== All passed ==="
         ;;
     test)
         echo "=== Linux arm64: test (ASan + LeakSanitizer) ==="
@@ -35,21 +38,24 @@ case "${1:-full}" in
         echo "=== Linux arm64: production build (-O2 -Werror) ==="
         $COMPOSE run --rm build
         ;;
+    windows)
+        echo "=== Windows: cross-compile (mingw-w64) ==="
+        $COMPOSE run --rm build-windows
+        ;;
     amd64)
-        echo "=== Linux amd64 via QEMU: test + build ==="
+        echo "=== Linux amd64: test + build ==="
         $COMPOSE run --rm test-amd64
         $COMPOSE run --rm build-amd64
         ;;
     all)
-        echo "=== All platforms: test + build ==="
-        echo "--- arm64 test ---"
+        echo "=== Linux arm64: test + build ==="
         $COMPOSE run --rm test
-        echo "--- arm64 build ---"
         $COMPOSE run --rm build
-        echo "--- amd64 test ---"
+        echo "=== Linux amd64: test + build ==="
         $COMPOSE run --rm test-amd64
-        echo "--- amd64 build ---"
         $COMPOSE run --rm build-amd64
+        echo "=== Windows: cross-compile ==="
+        $COMPOSE run --rm build-windows
         echo "=== All platforms passed ==="
         ;;
     lint)
@@ -61,7 +67,7 @@ case "${1:-full}" in
         $COMPOSE run --rm --entrypoint bash test
         ;;
     *)
-        echo "Usage: $0 {full|test|build|amd64|all|lint|shell}"
+        echo "Usage: $0 {full|test|build|windows|amd64|all|lint|shell}"
         exit 1
         ;;
 esac

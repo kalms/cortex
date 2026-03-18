@@ -15,14 +15,15 @@
 #include "foundation/compat.h"
 #include "foundation/compat_fs.h"
 
+#ifdef _WIN32
+#include <process.h> /* _getpid */
+#else
 #include <unistd.h>
 #include <sys/unistd.h>
 #include <sys/poll.h>
-#include <yyjson/yyjson.h>
-
-#ifndef _WIN32
 #include <poll.h>
 #endif
+#include <yyjson/yyjson.h>
 #include <stdint.h> // int64_t
 #include <stdio.h>
 #include <stdlib.h>
@@ -1638,7 +1639,11 @@ static char *handle_search_code(cbm_mcp_server_t *srv, const char *args) {
 
     /* Write pattern to temp file to avoid shell injection */
     char tmpfile[256];
+#ifdef _WIN32
+    snprintf(tmpfile, sizeof(tmpfile), "/tmp/cbm_search_%d.pat", (int)_getpid());
+#else
     snprintf(tmpfile, sizeof(tmpfile), "/tmp/cbm_search_%d.pat", (int)getpid());
+#endif
     FILE *tf = fopen(tmpfile, "w");
     if (!tf) {
         free(root_path);
@@ -1864,7 +1869,7 @@ static char *handle_manage_adr(cbm_mcp_server_t *srv, const char *args) {
 
     if (strcmp(mode_str, "update") == 0 && content) {
         /* Create dir if needed */
-        mkdir(adr_dir, ADR_DIR_PERMS);
+        cbm_mkdir(adr_dir);
         FILE *fp = fopen(adr_path, "w");
         if (fp) {
             (void)fputs(content, fp);

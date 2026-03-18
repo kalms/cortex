@@ -28,7 +28,7 @@ static _Atomic uint64_t total_files = 0;
 static uint64_t now_ns(void) {
     struct timespec ts;
     // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    cbm_clock_gettime(CLOCK_MONOTONIC, &ts);
     return ((uint64_t)ts.tv_sec * NSEC_PER_SEC) + (uint64_t)ts.tv_nsec;
 }
 
