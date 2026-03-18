@@ -44,6 +44,20 @@ char *cbm_strcasestr(const char *haystack, const char *needle) {
 }
 #endif
 
+/* ── mkdtemp (Windows lacks it) ───────────────────────────────── */
+
+#ifdef _WIN32
+#include <direct.h>
+char *cbm_mkdtemp(char *tmpl) {
+    /* _mktemp modifies template in place, then we mkdir */
+    if (!_mktemp(tmpl))
+        return NULL;
+    if (_mkdir(tmpl) != 0)
+        return NULL;
+    return tmpl;
+}
+#endif
+
 /* ── clock_gettime (Windows lacks it) ─────────────────────────── */
 
 #ifdef _WIN32

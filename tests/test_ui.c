@@ -3,6 +3,7 @@
  *
  * Covers: config persistence, embedded asset lookup, layout engine.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "ui/config.h"
 #include "ui/embedded_assets.h"
@@ -24,11 +25,11 @@ TEST(config_load_defaults) {
 
     /* Use a temp HOME to avoid touching real config */
     char tmpdir[] = "/tmp/cbm_test_config_XXXXXX";
-    char *td = mkdtemp(tmpdir);
+    char *td = cbm_mkdtemp(tmpdir);
     ASSERT_NOT_NULL(td);
 
     char *old_home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
-    setenv("HOME", td, 1);
+    cbm_setenv("HOME", td, 1);
 
     cbm_ui_config_load(&cfg);
 
@@ -37,7 +38,7 @@ TEST(config_load_defaults) {
 
     /* Restore HOME */
     if (old_home) {
-        setenv("HOME", old_home, 1);
+        cbm_setenv("HOME", old_home, 1);
         free(old_home);
     }
 
@@ -46,11 +47,11 @@ TEST(config_load_defaults) {
 
 TEST(config_save_and_reload) {
     char tmpdir[] = "/tmp/cbm_test_config_XXXXXX";
-    char *td = mkdtemp(tmpdir);
+    char *td = cbm_mkdtemp(tmpdir);
     ASSERT_NOT_NULL(td);
 
     char *old_home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
-    setenv("HOME", td, 1);
+    cbm_setenv("HOME", td, 1);
 
     /* Save */
     cbm_ui_config_t cfg = {.ui_enabled = true, .ui_port = 8080};
@@ -64,7 +65,7 @@ TEST(config_save_and_reload) {
     ASSERT_EQ(loaded.ui_port, 8080);
 
     if (old_home) {
-        setenv("HOME", old_home, 1);
+        cbm_setenv("HOME", old_home, 1);
         free(old_home);
     }
 
@@ -73,11 +74,11 @@ TEST(config_save_and_reload) {
 
 TEST(config_overwrite) {
     char tmpdir[] = "/tmp/cbm_test_config_XXXXXX";
-    char *td = mkdtemp(tmpdir);
+    char *td = cbm_mkdtemp(tmpdir);
     ASSERT_NOT_NULL(td);
 
     char *old_home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
-    setenv("HOME", td, 1);
+    cbm_setenv("HOME", td, 1);
 
     /* Save with ui_enabled=true */
     cbm_ui_config_t cfg1 = {.ui_enabled = true, .ui_port = 9749};
@@ -93,7 +94,7 @@ TEST(config_overwrite) {
     ASSERT_FALSE(loaded.ui_enabled);
 
     if (old_home) {
-        setenv("HOME", old_home, 1);
+        cbm_setenv("HOME", old_home, 1);
         free(old_home);
     }
 
@@ -102,11 +103,11 @@ TEST(config_overwrite) {
 
 TEST(config_corrupt_file) {
     char tmpdir[] = "/tmp/cbm_test_config_XXXXXX";
-    char *td = mkdtemp(tmpdir);
+    char *td = cbm_mkdtemp(tmpdir);
     ASSERT_NOT_NULL(td);
 
     char *old_home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
-    setenv("HOME", td, 1);
+    cbm_setenv("HOME", td, 1);
 
     /* Write garbage to config path */
     char path[1024];
@@ -131,7 +132,7 @@ TEST(config_corrupt_file) {
     ASSERT_EQ(cfg.ui_port, 9749);
 
     if (old_home) {
-        setenv("HOME", old_home, 1);
+        cbm_setenv("HOME", old_home, 1);
         free(old_home);
     }
 
@@ -140,11 +141,11 @@ TEST(config_corrupt_file) {
 
 TEST(config_missing_fields) {
     char tmpdir[] = "/tmp/cbm_test_config_XXXXXX";
-    char *td = mkdtemp(tmpdir);
+    char *td = cbm_mkdtemp(tmpdir);
     ASSERT_NOT_NULL(td);
 
     char *old_home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
-    setenv("HOME", td, 1);
+    cbm_setenv("HOME", td, 1);
 
     /* Write JSON with only ui_port */
     char path[1024];
@@ -167,7 +168,7 @@ TEST(config_missing_fields) {
     ASSERT_EQ(cfg.ui_port, 5555); /* present field loaded */
 
     if (old_home) {
-        setenv("HOME", old_home, 1);
+        cbm_setenv("HOME", old_home, 1);
         free(old_home);
     }
 

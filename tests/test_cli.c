@@ -9,6 +9,7 @@
  *
  * Total: 47 Go tests → 47 C tests
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include <cli/cli.h>
 #include <foundation/yaml.h>
@@ -49,11 +50,11 @@ static int test_mkdirp(const char *path) {
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            mkdir(tmp, 0750);
+            cbm_mkdir(tmp);
             *p = '/';
         }
     }
-    return mkdir(tmp, 0750) == 0 || errno == EEXIST ? 0 : -1;
+    return cbm_mkdir(tmp) == 0 || errno == EEXIST ? 0 : -1;
 }
 
 /* Helper: recursive remove */
@@ -174,35 +175,35 @@ TEST(cli_version_get_set) {
 
 TEST(cli_detect_shell_rc_zsh) {
     char tmpdir[] = "/tmp/cli-rc-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     /* Save and override SHELL — must strdup because setenv may realloc env block */
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    setenv("SHELL", "/bin/zsh", 1);
+    cbm_setenv("SHELL", "/bin/zsh", 1);
 
     const char *rc = cbm_detect_shell_rc(tmpdir);
     ASSERT_NOT_NULL(rc);
     ASSERT(strstr(rc, ".zshrc") != NULL);
 
     if (old_shell) {
-        setenv("SHELL", old_shell, 1);
+        cbm_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        unsetenv("SHELL");
+        cbm_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
 
 TEST(cli_detect_shell_rc_bash) {
     char tmpdir[] = "/tmp/cli-rc-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    setenv("SHELL", "/bin/bash", 1);
+    cbm_setenv("SHELL", "/bin/bash", 1);
 
     /* No .bashrc → falls back to .bash_profile */
     const char *rc = cbm_detect_shell_rc(tmpdir);
@@ -210,10 +211,10 @@ TEST(cli_detect_shell_rc_bash) {
     ASSERT(strstr(rc, ".bash_profile") != NULL);
 
     if (old_shell) {
-        setenv("SHELL", old_shell, 1);
+        cbm_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        unsetenv("SHELL");
+        cbm_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -221,12 +222,12 @@ TEST(cli_detect_shell_rc_bash) {
 TEST(cli_detect_shell_rc_bash_with_bashrc) {
     /* Port of TestDetectShellRC_BashWithBashrc */
     char tmpdir[] = "/tmp/cli-rc-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    setenv("SHELL", "/bin/bash", 1);
+    cbm_setenv("SHELL", "/bin/bash", 1);
 
     /* Create .bashrc */
     char bashrc[512];
@@ -238,52 +239,52 @@ TEST(cli_detect_shell_rc_bash_with_bashrc) {
 
     unlink(bashrc);
     if (old_shell) {
-        setenv("SHELL", old_shell, 1);
+        cbm_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        unsetenv("SHELL");
+        cbm_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
 
 TEST(cli_detect_shell_rc_fish) {
     char tmpdir[] = "/tmp/cli-rc-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    setenv("SHELL", "/usr/bin/fish", 1);
+    cbm_setenv("SHELL", "/usr/bin/fish", 1);
 
     const char *rc = cbm_detect_shell_rc(tmpdir);
     ASSERT(strstr(rc, ".config/fish/config.fish") != NULL);
 
     if (old_shell) {
-        setenv("SHELL", old_shell, 1);
+        cbm_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        unsetenv("SHELL");
+        cbm_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
 
 TEST(cli_detect_shell_rc_default) {
     char tmpdir[] = "/tmp/cli-rc-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    setenv("SHELL", "/bin/sh", 1);
+    cbm_setenv("SHELL", "/bin/sh", 1);
 
     const char *rc = cbm_detect_shell_rc(tmpdir);
     ASSERT(strstr(rc, ".profile") != NULL);
 
     if (old_shell) {
-        setenv("SHELL", old_shell, 1);
+        cbm_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        unsetenv("SHELL");
+        cbm_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -295,18 +296,18 @@ TEST(cli_detect_shell_rc_default) {
 TEST(cli_find_cli_not_found) {
     /* Port of TestFindCLI_NotFound */
     char tmpdir[] = "/tmp/cli-find-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    setenv("PATH", tmpdir, 1);
+    cbm_setenv("PATH", tmpdir, 1);
 
     const char *result = cbm_find_cli("nonexistent-binary-xyz", tmpdir);
     ASSERT_STR_EQ(result, "");
 
     if (old_path) {
-        setenv("PATH", old_path, 1);
+        cbm_setenv("PATH", old_path, 1);
         free(old_path);
     }
     rmdir(tmpdir);
@@ -316,8 +317,8 @@ TEST(cli_find_cli_not_found) {
 TEST(cli_find_cli_on_path) {
     /* Port of TestFindCLI_FoundOnPATH */
     char tmpdir[] = "/tmp/cli-find-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char fakecli[512];
     snprintf(fakecli, sizeof(fakecli), "%s/fakecli", tmpdir);
@@ -326,14 +327,14 @@ TEST(cli_find_cli_on_path) {
 
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    setenv("PATH", tmpdir, 1);
+    cbm_setenv("PATH", tmpdir, 1);
 
     const char *result = cbm_find_cli("fakecli", tmpdir);
     ASSERT(result[0] != '\0');
     ASSERT(strstr(result, "fakecli") != NULL);
 
     if (old_path) {
-        setenv("PATH", old_path, 1);
+        cbm_setenv("PATH", old_path, 1);
         free(old_path);
     }
     unlink(fakecli);
@@ -344,8 +345,8 @@ TEST(cli_find_cli_on_path) {
 TEST(cli_find_cli_fallback_paths) {
     /* Port of TestFindCLI_FallbackPaths */
     char tmpdir[] = "/tmp/cli-find-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char localbin[512];
     snprintf(localbin, sizeof(localbin), "%s/.local/bin", tmpdir);
@@ -358,13 +359,13 @@ TEST(cli_find_cli_fallback_paths) {
 
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    setenv("PATH", "/nonexistent", 1);
+    cbm_setenv("PATH", "/nonexistent", 1);
 
     const char *result = cbm_find_cli("testcli", tmpdir);
     ASSERT_STR_EQ(result, fakecli);
 
     if (old_path) {
-        setenv("PATH", old_path, 1);
+        cbm_setenv("PATH", old_path, 1);
         free(old_path);
     }
     test_rmdir_r(tmpdir);
@@ -397,8 +398,8 @@ TEST(cli_dry_run_flags) {
 TEST(cli_skill_creation) {
     /* Port of TestInstallSkillCreation */
     char tmpdir[] = "/tmp/cli-skill-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -427,8 +428,8 @@ TEST(cli_skill_creation) {
 TEST(cli_skill_idempotent) {
     /* Port of TestInstallIdempotent */
     char tmpdir[] = "/tmp/cli-skill-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -456,8 +457,8 @@ TEST(cli_skill_idempotent) {
 TEST(cli_skill_force_overwrite) {
     /* Port of TestCLI_InstallForceOverwrites */
     char tmpdir[] = "/tmp/cli-skill-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -475,8 +476,8 @@ TEST(cli_skill_force_overwrite) {
 TEST(cli_uninstall_removes_skills) {
     /* Port of TestUninstallRemovesSkills */
     char tmpdir[] = "/tmp/cli-skill-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -501,8 +502,8 @@ TEST(cli_uninstall_removes_skills) {
 TEST(cli_remove_old_monolithic_skill) {
     /* Port of TestRemoveOldMonolithicSkill */
     char tmpdir[] = "/tmp/cli-skill-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -580,8 +581,8 @@ TEST(cli_codex_instructions) {
 TEST(cli_editor_mcp_install) {
     /* Port of TestEditorMCPInstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
@@ -602,8 +603,8 @@ TEST(cli_editor_mcp_install) {
 TEST(cli_editor_mcp_idempotent) {
     /* Port of TestEditorMCPInstallIdempotent */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
@@ -632,8 +633,8 @@ TEST(cli_editor_mcp_idempotent) {
 TEST(cli_editor_mcp_preserves_others) {
     /* Port of TestEditorMCPPreservesOtherServers */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
@@ -660,8 +661,8 @@ TEST(cli_editor_mcp_preserves_others) {
 TEST(cli_editor_mcp_uninstall) {
     /* Port of TestEditorMCPUninstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
@@ -682,8 +683,8 @@ TEST(cli_editor_mcp_uninstall) {
 TEST(cli_gemini_mcp_install) {
     /* Port of TestGeminiMCPInstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.gemini/settings.json", tmpdir);
@@ -708,8 +709,8 @@ TEST(cli_gemini_mcp_install) {
 TEST(cli_vscode_mcp_install) {
     /* Port of TestVSCodeMCPInstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
@@ -732,8 +733,8 @@ TEST(cli_vscode_mcp_install) {
 TEST(cli_vscode_mcp_uninstall) {
     /* Port of TestVSCodeMCPUninstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
@@ -757,8 +758,8 @@ TEST(cli_vscode_mcp_uninstall) {
 TEST(cli_zed_mcp_install) {
     /* Port of TestZedMCPInstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
@@ -781,8 +782,8 @@ TEST(cli_zed_mcp_install) {
 TEST(cli_zed_mcp_preserves_settings) {
     /* Port of TestZedMCPPreservesSettings */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
@@ -811,8 +812,8 @@ TEST(cli_zed_mcp_preserves_settings) {
 TEST(cli_zed_mcp_uninstall) {
     /* Port of TestZedMCPUninstall */
     char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
@@ -836,8 +837,8 @@ TEST(cli_zed_mcp_uninstall) {
 TEST(cli_ensure_path_append) {
     /* Port of TestCLI_InstallPATHAppend */
     char tmpdir[] = "/tmp/cli-path-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
@@ -855,8 +856,8 @@ TEST(cli_ensure_path_append) {
 
 TEST(cli_ensure_path_already_present) {
     char tmpdir[] = "/tmp/cli-path-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
@@ -871,8 +872,8 @@ TEST(cli_ensure_path_already_present) {
 
 TEST(cli_ensure_path_dry_run) {
     char tmpdir[] = "/tmp/cli-path-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
@@ -896,8 +897,8 @@ TEST(cli_ensure_path_dry_run) {
 TEST(cli_copy_file) {
     /* Port of TestCopyFile */
     char tmpdir[] = "/tmp/cli-copy-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char src[512], dst[512];
     snprintf(src, sizeof(src), "%s/source", tmpdir);
@@ -918,8 +919,8 @@ TEST(cli_copy_file) {
 TEST(cli_copy_file_source_not_found) {
     /* Port of TestCopyFile_SourceNotFound */
     char tmpdir[] = "/tmp/cli-copy-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char src[512], dst[512];
     snprintf(src, sizeof(src), "%s/nonexistent", tmpdir);
@@ -988,8 +989,8 @@ TEST(cli_extract_binary_from_targz_invalid_data) {
 TEST(cli_install_dry_run) {
     /* Port of TestCLI_InstallDryRun */
     char tmpdir[] = "/tmp/cli-dry-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -1013,8 +1014,8 @@ TEST(cli_install_dry_run) {
 TEST(cli_uninstall_dry_run) {
     /* Port of TestCLI_UninstallDryRun */
     char tmpdir[] = "/tmp/cli-dry-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -1043,8 +1044,8 @@ TEST(cli_uninstall_dry_run) {
 TEST(cli_install_and_uninstall) {
     /* Port of TestCLI_InstallAndUninstall */
     char tmpdir[] = "/tmp/cli-full-XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
