@@ -430,7 +430,14 @@ int cbm_pipeline_githistory_compute(const char *repo_path, cbm_githistory_result
     result->commit_count = commit_count;
 
     /* Convert to testable format */
-    cbm_commit_files_t *cf = malloc((size_t)commit_count * sizeof(cbm_commit_files_t));
+    cbm_commit_files_t *cf = calloc((size_t)commit_count, sizeof(cbm_commit_files_t));
+    if (!cf) {
+        for (int c = 0; c < commit_count; c++) {
+            commit_free(&commits[c]);
+        }
+        free(commits);
+        return 0;
+    }
     for (int c = 0; c < commit_count; c++) {
         cf[c].files = commits[c].files;
         cf[c].count = commits[c].count;
