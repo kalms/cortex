@@ -1,21 +1,34 @@
-# Local Ubuntu test environment — mirrors GitHub Actions CI exactly.
+# Local test environment — mirrors GitHub Actions CI for all Docker-capable platforms.
+#
+# Coverage matrix:
+#   Linux arm64:  native on Apple Silicon (mirrors CI ubuntu-24.04-arm)
+#   Linux amd64:  QEMU emulation (mirrors CI ubuntu-latest)
+#   macOS:        not possible in Docker — test natively: scripts/test.sh CC=cc
+#   Windows:      not possible in Docker on Mac — CI only
 #
 # Usage:
-#   docker compose -f test-infrastructure/docker-compose.yml run --rm test
-#   docker compose -f test-infrastructure/docker-compose.yml run --rm lint
-#
-# Shortcut (from repo root):
-#   ./test-infrastructure/run.sh          # test
-#   ./test-infrastructure/run.sh lint     # lint only
+#   ./test-infrastructure/run.sh              # test arm64 (native, fast)
+#   ./test-infrastructure/run.sh all          # test arm64 + amd64 in parallel
+#   ./test-infrastructure/run.sh amd64        # test amd64 only (QEMU, slower)
+#   ./test-infrastructure/run.sh lint         # lint only
 
 services:
   test:
     build:
       context: ..
       dockerfile: test-infrastructure/Dockerfile
+    platform: linux/arm64
     volumes:
       - ..:/src
-    # GCC + ASan + UBSan + LeakSanitizer (exactly what CI runs)
+    command: ["CC=gcc", "CXX=g++"]
+
+  test-amd64:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile
+    platform: linux/amd64
+    volumes:
+      - ..:/src
     command: ["CC=gcc", "CXX=g++"]
 
   lint:
