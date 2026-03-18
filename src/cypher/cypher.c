@@ -2052,7 +2052,7 @@ static void scan_pattern_nodes(cbm_store_t *store, const char *project, int max_
         }
         cbm_store_search_free(&sout);
     }
-    /* Apply inline property filters */
+    /* Apply inline property filters — free rejected nodes' strings */
     if (first->prop_count > 0) {
         int kept = 0;
         for (int i = 0; i < *out_count; i++) {
@@ -2061,6 +2061,8 @@ static void scan_pattern_nodes(cbm_store_t *store, const char *project, int max_
                     (*out_nodes)[kept] = (*out_nodes)[i];
                 }
                 kept++;
+            } else {
+                node_fields_free(&(*out_nodes)[i]);
             }
         }
         *out_count = kept;
@@ -2646,17 +2648,20 @@ static int execute_single(cbm_store_t *store, cbm_query_t *q, const char *projec
                         } else {
                             snprintf(vbuf, sizeof(vbuf), "%d", aggs[a].counts[ci]);
                         }
-                        /* Store as a "virtual node" with the value in name */
-                        cbm_node_t vn = {.name = heap_strdup(vbuf)};
+                        /* Store as a "virtual node" with the value in name,
+                         * alias in qualified_name (freed by node_fields_free). */
+                        cbm_node_t vn = {.name = heap_strdup(vbuf),
+                                         .qualified_name = heap_strdup(alias)};
                         if (vb.var_count < 16) {
-                            vb.var_names[vb.var_count] = heap_strdup(alias);
+                            vb.var_names[vb.var_count] = vn.qualified_name;
                             vb.var_nodes[vb.var_count] = vn;
                             vb.var_count++;
                         }
                     } else {
-                        cbm_node_t vn = {.name = heap_strdup(aggs[a].group_vals[ci])};
+                        cbm_node_t vn = {.name = heap_strdup(aggs[a].group_vals[ci]),
+                                         .qualified_name = heap_strdup(alias)};
                         if (vb.var_count < 16) {
-                            vb.var_names[vb.var_count] = heap_strdup(alias);
+                            vb.var_names[vb.var_count] = vn.qualified_name;
                             vb.var_nodes[vb.var_count] = vn;
                             vb.var_count++;
                         }
@@ -2695,9 +2700,10 @@ static int execute_single(cbm_store_t *store, cbm_query_t *q, const char *projec
                     char func_buf[512];
                     const char *val =
                         project_item(&bindings[bi], &wc->items[ci], func_buf, sizeof(func_buf));
-                    cbm_node_t vn = {.name = heap_strdup(val)};
+                    cbm_node_t vn = {.name = heap_strdup(val),
+                                     .qualified_name = heap_strdup(alias)};
                     if (vb.var_count < 16) {
-                        vb.var_names[vb.var_count] = heap_strdup(alias);
+                        vb.var_names[vb.var_count] = vn.qualified_name;
                         vb.var_nodes[vb.var_count] = vn;
                         vb.var_count++;
                     }
@@ -2875,6 +2881,14 @@ static int execute_single(cbm_store_t *store, cbm_query_t *q, const char *projec
             }
         }
         rb_set_columns(rb, col_names, ret->count);
+        /* Free heap_strdup'd column names (rb_set_columns made its own copies).
+         * Only func/property branches heap-allocate; alias takes priority. */
+        for (int i = 0; i < ret->count && i < 32; i++) {
+            cbm_return_item_t *item = &ret->items[i];
+            if (!item->alias && (item->func || (!item->kase && item->property))) {
+                free((void *)col_names[i]);
+            }
+        }
 
         if (has_agg) {
             /* Generalized aggregation: COUNT, SUM, AVG, MIN, MAX, COLLECT */

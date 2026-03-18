@@ -52,6 +52,7 @@ TEST(store_project_crud) {
     ASSERT_STR_EQ(p.name, "myproject");
     ASSERT_STR_EQ(p.root_path, "/home/user/myproject");
     ASSERT_NOT_NULL(p.indexed_at);
+    cbm_project_free_fields(&p);
 
     /* List */
     cbm_project_t *projects = NULL;
@@ -81,6 +82,7 @@ TEST(store_project_update) {
     cbm_project_t p = {0};
     cbm_store_get_project(s, "test", &p);
     ASSERT_STR_EQ(p.root_path, "/new/path");
+    cbm_project_free_fields(&p);
 
     /* Should still be 1 project */
     cbm_project_t *projects = NULL;
