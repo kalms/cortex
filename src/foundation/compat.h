@@ -88,6 +88,36 @@ static inline int cbm_nanosleep(const struct timespec *req, struct timespec *rem
 #define cbm_nanosleep nanosleep
 #endif
 
+/* ── mkdtemp (Windows lacks it) ──────────────────────────────── */
+#ifdef _WIN32
+char *cbm_mkdtemp(char *tmpl);
+#else
+#define cbm_mkdtemp mkdtemp
+#endif
+
+/* ── setenv / unsetenv (Windows lacks them) ──────────────────── */
+#ifdef _WIN32
+static inline int cbm_setenv(const char *name, const char *value, int overwrite) {
+    (void)overwrite;
+    return _putenv_s(name, value);
+}
+static inline int cbm_unsetenv(const char *name) {
+    return _putenv_s(name, "");
+}
+#else
+#define cbm_setenv setenv
+#define cbm_unsetenv unsetenv
+#endif
+
+/* ── pipe (Windows uses _pipe) ───────────────────────────────── */
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#define cbm_pipe(fds) _pipe(fds, 4096, _O_BINARY)
+#else
+#define cbm_pipe(fds) pipe(fds)
+#endif
+
 /* ── Signal handling ──────────────────────────────────────────── */
 /* Windows doesn't have sigaction; provide macro to select signal API. */
 #ifdef _WIN32

@@ -3,6 +3,7 @@
  *
  * Covers: JSON-RPC parsing, MCP protocol, tool dispatch, tool handlers.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include <mcp/mcp.h>
 #include <store/store.h>
@@ -734,12 +735,12 @@ TEST(parse_file_uri_invalid) {
 static cbm_mcp_server_t *setup_snippet_server(char *tmp_dir, size_t tmp_sz) {
     /* Create temp dir */
     snprintf(tmp_dir, tmp_sz, "/tmp/cbm_snippet_test_XXXXXX");
-    if (!mkdtemp(tmp_dir))
+    if (!cbm_mkdtemp(tmp_dir))
         return NULL;
 
     char proj_dir[512];
     snprintf(proj_dir, sizeof(proj_dir), "%s/project", tmp_dir);
-    mkdir(proj_dir, 0750);
+    cbm_mkdir(proj_dir);
 
     /* Write sample source file */
     char src_path[512];

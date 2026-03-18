@@ -6,9 +6,15 @@
  */
 #include "test_framework.h"
 #include "../src/foundation/log.h"
-#include <unistd.h>
+#include "../src/foundation/compat.h"
 #include <stdbool.h>
+#ifndef _WIN32
+#include <unistd.h>
 #include <fcntl.h>
+#else
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 /* Simple strstr wrapper used by log tests (avoids circular dep on str_util) */
 static inline bool cbm_str_contains_raw(const char *s, const char *sub) {
@@ -22,9 +28,11 @@ static int pipe_fds[2];
 static void capture_start(void) {
     fflush(stderr);
     saved_stderr = dup(STDERR_FILENO);
-    pipe(pipe_fds);
+    cbm_pipe(pipe_fds);
+#ifndef _WIN32
     /* Set read end to non-blocking */
     fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
+#endif
     dup2(pipe_fds[1], STDERR_FILENO);
     close(pipe_fds[1]);
 }

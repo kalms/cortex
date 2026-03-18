@@ -4,6 +4,7 @@
  * Tests pipeline lifecycle, structure pass, and end-to-end indexing
  * on a temporary directory with known file layout.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
@@ -32,7 +33,7 @@ static char g_tmpdir[256];
  */
 static int setup_test_repo(void) {
     snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_test_XXXXXX");
-    if (!mkdtemp(g_tmpdir))
+    if (!cbm_mkdtemp(g_tmpdir))
         return -1;
 
     char path[512];
@@ -51,7 +52,7 @@ static int setup_test_repo(void) {
 
     /* pkg/ */
     snprintf(path, sizeof(path), "%s/pkg", g_tmpdir);
-    mkdir(path, 0755);
+    cbm_mkdir(path);
 
     /* pkg/service.go — calls Help() from util */
     snprintf(path, sizeof(path), "%s/pkg/service.go", g_tmpdir);
@@ -67,7 +68,7 @@ static int setup_test_repo(void) {
 
     /* pkg/util/ */
     snprintf(path, sizeof(path), "%s/pkg/util", g_tmpdir);
-    mkdir(path, 0755);
+    cbm_mkdir(path);
 
     /* pkg/util/helper.go */
     snprintf(path, sizeof(path), "%s/pkg/util/helper.go", g_tmpdir);
@@ -819,7 +820,7 @@ static char g_usages_tmpdir[256];
 static int setup_usages_repo(const char *filename, const char *content, const char *extra_file,
                              const char *extra_content) {
     snprintf(g_usages_tmpdir, sizeof(g_usages_tmpdir), "/tmp/cbm_usage_XXXXXX");
-    if (!mkdtemp(g_usages_tmpdir))
+    if (!cbm_mkdtemp(g_usages_tmpdir))
         return -1;
 
     /* Check if filename has subdirectory */
@@ -1106,7 +1107,7 @@ static char g_lang_tmpdir[256];
 
 static int setup_lang_repo(const char **filenames, const char **contents, int count) {
     snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/cbm_lang_XXXXXX");
-    if (!mkdtemp(g_lang_tmpdir))
+    if (!cbm_mkdtemp(g_lang_tmpdir))
         return -1;
 
     for (int i = 0; i < count; i++) {
@@ -1544,7 +1545,7 @@ TEST(pipeline_csharp_modern) {
 TEST(pipeline_bom_stripping) {
     /* Port of TestBOMStripping — UTF-8 BOM prefix should be handled */
     snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/cbm_bom_XXXXXX");
-    if (!mkdtemp(g_lang_tmpdir))
+    if (!cbm_mkdtemp(g_lang_tmpdir))
         SKIP("tmpdir");
 
     char path[512];
@@ -4152,7 +4153,7 @@ static void write_temp_file(const char *dir, const char *name, const char *conte
         memcpy(parent, path, plen);
         parent[plen] = '\0';
         /* mkdir -p (simple version, one level) */
-        mkdir(parent, 0755);
+        cbm_mkdir(parent);
     }
     FILE *f = fopen(path, "w");
     if (f) {
@@ -4182,7 +4183,7 @@ static int has_binding_value(const cbm_env_binding_t *bindings, int count, const
 
 TEST(envscan_dockerfile_env_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_dock_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",
@@ -4211,7 +4212,7 @@ TEST(envscan_dockerfile_env_urls) {
 
 TEST(envscan_shell_env_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_sh_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "setup.sh",
@@ -4238,7 +4239,7 @@ TEST(envscan_shell_env_urls) {
 
 TEST(envscan_env_file_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_env_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, ".env",
@@ -4264,7 +4265,7 @@ TEST(envscan_env_file_urls) {
 
 TEST(envscan_toml_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_toml_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "config.toml",
@@ -4291,7 +4292,7 @@ TEST(envscan_toml_urls) {
 
 TEST(envscan_yaml_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_yaml_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "config.yaml",
@@ -4316,7 +4317,7 @@ TEST(envscan_yaml_urls) {
 
 TEST(envscan_terraform_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_tf_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "variables.tf",
@@ -4342,7 +4343,7 @@ TEST(envscan_terraform_urls) {
 
 TEST(envscan_properties_urls) {
     char tmpdir[] = "/tmp/cbm_envscan_prop_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "app.properties",
@@ -4364,7 +4365,7 @@ TEST(envscan_properties_urls) {
 
 TEST(envscan_secret_key_exclusion) {
     char tmpdir[] = "/tmp/cbm_envscan_skey_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",
@@ -4392,7 +4393,7 @@ TEST(envscan_secret_key_exclusion) {
 
 TEST(envscan_secret_value_exclusion) {
     char tmpdir[] = "/tmp/cbm_envscan_sval_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(
@@ -4417,7 +4418,7 @@ TEST(envscan_secret_value_exclusion) {
 
 TEST(envscan_secret_file_exclusion) {
     char tmpdir[] = "/tmp/cbm_envscan_sfile_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     /* Secret file should be skipped */
@@ -4450,23 +4451,23 @@ TEST(envscan_secret_file_exclusion) {
 
 TEST(envscan_skips_ignored_dirs) {
     char tmpdir[] = "/tmp/cbm_envscan_ign_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     /* File inside .git should be skipped */
     char gitdir[512];
     snprintf(gitdir, sizeof(gitdir), "%s/.git", tmpdir);
-    mkdir(gitdir, 0755);
+    cbm_mkdir(gitdir);
     write_temp_file(tmpdir, ".git/config.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
     /* File inside node_modules should be skipped */
     char nmdir[512];
     snprintf(nmdir, sizeof(nmdir), "%s/node_modules", tmpdir);
-    mkdir(nmdir, 0755);
+    cbm_mkdir(nmdir);
     char nmpkg[512];
     snprintf(nmpkg, sizeof(nmpkg), "%s/node_modules/pkg", tmpdir);
-    mkdir(nmpkg, 0755);
+    cbm_mkdir(nmpkg);
     write_temp_file(tmpdir, "node_modules/pkg/config.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
@@ -4498,7 +4499,7 @@ TEST(envscan_skips_ignored_dirs) {
 
 TEST(envscan_non_url_values_skipped) {
     char tmpdir[] = "/tmp/cbm_envscan_nurl_XXXXXX";
-    if (!mkdtemp(tmpdir))
+    if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",

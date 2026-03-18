@@ -7,6 +7,7 @@
  * This exercises the complete flow: discover → extract → registry → graph
  * buffer → SQLite dump → query. No mocking — real files, real parsing.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include <mcp/mcp.h>
 #include <store/store.h>
@@ -29,7 +30,7 @@ static char *g_project = NULL;
 /* Create source files in temp directory */
 static int create_test_project(void) {
     snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_integ_XXXXXX");
-    if (!mkdtemp(g_tmpdir))
+    if (!cbm_mkdtemp(g_tmpdir))
         return -1;
 
     char path[512];
@@ -112,7 +113,7 @@ static int integration_setup(void) {
     /* Ensure cache dir exists */
     char cache_dir[512];
     snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
-    mkdir(cache_dir, 0755);
+    cbm_mkdir(cache_dir);
 
     /* Remove stale db from previous test runs */
     unlink(g_dbpath);

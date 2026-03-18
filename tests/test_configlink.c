@@ -5,6 +5,7 @@
  * Uses unit test approach: set up gbuf state directly, run strategies,
  * check CONFIGURES edges.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
@@ -240,12 +241,12 @@ TEST(configlink_file_ref_exact_path) {
     /* Create temp directory with files */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_cfglink_XXXXXX");
-    ASSERT_NOT_NULL(mkdtemp(tmpdir));
+    ASSERT_NOT_NULL(cbm_mkdtemp(tmpdir));
 
     /* Create config/database.toml */
     char cfg_dir[512];
     snprintf(cfg_dir, sizeof(cfg_dir), "%s/config", tmpdir);
-    mkdir(cfg_dir, 0755);
+    cbm_mkdir(cfg_dir);
 
     char cfg_path[512];
     snprintf(cfg_path, sizeof(cfg_path), "%s/config/database.toml", tmpdir);
@@ -303,7 +304,7 @@ TEST(configlink_file_ref_exact_path) {
 TEST(configlink_file_ref_basename_match) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_cfglink_XXXXXX");
-    ASSERT_NOT_NULL(mkdtemp(tmpdir));
+    ASSERT_NOT_NULL(cbm_mkdtemp(tmpdir));
 
     /* Create settings.yaml */
     char cfg_path[512];
@@ -353,7 +354,7 @@ TEST(configlink_file_ref_basename_match) {
 TEST(configlink_file_ref_no_false_positive) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_cfglink_XXXXXX");
-    ASSERT_NOT_NULL(mkdtemp(tmpdir));
+    ASSERT_NOT_NULL(cbm_mkdtemp(tmpdir));
 
     /* Create data.csv */
     char csv_path[512];
