@@ -61,13 +61,10 @@ CXXFLAGS_COMMON = -std=c++14 -Wall -Wextra -Werror \
 CFLAGS_PROD = $(CFLAGS_COMMON) -O2 $(CFLAGS_EXTRA)
 CXXFLAGS_PROD = $(CXXFLAGS_COMMON) -O2
 
-# Test flags: debug + sanitizers
-CFLAGS_TEST = $(CFLAGS_COMMON) -g -O1 \
-              -fsanitize=address,undefined \
-              -fno-omit-frame-pointer
-CXXFLAGS_TEST = $(CXXFLAGS_COMMON) -g -O1 \
-                -fsanitize=address,undefined \
-                -fno-omit-frame-pointer
+# Test flags: debug + sanitizers (override SANITIZE= to disable on Windows)
+SANITIZE = -fsanitize=address,undefined -fno-omit-frame-pointer
+CFLAGS_TEST = $(CFLAGS_COMMON) -g -O1 $(SANITIZE)
+CXXFLAGS_TEST = $(CXXFLAGS_COMMON) -g -O1 $(SANITIZE)
 
 # TSan (can't combine with ASan)
 CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
@@ -80,7 +77,7 @@ CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
 WIN32_LIBS ?=
 
 LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS) $(WIN32_LIBS)
-LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz -fsanitize=address,undefined $(LIBGIT2_LIBS) $(WIN32_LIBS)
+LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz $(SANITIZE) $(LIBGIT2_LIBS) $(WIN32_LIBS)
 LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lz -fsanitize=thread $(LIBGIT2_LIBS) $(WIN32_LIBS)
 
 # ── Source files ─────────────────────────────────────────────────
@@ -195,7 +192,7 @@ UI_SRCS = \
 MONGOOSE_SRC = vendored/mongoose/mongoose.c
 MONGOOSE_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -Ivendored -DMG_ENABLE_LOG=0
 MONGOOSE_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -Ivendored -DMG_ENABLE_LOG=0 \
-                       -fsanitize=address,undefined -fno-omit-frame-pointer
+                       $(SANITIZE)
 
 # mimalloc (vendored, global allocator override)
 MIMALLOC_SRC = vendored/mimalloc/src/static.c
@@ -291,7 +288,7 @@ BUILD_DIR = build/c
 # Grammar + tree-sitter runtime: compiled without -Werror (upstream code has warnings)
 GRAMMAR_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC)
 GRAMMAR_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
-                      -fsanitize=address,undefined -fno-omit-frame-pointer
+                      $(SANITIZE)
 GRAMMAR_CFLAGS_TSAN = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
                       -fsanitize=thread -fno-omit-frame-pointer
 
@@ -325,7 +322,7 @@ $(BUILD_DIR)/ts_runtime.o: $(CBM_DIR)/ts_runtime.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS_TEST) -c -o $@ $<
 
 $(BUILD_DIR)/lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
-	$(CC) $(GRAMMAR_CFLAGS_TEST) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+	$(CC) $(GRAMMAR_CFLAGS_TEST) $(SANITIZE) -c -o $@ $<
 
 $(BUILD_DIR)/preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS_TEST) -w -I$(CBM_DIR)/vendored -c -o $@ $<
@@ -357,7 +354,7 @@ SQLITE3_OBJ_TEST = $(BUILD_DIR)/sqlite3.o
 SQLITE3_OBJ_PROD = $(BUILD_DIR)/prod_sqlite3.o
 
 $(BUILD_DIR)/sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
-	$(CC) $(SQLITE3_CFLAGS_TEST) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+	$(CC) $(SQLITE3_CFLAGS_TEST) $(SANITIZE) -c -o $@ $<
 
 $(BUILD_DIR)/prod_sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
 	$(CC) $(SQLITE3_CFLAGS) -c -o $@ $<

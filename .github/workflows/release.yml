@@ -102,16 +102,17 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: CLANG64
           path-type: inherit
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-compiler-rt
+            mingw-w64-clang-x86_64-zlib
             make
 
       - name: Test
         shell: msys2 {0}
-        run: scripts/test.sh
+        run: scripts/test.sh CC=clang CXX=clang++ WIN32_LIBS="-lws2_32 -lpsapi"
 
   # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
@@ -180,11 +181,11 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: CLANG64
           path-type: inherit
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-zlib
             make
 
       - uses: actions/setup-node@v4
@@ -193,7 +194,7 @@ jobs:
 
       - name: Build standard binary
         shell: msys2 {0}
-        run: scripts/build.sh --version ${{ inputs.version }}
+        run: scripts/build.sh --version ${{ inputs.version }} CC=clang CXX=clang++ WIN32_LIBS="-lws2_32 -lpsapi"
 
       - name: Archive standard binary
         shell: pwsh
@@ -203,7 +204,7 @@ jobs:
 
       - name: Build UI binary
         shell: msys2 {0}
-        run: scripts/build.sh --with-ui --version ${{ inputs.version }}
+        run: scripts/build.sh --with-ui --version ${{ inputs.version }} CC=clang CXX=clang++ WIN32_LIBS="-lws2_32 -lpsapi"
 
       - name: Archive UI binary
         shell: pwsh
