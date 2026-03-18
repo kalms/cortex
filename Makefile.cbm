@@ -78,7 +78,7 @@ CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
 IS_MINGW := $(shell echo | $(CC) -dM -E - 2>/dev/null | grep -q 'define _WIN32 ' && echo yes || echo no)
 WIN32_LIBS :=
 ifeq ($(IS_MINGW),yes)
-WIN32_LIBS := -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+WIN32_LIBS := -lws2_32 -lpsapi -Wl,--allow-multiple-definition -Wl,--stack,8388608
 endif
 
 LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS) $(WIN32_LIBS)
