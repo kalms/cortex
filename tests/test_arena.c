@@ -3,6 +3,7 @@
  */
 #include "test_framework.h"
 #include "../src/foundation/arena.h"
+#include <stdint.h>
 
 TEST(arena_init_default) {
     CBMArena a;
