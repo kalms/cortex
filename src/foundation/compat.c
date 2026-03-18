@@ -49,6 +49,19 @@ char *cbm_strcasestr(const char *haystack, const char *needle) {
 #ifdef _WIN32
 #include <direct.h>
 char *cbm_mkdtemp(char *tmpl) {
+    /* On Windows, /tmp doesn't exist. Replace /tmp/ prefix with %TEMP%\ */
+    if (strncmp(tmpl, "/tmp/", 5) == 0) {
+        const char *tmp = getenv("TEMP");
+        if (!tmp)
+            tmp = getenv("TMP");
+        if (!tmp)
+            tmp = ".";
+        char buf[512];
+        snprintf(buf, sizeof(buf), "%s\\%s", tmp, tmpl + 5);
+        /* Copy back (template buffer must be large enough) */
+        size_t len = strlen(buf);
+        memcpy(tmpl, buf, len + 1);
+    }
     /* _mktemp modifies template in place, then we mkdir */
     if (!_mktemp(tmpl))
         return NULL;
