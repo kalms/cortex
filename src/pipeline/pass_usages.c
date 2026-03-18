@@ -147,7 +147,7 @@ static int build_import_map(cbm_pipeline_ctx_t *ctx, const char *rel_path,
                 const char *end = strchr(start, '"');
                 if (end && end > start) {
                     // NOLINTNEXTLINE(misc-include-cleaner) — strndup provided by standard header
-                    keys[count] = strndup(start, end - start);
+                    keys[count] = cbm_strndup(start, end - start);
                     vals[count] = target->qualified_name;
                     count++;
                 }

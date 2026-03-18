@@ -12,6 +12,7 @@
 #include "store/store.h"
 #include "sqlite_writer.h"
 #include "foundation/hash_table.h"
+#include "foundation/compat.h"
 #include "foundation/log.h"
 #include "foundation/dyn_array.h"
 
@@ -841,7 +842,7 @@ static char *extract_url_path(const char *props) {
         return NULL;
     }
     // NOLINTNEXTLINE(misc-include-cleaner) — strndup provided by standard header
-    return strndup(key, (size_t)(end - key));
+    return cbm_strndup(key, (size_t)(end - key));
 }
 
 int cbm_gbuf_dump_to_sqlite(cbm_gbuf_t *gb, const char *path) {
