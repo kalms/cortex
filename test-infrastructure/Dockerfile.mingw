@@ -1,25 +1,36 @@
-# Cross-compile for Windows using mingw-w64 — catches all compile errors
-# (missing headers, POSIX functions, type mismatches) without needing Windows.
+# Cross-compile AND run Windows tests locally using llvm-mingw + Wine.
 #
-# Compiles all source files to .o but does NOT link (Ubuntu's mingw CRT
-# differs from MSYS2 UCRT64). Linking is verified by CI on actual Windows.
+# llvm-mingw: LLVM/Clang-based MinGW toolchain with ASan support
+# Wine: runs the resulting .exe for actual test execution
+#
+# Usage:
+#   docker compose -f test-infrastructure/docker-compose.yml run --rm build-windows
+#   docker compose -f test-infrastructure/docker-compose.yml run --rm test-windows
 
-FROM ubuntu:noble
+FROM mstorsjo/llvm-mingw:latest
 
+# Install Wine for running Windows executables
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    mingw-w64 make \
-    libz-mingw-w64-dev \
+    wine64 curl zstd \
     && rm -rf /var/lib/apt/lists/*
+
+# Install zlib into the llvm-mingw sysroot (from MSYS2 CLANG64 repo)
+# Extract to temp dir first, then copy — avoids overwriting existing sysroot files
+RUN mkdir -p /tmp/zlib-pkg && \
+    curl -sL "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-zlib-1.3.1-1-any.pkg.tar.zst" \
+    | zstd -d | tar xf - -C /tmp/zlib-pkg && \
+    cp -rn /tmp/zlib-pkg/clang64/include/* /opt/llvm-mingw/x86_64-w64-mingw32/include/ && \
+    cp -rn /tmp/zlib-pkg/clang64/lib/* /opt/llvm-mingw/x86_64-w64-mingw32/lib/ && \
+    rm -rf /tmp/zlib-pkg
 
 WORKDIR /src
 
-# Compile-check: build all objects without linking
 ENTRYPOINT ["/bin/bash", "-c"]
+
+# Default: cross-compile production build
 CMD ["make -j4 -f Makefile.cbm clean-c && \
-     CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
-     make -j4 -f Makefile.cbm build/c/codebase-memory-mcp \
-       CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
-       'WIN32_LIBS=-lws2_32 -lpsapi' \
-       LDFLAGS='-lm -lstdc++ -lz -lws2_32 -lpsapi -Wl,--allow-multiple-definition' \
-       LDFLAGS_TEST='-lm -lstdc++ -lz -lws2_32 -lpsapi -Wl,--allow-multiple-definition' \
-     && echo '=== Windows cross-compile: all sources compiled ==='"]
+     make -j4 -f Makefile.cbm cbm \
+       CC=x86_64-w64-mingw32-clang \
+       CXX=x86_64-w64-mingw32-clang++ \
+       'WIN32_LIBS=-lws2_32 -lpsapi -Wl,--allow-multiple-definition' \
+     && echo '=== Windows cross-compile: OK ==='"]
