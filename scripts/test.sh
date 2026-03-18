@@ -50,7 +50,7 @@ done
 print_env "test.sh"
 
 # Verify compiler supports target arch
-verify_compiler "${CC:-gcc-14}"
+verify_compiler "$CC"
 
 # Step 1: Clean
 scripts/clean.sh
