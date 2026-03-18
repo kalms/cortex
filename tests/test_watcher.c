@@ -4,6 +4,7 @@
  * Covers: adaptive interval, watch/unwatch lifecycle, git change detection,
  * poll_once behavior.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include <watcher/watcher.h>
 #include <store/store.h>
@@ -229,8 +230,8 @@ TEST(watcher_stop_flag) {
 TEST(watcher_detects_git_commit) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_test_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -282,8 +283,8 @@ TEST(watcher_detects_git_commit) {
 TEST(watcher_detects_dirty_worktree) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_dirty_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -326,8 +327,8 @@ TEST(watcher_detects_dirty_worktree) {
 TEST(watcher_detects_new_file) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_newf_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -371,8 +372,8 @@ TEST(watcher_detects_new_file) {
 TEST(watcher_no_change_no_reindex) {
     /* Create a temporary git repo */
     char tmpdir[] = "/tmp/cbm_watcher_nochg_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -415,8 +416,8 @@ TEST(watcher_multiple_projects) {
     /* Create two temporary git repos */
     char tmpdirA[] = "/tmp/cbm_watcher_mA_XXXXXX";
     char tmpdirB[] = "/tmp/cbm_watcher_mB_XXXXXX";
-    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdirA) || !cbm_mkdtemp(tmpdirB))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -475,8 +476,8 @@ TEST(watcher_non_git_skips) {
     /* Non-git dir → baseline sets is_git=false → poll never reindexes.
      * Port of TestProbeStrategyNonGit behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_nongit_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     /* Create a file so it's not empty */
     char cmd[512];
@@ -524,8 +525,8 @@ TEST(watcher_interval_blocks_repoll) {
      * immediate re-polling. Without touch(), the next poll is a no-op.
      * Port of TestWatcherGitNoChanges' interval behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_intv_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -598,8 +599,8 @@ TEST(watcher_git_removed_no_crash) {
      * Port of TestStrategyDowngradeGitToDirMtime behavior (C version
      * doesn't downgrade — just git commands fail silently). */
     char tmpdir[] = "/tmp/cbm_watcher_rmgit_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -643,8 +644,8 @@ TEST(watcher_continued_dirty) {
     /* If working tree stays dirty, each poll should re-trigger reindex.
      * Port of repeated git sentinel detection behavior. */
     char tmpdir[] = "/tmp/cbm_watcher_cont_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -711,8 +712,8 @@ TEST(watcher_baseline_dirty_repo) {
     /* Baseline on a repo that already has uncommitted changes.
      * Port of TestGitSentinelDetectsEdit (dirty from the start). */
     char tmpdir[] = "/tmp/cbm_watcher_bld_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -755,8 +756,8 @@ TEST(watcher_unwatch_prunes_state) {
     /* Watch, baseline, unwatch → project state removed.
      * Port of TestPollAllPrunesUnwatched + TestWatcherPrunesDeletedProjects. */
     char tmpdir[] = "/tmp/cbm_watcher_prune_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -801,8 +802,8 @@ TEST(watcher_watch_after_unwatch) {
     /* Re-watching after unwatch should start fresh (new baseline).
      * Tests lifecycle correctness. */
     char tmpdir[] = "/tmp/cbm_watcher_rewatch_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -862,8 +863,8 @@ TEST(watcher_detects_file_delete) {
     /* Port of TestFSNotifyDetectsFileDelete:
      * Delete a tracked file → git status shows change → reindex triggered. */
     char tmpdir[] = "/tmp/cbm_watcher_del_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -907,8 +908,8 @@ TEST(watcher_detects_subdir_file) {
     /* Port of TestFSNotifyWatchesNewSubdir:
      * Create new subdir + file in it → git detects untracked → reindex. */
     char tmpdir[] = "/tmp/cbm_watcher_sub_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -978,8 +979,8 @@ TEST(watcher_full_flow_new_file) {
      * This is a more thorough version of watcher_detects_new_file
      * that mirrors the Go test's structure exactly. */
     char tmpdir[] = "/tmp/cbm_watcher_ffnf_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -1028,8 +1029,8 @@ TEST(watcher_fallback_still_detects) {
      * still detects changes. In C, we test that after removing .git
      * and re-creating it, changes are still detected on re-watch. */
     char tmpdir[] = "/tmp/cbm_watcher_fb_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -1087,8 +1088,8 @@ TEST(watcher_poll_only_watched_projects) {
      * gets polled and can trigger reindex. */
     char tmpdirA[] = "/tmp/cbm_watcher_owA_XXXXXX";
     char tmpdirB[] = "/tmp/cbm_watcher_owB_XXXXXX";
-    if (!mkdtemp(tmpdirA) || !mkdtemp(tmpdirB))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdirA) || !cbm_mkdtemp(tmpdirB))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     /* Init both repos */
@@ -1145,8 +1146,8 @@ TEST(watcher_touch_resets_immediate) {
      * Verify that touch() resets the adaptive backoff so the next
      * poll actually checks for changes immediately. */
     char tmpdir[] = "/tmp/cbm_watcher_tch_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -1195,8 +1196,8 @@ TEST(watcher_modify_tracked_file) {
      * Similar to watcher_detects_dirty_worktree but modifies specific
      * tracked file content rather than appending. */
     char tmpdir[] = "/tmp/cbm_watcher_mod_XXXXXX";
-    if (!mkdtemp(tmpdir))
-        SKIP("mkdtemp failed");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),

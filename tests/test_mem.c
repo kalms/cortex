@@ -2,6 +2,7 @@
  * test_mem.c — Tests for unified memory management (mimalloc-backed),
  *              arena integration, slab allocator, and parallel extraction.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "../src/foundation/mem.h"
 #include "../src/foundation/arena.h"
@@ -328,7 +329,7 @@ static char g_mem_tmpdir[256];
 
 static int setup_mem_test_repo(void) {
     snprintf(g_mem_tmpdir, sizeof(g_mem_tmpdir), "/tmp/cbm_mem_XXXXXX");
-    if (!mkdtemp(g_mem_tmpdir)) {
+    if (!cbm_mkdtemp(g_mem_tmpdir)) {
         return -1;
     }
 

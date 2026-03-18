@@ -6,6 +6,7 @@
  *
  * Suite: suite_parallel
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_internal.h"
@@ -27,7 +28,7 @@ static char g_par_tmpdir[256];
 
 static int setup_parallel_repo(void) {
     snprintf(g_par_tmpdir, sizeof(g_par_tmpdir), "/tmp/cbm_par_XXXXXX");
-    if (!mkdtemp(g_par_tmpdir))
+    if (!cbm_mkdtemp(g_par_tmpdir))
         return -1;
 
     char path[512];
@@ -43,7 +44,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/ */
     snprintf(path, sizeof(path), "%s/pkg", g_par_tmpdir);
-    mkdir(path, 0755);
+    cbm_mkdir(path);
 
     /* pkg/service.go */
     snprintf(path, sizeof(path), "%s/pkg/service.go", g_par_tmpdir);
@@ -56,7 +57,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/util/ */
     snprintf(path, sizeof(path), "%s/pkg/util", g_par_tmpdir);
-    mkdir(path, 0755);
+    cbm_mkdir(path);
 
     /* pkg/util/helper.go */
     snprintf(path, sizeof(path), "%s/pkg/util/helper.go", g_par_tmpdir);
