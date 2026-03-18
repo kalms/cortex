@@ -11,6 +11,7 @@
 #include "foundation/log.h"
 #include "foundation/hash_table.h"
 #include "foundation/platform.h"
+#include "foundation/compat.h"
 #include "yyjson/yyjson.h"
 
 #include <ctype.h>
@@ -46,7 +47,7 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
         if (s[i] >= 'A' && s[i] <= 'Z' && s[i - 1] >= 'a' && s[i - 1] <= 'z') {
             if (count < max_out) {
                 // NOLINTNEXTLINE(misc-include-cleaner) — strndup provided by standard header
-                out[count] = strndup(s + start, i - start);
+                out[count] = cbm_strndup(s + start, i - start);
                 count++;
             }
             start = i;
@@ -54,7 +55,7 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
     }
     /* Emit remaining */
     if (count < max_out) {
-        out[count] = strndup(s + start, len - start);
+        out[count] = cbm_strndup(s + start, len - start);
         count++;
     }
     return count;

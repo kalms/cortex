@@ -12,11 +12,9 @@
 #include <stdio.h>
 
 /* ── Thread-local storage ─────────────────────────────────────── */
-#ifdef _WIN32
-#define CBM_TLS __declspec(thread)
-#else
+/* _Thread_local is C11 standard — works on GCC, Clang, and MSVC (2019+).
+ * __declspec(thread) is MSVC-only and doesn't work on MinGW GCC. */
 #define CBM_TLS _Thread_local
-#endif
 
 /* ── Sleep ────────────────────────────────────────────────────── */
 #ifdef _WIN32
