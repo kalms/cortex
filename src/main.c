@@ -186,6 +186,10 @@ int main(int argc, char **argv) {
     }
 
     /* Install signal handlers */
+#ifdef _WIN32
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+#else
     // NOLINTNEXTLINE(misc-include-cleaner) — sigaction provided by standard header
     struct sigaction sa = {0};
     // NOLINTNEXTLINE(misc-include-cleaner) — sa_handler provided by standard header
@@ -194,6 +198,7 @@ int main(int argc, char **argv) {
     sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
+#endif
 
     /* Create MCP server */
     g_server = cbm_mcp_server_new(NULL);

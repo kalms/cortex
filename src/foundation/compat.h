@@ -53,6 +53,41 @@ ssize_t cbm_getline(char **lineptr, size_t *n, FILE *stream);
 #define cbm_fileno fileno
 #endif
 
+/* ── strcasestr (Windows lacks it) ────────────────────────────── */
+#ifdef _WIN32
+/* Implemented in compat.c */
+char *cbm_strcasestr(const char *haystack, const char *needle);
+#else
+#define cbm_strcasestr strcasestr
+#endif
+
+/* ── mkdir portability ───────────────────────────────────────── */
+#ifdef _WIN32
+#include <direct.h>
+#define cbm_mkdir(path) _mkdir(path)
+#else
+#include <sys/stat.h>
+#define cbm_mkdir(path) mkdir(path, 0755)
+#endif
+
+/* ── clock_gettime / nanosleep (Windows lacks them) ──────────── */
+#include <time.h>
+#ifdef _WIN32
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+#endif
+/* Implemented in compat.c */
+int cbm_clock_gettime(int clk_id, struct timespec *tp);
+static inline int cbm_nanosleep(const struct timespec *req, struct timespec *rem) {
+    (void)rem;
+    Sleep((DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000));
+    return 0;
+}
+#else
+#define cbm_clock_gettime clock_gettime
+#define cbm_nanosleep nanosleep
+#endif
+
 /* ── Signal handling ──────────────────────────────────────────── */
 /* Windows doesn't have sigaction; provide macro to select signal API. */
 #ifdef _WIN32

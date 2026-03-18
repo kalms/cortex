@@ -29,6 +29,35 @@ char *cbm_strndup(const char *s, size_t n) {
 }
 #endif
 
+/* ── strcasestr (Windows lacks it) ────────────────────────────── */
+
+#ifdef _WIN32
+char *cbm_strcasestr(const char *haystack, const char *needle) {
+    if (!needle[0])
+        return (char *)haystack;
+    size_t nlen = strlen(needle);
+    for (; *haystack; haystack++) {
+        if (_strnicmp(haystack, needle, nlen) == 0)
+            return (char *)haystack;
+    }
+    return NULL;
+}
+#endif
+
+/* ── clock_gettime (Windows lacks it) ─────────────────────────── */
+
+#ifdef _WIN32
+int cbm_clock_gettime(int clk_id, struct timespec *tp) {
+    (void)clk_id;
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    tp->tv_sec = (time_t)(count.QuadPart / freq.QuadPart);
+    tp->tv_nsec = (long)((count.QuadPart % freq.QuadPart) * 1000000000LL / freq.QuadPart);
+    return 0;
+}
+#endif
+
 /* ── getline (Windows lacks it) ───────────────────────────────── */
 
 #ifdef _WIN32

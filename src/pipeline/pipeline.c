@@ -47,8 +47,8 @@ struct cbm_pipeline {
 
 static double elapsed_ms(struct timespec start) {
     struct timespec now;
-    // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    // NOLINTNEXTLINE(misc-include-cleaner) — cbm_clock_gettime provided by standard header
+    cbm_clock_gettime(CLOCK_MONOTONIC, &now);
     return ((double)(now.tv_sec - start.tv_sec) * CBM_MS_PER_SEC) +
            ((double)(now.tv_nsec - start.tv_nsec) / CBM_US_PER_SEC_F);
 }
@@ -271,7 +271,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
     }
 
     struct timespec t0;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    cbm_clock_gettime(CLOCK_MONOTONIC, &t0);
 
     /* Phase 1: Discover files */
     cbm_discover_opts_t opts = {
@@ -310,7 +310,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         .cancelled = &p->cancelled,
     };
 
-    clock_gettime(CLOCK_MONOTONIC, &t);
+    cbm_clock_gettime(CLOCK_MONOTONIC, &t);
     rc = pass_structure(p, files, file_count);
     if (rc != 0) { // cppcheck-suppress knownConditionTrueFalse
         goto cleanup;
@@ -362,7 +362,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         ctx.prescan_path_map = prescan_map;
 
         /* Phase 3A: Parallel extract + definition nodes */
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
         cbm_log_info("pass.timing", "pass", "parallel_extract", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
@@ -382,7 +382,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         cbm_gbuf_set_next_id(p->gbuf, atomic_load(&shared_ids));
 
         /* Phase 3B: Serial registry build + DEFINES/IMPORTS edges */
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_build_registry_from_cache(&ctx, files, file_count, result_cache);
         cbm_log_info("pass.timing", "pass", "registry_build", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
@@ -410,7 +410,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         }
 
         /* Phase 4: Parallel resolution (calls + usages + semantic, fused) */
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_parallel_resolve(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
         cbm_log_info("pass.timing", "pass", "parallel_resolve", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
@@ -446,7 +446,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
         }
 
         /* Sequential fallback: original 4-pass chain */
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_definitions(&ctx, files, file_count);
         if (rc != 0) {
             goto seq_cleanup;
@@ -458,7 +458,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
             goto seq_cleanup;
         }
 
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_calls(&ctx, files, file_count);
         if (rc != 0) {
             goto seq_cleanup;
@@ -469,7 +469,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
             goto seq_cleanup;
         }
 
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_usages(&ctx, files, file_count);
         if (rc != 0) {
             goto seq_cleanup;
@@ -480,7 +480,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
             goto seq_cleanup;
         }
 
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         rc = cbm_pipeline_pass_semantic(&ctx, files, file_count);
         if (rc != 0) {
             goto seq_cleanup;
@@ -509,7 +509,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
     }
 
     /* Post-extraction passes (shared by both parallel and sequential) */
-    clock_gettime(CLOCK_MONOTONIC, &t);
+    cbm_clock_gettime(CLOCK_MONOTONIC, &t);
     rc = cbm_pipeline_pass_tests(&ctx, files, file_count);
     if (rc != 0) {
         goto cleanup;
@@ -524,8 +524,8 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
     {
         struct timespec t_gh;
         struct timespec t_hl;
-        clock_gettime(CLOCK_MONOTONIC, &t_gh);
-        clock_gettime(CLOCK_MONOTONIC, &t_hl);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t_gh);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t_hl);
 
         cbm_githistory_result_t gh_result = {0};
         cbm_thread_t gh_thread;
@@ -586,14 +586,14 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
 
     /* Pre-dump passes (operate on graph buffer, not store) */
     if (!check_cancel(p)) {
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         cbm_pipeline_pass_decorator_tags(p->gbuf, p->project_name);
         cbm_log_info("pass.timing", "pass", "decorator_tags", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
     }
 
     if (!check_cancel(p)) {
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
         cbm_pipeline_pass_configlink(&ctx);
         cbm_log_info("pass.timing", "pass", "configlink", "elapsed_ms",
                      itoa_buf((int)elapsed_ms(t)));
@@ -618,7 +618,7 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
      * Zero SQLite library involvement — cbm_write_db() builds the binary
      * format directly from flat arrays. Atomic: writes .tmp then renames. */
     if (!check_cancel(p)) {
-        clock_gettime(CLOCK_MONOTONIC, &t);
+        cbm_clock_gettime(CLOCK_MONOTONIC, &t);
 
         // NOLINTNEXTLINE(concurrency-mt-unsafe) — called once during single-threaded dump
         const char *home = getenv("HOME");

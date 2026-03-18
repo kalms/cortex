@@ -4,6 +4,7 @@
  * macOS, Linux, and Windows. Platform-specific code behind #ifdef guards.
  */
 #include "platform.h"
+#include "compat.h"
 
 #include <stdint.h> // uint64_t, int64_t
 
@@ -166,7 +167,7 @@ uint64_t cbm_now_ns(void) {
 #else
 uint64_t cbm_now_ns(void) {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    cbm_clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 #endif
