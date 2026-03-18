@@ -365,7 +365,8 @@ static void resolve_fastapi_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
             char var[128];
             char module[256];
         } import_entry_t;
-        import_entry_t imports[64] = {{0}};
+        import_entry_t imports[64];
+        memset(imports, 0, sizeof(imports));
         int import_count = 0;
 
         const char *p = source;
@@ -506,7 +507,8 @@ static void resolve_express_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route_handler_
             char var[128];
             char module[256];
         } import_entry_t;
-        import_entry_t imports[64] = {{0}};
+        import_entry_t imports[64];
+        memset(imports, 0, sizeof(imports));
         int import_count = 0;
 
         const char *p = source;
@@ -622,7 +624,8 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
         int start;
         int count;
     } func_routes_t;
-    func_routes_t func_map[1024] = {{0}};
+    func_routes_t func_map[1024];
+    memset(func_map, 0, sizeof(func_map));
     int func_map_count = 0;
 
     for (int i = 0; i < route_count && func_map_count < 1024; i++) {
@@ -739,7 +742,8 @@ static void resolve_cross_file_group_prefixes(cbm_pipeline_ctx_t *ctx, cbm_route
                 char var[128];
                 char prefix[256];
             } var_prefix_t;
-            var_prefix_t var_pfx[16] = {{0}};
+            var_prefix_t var_pfx[16];
+            memset(var_pfx, 0, sizeof(var_pfx));
             int var_count = 0;
 
             p = caller_source;

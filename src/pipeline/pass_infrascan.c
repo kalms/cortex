@@ -539,9 +539,12 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
         return -1;
     }
 
-    /* base_image = last stage's image */
-    snprintf(out->base_image, sizeof(out->base_image), "%s",
-             out->stage_images[out->stage_count - 1]);
+    /* base_image = last stage's image (use intermediate copy to avoid restrict overlap) */
+    {
+        char tmp[sizeof(out->base_image)];
+        snprintf(tmp, sizeof(tmp), "%s", out->stage_images[out->stage_count - 1]);
+        memcpy(out->base_image, tmp, sizeof(out->base_image));
+    }
 
     return 0;
 }
