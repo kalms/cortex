@@ -74,8 +74,12 @@ CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
 
 # Windows needs ws2_32 (Winsock), psapi (GetProcessMemoryInfo), and
 # --allow-multiple-definition (MinGW CRT symbol clashes).
-# Pass WIN32_LIBS on command line for Windows builds.
-WIN32_LIBS ?=
+# Auto-detected via compiler; no manual override needed.
+IS_MINGW := $(shell echo | $(CC) -dM -E - 2>/dev/null | grep -q 'define _WIN32 ' && echo yes || echo no)
+WIN32_LIBS :=
+ifeq ($(IS_MINGW),yes)
+WIN32_LIBS := -lws2_32 -lpsapi -Wl,--allow-multiple-definition
+endif
 
 LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS) $(WIN32_LIBS)
 LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz $(SANITIZE) $(LIBGIT2_LIBS) $(WIN32_LIBS)

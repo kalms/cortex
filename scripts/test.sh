@@ -48,10 +48,6 @@ for arg in "$@"; do
         *=*) MAKE_ARGS="$MAKE_ARGS $arg" ;; # forward any VAR=VAL to make
     esac
 done
-# Also forward WIN32_LIBS from environment (set by CI env: block)
-if [[ -n "${WIN32_LIBS:-}" ]]; then
-    MAKE_ARGS="$MAKE_ARGS WIN32_LIBS=$WIN32_LIBS"
-fi
 
 print_env "test.sh"
 
