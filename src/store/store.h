@@ -564,6 +564,9 @@ int cbm_louvain(const int64_t *nodes, int node_count, const cbm_louvain_edge_t *
 
 /* ── Memory management helpers ──────────────────────────────────── */
 
+/* Free heap-allocated strings in a stack-allocated node (does NOT free the node itself). */
+void cbm_node_free_fields(cbm_node_t *n);
+
 /* Free an array of nodes returned by find_nodes_by_* functions. */
 void cbm_store_free_nodes(cbm_node_t *nodes, int count);
 
