@@ -38,10 +38,12 @@ done
 # shellcheck source=env.sh
 source "$ROOT/scripts/env.sh"
 
-# Forward CC/CXX from args
+# Forward CC/CXX and collect make-passthrough args (WIN32_LIBS=)
+MAKE_ARGS=""
 for arg in "$@"; do
     case "$arg" in
         CC=*|CXX=*) export "${arg}" ;;
+        WIN32_LIBS=*) MAKE_ARGS="$MAKE_ARGS $arg" ;;
         --arch|--arch=*) ;; # already handled
         arm64|x86_64) ;; # already handled
     esac
@@ -56,6 +58,6 @@ verify_compiler "$CC"
 scripts/clean.sh
 
 # Step 2 + 3: Build and run tests (with arch prefix on macOS)
-$ARCH_PREFIX make -j"$NPROC" -f Makefile.cbm test
+$ARCH_PREFIX make -j"$NPROC" -f Makefile.cbm test $MAKE_ARGS
 
 echo "=== All tests passed ==="
