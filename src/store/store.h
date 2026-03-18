@@ -567,6 +567,9 @@ int cbm_louvain(const int64_t *nodes, int node_count, const cbm_louvain_edge_t *
 /* Free heap-allocated strings in a stack-allocated node (does NOT free the node itself). */
 void cbm_node_free_fields(cbm_node_t *n);
 
+/* Free heap-allocated strings in a stack-allocated project (does NOT free the project itself). */
+void cbm_project_free_fields(cbm_project_t *p);
+
 /* Free an array of nodes returned by find_nodes_by_* functions. */
 void cbm_store_free_nodes(cbm_node_t *nodes, int count);
 

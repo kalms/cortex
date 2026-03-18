@@ -422,8 +422,10 @@ int cbm_gbuf_delete_by_label(cbm_gbuf_t *gb, const char *label) {
 
         /* Remove from primary indexes */
         cbm_ht_delete(gb->node_by_qn, n->qualified_name);
-        void *removed_key = cbm_ht_delete(gb->node_by_id, id_buf);
-        (void)removed_key;
+        /* Free the strdup'd key stored in node_by_id (get before delete) */
+        const char *stored_key = cbm_ht_get_key(gb->node_by_id, id_buf);
+        cbm_ht_delete(gb->node_by_id, id_buf);
+        free((void *)stored_key);
     }
 
     /* Clear the label array */
@@ -442,11 +444,12 @@ int cbm_gbuf_delete_by_label(cbm_gbuf_t *gb, const char *label) {
         make_id_key(tgt_id, sizeof(tgt_id), e->target_id);
 
         if (cbm_ht_get(deleted_set, src_id) || cbm_ht_get(deleted_set, tgt_id)) {
-            /* Remove from edge dedup index */
+            /* Remove from edge dedup index (free the strdup'd key) */
             char key[EDGE_KEY_BUF];
             make_edge_key(key, sizeof(key), e->source_id, e->target_id, e->type);
-            void *k = cbm_ht_delete(gb->edge_by_key, key);
-            (void)k;
+            const char *ekey = cbm_ht_get_key(gb->edge_by_key, key);
+            cbm_ht_delete(gb->edge_by_key, key);
+            free((void *)ekey);
 
             /* Remove from secondary indexes incrementally */
             make_src_type_key(key, sizeof(key), e->source_id, e->type);
@@ -490,6 +493,7 @@ int cbm_gbuf_delete_by_label(cbm_gbuf_t *gb, const char *label) {
     }
     gb->edges.count = write_idx;
 
+    cbm_ht_foreach(deleted_set, free_key_only, NULL);
     cbm_ht_free(deleted_set);
     return 0;
 }
@@ -636,8 +640,9 @@ int cbm_gbuf_delete_edges_by_type(cbm_gbuf_t *gb, const char *type) {
         if (strcmp(e->type, type) == 0) {
             char key[EDGE_KEY_BUF];
             make_edge_key(key, sizeof(key), e->source_id, e->target_id, e->type);
-            void *k = cbm_ht_delete(gb->edge_by_key, key);
-            (void)k;
+            const char *ekey = cbm_ht_get_key(gb->edge_by_key, key);
+            cbm_ht_delete(gb->edge_by_key, key);
+            free((void *)ekey);
             free_edge_strings(e);
             free(e);
         } else {
