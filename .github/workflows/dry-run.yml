@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  # ── Step 1: Lint ──────────────────────────────────────────────
+  # ── Step 1: Lint (clang-format + cppcheck) ───────────────────
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -16,7 +16,6 @@ jobs:
       - name: Install build deps
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev cmake
 
-      # LLVM 20 (clang-format + clang-tidy) from apt.llvm.org
       - name: Install LLVM 20
         run: |
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
@@ -24,7 +23,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-format-20
 
-      # cppcheck 2.20.0 from source (cached)
       - uses: actions/cache@v4
         id: cppcheck-cache
         with:
@@ -42,18 +40,10 @@ jobs:
       - name: Add cppcheck to PATH
         run: echo "/opt/cppcheck/bin" >> "$GITHUB_PATH"
 
-      - name: Verify versions
-        run: |
-          echo "clang-format: $(clang-format-20 --version)"
-          echo "cppcheck: $(cppcheck --version)"
+      - name: Lint
+        run: scripts/lint.sh CLANG_FORMAT=clang-format-20
 
-      - name: clang-format
-        run: make -f Makefile.cbm lint-format CLANG_FORMAT=clang-format-20
-
-      - name: cppcheck
-        run: make -f Makefile.cbm lint-cppcheck
-
-  # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
+  # ── Step 2: Unit tests (ASan + UBSan) ───────────────────────
   test:
     needs: [lint]
     strategy:
@@ -84,10 +74,10 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
 
-      - name: Run C tests (ASan + UBSan)
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
+      - name: Test
+        run: scripts/test.sh CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
-  # ── Step 3: Build binaries (standard + UI, all OS) ───────────
+  # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
     needs: [test]
     strategy:
@@ -126,7 +116,7 @@ jobs:
           node-version: "22"
 
       - name: Build standard binary
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
+        run: scripts/build.sh CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
       - name: Archive standard binary
         run: |
@@ -134,7 +124,7 @@ jobs:
             -C build/c codebase-memory-mcp
 
       - name: Build UI binary
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
+        run: scripts/build.sh --with-ui CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
       - name: Archive UI binary
         run: |
@@ -168,7 +158,7 @@ jobs:
 
       - name: Build standard binary
         shell: msys2 {0}
-        run: make -j$(nproc) -f Makefile.cbm cbm
+        run: scripts/build.sh
 
       - name: Archive standard binary
         shell: pwsh
@@ -178,7 +168,7 @@ jobs:
 
       - name: Build UI binary
         shell: msys2 {0}
-        run: make -j$(nproc) -f Makefile.cbm cbm-with-ui
+        run: scripts/build.sh --with-ui
 
       - name: Archive UI binary
         shell: pwsh
@@ -191,7 +181,7 @@ jobs:
           name: binaries-windows-amd64
           path: "*.zip"
 
-  # ── Step 4: Smoke test every binary ──────────────────────────
+  # ── Step 4: Smoke test every binary ─────────────────────────
   smoke-unix:
     needs: [build-unix]
     strategy:
