@@ -237,10 +237,11 @@ TEST(pipeline_structure_nodes) {
     ASSERT_GTE(node_count, 9); /* 6 structure + at least 3 definitions */
 
     /* Verify project node exists */
-    cbm_node_t proj_node;
+    cbm_node_t proj_node = {0};
     rc = cbm_store_find_node_by_qn(s, project, project, &proj_node);
     ASSERT_EQ(rc, CBM_STORE_OK);
     ASSERT_STR_EQ(proj_node.label, "Project");
+    cbm_node_free_fields(&proj_node);
 
     /* Verify folder nodes */
     cbm_node_t *folders = NULL;
@@ -894,13 +895,15 @@ TEST(usages_creates_edges) {
 
     bool found_usage = false;
     for (int i = 0; i < edge_count; i++) {
-        cbm_node_t src, tgt;
+        cbm_node_t src = {0}, tgt = {0};
         if (cbm_store_find_node_by_id(s, edges[i].source_id, &src) == CBM_STORE_OK &&
             cbm_store_find_node_by_id(s, edges[i].target_id, &tgt) == CBM_STORE_OK) {
             if (strcmp(src.name, "Register") == 0 && strcmp(tgt.name, "Process") == 0) {
                 found_usage = true;
             }
         }
+        cbm_node_free_fields(&src);
+        cbm_node_free_fields(&tgt);
     }
     if (edges)
         cbm_store_free_edges(edges, edge_count);
@@ -946,13 +949,15 @@ TEST(usages_no_duplicate_calls) {
 
     bool found_call = false;
     for (int i = 0; i < call_count; i++) {
-        cbm_node_t src, tgt;
+        cbm_node_t src = {0}, tgt = {0};
         if (cbm_store_find_node_by_id(s, call_edges[i].source_id, &src) == CBM_STORE_OK &&
             cbm_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CBM_STORE_OK) {
             if (strcmp(src.name, "Main") == 0 && strcmp(tgt.name, "Helper") == 0) {
                 found_call = true;
             }
         }
+        cbm_node_free_fields(&src);
+        cbm_node_free_fields(&tgt);
     }
     if (call_edges)
         cbm_store_free_edges(call_edges, call_count);
@@ -964,11 +969,13 @@ TEST(usages_no_duplicate_calls) {
     cbm_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
 
     for (int i = 0; i < usage_count; i++) {
-        cbm_node_t src, tgt;
+        cbm_node_t src = {0}, tgt = {0};
         if (cbm_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CBM_STORE_OK &&
             cbm_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CBM_STORE_OK) {
             ASSERT_FALSE(strcmp(src.name, "Main") == 0 && strcmp(tgt.name, "Helper") == 0);
         }
+        cbm_node_free_fields(&src);
+        cbm_node_free_fields(&tgt);
     }
     if (usage_edges)
         cbm_store_free_edges(usage_edges, usage_count);
@@ -1054,13 +1061,15 @@ TEST(usages_kotlin_no_duplicate_calls) {
 
     bool found_call = false;
     for (int i = 0; i < call_count; i++) {
-        cbm_node_t src, tgt;
+        cbm_node_t src = {0}, tgt = {0};
         if (cbm_store_find_node_by_id(s, call_edges[i].source_id, &src) == CBM_STORE_OK &&
             cbm_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CBM_STORE_OK) {
             if (strcmp(src.name, "main") == 0 && strcmp(tgt.name, "helper") == 0) {
                 found_call = true;
             }
         }
+        cbm_node_free_fields(&src);
+        cbm_node_free_fields(&tgt);
     }
     if (call_edges)
         cbm_store_free_edges(call_edges, call_count);
@@ -1072,11 +1081,13 @@ TEST(usages_kotlin_no_duplicate_calls) {
     cbm_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
 
     for (int i = 0; i < usage_count; i++) {
-        cbm_node_t src, tgt;
+        cbm_node_t src = {0}, tgt = {0};
         if (cbm_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CBM_STORE_OK &&
             cbm_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CBM_STORE_OK) {
             ASSERT_FALSE(strcmp(src.name, "main") == 0 && strcmp(tgt.name, "helper") == 0);
         }
+        cbm_node_free_fields(&src);
+        cbm_node_free_fields(&tgt);
     }
     if (usage_edges)
         cbm_store_free_edges(usage_edges, usage_count);
@@ -1597,11 +1608,12 @@ TEST(pipeline_form_call_resolution) {
     cbm_store_find_edges_by_type(s, proj, "CALLS", &edges, &ec);
     bool found = false;
     for (int i = 0; i < ec; i++) {
-        cbm_node_t tgt;
+        cbm_node_t tgt = {0};
         if (cbm_store_find_node_by_id(s, edges[i].target_id, &tgt) == CBM_STORE_OK &&
             strcmp(tgt.name, "callee") == 0) {
             found = true;
         }
+        cbm_node_free_fields(&tgt);
     }
     ASSERT_TRUE(found);
     if (edges)
