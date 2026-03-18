@@ -31,12 +31,10 @@ LIBGIT2_FLAGS =
 LIBGIT2_LIBS =
 endif
 
-# GCC-specific warning suppressions (Clang doesn't have these flags)
-GCC_NOWARN := $(shell $(CC) -Wno-format-truncation -x c -c /dev/null -o /dev/null 2>/dev/null && echo "-Wno-format-truncation -Wno-restrict -Wno-unused-result")
-
 CFLAGS_COMMON = -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror \
                 -Wno-unused-parameter -Wno-sign-compare \
-                $(GCC_NOWARN) \
+                -Wno-unknown-warning-option \
+                -Wno-format-truncation -Wno-restrict -Wno-unused-result \
                 -Isrc -Ivendored -Ivendored/sqlite3 \
                 -Ivendored/mimalloc/include \
                 -I$(CBM_DIR) -I$(TS_INCLUDE) \
