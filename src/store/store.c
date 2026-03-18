@@ -3431,7 +3431,7 @@ static int arch_file_tree(cbm_store_t *s, const char *project, cbm_architecture_
 
 int cbm_louvain(const int64_t *nodes, int node_count, const cbm_louvain_edge_t *edges,
                 int edge_count, cbm_louvain_result_t **out, int *out_count) {
-    if (node_count == 0) {
+    if (node_count <= 0) {
         *out = NULL;
         *out_count = 0;
         return CBM_STORE_OK;

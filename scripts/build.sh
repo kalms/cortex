@@ -82,7 +82,7 @@ print_env "build.sh"
 echo "  ui=$WITH_UI version=${VERSION:-dev}"
 
 # Verify compiler supports target arch
-verify_compiler "${CC:-gcc-14}"
+verify_compiler "$CC"
 
 # Step 1: Clean C build artifacts only (not node_modules — npm ci handles that)
 rm -rf "$ROOT/build/c"

@@ -6,13 +6,10 @@
 #   macOS:        not possible in Docker — test natively: scripts/test.sh CC=cc
 #   Windows:      not possible in Docker on Mac — CI only
 #
-# Usage:
-#   ./test-infrastructure/run.sh              # test arm64 (native, fast)
-#   ./test-infrastructure/run.sh all          # test arm64 + amd64 in parallel
-#   ./test-infrastructure/run.sh amd64        # test amd64 only (QEMU, slower)
-#   ./test-infrastructure/run.sh lint         # lint only
+# Each platform runs BOTH test (ASan/LeakSan) AND production build (-O2 -Werror).
 
 services:
+  # ── Test builds (ASan + UBSan + LeakSanitizer) ──────────────
   test:
     build:
       context: ..
@@ -31,6 +28,28 @@ services:
       - ..:/src
     command: ["CC=gcc", "CXX=g++"]
 
+  # ── Production builds (-O2 -Werror, catches stricter GCC warnings) ──
+  build:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile
+    platform: linux/arm64
+    volumes:
+      - ..:/src
+    entrypoint: ["scripts/build.sh"]
+    command: ["CC=gcc", "CXX=g++"]
+
+  build-amd64:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile
+    platform: linux/amd64
+    volumes:
+      - ..:/src
+    entrypoint: ["scripts/build.sh"]
+    command: ["CC=gcc", "CXX=g++"]
+
+  # ── Lint ────────────────────────────────────────────────────
   lint:
     build:
       context: ..

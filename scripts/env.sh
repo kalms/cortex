@@ -74,6 +74,17 @@ verify_compiler() {
     fi
 }
 
+# ── Default compiler selection ─────────────────────────────────
+# macOS: cc (Apple Clang). Linux/Windows: gcc (system default).
+# CI overrides via CC=gcc CXX=g++ args. Local macOS overrides via CC=cc.
+if [[ -z "${CC:-}" ]]; then
+    if [[ "$OS" == "darwin" ]]; then
+        export CC=cc CXX=c++
+    else
+        export CC=gcc CXX=g++
+    fi
+fi
+
 # ── Print environment summary ──────────────────────────────────
 print_env() {
     local context="$1"
