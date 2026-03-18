@@ -49,16 +49,11 @@ uint64_t cbm_now_ms(void);
 /* Number of available CPU cores. */
 int cbm_nprocs(void);
 
-/* Extended system topology: core types, cache, RAM. */
+/* System topology: core types and RAM (only fields with production consumers). */
 typedef struct {
-    int total_cores;      /* hw.ncpu (all cores) */
-    int perf_cores;       /* P-cores (Apple) or total_cores (others) */
-    int efficiency_cores; /* E-cores (Apple) or 0 */
-    size_t total_ram;     /* total physical RAM in bytes */
-    size_t free_ram;      /* available RAM in bytes (snapshot) */
-    int cache_line_size;  /* bytes: 128 on Apple Silicon, 64 on Intel */
-    size_t l2_cache_perf; /* per-cluster L2 (P-cores) */
-    size_t l2_cache_eff;  /* per-cluster L2 (E-cores), 0 if N/A */
+    int total_cores;  /* hw.ncpu (all cores) */
+    int perf_cores;   /* P-cores (Apple) or total_cores (others) */
+    size_t total_ram; /* total physical RAM in bytes */
 } cbm_system_info_t;
 
 /* Query system information. Results are cached after first call. */

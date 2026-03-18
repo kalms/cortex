@@ -1,7 +1,7 @@
 /*
  * test_worker_pool.c — Tests for system info detection and parallel-for dispatch.
  *
- * Suite: suite_system_info  — CPU topology, RAM, cache detection
+ * Suite: suite_system_info  — CPU topology and RAM detection
  * Suite: suite_worker_pool  — Parallel-for correctness + concurrency validation
  */
 #include "test_framework.h"
@@ -33,12 +33,6 @@ TEST(system_info_perf_cores) {
     PASS();
 }
 
-TEST(system_info_cache_line) {
-    cbm_system_info_t info = cbm_system_info();
-    ASSERT(info.cache_line_size == 64 || info.cache_line_size == 128);
-    PASS();
-}
-
 TEST(system_info_total_ram) {
     cbm_system_info_t info = cbm_system_info();
     /* More than 1 GB */
@@ -46,29 +40,12 @@ TEST(system_info_total_ram) {
     PASS();
 }
 
-TEST(system_info_free_ram) {
-    cbm_system_info_t info = cbm_system_info();
-    ASSERT(info.free_ram > 0);
-    ASSERT(info.free_ram <= info.total_ram);
-    PASS();
-}
-
-TEST(system_info_l2_cache) {
-    cbm_system_info_t info = cbm_system_info();
-    /* At least some L2 cache */
-    ASSERT(info.l2_cache_perf > 0);
-    PASS();
-}
-
 TEST(system_info_idempotent) {
     cbm_system_info_t info1 = cbm_system_info();
     cbm_system_info_t info2 = cbm_system_info();
-    /* Stable fields must match (free_ram can change between calls,
-     * but cached results should be identical) */
+    /* Cached results must be identical */
     ASSERT_EQ(info1.total_cores, info2.total_cores);
     ASSERT_EQ(info1.perf_cores, info2.perf_cores);
-    ASSERT_EQ(info1.efficiency_cores, info2.efficiency_cores);
-    ASSERT_EQ(info1.cache_line_size, info2.cache_line_size);
     ASSERT_EQ(info1.total_ram, info2.total_ram);
     PASS();
 }
@@ -248,10 +225,7 @@ SUITE(system_info) {
     RUN_TEST(system_info_total_cores);
     RUN_TEST(system_info_total_cores_sane);
     RUN_TEST(system_info_perf_cores);
-    RUN_TEST(system_info_cache_line);
     RUN_TEST(system_info_total_ram);
-    RUN_TEST(system_info_free_ram);
-    RUN_TEST(system_info_l2_cache);
     RUN_TEST(system_info_idempotent);
     RUN_TEST(default_worker_count_initial);
     RUN_TEST(default_worker_count_incremental);
