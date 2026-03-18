@@ -7,8 +7,11 @@
 #   make -f Makefile.cbm cbm            # Production binary
 #   make -f Makefile.cbm clean-c        # Remove build artifacts
 
-CC = cc
-CXX = c++
+# Pin GCC for consistent behavior across macOS, Linux, and CI.
+# macOS: brew install gcc → gcc-14/g++-14. Linux: system gcc/g++.
+# Override with: make CC=gcc-14 CXX=g++-14
+CC ?= gcc-14
+CXX ?= g++-14
 
 # ── Common flags ─────────────────────────────────────────────────
 
@@ -33,8 +36,7 @@ endif
 
 CFLAGS_COMMON = -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror \
                 -Wno-unused-parameter -Wno-sign-compare \
-                -Wno-unknown-warning-option \
-                -Wno-format-truncation -Wno-restrict -Wno-unused-result \
+                -Wno-format-truncation -Wno-unused-result \
                 -Isrc -Ivendored -Ivendored/sqlite3 \
                 -Ivendored/mimalloc/include \
                 -I$(CBM_DIR) -I$(TS_INCLUDE) \

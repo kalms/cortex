@@ -74,12 +74,20 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: amd64
+            cc: gcc
+            cxx: g++
           - os: ubuntu-24.04-arm
             arch: arm64
+            cc: gcc
+            cxx: g++
           - os: macos-14
             arch: arm64
+            cc: gcc-14
+            cxx: g++-14
           - os: macos-15-intel
             arch: amd64
+            cc: gcc-14
+            cxx: g++-14
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +97,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
 
       - name: Run C tests (ASan + UBSan)
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test
+        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
   # ── Step 3: Build binaries (standard + UI, all OS) ───────────
   build-unix:
@@ -100,15 +108,23 @@ jobs:
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
+            cc: gcc
+            cxx: g++
           - os: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
+            cc: gcc
+            cxx: g++
           - os: macos-14
             goos: darwin
             goarch: arm64
+            cc: gcc-14
+            cxx: g++-14
           - os: macos-15-intel
             goos: darwin
             goarch: amd64
+            cc: gcc-14
+            cxx: g++-14
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -127,6 +143,7 @@ jobs:
         run: |
           CLEAN_VERSION="${VERSION#v}"
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm \
+            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
       - name: Archive standard binary
@@ -140,6 +157,7 @@ jobs:
         run: |
           CLEAN_VERSION="${VERSION#v}"
           make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui \
+            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} \
             CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
 
       - name: Archive UI binary
