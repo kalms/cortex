@@ -7,11 +7,10 @@
 #   make -f Makefile.cbm cbm            # Production binary
 #   make -f Makefile.cbm clean-c        # Remove build artifacts
 
-# Pin GCC for consistent behavior across macOS, Linux, and CI.
-# macOS: brew install gcc → gcc-14/g++-14. Linux: system gcc/g++.
-# Override with: make CC=gcc-14 CXX=g++-14
-CC ?= gcc-14
-CXX ?= g++-14
+# Compiler selection — override via: make CC=gcc CXX=g++
+# macOS: cc (Apple Clang) — universal binary with ASan support
+# Linux: gcc/g++ — system default with full sanitizer support
+# CI scripts pass CC/CXX explicitly; don't rely on defaults here
 
 # ── Common flags ─────────────────────────────────────────────────
 
