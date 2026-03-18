@@ -13,13 +13,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Forward overrides from args (e.g. CLANG_FORMAT=clang-format-20)
+# shellcheck source=env.sh
+source "$ROOT/scripts/env.sh"
+
+# Forward overrides from args
 MAKE_ARGS=()
 for arg in "$@"; do
     MAKE_ARGS+=("$arg")
 done
 
-echo "=== lint.sh: running clang-format + cppcheck ==="
+print_env "lint.sh"
 
 # Run format and cppcheck in parallel
 make -j2 -f Makefile.cbm lint-ci "${MAKE_ARGS[@]+"${MAKE_ARGS[@]}"}"
