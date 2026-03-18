@@ -87,6 +87,11 @@ verify_compiler "$CC"
 # Step 1: Clean C build artifacts only (not node_modules — npm ci handles that)
 rm -rf "$ROOT/build/c"
 
+# Forward WIN32_LIBS from environment (set by CI env: block)
+if [[ -n "${WIN32_LIBS:-}" ]]; then
+    EXTRA_MAKE_ARGS+=("WIN32_LIBS=$WIN32_LIBS")
+fi
+
 # Step 2: Build (with arch prefix on macOS)
 if $WITH_UI; then
     $ARCH_PREFIX make -j"$NPROC" -f Makefile.cbm cbm-with-ui \

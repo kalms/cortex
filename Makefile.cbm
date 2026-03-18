@@ -72,8 +72,9 @@ CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
 CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
                 -fsanitize=thread -fno-omit-frame-pointer
 
-# Windows needs ws2_32 (Winsock) and psapi (GetProcessMemoryInfo).
-# Override via: make WIN32_LIBS="-lws2_32 -lpsapi" for cross-compilation.
+# Windows needs ws2_32 (Winsock), psapi (GetProcessMemoryInfo), and
+# --allow-multiple-definition (MinGW CRT symbol clashes).
+# Pass WIN32_LIBS on command line for Windows builds.
 WIN32_LIBS ?=
 
 LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS) $(WIN32_LIBS)

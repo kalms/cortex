@@ -38,16 +38,20 @@ done
 # shellcheck source=env.sh
 source "$ROOT/scripts/env.sh"
 
-# Forward CC/CXX and collect make-passthrough args (WIN32_LIBS=)
+# Forward CC/CXX and collect make-passthrough args
 MAKE_ARGS=""
 for arg in "$@"; do
     case "$arg" in
         CC=*|CXX=*) export "${arg}" ;;
-        WIN32_LIBS=*) MAKE_ARGS="$MAKE_ARGS $arg" ;;
         --arch|--arch=*) ;; # already handled
         arm64|x86_64) ;; # already handled
+        *=*) MAKE_ARGS="$MAKE_ARGS $arg" ;; # forward any VAR=VAL to make
     esac
 done
+# Also forward WIN32_LIBS from environment (set by CI env: block)
+if [[ -n "${WIN32_LIBS:-}" ]]; then
+    MAKE_ARGS="$MAKE_ARGS WIN32_LIBS=$WIN32_LIBS"
+fi
 
 print_env "test.sh"
 
