@@ -10,11 +10,6 @@
 #include "platform.h"
 #include "log.h"
 
-#include <mach/task_info.h>
-#include <mach/message.h>
-#include <mach/task.h>
-#include <mach/mach_init.h>
-#include <mach/kern_return.h>
 #include <mimalloc.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -26,6 +21,7 @@
 #include <windows.h>
 #include <psapi.h>
 #elif defined(__APPLE__)
+#include <mach/mach.h>
 #else
 #include <unistd.h>
 #endif

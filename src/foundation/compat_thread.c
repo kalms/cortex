@@ -7,10 +7,8 @@
 #include "foundation/compat_thread.h"
 
 #include <pthread.h>
-#include <malloc/_malloc.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/_pthread/_pthread_attr_t.h>
 
 /* ── Thread ───────────────────────────────────────────────────── */
 

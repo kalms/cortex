@@ -6,7 +6,6 @@
  */
 #include "foundation/compat_regex.h"
 
-#include <_regex.h>
 #include <string.h>
 
 #ifdef _WIN32

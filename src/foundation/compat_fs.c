@@ -7,12 +7,8 @@
 #include "foundation/compat_fs.h"
 
 #include <stdio.h>
-#include <_stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/dirent.h>
-#include <sys/_types/_mode_t.h>
-#include <sys/errno.h>
 
 #ifdef _WIN32
 

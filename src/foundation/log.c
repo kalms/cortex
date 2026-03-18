@@ -2,8 +2,7 @@
  * log.c — Structured key-value logging to stderr.
  */
 #include "log.h"
-#include <_stdio.h>
-#include <inttypes.h> // PRId64
+#include <inttypes.h>
 #include <stdint.h>   // int64_t
 #include <stdio.h>
 #include <stdarg.h>
