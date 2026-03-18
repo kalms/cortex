@@ -1,15 +1,13 @@
-# Local test environment — mirrors GitHub Actions CI for all Docker-capable platforms.
+# Local test environment — mirrors GitHub Actions CI for ALL platforms.
 #
-# Coverage matrix:
-#   Linux arm64:  native on Apple Silicon (mirrors CI ubuntu-24.04-arm)
-#   Linux amd64:  QEMU emulation (mirrors CI ubuntu-latest)
-#   macOS:        not possible in Docker — test natively: scripts/test.sh CC=cc
-#   Windows:      not possible in Docker on Mac — CI only
-#
-# Each platform runs BOTH test (ASan/LeakSan) AND production build (-O2 -Werror).
+# Coverage:
+#   Linux arm64:  native test + build (mirrors CI ubuntu-24.04-arm)
+#   Linux amd64:  QEMU test + build (mirrors CI ubuntu-latest)
+#   Windows:      cross-compile with mingw-w64 (catches all compile errors)
+#   macOS:        run natively — scripts/test.sh CC=cc && scripts/build.sh CC=cc
 
 services:
-  # ── Test builds (ASan + UBSan + LeakSanitizer) ──────────────
+  # ── Linux test (ASan + UBSan + LeakSanitizer) ──────────────
   test:
     build:
       context: ..
@@ -28,7 +26,7 @@ services:
       - ..:/src
     command: ["CC=gcc", "CXX=g++"]
 
-  # ── Production builds (-O2 -Werror, catches stricter GCC warnings) ──
+  # ── Linux production build (-O2 -Werror) ───────────────────
   build:
     build:
       context: ..
@@ -48,6 +46,14 @@ services:
       - ..:/src
     entrypoint: ["scripts/build.sh"]
     command: ["CC=gcc", "CXX=g++"]
+
+  # ── Windows cross-compile (mingw-w64, compile-check only) ──
+  build-windows:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.mingw
+    volumes:
+      - ..:/src
 
   # ── Lint ────────────────────────────────────────────────────
   lint:

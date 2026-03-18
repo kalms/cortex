@@ -18,7 +18,7 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <sys/sysctl.h>
-#else /* Linux */
+#elif !defined(_WIN32) /* Linux */
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #endif
@@ -68,7 +68,7 @@ static cbm_system_info_t detect_system_macos(void) {
     return info;
 }
 
-#else /* Linux */
+#elif !defined(_WIN32) /* Linux */
 
 static cbm_system_info_t detect_system_linux(void) {
     cbm_system_info_t info;

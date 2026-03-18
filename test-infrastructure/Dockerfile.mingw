@@ -1,0 +1,25 @@
+# Cross-compile for Windows using mingw-w64 — catches all compile errors
+# (missing headers, POSIX functions, type mismatches) without needing Windows.
+#
+# Compiles all source files to .o but does NOT link (Ubuntu's mingw CRT
+# differs from MSYS2 UCRT64). Linking is verified by CI on actual Windows.
+
+FROM ubuntu:noble
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mingw-w64 make \
+    libz-mingw-w64-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Compile-check: build all objects without linking
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["make -j4 -f Makefile.cbm clean-c && \
+     CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
+     make -j4 -f Makefile.cbm build/c/codebase-memory-mcp \
+       CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
+       'WIN32_LIBS=-lws2_32 -lpsapi' \
+       LDFLAGS='-lm -lstdc++ -lz -lws2_32 -lpsapi -Wl,--allow-multiple-definition' \
+       LDFLAGS_TEST='-lm -lstdc++ -lz -lws2_32 -lpsapi -Wl,--allow-multiple-definition' \
+     && echo '=== Windows cross-compile: all sources compiled ==='"]

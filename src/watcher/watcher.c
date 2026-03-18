@@ -69,8 +69,8 @@ struct cbm_watcher {
 
 static int64_t now_ns(void) {
     struct timespec ts;
-    // NOLINTNEXTLINE(misc-include-cleaner) — clock_gettime provided by standard header
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    // NOLINTNEXTLINE(misc-include-cleaner) — cbm_clock_gettime provided by standard header
+    cbm_clock_gettime(CLOCK_MONOTONIC, &ts);
     return ((int64_t)ts.tv_sec * NS_PER_SEC) + ts.tv_nsec;
 }
 
