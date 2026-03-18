@@ -21,6 +21,9 @@
 #   internal/cbm/vendored/ts_runtime/include — tree-sitter API
 CBM_DIR = internal/cbm
 TS_INCLUDE = $(CBM_DIR)/vendored/ts_runtime/include
+# Vendored tree-sitter src/ contains unicode/ headers (umachine.h, utf.h, utf8.h).
+# This ensures we use our vendored copies instead of requiring system libicu-dev.
+TS_SRC = $(CBM_DIR)/vendored/ts_runtime/src
 
 # ── Optional libgit2 (faster git history parsing) ────────────────
 # Auto-detected via pkg-config. Falls back to popen("git log ...") if absent.
@@ -71,9 +74,9 @@ CFLAGS_TSAN = $(CFLAGS_COMMON) -g -O1 \
 CXXFLAGS_TSAN = $(CXXFLAGS_COMMON) -g -O1 \
                 -fsanitize=thread -fno-omit-frame-pointer
 
-LDFLAGS = -lm -lstdc++ -lpthread -lsqlite3 -lz $(LIBGIT2_LIBS)
-LDFLAGS_TEST = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=address,undefined $(LIBGIT2_LIBS)
-LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lsqlite3 -lz -fsanitize=thread $(LIBGIT2_LIBS)
+LDFLAGS = -lm -lstdc++ -lpthread -lz $(LIBGIT2_LIBS)
+LDFLAGS_TEST = -lm -lstdc++ -lpthread -lz -fsanitize=address,undefined $(LIBGIT2_LIBS)
+LDFLAGS_TSAN = -lm -lstdc++ -lpthread -lz -fsanitize=thread $(LIBGIT2_LIBS)
 
 # ── Source files ─────────────────────────────────────────────────
 
@@ -200,6 +203,11 @@ MIMALLOC_CFLAGS_TEST = -std=c11 -g -O1 -w \
                        -Ivendored/mimalloc/src \
                        -DMI_OVERRIDE=0
 
+# sqlite3 (vendored amalgamation — compiled ourselves for ASan instrumentation)
+SQLITE3_SRC = vendored/sqlite3/sqlite3.c
+SQLITE3_CFLAGS = -std=c11 -O2 -w -DSQLITE_DQS=0 -DSQLITE_THREADSAFE=1
+SQLITE3_CFLAGS_TEST = -std=c11 -g -O1 -w -DSQLITE_DQS=0 -DSQLITE_THREADSAFE=1
+
 # yyjson (vendored)
 YYJSON_SRC = vendored/yyjson/yyjson.c
 
@@ -276,10 +284,10 @@ BUILD_DIR = build/c
 # ── Object file compilation (grammars need relaxed warnings) ─────
 
 # Grammar + tree-sitter runtime: compiled without -Werror (upstream code has warnings)
-GRAMMAR_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR) -I$(TS_INCLUDE)
-GRAMMAR_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) \
+GRAMMAR_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC)
+GRAMMAR_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
                       -fsanitize=address,undefined -fno-omit-frame-pointer
-GRAMMAR_CFLAGS_TSAN = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) \
+GRAMMAR_CFLAGS_TSAN = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
                       -fsanitize=thread -fno-omit-frame-pointer
 
 # Object files for grammars + ts_runtime + lsp_all + preprocessor
@@ -339,7 +347,17 @@ $(BUILD_DIR)/mimalloc.o: $(MIMALLOC_SRC) | $(BUILD_DIR)
 $(BUILD_DIR)/prod_mimalloc.o: $(MIMALLOC_SRC) | $(BUILD_DIR)
 	$(CC) $(MIMALLOC_CFLAGS) -c -o $@ $<
 
-OBJS_VENDORED_TEST = $(MIMALLOC_OBJ_TEST) $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST) $(MONGOOSE_OBJ_TEST)
+# sqlite3 object files (vendored amalgamation)
+SQLITE3_OBJ_TEST = $(BUILD_DIR)/sqlite3.o
+SQLITE3_OBJ_PROD = $(BUILD_DIR)/prod_sqlite3.o
+
+$(BUILD_DIR)/sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
+	$(CC) $(SQLITE3_CFLAGS_TEST) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+
+$(BUILD_DIR)/prod_sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
+	$(CC) $(SQLITE3_CFLAGS) -c -o $@ $<
+
+OBJS_VENDORED_TEST = $(MIMALLOC_OBJ_TEST) $(SQLITE3_OBJ_TEST) $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST) $(MONGOOSE_OBJ_TEST)
 
 $(BUILD_DIR)/test-runner: $(ALL_TEST_SRCS) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_TEST) | $(BUILD_DIR)
 	$(CC) $(CFLAGS_TEST) -o $@ \
@@ -376,7 +394,7 @@ $(BUILD_DIR)/prod_lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
 $(BUILD_DIR)/prod_preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS_PROD) -w -I$(CBM_DIR)/vendored -c -o $@ $<
 
-OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(MONGOOSE_OBJ_PROD)
+OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(SQLITE3_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(MONGOOSE_OBJ_PROD)
 
 MAIN_SRC = src/main.c
 

@@ -731,7 +731,7 @@ int cbm_store_find_node_ids_by_qns(cbm_store_t *s, const char *project, const ch
     memset(out_ids, 0, (size_t)qn_count * sizeof(int64_t));
 
     int found = 0;
-    cbm_node_t node;
+    cbm_node_t node = {0};
     for (int i = 0; i < qn_count; i++) {
         if (!qns[i]) {
             continue;
@@ -740,9 +740,10 @@ int cbm_store_find_node_ids_by_qns(cbm_store_t *s, const char *project, const ch
         if (rc == CBM_STORE_OK) {
             out_ids[i] = node.id;
             found++;
+            cbm_node_free_fields(&node);
+            memset(&node, 0, sizeof(node));
         }
     }
-    // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
     return found;
 }
 
@@ -4278,14 +4279,18 @@ void cbm_store_free_edges(cbm_edge_t *edges, int count) {
     free(edges);
 }
 
+void cbm_project_free_fields(cbm_project_t *p) {
+    free((void *)p->name);
+    free((void *)p->indexed_at);
+    free((void *)p->root_path);
+}
+
 void cbm_store_free_projects(cbm_project_t *projects, int count) {
     if (!projects) {
         return;
     }
     for (int i = 0; i < count; i++) {
-        free((void *)projects[i].name);
-        free((void *)projects[i].indexed_at);
-        free((void *)projects[i].root_path);
+        cbm_project_free_fields(&projects[i]);
     }
     free(projects);
 }

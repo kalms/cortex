@@ -1,0 +1,26 @@
+# Local Ubuntu test environment — mirrors GitHub Actions CI exactly.
+#
+# Usage:
+#   docker compose -f test-infrastructure/docker-compose.yml run --rm test
+#   docker compose -f test-infrastructure/docker-compose.yml run --rm lint
+#
+# Shortcut (from repo root):
+#   ./test-infrastructure/run.sh          # test
+#   ./test-infrastructure/run.sh lint     # lint only
+
+services:
+  test:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile
+    volumes:
+      - ..:/src
+    # GCC + ASan + UBSan + LeakSanitizer (exactly what CI runs)
+    command: ["CC=gcc", "CXX=g++"]
+
+  lint:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.lint
+    volumes:
+      - ..:/src
