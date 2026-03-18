@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── Step 1: Lint (clang-format + cppcheck, no clang-tidy) ────
+  # ── Step 1: Lint (clang-format + cppcheck) ───────────────────
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -54,18 +54,10 @@ jobs:
       - name: Add cppcheck to PATH
         run: echo "/opt/cppcheck/bin" >> "$GITHUB_PATH"
 
-      - name: Verify versions
-        run: |
-          echo "clang-format: $(clang-format-20 --version)"
-          echo "cppcheck: $(cppcheck --version)"
+      - name: Lint
+        run: scripts/lint.sh CLANG_FORMAT=clang-format-20
 
-      - name: clang-format
-        run: make -f Makefile.cbm lint-format CLANG_FORMAT=clang-format-20
-
-      - name: cppcheck
-        run: make -f Makefile.cbm lint-cppcheck
-
-  # ── Step 2: Unit tests (ASan + UBSan) ────────────────────────
+  # ── Step 2: Unit tests (ASan + UBSan) ───────────────────────
   test:
     needs: [lint]
     strategy:
@@ -96,10 +88,10 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev zlib1g-dev
 
-      - name: Run C tests (ASan + UBSan)
-        run: make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm test CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
+      - name: Test
+        run: scripts/test.sh CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
-  # ── Step 3: Build binaries (standard + UI, all OS) ───────────
+  # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
     needs: [test]
     strategy:
@@ -138,13 +130,7 @@ jobs:
           node-version: "22"
 
       - name: Build standard binary
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          CLEAN_VERSION="${VERSION#v}"
-          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm \
-            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} \
-            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+        run: scripts/build.sh --version ${{ inputs.version }} CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
       - name: Archive standard binary
         run: |
@@ -152,13 +138,7 @@ jobs:
             -C build/c codebase-memory-mcp
 
       - name: Build UI binary
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          CLEAN_VERSION="${VERSION#v}"
-          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) -f Makefile.cbm cbm-with-ui \
-            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} \
-            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+        run: scripts/build.sh --with-ui --version ${{ inputs.version }} CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
       - name: Archive UI binary
         run: |
@@ -192,12 +172,7 @@ jobs:
 
       - name: Build standard binary
         shell: msys2 {0}
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          CLEAN_VERSION="${VERSION#v}"
-          make -j$(nproc) -f Makefile.cbm cbm \
-            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+        run: scripts/build.sh --version ${{ inputs.version }}
 
       - name: Archive standard binary
         shell: pwsh
@@ -207,12 +182,7 @@ jobs:
 
       - name: Build UI binary
         shell: msys2 {0}
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          CLEAN_VERSION="${VERSION#v}"
-          make -j$(nproc) -f Makefile.cbm cbm-with-ui \
-            CFLAGS_EXTRA="-DCBM_VERSION=\"\\\"$CLEAN_VERSION\\\"\""
+        run: scripts/build.sh --with-ui --version ${{ inputs.version }}
 
       - name: Archive UI binary
         shell: pwsh
@@ -225,7 +195,7 @@ jobs:
           name: binaries-windows-amd64
           path: "*.zip"
 
-  # ── Step 4: Smoke test every binary ──────────────────────────
+  # ── Step 4: Smoke test every binary ─────────────────────────
   smoke-unix:
     needs: [build-unix]
     strategy:
@@ -291,7 +261,7 @@ jobs:
         shell: msys2 {0}
         run: scripts/smoke-test.sh ./codebase-memory-mcp.exe
 
-  # ── Step 5: Create GitHub release ────────────────────────────
+  # ── Step 5: Create GitHub release ───────────────────────────
   release:
     needs: [smoke-unix, smoke-windows]
     runs-on: ubuntu-latest
