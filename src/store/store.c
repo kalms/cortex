@@ -4247,7 +4247,7 @@ int cbm_store_find_architecture_docs(cbm_store_t *s, const char *project, char *
 
 /* ── Memory management ──────────────────────────────────────────── */
 
-static void free_node_fields(cbm_node_t *n) {
+void cbm_node_free_fields(cbm_node_t *n) {
     free((void *)n->project);
     free((void *)n->label);
     free((void *)n->name);
@@ -4261,7 +4261,7 @@ void cbm_store_free_nodes(cbm_node_t *nodes, int count) {
         return;
     }
     for (int i = 0; i < count; i++) {
-        free_node_fields(&nodes[i]);
+        cbm_node_free_fields(&nodes[i]);
     }
     free(nodes);
 }

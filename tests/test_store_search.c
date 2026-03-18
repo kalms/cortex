@@ -451,6 +451,7 @@ TEST(store_dump_to_file) {
     rc = cbm_store_find_node_by_qn(disk, "test", "test.main.Hello", &found);
     ASSERT_EQ(rc, CBM_STORE_OK);
     ASSERT_STR_EQ(found.name, "Hello");
+    cbm_node_free_fields(&found);
 
     cbm_store_close(disk);
     unlink(path);

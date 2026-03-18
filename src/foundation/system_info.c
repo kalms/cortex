@@ -150,8 +150,35 @@ static cbm_system_info_t detect_system_linux(void) {
     if (avail > 0)
         info.free_ram = avail;
 
-    /* L2 cache */
+    /* L2 cache: sysconf works on x86 (glibc reads CPUID), but returns 0
+     * on ARM.  Fall back to sysfs cache topology when sysconf fails. */
     long l2 = sysconf(_SC_LEVEL2_CACHE_SIZE);
+    if (l2 <= 0) {
+        /* Scan /sys/devices/system/cpu/cpu0/cache/index* for level==2 */
+        for (int idx = 0; idx < 8; idx++) {
+            char path[128];
+            snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/level", idx);
+            FILE *f = fopen(path, "r");
+            if (!f)
+                break;
+            int level = 0;
+            if (fscanf(f, "%d", &level) != 1)
+                level = 0;
+            fclose(f);
+            if (level == 2) {
+                snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu0/cache/index%d/size",
+                         idx);
+                f = fopen(path, "r");
+                if (f) {
+                    unsigned long kb = 0;
+                    if (fscanf(f, "%lu", &kb) == 1 && kb > 0)
+                        l2 = (long)(kb * 1024UL);
+                    fclose(f);
+                }
+                break;
+            }
+        }
+    }
     info.l2_cache_perf = l2 > 0 ? (size_t)l2 : 0;
     info.l2_cache_eff = 0;
 

@@ -136,12 +136,14 @@ TEST(store_node_crud) {
     ASSERT_EQ(found.start_line, 10);
     ASSERT_EQ(found.end_line, 20);
     ASSERT_NOT_NULL(found.properties_json);
+    cbm_node_free_fields(&found);
 
     /* Find by ID */
     cbm_node_t found2 = {0};
     rc = cbm_store_find_node_by_id(s, id, &found2);
     ASSERT_EQ(rc, CBM_STORE_OK);
     ASSERT_STR_EQ(found2.qualified_name, "test.main.Foo");
+    cbm_node_free_fields(&found2);
 
     /* Find by name */
     cbm_node_t *nodes = NULL;
@@ -184,6 +186,7 @@ TEST(store_node_dedup) {
     ASSERT_NOT_NULL(found.properties_json);
     /* Should contain "updated" */
     ASSERT(strstr(found.properties_json, "updated") != NULL);
+    cbm_node_free_fields(&found);
 
     cbm_store_close(s);
     PASS();
@@ -449,6 +452,7 @@ TEST(store_file_hash_crud) {
     ASSERT_EQ(rc, CBM_STORE_OK);
     rc = cbm_store_get_file_hashes(s, "test", &hashes, &count);
     ASSERT_EQ(count, 0);
+    cbm_store_free_file_hashes(hashes, count);
 
     cbm_store_close(s);
     PASS();
@@ -472,6 +476,7 @@ TEST(store_node_properties_json) {
     ASSERT_NOT_NULL(found.properties_json);
     ASSERT(strstr(found.properties_json, "visibility") != NULL);
     ASSERT(strstr(found.properties_json, "public") != NULL);
+    cbm_node_free_fields(&found);
 
     cbm_store_close(s);
     PASS();
@@ -493,6 +498,7 @@ TEST(store_node_null_properties) {
     cbm_store_find_node_by_qn(s, "test", "test.Baz", &found);
     ASSERT_NOT_NULL(found.properties_json);
     ASSERT_STR_EQ(found.properties_json, "{}");
+    cbm_node_free_fields(&found);
 
     cbm_store_close(s);
     PASS();
@@ -829,6 +835,7 @@ TEST(store_restore_from) {
     rc = cbm_store_find_node_by_qn(dst, "test", "test.main.Func5", &found);
     ASSERT_EQ(rc, CBM_STORE_OK);
     ASSERT_STR_EQ(found.name, "Func5");
+    cbm_node_free_fields(&found);
 
     int cnt = cbm_store_count_nodes(dst, "test");
     ASSERT_EQ(cnt, 10);

@@ -290,11 +290,11 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     const char* pair_qn = "std.pair";
     {
         static const char* pair_field_names[] = {"first", "second", NULL};
-        const CBMType* pair_field_types[] = {
-            cbm_type_type_param(arena, "T1"),
-            cbm_type_type_param(arena, "T2"),
-            NULL
-        };
+        const CBMType** pair_field_types = (const CBMType**)cbm_arena_alloc(arena,
+            3 * sizeof(const CBMType*));
+        pair_field_types[0] = cbm_type_type_param(arena, "T1");
+        pair_field_types[1] = cbm_type_type_param(arena, "T2");
+        pair_field_types[2] = NULL;
         reg_type_with_fields(reg, arena, pair_qn, "pair", pair_field_names, pair_field_types);
     }
 
