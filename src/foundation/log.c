@@ -3,9 +3,9 @@
  */
 #include "log.h"
 #include <inttypes.h>
-#include <stdint.h>   // int64_t
-#include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
 
 static CBMLogLevel g_log_level = CBM_LOG_INFO;
 static cbm_log_sink_fn g_log_sink = NULL;
