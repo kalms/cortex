@@ -5,8 +5,10 @@
 #define HAVE_WCHAR_H 1
 #define HAVE_WCTYPE_H 1
 #define HAVE_MBSTATE_T 1
-#define TRE_MULTIBYTE 0
-#define TRE_WCHAR 0
+/* Do NOT define TRE_MULTIBYTE or TRE_WCHAR — we use single-byte char only.
+ * #ifdef checks presence, not value, so defining as 0 still enables them. */
+/* #undef TRE_MULTIBYTE */
+/* #undef TRE_WCHAR */
 #define TRE_APPROX 0
 #define TRE_REGEX_T_FIELD value
 #define HAVE_MBRTOWC 1
