@@ -1677,6 +1677,225 @@ int cbm_remove_indexes(const char *home_dir) {
     return count;
 }
 
+/* ── Config store (persistent key-value in _config.db) ─────────── */
+
+#include <sqlite3.h>
+
+struct cbm_config {
+    sqlite3 *db;
+    char get_buf[4096]; /* static buffer for cbm_config_get return values */
+};
+
+cbm_config_t *cbm_config_open(const char *cache_dir) {
+    if (!cache_dir) {
+        return NULL;
+    }
+
+    char dbpath[1024];
+    snprintf(dbpath, sizeof(dbpath), "%s/_config.db", cache_dir);
+
+    /* Ensure directory exists */
+    mkdirp(cache_dir, DIR_PERMS);
+
+    sqlite3 *db = NULL;
+    if (sqlite3_open(dbpath, &db) != SQLITE_OK) {
+        if (db) {
+            sqlite3_close(db);
+        }
+        return NULL;
+    }
+
+    /* Create table if not exists */
+    const char *sql = "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)";
+    char *err_msg = NULL;
+    if (sqlite3_exec(db, sql, NULL, NULL, &err_msg) != SQLITE_OK) {
+        sqlite3_free(err_msg);
+        sqlite3_close(db);
+        return NULL;
+    }
+
+    cbm_config_t *cfg = calloc(1, sizeof(*cfg));
+    if (!cfg) {
+        sqlite3_close(db);
+        return NULL;
+    }
+    cfg->db = db;
+    return cfg;
+}
+
+void cbm_config_close(cbm_config_t *cfg) {
+    if (!cfg) {
+        return;
+    }
+    if (cfg->db) {
+        sqlite3_close(cfg->db);
+    }
+    free(cfg);
+}
+
+const char *cbm_config_get(cbm_config_t *cfg, const char *key, const char *default_val) {
+    if (!cfg || !key) {
+        return default_val;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(cfg->db, "SELECT value FROM config WHERE key = ?", -1, &stmt, NULL) !=
+        SQLITE_OK) {
+        return default_val;
+    }
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+
+    const char *result = default_val;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *val = (const char *)sqlite3_column_text(stmt, 0);
+        if (val) {
+            snprintf(cfg->get_buf, sizeof(cfg->get_buf), "%s", val);
+            result = cfg->get_buf;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool cbm_config_get_bool(cbm_config_t *cfg, const char *key, bool default_val) {
+    const char *val = cbm_config_get(cfg, key, NULL);
+    if (!val) {
+        return default_val;
+    }
+    if (strcmp(val, "true") == 0 || strcmp(val, "1") == 0 || strcmp(val, "on") == 0) {
+        return true;
+    }
+    if (strcmp(val, "false") == 0 || strcmp(val, "0") == 0 || strcmp(val, "off") == 0) {
+        return false;
+    }
+    return default_val;
+}
+
+int cbm_config_get_int(cbm_config_t *cfg, const char *key, int default_val) {
+    const char *val = cbm_config_get(cfg, key, NULL);
+    if (!val) {
+        return default_val;
+    }
+    char *endptr;
+    long v = strtol(val, &endptr, 10);
+    if (endptr == val || *endptr != '\0') {
+        return default_val;
+    }
+    return (int)v;
+}
+
+int cbm_config_set(cbm_config_t *cfg, const char *key, const char *value) {
+    if (!cfg || !key || !value) {
+        return -1;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(cfg->db, "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", -1,
+                           &stmt, NULL) != SQLITE_OK) {
+        return -1;
+    }
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, value, -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : -1;
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+int cbm_config_delete(cbm_config_t *cfg, const char *key) {
+    if (!cfg || !key) {
+        return -1;
+    }
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(cfg->db, "DELETE FROM config WHERE key = ?", -1, &stmt, NULL) !=
+        SQLITE_OK) {
+        return -1;
+    }
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : -1;
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+/* ── Config CLI subcommand ────────────────────────────────────── */
+
+int cbm_cmd_config(int argc, char **argv) {
+    if (argc == 0) {
+        printf("Usage: codebase-memory-mcp config <command> [args]\n\n");
+        printf("Commands:\n");
+        printf("  list             Show all config values\n");
+        printf("  get <key>        Get a config value\n");
+        printf("  set <key> <val>  Set a config value\n");
+        printf("  reset <key>      Reset a key to default\n\n");
+        printf("Config keys:\n");
+        printf("  %-25s  default=%-10s  %s\n", CBM_CONFIG_AUTO_INDEX, "false",
+               "Enable auto-indexing on MCP session start");
+        printf("  %-25s  default=%-10s  %s\n", CBM_CONFIG_AUTO_INDEX_LIMIT, "50000",
+               "Max files for auto-indexing new projects");
+        return 0;
+    }
+
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    const char *home = getenv("HOME");
+    if (!home) {
+        fprintf(stderr, "error: HOME not set\n");
+        return 1;
+    }
+
+    char cache_dir[1024];
+    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
+
+    cbm_config_t *cfg = cbm_config_open(cache_dir);
+    if (!cfg) {
+        fprintf(stderr, "error: cannot open config database\n");
+        return 1;
+    }
+
+    int rc = 0;
+    if (strcmp(argv[0], "list") == 0 || strcmp(argv[0], "ls") == 0) {
+        printf("Configuration:\n");
+        printf("  %-25s = %-10s\n", CBM_CONFIG_AUTO_INDEX,
+               cbm_config_get(cfg, CBM_CONFIG_AUTO_INDEX, "false"));
+        printf("  %-25s = %-10s\n", CBM_CONFIG_AUTO_INDEX_LIMIT,
+               cbm_config_get(cfg, CBM_CONFIG_AUTO_INDEX_LIMIT, "50000"));
+    } else if (strcmp(argv[0], "get") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: config get <key>\n");
+            rc = 1;
+        } else {
+            printf("%s\n", cbm_config_get(cfg, argv[1], ""));
+        }
+    } else if (strcmp(argv[0], "set") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Usage: config set <key> <value>\n");
+            rc = 1;
+        } else {
+            if (cbm_config_set(cfg, argv[1], argv[2]) == 0) {
+                printf("%s = %s\n", argv[1], argv[2]);
+            } else {
+                fprintf(stderr, "error: failed to set %s\n", argv[1]);
+                rc = 1;
+            }
+        }
+    } else if (strcmp(argv[0], "reset") == 0) {
+        if (argc < 2) {
+            fprintf(stderr, "Usage: config reset <key>\n");
+            rc = 1;
+        } else {
+            cbm_config_delete(cfg, argv[1]);
+            printf("%s reset to default\n", argv[1]);
+        }
+    } else {
+        fprintf(stderr, "Unknown config command: %s\n", argv[0]);
+        rc = 1;
+    }
+
+    cbm_config_close(cfg);
+    return rc;
+}
+
 /* ── Interactive prompt ───────────────────────────────────────── */
 
 /* Global auto-answer mode: 0=interactive, 1=always yes, -1=always no */

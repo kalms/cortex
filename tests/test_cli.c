@@ -1879,6 +1879,140 @@ TEST(cli_skill_descriptions_directive) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  Group F: Config store (persistent key-value)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_config_open_close) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+    cbm_config_close(cfg);
+
+    /* DB file should exist */
+    char dbpath[512];
+    snprintf(dbpath, sizeof(dbpath), "%s/_config.db", tmpdir);
+    struct stat st;
+    ASSERT_EQ(stat(dbpath, &st), 0);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_config_get_set) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+
+    /* Default when key doesn't exist */
+    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "default");
+
+    /* Set and get */
+    ASSERT_EQ(cbm_config_set(cfg, "foo", "bar"), 0);
+    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "bar");
+
+    /* Overwrite */
+    ASSERT_EQ(cbm_config_set(cfg, "foo", "baz"), 0);
+    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "baz");
+
+    cbm_config_close(cfg);
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_config_get_bool) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+
+    /* Default */
+    ASSERT_FALSE(cbm_config_get_bool(cfg, "auto_index", false));
+    ASSERT_TRUE(cbm_config_get_bool(cfg, "auto_index", true));
+
+    /* true variants */
+    cbm_config_set(cfg, "k1", "true");
+    ASSERT_TRUE(cbm_config_get_bool(cfg, "k1", false));
+    cbm_config_set(cfg, "k2", "1");
+    ASSERT_TRUE(cbm_config_get_bool(cfg, "k2", false));
+    cbm_config_set(cfg, "k3", "on");
+    ASSERT_TRUE(cbm_config_get_bool(cfg, "k3", false));
+
+    /* false variants */
+    cbm_config_set(cfg, "k4", "false");
+    ASSERT_FALSE(cbm_config_get_bool(cfg, "k4", true));
+    cbm_config_set(cfg, "k5", "0");
+    ASSERT_FALSE(cbm_config_get_bool(cfg, "k5", true));
+
+    cbm_config_close(cfg);
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_config_get_int) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+
+    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 50000);
+
+    cbm_config_set(cfg, "limit", "20000");
+    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 20000);
+
+    /* Non-numeric → default */
+    cbm_config_set(cfg, "limit", "abc");
+    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 50000);
+
+    cbm_config_close(cfg);
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_config_delete) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+
+    cbm_config_set(cfg, "foo", "bar");
+    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", ""), "bar");
+
+    cbm_config_delete(cfg, "foo");
+    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "gone"), "gone");
+
+    cbm_config_close(cfg);
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_config_persists) {
+    /* Values survive close + reopen */
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+    cbm_config_set(cfg, "auto_index", "true");
+    cbm_config_close(cfg);
+
+    /* Reopen */
+    cfg = cbm_config_open(tmpdir);
+    ASSERT_NOT_NULL(cfg);
+    ASSERT_TRUE(cbm_config_get_bool(cfg, "auto_index", false));
+    cbm_config_close(cfg);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
  *  Suite definition
  * ═══════════════════════════════════════════════════════════════════ */
 
@@ -2006,4 +2140,12 @@ SUITE(cli) {
 
     /* Skill directive descriptions (1 test — group E) */
     RUN_TEST(cli_skill_descriptions_directive);
+
+    /* Config store (6 tests — group F) */
+    RUN_TEST(cli_config_open_close);
+    RUN_TEST(cli_config_get_set);
+    RUN_TEST(cli_config_get_bool);
+    RUN_TEST(cli_config_get_int);
+    RUN_TEST(cli_config_delete);
+    RUN_TEST(cli_config_persists);
 }
