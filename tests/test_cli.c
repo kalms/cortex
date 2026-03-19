@@ -833,6 +833,44 @@ TEST(cli_zed_mcp_uninstall) {
     PASS();
 }
 
+TEST(cli_zed_mcp_jsonc_comments) {
+    /* Issue #24: Zed settings.json uses JSONC (comments + trailing commas) */
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir))
+        SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/.config/zed", tmpdir);
+    test_mkdirp(dir);
+
+    /* JSONC with comments and trailing commas — must not fail */
+    write_test_file(configpath,
+        "// Zed settings\n"
+        "{\n"
+        "  \"theme\": \"One Dark\",\n"
+        "  /* multi-line\n"
+        "     comment */\n"
+        "  \"vim_mode\": true,\n"  /* trailing comma */
+        "}\n");
+
+    int rc = cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    /* Original settings preserved */
+    ASSERT(strstr(data, "One Dark") != NULL);
+    ASSERT(strstr(data, "vim_mode") != NULL);
+    /* MCP server added */
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "context_servers") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  PATH management tests (port of TestCLI_InstallPATHAppend)
  * ═══════════════════════════════════════════════════════════════════ */
@@ -1261,6 +1299,22 @@ TEST(cli_detect_agents_finds_antigravity) {
     PASS();
 }
 
+TEST(cli_detect_agents_finds_kilocode) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir),
+             "%s/.config/Code/User/globalStorage/kilocode.kilo-code", tmpdir);
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.kilocode);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
 TEST(cli_detect_agents_none_found) {
     char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
     if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
@@ -1274,6 +1328,7 @@ TEST(cli_detect_agents_none_found) {
     ASSERT_FALSE(agents.gemini);
     ASSERT_FALSE(agents.zed);
     ASSERT_FALSE(agents.antigravity);
+    ASSERT_FALSE(agents.kilocode);
 
     rmdir(tmpdir);
     PASS();
@@ -1871,6 +1926,7 @@ SUITE(cli) {
     RUN_TEST(cli_zed_mcp_install);
     RUN_TEST(cli_zed_mcp_preserves_settings);
     RUN_TEST(cli_zed_mcp_uninstall);
+    RUN_TEST(cli_zed_mcp_jsonc_comments);
 
     /* PATH management (3 tests) */
     RUN_TEST(cli_ensure_path_append);
@@ -1908,6 +1964,7 @@ SUITE(cli) {
     RUN_TEST(cli_detect_agents_finds_gemini);
     RUN_TEST(cli_detect_agents_finds_zed);
     RUN_TEST(cli_detect_agents_finds_antigravity);
+    RUN_TEST(cli_detect_agents_finds_kilocode);
     RUN_TEST(cli_detect_agents_none_found);
 
     /* Codex MCP config upsert (3 tests — group B) */
