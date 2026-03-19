@@ -773,8 +773,8 @@ TEST(cli_zed_mcp_install) {
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "\"context_servers\"") != NULL);
-    ASSERT(strstr(data, "\"source\"") != NULL);
-    ASSERT(strstr(data, "\"custom\"") != NULL);
+    ASSERT(strstr(data, "\"command\"") != NULL);
+    ASSERT(strstr(data, "\"args\"") != NULL);
     ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
     ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
 
@@ -1178,6 +1178,652 @@ TEST(cli_yaml_has) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  Group A: Agent Detection
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_detect_agents_finds_claude) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/.claude", tmpdir);
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.claude_code);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_detect_agents_finds_codex) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/.codex", tmpdir);
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.codex);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_detect_agents_finds_gemini) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/.gemini", tmpdir);
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.gemini);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_detect_agents_finds_zed) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+#ifdef __APPLE__
+    snprintf(dir, sizeof(dir), "%s/Library/Application Support/Zed", tmpdir);
+#else
+    snprintf(dir, sizeof(dir), "%s/.config/zed", tmpdir);
+#endif
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.zed);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_detect_agents_finds_antigravity) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/.gemini/antigravity", tmpdir);
+    test_mkdirp(dir);
+
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_TRUE(agents.antigravity);
+    ASSERT_TRUE(agents.gemini); /* parent dir implies gemini too */
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_detect_agents_none_found) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    /* Empty home dir → no config dirs → no directory-based agents detected.
+     * Note: opencode/aider may still be detected via system fallback paths
+     * (e.g. /usr/local/bin) so we only assert on directory-based agents. */
+    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ASSERT_FALSE(agents.claude_code);
+    ASSERT_FALSE(agents.codex);
+    ASSERT_FALSE(agents.gemini);
+    ASSERT_FALSE(agents.zed);
+    ASSERT_FALSE(agents.antigravity);
+
+    rmdir(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group B: MCP Config Upsert — Codex TOML
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_codex_mcp_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
+
+    int rc = cbm_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "[mcp_servers.codebase-memory-mcp]") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_codex_mcp_existing) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
+    write_test_file(configpath, "model = \"gpt-4\"\n\n[other_setting]\nfoo = \"bar\"\n");
+
+    int rc = cbm_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    /* Existing settings preserved */
+    ASSERT(strstr(data, "model = \"gpt-4\"") != NULL);
+    ASSERT(strstr(data, "[other_setting]") != NULL);
+    /* Our entry added */
+    ASSERT(strstr(data, "[mcp_servers.codebase-memory-mcp]") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_codex_mcp_replace) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
+    write_test_file(configpath,
+        "[mcp_servers.codebase-memory-mcp]\n"
+        "command = \"/old/path/codebase-memory-mcp\"\n"
+        "\n"
+        "[other_setting]\nfoo = \"bar\"\n");
+
+    int rc = cbm_upsert_codex_mcp("/new/path/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    /* Old path replaced */
+    ASSERT(strstr(data, "/old/path") == NULL);
+    ASSERT(strstr(data, "/new/path/codebase-memory-mcp") != NULL);
+    /* Other settings preserved */
+    ASSERT(strstr(data, "[other_setting]") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group B: MCP Config Upsert — Zed (corrected format)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_zed_mcp_uses_args_format) {
+    /* Verify Zed uses args:[""] NOT source:"custom" */
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-zed-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/settings.json", tmpdir);
+
+    cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "\"args\"") != NULL);
+    /* Must NOT have source:"custom" */
+    ASSERT(strstr(data, "\"source\"") == NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group B: MCP Config Upsert — OpenCode
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_opencode_mcp_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ocode-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
+
+    int rc = cbm_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_opencode_mcp_existing) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ocode-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
+    write_test_file(configpath, "{\"mcp\":{\"other-server\":{\"command\":\"/usr/bin/other\"}}}");
+
+    int rc = cbm_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "other-server") != NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group B: MCP Config Upsert — Antigravity
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_antigravity_mcp_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-anti-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
+
+    int rc = cbm_upsert_antigravity_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_antigravity_mcp_replace) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-anti-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char configpath[512];
+    snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
+    write_test_file(configpath,
+        "{\"mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"/old/path\"}}}");
+
+    int rc = cbm_upsert_antigravity_mcp("/new/path/codebase-memory-mcp", configpath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(configpath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "/old/path") == NULL);
+    ASSERT(strstr(data, "/new/path/codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group C: Instructions File Upsert
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_instructions_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
+
+    int rc = cbm_upsert_instructions(filepath, "# Test content\nHello world\n");
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(filepath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "<!-- codebase-memory-mcp:start -->") != NULL);
+    ASSERT(strstr(data, "<!-- codebase-memory-mcp:end -->") != NULL);
+    ASSERT(strstr(data, "Hello world") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_instructions_existing) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
+    write_test_file(filepath, "# My Project Rules\n\nDo the thing.\n");
+
+    int rc = cbm_upsert_instructions(filepath, "# CMM\nUse search_graph\n");
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(filepath);
+    ASSERT_NOT_NULL(data);
+    /* Original content preserved */
+    ASSERT(strstr(data, "My Project Rules") != NULL);
+    ASSERT(strstr(data, "Do the thing") != NULL);
+    /* CMM section appended */
+    ASSERT(strstr(data, "codebase-memory-mcp:start") != NULL);
+    ASSERT(strstr(data, "search_graph") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_instructions_replace) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
+    write_test_file(filepath,
+        "# Rules\n"
+        "<!-- codebase-memory-mcp:start -->\n"
+        "OLD CONTENT\n"
+        "<!-- codebase-memory-mcp:end -->\n"
+        "# Other stuff\n");
+
+    int rc = cbm_upsert_instructions(filepath, "NEW CONTENT\n");
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(filepath);
+    ASSERT_NOT_NULL(data);
+    /* Old content replaced */
+    ASSERT(strstr(data, "OLD CONTENT") == NULL);
+    ASSERT(strstr(data, "NEW CONTENT") != NULL);
+    /* Surrounding content preserved */
+    ASSERT(strstr(data, "# Rules") != NULL);
+    ASSERT(strstr(data, "# Other stuff") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_instructions_no_duplicate) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
+
+    /* Install twice */
+    cbm_upsert_instructions(filepath, "Content v1\n");
+    cbm_upsert_instructions(filepath, "Content v2\n");
+
+    const char *data = read_test_file(filepath);
+    ASSERT_NOT_NULL(data);
+    /* Only one start marker */
+    int count = 0;
+    const char *p = data;
+    while ((p = strstr(p, "codebase-memory-mcp:start")) != NULL) { count++; p += 25; }
+    ASSERT_EQ(count, 1);
+    /* Latest content */
+    ASSERT(strstr(data, "Content v2") != NULL);
+    ASSERT(strstr(data, "Content v1") == NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_remove_instructions) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
+    write_test_file(filepath,
+        "# Rules\n"
+        "<!-- codebase-memory-mcp:start -->\n"
+        "CMM Content\n"
+        "<!-- codebase-memory-mcp:end -->\n"
+        "# Other\n");
+
+    int rc = cbm_remove_instructions(filepath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(filepath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "CMM Content") == NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") == NULL);
+    ASSERT(strstr(data, "# Rules") != NULL);
+    ASSERT(strstr(data, "# Other") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_agent_instructions_content) {
+    const char *instr = cbm_get_agent_instructions();
+    ASSERT_NOT_NULL(instr);
+    ASSERT(strstr(instr, "search_graph") != NULL);
+    ASSERT(strstr(instr, "trace_call_path") != NULL);
+    ASSERT(strstr(instr, "get_code_snippet") != NULL);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group D: Pre-Tool Hook Upsert — Claude Code
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_claude_hook_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+
+    int rc = cbm_upsert_claude_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "PreToolUse") != NULL);
+    ASSERT(strstr(data, "Grep|Glob|Read") != NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_claude_hook_existing) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+    /* Pre-existing settings with other hooks */
+    write_test_file(settingspath,
+        "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\","
+        "\"hooks\":[{\"type\":\"command\",\"command\":\"echo firewall\"}]}]}}");
+
+    int rc = cbm_upsert_claude_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    /* Our hook added */
+    ASSERT(strstr(data, "Grep|Glob|Read") != NULL);
+    /* Existing hook preserved */
+    ASSERT(strstr(data, "Bash") != NULL);
+    ASSERT(strstr(data, "firewall") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_claude_hook_replace) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+    /* Pre-existing CMM hook with old message */
+    write_test_file(settingspath,
+        "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Grep|Glob|Read\","
+        "\"hooks\":[{\"type\":\"command\",\"command\":\"echo old-cmm-message\"}]}]}}");
+
+    int rc = cbm_upsert_claude_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    /* Old message gone, new message present */
+    ASSERT(strstr(data, "old-cmm-message") == NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_claude_hook_preserves_others) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+    write_test_file(settingspath,
+        "{\"apiKey\":\"sk-123\","
+        "\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\","
+        "\"hooks\":[{\"type\":\"command\",\"command\":\"echo guard\"}]}]}}");
+
+    cbm_upsert_claude_hooks(settingspath);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    /* Non-hook settings preserved */
+    ASSERT(strstr(data, "apiKey") != NULL);
+    ASSERT(strstr(data, "sk-123") != NULL);
+    /* Bash hook preserved */
+    ASSERT(strstr(data, "Bash") != NULL);
+    ASSERT(strstr(data, "guard") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_remove_claude_hooks) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+
+    /* Install then remove */
+    cbm_upsert_claude_hooks(settingspath);
+    int rc = cbm_remove_claude_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "Grep|Glob|Read") == NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group D: Pre-Tool Hook Upsert — Gemini CLI / Antigravity
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_upsert_gemini_hook_fresh) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+
+    int rc = cbm_upsert_gemini_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "BeforeTool") != NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_gemini_hook_existing) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+    write_test_file(settingspath,
+        "{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"shell\","
+        "\"hooks\":[{\"type\":\"command\",\"command\":\"echo guard\"}]}]}}");
+
+    int rc = cbm_upsert_gemini_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    /* Our hook added */
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    /* Existing hook preserved */
+    ASSERT(strstr(data, "shell") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_upsert_gemini_hook_replace) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+    write_test_file(settingspath,
+        "{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"google_search|read_file|grep_search\","
+        "\"hooks\":[{\"type\":\"command\",\"command\":\"echo old-cmm\"}]}]}}");
+
+    int rc = cbm_upsert_gemini_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "old-cmm") == NULL);
+    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+TEST(cli_remove_gemini_hooks) {
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
+    if (!cbm_mkdtemp(tmpdir)) SKIP("cbm_mkdtemp failed");
+
+    char settingspath[512];
+    snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
+
+    cbm_upsert_gemini_hooks(settingspath);
+    int rc = cbm_remove_gemini_hooks(settingspath);
+    ASSERT_EQ(rc, 0);
+
+    const char *data = read_test_file(settingspath);
+    ASSERT_NOT_NULL(data);
+    ASSERT(strstr(data, "codebase-memory-mcp") == NULL);
+
+    test_rmdir_r(tmpdir);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Group E: Skill descriptions use directive pattern
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(cli_skill_descriptions_directive) {
+    /* Verify all skill descriptions use directive pattern (ALWAYS invoke) */
+    const cbm_skill_t *sk = cbm_get_skills();
+    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+        ASSERT(strstr(sk[i].content, "ALWAYS") != NULL);
+        ASSERT(strstr(sk[i].content, "Do not") != NULL);
+    }
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
  *  Suite definition
  * ═══════════════════════════════════════════════════════════════════ */
 
@@ -1255,4 +1901,52 @@ SUITE(cli) {
     RUN_TEST(cli_yaml_parse_comments);
     RUN_TEST(cli_yaml_parse_empty);
     RUN_TEST(cli_yaml_has);
+
+    /* Agent detection (6 tests — group A) */
+    RUN_TEST(cli_detect_agents_finds_claude);
+    RUN_TEST(cli_detect_agents_finds_codex);
+    RUN_TEST(cli_detect_agents_finds_gemini);
+    RUN_TEST(cli_detect_agents_finds_zed);
+    RUN_TEST(cli_detect_agents_finds_antigravity);
+    RUN_TEST(cli_detect_agents_none_found);
+
+    /* Codex MCP config upsert (3 tests — group B) */
+    RUN_TEST(cli_upsert_codex_mcp_fresh);
+    RUN_TEST(cli_upsert_codex_mcp_existing);
+    RUN_TEST(cli_upsert_codex_mcp_replace);
+
+    /* Zed MCP format fix (1 test — group B) */
+    RUN_TEST(cli_zed_mcp_uses_args_format);
+
+    /* OpenCode MCP config upsert (2 tests — group B) */
+    RUN_TEST(cli_upsert_opencode_mcp_fresh);
+    RUN_TEST(cli_upsert_opencode_mcp_existing);
+
+    /* Antigravity MCP config upsert (2 tests — group B) */
+    RUN_TEST(cli_upsert_antigravity_mcp_fresh);
+    RUN_TEST(cli_upsert_antigravity_mcp_replace);
+
+    /* Instructions file upsert (6 tests — group C) */
+    RUN_TEST(cli_upsert_instructions_fresh);
+    RUN_TEST(cli_upsert_instructions_existing);
+    RUN_TEST(cli_upsert_instructions_replace);
+    RUN_TEST(cli_upsert_instructions_no_duplicate);
+    RUN_TEST(cli_remove_instructions);
+    RUN_TEST(cli_agent_instructions_content);
+
+    /* Claude Code hooks (5 tests — group D) */
+    RUN_TEST(cli_upsert_claude_hook_fresh);
+    RUN_TEST(cli_upsert_claude_hook_existing);
+    RUN_TEST(cli_upsert_claude_hook_replace);
+    RUN_TEST(cli_upsert_claude_hook_preserves_others);
+    RUN_TEST(cli_remove_claude_hooks);
+
+    /* Gemini CLI hooks (4 tests — group D) */
+    RUN_TEST(cli_upsert_gemini_hook_fresh);
+    RUN_TEST(cli_upsert_gemini_hook_existing);
+    RUN_TEST(cli_upsert_gemini_hook_replace);
+    RUN_TEST(cli_remove_gemini_hooks);
+
+    /* Skill directive descriptions (1 test — group E) */
+    RUN_TEST(cli_skill_descriptions_directive);
 }

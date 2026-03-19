@@ -5,10 +5,15 @@
  * All functions accept explicit paths for testability.
  */
 #include "cli/cli.h"
+#include "foundation/compat.h"
 
 // the correct standard headers are included below but clang-tidy doesn't map them.
 #include <ctype.h>
 #include "foundation/compat_fs.h"
+
+#ifndef CBM_VERSION
+#define CBM_VERSION "dev"
+#endif
 #include <errno.h>  // EEXIST
 #include <stdint.h> // uintptr_t
 #include <stdio.h>
@@ -255,10 +260,10 @@ int cbm_copy_file(const char *src, const char *dst) {
 static const char skill_exploring_content[] =
     "---\n"
     "name: codebase-memory-exploring\n"
-    "description: This skill should be used when the user asks to \"explore the codebase\", "
-    "\"understand the architecture\", \"what functions exist\", \"show me the structure\", "
-    "\"how is the code organized\", \"find functions matching\", \"search for classes\", "
-    "\"list all routes\", \"show API endpoints\", or needs codebase orientation.\n"
+    "description: Codebase knowledge graph expert. ALWAYS invoke this skill when the user "
+    "explores code, searches for functions/classes/routes, asks about architecture, or needs "
+    "codebase orientation. Do not use Grep, Glob, or file search directly — use "
+    "codebase-memory-mcp search_graph and get_architecture first.\n"
     "---\n"
     "\n"
     "# Codebase Exploration\n"
@@ -279,10 +284,10 @@ static const char skill_exploring_content[] =
 static const char skill_tracing_content[] =
     "---\n"
     "name: codebase-memory-tracing\n"
-    "description: This skill should be used when the user asks \"who calls this function\", "
-    "\"what does X call\", \"trace the call chain\", \"find callers of\", \"show dependencies\", "
-    "\"what depends on\", \"trace call path\", \"find all references to\", \"impact analysis\", "
-    "or needs to understand function call relationships and dependency chains.\n"
+    "description: Call chain and dependency expert. ALWAYS invoke this skill when the user "
+    "asks who calls a function, what a function calls, needs impact analysis, or traces "
+    "dependencies. Do not grep for function names directly — use codebase-memory-mcp "
+    "trace_call_path first.\n"
     "---\n"
     "\n"
     "# Call Tracing & Impact Analysis\n"
@@ -303,12 +308,10 @@ static const char skill_tracing_content[] =
 static const char skill_quality_content[] =
     "---\n"
     "name: codebase-memory-quality\n"
-    "description: This skill should be used when the user asks about \"dead code\", "
-    "\"find dead code\", \"detect dead code\", \"show dead code\", \"dead code analysis\", "
-    "\"unused functions\", \"find unused functions\", \"unreachable code\", "
-    "\"identify high fan-out functions\", \"find complex functions\", \"code quality audit\", "
-    "\"find functions nobody calls\", \"reduce codebase size\", \"refactor candidates\", "
-    "\"cleanup candidates\", or needs code quality analysis.\n"
+    "description: Code quality analysis expert. ALWAYS invoke this skill when the user asks "
+    "about dead code, unused functions, complexity, refactor candidates, or cleanup "
+    "opportunities. Do not search files manually — use codebase-memory-mcp search_graph "
+    "with degree filters first.\n"
     "---\n"
     "\n"
     "# Code Quality Analysis\n"
@@ -326,12 +329,9 @@ static const char skill_quality_content[] =
 static const char skill_reference_content[] =
     "---\n"
     "name: codebase-memory-reference\n"
-    "description: This skill should be used when the user asks about \"codebase-memory-mcp "
-    "tools\", "
-    "\"graph query syntax\", \"Cypher query examples\", \"edge types\", \"how to use "
-    "search_graph\", "
-    "\"query_graph examples\", or needs reference documentation for the codebase knowledge graph "
-    "tools.\n"
+    "description: Codebase-memory-mcp reference guide. ALWAYS invoke this skill when the user "
+    "asks about MCP tools, graph queries, Cypher syntax, edge types, or how to use the "
+    "knowledge graph. Do not guess tool parameters — load this reference first.\n"
     "---\n"
     "\n"
     "# Codebase Memory MCP Reference\n"
@@ -730,7 +730,7 @@ int cbm_remove_vscode_mcp(const char *config_path) {
     return rc;
 }
 
-/* ── Zed MCP (context_servers with source:custom) ─────────────── */
+/* ── Zed MCP (context_servers with command + args) ────────────── */
 
 int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
@@ -765,8 +765,10 @@ int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
     yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
 
     yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
-    yyjson_mut_obj_add_str(mdoc, entry, "source", "custom");
     yyjson_mut_obj_add_str(mdoc, entry, "command", binary_path);
+    yyjson_mut_val *args = yyjson_mut_arr(mdoc);
+    yyjson_mut_arr_add_str(mdoc, args, "");
+    yyjson_mut_obj_add_val(mdoc, entry, "args", args);
     yyjson_mut_obj_add_val(mdoc, servers, "codebase-memory-mcp", entry);
 
     int rc = write_json_file(config_path, mdoc);
@@ -804,6 +806,636 @@ int cbm_remove_zed_mcp(const char *config_path) {
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
     return rc;
+}
+
+/* ── Agent detection ──────────────────────────────────────────── */
+
+cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
+    cbm_detected_agents_t agents = {false, false, false, false, false, false, false};
+    if (!home_dir || !home_dir[0]) {
+        return agents;
+    }
+
+    char path[1024];
+    struct stat st;
+
+    /* Claude Code: ~/.claude/ */
+    snprintf(path, sizeof(path), "%s/.claude", home_dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.claude_code = true;
+    }
+
+    /* Codex CLI: ~/.codex/ */
+    snprintf(path, sizeof(path), "%s/.codex", home_dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.codex = true;
+    }
+
+    /* Gemini CLI: ~/.gemini/ */
+    snprintf(path, sizeof(path), "%s/.gemini", home_dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.gemini = true;
+    }
+
+    /* Zed: platform-specific config dir */
+#ifdef __APPLE__
+    snprintf(path, sizeof(path), "%s/Library/Application Support/Zed", home_dir);
+#else
+    snprintf(path, sizeof(path), "%s/.config/zed", home_dir);
+#endif
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.zed = true;
+    }
+
+    /* OpenCode: binary on PATH */
+    const char *oc = cbm_find_cli("opencode", home_dir);
+    if (oc[0]) {
+        agents.opencode = true;
+    }
+
+    /* Antigravity: ~/.gemini/antigravity/ */
+    snprintf(path, sizeof(path), "%s/.gemini/antigravity", home_dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.antigravity = true;
+        agents.gemini = true; /* parent dir implies gemini */
+    }
+
+    /* Aider: binary on PATH */
+    const char *ai = cbm_find_cli("aider", home_dir);
+    if (ai[0]) {
+        agents.aider = true;
+    }
+
+    return agents;
+}
+
+/* ── Shared agent instructions content ────────────────────────── */
+
+static const char agent_instructions_content[] =
+    "# Codebase Knowledge Graph (codebase-memory-mcp)\n"
+    "\n"
+    "This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.\n"
+    "ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.\n"
+    "\n"
+    "## Priority Order\n"
+    "1. `search_graph` — find functions, classes, routes, variables by pattern\n"
+    "2. `trace_call_path` — trace who calls a function or what it calls\n"
+    "3. `get_code_snippet` — read specific function/class source code\n"
+    "4. `query_graph` — run Cypher queries for complex patterns\n"
+    "5. `get_architecture` — high-level project summary\n"
+    "\n"
+    "## When to fall back to grep/glob\n"
+    "- Searching for string literals, error messages, config values\n"
+    "- Searching non-code files (Dockerfiles, shell scripts, configs)\n"
+    "- When MCP tools return insufficient results\n"
+    "\n"
+    "## Examples\n"
+    "- Find a handler: `search_graph(name_pattern=\".*OrderHandler.*\")`\n"
+    "- Who calls it: `trace_call_path(function_name=\"OrderHandler\", direction=\"inbound\")`\n"
+    "- Read source: `get_code_snippet(qualified_name=\"pkg/orders.OrderHandler\")`\n";
+
+const char *cbm_get_agent_instructions(void) {
+    return agent_instructions_content;
+}
+
+/* ── Instructions file upsert ─────────────────────────────────── */
+
+#define CMM_MARKER_START "<!-- codebase-memory-mcp:start -->"
+#define CMM_MARKER_END "<!-- codebase-memory-mcp:end -->"
+
+/* Read entire file into malloc'd buffer. Returns NULL on error. */
+static char *read_file_str(const char *path, size_t *out_len) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        if (out_len) {
+            *out_len = 0;
+        }
+        return NULL;
+    }
+    (void)fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    (void)fseek(f, 0, SEEK_SET);
+    if (size < 0 || size > 10L * 1024 * 1024) { /* cap at 10 MB */
+        (void)fclose(f);
+        return NULL;
+    }
+
+    char *buf = malloc((size_t)size + 1);
+    if (!buf) {
+        (void)fclose(f);
+        return NULL;
+    }
+    size_t nread = fread(buf, 1, (size_t)size, f);
+    (void)fclose(f);
+    buf[nread] = '\0';
+    if (out_len) {
+        *out_len = nread;
+    }
+    return buf;
+}
+
+/* Write string to file, creating parent dirs if needed. */
+static int write_file_str(const char *path, const char *content) {
+    /* Ensure parent directory */
+    char dir[1024];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *last_slash = strrchr(dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        mkdirp(dir, DIR_PERMS);
+    }
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        return -1;
+    }
+    size_t len = strlen(content);
+    size_t written = fwrite(content, 1, len, f);
+    (void)fclose(f);
+    return written == len ? 0 : -1;
+}
+
+int cbm_upsert_instructions(const char *path, const char *content) {
+    if (!path || !content) {
+        return -1;
+    }
+
+    size_t existing_len = 0;
+    char *existing = read_file_str(path, &existing_len);
+
+    /* Build the marker-wrapped section */
+    size_t section_len =
+        strlen(CMM_MARKER_START) + 1 + strlen(content) + strlen(CMM_MARKER_END) + 1;
+    char *section = malloc(section_len + 1);
+    if (!section) {
+        free(existing);
+        return -1;
+    }
+    snprintf(section, section_len + 1, "%s\n%s%s\n", CMM_MARKER_START, content, CMM_MARKER_END);
+
+    if (!existing) {
+        /* File doesn't exist — create with just the section */
+        int rc = write_file_str(path, section);
+        free(section);
+        return rc;
+    }
+
+    /* Check if markers already exist */
+    char *start = strstr(existing, CMM_MARKER_START);
+    char *end = start ? strstr(start, CMM_MARKER_END) : NULL;
+
+    char *result;
+    if (start && end) {
+        /* Replace between markers (including markers themselves) */
+        end += strlen(CMM_MARKER_END);
+        /* Skip trailing newline after end marker */
+        if (*end == '\n') {
+            end++;
+        }
+
+        size_t prefix_len = (size_t)(start - existing);
+        size_t suffix_len = strlen(end);
+        size_t new_len = prefix_len + strlen(section) + suffix_len;
+        result = malloc(new_len + 1);
+        if (!result) {
+            free(existing);
+            free(section);
+            return -1;
+        }
+        memcpy(result, existing, prefix_len);
+        memcpy(result + prefix_len, section, strlen(section));
+        memcpy(result + prefix_len + strlen(section), end, suffix_len);
+        result[new_len] = '\0';
+    } else {
+        /* Append section */
+        size_t new_len = existing_len + 1 + strlen(section);
+        result = malloc(new_len + 1);
+        if (!result) {
+            free(existing);
+            free(section);
+            return -1;
+        }
+        memcpy(result, existing, existing_len);
+        result[existing_len] = '\n';
+        memcpy(result + existing_len + 1, section, strlen(section));
+        result[new_len] = '\0';
+    }
+
+    int rc = write_file_str(path, result);
+    free(existing);
+    free(section);
+    free(result);
+    return rc;
+}
+
+int cbm_remove_instructions(const char *path) {
+    if (!path) {
+        return -1;
+    }
+
+    size_t len = 0;
+    char *content = read_file_str(path, &len);
+    if (!content) {
+        return 1;
+    }
+
+    char *start = strstr(content, CMM_MARKER_START);
+    char *end = start ? strstr(start, CMM_MARKER_END) : NULL;
+
+    if (!start || !end) {
+        free(content);
+        return 1; /* not found */
+    }
+
+    end += strlen(CMM_MARKER_END);
+    if (*end == '\n') {
+        end++;
+    }
+
+    /* Also remove a leading newline before the start marker if present */
+    if (start > content && *(start - 1) == '\n') {
+        start--;
+    }
+
+    size_t prefix_len = (size_t)(start - content);
+    size_t suffix_len = strlen(end);
+    size_t new_len = prefix_len + suffix_len;
+    char *result = malloc(new_len + 1);
+    if (!result) {
+        free(content);
+        return -1;
+    }
+    memcpy(result, content, prefix_len);
+    memcpy(result + prefix_len, end, suffix_len);
+    result[new_len] = '\0';
+
+    int rc = write_file_str(path, result);
+    free(content);
+    free(result);
+    return rc;
+}
+
+/* ── Codex MCP config (TOML) ─────────────────────────────────── */
+
+#define CODEX_CMM_SECTION "[mcp_servers.codebase-memory-mcp]"
+
+int cbm_upsert_codex_mcp(const char *binary_path, const char *config_path) {
+    if (!binary_path || !config_path) {
+        return -1;
+    }
+
+    size_t len = 0;
+    char *content = read_file_str(config_path, &len);
+
+    /* Build our TOML section */
+    char section[1024];
+    snprintf(section, sizeof(section), "%s\ncommand = \"%s\"\n", CODEX_CMM_SECTION, binary_path);
+
+    if (!content) {
+        /* No file — create fresh */
+        return write_file_str(config_path, section);
+    }
+
+    /* Check if our section already exists */
+    char *existing = strstr(content, CODEX_CMM_SECTION);
+    if (existing) {
+        /* Remove old section: from [mcp_servers.codebase-memory-mcp] to next [section] or EOF */
+        char *section_end = existing + strlen(CODEX_CMM_SECTION);
+        /* Find next [section] header */
+        char *next_section = strstr(section_end, "\n[");
+        if (next_section) {
+            next_section++; /* keep the newline before next section */
+        }
+
+        size_t prefix_len = (size_t)(existing - content);
+        const char *suffix = next_section ? next_section : "";
+        size_t suffix_len = strlen(suffix);
+        size_t new_len = prefix_len + strlen(section) + 1 + suffix_len;
+        char *result = malloc(new_len + 1);
+        if (!result) {
+            free(content);
+            return -1;
+        }
+        memcpy(result, content, prefix_len);
+        memcpy(result + prefix_len, section, strlen(section));
+        result[prefix_len + strlen(section)] = '\n';
+        memcpy(result + prefix_len + strlen(section) + 1, suffix, suffix_len);
+        result[new_len] = '\0';
+
+        int rc = write_file_str(config_path, result);
+        free(content);
+        free(result);
+        return rc;
+    }
+
+    /* Append our section */
+    size_t new_len = len + 1 + strlen(section);
+    char *result = malloc(new_len + 1);
+    if (!result) {
+        free(content);
+        return -1;
+    }
+    memcpy(result, content, len);
+    result[len] = '\n';
+    memcpy(result + len + 1, section, strlen(section));
+    result[new_len] = '\0';
+
+    int rc = write_file_str(config_path, result);
+    free(content);
+    free(result);
+    return rc;
+}
+
+int cbm_remove_codex_mcp(const char *config_path) {
+    if (!config_path) {
+        return -1;
+    }
+
+    size_t len = 0;
+    char *content = read_file_str(config_path, &len);
+    if (!content) {
+        return 1;
+    }
+
+    char *existing = strstr(content, CODEX_CMM_SECTION);
+    if (!existing) {
+        free(content);
+        return 1;
+    }
+
+    char *section_end = existing + strlen(CODEX_CMM_SECTION);
+    char *next_section = strstr(section_end, "\n[");
+    if (next_section) {
+        next_section++;
+    }
+
+    /* Remove leading newline if present */
+    if (existing > content && *(existing - 1) == '\n') {
+        existing--;
+    }
+
+    size_t prefix_len = (size_t)(existing - content);
+    const char *suffix = next_section ? next_section : "";
+    size_t suffix_len = strlen(suffix);
+    size_t new_len = prefix_len + suffix_len;
+    char *result = malloc(new_len + 1);
+    if (!result) {
+        free(content);
+        return -1;
+    }
+    memcpy(result, content, prefix_len);
+    memcpy(result + prefix_len, suffix, suffix_len);
+    result[new_len] = '\0';
+
+    int rc = write_file_str(config_path, result);
+    free(content);
+    free(result);
+    return rc;
+}
+
+/* ── OpenCode MCP config (JSON with "mcp" key) ───────────────── */
+
+int cbm_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
+    if (!binary_path || !config_path) {
+        return -1;
+    }
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    if (!mdoc) {
+        return -1;
+    }
+
+    yyjson_doc *doc = read_json_file(config_path);
+    yyjson_mut_val *root;
+    if (doc) {
+        root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
+        yyjson_doc_free(doc);
+    } else {
+        root = yyjson_mut_obj(mdoc);
+    }
+    if (!root) {
+        yyjson_mut_doc_free(mdoc);
+        return -1;
+    }
+    yyjson_mut_doc_set_root(mdoc, root);
+
+    /* Get or create "mcp" object */
+    yyjson_mut_val *mcp = yyjson_mut_obj_get(root, "mcp");
+    if (!mcp || !yyjson_mut_is_obj(mcp)) {
+        mcp = yyjson_mut_obj(mdoc);
+        yyjson_mut_obj_add_val(mdoc, root, "mcp", mcp);
+    }
+
+    yyjson_mut_obj_remove_key(mcp, "codebase-memory-mcp");
+
+    yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
+    yyjson_mut_obj_add_str(mdoc, entry, "command", binary_path);
+    yyjson_mut_obj_add_val(mdoc, mcp, "codebase-memory-mcp", entry);
+
+    int rc = write_json_file(config_path, mdoc);
+    yyjson_mut_doc_free(mdoc);
+    return rc;
+}
+
+int cbm_remove_opencode_mcp(const char *config_path) {
+    if (!config_path) {
+        return -1;
+    }
+
+    yyjson_doc *doc = read_json_file(config_path);
+    if (!doc) {
+        return -1;
+    }
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
+    yyjson_doc_free(doc);
+    if (!root) {
+        yyjson_mut_doc_free(mdoc);
+        return -1;
+    }
+    yyjson_mut_doc_set_root(mdoc, root);
+
+    yyjson_mut_val *mcp = yyjson_mut_obj_get(root, "mcp");
+    if (!mcp || !yyjson_mut_is_obj(mcp)) {
+        yyjson_mut_doc_free(mdoc);
+        return 0;
+    }
+
+    yyjson_mut_obj_remove_key(mcp, "codebase-memory-mcp");
+
+    int rc = write_json_file(config_path, mdoc);
+    yyjson_mut_doc_free(mdoc);
+    return rc;
+}
+
+/* ── Antigravity MCP config (JSON, same mcpServers format) ────── */
+
+int cbm_upsert_antigravity_mcp(const char *binary_path, const char *config_path) {
+    /* Antigravity uses same mcpServers format as Cursor/Gemini */
+    return cbm_install_editor_mcp(binary_path, config_path);
+}
+
+int cbm_remove_antigravity_mcp(const char *config_path) {
+    return cbm_remove_editor_mcp(config_path);
+}
+
+/* ── Claude Code pre-tool hooks ───────────────────────────────── */
+
+#define CMM_HOOK_MATCHER "Grep|Glob|Read"
+#define CMM_HOOK_COMMAND                                                        \
+    "echo 'Reminder: prefer codebase-memory-mcp search_graph/trace_call_path/"  \
+    "get_code_snippet over Grep/Glob/Read for code discovery. "                 \
+    "Use get_code_snippet(qualified_name) instead of Read to view a function. " \
+    "Fall back only if MCP returns insufficient results.' >&2"
+
+/* Check if a PreToolUse array entry matches our hook (by matcher string) */
+static bool is_cmm_hook_entry(yyjson_mut_val *entry, const char *matcher_str) {
+    yyjson_mut_val *matcher = yyjson_mut_obj_get(entry, "matcher");
+    if (!matcher || !yyjson_mut_is_str(matcher)) {
+        return false;
+    }
+    const char *val = yyjson_mut_get_str(matcher);
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    return val != NULL && strcmp(val, matcher_str) == 0;
+}
+
+/* Generic hook upsert for both Claude Code and Gemini CLI */
+static int upsert_hooks_json(const char *settings_path, const char *hook_event,
+                             const char *matcher_str, const char *command_str) {
+    if (!settings_path) {
+        return -1;
+    }
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    if (!mdoc) {
+        return -1;
+    }
+
+    yyjson_doc *doc = read_json_file(settings_path);
+    yyjson_mut_val *root;
+    if (doc) {
+        root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
+        yyjson_doc_free(doc);
+    } else {
+        root = yyjson_mut_obj(mdoc);
+    }
+    if (!root) {
+        yyjson_mut_doc_free(mdoc);
+        return -1;
+    }
+    yyjson_mut_doc_set_root(mdoc, root);
+
+    /* Get or create hooks object */
+    yyjson_mut_val *hooks = yyjson_mut_obj_get(root, "hooks");
+    if (!hooks || !yyjson_mut_is_obj(hooks)) {
+        hooks = yyjson_mut_obj(mdoc);
+        yyjson_mut_obj_add_val(mdoc, root, "hooks", hooks);
+    }
+
+    /* Get or create the hook event array (e.g. PreToolUse / BeforeTool) */
+    yyjson_mut_val *event_arr = yyjson_mut_obj_get(hooks, hook_event);
+    if (!event_arr || !yyjson_mut_is_arr(event_arr)) {
+        event_arr = yyjson_mut_arr(mdoc);
+        yyjson_mut_obj_add_val(mdoc, hooks, hook_event, event_arr);
+    }
+
+    /* Remove existing CMM entry if present */
+    size_t idx;
+    size_t max;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(event_arr, idx, max, item) {
+        if (is_cmm_hook_entry(item, matcher_str)) {
+            yyjson_mut_arr_remove(event_arr, idx);
+            break;
+        }
+    }
+
+    /* Build our hook entry */
+    yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
+    yyjson_mut_obj_add_str(mdoc, entry, "matcher", matcher_str);
+
+    yyjson_mut_val *hooks_arr = yyjson_mut_arr(mdoc);
+    yyjson_mut_val *hook_obj = yyjson_mut_obj(mdoc);
+    yyjson_mut_obj_add_str(mdoc, hook_obj, "type", "command");
+    yyjson_mut_obj_add_str(mdoc, hook_obj, "command", command_str);
+    yyjson_mut_arr_append(hooks_arr, hook_obj);
+    yyjson_mut_obj_add_val(mdoc, entry, "hooks", hooks_arr);
+
+    yyjson_mut_arr_append(event_arr, entry);
+
+    int rc = write_json_file(settings_path, mdoc);
+    yyjson_mut_doc_free(mdoc);
+    return rc;
+}
+
+/* Generic hook remove for both Claude Code and Gemini CLI */
+static int remove_hooks_json(const char *settings_path, const char *hook_event,
+                             const char *matcher_str) {
+    if (!settings_path) {
+        return -1;
+    }
+
+    yyjson_doc *doc = read_json_file(settings_path);
+    if (!doc) {
+        return -1;
+    }
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
+    yyjson_doc_free(doc);
+    if (!root) {
+        yyjson_mut_doc_free(mdoc);
+        return -1;
+    }
+    yyjson_mut_doc_set_root(mdoc, root);
+
+    yyjson_mut_val *hooks = yyjson_mut_obj_get(root, "hooks");
+    if (!hooks) {
+        yyjson_mut_doc_free(mdoc);
+        return 0;
+    }
+
+    yyjson_mut_val *event_arr = yyjson_mut_obj_get(hooks, hook_event);
+    if (!event_arr || !yyjson_mut_is_arr(event_arr)) {
+        yyjson_mut_doc_free(mdoc);
+        return 0;
+    }
+
+    size_t idx;
+    size_t max;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(event_arr, idx, max, item) {
+        if (is_cmm_hook_entry(item, matcher_str)) {
+            yyjson_mut_arr_remove(event_arr, idx);
+            break;
+        }
+    }
+
+    int rc = write_json_file(settings_path, mdoc);
+    yyjson_mut_doc_free(mdoc);
+    return rc;
+}
+
+int cbm_upsert_claude_hooks(const char *settings_path) {
+    return upsert_hooks_json(settings_path, "PreToolUse", CMM_HOOK_MATCHER, CMM_HOOK_COMMAND);
+}
+
+int cbm_remove_claude_hooks(const char *settings_path) {
+    return remove_hooks_json(settings_path, "PreToolUse", CMM_HOOK_MATCHER);
+}
+
+#define GEMINI_HOOK_MATCHER "google_search|read_file|grep_search"
+#define GEMINI_HOOK_COMMAND                                                    \
+    "echo 'Reminder: prefer codebase-memory-mcp search_graph/trace_call_path/" \
+    "get_code_snippet over grep/file search for code discovery.' >&2"
+
+int cbm_upsert_gemini_hooks(const char *settings_path) {
+    return upsert_hooks_json(settings_path, "BeforeTool", GEMINI_HOOK_MATCHER, GEMINI_HOOK_COMMAND);
+}
+
+int cbm_remove_gemini_hooks(const char *settings_path) {
+    return remove_hooks_json(settings_path, "BeforeTool", GEMINI_HOOK_MATCHER);
 }
 
 /* ── PATH management ──────────────────────────────────────────── */
@@ -966,4 +1598,742 @@ unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data
 
     free(decompressed);
     return NULL; /* binary not found */
+}
+
+/* ── Index management ─────────────────────────────────────────── */
+
+static const char *get_cache_dir(const char *home_dir) {
+    static char buf[1024];
+    if (!home_dir) {
+        home_dir = getenv("HOME");
+    }
+    if (!home_dir) {
+        return NULL;
+    }
+    snprintf(buf, sizeof(buf), "%s/.cache/codebase-memory-mcp", home_dir);
+    return buf;
+}
+
+int cbm_list_indexes(const char *home_dir) {
+    const char *cache_dir = get_cache_dir(home_dir);
+    if (!cache_dir) {
+        return 0;
+    }
+
+    cbm_dir_t *d = cbm_opendir(cache_dir);
+    if (!d) {
+        return 0;
+    }
+
+    int count = 0;
+    cbm_dirent_t *ent;
+    while ((ent = cbm_readdir(d)) != NULL) {
+        size_t len = strlen(ent->name);
+        if (len > 3 && strcmp(ent->name + len - 3, ".db") == 0) {
+            printf("  %s/%s\n", cache_dir, ent->name);
+            count++;
+        }
+    }
+    cbm_closedir(d);
+    return count;
+}
+
+int cbm_remove_indexes(const char *home_dir) {
+    const char *cache_dir = get_cache_dir(home_dir);
+    if (!cache_dir) {
+        return 0;
+    }
+
+    cbm_dir_t *d = cbm_opendir(cache_dir);
+    if (!d) {
+        return 0;
+    }
+
+    int count = 0;
+    cbm_dirent_t *ent;
+    while ((ent = cbm_readdir(d)) != NULL) {
+        size_t len = strlen(ent->name);
+        if (len > 3 && strcmp(ent->name + len - 3, ".db") == 0) {
+            char path[1024];
+            snprintf(path, sizeof(path), "%s/%s", cache_dir, ent->name);
+            /* Also remove .db.tmp if present */
+            char tmp_path[1040];
+            snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+            cbm_unlink(tmp_path);
+            if (cbm_unlink(path) == 0) {
+                count++;
+            }
+        }
+    }
+    cbm_closedir(d);
+    return count;
+}
+
+/* ── Interactive prompt ───────────────────────────────────────── */
+
+/* Global auto-answer mode: 0=interactive, 1=always yes, -1=always no */
+static int g_auto_answer = 0;
+
+static void parse_auto_answer(int argc, char **argv) {
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "-y") == 0 || strcmp(argv[i], "--yes") == 0) {
+            g_auto_answer = 1;
+        }
+        if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--no") == 0) {
+            g_auto_answer = -1;
+        }
+    }
+}
+
+static bool prompt_yn(const char *question) {
+    if (g_auto_answer == 1) {
+        printf("%s (y/n): y (auto)\n", question);
+        return true;
+    }
+    if (g_auto_answer == -1) {
+        printf("%s (y/n): n (auto)\n", question);
+        return false;
+    }
+
+    printf("%s (y/n): ", question);
+    (void)fflush(stdout);
+
+    char buf[16];
+    if (!fgets(buf, sizeof(buf), stdin)) {
+        return false;
+    }
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    return (buf[0] == 'y' || buf[0] == 'Y') ? true : false;
+}
+
+/* ── Detect OS/arch for download URL ──────────────────────────── */
+
+static const char *detect_os(void) {
+#ifdef _WIN32
+    return "windows";
+#elif defined(__APPLE__)
+    return "darwin";
+#else
+    return "linux";
+#endif
+}
+
+static const char *detect_arch(void) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#else
+    return "amd64";
+#endif
+}
+
+/* ── Subcommand: install ──────────────────────────────────────── */
+
+int cbm_cmd_install(int argc, char **argv) {
+    parse_auto_answer(argc, argv);
+    bool dry_run = false;
+    bool force = false;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--dry-run") == 0) {
+            dry_run = true;
+        }
+        if (strcmp(argv[i], "--force") == 0) {
+            force = true;
+        }
+    }
+
+    const char *home = getenv("HOME");
+    if (!home) {
+        fprintf(stderr, "error: HOME not set\n");
+        return 1;
+    }
+
+    printf("codebase-memory-mcp install %s\n\n", CBM_VERSION);
+
+    /* Step 1: Check for existing indexes */
+    int index_count = 0;
+    const char *cache_dir = get_cache_dir(home);
+    if (cache_dir) {
+        cbm_dir_t *d = cbm_opendir(cache_dir);
+        if (d) {
+            cbm_dirent_t *ent;
+            while ((ent = cbm_readdir(d)) != NULL) {
+                size_t len = strlen(ent->name);
+                if (len > 3 && strcmp(ent->name + len - 3, ".db") == 0) {
+                    index_count++;
+                }
+            }
+            cbm_closedir(d);
+        }
+    }
+
+    if (index_count > 0) {
+        printf("Found %d existing index(es) that must be rebuilt:\n", index_count);
+        cbm_list_indexes(home);
+        printf("\n");
+        if (!prompt_yn("Delete these indexes and continue with install?")) {
+            printf("Install cancelled.\n");
+            return 1;
+        }
+        if (!dry_run) {
+            int removed = cbm_remove_indexes(home);
+            printf("Removed %d index(es).\n\n", removed);
+        }
+    }
+
+    /* Step 2: Binary path */
+    char self_path[1024];
+    snprintf(self_path, sizeof(self_path), "%s/.local/bin/codebase-memory-mcp", home);
+
+    /* Step 3: Detect agents */
+    cbm_detected_agents_t agents = cbm_detect_agents(home);
+    printf("Detected agents:");
+    if (agents.claude_code) {
+        printf(" Claude-Code");
+    }
+    if (agents.codex) {
+        printf(" Codex");
+    }
+    if (agents.gemini) {
+        printf(" Gemini-CLI");
+    }
+    if (agents.zed) {
+        printf(" Zed");
+    }
+    if (agents.opencode) {
+        printf(" OpenCode");
+    }
+    if (agents.antigravity) {
+        printf(" Antigravity");
+    }
+    if (agents.aider) {
+        printf(" Aider");
+    }
+    if (!agents.claude_code && !agents.codex && !agents.gemini && !agents.zed && !agents.opencode &&
+        !agents.antigravity && !agents.aider) {
+        printf(" (none)");
+    }
+    printf("\n\n");
+
+    /* Step 4: Install Claude Code skills + hooks */
+    if (agents.claude_code) {
+        char skills_dir[1024];
+        snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", home);
+        printf("Claude Code:\n");
+
+        int skill_count = cbm_install_skills(skills_dir, force, dry_run);
+        printf("  skills: %d installed\n", skill_count);
+
+        if (cbm_remove_old_monolithic_skill(skills_dir, dry_run)) {
+            printf("  removed old monolithic skill\n");
+        }
+
+        /* MCP config (.mcp.json) */
+        char mcp_path[1024];
+        snprintf(mcp_path, sizeof(mcp_path), "%s/.claude/.mcp.json", home);
+        if (!dry_run) {
+            cbm_install_editor_mcp(self_path, mcp_path);
+        }
+        printf("  mcp: %s\n", mcp_path);
+
+        /* PreToolUse hook */
+        char settings_path[1024];
+        snprintf(settings_path, sizeof(settings_path), "%s/.claude/settings.json", home);
+        if (!dry_run) {
+            cbm_upsert_claude_hooks(settings_path);
+        }
+        printf("  hooks: PreToolUse (Grep|Glob reminder)\n");
+    }
+
+    /* Step 5: Install Codex CLI */
+    if (agents.codex) {
+        printf("Codex CLI:\n");
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.codex/config.toml", home);
+        if (!dry_run) {
+            cbm_upsert_codex_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.codex/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+    }
+
+    /* Step 6: Install Gemini CLI */
+    if (agents.gemini) {
+        printf("Gemini CLI:\n");
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.gemini/settings.json", home);
+        if (!dry_run) {
+            cbm_install_editor_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.gemini/GEMINI.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+
+        /* BeforeTool hook (shared with Antigravity) */
+        if (!dry_run) {
+            cbm_upsert_gemini_hooks(config_path);
+        }
+        printf("  hooks: BeforeTool (grep/file search reminder)\n");
+    }
+
+    /* Step 7: Install Zed */
+    if (agents.zed) {
+        printf("Zed:\n");
+        char config_path[1024];
+#ifdef __APPLE__
+        snprintf(config_path, sizeof(config_path),
+                 "%s/Library/Application Support/Zed/settings.json", home);
+#else
+        snprintf(config_path, sizeof(config_path), "%s/.config/zed/settings.json", home);
+#endif
+        if (!dry_run) {
+            cbm_install_zed_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+    }
+
+    /* Step 8: Install OpenCode */
+    if (agents.opencode) {
+        printf("OpenCode:\n");
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.config/opencode/opencode.json", home);
+        if (!dry_run) {
+            cbm_upsert_opencode_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.config/opencode/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+    }
+
+    /* Step 9: Install Antigravity */
+    if (agents.antigravity) {
+        printf("Antigravity:\n");
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.gemini/antigravity/mcp_config.json", home);
+        if (!dry_run) {
+            cbm_upsert_antigravity_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.gemini/antigravity/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+    }
+
+    /* Step 10: Install Aider */
+    if (agents.aider) {
+        printf("Aider:\n");
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/CONVENTIONS.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+    }
+
+    /* Step 11: Ensure PATH */
+    char bin_dir[1024];
+    snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);
+    const char *rc = cbm_detect_shell_rc(home);
+    if (rc[0]) {
+        int path_rc = cbm_ensure_path(bin_dir, rc, dry_run);
+        if (path_rc == 0) {
+            printf("\nAdded %s to PATH in %s\n", bin_dir, rc);
+        } else if (path_rc == 1) {
+            printf("\nPATH already includes %s\n", bin_dir);
+        }
+    }
+
+    printf("\nInstall complete. Restart your shell or run:\n");
+    printf("  source %s\n", rc);
+    if (dry_run) {
+        printf("\n(dry-run — no files were modified)\n");
+    }
+    return 0;
+}
+
+/* ── Subcommand: uninstall ────────────────────────────────────── */
+
+int cbm_cmd_uninstall(int argc, char **argv) {
+    parse_auto_answer(argc, argv);
+    bool dry_run = false;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--dry-run") == 0) {
+            dry_run = true;
+        }
+    }
+
+    const char *home = getenv("HOME");
+    if (!home) {
+        fprintf(stderr, "error: HOME not set\n");
+        return 1;
+    }
+
+    printf("codebase-memory-mcp uninstall\n\n");
+
+    /* Step 1: Detect agents and remove per-agent configs */
+    cbm_detected_agents_t agents = cbm_detect_agents(home);
+
+    if (agents.claude_code) {
+        char skills_dir[1024];
+        snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", home);
+        int removed = cbm_remove_skills(skills_dir, dry_run);
+        printf("Claude Code: removed %d skill(s)\n", removed);
+
+        char mcp_path[1024];
+        snprintf(mcp_path, sizeof(mcp_path), "%s/.claude/.mcp.json", home);
+        if (!dry_run) {
+            cbm_remove_editor_mcp(mcp_path);
+        }
+        printf("  removed MCP config entry\n");
+
+        char settings_path[1024];
+        snprintf(settings_path, sizeof(settings_path), "%s/.claude/settings.json", home);
+        if (!dry_run) {
+            cbm_remove_claude_hooks(settings_path);
+        }
+        printf("  removed PreToolUse hook\n");
+    }
+
+    if (agents.codex) {
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.codex/config.toml", home);
+        if (!dry_run) {
+            cbm_remove_codex_mcp(config_path);
+        }
+        printf("Codex CLI: removed MCP config entry\n");
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.codex/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("  removed instructions\n");
+    }
+
+    if (agents.gemini) {
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.gemini/settings.json", home);
+        if (!dry_run) {
+            cbm_remove_editor_mcp(config_path);
+        }
+        printf("Gemini CLI: removed MCP config entry\n");
+
+        if (!dry_run) {
+            cbm_remove_gemini_hooks(config_path);
+        }
+        printf("  removed BeforeTool hook\n");
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.gemini/GEMINI.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("  removed instructions\n");
+    }
+
+    if (agents.zed) {
+        char config_path[1024];
+#ifdef __APPLE__
+        snprintf(config_path, sizeof(config_path),
+                 "%s/Library/Application Support/Zed/settings.json", home);
+#else
+        snprintf(config_path, sizeof(config_path), "%s/.config/zed/settings.json", home);
+#endif
+        if (!dry_run) {
+            cbm_remove_zed_mcp(config_path);
+        }
+        printf("Zed: removed MCP config entry\n");
+    }
+
+    if (agents.opencode) {
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.config/opencode/opencode.json", home);
+        if (!dry_run) {
+            cbm_remove_opencode_mcp(config_path);
+        }
+        printf("OpenCode: removed MCP config entry\n");
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.config/opencode/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("  removed instructions\n");
+    }
+
+    if (agents.antigravity) {
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path), "%s/.gemini/antigravity/mcp_config.json", home);
+        if (!dry_run) {
+            cbm_remove_antigravity_mcp(config_path);
+        }
+        printf("Antigravity: removed MCP config entry\n");
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.gemini/antigravity/AGENTS.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("  removed instructions\n");
+    }
+
+    if (agents.aider) {
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/CONVENTIONS.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("Aider: removed instructions\n");
+    }
+
+    /* Step 2: Remove indexes */
+    int index_count = 0;
+    const char *cache_dir = get_cache_dir(home);
+    if (cache_dir) {
+        cbm_dir_t *d = cbm_opendir(cache_dir);
+        if (d) {
+            cbm_dirent_t *ent;
+            while ((ent = cbm_readdir(d)) != NULL) {
+                size_t len = strlen(ent->name);
+                if (len > 3 && strcmp(ent->name + len - 3, ".db") == 0) {
+                    index_count++;
+                }
+            }
+            cbm_closedir(d);
+        }
+    }
+
+    if (index_count > 0) {
+        printf("\nFound %d index(es):\n", index_count);
+        cbm_list_indexes(home);
+        if (prompt_yn("Delete these indexes?")) {
+            int idx_removed = cbm_remove_indexes(home);
+            printf("Removed %d index(es).\n", idx_removed);
+        } else {
+            printf("Indexes kept.\n");
+        }
+    }
+
+    /* Step 3: Remove binary */
+    char bin_path[1024];
+    snprintf(bin_path, sizeof(bin_path), "%s/.local/bin/codebase-memory-mcp", home);
+    struct stat st;
+    if (stat(bin_path, &st) == 0) {
+        if (!dry_run) {
+            cbm_unlink(bin_path);
+        }
+        printf("Removed %s\n", bin_path);
+    }
+
+    printf("\nUninstall complete.\n");
+    if (dry_run) {
+        printf("(dry-run — no files were modified)\n");
+    }
+    return 0;
+}
+
+/* ── Subcommand: update ───────────────────────────────────────── */
+
+int cbm_cmd_update(int argc, char **argv) {
+    parse_auto_answer(argc, argv);
+
+    const char *home = getenv("HOME");
+    if (!home) {
+        fprintf(stderr, "error: HOME not set\n");
+        return 1;
+    }
+
+    printf("codebase-memory-mcp update (current: %s)\n\n", CBM_VERSION);
+
+    /* Step 1: Check for existing indexes */
+    int index_count = 0;
+    const char *cache_dir = get_cache_dir(home);
+    if (cache_dir) {
+        cbm_dir_t *d = cbm_opendir(cache_dir);
+        if (d) {
+            cbm_dirent_t *ent;
+            while ((ent = cbm_readdir(d)) != NULL) {
+                size_t len = strlen(ent->name);
+                if (len > 3 && strcmp(ent->name + len - 3, ".db") == 0) {
+                    index_count++;
+                }
+            }
+            cbm_closedir(d);
+        }
+    }
+
+    if (index_count > 0) {
+        printf("Found %d existing index(es) that must be rebuilt after update:\n", index_count);
+        cbm_list_indexes(home);
+        printf("\n");
+        if (!prompt_yn("Delete these indexes and continue with update?")) {
+            printf("Update cancelled.\n");
+            return 1;
+        }
+        int removed = cbm_remove_indexes(home);
+        printf("Removed %d index(es).\n\n", removed);
+    }
+
+    /* Step 2: Ask for UI variant */
+    printf("Which binary variant do you want?\n");
+    printf("  1) standard  — MCP server only\n");
+    printf("  2) ui        — MCP server + embedded graph visualization\n");
+    printf("Choose (1/2): ");
+    (void)fflush(stdout);
+
+    char choice[16];
+    if (!fgets(choice, sizeof(choice), stdin)) {
+        fprintf(stderr, "error: failed to read input\n");
+        return 1;
+    }
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    bool want_ui = (choice[0] == '2') ? true : false;
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    const char *variant = want_ui ? "ui-" : "";
+    // NOLINTNEXTLINE(readability-implicit-bool-conversion)
+    const char *variant_label = want_ui ? "ui" : "standard";
+
+    /* Step 3: Build download URL */
+    const char *os = detect_os();
+    const char *arch = detect_arch();
+    const char *ext = strcmp(os, "windows") == 0 ? "zip" : "tar.gz";
+
+    char url[512];
+    if (want_ui) {
+        snprintf(url, sizeof(url),
+                 "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/"
+                 "codebase-memory-mcp-ui-%s-%s.%s",
+                 os, arch, ext);
+    } else {
+        snprintf(url, sizeof(url),
+                 "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/"
+                 "codebase-memory-mcp-%s-%s.%s",
+                 os, arch, ext);
+    }
+
+    printf("\nDownloading %s binary for %s/%s ...\n", variant_label, os, arch);
+    printf("  %s\n", url);
+
+    /* Step 4: Download using curl */
+    char tmp_archive[256];
+    snprintf(tmp_archive, sizeof(tmp_archive), "%s/cbm-update.%s", cbm_tmpdir(), ext);
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "curl -fSL --progress-bar -o '%s' '%s'", tmp_archive, url);
+    // NOLINTNEXTLINE(cert-env33-c) — intentional CLI subprocess for download
+    int rc = system(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "error: download failed (exit %d)\n", rc);
+        cbm_unlink(tmp_archive);
+        return 1;
+    }
+
+    /* Step 5: Extract binary */
+    char bin_dest[1024];
+    snprintf(bin_dest, sizeof(bin_dest), "%s/.local/bin/codebase-memory-mcp", home);
+
+    /* Ensure install directory exists */
+    char bin_dir[1024];
+    snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);
+    cbm_mkdir_p(bin_dir, 0755);
+
+    if (strcmp(ext, "tar.gz") == 0) {
+        /* Read archive into memory and extract */
+        FILE *f = fopen(tmp_archive, "rb");
+        if (!f) {
+            fprintf(stderr, "error: cannot open %s\n", tmp_archive);
+            return 1;
+        }
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        unsigned char *data = malloc((size_t)fsize);
+        if (!data) {
+            fclose(f);
+            cbm_unlink(tmp_archive);
+            return 1;
+        }
+        fread(data, 1, (size_t)fsize, f);
+        fclose(f);
+
+        int bin_len = 0;
+        unsigned char *bin_data = cbm_extract_binary_from_targz(data, (int)fsize, &bin_len);
+        free(data);
+        cbm_unlink(tmp_archive);
+
+        if (!bin_data || bin_len <= 0) {
+            fprintf(stderr, "error: binary not found in archive\n");
+            free(bin_data);
+            return 1;
+        }
+
+        FILE *out = fopen(bin_dest, "wb");
+        if (!out) {
+            fprintf(stderr, "error: cannot write to %s\n", bin_dest);
+            free(bin_data);
+            return 1;
+        }
+        fwrite(bin_data, 1, (size_t)bin_len, out);
+        fclose(out);
+        free(bin_data);
+
+        /* Make executable */
+#ifndef _WIN32
+        chmod(bin_dest, 0755);
+#endif
+    } else {
+        /* Windows: unzip */
+        snprintf(cmd, sizeof(cmd), "unzip -o -d '%s' '%s' 2>/dev/null", bin_dir, tmp_archive);
+        // NOLINTNEXTLINE(cert-env33-c) — intentional CLI subprocess for extraction
+        rc = system(cmd);
+        cbm_unlink(tmp_archive);
+        if (rc != 0) {
+            fprintf(stderr, "error: extraction failed\n");
+            return 1;
+        }
+        /* Rename variant binary if needed */
+        if (want_ui) {
+            char ui_bin[1024];
+            snprintf(ui_bin, sizeof(ui_bin), "%s/codebase-memory-mcp-ui.exe", bin_dir);
+            snprintf(bin_dest, sizeof(bin_dest), "%s/codebase-memory-mcp.exe", bin_dir);
+            rename(ui_bin, bin_dest);
+        }
+    }
+
+    /* Step 6: Reinstall skills (force to pick up new content) */
+    char skills_dir[1024];
+    snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", home);
+    int skill_count = cbm_install_skills(skills_dir, true, false);
+    printf("Updated %d skill(s).\n", skill_count);
+
+    /* Step 7: Verify new version */
+    printf("\nUpdate complete. Verifying:\n");
+    snprintf(cmd, sizeof(cmd), "'%s' --version", bin_dest);
+    // NOLINTNEXTLINE(cert-env33-c,clang-analyzer-optin.taint.GenericTaint)
+    (void)system(cmd);
+
+    printf("\nAll project indexes were cleared. They will be rebuilt\n");
+    printf("automatically when you next use the MCP server.\n");
+    (void)variant;
+    return 0;
 }

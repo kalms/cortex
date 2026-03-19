@@ -93,13 +93,85 @@ int cbm_install_vscode_mcp(const char *binary_path, const char *config_path);
 int cbm_remove_vscode_mcp(const char *config_path);
 
 /* Install MCP server entry in Zed settings.json.
- * Format: { "context_servers": { "codebase-memory-mcp": { "source": "custom", "command":
- * binary_path } } } Returns 0 on success. */
+ * Format: { "context_servers": { "codebase-memory-mcp": { "command": path, "args": [""] } } }
+ * Returns 0 on success. */
 int cbm_install_zed_mcp(const char *binary_path, const char *config_path);
 
 /* Remove MCP server entry from Zed settings.json.
  * Returns 0 on success. */
 int cbm_remove_zed_mcp(const char *config_path);
+
+/* ── Agent detection ──────────────────────────────────────────── */
+
+/* Detected coding agents on the system. */
+typedef struct {
+    bool claude_code; /* ~/.claude/ exists */
+    bool codex;       /* ~/.codex/ exists */
+    bool gemini;      /* ~/.gemini/ exists */
+    bool zed;         /* platform-specific Zed config dir exists */
+    bool opencode;    /* opencode on PATH or config exists */
+    bool antigravity; /* ~/.gemini/antigravity/ exists */
+    bool aider;       /* aider on PATH */
+} cbm_detected_agents_t;
+
+/* Detect which coding agents are installed.
+ * Checks config dirs and PATH. home_dir is used for config dir checks. */
+cbm_detected_agents_t cbm_detect_agents(const char *home_dir);
+
+/* ── Agent MCP config upsert (per agent) ──────────────────────── */
+
+/* Codex CLI: upsert MCP entry in ~/.codex/config.toml. Returns 0 on success. */
+int cbm_upsert_codex_mcp(const char *binary_path, const char *config_path);
+
+/* Remove CMM MCP entry from Codex config.toml. Returns 0 on success. */
+int cbm_remove_codex_mcp(const char *config_path);
+
+/* OpenCode: upsert MCP entry in opencode.json. Returns 0 on success. */
+int cbm_upsert_opencode_mcp(const char *binary_path, const char *config_path);
+
+/* Remove CMM MCP entry from opencode.json. Returns 0 on success. */
+int cbm_remove_opencode_mcp(const char *config_path);
+
+/* Antigravity: upsert MCP entry in ~/.gemini/antigravity/mcp_config.json.
+ * Returns 0 on success. */
+int cbm_upsert_antigravity_mcp(const char *binary_path, const char *config_path);
+
+/* Remove CMM MCP entry from antigravity mcp_config.json. Returns 0 on success. */
+int cbm_remove_antigravity_mcp(const char *config_path);
+
+/* ── Instructions file upsert ─────────────────────────────────── */
+
+/* Upsert a codebase-memory-mcp instruction section in a markdown file.
+ * Uses <!-- codebase-memory-mcp:start --> / <!-- codebase-memory-mcp:end --> markers.
+ * If markers exist, replaces content between them. Otherwise appends.
+ * If file doesn't exist, creates it. Returns 0 on success. */
+int cbm_upsert_instructions(const char *path, const char *content);
+
+/* Remove the codebase-memory-mcp instruction section from a markdown file.
+ * Returns 0 on success, 1 if not found. */
+int cbm_remove_instructions(const char *path);
+
+/* Get the shared agent instructions content (markdown). */
+const char *cbm_get_agent_instructions(void);
+
+/* ── Pre-tool hook management ─────────────────────────────────── */
+
+/* Upsert a PreToolUse hook in ~/.claude/settings.json for Claude Code.
+ * Adds a Grep|Glob matcher that reminds to use MCP tools.
+ * Returns 0 on success. */
+int cbm_upsert_claude_hooks(const char *settings_path);
+
+/* Remove our PreToolUse hook from Claude Code settings.json.
+ * Returns 0 on success. */
+int cbm_remove_claude_hooks(const char *settings_path);
+
+/* Upsert a BeforeTool hook in ~/.gemini/settings.json for Gemini CLI / Antigravity.
+ * Returns 0 on success. */
+int cbm_upsert_gemini_hooks(const char *settings_path);
+
+/* Remove our BeforeTool hook from Gemini settings.json.
+ * Returns 0 on success. */
+int cbm_remove_gemini_hooks(const char *settings_path);
 
 /* ── PATH management ──────────────────────────────────────────── */
 
@@ -107,7 +179,7 @@ int cbm_remove_zed_mcp(const char *config_path);
  * Checks if already present. Returns 0 on success, 1 if already present. */
 int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run);
 
-/* ── Codex instructions ───────────────────────────────────────── */
+/* ── Codex instructions (legacy, wraps cbm_get_agent_instructions) ── */
 
 /* Get the Codex CLI instructions content. */
 const char *cbm_get_codex_instructions(void);
@@ -118,5 +190,27 @@ const char *cbm_get_codex_instructions(void);
  * Returns malloc'd binary content and sets *out_len.
  * Returns NULL on error. Caller must free. */
 unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data_len, int *out_len);
+
+/* ── Index management ─────────────────────────────────────────── */
+
+/* List .db files in the cache directory (~/.cache/codebase-memory-mcp/).
+ * Prints each file path to stdout. Returns count of .db files found. */
+int cbm_list_indexes(const char *home_dir);
+
+/* Remove all .db files in the cache directory. Returns count removed. */
+int cbm_remove_indexes(const char *home_dir);
+
+/* ── Subcommands (wired from main.c) ─────────────────────────── */
+
+/* install: copy binary, install skills, install editor MCP configs, ensure PATH.
+ * Prompts to delete old indexes if any exist — rejects on "no". */
+int cbm_cmd_install(int argc, char **argv);
+
+/* uninstall: remove skills, remove editor MCP configs, remove binary. */
+int cbm_cmd_uninstall(int argc, char **argv);
+
+/* update: check latest release, prompt for index deletion, prompt for ui/standard,
+ * download and replace binary. */
+int cbm_cmd_update(int argc, char **argv);
 
 #endif /* CBM_CLI_H */
