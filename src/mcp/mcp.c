@@ -11,9 +11,12 @@
 #include "store/store.h"
 #include "cypher/cypher.h"
 #include "pipeline/pipeline.h"
+#include "cli/cli.h"
 #include "foundation/platform.h"
 #include "foundation/compat.h"
 #include "foundation/compat_fs.h"
+#include "foundation/compat_thread.h"
+#include "foundation/log.h"
 
 #ifdef _WIN32
 #include <process.h> /* _getpid */
@@ -445,10 +448,14 @@ bool cbm_mcp_get_bool_arg(const char *args_json, const char *key) {
  * ══════════════════════════════════════════════════════════════════ */
 
 struct cbm_mcp_server {
-    cbm_store_t *store;     /* currently open project store (or NULL) */
-    bool owns_store;        /* true if we opened the store */
-    char *current_project;  /* which project store is open for (heap) */
-    time_t store_last_used; /* last time resolve_store was called for a named project */
+    cbm_store_t *store;        /* currently open project store (or NULL) */
+    bool owns_store;           /* true if we opened the store */
+    char *current_project;     /* which project store is open for (heap) */
+    time_t store_last_used;    /* last time resolve_store was called for a named project */
+    char update_notice[256];   /* one-shot update notice, cleared after first injection */
+    bool update_checked;       /* true after background check has been launched */
+    cbm_thread_t update_tid;   /* background update check thread */
+    bool update_thread_active; /* true if update thread was started and needs joining */
 };
 
 cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
@@ -485,6 +492,9 @@ void cbm_mcp_server_set_project(cbm_mcp_server_t *srv, const char *project) {
 void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
     if (!srv) {
         return;
+    }
+    if (srv->update_thread_active) {
+        cbm_thread_join(&srv->update_tid);
     }
     if (srv->owns_store && srv->store) {
         cbm_store_close(srv->store);
@@ -2032,6 +2042,113 @@ char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const ch
     return cbm_mcp_text_result(msg, true);
 }
 
+/* ── Background update check ──────────────────────────────────── */
+
+#define UPDATE_CHECK_URL "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
+
+static void *update_check_thread(void *arg) {
+    cbm_mcp_server_t *srv = (cbm_mcp_server_t *)arg;
+
+    /* Use curl with 5s timeout to fetch latest release tag */
+    FILE *fp = cbm_popen("curl -sf --max-time 5 -H 'Accept: application/vnd.github+json' "
+                         "'" UPDATE_CHECK_URL "' 2>/dev/null",
+                         "r");
+    if (!fp) {
+        srv->update_checked = true;
+        return NULL;
+    }
+
+    char buf[4096];
+    size_t total = 0;
+    while (total < sizeof(buf) - 1) {
+        size_t n = fread(buf + total, 1, sizeof(buf) - 1 - total, fp);
+        if (n == 0) {
+            break;
+        }
+        total += n;
+    }
+    buf[total] = '\0';
+    cbm_pclose(fp);
+
+    /* Parse tag_name from JSON response */
+    yyjson_doc *doc = yyjson_read(buf, total, 0);
+    if (!doc) {
+        srv->update_checked = true;
+        return NULL;
+    }
+
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *tag = yyjson_obj_get(root, "tag_name");
+    const char *tag_str = yyjson_get_str(tag);
+
+    if (tag_str) {
+        const char *current = cbm_cli_get_version();
+        if (cbm_compare_versions(tag_str, current) > 0) {
+            snprintf(srv->update_notice, sizeof(srv->update_notice),
+                     "Update available: %s -> %s -- run: codebase-memory-mcp update", current,
+                     tag_str);
+            cbm_log_info("update.available", "current", current, "latest", tag_str);
+        }
+    }
+
+    yyjson_doc_free(doc);
+    srv->update_checked = true;
+    return NULL;
+}
+
+static void start_update_check(cbm_mcp_server_t *srv) {
+    if (srv->update_checked) {
+        return;
+    }
+    srv->update_checked = true; /* prevent double-launch */
+    if (cbm_thread_create(&srv->update_tid, 0, update_check_thread, srv) == 0) {
+        srv->update_thread_active = true;
+    }
+}
+
+/* Prepend update notice to a tool result, then clear it (one-shot). */
+static char *inject_update_notice(cbm_mcp_server_t *srv, char *result_json) {
+    if (srv->update_notice[0] == '\0') {
+        return result_json;
+    }
+
+    /* Parse existing result, prepend notice text, rebuild */
+    yyjson_doc *doc = yyjson_read(result_json, strlen(result_json), 0);
+    if (!doc) {
+        return result_json;
+    }
+
+    yyjson_mut_doc *mdoc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = yyjson_val_mut_copy(mdoc, yyjson_doc_get_root(doc));
+    yyjson_doc_free(doc);
+    if (!root) {
+        yyjson_mut_doc_free(mdoc);
+        return result_json;
+    }
+    yyjson_mut_doc_set_root(mdoc, root);
+
+    /* Find the "content" array */
+    yyjson_mut_val *content = yyjson_mut_obj_get(root, "content");
+    if (content && yyjson_mut_is_arr(content)) {
+        /* Prepend a text content item with the update notice */
+        yyjson_mut_val *notice_item = yyjson_mut_obj(mdoc);
+        yyjson_mut_obj_add_str(mdoc, notice_item, "type", "text");
+        yyjson_mut_obj_add_str(mdoc, notice_item, "text", srv->update_notice);
+        yyjson_mut_arr_prepend(content, notice_item);
+    }
+
+    size_t len;
+    char *new_json = yyjson_mut_write(mdoc, YYJSON_WRITE_ALLOW_INVALID_UNICODE, &len);
+    yyjson_mut_doc_free(mdoc);
+
+    if (new_json) {
+        free(result_json);
+        srv->update_notice[0] = '\0'; /* clear — one-shot */
+        return new_json;
+    }
+    return result_json;
+}
+
 /* ── Server request handler ───────────────────────────────────── */
 
 char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
@@ -2050,6 +2167,7 @@ char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
 
     if (strcmp(req.method, "initialize") == 0) {
         result_json = cbm_mcp_initialize_response();
+        start_update_check(srv);
     } else if (strcmp(req.method, "tools/list") == 0) {
         result_json = cbm_mcp_tools_list();
     } else if (strcmp(req.method, "tools/call") == 0) {
@@ -2058,6 +2176,7 @@ char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
             req.params_raw ? cbm_mcp_get_arguments(req.params_raw) : heap_strdup("{}");
 
         result_json = cbm_mcp_handle_tool(srv, tool_name, tool_args);
+        result_json = inject_update_notice(srv, result_json);
         free(tool_name);
         free(tool_args);
     } else {
