@@ -4,6 +4,7 @@
  * Covers: config persistence, embedded asset lookup, layout engine.
  */
 #include "../src/foundation/compat.h"
+#include "../src/foundation/compat_fs.h"
 #include "test_framework.h"
 #include "ui/config.h"
 #include "ui/embedded_assets.h"
@@ -13,7 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 /* ── Config tests ─────────────────────────────────────────────── */
 
@@ -113,12 +116,10 @@ TEST(config_corrupt_file) {
     char path[1024];
     cbm_ui_config_path(path, (int)sizeof(path));
 
-    /* Ensure directory exists */
+    /* Ensure directory exists (portable — no system("mkdir -p")) */
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s/.cache/codebase-memory-mcp", td);
-    char cmd[1200];
-    snprintf(cmd, sizeof(cmd), "mkdir -p %s", dir);
-    (void)system(cmd);
+    cbm_mkdir_p(dir, 0755);
 
     FILE *f = fopen(path, "w");
     ASSERT_NOT_NULL(f);
@@ -153,9 +154,7 @@ TEST(config_missing_fields) {
 
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s/.cache/codebase-memory-mcp", td);
-    char cmd[1200];
-    snprintf(cmd, sizeof(cmd), "mkdir -p %s", dir);
-    (void)system(cmd);
+    cbm_mkdir_p(dir, 0755);
 
     FILE *f = fopen(path, "w");
     ASSERT_NOT_NULL(f);
