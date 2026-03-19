@@ -223,7 +223,10 @@ static const tool_def_t TOOLS[] = {
      "repository\"},\"mode\":{\"type\":\"string\",\"enum\":[\"full\",\"fast\"],\"default\":"
      "\"full\"}},\"required\":[\"repo_path\"]}"},
 
-    {"search_graph", "Search the code knowledge graph for nodes matching criteria",
+    {"search_graph",
+     "Search the code knowledge graph for functions, classes, routes, and variables. Use INSTEAD "
+     "OF grep/glob when finding code definitions, implementations, or relationships. Returns "
+     "precise results in one call.",
      "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"label\":{\"type\":"
      "\"string\"},\"name_pattern\":{\"type\":\"string\"},\"qn_pattern\":{\"type\":\"string\"},"
      "\"file_pattern\":{\"type\":\"string\"},\"relationship\":{\"type\":\"string\"},\"min_degree\":"
@@ -232,20 +235,26 @@ static const tool_def_t TOOLS[] = {
      "\"integer\",\"description\":\"Max results. Default: "
      "unlimited\"},\"offset\":{\"type\":\"integer\",\"default\":0}}}"},
 
-    {"query_graph", "Execute a Cypher query against the knowledge graph",
+    {"query_graph",
+     "Execute a Cypher query against the knowledge graph for complex multi-hop patterns, "
+     "aggregations, and cross-service analysis.",
      "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Cypher "
      "query\"},\"project\":{\"type\":\"string\"},\"max_rows\":{\"type\":\"integer\","
      "\"description\":"
      "\"Optional row limit. Default: unlimited (100k ceiling)\"}},\"required\":[\"query\"]}"},
 
-    {"trace_call_path", "Trace function call paths (callers/callees)",
+    {"trace_call_path",
+     "Trace function call paths — who calls a function and what it calls. Use INSTEAD OF grep when "
+     "finding callers, dependencies, or impact analysis.",
      "{\"type\":\"object\",\"properties\":{\"function_name\":{\"type\":\"string\"},\"project\":{"
      "\"type\":\"string\"},\"direction\":{\"type\":\"string\",\"enum\":[\"inbound\",\"outbound\","
      "\"both\"],\"default\":\"both\"},\"depth\":{\"type\":\"integer\",\"default\":3},\"edge_"
      "types\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"function_"
      "name\"]}"},
 
-    {"get_code_snippet", "Get source code for a specific symbol",
+    {"get_code_snippet",
+     "Get source code for a specific function, class, or symbol by qualified name. Use INSTEAD OF "
+     "reading entire files when you need one function's implementation.",
      "{\"type\":\"object\",\"properties\":{\"qualified_name\":{\"type\":\"string\"},\"project\":{"
      "\"type\":\"string\"},\"auto_resolve\":{\"type\":\"boolean\",\"default\":false},\"include_"
      "neighbors\":{\"type\":\"boolean\",\"default\":false}},\"required\":[\"qualified_name\"]}"},
@@ -253,11 +262,15 @@ static const tool_def_t TOOLS[] = {
     {"get_graph_schema", "Get the schema of the knowledge graph (node labels, edge types)",
      "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"}}}"},
 
-    {"get_architecture", "Get high-level architecture overview",
+    {"get_architecture",
+     "Get high-level architecture overview — packages, services, dependencies, and project "
+     "structure at a glance.",
      "{\"type\":\"object\",\"properties\":{\"project\":{\"type\":\"string\"},\"aspects\":{\"type\":"
      "\"array\",\"items\":{\"type\":\"string\"}}}}"},
 
-    {"search_code", "Search source code content with text or regex patterns",
+    {"search_code",
+     "Search source code content with text or regex patterns. Use for string literals, error "
+     "messages, and config values that are not in the knowledge graph.",
      "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"project\":{\"type\":"
      "\"string\"},\"file_pattern\":{\"type\":\"string\"},\"regex\":{\"type\":\"boolean\","
      "\"default\":false},\"limit\":{\"type\":\"integer\",\"description\":\"Max results. Default: "
