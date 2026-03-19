@@ -13,7 +13,8 @@ BINARY="${1:?usage: smoke-test.sh <binary-path>}"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-cli() { "$BINARY" cli "$@" 2>/dev/null; }
+CLI_STDERR=$(mktemp)
+cli() { "$BINARY" cli "$@" 2>"$CLI_STDERR"; }
 
 echo "=== Phase 1: version ==="
 OUTPUT=$("$BINARY" --version 2>&1)
@@ -97,6 +98,9 @@ echo "$RESULT"
 STATUS=$(echo "$RESULT" | python3 -c "import json,sys; d=json.loads(json.loads(sys.stdin.read())['content'][0]['text']); print(d.get('status',''))" 2>/dev/null || echo "")
 if [ "$STATUS" != "indexed" ]; then
   echo "FAIL: index status is '$STATUS', expected 'indexed'"
+  echo "--- stderr ---"
+  cat "$CLI_STDERR"
+  echo "--- end stderr ---"
   exit 1
 fi
 
