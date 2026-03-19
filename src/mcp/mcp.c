@@ -13,6 +13,7 @@
 #include "pipeline/pipeline.h"
 #include "cli/cli.h"
 #include "watcher/watcher.h"
+#include "foundation/mem.h"
 #include "foundation/platform.h"
 #include "foundation/compat.h"
 #include "foundation/compat_fs.h"
@@ -1230,6 +1231,7 @@ static char *handle_index_repository(cbm_mcp_server_t *srv, const char *args) {
      * No need to close srv->store — pipeline doesn't touch the open store. */
     int rc = cbm_pipeline_run(p);
     cbm_pipeline_free(p);
+    cbm_mem_collect(); /* return mimalloc pages to OS after large indexing */
 
     /* Invalidate cached store so next query reopens the fresh database */
     if (srv->owns_store && srv->store) {
@@ -2128,6 +2130,7 @@ static void *autoindex_thread(void *arg) {
 
     int rc = cbm_pipeline_run(p);
     cbm_pipeline_free(p);
+    cbm_mem_collect(); /* return mimalloc pages to OS after indexing */
 
     if (rc == 0) {
         cbm_log_info("autoindex.done", "project", srv->session_project);
