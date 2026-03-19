@@ -3,6 +3,7 @@
  *
  * RED phase: These tests define the expected pattern matching behavior.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "discover/discover.h"
 
@@ -162,7 +163,7 @@ TEST(gi_null_safe_free) {
 /* ── Load from file ────────────────────────────────────────────── */
 
 TEST(gi_load_file) {
-    const char *path = "/tmp/test_gitignore_file";
+    char path[256]; snprintf(path, sizeof(path), "%s/test_gitignore_file", cbm_tmpdir());
     FILE *f = fopen(path, "w");
     ASSERT_NOT_NULL(f);
     fprintf(f, "*.o\nbuild/\n");
@@ -178,7 +179,9 @@ TEST(gi_load_file) {
 }
 
 TEST(gi_load_nonexistent) {
-    cbm_gitignore_t *gi = cbm_gitignore_load("/tmp/nonexistent_gitignore_12345");
+    char np[256];
+    snprintf(np, sizeof(np), "%s/nonexistent_gitignore_12345", cbm_tmpdir());
+    cbm_gitignore_t *gi = cbm_gitignore_load(np);
     ASSERT_NULL(gi);
     PASS();
 }

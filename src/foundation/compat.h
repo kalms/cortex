@@ -97,6 +97,13 @@ char *cbm_mkdtemp(char *tmpl);
 #define cbm_mkdtemp mkdtemp
 #endif
 
+/* ── mkstemp (Windows lacks it) ──────────────────────────────── */
+#ifdef _WIN32
+int cbm_mkstemp(char *tmpl);
+#else
+#define cbm_mkstemp mkstemp
+#endif
+
 /* ── setenv / unsetenv (Windows lacks them) ──────────────────── */
 #ifdef _WIN32
 static inline int cbm_setenv(const char *name, const char *value, int overwrite) {
@@ -119,6 +126,18 @@ static inline int cbm_unsetenv(const char *name) {
 #else
 #define cbm_pipe(fds) pipe(fds)
 #endif
+
+/* ── Temp directory helper ───────────────────────────────────── */
+static inline const char *cbm_tmpdir(void) {
+#ifdef _WIN32
+    const char *t = getenv("TEMP");
+    if (!t)
+        t = getenv("TMP");
+    return t ? t : ".";
+#else
+    return "/tmp";
+#endif
+}
 
 /* ── Signal handling ──────────────────────────────────────────── */
 /* Windows doesn't have sigaction; provide macro to select signal API. */

@@ -8,6 +8,11 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#endif
 
 /* ── strndup (Windows lacks it) ───────────────────────────────── */
 
@@ -69,6 +74,31 @@ char *cbm_mkdtemp(char *tmpl) {
     /* Copy result back — callers now use char[256]+ buffers */
     strcpy(tmpl, buf);
     return tmpl;
+}
+#endif
+
+/* ── mkstemp (Windows lacks it) ───────────────────────────────── */
+
+#ifdef _WIN32
+int cbm_mkstemp(char *tmpl) {
+    /* Rewrite /tmp/ to %TEMP%\ like cbm_mkdtemp */
+    static char buf[512];
+    if (strncmp(tmpl, "/tmp/", 5) == 0) {
+        const char *tmp = getenv("TEMP");
+        if (!tmp)
+            tmp = getenv("TMP");
+        if (!tmp)
+            tmp = ".";
+        snprintf(buf, sizeof(buf), "%s\\%s", tmp, tmpl + 5);
+    } else {
+        snprintf(buf, sizeof(buf), "%s", tmpl);
+    }
+    if (!_mktemp(buf))
+        return -1;
+    int fd = _open(buf, _O_CREAT | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
+    if (fd >= 0)
+        strcpy(tmpl, buf);
+    return fd;
 }
 #endif
 
