@@ -17,6 +17,7 @@
 #include "graph_buffer/graph_buffer.h"
 #include "discover/discover.h"
 #include "foundation/platform.h"
+#include "foundation/compat_fs.h"
 #include "foundation/log.h"
 #include "foundation/hash_table.h"
 #include "foundation/compat.h"
@@ -631,6 +632,15 @@ int cbm_pipeline_run(cbm_pipeline_t *p) {
             }
             snprintf(db_path, sizeof(db_path), "%s/.cache/codebase-memory-mcp/%s.db", home,
                      p->project_name);
+        }
+
+        /* Ensure parent directory exists (e.g. ~/.cache/codebase-memory-mcp/) */
+        char db_dir[1024];
+        snprintf(db_dir, sizeof(db_dir), "%s", db_path);
+        char *last_slash = strrchr(db_dir, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            cbm_mkdir_p(db_dir, 0755);
         }
 
         rc = cbm_gbuf_dump_to_sqlite(p->gbuf, db_path);
