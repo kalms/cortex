@@ -112,6 +112,7 @@ typedef struct {
     bool opencode;    /* opencode on PATH or config exists */
     bool antigravity; /* ~/.gemini/antigravity/ exists */
     bool aider;       /* aider on PATH */
+    bool kilocode;    /* KiloCode globalStorage dir exists */
 } cbm_detected_agents_t;
 
 /* Detect which coding agents are installed.
