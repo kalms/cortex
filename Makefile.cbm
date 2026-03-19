@@ -215,6 +215,10 @@ SQLITE3_SRC = vendored/sqlite3/sqlite3.c
 SQLITE3_CFLAGS = -std=c11 -O2 -w -DSQLITE_DQS=0 -DSQLITE_THREADSAFE=1
 SQLITE3_CFLAGS_TEST = -std=c11 -g -O1 -w -DSQLITE_DQS=0 -DSQLITE_THREADSAFE=1
 
+# TRE regex (vendored, Windows only — POSIX uses system <regex.h>)
+TRE_SRC = vendored/tre/tre_all.c
+TRE_CFLAGS = -std=c11 -g -O1 -w -Ivendored/tre
+
 # yyjson (vendored)
 YYJSON_SRC = vendored/yyjson/yyjson.c
 
@@ -364,7 +368,21 @@ $(BUILD_DIR)/sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
 $(BUILD_DIR)/prod_sqlite3.o: $(SQLITE3_SRC) | $(BUILD_DIR)
 	$(CC) $(SQLITE3_CFLAGS) -c -o $@ $<
 
-OBJS_VENDORED_TEST = $(MIMALLOC_OBJ_TEST) $(SQLITE3_OBJ_TEST) $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST) $(MONGOOSE_OBJ_TEST)
+# TRE regex (only compiled on Windows — POSIX uses system <regex.h>)
+TRE_OBJ_TEST :=
+TRE_OBJ_PROD :=
+ifeq ($(IS_MINGW),yes)
+TRE_OBJ_TEST = $(BUILD_DIR)/tre.o
+TRE_OBJ_PROD = $(BUILD_DIR)/prod_tre.o
+
+$(BUILD_DIR)/tre.o: $(TRE_SRC) | $(BUILD_DIR)
+	$(CC) $(TRE_CFLAGS) $(SANITIZE) -c -o $@ $<
+
+$(BUILD_DIR)/prod_tre.o: $(TRE_SRC) | $(BUILD_DIR)
+	$(CC) $(TRE_CFLAGS) -O2 -c -o $@ $<
+endif
+
+OBJS_VENDORED_TEST = $(MIMALLOC_OBJ_TEST) $(SQLITE3_OBJ_TEST) $(TRE_OBJ_TEST) $(GRAMMAR_OBJS_TEST) $(TS_RUNTIME_OBJ_TEST) $(LSP_OBJ_TEST) $(PP_OBJ_TEST) $(MONGOOSE_OBJ_TEST)
 
 $(BUILD_DIR)/test-runner: $(ALL_TEST_SRCS) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_TEST) | $(BUILD_DIR)
 	$(CC) $(CFLAGS_TEST) -o $@ \
@@ -401,7 +419,7 @@ $(BUILD_DIR)/prod_lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
 $(BUILD_DIR)/prod_preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS_PROD) -w -I$(CBM_DIR)/vendored -c -o $@ $<
 
-OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(SQLITE3_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(MONGOOSE_OBJ_PROD)
+OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(SQLITE3_OBJ_PROD) $(TRE_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(MONGOOSE_OBJ_PROD)
 
 MAIN_SRC = src/main.c
 

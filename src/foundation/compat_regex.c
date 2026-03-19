@@ -2,7 +2,7 @@
  * compat_regex.c — Portable regular expression implementation.
  *
  * POSIX: direct wrappers around <regex.h>.
- * Windows: TODO — vendor TRE regex (BSD-licensed, ~2K LOC).
+ * Windows: vendored TRE regex library (BSD-licensed).
  */
 #include "foundation/compat_regex.h"
 
@@ -10,29 +10,52 @@
 
 #ifdef _WIN32
 
-/* ── Windows stub ─────────────────────────────────────────────── */
-/* TODO: Vendor TRE regex or use PCRE2 for Windows support.
- * For now, provide stubs that always fail to compile regex. */
+/* ── Windows: use vendored TRE ───────────────────────────────── */
+#include "../../vendored/tre/regex.h"
+
+_Static_assert(sizeof(regex_t) <= 256, "cbm_regex_t opaque buffer too small for TRE regex_t");
+
+static int translate_flags_tre(int flags) {
+    int tre_flags = 0;
+    if (flags & CBM_REG_EXTENDED)
+        tre_flags |= REG_EXTENDED;
+    if (flags & CBM_REG_ICASE)
+        tre_flags |= REG_ICASE;
+    if (flags & CBM_REG_NOSUB)
+        tre_flags |= REG_NOSUB;
+    if (flags & CBM_REG_NEWLINE)
+        tre_flags |= REG_NEWLINE;
+    return tre_flags;
+}
 
 int cbm_regcomp(cbm_regex_t *r, const char *pattern, int flags) {
-    (void)r;
-    (void)pattern;
-    (void)flags;
-    return -1; /* Not implemented */
+    regex_t *re = (regex_t *)r->opaque;
+    int rc = tre_regcomp(re, pattern, translate_flags_tre(flags));
+    return rc == 0 ? CBM_REG_OK : rc;
 }
 
 int cbm_regexec(const cbm_regex_t *r, const char *str, int nmatch, cbm_regmatch_t *matches,
                 int eflags) {
-    (void)r;
-    (void)str;
-    (void)nmatch;
-    (void)matches;
-    (void)eflags;
-    return CBM_REG_NOMATCH;
+    const regex_t *re = (const regex_t *)r->opaque;
+    if (nmatch <= 0 || !matches) {
+        int rc = tre_regexec(re, str, 0, NULL, eflags);
+        return rc == 0 ? CBM_REG_OK : CBM_REG_NOMATCH;
+    }
+    regmatch_t pmatch[32];
+    int n = nmatch > 32 ? 32 : nmatch;
+    int rc = tre_regexec(re, str, (size_t)n, pmatch, eflags);
+    if (rc != 0)
+        return CBM_REG_NOMATCH;
+    for (int i = 0; i < n; i++) {
+        matches[i].rm_so = (int)pmatch[i].rm_so;
+        matches[i].rm_eo = (int)pmatch[i].rm_eo;
+    }
+    return CBM_REG_OK;
 }
 
 void cbm_regfree(cbm_regex_t *r) {
-    (void)r;
+    regex_t *re = (regex_t *)r->opaque;
+    tre_regfree(re);
 }
 
 #else /* POSIX */
