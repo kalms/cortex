@@ -174,7 +174,7 @@ TEST(cli_version_get_set) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(cli_detect_shell_rc_zsh) {
-    char tmpdir[] = "/tmp/cli-rc-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -197,7 +197,7 @@ TEST(cli_detect_shell_rc_zsh) {
 }
 
 TEST(cli_detect_shell_rc_bash) {
-    char tmpdir[] = "/tmp/cli-rc-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -221,7 +221,7 @@ TEST(cli_detect_shell_rc_bash) {
 
 TEST(cli_detect_shell_rc_bash_with_bashrc) {
     /* Port of TestDetectShellRC_BashWithBashrc */
-    char tmpdir[] = "/tmp/cli-rc-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -248,7 +248,7 @@ TEST(cli_detect_shell_rc_bash_with_bashrc) {
 }
 
 TEST(cli_detect_shell_rc_fish) {
-    char tmpdir[] = "/tmp/cli-rc-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -269,7 +269,7 @@ TEST(cli_detect_shell_rc_fish) {
 }
 
 TEST(cli_detect_shell_rc_default) {
-    char tmpdir[] = "/tmp/cli-rc-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -295,7 +295,7 @@ TEST(cli_detect_shell_rc_default) {
 
 TEST(cli_find_cli_not_found) {
     /* Port of TestFindCLI_NotFound */
-    char tmpdir[] = "/tmp/cli-find-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -316,7 +316,7 @@ TEST(cli_find_cli_not_found) {
 
 TEST(cli_find_cli_on_path) {
     /* Port of TestFindCLI_FoundOnPATH */
-    char tmpdir[] = "/tmp/cli-find-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -344,7 +344,7 @@ TEST(cli_find_cli_on_path) {
 
 TEST(cli_find_cli_fallback_paths) {
     /* Port of TestFindCLI_FallbackPaths */
-    char tmpdir[] = "/tmp/cli-find-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -397,7 +397,7 @@ TEST(cli_dry_run_flags) {
 
 TEST(cli_skill_creation) {
     /* Port of TestInstallSkillCreation */
-    char tmpdir[] = "/tmp/cli-skill-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -427,7 +427,7 @@ TEST(cli_skill_creation) {
 
 TEST(cli_skill_idempotent) {
     /* Port of TestInstallIdempotent */
-    char tmpdir[] = "/tmp/cli-skill-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -456,7 +456,7 @@ TEST(cli_skill_idempotent) {
 
 TEST(cli_skill_force_overwrite) {
     /* Port of TestCLI_InstallForceOverwrites */
-    char tmpdir[] = "/tmp/cli-skill-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -475,7 +475,7 @@ TEST(cli_skill_force_overwrite) {
 
 TEST(cli_uninstall_removes_skills) {
     /* Port of TestUninstallRemovesSkills */
-    char tmpdir[] = "/tmp/cli-skill-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -501,7 +501,7 @@ TEST(cli_uninstall_removes_skills) {
 
 TEST(cli_remove_old_monolithic_skill) {
     /* Port of TestRemoveOldMonolithicSkill */
-    char tmpdir[] = "/tmp/cli-skill-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -580,7 +580,7 @@ TEST(cli_codex_instructions) {
 
 TEST(cli_editor_mcp_install) {
     /* Port of TestEditorMCPInstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -602,7 +602,7 @@ TEST(cli_editor_mcp_install) {
 
 TEST(cli_editor_mcp_idempotent) {
     /* Port of TestEditorMCPInstallIdempotent */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -632,7 +632,7 @@ TEST(cli_editor_mcp_idempotent) {
 
 TEST(cli_editor_mcp_preserves_others) {
     /* Port of TestEditorMCPPreservesOtherServers */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -660,7 +660,7 @@ TEST(cli_editor_mcp_preserves_others) {
 
 TEST(cli_editor_mcp_uninstall) {
     /* Port of TestEditorMCPUninstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -682,7 +682,7 @@ TEST(cli_editor_mcp_uninstall) {
 
 TEST(cli_gemini_mcp_install) {
     /* Port of TestGeminiMCPInstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -708,7 +708,7 @@ TEST(cli_gemini_mcp_install) {
 
 TEST(cli_vscode_mcp_install) {
     /* Port of TestVSCodeMCPInstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -732,7 +732,7 @@ TEST(cli_vscode_mcp_install) {
 
 TEST(cli_vscode_mcp_uninstall) {
     /* Port of TestVSCodeMCPUninstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -757,7 +757,7 @@ TEST(cli_vscode_mcp_uninstall) {
 
 TEST(cli_zed_mcp_install) {
     /* Port of TestZedMCPInstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -781,7 +781,7 @@ TEST(cli_zed_mcp_install) {
 
 TEST(cli_zed_mcp_preserves_settings) {
     /* Port of TestZedMCPPreservesSettings */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -811,7 +811,7 @@ TEST(cli_zed_mcp_preserves_settings) {
 
 TEST(cli_zed_mcp_uninstall) {
     /* Port of TestZedMCPUninstall */
-    char tmpdir[] = "/tmp/cli-mcp-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -836,7 +836,7 @@ TEST(cli_zed_mcp_uninstall) {
 
 TEST(cli_ensure_path_append) {
     /* Port of TestCLI_InstallPATHAppend */
-    char tmpdir[] = "/tmp/cli-path-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -855,7 +855,7 @@ TEST(cli_ensure_path_append) {
 }
 
 TEST(cli_ensure_path_already_present) {
-    char tmpdir[] = "/tmp/cli-path-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -871,7 +871,7 @@ TEST(cli_ensure_path_already_present) {
 }
 
 TEST(cli_ensure_path_dry_run) {
-    char tmpdir[] = "/tmp/cli-path-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -896,7 +896,7 @@ TEST(cli_ensure_path_dry_run) {
 
 TEST(cli_copy_file) {
     /* Port of TestCopyFile */
-    char tmpdir[] = "/tmp/cli-copy-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-copy-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -918,7 +918,7 @@ TEST(cli_copy_file) {
 
 TEST(cli_copy_file_source_not_found) {
     /* Port of TestCopyFile_SourceNotFound */
-    char tmpdir[] = "/tmp/cli-copy-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-copy-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -988,7 +988,7 @@ TEST(cli_extract_binary_from_targz_invalid_data) {
 
 TEST(cli_install_dry_run) {
     /* Port of TestCLI_InstallDryRun */
-    char tmpdir[] = "/tmp/cli-dry-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-dry-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -1013,7 +1013,7 @@ TEST(cli_install_dry_run) {
 
 TEST(cli_uninstall_dry_run) {
     /* Port of TestCLI_UninstallDryRun */
-    char tmpdir[] = "/tmp/cli-dry-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-dry-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -1043,7 +1043,7 @@ TEST(cli_uninstall_dry_run) {
 
 TEST(cli_install_and_uninstall) {
     /* Port of TestCLI_InstallAndUninstall */
-    char tmpdir[] = "/tmp/cli-full-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-full-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 

@@ -49,9 +49,9 @@ char *cbm_strcasestr(const char *haystack, const char *needle) {
 #ifdef _WIN32
 #include <direct.h>
 char *cbm_mkdtemp(char *tmpl) {
-    /* On Windows, /tmp doesn't exist. Rewrite to %TEMP%.
-     * All callers use buffers >= 256 bytes (checked by convention). */
-    char buf[512];
+    /* Build path in static buffer, then copy back to caller.
+     * Callers must provide buffers >= 256 bytes (all test code does). */
+    static char buf[512];
     if (strncmp(tmpl, "/tmp/", 5) == 0) {
         const char *tmp = getenv("TEMP");
         if (!tmp)
@@ -66,7 +66,7 @@ char *cbm_mkdtemp(char *tmpl) {
         return NULL;
     if (_mkdir(buf) != 0)
         return NULL;
-    /* Copy back — callers expect tmpl to be modified in place (POSIX contract) */
+    /* Copy result back — callers now use char[256]+ buffers */
     strcpy(tmpl, buf);
     return tmpl;
 }
