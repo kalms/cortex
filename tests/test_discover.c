@@ -4,8 +4,20 @@
  * RED phase: Tests define expected filtering behavior for the discover module.
  */
 #include "test_framework.h"
+#include "../src/foundation/compat.h"
 #include "discover/discover.h"
+#ifndef _WIN32
 #include <sys/stat.h>
+#endif
+
+/* Discover integration tests use system("rm -rf && mkdir -p && echo >")
+ * which are Unix shell commands not available on Windows.
+ * TODO: Port to C file operations for full Windows support. */
+#ifdef _WIN32
+#define SKIP_UNIX_SHELL SKIP("uses Unix shell — Windows port pending")
+#else
+#define SKIP_UNIX_SHELL ((void)0)
+#endif
 
 /* ── Directory skip (always skipped) ───────────────────────────── */
 
@@ -254,6 +266,7 @@ TEST(pattern_dts_full) {
 /* ── File discovery (integration) ──────────────────────────────── */
 
 TEST(discover_simple) {
+    SKIP_UNIX_SHELL;
     /* Create a temp directory with a few files */
     const char *base = "/tmp/test_discover_simple";
     char cmd[512];
@@ -291,6 +304,7 @@ TEST(discover_simple) {
 }
 
 TEST(discover_skips_git_dir) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_gitdir";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -315,6 +329,7 @@ TEST(discover_skips_git_dir) {
 }
 
 TEST(discover_with_gitignore) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_gitignore";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -342,6 +357,7 @@ TEST(discover_with_gitignore) {
 }
 
 TEST(discover_max_file_size) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_maxsize";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -389,6 +405,7 @@ TEST(discover_free_null) {
 
 /* --- Ported from discover_test.go: TestDiscoverSkipsWorktrees --- */
 TEST(discover_skips_worktrees) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_worktrees";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -423,6 +440,7 @@ TEST(discover_skips_worktrees) {
 
 /* --- Ported from discover_test.go: TestCBMIgnoreBasic --- */
 TEST(discover_cbmignore) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_cbmignore";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -451,6 +469,7 @@ TEST(discover_cbmignore) {
 
 /* --- Ported from discover_test.go: TestCBMIgnoreStacksOnGitignore --- */
 TEST(discover_cbmignore_stacks) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_cbmignore_stack";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -486,6 +505,7 @@ TEST(discover_cbmignore_stacks) {
 
 /* --- Ported from discover_test.go: TestSymlinkedFilesSkipped --- */
 TEST(discover_symlink_skipped) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_symlink";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -521,6 +541,7 @@ TEST(discover_symlink_skipped) {
 
 /* --- Ported from discover_test.go: TestNewIgnorePatterns --- */
 TEST(discover_new_ignore_patterns) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_newignore";
     /* Create dirs that should be in IGNORE_PATTERNS */
     const char *dirs[] = {".next", ".terraform", "zig-cache", ".cargo", "elm-stuff", "bazel-out"};
@@ -555,6 +576,7 @@ TEST(discover_new_ignore_patterns) {
 
 /* --- Ported from discover_test.go: TestGenericDirsNotIgnoredInFullMode --- */
 TEST(discover_generic_dirs_full_mode) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_generic_full";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -582,6 +604,7 @@ TEST(discover_generic_dirs_full_mode) {
 
 /* --- Ported from discover_test.go: TestGenericDirsIgnoredInFastMode --- */
 TEST(discover_generic_dirs_fast_mode) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_generic_fast";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
@@ -609,6 +632,7 @@ TEST(discover_generic_dirs_fast_mode) {
 
 /* --- Ported from discover_test.go: TestCBMIgnoreWithoutGitRepo --- */
 TEST(discover_cbmignore_no_git) {
+    SKIP_UNIX_SHELL;
     const char *base = "/tmp/test_discover_cbmignore_nogit";
     char cmd[512];
     /* No .git directory — .cbmignore should still work */
