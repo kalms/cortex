@@ -291,6 +291,7 @@ jobs:
         run: |
           SUFFIX=${{ matrix.variant == 'ui' && '-ui' || '' }}
           unzip -o "codebase-memory-mcp${SUFFIX}-windows-amd64.zip"
+          cp "codebase-memory-mcp${SUFFIX}.exe" codebase-memory-mcp.exe
 
       - name: Smoke test (${{ matrix.variant }}, windows-amd64)
         shell: msys2 {0}
