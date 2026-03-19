@@ -127,6 +127,7 @@ static void print_help(void) {
     printf("  codebase-memory-mcp install [-y|-n] [--force] [--dry-run]\n");
     printf("  codebase-memory-mcp uninstall [-y|-n] [--dry-run]\n");
     printf("  codebase-memory-mcp update [-y|-n]\n");
+    printf("  codebase-memory-mcp config <list|get|set|reset>\n");
     printf("  codebase-memory-mcp --version    Print version\n");
     printf("  codebase-memory-mcp --help       Print this help\n");
     printf("\nUI options:\n");
@@ -166,6 +167,9 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[i], "update") == 0) {
             return cbm_cmd_update(argc - i - 1, argv + i + 1);
+        }
+        if (strcmp(argv[i], "config") == 0) {
+            return cbm_cmd_config(argc - i - 1, argv + i + 1);
         }
     }
 
@@ -215,16 +219,30 @@ int main(int argc, char **argv) {
     sigaction(SIGINT, &sa, NULL);
 #endif
 
+    /* Open config store for runtime settings */
+    char config_dir[1024];
+    const char *cfg_home = getenv("HOME");
+    cbm_config_t *runtime_config = NULL;
+    if (cfg_home) {
+        snprintf(config_dir, sizeof(config_dir), "%s/.cache/codebase-memory-mcp", cfg_home);
+        runtime_config = cbm_config_open(config_dir);
+    }
+
     /* Create MCP server */
     g_server = cbm_mcp_server_new(NULL);
     if (!g_server) {
         cbm_log_error("server.err", "msg", "failed to create server");
+        cbm_config_close(runtime_config);
         return 1;
     }
 
     /* Create and start watcher in background thread */
     cbm_store_t *watch_store = cbm_store_open_memory();
     g_watcher = cbm_watcher_new(watch_store, watcher_index_fn, NULL);
+
+    /* Wire watcher + config into MCP server for session auto-index */
+    cbm_mcp_server_set_watcher(g_server, g_watcher);
+    cbm_mcp_server_set_config(g_server, runtime_config);
     cbm_thread_t watcher_tid;
     bool watcher_started = false;
 
@@ -269,6 +287,7 @@ int main(int argc, char **argv) {
     cbm_watcher_free(g_watcher);
     cbm_store_close(watch_store);
     cbm_mcp_server_free(g_server);
+    cbm_config_close(runtime_config);
 
     g_watcher = NULL;
     g_server = NULL;

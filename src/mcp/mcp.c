@@ -12,6 +12,7 @@
 #include "cypher/cypher.h"
 #include "pipeline/pipeline.h"
 #include "cli/cli.h"
+#include "watcher/watcher.h"
 #include "foundation/platform.h"
 #include "foundation/compat.h"
 #include "foundation/compat_fs.h"
@@ -456,6 +457,15 @@ struct cbm_mcp_server {
     bool update_checked;       /* true after background check has been launched */
     cbm_thread_t update_tid;   /* background update check thread */
     bool update_thread_active; /* true if update thread was started and needs joining */
+
+    /* Session + auto-index state */
+    char session_root[1024];     /* detected project root path */
+    char session_project[256];   /* derived project name */
+    bool session_detected;       /* true after first detection attempt */
+    struct cbm_watcher *watcher; /* external watcher ref (not owned) */
+    struct cbm_config *config;   /* external config ref (not owned) */
+    cbm_thread_t autoindex_tid;
+    bool autoindex_active; /* true if auto-index thread was started */
 };
 
 cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
@@ -489,12 +499,27 @@ void cbm_mcp_server_set_project(cbm_mcp_server_t *srv, const char *project) {
     srv->current_project = project ? heap_strdup(project) : NULL;
 }
 
+void cbm_mcp_server_set_watcher(cbm_mcp_server_t *srv, struct cbm_watcher *w) {
+    if (srv) {
+        srv->watcher = w;
+    }
+}
+
+void cbm_mcp_server_set_config(cbm_mcp_server_t *srv, struct cbm_config *cfg) {
+    if (srv) {
+        srv->config = cfg;
+    }
+}
+
 void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
     if (!srv) {
         return;
     }
     if (srv->update_thread_active) {
         cbm_thread_join(&srv->update_tid);
+    }
+    if (srv->autoindex_active) {
+        cbm_thread_join(&srv->autoindex_tid);
     }
     if (srv->owns_store && srv->store) {
         cbm_store_close(srv->store);
@@ -2042,6 +2067,150 @@ char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const ch
     return cbm_mcp_text_result(msg, true);
 }
 
+/* ── Session detection + auto-index ────────────────────────────── */
+
+/* Detect session root from CWD (fallback: single indexed project from DB). */
+static void detect_session(cbm_mcp_server_t *srv) {
+    if (srv->session_detected) {
+        return;
+    }
+    srv->session_detected = true;
+
+    /* 1. Try CWD */
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe)
+        const char *home = getenv("HOME");
+        /* Skip useless roots: / and $HOME */
+        if (strcmp(cwd, "/") != 0 && (home == NULL || strcmp(cwd, home) != 0)) {
+            snprintf(srv->session_root, sizeof(srv->session_root), "%s", cwd);
+            cbm_log_info("session.root.cwd", "path", cwd);
+        }
+    }
+
+    /* Derive project name from path */
+    if (srv->session_root[0]) {
+        /* Use last two path components joined by dash, matching Go's ProjectNameFromPath */
+        const char *p = srv->session_root;
+        const char *last_slash = strrchr(p, '/');
+        if (last_slash && last_slash > p) {
+            const char *prev = last_slash - 1;
+            while (prev > p && *prev != '/') {
+                prev--;
+            }
+            if (*prev == '/') {
+                prev++;
+            }
+            snprintf(srv->session_project, sizeof(srv->session_project), "%.*s",
+                     (int)(strlen(p) - (size_t)(prev - p)), prev);
+            /* Replace / with - */
+            for (char *c = srv->session_project; *c; c++) {
+                if (*c == '/') {
+                    *c = '-';
+                }
+            }
+        } else {
+            snprintf(srv->session_project, sizeof(srv->session_project), "%s",
+                     last_slash ? last_slash + 1 : p);
+        }
+    }
+}
+
+/* Background auto-index thread function */
+static void *autoindex_thread(void *arg) {
+    cbm_mcp_server_t *srv = (cbm_mcp_server_t *)arg;
+
+    cbm_log_info("autoindex.start", "project", srv->session_project, "path", srv->session_root);
+
+    cbm_pipeline_t *p = cbm_pipeline_new(srv->session_root, NULL, CBM_MODE_FULL);
+    if (!p) {
+        cbm_log_warn("autoindex.err", "msg", "pipeline_create_failed");
+        return NULL;
+    }
+
+    int rc = cbm_pipeline_run(p);
+    cbm_pipeline_free(p);
+
+    if (rc == 0) {
+        cbm_log_info("autoindex.done", "project", srv->session_project);
+        /* Register with watcher for ongoing change detection */
+        if (srv->watcher) {
+            cbm_watcher_watch(srv->watcher, srv->session_project, srv->session_root);
+        }
+    } else {
+        cbm_log_warn("autoindex.err", "msg", "pipeline_run_failed");
+    }
+    return NULL;
+}
+
+/* Start auto-indexing if configured and project not yet indexed. */
+static void maybe_auto_index(cbm_mcp_server_t *srv) {
+    if (srv->session_root[0] == '\0') {
+        return; /* no session root detected */
+    }
+
+    /* Check if project already has a DB */
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    const char *home = getenv("HOME");
+    if (home) {
+        char db_check[1024];
+        snprintf(db_check, sizeof(db_check), "%s/.cache/codebase-memory-mcp/%s.db", home,
+                 srv->session_project);
+        struct stat st;
+        if (stat(db_check, &st) == 0) {
+            /* Already indexed → register watcher for change detection */
+            cbm_log_info("autoindex.skip", "reason", "already_indexed", "project",
+                         srv->session_project);
+            if (srv->watcher) {
+                cbm_watcher_watch(srv->watcher, srv->session_project, srv->session_root);
+            }
+            return;
+        }
+    }
+
+/* Default file limit for auto-indexing new projects */
+#define DEFAULT_AUTO_INDEX_LIMIT 50000
+
+    /* Check auto_index config */
+    bool auto_index = false;
+    int file_limit = DEFAULT_AUTO_INDEX_LIMIT;
+    if (srv->config) {
+        auto_index = cbm_config_get_bool(srv->config, CBM_CONFIG_AUTO_INDEX, false);
+        file_limit =
+            cbm_config_get_int(srv->config, CBM_CONFIG_AUTO_INDEX_LIMIT, DEFAULT_AUTO_INDEX_LIMIT);
+    }
+
+    if (!auto_index) {
+        cbm_log_info("autoindex.skip", "reason", "disabled", "hint",
+                     "run: codebase-memory-mcp config set auto_index true");
+        return;
+    }
+
+    /* Quick file count check to avoid OOM on massive repos */
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "git -C '%s' ls-files 2>/dev/null | wc -l", srv->session_root);
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
+    FILE *fp = cbm_popen(cmd, "r");
+    if (fp) {
+        char line[64];
+        if (fgets(line, sizeof(line), fp)) {
+            int count = (int)strtol(line, NULL, 10);
+            if (count > file_limit) {
+                cbm_log_warn("autoindex.skip", "reason", "too_many_files", "files", line, "limit",
+                             CBM_CONFIG_AUTO_INDEX_LIMIT);
+                cbm_pclose(fp);
+                return;
+            }
+        }
+        cbm_pclose(fp);
+    }
+
+    /* Launch auto-index in background */
+    if (cbm_thread_create(&srv->autoindex_tid, 0, autoindex_thread, srv) == 0) {
+        srv->autoindex_active = true;
+    }
+}
+
 /* ── Background update check ──────────────────────────────────── */
 
 #define UPDATE_CHECK_URL "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
@@ -2168,6 +2337,8 @@ char *cbm_mcp_server_handle(cbm_mcp_server_t *srv, const char *line) {
     if (strcmp(req.method, "initialize") == 0) {
         result_json = cbm_mcp_initialize_response();
         start_update_check(srv);
+        detect_session(srv);
+        maybe_auto_index(srv);
     } else if (strcmp(req.method, "tools/list") == 0) {
         result_json = cbm_mcp_tools_list();
     } else if (strcmp(req.method, "tools/call") == 0) {

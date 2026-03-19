@@ -201,6 +201,36 @@ int cbm_list_indexes(const char *home_dir);
 /* Remove all .db files in the cache directory. Returns count removed. */
 int cbm_remove_indexes(const char *home_dir);
 
+/* ── Config store (persistent key-value, backed by _config.db) ── */
+
+typedef struct cbm_config cbm_config_t;
+
+/* Open the config store in the given cache directory.
+ * Creates _config.db if it doesn't exist. Returns NULL on error. */
+cbm_config_t *cbm_config_open(const char *cache_dir);
+
+/* Close the config store. */
+void cbm_config_close(cbm_config_t *cfg);
+
+/* Get a config value. Returns default_val if key not found. */
+const char *cbm_config_get(cbm_config_t *cfg, const char *key, const char *default_val);
+
+/* Get a config value as bool. "true"/"1"/"on" → true. */
+bool cbm_config_get_bool(cbm_config_t *cfg, const char *key, bool default_val);
+
+/* Get a config value as int. Returns default_val if not found or invalid. */
+int cbm_config_get_int(cbm_config_t *cfg, const char *key, int default_val);
+
+/* Set a config value. Returns 0 on success. */
+int cbm_config_set(cbm_config_t *cfg, const char *key, const char *value);
+
+/* Delete a config key. Returns 0 on success. */
+int cbm_config_delete(cbm_config_t *cfg, const char *key);
+
+/* Well-known config keys */
+#define CBM_CONFIG_AUTO_INDEX "auto_index"
+#define CBM_CONFIG_AUTO_INDEX_LIMIT "auto_index_limit"
+
 /* ── Subcommands (wired from main.c) ─────────────────────────── */
 
 /* install: copy binary, install skills, install editor MCP configs, ensure PATH.
@@ -213,5 +243,8 @@ int cbm_cmd_uninstall(int argc, char **argv);
 /* update: check latest release, prompt for index deletion, prompt for ui/standard,
  * download and replace binary. */
 int cbm_cmd_update(int argc, char **argv);
+
+/* config: get/set/list/reset runtime config values. */
+int cbm_cmd_config(int argc, char **argv);
 
 #endif /* CBM_CLI_H */

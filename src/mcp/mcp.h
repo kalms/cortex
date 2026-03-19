@@ -14,6 +14,8 @@
 /* ── Forward declarations ─────────────────────────────────────── */
 
 typedef struct cbm_store cbm_store_t; /* from store/store.h */
+struct cbm_watcher;                   /* from watcher/watcher.h */
+struct cbm_config;                    /* from cli/cli.h */
 
 /* ── JSON-RPC types ───────────────────────────────────────────── */
 
@@ -83,6 +85,12 @@ cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path);
 
 /* Free an MCP server. */
 void cbm_mcp_server_free(cbm_mcp_server_t *srv);
+
+/* Set external watcher reference (for auto-index registration). Not owned. */
+void cbm_mcp_server_set_watcher(cbm_mcp_server_t *srv, struct cbm_watcher *w);
+
+/* Set external config store reference (for auto_index setting). Not owned. */
+void cbm_mcp_server_set_config(cbm_mcp_server_t *srv, struct cbm_config *cfg);
 
 /* Run the MCP server event loop on the given streams (typically stdin/stdout).
  * Blocks until EOF on input. Returns 0 on success, -1 on error. */
