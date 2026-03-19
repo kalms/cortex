@@ -197,20 +197,24 @@ jobs:
         run: scripts/build.sh --version ${{ inputs.version }} CC=clang CXX=clang++
 
       - name: Archive standard binary
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
-          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
+          BIN=build/c/codebase-memory-mcp
+          [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
+          cp "$BIN" codebase-memory-mcp.exe
+          zip codebase-memory-mcp-windows-amd64.zip codebase-memory-mcp.exe
 
       - name: Build UI binary
         shell: msys2 {0}
         run: scripts/build.sh --with-ui --version ${{ inputs.version }} CC=clang CXX=clang++
 
       - name: Archive UI binary
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp-ui.exe -Force
-          Compress-Archive -Path codebase-memory-mcp-ui.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
+          BIN=build/c/codebase-memory-mcp
+          [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
+          cp "$BIN" codebase-memory-mcp-ui.exe
+          zip codebase-memory-mcp-ui-windows-amd64.zip codebase-memory-mcp-ui.exe
 
       - uses: actions/upload-artifact@v4
         with:
