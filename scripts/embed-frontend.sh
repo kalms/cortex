@@ -85,7 +85,8 @@ for file in "${FILES[@]}"; do
         rm -f "$local_c"
     else
         # Linux: ld -r -b binary (zero bloat)
-        (cd "$DIST_DIR" && ld -r -b binary -o "$obj" "$rel")
+        abs_obj="$(cd "$(dirname "$0")/.." && pwd)/$obj"
+        (cd "$DIST_DIR" && ld -r -b binary -o "$abs_obj" "$rel")
     fi
 
     OBJ_FILES+=("$obj")
