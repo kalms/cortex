@@ -315,6 +315,9 @@ TEST(cli_find_cli_not_found) {
 }
 
 TEST(cli_find_cli_on_path) {
+#ifdef _WIN32
+    SKIP("PATH search differs on Windows");
+#endif
     /* Port of TestFindCLI_FoundOnPATH */
     char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
