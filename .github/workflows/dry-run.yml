@@ -7,6 +7,14 @@ on:
         description: 'Skip lint step (faster iteration)'
         type: boolean
         default: false
+      skip_tests:
+        description: 'Skip test steps (faster iteration on build/smoke)'
+        type: boolean
+        default: false
+      skip_builds:
+        description: 'Skip build+smoke steps (faster iteration on lint/tests)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,7 +62,7 @@ jobs:
   # Linux: use system gcc — full ASan/UBSan support
   # Windows: MSYS2 MinGW GCC
   test-unix:
-    if: ${{ always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
+    if: ${{ !inputs.skip_tests && always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
     needs: [lint]
     strategy:
       fail-fast: false
@@ -88,7 +96,7 @@ jobs:
         run: scripts/test.sh CC=${{ matrix.cc }} CXX=${{ matrix.cxx }}
 
   test-windows:
-    if: ${{ always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
+    if: ${{ !inputs.skip_tests && always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') }}
     needs: [lint]
     runs-on: windows-latest
     steps:
@@ -110,6 +118,7 @@ jobs:
 
   # ── Step 3: Build binaries (standard + UI, all OS) ──────────
   build-unix:
+    if: ${{ !inputs.skip_builds && always() && (needs.test-unix.result == 'success' || needs.test-unix.result == 'skipped') && (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped') }}
     needs: [test-unix, test-windows]
     strategy:
       matrix:
@@ -168,6 +177,7 @@ jobs:
           path: "*.tar.gz"
 
   build-windows:
+    if: ${{ !inputs.skip_builds && always() && (needs.test-unix.result == 'success' || needs.test-unix.result == 'skipped') && (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped') }}
     needs: [test-unix, test-windows]
     runs-on: windows-latest
     steps:
@@ -191,20 +201,25 @@ jobs:
         run: scripts/build.sh CC=clang CXX=clang++
 
       - name: Archive standard binary
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp.exe
-          Compress-Archive -Path codebase-memory-mcp.exe -DestinationPath codebase-memory-mcp-windows-amd64.zip
+          BIN=build/c/codebase-memory-mcp
+          # MSYS2 Clang produces .exe extension
+          [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
+          cp "$BIN" codebase-memory-mcp.exe
+          zip codebase-memory-mcp-windows-amd64.zip codebase-memory-mcp.exe
 
       - name: Build UI binary
         shell: msys2 {0}
         run: scripts/build.sh --with-ui CC=clang CXX=clang++
 
       - name: Archive UI binary
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          Copy-Item build/c/codebase-memory-mcp -Destination codebase-memory-mcp-ui.exe -Force
-          Compress-Archive -Path codebase-memory-mcp-ui.exe -DestinationPath codebase-memory-mcp-ui-windows-amd64.zip
+          BIN=build/c/codebase-memory-mcp
+          [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
+          cp "$BIN" codebase-memory-mcp-ui.exe
+          zip codebase-memory-mcp-ui-windows-amd64.zip codebase-memory-mcp-ui.exe
 
       - uses: actions/upload-artifact@v4
         with:
@@ -213,6 +228,7 @@ jobs:
 
   # ── Step 4: Smoke test every binary ─────────────────────────
   smoke-unix:
+    if: ${{ !inputs.skip_builds }}
     needs: [build-unix]
     strategy:
       matrix:
@@ -248,6 +264,7 @@ jobs:
         run: scripts/smoke-test.sh ./codebase-memory-mcp
 
   smoke-windows:
+    if: ${{ !inputs.skip_builds }}
     needs: [build-windows]
     strategy:
       matrix:
