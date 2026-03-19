@@ -17,6 +17,7 @@
 #include "watcher/watcher.h"
 #include "pipeline/pipeline.h"
 #include "store/store.h"
+#include "cli/cli.h"
 #include "foundation/log.h"
 #include "foundation/compat_thread.h"
 #include "foundation/mem.h"
@@ -123,12 +124,17 @@ static void print_help(void) {
     printf("Usage:\n");
     printf("  codebase-memory-mcp              Run MCP server on stdio\n");
     printf("  codebase-memory-mcp cli <tool> [json]  Run a single tool\n");
+    printf("  codebase-memory-mcp install [-y|-n] [--force] [--dry-run]\n");
+    printf("  codebase-memory-mcp uninstall [-y|-n] [--dry-run]\n");
+    printf("  codebase-memory-mcp update [-y|-n]\n");
     printf("  codebase-memory-mcp --version    Print version\n");
     printf("  codebase-memory-mcp --help       Print this help\n");
     printf("\nUI options:\n");
     printf("  --ui=true    Enable HTTP graph visualization (persisted)\n");
     printf("  --ui=false   Disable HTTP graph visualization (persisted)\n");
     printf("  --port=N     Set UI port (default 9749, persisted)\n");
+    printf("\nSupported agents (auto-detected):\n");
+    printf("  Claude Code, Codex CLI, Gemini CLI, Zed, OpenCode, Antigravity, Aider\n");
     printf("\nTools: index_repository, search_graph, query_graph, trace_call_path,\n");
     printf("  get_code_snippet, get_graph_schema, get_architecture, search_code,\n");
     printf("  list_projects, delete_project, index_status, detect_changes,\n");
@@ -151,6 +157,15 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "cli") == 0) {
             cbm_mem_init(0.5);
             return run_cli(argc - i - 1, argv + i + 1);
+        }
+        if (strcmp(argv[i], "install") == 0) {
+            return cbm_cmd_install(argc - i - 1, argv + i + 1);
+        }
+        if (strcmp(argv[i], "uninstall") == 0) {
+            return cbm_cmd_uninstall(argc - i - 1, argv + i + 1);
+        }
+        if (strcmp(argv[i], "update") == 0) {
+            return cbm_cmd_update(argc - i - 1, argv + i + 1);
         }
     }
 
