@@ -18,8 +18,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/wait.h>
+#endif
 
 /* ── Helpers ──────────────────────────────────────────────────── */
 
@@ -108,7 +110,10 @@ TEST(bulk_pragma_end_wal_invariant) {
 /* Simulate a crash mid-bulk-write: fork a child that calls begin_bulk, opens
  * an explicit transaction, and then calls _exit() without committing or calling
  * end_bulk.  The parent verifies the database is still openable and that
- * committed baseline data is intact. */
+ * committed baseline data is intact and uncommitted data is absent.
+ *
+ * This test uses fork()/waitpid() and is therefore POSIX-only. */
+#ifndef _WIN32
 TEST(bulk_crash_recovery) {
     char db_path[256];
     make_temp_path(db_path, sizeof(db_path));
@@ -148,15 +153,23 @@ TEST(bulk_crash_recovery) {
     ASSERT_STR_EQ(p.name, "baseline");
     cbm_project_free_fields(&p);
 
+    /* Uncommitted "crashed" write must NOT appear after recovery. */
+    cbm_project_t p2 = {0};
+    int rc2 = cbm_store_get_project(recovered, "crashed", &p2);
+    ASSERT_NEQ(rc2, CBM_STORE_OK); /* row must be absent */
+
     cbm_store_close(recovered);
     cleanup_db(db_path);
     PASS();
 }
+#endif /* _WIN32 */
 
 /* ── Suite ──────────────────────────────────────────────────────── */
 
 SUITE(store_bulk) {
     RUN_TEST(bulk_pragma_wal_invariant);
     RUN_TEST(bulk_pragma_end_wal_invariant);
+#ifndef _WIN32
     RUN_TEST(bulk_crash_recovery);
+#endif
 }
