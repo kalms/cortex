@@ -11,6 +11,10 @@ set -euo pipefail
 
 BINARY="${1:?usage: smoke-test.sh <binary-path>}"
 TMPDIR=$(mktemp -d)
+# On MSYS2/Windows, convert POSIX path to native Windows path for the binary
+if command -v cygpath &>/dev/null; then
+    TMPDIR=$(cygpath -m "$TMPDIR")
+fi
 trap 'rm -rf "$TMPDIR"' EXIT
 
 CLI_STDERR=$(mktemp)
