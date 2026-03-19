@@ -187,6 +187,7 @@ jobs:
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-zlib
             make
+            zip
 
       - uses: actions/setup-node@v4
         with:
