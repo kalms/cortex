@@ -3,6 +3,7 @@
  *
  * Ported from internal/store/store_test.go (TestSearch, TestBFS, etc.)
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include <store/store.h>
 #include <string.h>
@@ -434,8 +435,8 @@ TEST(store_dump_to_file) {
     ASSERT_TRUE(id > 0);
 
     /* Dump to temp file */
-    char path[] = "/tmp/cbm_test_dump_XXXXXX";
-    int fd = mkstemp(path);
+    char path[256]; snprintf(path, sizeof(path), "/tmp/cbm_test_dump_XXXXXX");
+    int fd = cbm_mkstemp(path);
     ASSERT_TRUE(fd >= 0);
     close(fd);
 

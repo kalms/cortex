@@ -7,6 +7,7 @@
  * The page writer (cbm_write_db) constructs B-tree pages directly,
  * bypassing the SQL parser entirely. These tests verify integrity.
  */
+#include "../src/foundation/compat.h"
 #include "test_framework.h"
 /* sqlite_writer.h is at internal/cbm/ — Makefile adds -Iinternal/cbm */
 #include "sqlite_writer.h" /* CBMDumpNode, CBMDumpEdge, cbm_write_db */
@@ -17,7 +18,7 @@
 
 static int make_temp_db(char *path, size_t pathsz) {
     snprintf(path, pathsz, "/tmp/cbm_sw_test_XXXXXX");
-    int fd = mkstemp(path);
+    int fd = cbm_mkstemp(path);
     if (fd < 0)
         return -1;
     close(fd);
