@@ -191,6 +191,7 @@ jobs:
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-zlib
             make
+            zip
 
       - uses: actions/setup-node@v4
         with:
@@ -204,7 +205,6 @@ jobs:
         shell: msys2 {0}
         run: |
           BIN=build/c/codebase-memory-mcp
-          # MSYS2 Clang produces .exe extension
           [ -f "${BIN}.exe" ] && BIN="${BIN}.exe"
           cp "$BIN" codebase-memory-mcp.exe
           zip codebase-memory-mcp-windows-amd64.zip codebase-memory-mcp.exe

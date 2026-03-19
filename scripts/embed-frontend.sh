@@ -19,10 +19,10 @@ OUTPUT_DIR="${2:?Usage: embed-frontend.sh <dist_dir> <output_dir>}"
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# Detect platform
-IS_MACOS=false
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    IS_MACOS=true
+# Detect platform — Linux uses ld -r -b binary, everything else uses xxd+cc
+IS_LINUX=false
+if [[ "$(uname -s)" == "Linux" ]] && ! [[ "$(uname -s)" =~ MINGW|MSYS ]]; then
+    IS_LINUX=true
 fi
 
 # Content-type detection
@@ -68,25 +68,24 @@ for file in "${FILES[@]}"; do
     mangled=$(mangle "$rel")
     obj="$OUTPUT_DIR/embed_${mangled}.o"
 
-    if $IS_MACOS; then
-        # macOS: use custom section + assembly approach
-        # ld -r -b binary not available on macOS default ld
-        # Instead, use xxd to create a C array (for macOS compatibility)
+    if $IS_LINUX; then
+        # Linux: ld -r -b binary (zero bloat, ELF only)
+        abs_obj="$(cd "$(dirname "$0")/.." && pwd)/$obj"
+        (cd "$DIST_DIR" && ld -r -b binary -o "$abs_obj" "$rel")
+    else
+        # macOS/Windows/MSYS2: generate C byte array + cc (no xxd dependency)
         local_c="$OUTPUT_DIR/embed_${mangled}.c"
         local_sym="_binary_${mangled}"
 
         echo "/* Generated from $rel */" > "$local_c"
         echo "const unsigned char ${local_sym}_data[] = {" >> "$local_c"
-        xxd -i < "$file" >> "$local_c"
+        # Use od (POSIX) to generate hex bytes — works everywhere without xxd/vim
+        od -An -tx1 -v < "$file" | tr -s ' ' '\n' | grep -v '^$' | sed 's/^/0x/; s/$/,/' | paste -sd' ' - | fold -s -w 76 | sed 's/^/  /' >> "$local_c"
         echo "};" >> "$local_c"
         echo "const unsigned int ${local_sym}_size = sizeof(${local_sym}_data);" >> "$local_c"
 
-        cc -c -O2 -o "$obj" "$local_c"
+        ${CC:-cc} -c -O2 -o "$obj" "$local_c"
         rm -f "$local_c"
-    else
-        # Linux: ld -r -b binary (zero bloat)
-        abs_obj="$(cd "$(dirname "$0")/.." && pwd)/$obj"
-        (cd "$DIST_DIR" && ld -r -b binary -o "$abs_obj" "$rel")
     fi
 
     OBJ_FILES+=("$obj")
@@ -111,7 +110,7 @@ for file in "${FILES[@]}"; do
     mangled=$(mangle "$rel")
     sym="_binary_${mangled}"
 
-    if $IS_MACOS; then
+    if ! $IS_LINUX; then
         echo "extern const unsigned char ${sym}_data[];" >> "$ASSETS_C"
         echo "extern const unsigned int ${sym}_size;" >> "$ASSETS_C"
     else
@@ -132,7 +131,7 @@ for file in "${FILES[@]}"; do
     # URL path: /index.html for root, /assets/... for assets
     url_path="/$rel"
 
-    if $IS_MACOS; then
+    if ! $IS_LINUX; then
         echo "    {\"$url_path\", ${sym}_data, 0, \"$ct\"}," >> "$ASSETS_C"
     else
         echo "    {\"$url_path\", ${sym}_start, 0, \"$ct\"}," >> "$ASSETS_C"
@@ -142,25 +141,9 @@ done
 echo "};" >> "$ASSETS_C"
 echo "const int CBM_EMBEDDED_FILE_COUNT = ${#FILES[@]};" >> "$ASSETS_C"
 
-# Generate size fixup (for macOS where we have explicit size vars)
-if $IS_MACOS; then
-    cat >> "$ASSETS_C" <<'SIZEINIT'
-
-/* Initialize sizes — called once or we use the _size vars directly */
-static void __attribute__((constructor)) init_embedded_sizes(void) {
-    cbm_embedded_file_t *files = CBM_EMBEDDED_FILES;
-SIZEINIT
-
-    for i in "${!FILES[@]}"; do
-        rel="${FILES[$i]#$DIST_DIR/}"
-        mangled=$(mangle "$rel")
-        sym="_binary_${mangled}"
-        echo "    files[$i].size = ${sym}_size;" >> "$ASSETS_C"
-    done
-
-    echo "}" >> "$ASSETS_C"
-else
-    # Linux: compute size from start/end pointers
+# Generate size fixup
+if $IS_LINUX; then
+    # Linux: compute size from start/end pointers (ld -r -b binary symbols)
     cat >> "$ASSETS_C" <<'SIZEINIT'
 
 static void __attribute__((constructor)) init_embedded_sizes(void) {
@@ -172,6 +155,22 @@ SIZEINIT
         mangled=$(mangle "$rel")
         sym="_binary_${mangled}"
         echo "    files[$i].size = (unsigned int)(${sym}_end - ${sym}_start);" >> "$ASSETS_C"
+    done
+
+    echo "}" >> "$ASSETS_C"
+else
+    # macOS/Windows: use explicit _size vars from xxd-generated C arrays
+    cat >> "$ASSETS_C" <<'SIZEINIT'
+
+static void __attribute__((constructor)) init_embedded_sizes(void) {
+    cbm_embedded_file_t *files = CBM_EMBEDDED_FILES;
+SIZEINIT
+
+    for i in "${!FILES[@]}"; do
+        rel="${FILES[$i]#$DIST_DIR/}"
+        mangled=$(mangle "$rel")
+        sym="_binary_${mangled}"
+        echo "    files[$i].size = ${sym}_size;" >> "$ASSETS_C"
     done
 
     echo "}" >> "$ASSETS_C"
