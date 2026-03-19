@@ -537,7 +537,9 @@ static yyjson_doc *read_json_file(const char *path) {
     // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
     buf[nread] = '\0';
 
-    yyjson_doc *doc = yyjson_read(buf, nread, 0);
+    /* Allow JSONC (comments + trailing commas) — Zed settings.json uses this format */
+    yyjson_read_flag flags = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
+    yyjson_doc *doc = yyjson_read(buf, nread, flags);
     free(buf);
     return doc;
 }
@@ -811,7 +813,7 @@ int cbm_remove_zed_mcp(const char *config_path) {
 /* ── Agent detection ──────────────────────────────────────────── */
 
 cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
-    cbm_detected_agents_t agents = {false, false, false, false, false, false, false};
+    cbm_detected_agents_t agents = {false, false, false, false, false, false, false, false};
     if (!home_dir || !home_dir[0]) {
         return agents;
     }
@@ -864,6 +866,12 @@ cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
     const char *ai = cbm_find_cli("aider", home_dir);
     if (ai[0]) {
         agents.aider = true;
+    }
+
+    /* KiloCode: globalStorage dir */
+    snprintf(path, sizeof(path), "%s/.config/Code/User/globalStorage/kilocode.kilo-code", home_dir);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        agents.kilocode = true;
     }
 
     return agents;
@@ -1808,8 +1816,11 @@ int cbm_cmd_install(int argc, char **argv) {
     if (agents.aider) {
         printf(" Aider");
     }
+    if (agents.kilocode) {
+        printf(" KiloCode");
+    }
     if (!agents.claude_code && !agents.codex && !agents.gemini && !agents.zed && !agents.opencode &&
-        !agents.antigravity && !agents.aider) {
+        !agents.antigravity && !agents.aider && !agents.kilocode) {
         printf(" (none)");
     }
     printf("\n\n");
@@ -1949,7 +1960,28 @@ int cbm_cmd_install(int argc, char **argv) {
         printf("  instructions: %s\n", instr_path);
     }
 
-    /* Step 11: Ensure PATH */
+    /* Step 11: Install KiloCode */
+    if (agents.kilocode) {
+        printf("KiloCode:\n");
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path),
+                 "%s/.config/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
+                 home);
+        if (!dry_run) {
+            cbm_install_editor_mcp(self_path, config_path);
+        }
+        printf("  mcp: %s\n", config_path);
+
+        /* KiloCode uses ~/.kilocode/rules/ for global instructions */
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
+        if (!dry_run) {
+            cbm_upsert_instructions(instr_path, agent_instructions_content);
+        }
+        printf("  instructions: %s\n", instr_path);
+    }
+
+    /* Step 12: Ensure PATH */
     char bin_dir[1024];
     snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);
     const char *rc = cbm_detect_shell_rc(home);
@@ -2103,6 +2135,24 @@ int cbm_cmd_uninstall(int argc, char **argv) {
             cbm_remove_instructions(instr_path);
         }
         printf("Aider: removed instructions\n");
+    }
+
+    if (agents.kilocode) {
+        char config_path[1024];
+        snprintf(config_path, sizeof(config_path),
+                 "%s/.config/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
+                 home);
+        if (!dry_run) {
+            cbm_remove_editor_mcp(config_path);
+        }
+        printf("KiloCode: removed MCP config entry\n");
+
+        char instr_path[1024];
+        snprintf(instr_path, sizeof(instr_path), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
+        if (!dry_run) {
+            cbm_remove_instructions(instr_path);
+        }
+        printf("  removed instructions\n");
     }
 
     /* Step 2: Remove indexes */
