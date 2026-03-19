@@ -3,20 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>codebase-memory-mcp — Code Knowledge Graph for AI Assistants</title>
-    <meta name="description" content="MCP server that indexes codebases into a persistent knowledge graph. 64 languages, 120x fewer tokens, single Go binary. Works with Claude Code, Codex CLI, Cursor, Windsurf, Gemini CLI, VS Code, Zed.">
-    <meta name="keywords" content="MCP server, code analysis, knowledge graph, tree-sitter, Claude Code, Codex, Cursor, Windsurf, Gemini CLI, VS Code, Zed, developer tools, code exploration, token reduction">
+    <title>codebase-memory-mcp — High-Performance Code Intelligence for AI Agents</title>
+    <meta name="description" content="MCP server that indexes codebases into a persistent knowledge graph. 64 languages, 120x fewer tokens, 3-minute Linux kernel indexing. Single static binary. Works with Claude Code, Codex CLI, Gemini CLI, Zed, OpenCode, Antigravity, Aider, KiloCode.">
+    <meta name="keywords" content="MCP server, code analysis, knowledge graph, tree-sitter, Claude Code, Codex, Cursor, Windsurf, Gemini CLI, VS Code, Zed, OpenCode, KiloCode, developer tools, code exploration, token reduction, code intelligence">
 
     <!-- Open Graph -->
-    <meta property="og:title" content="codebase-memory-mcp — Code Knowledge Graph for AI Assistants">
-    <meta property="og:description" content="120x fewer tokens for AI code exploration. 64 languages, sub-ms queries, single Go binary.">
+    <meta property="og:title" content="codebase-memory-mcp — High-Performance Code Intelligence for AI Agents">
+    <meta property="og:description" content="120x fewer tokens for AI code exploration. 64 languages, sub-ms queries, 3-min Linux kernel indexing. Single static binary.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://deusdata.github.io/codebase-memory-mcp">
+    <meta property="og:image" content="https://deusdata.github.io/codebase-memory-mcp/graph-ui-screenshot.png">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="codebase-memory-mcp — Code Knowledge Graph for AI Assistants">
-    <meta name="twitter:description" content="120x fewer tokens for AI code exploration. 64 languages, sub-ms queries, single Go binary.">
+    <meta name="twitter:title" content="codebase-memory-mcp — High-Performance Code Intelligence for AI Agents">
+    <meta name="twitter:description" content="120x fewer tokens for AI code exploration. 64 languages, sub-ms queries, 3-min Linux kernel indexing.">
+    <meta name="twitter:image" content="https://deusdata.github.io/codebase-memory-mcp/graph-ui-screenshot.png">
 
     <link rel="canonical" href="https://deusdata.github.io/codebase-memory-mcp">
 
@@ -43,7 +45,7 @@
 
         /* Hero */
         .hero {
-            padding: 80px 0 60px;
+            padding: 80px 0 40px;
             text-align: center;
         }
         .hero h1 {
@@ -55,7 +57,7 @@
             font-size: 1.25rem;
             color: var(--text-secondary);
             margin-bottom: 32px;
-            max-width: 640px;
+            max-width: 700px;
             margin-left: auto;
             margin-right: auto;
         }
@@ -97,6 +99,23 @@
             color: var(--text);
         }
         .cta-secondary:hover { border-color: var(--text-secondary); }
+
+        /* Screenshot */
+        .screenshot {
+            margin: 40px 0;
+            text-align: center;
+        }
+        .screenshot img {
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .screenshot .caption {
+            margin-top: 12px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
 
         /* Sections */
         section { padding: 60px 0; }
@@ -201,8 +220,8 @@
     <section class="hero">
         <h1>codebase-memory-mcp</h1>
         <p class="tagline">
-            Stop paying 100x more tokens for code exploration. A knowledge graph MCP server
-            that gives AI coding assistants precise structural answers in a single query.
+            The fastest and most efficient code intelligence engine for AI coding agents. Indexes the Linux kernel in 3 minutes.
+            High-quality tree-sitter + LSP hybrid parsing (Go, C, C++ — more coming). Single static binary — download, install, done.
         </p>
         <div>
             <div class="stat">
@@ -210,16 +229,16 @@
                 <div class="label">fewer tokens</div>
             </div>
             <div class="stat">
-                <div class="number">63</div>
+                <div class="number">64</div>
                 <div class="label">languages</div>
             </div>
             <div class="stat">
-                <div class="number">&lt;1ms</div>
-                <div class="label">query time</div>
+                <div class="number">3 min</div>
+                <div class="label">Linux kernel index</div>
             </div>
             <div class="stat">
-                <div class="number">0</div>
-                <div class="label">dependencies</div>
+                <div class="number">8</div>
+                <div class="label">agents supported</div>
             </div>
         </div>
         <div class="cta-buttons">
@@ -228,26 +247,32 @@
         </div>
     </section>
 
+    <div class="screenshot">
+        <img src="graph-ui-screenshot.png" alt="3D graph visualization of the codebase-memory-mcp knowledge graph showing 23,827 nodes and 51,526 edges">
+        <p class="caption">Built-in 3D graph visualization (UI variant) — explore your knowledge graph at localhost:9749</p>
+    </div>
+
     <section>
         <h2>Install in 3 steps</h2>
         <div class="install-block">
-            <span class="comment"># 1. Download for your platform</span><br>
+            <span class="comment"># 1. Download for your platform (standard or ui variant)</span><br>
             <span class="cmd">tar xzf codebase-memory-mcp-*.tar.gz</span><br>
             <span class="cmd">mv codebase-memory-mcp ~/.local/bin/</span><br><br>
-            <span class="comment"># 2. Auto-configure your editor</span><br>
+            <span class="comment"># 2. Auto-configure all detected agents</span><br>
             <span class="cmd">codebase-memory-mcp install</span><br><br>
-            <span class="comment"># 3. Restart your editor, then say:</span><br>
+            <span class="comment"># 3. Restart your agent, then say:</span><br>
             <span class="cmd">"Index this project"</span>
         </div>
         <p style="color: var(--text-secondary); font-size: 0.9rem;">
-            Works with Claude Code, Codex CLI, Cursor, Windsurf, Gemini CLI, VS Code, and Zed. Also has a CLI mode for direct terminal use.
+            Static binary for macOS, Linux, and Windows — no Docker, no runtime dependencies. One install command
+            configures all 8 agents: Claude Code, Codex CLI, Gemini CLI, Zed, OpenCode, Antigravity, Aider, KiloCode.
         </p>
     </section>
 
     <section>
         <h2>The problem</h2>
         <p style="margin-bottom: 16px;">
-            AI coding assistants explore codebases by reading files one at a time. Every structural question
+            AI coding agents explore codebases by reading files one at a time. Every structural question
             triggers a cascade of grep &rarr; read file &rarr; grep again &rarr; read more files.
         </p>
         <p style="margin-bottom: 16px;">
@@ -313,7 +338,6 @@
         </table>
         <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 8px;">
             Tested across 31 languages with agent-vs-agent methodology (372 questions).
-            MCP achieves 90% of Explorer quality at 20-100x lower per-query cost.
             <a href="https://github.com/DeusData/codebase-memory-mcp/blob/main/BENCHMARK_REPORT.md">Full benchmark report &rarr;</a>
         </p>
     </section>
@@ -326,8 +350,20 @@
                 <p>Python, Go, JS, TS, TSX, Rust, Java, C++, C#, C, PHP, Ruby, Kotlin, Scala, Zig, Elixir, Haskell, OCaml, Swift, Dart, MATLAB, Lean 4, Wolfram, and 41 more via vendored tree-sitter grammars.</p>
             </div>
             <div class="feature">
+                <h3>Extreme Performance</h3>
+                <p>RAM-first pipeline: LZ4 compression, in-memory SQLite, fused Aho-Corasick pattern matching. Linux kernel (28M LOC) indexed in 3 minutes.</p>
+            </div>
+            <div class="feature">
+                <h3>Graph Visualization</h3>
+                <p>Built-in 3D graph UI (optional). Explore nodes, edges, and clusters visually at localhost:9749. Ships as a separate binary variant.</p>
+            </div>
+            <div class="feature">
                 <h3>Call Graph Tracing</h3>
                 <p>Trace callers and callees across files and packages. Import-aware, type-inferred resolution. BFS traversal up to depth 5.</p>
+            </div>
+            <div class="feature">
+                <h3>8-Agent Install</h3>
+                <p>One command configures Claude Code, Codex, Gemini CLI, Zed, OpenCode, Antigravity, Aider, and KiloCode with MCP configs, instructions, and hooks.</p>
             </div>
             <div class="feature">
                 <h3>Dead Code Detection</h3>
@@ -338,24 +374,12 @@
                 <p>Discovers REST routes and matches them to HTTP call sites across services with confidence scoring.</p>
             </div>
             <div class="feature">
-                <h3>Auto-Sync</h3>
-                <p>Background polling detects file changes and triggers incremental re-indexing. No manual reindex needed.</p>
+                <h3>Auto-Sync + Auto-Index</h3>
+                <p>Background watcher detects git changes. Optional auto-indexing on session start. No manual reindex needed.</p>
             </div>
             <div class="feature">
-                <h3>Cypher Queries</h3>
-                <p>Ad-hoc graph exploration with a Cypher-like query language: MATCH, WHERE, RETURN, ORDER BY, LIMIT.</p>
-            </div>
-            <div class="feature">
-                <h3>Architecture Overview</h3>
-                <p>Languages, packages, entry points, routes, hotspots, boundaries, and hidden modules via Louvain community detection.</p>
-            </div>
-            <div class="feature">
-                <h3>Git Diff Impact</h3>
-                <p>Map uncommitted changes to affected symbols + blast radius with CRITICAL/HIGH/MEDIUM/LOW risk classification.</p>
-            </div>
-            <div class="feature">
-                <h3>12 MCP Tools</h3>
-                <p>search_graph, trace_call_path, detect_changes, query_graph, get_architecture, manage_adr, and 6 more.</p>
+                <h3>14 MCP Tools</h3>
+                <p>search_graph, trace_call_path, detect_changes, query_graph, get_architecture, manage_adr, get_code_snippet, and 7 more.</p>
             </div>
         </div>
     </section>
@@ -372,22 +396,20 @@
             </thead>
             <tbody>
                 <tr><td>Languages</td><td class="win">64</td><td>8-11</td></tr>
-                <tr><td>Runtime</td><td class="win">Single Go binary</td><td>Node.js (npx)</td></tr>
+                <tr><td>Runtime</td><td class="win">Single static binary</td><td>Node.js (npx)</td></tr>
                 <tr><td>Runtime dependency</td><td class="win">None</td><td>Node.js</td></tr>
+                <tr><td>Stress test</td><td class="win">Linux kernel (2.1M nodes, 3 min)</td><td>Not published</td></tr>
                 <tr><td>Embedded LLM</td><td class="win">No (uses your MCP client)</td><td>Yes (extra API key + cost)</td></tr>
                 <tr><td>Published benchmarks</td><td class="win">Yes (31 langs, 372 questions)</td><td>No</td></tr>
                 <tr><td>Auto-sync</td><td class="win">Yes</td><td>No</td></tr>
-                <tr><td>MCP tools</td><td class="win">12</td><td>7</td></tr>
+                <tr><td>MCP tools</td><td class="win">14</td><td>7</td></tr>
+                <tr><td>Agents supported</td><td class="win">8</td><td>1-2</td></tr>
                 <tr><td>Cross-service HTTP linking</td><td class="win">Yes</td><td>No</td></tr>
                 <tr><td>Cypher queries</td><td class="win">Yes</td><td>No</td></tr>
-                <tr><td>Visual web UI</td><td class="lose">No</td><td class="win">Yes</td></tr>
+                <tr><td>Visual web UI</td><td class="win">Yes (3D graph)</td><td class="win">Yes</td></tr>
                 <tr><td>Graph RAG chat</td><td class="lose">No</td><td class="win">Yes</td></tr>
             </tbody>
         </table>
-        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 12px;">
-            GitNexus is a visual dashboard — great for interactive exploration. codebase-memory-mcp is
-            production tooling — the most comprehensive, zero-dependency backend for AI coding assistants.
-        </p>
     </section>
 </div>
 
