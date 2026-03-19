@@ -90,6 +90,8 @@ static inline int cbm_nanosleep(const struct timespec *req, struct timespec *rem
 
 /* ── mkdtemp (Windows lacks it) ──────────────────────────────── */
 #ifdef _WIN32
+/* Translates /tmp/ to %TEMP%\ and copies result back to tmpl.
+ * Callers MUST use char buf[256] or larger. */
 char *cbm_mkdtemp(char *tmpl);
 #else
 #define cbm_mkdtemp mkdtemp

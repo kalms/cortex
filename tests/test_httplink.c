@@ -549,7 +549,7 @@ TEST(httplink_load_config_default) {
 
 TEST(httplink_load_config_from_file) {
     /* Create temp dir with .cgrconfig */
-    char tmpdir[] = "/tmp/httplink-cfg-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/httplink-cfg-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -589,7 +589,7 @@ TEST(httplink_load_config_from_file) {
 
 TEST(httplink_load_config_invalid_yaml) {
     /* Invalid YAML → fallback to defaults */
-    char tmpdir[] = "/tmp/httplink-bad-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/httplink-bad-XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("cbm_mkdtemp failed");
 
@@ -719,7 +719,7 @@ TEST(httplink_route_extraction_negative_cases) {
 
 TEST(httplink_read_source_lines) {
     /* Create temp dir with test file */
-    char tmpdir[] = "/tmp/httplink-test-XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/httplink-test-XXXXXX");
     if (!cbm_mkdtemp(tmpdir)) {
         printf("  SKIP: cbm_mkdtemp failed\n");
         return -1;

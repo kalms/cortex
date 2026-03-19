@@ -4182,7 +4182,7 @@ static int has_binding_value(const cbm_env_binding_t *bindings, int count, const
 }
 
 TEST(envscan_dockerfile_env_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_dock_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_dock_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4211,7 +4211,7 @@ TEST(envscan_dockerfile_env_urls) {
 }
 
 TEST(envscan_shell_env_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_sh_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sh_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4238,7 +4238,7 @@ TEST(envscan_shell_env_urls) {
 }
 
 TEST(envscan_env_file_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_env_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_env_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4264,7 +4264,7 @@ TEST(envscan_env_file_urls) {
 }
 
 TEST(envscan_toml_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_toml_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_toml_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4291,7 +4291,7 @@ TEST(envscan_toml_urls) {
 }
 
 TEST(envscan_yaml_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_yaml_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_yaml_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4316,7 +4316,7 @@ TEST(envscan_yaml_urls) {
 }
 
 TEST(envscan_terraform_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_tf_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_tf_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4342,7 +4342,7 @@ TEST(envscan_terraform_urls) {
 }
 
 TEST(envscan_properties_urls) {
-    char tmpdir[] = "/tmp/cbm_envscan_prop_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_prop_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4364,7 +4364,7 @@ TEST(envscan_properties_urls) {
 }
 
 TEST(envscan_secret_key_exclusion) {
-    char tmpdir[] = "/tmp/cbm_envscan_skey_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_skey_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4392,7 +4392,7 @@ TEST(envscan_secret_key_exclusion) {
 }
 
 TEST(envscan_secret_value_exclusion) {
-    char tmpdir[] = "/tmp/cbm_envscan_sval_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sval_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4417,7 +4417,7 @@ TEST(envscan_secret_value_exclusion) {
 }
 
 TEST(envscan_secret_file_exclusion) {
-    char tmpdir[] = "/tmp/cbm_envscan_sfile_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sfile_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4450,7 +4450,7 @@ TEST(envscan_secret_file_exclusion) {
 }
 
 TEST(envscan_skips_ignored_dirs) {
-    char tmpdir[] = "/tmp/cbm_envscan_ign_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_ign_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
@@ -4498,7 +4498,7 @@ TEST(envscan_skips_ignored_dirs) {
 }
 
 TEST(envscan_non_url_values_skipped) {
-    char tmpdir[] = "/tmp/cbm_envscan_nurl_XXXXXX";
+    char tmpdir[256]; snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_nurl_XXXXXX");
     if (!cbm_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
