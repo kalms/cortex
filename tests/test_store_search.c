@@ -420,6 +420,9 @@ TEST(store_search_exclude_labels) {
 /* ── Dump to file ──────────────────────────────────────────────── */
 
 TEST(store_dump_to_file) {
+#ifdef _WIN32
+    SKIP("temp file path handling — Windows port pending");
+#endif
     cbm_store_t *s = cbm_store_open_memory();
     cbm_store_upsert_project(s, "test", "/tmp/test");
 
