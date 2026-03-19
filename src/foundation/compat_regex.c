@@ -8,9 +8,9 @@
 
 #include <string.h>
 
-#ifdef _WIN32
+#ifdef CBM_USE_TRE
 
-/* ── Windows: use vendored TRE ───────────────────────────────── */
+/* ── Vendored TRE regex (for environments without system <regex.h>) ── */
 #include "../../vendored/tre/regex.h"
 
 _Static_assert(sizeof(regex_t) <= 256, "cbm_regex_t opaque buffer too small for TRE regex_t");
@@ -120,4 +120,4 @@ void cbm_regfree(cbm_regex_t *r) {
     regfree(re);
 }
 
-#endif /* _WIN32 */
+#endif /* CBM_USE_TRE */
