@@ -407,6 +407,11 @@ void cbm_free_tree(CBMFileResult *result);
 // Free a standalone TSTree pointer (for Go layer cleanup).
 void cbm_free_tree_ptr(TSTree *tree);
 
+// Parse a source string with the given language grammar.
+// Returns a TSTree* (caller must ts_tree_delete). Returns NULL on failure.
+// Uses the thread-local parser pool for efficiency.
+TSTree *cbm_parse_string(const char *source, int source_len, CBMLanguage language);
+
 // Reset the thread-local parser's internal state, releasing slab-allocated
 // subtrees. Must be called BEFORE cbm_slab_reset_thread() so the slab rebuild
 // doesn't corrupt live parser state.

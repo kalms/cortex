@@ -458,3 +458,24 @@ void cbm_free_tree_ptr(TSTree *tree) {
         ts_tree_delete(tree);
     }
 }
+
+TSTree *cbm_parse_string(const char *source, int source_len, CBMLanguage language) {
+    const TSLanguage *ts_lang = cbm_ts_language(language);
+    if (!ts_lang) {
+        return NULL;
+    }
+    TSParser *parser = get_thread_parser(ts_lang, language);
+    if (!parser) {
+        return NULL;
+    }
+    ts_parser_reset(parser);
+    CBMStringInput str_input = {source, (uint32_t)source_len};
+    TSInput ts_input = {
+        &str_input,
+        cbm_string_read,
+        TSInputEncodingUTF8,
+        NULL,
+    };
+    TSParseOptions opts = {0};
+    return ts_parser_parse_with_options(parser, NULL, ts_input, opts);
+}
