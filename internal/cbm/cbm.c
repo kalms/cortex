@@ -3,6 +3,7 @@
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
+#include "extract_sfc.h"
 #include "lsp/go_lsp.h"
 #include "lsp/c_lsp.h"
 #include "preprocessor.h"
@@ -347,6 +348,16 @@ CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage 
     // K8s / Kustomize semantic pass (additional structured extraction for YAML-based infra files).
     if (ctx.language == CBM_LANG_KUSTOMIZE || ctx.language == CBM_LANG_K8S) {
         cbm_extract_k8s(&ctx);
+    }
+
+    // SFC extraction (Vue / Svelte) — re-parse <script>, scan <template>.
+    if (language == CBM_LANG_VUE || language == CBM_LANG_SVELTE) {
+        cbm_extract_sfc(&ctx);
+    }
+
+    // SFC extraction (Vue / Svelte) — re-parse <script>, scan <template>.
+    if (language == CBM_LANG_VUE || language == CBM_LANG_SVELTE) {
+        cbm_extract_sfc(&ctx);
     }
 
     // LSP type-aware call resolution
