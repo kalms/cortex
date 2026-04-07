@@ -1130,28 +1130,324 @@ TEST(graphql_type) {
     PASS();
 }
 
-/* --- Svelte component --- */
-TEST(svelte_component) {
-    CBMFileResult *r = extract("<script>\n  let name = 'World';\n  function greet() {\n    return "
-                               "`Hello ${name}`;\n  }\n</script>\n<h1>{greet()}</h1>\n",
-                               CBM_LANG_SVELTE, "t", "App.svelte");
+/* ═══════════════════════════════════════════════════════════════════
+ * Vue SFC extraction
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(vue_script_options_api) {
+    CBMFileResult *r = extract(
+        "<template><div>hello</div></template>\n"
+        "<script>\n"
+        "export default {\n"
+        "  name: 'App',\n"
+        "  data() { return { message: 'Hello' }; },\n"
+        "  methods: { greet() { return this.message; } }\n"
+        "};\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "App.vue");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
-    ASSERT_GTE(r->defs.count, 1);
+    ASSERT_TRUE(has_def_any(r, "data"));
+    ASSERT_TRUE(has_def_any(r, "greet"));
     cbm_free_result(r);
     PASS();
 }
 
-/* --- Vue component --- */
-TEST(vue_component) {
-    CBMFileResult *r =
-        extract("<template><div>{{ message }}</div></template>\n<script>\nexport default {\n  "
-                "name: 'App',\n  data() { return { message: 'Hello World' }; },\n  methods: { "
-                "greet() { return this.message; } }\n};\n</script>\n",
-                CBM_LANG_VUE, "t", "App.vue");
+TEST(vue_script_setup) {
+    CBMFileResult *r = extract(
+        "<template><div>{{ count }}</div></template>\n"
+        "<script setup>\n"
+        "import { ref, computed } from 'vue';\n"
+        "const count = ref(0);\n"
+        "const doubled = computed(() => count.value * 2);\n"
+        "function increment() { count.value++; }\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Counter.vue");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
-    ASSERT_GTE(r->defs.count, 1);
+    ASSERT_TRUE(has_import(r, "vue"));
+    ASSERT_TRUE(has_call(r, "ref"));
+    ASSERT_TRUE(has_call(r, "computed"));
+    ASSERT_TRUE(has_def_any(r, "increment"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_script_lang_ts) {
+    CBMFileResult *r = extract(
+        "<template><div>typed</div></template>\n"
+        "<script lang=\"ts\">\n"
+        "interface Props { title: string; }\n"
+        "export default {\n"
+        "  props: {} as Props,\n"
+        "  setup() { return {}; }\n"
+        "};\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Typed.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_def_any(r, "setup"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_dual_script_blocks) {
+    CBMFileResult *r = extract(
+        "<script>\n"
+        "export const meta = { title: 'Page' };\n"
+        "</script>\n"
+        "<script setup>\n"
+        "import { ref } from 'vue';\n"
+        "const name = ref('world');\n"
+        "</script>\n"
+        "<template><div>{{ name }}</div></template>\n",
+        CBM_LANG_VUE, "t", "Dual.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_import(r, "vue"));
+    ASSERT_TRUE(has_call(r, "ref"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_script_line_offsets) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <div>hello</div>\n"
+        "</template>\n"
+        "<script>\n"
+        "function myFunc() {}\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Offset.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_def_any(r, "myFunc"));
+    /* myFunc should be on line 4, not line 0 */
+    for (int i = 0; i < r->defs.count; i++) {
+        if (strcmp(r->defs.items[i].name, "myFunc") == 0) {
+            ASSERT_GTE(r->defs.items[i].start_line, 4);
+            break;
+        }
+    }
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_template_pascal_component) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <div>\n"
+        "    <MyHeader />\n"
+        "    <ADSTopbar title=\"hello\" />\n"
+        "    <ContentBox><span>hi</span></ContentBox>\n"
+        "  </div>\n"
+        "</template>\n"
+        "<script setup>\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Page.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "MyHeader"));
+    ASSERT_TRUE(has_call(r, "ADSTopbar"));
+    ASSERT_TRUE(has_call(r, "ContentBox"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_template_kebab_component) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <my-component />\n"
+        "  <v-btn>Click</v-btn>\n"
+        "</template>\n",
+        CBM_LANG_VUE, "t", "Kebab.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "my-component"));
+    ASSERT_TRUE(has_call(r, "v-btn"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_template_html_not_component) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <div><span>text</span><input /><a href=\"#\">link</a></div>\n"
+        "</template>\n",
+        CBM_LANG_VUE, "t", "Native.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_FALSE(has_call(r, "div"));
+    ASSERT_FALSE(has_call(r, "span"));
+    ASSERT_FALSE(has_call(r, "input"));
+    ASSERT_FALSE(has_call(r, "a"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_directives_usages) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <div v-if=\"isActive\" :class=\"computedClass\">\n"
+        "    <span v-for=\"item in items\">{{ item }}</span>\n"
+        "    <input v-model=\"formData\" />\n"
+        "  </div>\n"
+        "</template>\n"
+        "<script setup>\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Directives.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_GTE(r->usages.count, 1);
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_directives_events) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <button @click=\"handleClick\">Go</button>\n"
+        "  <form @submit=\"onSubmit\">\n"
+        "    <input @input=\"onChange\" />\n"
+        "  </form>\n"
+        "</template>\n"
+        "<script setup>\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "Events.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "handleClick"));
+    ASSERT_TRUE(has_call(r, "onSubmit"));
+    ASSERT_TRUE(has_call(r, "onChange"));
+    cbm_free_result(r);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Svelte SFC extraction
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(svelte_script_defs) {
+    CBMFileResult *r = extract(
+        "<script>\n"
+        "  let name = 'World';\n"
+        "  function greet() { return `Hello ${name}`; }\n"
+        "</script>\n"
+        "<h1>{greet()}</h1>\n",
+        CBM_LANG_SVELTE, "t", "App.svelte");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_def_any(r, "greet"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(svelte_script_imports) {
+    CBMFileResult *r = extract(
+        "<script>\n"
+        "  import { onMount } from 'svelte';\n"
+        "  import Button from './Button.svelte';\n"
+        "  onMount(() => { console.log('mounted'); });\n"
+        "</script>\n"
+        "<Button />\n",
+        CBM_LANG_SVELTE, "t", "Page.svelte");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_import(r, "svelte"));
+    ASSERT_TRUE(has_call(r, "onMount"));
+    ASSERT_TRUE(has_call(r, "Button"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(svelte_script_lang_ts) {
+    CBMFileResult *r = extract(
+        "<script lang=\"ts\">\n"
+        "  interface User { name: string; }\n"
+        "  export function getUser(): User { return { name: 'test' }; }\n"
+        "</script>\n"
+        "<p>hello</p>\n",
+        CBM_LANG_SVELTE, "t", "Typed.svelte");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_def_any(r, "getUser"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(svelte_template_components) {
+    CBMFileResult *r = extract(
+        "<script>\n"
+        "  import Header from './Header.svelte';\n"
+        "</script>\n"
+        "<Header />\n"
+        "<my-widget>content</my-widget>\n"
+        "<div><span>native</span></div>\n",
+        CBM_LANG_SVELTE, "t", "Layout.svelte");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "Header"));
+    ASSERT_TRUE(has_call(r, "my-widget"));
+    ASSERT_FALSE(has_call(r, "div"));
+    ASSERT_FALSE(has_call(r, "span"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(svelte_event_and_bind) {
+    CBMFileResult *r = extract(
+        "<script>\n"
+        "  let value = '';\n"
+        "  function handleClick() {}\n"
+        "</script>\n"
+        "<button on:click={handleClick}>Go</button>\n"
+        "<input bind:value={value} />\n",
+        CBM_LANG_SVELTE, "t", "Interactive.svelte");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "handleClick"));
+    ASSERT_GTE(r->usages.count, 1);
+    cbm_free_result(r);
+    PASS();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SFC edge cases
+ * ═══════════════════════════════════════════════════════════════════ */
+
+TEST(vue_no_script) {
+    CBMFileResult *r = extract(
+        "<template>\n"
+        "  <MyComponent />\n"
+        "  <div>static content</div>\n"
+        "</template>\n",
+        CBM_LANG_VUE, "t", "NoScript.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_call(r, "MyComponent"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_no_template) {
+    CBMFileResult *r = extract(
+        "<script setup>\n"
+        "import { ref } from 'vue';\n"
+        "const x = ref(0);\n"
+        "</script>\n",
+        CBM_LANG_VUE, "t", "NoTemplate.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    ASSERT_TRUE(has_import(r, "vue"));
+    ASSERT_TRUE(has_call(r, "ref"));
+    cbm_free_result(r);
+    PASS();
+}
+
+TEST(vue_empty_file) {
+    CBMFileResult *r = extract("", CBM_LANG_VUE, "t", "Empty.vue");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
     cbm_free_result(r);
     PASS();
 }
@@ -2243,8 +2539,27 @@ SUITE(extraction) {
     RUN_TEST(json_object);
     RUN_TEST(protobuf_message);
     RUN_TEST(graphql_type);
-    RUN_TEST(svelte_component);
-    RUN_TEST(vue_component);
+    /* Vue SFC */
+    RUN_TEST(vue_script_options_api);
+    RUN_TEST(vue_script_setup);
+    RUN_TEST(vue_script_lang_ts);
+    RUN_TEST(vue_dual_script_blocks);
+    RUN_TEST(vue_script_line_offsets);
+    RUN_TEST(vue_template_pascal_component);
+    RUN_TEST(vue_template_kebab_component);
+    RUN_TEST(vue_template_html_not_component);
+    RUN_TEST(vue_directives_usages);
+    RUN_TEST(vue_directives_events);
+    /* Svelte SFC */
+    RUN_TEST(svelte_script_defs);
+    RUN_TEST(svelte_script_imports);
+    RUN_TEST(svelte_script_lang_ts);
+    RUN_TEST(svelte_template_components);
+    RUN_TEST(svelte_event_and_bind);
+    /* SFC edge cases */
+    RUN_TEST(vue_no_script);
+    RUN_TEST(vue_no_template);
+    RUN_TEST(vue_empty_file);
     RUN_TEST(glsl_shader);
     RUN_TEST(vimscript_function);
 
