@@ -121,3 +121,150 @@ describe("DecisionService.create", () => {
     expect(results).toHaveLength(1);
   });
 });
+
+describe("DecisionService.update", () => {
+  let store: GraphStore;
+  let service: DecisionService;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("updates decision fields", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const decision = service.create({
+      title: "Original",
+      description: "desc",
+      rationale: "rationale",
+    });
+
+    const updated = service.update(decision.id, {
+      title: "Updated Title",
+      rationale: "New rationale",
+    });
+
+    expect(updated.title).toBe("Updated Title");
+    expect(updated.rationale).toBe("New rationale");
+    expect(updated.description).toBe("desc");
+  });
+
+  it("updates status and superseded_by", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const d1 = service.create({ title: "Old", description: "d", rationale: "r" });
+    const d2 = service.create({ title: "New", description: "d", rationale: "r" });
+
+    const updated = service.update(d1.id, {
+      status: "superseded",
+      superseded_by: d2.id,
+    });
+
+    expect(updated.status).toBe("superseded");
+    expect(updated.superseded_by).toBe(d2.id);
+  });
+
+  it("updates FTS index on update", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const decision = service.create({
+      title: "Old keyword",
+      description: "desc",
+      rationale: "rationale",
+    });
+
+    service.update(decision.id, { title: "New keyword" });
+
+    expect(store.searchDecisionContent("Old")).toHaveLength(0);
+    expect(store.searchDecisionContent("New")).toHaveLength(1);
+  });
+
+  it("throws for non-existent decision", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+    expect(() => service.update("fake", { title: "x" })).toThrow("Decision not found");
+  });
+});
+
+describe("DecisionService.delete", () => {
+  let store: GraphStore;
+  let service: DecisionService;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("deletes a decision and its FTS entry", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const decision = service.create({
+      title: "To be deleted",
+      description: "desc",
+      rationale: "rationale",
+    });
+
+    service.delete(decision.id);
+
+    expect(store.getNode(decision.id)).toBeUndefined();
+    expect(store.searchDecisionContent("deleted")).toHaveLength(0);
+  });
+
+  it("cascade-deletes GOVERNS edges", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const target = store.createNode({ kind: "function", name: "fn" });
+    const decision = service.create({
+      title: "d1",
+      description: "d",
+      rationale: "r",
+      governs: [target.id],
+    });
+
+    service.delete(decision.id);
+    expect(store.findEdges({ relation: "GOVERNS" })).toHaveLength(0);
+  });
+});
+
+describe("DecisionService.get", () => {
+  let store: GraphStore;
+  let service: DecisionService;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("returns decision with resolved governs and references", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+
+    const fn = store.createNode({ kind: "function", name: "handleReq" });
+    const ref = store.createNode({ kind: "reference", name: "JIRA-456" });
+
+    const decision = service.create({
+      title: "Request handling",
+      description: "desc",
+      rationale: "rationale",
+      governs: [fn.id],
+      references: [ref.id],
+    });
+
+    const result = service.get(decision.id);
+
+    expect(result.title).toBe("Request handling");
+    expect(result.governs).toHaveLength(1);
+    expect(result.governs[0].name).toBe("handleReq");
+    expect(result.references).toHaveLength(1);
+    expect(result.references[0].name).toBe("JIRA-456");
+  });
+
+  it("throws for non-existent decision", () => {
+    store = new GraphStore(":memory:");
+    service = new DecisionService(store);
+    expect(() => service.get("fake")).toThrow("Decision not found");
+  });
+});
