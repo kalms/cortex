@@ -222,6 +222,14 @@ export class GraphStore {
     return this.db.prepare(`SELECT * FROM edge_annotations ${where}`).all(...values) as EdgeAnnotationRow[];
   }
 
+  getAllNodes(): NodeRow[] {
+    return this.db.prepare("SELECT * FROM nodes").all() as NodeRow[];
+  }
+
+  getAllEdges(): EdgeRow[] {
+    return this.db.prepare("SELECT * FROM edges").all() as EdgeRow[];
+  }
+
   // --- FTS ---
 
   indexDecisionContent(nodeId: string, title: string, description: string, rationale: string): void {
