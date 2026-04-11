@@ -1,0 +1,5 @@
+{
+  "name": "cortex",
+  "description": "Knowledge graph MCP server with decision provenance — code indexing, decision CRUD, full-text search, tier promotion, and graph viewer",
+  "version": "0.1.0"
+}
