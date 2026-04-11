@@ -1,8 +1,8 @@
-# Anthill Cortex — Phase 1 Design Spec
+# Cortex — Phase 1 Design Spec
 
 ## Overview
 
-Anthill Cortex is a knowledge graph MCP server forked from `codebase-memory-mcp`. It combines structural code indexing with decision provenance, tiered visibility, and external system links into a single queryable graph.
+Cortex is a knowledge graph MCP server forked from `codebase-memory-mcp`. It combines structural code indexing with decision provenance, tiered visibility, and external system links into a single queryable graph.
 
 **Phase 1 scope:** Fork + Foundation — decision node schema, full decision CRUD, query tools, local-only SQLite storage, graph viewer.
 
@@ -19,7 +19,7 @@ Anthill Cortex is a knowledge graph MCP server forked from `codebase-memory-mcp`
 The codebase is organized into internal modules with clear boundaries. Each module owns its logic and exposes a clean interface. All modules share the same SQLite database through the graph layer.
 
 ```
-anthill-cortex/
+cortex/
   package.json
   tsconfig.json
   plugin.json                    # Claude Code plugin manifest
@@ -53,7 +53,7 @@ anthill-cortex/
         types.ts                 # Connector interface definition
     viewer/
       index.html                 # Graph viewer — single page
-      style.css                  # Anthill theme (black/white/grayscale, Geist Mono)
+      style.css                  # Cortex theme (black/white/grayscale, Geist Mono)
       graph-viewer.js            # D3 force graph + interactions
     skills/
       search-decisions.md        # Skill for searching decisions
@@ -310,10 +310,10 @@ A local web UI served by the MCP server for read-only exploration of the knowled
 
 **Endpoint:** `http://localhost:<port>/viewer`
 
-### Visual Design — Anthill Theme
+### Visual Design — Cortex Theme
 
 - **Background:** Black
-- **Nodes and edges:** White/gray — like tunnels in an ant colony
+- **Nodes and edges:** White/gray — neural network aesthetic
 - **Font:** Geist Mono throughout (loaded from CDN)
 - **Node shapes by kind:**
   - Code entities: circles (small)
