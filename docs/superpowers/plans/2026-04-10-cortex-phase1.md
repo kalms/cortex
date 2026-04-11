@@ -1,21 +1,21 @@
-# Anthill Cortex Phase 1 Implementation Plan
+# Cortex Phase 1 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Anthill Cortex Phase 1 — a TypeScript MCP server that combines structural code indexing (via codebase-memory-mcp) with decision provenance on a SQLite knowledge graph, plus a D3 graph viewer.
+**Goal:** Build Cortex Phase 1 — a TypeScript MCP server that combines structural code indexing (via codebase-memory-mcp) with decision provenance on a SQLite knowledge graph, plus a D3 graph viewer.
 
 **Architecture:** TypeScript MCP server running on stdio. `better-sqlite3` for storage using a nodes+edges+annotations schema. Decision CRUD, full-text search (FTS5), and tier promotion built natively. Code indexing tools proxied to the existing `codebase-memory-mcp` C binary via CLI. A lightweight HTTP server serves the D3 force-directed graph viewer and a `/api/graph` JSON endpoint.
 
 **Tech Stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, vitest, D3.js v7
 
-**Design Spec:** `docs/superpowers/specs/2026-04-10-anthill-cortex-phase1-design.md`
+**Design Spec:** `docs/superpowers/specs/2026-04-10-cortex-phase1-design.md`
 
 ---
 
 ## File Structure
 
 ```
-anthill-cortex/
+cortex/
   package.json
   tsconfig.json
   vitest.config.ts
@@ -42,7 +42,7 @@ anthill-cortex/
       types.ts                       # Phase 2 connector interface (stub)
     viewer/
       index.html                     # Graph viewer page
-      style.css                      # Anthill theme (black/white/Geist Mono)
+      style.css                      # Cortex theme (black/white/Geist Mono)
       graph-viewer.js                # D3 force graph + interactions
     hooks/
       suggest-capture.sh             # Post-commit nudge to capture decisions
@@ -79,7 +79,7 @@ anthill-cortex/
 `package.json`:
 ```json
 {
-  "name": "anthill-cortex",
+  "name": "cortex",
   "version": "0.1.0",
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
@@ -155,7 +155,7 @@ Expected: `node_modules/` created, `package-lock.json` generated, no errors.
 
 `src/index.ts`:
 ```typescript
-console.error("Anthill Cortex starting...");
+console.error("Cortex starting...");
 ```
 
 `tests/helpers.ts`:
@@ -2085,7 +2085,7 @@ import { registerCodeTools } from "./tools/code-tools.js";
 
 export function createServer(store: GraphStore): McpServer {
   const server = new McpServer({
-    name: "anthill-cortex",
+    name: "cortex",
     version: "0.1.0",
   });
 
@@ -2621,7 +2621,7 @@ const store = new GraphStore(dbPath);
 const server = createServer(store);
 
 const viewerPort = await startViewerServer(store);
-process.stderr.write(`Anthill Cortex viewer: http://localhost:${viewerPort}/viewer\n`);
+process.stderr.write(`Cortex viewer: http://localhost:${viewerPort}/viewer\n`);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
@@ -2658,14 +2658,14 @@ git commit -m "feat: add HTTP server for graph viewer and /api/graph endpoint"
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Anthill Cortex</title>
+  <title>Cortex</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/viewer/style.css">
 </head>
 <body>
   <div id="toolbar">
-    <span id="logo">anthill cortex</span>
+    <span id="logo">cortex</span>
     <input type="text" id="search" placeholder="Search nodes...">
     <div id="filters">
       <label><input type="checkbox" data-kind="function" checked> functions</label>
@@ -2686,7 +2686,7 @@ git commit -m "feat: add HTTP server for graph viewer and /api/graph endpoint"
 </html>
 ```
 
-- [ ] **Step 2: Create style.css (Anthill theme)**
+- [ ] **Step 2: Create style.css (Cortex theme)**
 
 `src/viewer/style.css`:
 ```css
@@ -3128,7 +3128,7 @@ Kill the background process after verification.
 
 ```bash
 git add src/viewer/index.html src/viewer/style.css src/viewer/graph-viewer.js
-git commit -m "feat: add D3 force-directed graph viewer with Anthill theme"
+git commit -m "feat: add D3 force-directed graph viewer with Cortex theme"
 ```
 
 ---
@@ -3218,12 +3218,12 @@ Run: `chmod +x src/hooks/suggest-capture.sh`
 ```markdown
 ---
 name: search-decisions
-description: Search the Anthill Cortex knowledge graph for architectural and design decisions
+description: Search the Cortex knowledge graph for architectural and design decisions
 ---
 
 # Search Decisions
 
-Use the Anthill Cortex MCP tools to find and query existing decisions in the knowledge graph.
+Use the Cortex MCP tools to find and query existing decisions in the knowledge graph.
 
 ## When to use
 
@@ -3288,7 +3288,7 @@ git commit -m "feat: add decision capture hook and search-decisions skill"
 `plugin.json`:
 ```json
 {
-  "name": "anthill-cortex",
+  "name": "cortex",
   "description": "Knowledge graph MCP server with decision provenance — code indexing, decision CRUD, full-text search, tier promotion, and graph viewer",
   "version": "0.1.0"
 }
@@ -3318,7 +3318,7 @@ Total: 52 tests, all passing.
 
 ```bash
 git add plugin.json dist/
-git commit -m "feat: add plugin manifest and build artifacts for Anthill Cortex Phase 1"
+git commit -m "feat: add plugin manifest and build artifacts for Cortex Phase 1"
 ```
 
 Note: if the project `.gitignore` excludes `dist/`, commit only `plugin.json`. The build step confirms compilation works.
