@@ -222,6 +222,34 @@ export class GraphStore {
     return this.db.prepare(`SELECT * FROM edge_annotations ${where}`).all(...values) as EdgeAnnotationRow[];
   }
 
+  // --- FTS ---
+
+  indexDecisionContent(nodeId: string, title: string, description: string, rationale: string): void {
+    this.db
+      .prepare("INSERT INTO decisions_fts (node_id, title, description, rationale) VALUES (?, ?, ?, ?)")
+      .run(nodeId, title, description, rationale);
+  }
+
+  updateDecisionContent(nodeId: string, title: string, description: string, rationale: string): void {
+    this.removeDecisionContent(nodeId);
+    this.indexDecisionContent(nodeId, title, description, rationale);
+  }
+
+  removeDecisionContent(nodeId: string): void {
+    this.db.prepare("DELETE FROM decisions_fts WHERE node_id = ?").run(nodeId);
+  }
+
+  searchDecisionContent(query: string): Array<{ node_id: string; rank: number }> {
+    return this.db
+      .prepare(
+        `SELECT node_id, rank
+         FROM decisions_fts
+         WHERE decisions_fts MATCH ?
+         ORDER BY rank`
+      )
+      .all(query) as Array<{ node_id: string; rank: number }>;
+  }
+
   close(): void {
     this.db.close();
   }
