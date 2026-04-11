@@ -80,4 +80,58 @@ export class DecisionService {
       relation: "REFERENCES",
     });
   }
+
+  update(id: string, input: UpdateDecisionInput): Decision {
+    const node = this.store.getNode(id);
+    if (!node) throw new Error(`Decision not found: ${id}`);
+    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
+
+    const existingData = JSON.parse(node.data);
+    const newData = { ...existingData };
+
+    if (input.title !== undefined) newData.title = input.title;
+    if (input.description !== undefined) newData.description = input.description;
+    if (input.rationale !== undefined) newData.rationale = input.rationale;
+    if (input.alternatives !== undefined) newData.alternatives = input.alternatives;
+    if (input.status !== undefined) newData.status = input.status;
+    if (input.superseded_by !== undefined) newData.superseded_by = input.superseded_by;
+
+    const updatedNode = this.store.updateNode(id, {
+      name: newData.title,
+      data: JSON.stringify(newData),
+    });
+
+    this.store.updateDecisionContent(id, newData.title, newData.description, newData.rationale);
+
+    return nodeToDecision(updatedNode);
+  }
+
+  delete(id: string): void {
+    const node = this.store.getNode(id);
+    if (!node) throw new Error(`Decision not found: ${id}`);
+    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
+
+    this.store.removeDecisionContent(id);
+    this.store.deleteNode(id);
+  }
+
+  get(id: string): Decision & { governs: NodeRow[]; references: NodeRow[] } {
+    const node = this.store.getNode(id);
+    if (!node) throw new Error(`Decision not found: ${id}`);
+    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
+
+    const decision = nodeToDecision(node);
+
+    const governsEdges = this.store.findEdges({ source_id: id, relation: "GOVERNS" });
+    const governs = governsEdges
+      .map((e) => this.store.getNode(e.target_id))
+      .filter((n): n is NodeRow => n !== undefined);
+
+    const referencesEdges = this.store.findEdges({ source_id: id, relation: "REFERENCES" });
+    const references = referencesEdges
+      .map((e) => this.store.getNode(e.target_id))
+      .filter((n): n is NodeRow => n !== undefined);
+
+    return { ...decision, governs, references };
+  }
 }
