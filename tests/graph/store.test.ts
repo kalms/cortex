@@ -108,3 +108,113 @@ describe("Node CRUD", () => {
     expect(store.findNodes({})).toHaveLength(3);
   });
 });
+
+describe("Edge CRUD", () => {
+  let store: GraphStore;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("creates and retrieves an edge", () => {
+    store = new GraphStore(":memory:");
+    const a = store.createNode({ kind: "function", name: "caller" });
+    const b = store.createNode({ kind: "function", name: "callee" });
+
+    const edge = store.createEdge({
+      source_id: a.id,
+      target_id: b.id,
+      relation: "CALLS",
+    });
+
+    expect(edge.id).toBeDefined();
+    expect(edge.source_id).toBe(a.id);
+    expect(edge.target_id).toBe(b.id);
+    expect(edge.relation).toBe("CALLS");
+
+    const retrieved = store.getEdge(edge.id);
+    expect(retrieved).toEqual(edge);
+  });
+
+  it("deletes an edge", () => {
+    store = new GraphStore(":memory:");
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    const edge = store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+
+    store.deleteEdge(edge.id);
+    expect(store.getEdge(edge.id)).toBeUndefined();
+  });
+
+  it("cascade-deletes edges when a node is deleted", () => {
+    store = new GraphStore(":memory:");
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+
+    store.deleteNode(a.id);
+    expect(store.findEdges({ source_id: a.id })).toHaveLength(0);
+  });
+
+  it("finds edges by filter", () => {
+    store = new GraphStore(":memory:");
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    const c = store.createNode({ kind: "function", name: "c" });
+
+    store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+    store.createEdge({ source_id: a.id, target_id: c.id, relation: "IMPORTS" });
+
+    expect(store.findEdges({ source_id: a.id })).toHaveLength(2);
+    expect(store.findEdges({ relation: "CALLS" })).toHaveLength(1);
+    expect(store.findEdges({ target_id: b.id })).toHaveLength(1);
+  });
+});
+
+describe("Edge Annotation CRUD", () => {
+  let store: GraphStore;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("creates and retrieves an annotation", () => {
+    store = new GraphStore(":memory:");
+    const decision = store.createNode({ kind: "decision", name: "Use REST" });
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    const edge = store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+
+    const annotation = store.createAnnotation({
+      decision_id: decision.id,
+      edge_id: edge.id,
+    });
+
+    expect(annotation.id).toBeDefined();
+    expect(annotation.decision_id).toBe(decision.id);
+    expect(annotation.edge_id).toBe(edge.id);
+  });
+
+  it("finds annotations by decision_id", () => {
+    store = new GraphStore(":memory:");
+    const decision = store.createNode({ kind: "decision", name: "d" });
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    const edge = store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+    store.createAnnotation({ decision_id: decision.id, edge_id: edge.id });
+
+    expect(store.findAnnotations({ decision_id: decision.id })).toHaveLength(1);
+  });
+
+  it("cascade-deletes annotations when edge is deleted", () => {
+    store = new GraphStore(":memory:");
+    const decision = store.createNode({ kind: "decision", name: "d" });
+    const a = store.createNode({ kind: "function", name: "a" });
+    const b = store.createNode({ kind: "function", name: "b" });
+    const edge = store.createEdge({ source_id: a.id, target_id: b.id, relation: "CALLS" });
+    store.createAnnotation({ decision_id: decision.id, edge_id: edge.id });
+
+    store.deleteEdge(edge.id);
+    expect(store.findAnnotations({ decision_id: decision.id })).toHaveLength(0);
+  });
+});
