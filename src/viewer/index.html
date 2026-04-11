@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cortex</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/viewer/style.css">
+</head>
+<body>
+  <div id="toolbar">
+    <span id="logo">cortex</span>
+    <input type="text" id="search" placeholder="Search nodes...">
+    <div id="filters">
+      <label><input type="checkbox" data-kind="function" checked> functions</label>
+      <label><input type="checkbox" data-kind="component" checked> components</label>
+      <label><input type="checkbox" data-kind="decision" checked> decisions</label>
+      <label><input type="checkbox" data-kind="path" checked> paths</label>
+      <label><input type="checkbox" data-kind="reference" checked> references</label>
+    </div>
+  </div>
+  <div id="graph-container"></div>
+  <div id="detail-panel" class="hidden">
+    <button id="close-panel">&times;</button>
+    <div id="detail-content"></div>
+  </div>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="/viewer/graph-viewer.js"></script>
+</body>
+</html>
