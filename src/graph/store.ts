@@ -147,6 +147,81 @@ export class GraphStore {
     return this.db.prepare(`SELECT * FROM nodes ${where}`).all(...values) as NodeRow[];
   }
 
+  // --- Edge CRUD ---
+
+  createEdge(input: {
+    source_id: string;
+    target_id: string;
+    relation: string;
+    data?: Record<string, unknown>;
+  }): EdgeRow {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO edges (id, source_id, target_id, relation, data, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.source_id, input.target_id, input.relation, JSON.stringify(input.data ?? {}), now);
+    return this.getEdge(id)!;
+  }
+
+  getEdge(id: string): EdgeRow | undefined {
+    return this.db.prepare("SELECT * FROM edges WHERE id = ?").get(id) as EdgeRow | undefined;
+  }
+
+  deleteEdge(id: string): void {
+    this.db.prepare("DELETE FROM edges WHERE id = ?").run(id);
+  }
+
+  findEdges(filter: { source_id?: string; target_id?: string; relation?: string }): EdgeRow[] {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    for (const [key, value] of Object.entries(filter)) {
+      if (value !== undefined) {
+        conditions.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    return this.db.prepare(`SELECT * FROM edges ${where}`).all(...values) as EdgeRow[];
+  }
+
+  // --- Edge Annotations ---
+
+  createAnnotation(input: { decision_id: string; edge_id: string }): EdgeAnnotationRow {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO edge_annotations (id, decision_id, edge_id, created_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(id, input.decision_id, input.edge_id, now);
+    return this.db.prepare("SELECT * FROM edge_annotations WHERE id = ?").get(id) as EdgeAnnotationRow;
+  }
+
+  deleteAnnotation(id: string): void {
+    this.db.prepare("DELETE FROM edge_annotations WHERE id = ?").run(id);
+  }
+
+  findAnnotations(filter: { decision_id?: string; edge_id?: string }): EdgeAnnotationRow[] {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    for (const [key, value] of Object.entries(filter)) {
+      if (value !== undefined) {
+        conditions.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    return this.db.prepare(`SELECT * FROM edge_annotations ${where}`).all(...values) as EdgeAnnotationRow[];
+  }
+
   close(): void {
     this.db.close();
   }
