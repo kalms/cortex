@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
 # Hook: suggest-capture
 #
-# Fires after commits or plan completion to nudge the agent
-# into considering whether any decisions should be captured.
+# Fires after git commits to nudge the agent into considering
+# whether any architectural decisions should be captured in Cortex.
 #
-# Install in .claude/settings.local.json:
-# {
-#   "hooks": {
-#     "PostToolUse": [{
-#       "matcher": "Bash",
-#       "hooks": ["bash src/hooks/suggest-capture.sh"]
-#     }]
-#   }
-# }
+# Installed via settings.local.json PostToolUse hook with
+# if: "Bash(git commit*)" to only trigger on commits.
 
 echo ""
 echo "---"
-echo "Were any architectural or design decisions made during this work?"
+echo "Were any architectural or design decisions made in this commit?"
 echo "If so, use create_decision to capture the decision with its rationale and alternatives."
 echo "Use search_decisions first to check if a similar decision already exists."
 echo "---"
