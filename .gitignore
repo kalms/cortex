@@ -2,3 +2,6 @@ node_modules/
 dist/
 .cortex/
 *.db
+.superpowers/
+.playwright-mcp/
+viewer-*.png
