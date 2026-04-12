@@ -1,6 +1,6 @@
 # Cortex
 
-Knowledge graph MCP server with decision provenance. Combines structural code indexing (via [codebase-memory-mcp](https://github.com/anthropics/codebase-memory-mcp)) with decision tracking on a SQLite knowledge graph, plus a D3 graph viewer.
+Knowledge graph MCP server with decision provenance. Combines structural code indexing (via [codebase-memory-mcp](https://github.com/anthropics/codebase-memory-mcp)) with decision tracking on a SQLite knowledge graph, plus a 3D WebGL graph viewer.
 
 Cortex answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
 
@@ -35,7 +35,7 @@ Cortex answers the question agents can't today: **"why was this built this way?"
 └─────────────────┘
 ```
 
-**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, D3.js v7
+**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, 3d-force-graph + Three.js (WebGL)
 
 ## Getting Started
 
@@ -66,7 +66,15 @@ Or run in development mode:
 npm run dev
 ```
 
-The graph viewer starts automatically at [http://localhost:3333/viewer](http://localhost:3333/viewer).
+The 3D graph viewer starts automatically at [http://localhost:3333/viewer](http://localhost:3333/viewer).
+
+### Seeding Test Data
+
+To seed the database with sample data (6 code entities, 5 decisions, 1 reference):
+
+```bash
+npx tsx scripts/seed.ts
+```
 
 ### Environment Variables
 
@@ -128,6 +136,41 @@ npx vitest run tests/graph/store.test.ts
 | `get_architecture` | Get architecture overview for specified aspects |
 | `search_code` | Full-text search across repository source code |
 
+## Graph Viewer
+
+The 3D viewer at `/viewer` renders the knowledge graph in WebGL using [3d-force-graph](https://github.com/vasturiano/3d-force-graph).
+
+- **Node shapes by kind:** octahedrons (decisions), cubes (references), spheres (functions/components/paths)
+- **Neon color palette:** amber decisions, teal functions, mint components, grey paths, violet references
+- **Edge colors by relation:** grey (CALLS/IMPORTS), amber (GOVERNS), pink (SUPERSEDES), violet (REFERENCES)
+- **Interactions:** orbit rotate, Cmd+drag pan, scroll zoom, click-to-focus camera, node drag
+- **Detail panel:** click a node to see metadata; connections are clickable to fly to linked nodes
+- **Search & filters:** real-time text search, kind filter checkboxes
+- **Mobile:** responsive bottom half-sheet panel, collapsed toolbar toggles at < 768px
+
+## Suggest-Capture Hook
+
+After git commits, Cortex can remind agents to capture architectural decisions. Add to `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash src/hooks/suggest-capture.sh",
+            "if": "Bash(git commit*)"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ## Project Structure
 
 ```
@@ -152,11 +195,13 @@ src/
   connectors/
     types.ts                        # Phase 2 connector interface (stub)
   viewer/
-    index.html                      # Graph viewer page
-    style.css                       # Cortex theme (black/Geist Mono)
-    graph-viewer.js                 # D3 force graph + interactions
+    index.html                      # Graph viewer page (loads Three.js + 3d-force-graph)
+    style.css                       # Cortex theme (black/neon, responsive mobile)
+    graph-viewer.js                 # 3D WebGL graph — shapes, labels, camera, interactions
   hooks/
     suggest-capture.sh              # Post-commit nudge to capture decisions
+scripts/
+  seed.ts                           # Seeds sample data for development
   skills/
     search-decisions.md             # Skill for agents to query decisions
 tests/
