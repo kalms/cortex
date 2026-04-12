@@ -11,6 +11,8 @@
 <body>
   <div id="toolbar">
     <span id="logo">cortex</span>
+    <button id="search-toggle" aria-label="Toggle search">&#x1F50D;</button>
+    <button id="filter-toggle" aria-label="Toggle filters">&#x2699;</button>
     <input type="text" id="search" placeholder="Search nodes...">
     <div id="filters">
       <label><input type="checkbox" data-kind="function" checked> functions</label>
@@ -25,7 +27,18 @@
     <button id="close-panel">&times;</button>
     <div id="detail-content"></div>
   </div>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="/viewer/graph-viewer.js"></script>
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.183.2/build/three.module.js";
+    window.THREE = THREE;
+
+    // Load 3d-force-graph UMD (needs window.THREE), then our viewer
+    await new Promise((resolve) => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/3d-force-graph@1.80.0/dist/3d-force-graph.min.js";
+      s.onload = resolve;
+      document.head.appendChild(s);
+    });
+    await import("/viewer/graph-viewer.js");
+  </script>
 </body>
 </html>

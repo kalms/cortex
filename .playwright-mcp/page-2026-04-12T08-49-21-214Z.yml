@@ -1,0 +1,91 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: cortex
+    - textbox "Search nodes..." [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6] [cursor=pointer]:
+        - checkbox "functions" [checked] [ref=e7]
+        - text: functions
+      - generic [ref=e8] [cursor=pointer]:
+        - checkbox "components" [checked] [ref=e9]
+        - text: components
+      - generic [ref=e10] [cursor=pointer]:
+        - checkbox "decisions" [checked] [ref=e11]
+        - text: decisions
+      - generic [ref=e12] [cursor=pointer]:
+        - checkbox "paths" [checked] [ref=e13]
+        - text: paths
+      - generic [ref=e14] [cursor=pointer]:
+        - checkbox "references" [checked] [ref=e15]
+        - text: references
+  - img [ref=e17]:
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic "CALLS" [ref=e20]
+        - generic "CALLS" [ref=e21]
+        - generic "CALLS" [ref=e22]
+        - generic "IMPORTS" [ref=e23]
+        - generic "GOVERNS" [ref=e24]
+        - generic "GOVERNS" [ref=e25]
+        - generic "GOVERNS" [ref=e26]
+        - generic "GOVERNS" [ref=e27]
+        - generic "GOVERNS" [ref=e28]
+        - generic "GOVERNS" [ref=e29]
+        - generic "GOVERNS" [ref=e30]
+        - generic "GOVERNS" [ref=e31]
+        - generic "SUPERSEDES" [ref=e32]
+        - generic "REFERENCES" [ref=e33]
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - generic: authMiddleware
+        - generic [ref=e37]:
+          - generic: validateToken
+        - generic [ref=e39]:
+          - generic: handleRequest
+        - generic [ref=e41]:
+          - generic: dbConnect
+        - generic [ref=e43]:
+          - generic: CacheLayer
+        - generic [ref=e45]:
+          - generic: UserStore
+        - generic [ref=e47]:
+          - generic: Use JWT for authentication
+        - generic [ref=e49]:
+          - generic: PostgreSQL as primary database
+        - generic [ref=e51]:
+          - generic: Redis for caching layer
+        - generic [ref=e53]:
+          - generic: Vue 3 Composition API for frontend
+        - generic [ref=e55]:
+          - generic: src/components/
+        - generic [ref=e57]:
+          - generic: src/stores/
+        - generic [ref=e59]:
+          - generic: Switch to OAuth 2.0 + OIDC
+        - generic [ref=e61]:
+          - generic: AUTH-1234
+  - generic [ref=e63]:
+    - button "×" [active] [ref=e64] [cursor=pointer]
+    - generic [ref=e65]:
+      - heading "Redis for caching layer" [level=2] [ref=e138]
+      - generic [ref=e139]:
+        - generic [ref=e140]: Kind
+        - generic [ref=e141]: decision
+      - generic [ref=e142]:
+        - generic [ref=e143]: Tier
+        - generic [ref=e144]: personal
+      - generic [ref=e145]:
+        - generic [ref=e146]: Description
+        - generic [ref=e147]: Use Redis as the application cache with TTL-based invalidation
+      - generic [ref=e148]:
+        - generic [ref=e149]: Rationale
+        - generic [ref=e150]: Sub-millisecond reads, built-in TTL, pub/sub for cache invalidation across instances.
+      - generic [ref=e151]:
+        - generic [ref=e152]: Status
+        - generic [ref=e153]: active
+      - generic [ref=e154]:
+        - generic [ref=e155]: Connections
+        - generic [ref=e156]: → GOVERNS CacheLayer
+      - generic [ref=e157]:
+        - generic [ref=e158]: ID
+        - generic [ref=e159]: 04ac2b67-b0a1-42d7-9a42-8eb59d35a6ee
