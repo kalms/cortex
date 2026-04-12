@@ -297,6 +297,100 @@ static bool is_component_tag(const char *name, int len) {
     return !is_html_tag(buf);
 }
 
+// Extract the unquoted value string from an attribute value node.
+// Handles quoted_attribute_value, attribute_value, and expression nodes.
+// Returns val_raw pointer (into ctx->source) and sets *out_len. Returns NULL
+// if no usable value is found.
+static const char *sfc_attr_value(CBMExtractCtx *ctx, TSNode attr,
+                                  int *out_len) {
+    uint32_t ac = ts_node_named_child_count(attr);
+    for (uint32_t j = 1; j < ac; j++) {
+        TSNode candidate = ts_node_named_child(attr, j);
+        const char *ct = ts_node_type(candidate);
+        if (strcmp(ct, "quoted_attribute_value") == 0 ||
+            strcmp(ct, "attribute_value") == 0 ||
+            strcmp(ct, "expression") == 0) {
+            uint32_t vs = ts_node_start_byte(candidate);
+            uint32_t ve = ts_node_end_byte(candidate);
+            const char *val = ctx->source + vs;
+            int vlen = (int)(ve - vs);
+            // Strip surrounding quotes or braces
+            if (vlen >= 2 && (val[0] == '"' || val[0] == '\'' || val[0] == '{')) {
+                val++;
+                vlen -= 2;
+            }
+            if (vlen <= 0) {
+                return NULL;
+            }
+            *out_len = vlen;
+            return val;
+        }
+    }
+    return NULL;
+}
+
+// Handle a Vue directive_attribute node.
+// AST children: anonymous prefix (":", "@", or directive_name "v-*"),
+//               named directive_value (argument), "=", quoted_attribute_value.
+static void sfc_handle_vue_directive(CBMExtractCtx *ctx, TSNode attr) {
+    CBMArena *a = ctx->arena;
+    CBMFileResult *result = ctx->result;
+
+    // Determine directive kind from the first child (anonymous prefix token)
+    TSNode first = ts_node_child(attr, 0);
+    if (ts_node_is_null(first)) {
+        return;
+    }
+    uint32_t ps = ts_node_start_byte(first);
+    uint32_t pe = ts_node_end_byte(first);
+    const char *prefix = ctx->source + ps;
+    int prefix_len = (int)(pe - ps);
+
+    int val_len = 0;
+    const char *val_raw = sfc_attr_value(ctx, attr, &val_len);
+    if (!val_raw) {
+        return;
+    }
+
+    bool is_event = (prefix_len == 1 && prefix[0] == '@') ||
+                    (prefix_len >= 4 && memcmp(prefix, "v-on", 4) == 0);
+    if (is_event) {
+        const char *ident = extract_leading_ident(a, val_raw, val_len);
+        if (ident) {
+            CBMCall call = {0};
+            call.callee_name = ident;
+            call.enclosing_func_qn = ctx->module_qn;
+            cbm_calls_push(&result->calls, a, call);
+        }
+        return;
+    }
+
+    bool is_vfor = (prefix_len >= 5 && memcmp(prefix, "v-for", 5) == 0);
+    if (is_vfor) {
+        const char *ident = extract_vfor_collection(a, val_raw, val_len);
+        if (ident) {
+            CBMUsage usage = {0};
+            usage.ref_name = ident;
+            usage.enclosing_func_qn = ctx->module_qn;
+            cbm_usages_push(&result->usages, a, usage);
+        }
+        return;
+    }
+
+    // : (v-bind shorthand), v-bind, v-model, or other v-* directives → usage
+    bool is_binding = (prefix_len == 1 && prefix[0] == ':') ||
+                      (prefix_len >= 2 && memcmp(prefix, "v-", 2) == 0);
+    if (is_binding) {
+        const char *ident = extract_leading_ident(a, val_raw, val_len);
+        if (ident) {
+            CBMUsage usage = {0};
+            usage.ref_name = ident;
+            usage.enclosing_func_qn = ctx->module_qn;
+            cbm_usages_push(&result->usages, a, usage);
+        }
+    }
+}
+
 static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue) {
     CBMArena *a = ctx->arena;
     CBMFileResult *result = ctx->result;
@@ -306,8 +400,14 @@ static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue
         TSNode attr = ts_node_named_child(tag_node, i);
         const char *attr_type = ts_node_type(attr);
 
-        if (strcmp(attr_type, "attribute") != 0 &&
-            strcmp(attr_type, "directive_attribute") != 0) {
+        // Vue directive_attribute: ":class=...", "@click=...", "v-for=..."
+        if (is_vue && strcmp(attr_type, "directive_attribute") == 0) {
+            sfc_handle_vue_directive(ctx, attr);
+            continue;
+        }
+
+        // Svelte (and plain HTML) attribute: "on:click={...}", "bind:value={...}"
+        if (strcmp(attr_type, "attribute") != 0) {
             continue;
         }
 
@@ -320,110 +420,36 @@ static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue
         const char *attr_name = ctx->source + ans;
         int attr_name_len = (int)(ane - ans);
 
-        TSNode attr_val_node = (TSNode){0};
-        uint32_t ac = ts_node_named_child_count(attr);
-        for (uint32_t j = 1; j < ac; j++) {
-            TSNode candidate = ts_node_named_child(attr, j);
-            const char *ct = ts_node_type(candidate);
-            if (strcmp(ct, "quoted_attribute_value") == 0 ||
-                strcmp(ct, "attribute_value") == 0) {
-                attr_val_node = candidate;
-                break;
-            }
-        }
-        if (ts_node_is_null(attr_val_node)) {
+        int val_len = 0;
+        const char *val_raw = sfc_attr_value(ctx, attr, &val_len);
+        if (!val_raw) {
             continue;
         }
 
-        uint32_t vs = ts_node_start_byte(attr_val_node);
-        uint32_t ve = ts_node_end_byte(attr_val_node);
-        const char *val_raw = ctx->source + vs;
-        int val_len = (int)(ve - vs);
-
-        // Strip surrounding quotes
-        if (val_len >= 2 && (val_raw[0] == '"' || val_raw[0] == '\'')) {
-            val_raw++;
-            val_len -= 2;
-        }
-
-        if (val_len <= 0) {
+        // Svelte event: on:click={handler}
+        bool is_event = (attr_name_len >= 3 && memcmp(attr_name, "on:", 3) == 0);
+        if (is_event) {
+            const char *ident = extract_leading_ident(a, val_raw, val_len);
+            if (ident) {
+                CBMCall call = {0};
+                call.callee_name = ident;
+                call.enclosing_func_qn = ctx->module_qn;
+                cbm_calls_push(&result->calls, a, call);
+            }
             continue;
         }
 
-        if (is_vue) {
-            bool is_event = (attr_name_len >= 1 && attr_name[0] == '@') ||
-                            (attr_name_len >= 5 && memcmp(attr_name, "v-on:", 5) == 0);
-            if (is_event) {
-                const char *ident = extract_leading_ident(a, val_raw, val_len);
-                if (ident) {
-                    CBMCall call = {0};
-                    call.callee_name = ident;
-                    call.enclosing_func_qn = ctx->module_qn;
-                    cbm_calls_push(&result->calls, a, call);
-                }
-                continue;
+        // Svelte bind: bind:value={expr}
+        bool is_bind = (attr_name_len >= 5 && memcmp(attr_name, "bind:", 5) == 0);
+        if (is_bind) {
+            const char *ident = extract_leading_ident(a, val_raw, val_len);
+            if (ident) {
+                CBMUsage usage = {0};
+                usage.ref_name = ident;
+                usage.enclosing_func_qn = ctx->module_qn;
+                cbm_usages_push(&result->usages, a, usage);
             }
-
-            bool is_vfor = (attr_name_len == 5 && memcmp(attr_name, "v-for", 5) == 0);
-            if (is_vfor) {
-                const char *ident = extract_vfor_collection(a, val_raw, val_len);
-                if (ident) {
-                    CBMUsage usage = {0};
-                    usage.ref_name = ident;
-                    usage.enclosing_func_qn = ctx->module_qn;
-                    cbm_usages_push(&result->usages, a, usage);
-                }
-                continue;
-            }
-
-            bool is_directive = (attr_name_len >= 2 && attr_name[0] == ':') ||
-                                (attr_name_len >= 2 && memcmp(attr_name, "v-", 2) == 0);
-            if (is_directive) {
-                const char *ident = extract_leading_ident(a, val_raw, val_len);
-                if (ident) {
-                    CBMUsage usage = {0};
-                    usage.ref_name = ident;
-                    usage.enclosing_func_qn = ctx->module_qn;
-                    cbm_usages_push(&result->usages, a, usage);
-                }
-                continue;
-            }
-        } else {
-            bool is_event = (attr_name_len >= 3 && memcmp(attr_name, "on:", 3) == 0);
-            if (is_event) {
-                const char *v = val_raw;
-                int vl = val_len;
-                if (vl >= 2 && v[0] == '{') {
-                    v++;
-                    vl -= 2;
-                }
-                const char *ident = extract_leading_ident(a, v, vl);
-                if (ident) {
-                    CBMCall call = {0};
-                    call.callee_name = ident;
-                    call.enclosing_func_qn = ctx->module_qn;
-                    cbm_calls_push(&result->calls, a, call);
-                }
-                continue;
-            }
-
-            bool is_bind = (attr_name_len >= 5 && memcmp(attr_name, "bind:", 5) == 0);
-            if (is_bind) {
-                const char *v = val_raw;
-                int vl = val_len;
-                if (vl >= 2 && v[0] == '{') {
-                    v++;
-                    vl -= 2;
-                }
-                const char *ident = extract_leading_ident(a, v, vl);
-                if (ident) {
-                    CBMUsage usage = {0};
-                    usage.ref_name = ident;
-                    usage.enclosing_func_qn = ctx->module_qn;
-                    cbm_usages_push(&result->usages, a, usage);
-                }
-                continue;
-            }
+            continue;
         }
     }
 }
@@ -482,24 +508,11 @@ static void sfc_extract_template(CBMExtractCtx *ctx, TSNode root) {
     bool is_vue = (ctx->language == CBM_LANG_VUE);
 
     if (is_vue) {
+        // Vue: tree-sitter-vue produces a dedicated "template_element" node
         uint32_t count = ts_node_named_child_count(root);
         for (uint32_t i = 0; i < count; i++) {
             TSNode child = ts_node_named_child(root, i);
-            if (strcmp(ts_node_type(child), "element") != 0) {
-                continue;
-            }
-            TSNode start_tag = ts_node_named_child(child, 0);
-            if (ts_node_is_null(start_tag) ||
-                strcmp(ts_node_type(start_tag), "start_tag") != 0) {
-                continue;
-            }
-            TSNode tag_name = ts_node_named_child(start_tag, 0);
-            if (ts_node_is_null(tag_name)) {
-                continue;
-            }
-            uint32_t ns = ts_node_start_byte(tag_name);
-            uint32_t ne = ts_node_end_byte(tag_name);
-            if (ne - ns == 8 && memcmp(ctx->source + ns, "template", 8) == 0) {
+            if (strcmp(ts_node_type(child), "template_element") == 0) {
                 walk_template_elements(ctx, child);
                 break;
             }
