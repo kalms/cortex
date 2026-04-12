@@ -51,7 +51,7 @@
   };
 
   // -- Create graph --
-  const Graph = ForceGraph3D()(container)
+  const Graph = window.__cortexGraph = ForceGraph3D()(container)
     .backgroundColor("#000000")
     .graphData(graphData)
     .nodeVal((n) => NODE_SIZES[n.kind] || 4)
