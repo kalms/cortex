@@ -358,4 +358,22 @@
       return srcVis && tgtVis;
     });
   }
+
+  // -- Mobile toolbar toggles --
+  const searchToggle = document.getElementById("search-toggle");
+  const filterToggle = document.getElementById("filter-toggle");
+  const filtersEl = document.getElementById("filters");
+
+  if (searchToggle) {
+    searchToggle.addEventListener("click", () => {
+      searchInput.classList.toggle("show");
+      if (searchInput.classList.contains("show")) searchInput.focus();
+    });
+  }
+
+  if (filterToggle) {
+    filterToggle.addEventListener("click", () => {
+      filtersEl.classList.toggle("show");
+    });
+  }
 })();
