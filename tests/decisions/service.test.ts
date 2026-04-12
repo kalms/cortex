@@ -164,6 +164,9 @@ describe("DecisionService.update", () => {
 
     expect(updated.status).toBe("superseded");
     expect(updated.superseded_by).toBe(d2.id);
+
+    const edges = store.findEdges({ source_id: d2.id, target_id: d1.id, relation: "SUPERSEDES" });
+    expect(edges).toHaveLength(1);
   });
 
   it("updates FTS index on update", () => {
