@@ -103,6 +103,17 @@ export class DecisionService {
 
     this.store.updateDecisionContent(id, newData.title, newData.description, newData.rationale);
 
+    if (input.superseded_by) {
+      const existing = this.store.findEdges({ source_id: input.superseded_by, target_id: id, relation: "SUPERSEDES" });
+      if (existing.length === 0) {
+        this.store.createEdge({
+          source_id: input.superseded_by,
+          target_id: id,
+          relation: "SUPERSEDES",
+        });
+      }
+    }
+
     return nodeToDecision(updatedNode);
   }
 
