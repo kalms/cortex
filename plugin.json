@@ -1,5 +1,15 @@
 {
   "name": "cortex",
-  "description": "Knowledge graph MCP server with decision provenance — code indexing, decision CRUD, full-text search, tier promotion, and graph viewer",
-  "version": "0.1.0"
+  "version": "0.2.0",
+  "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 3D viewer",
+  "author": {
+    "name": "Kalmsy",
+    "url": "https://github.com/kalms"
+  },
+  "repository": "https://github.com/kalms/cortex",
+  "license": "MIT",
+  "keywords": ["mcp", "knowledge-graph", "decisions", "architecture", "code-indexing"],
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }
