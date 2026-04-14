@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cortex": {
+      "command": "npx",
+      "args": ["tsx", "src/index.ts"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}",
+      "env": {
+        "CORTEX_DB_PATH": ".cortex/graph.db"
+      }
+    }
+  }
+}
