@@ -5,3 +5,4 @@ dist/
 .superpowers/
 .playwright-mcp/
 viewer-*.png
+bin/
