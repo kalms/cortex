@@ -15,14 +15,14 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json",
 };
 
-export function startViewerServer(store: GraphStore): Promise<number> {
+export function startViewerServer(store: GraphStore, cbmProject?: string | null): Promise<number> {
   return new Promise((resolve) => {
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
 
       if (url === "/api/graph") {
-        const nodes = store.getAllNodes();
-        const rawEdges = store.getAllEdges();
+        const nodes = store.getAllNodesUnified(cbmProject ?? undefined);
+        const rawEdges = store.getAllEdgesUnified(cbmProject ?? undefined);
         const edges = rawEdges.map((e) => ({
           ...e,
           source: e.source_id,
