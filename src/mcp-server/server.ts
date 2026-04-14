@@ -7,7 +7,7 @@ import { registerDecisionTools } from "./tools/decision-tools.js";
 import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
 
-export function createServer(store: GraphStore): McpServer {
+export function createServer(store: GraphStore, cbmProject: string | null = null): McpServer {
   const server = new McpServer({
     name: "cortex",
     version: "0.1.0",
@@ -19,7 +19,7 @@ export function createServer(store: GraphStore): McpServer {
 
   registerDecisionTools(server, decisionService, decisionSearch);
   registerPromotionTools(server, decisionPromotion);
-  registerCodeTools(server);
+  registerCodeTools(server, store, cbmProject);
 
   return server;
 }
