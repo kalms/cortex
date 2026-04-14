@@ -58,6 +58,25 @@
 - Connector interface stub exists at `src/connectors/types.ts`
 - Deferred until core functionality is solid
 
+### 4. Plugin Packaging & Adoption (high priority)
+
+The read/write loop for decisions needs three things:
+
+**Read path (automatic, ambient):**
+- `PreToolUse` hook on `Edit|Write` — queries `why_was_this_built` for the file being modified, surfaces governing decisions as context. Silent when no decisions exist. Low token cost, high signal.
+- `explain-architecture` skill — on-demand narrative combining `why_was_this_built` + `trace_path` + `search_decisions`
+
+**Write path (guided):**
+- `capture-decision` skill — guided workflow for creating decisions with rationale, alternatives, governed code links
+- `suggest-capture` hook — already wired (PostToolUse on git commit)
+
+**Distribution:**
+- Full `plugin.json` with MCP server, skills, hooks
+- `.mcp.json` template for adopting projects
+- CLAUDE.md snippet for agent awareness
+
+The PreToolUse hook on Edit/Write is the highest-leverage item — it makes decisions ambient without bloating SessionStart context.
+
 ## Key Files
 
 | File | What it does |
