@@ -3,6 +3,9 @@ set -euo pipefail
 
 # install-cbm.sh — Downloads the codebase-memory-mcp binary into Cortex's bin/ directory.
 # Called by npm postinstall. Skips if binary already exists and is executable.
+#
+# For private repos: uses `gh` CLI (authenticated) to download release assets.
+# For public repos: falls back to curl.
 
 BIN_DIR="$(cd "$(dirname "$0")/.." && pwd)/bin"
 DEST="$BIN_DIR/codebase-memory-mcp"
@@ -12,8 +15,7 @@ if [ -x "$DEST" ]; then
   exit 0
 fi
 
-REPO="DeusData/codebase-memory-mcp"
-BASE_URL="https://github.com/${REPO}/releases/latest/download"
+REPO="kalms/cortex"
 
 detect_os() {
   case "$(uname -s)" in
@@ -42,28 +44,24 @@ detect_arch() {
 
 OS=$(detect_os)
 ARCH=$(detect_arch)
+ARCHIVE="codebase-memory-mcp-${OS}-${ARCH}.tar.gz"
 
-if [ "$OS" = "windows" ]; then
-  ARCHIVE="codebase-memory-mcp-${OS}-${ARCH}.zip"
-else
-  ARCHIVE="codebase-memory-mcp-${OS}-${ARCH}.tar.gz"
-fi
-
-URL="${BASE_URL}/${ARCHIVE}"
-
-echo "Downloading codebase-memory-mcp ($OS/$ARCH)..."
+echo "Downloading codebase-memory-mcp ($OS/$ARCH) from ${REPO}..."
 
 DLDIR=$(mktemp -d)
 trap 'rm -rf "$DLDIR"' EXIT
 
-curl -fSL --progress-bar -o "$DLDIR/$ARCHIVE" "$URL"
+# Try gh CLI first (works for private repos)
+if command -v gh &>/dev/null && gh auth status &>/dev/null; then
+  gh release download --repo "$REPO" --pattern "$ARCHIVE" --dir "$DLDIR"
+else
+  # Fall back to curl (public repos only)
+  URL="https://github.com/${REPO}/releases/latest/download/${ARCHIVE}"
+  curl -fSL --progress-bar -o "$DLDIR/$ARCHIVE" "$URL"
+fi
 
 cd "$DLDIR"
-if [ "$OS" = "windows" ]; then
-  unzip -q "$ARCHIVE"
-else
-  tar -xzf "$ARCHIVE"
-fi
+tar -xzf "$ARCHIVE"
 
 if [ ! -f "$DLDIR/codebase-memory-mcp" ]; then
   echo "error: binary not found after extraction" >&2
