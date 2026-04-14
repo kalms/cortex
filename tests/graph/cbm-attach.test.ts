@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { GraphStore } from "../../src/graph/store.js";
 import { searchGraph, getGraphSchema, tracePath, listProjects, indexStatus } from "../../src/graph/cbm-queries.js";
+import { discoverCbmDb } from "../../src/graph/cbm-discovery.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -153,5 +154,23 @@ describe("CBM ATTACH", () => {
     store.attachCbm(cbmPath);
     const status = indexStatus(store, "/nonexistent");
     expect(status).toBeNull();
+  });
+
+  it("discoverCbmDb finds database by root_path match", () => {
+    const cbmPath = createTestCbmDb(tmpDir);
+    const found = discoverCbmDb("/test/repo", tmpDir);
+    expect(found).toBe(cbmPath);
+  });
+
+  it("discoverCbmDb returns null when no match", () => {
+    createTestCbmDb(tmpDir);
+    const found = discoverCbmDb("/nonexistent", tmpDir);
+    expect(found).toBeNull();
+  });
+
+  it("discoverCbmDb uses explicit path if provided", () => {
+    const cbmPath = createTestCbmDb(tmpDir);
+    const found = discoverCbmDb("/whatever", tmpDir, cbmPath);
+    expect(found).toBe(cbmPath);
   });
 });
