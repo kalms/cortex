@@ -173,4 +173,40 @@ describe("CBM ATTACH", () => {
     const found = discoverCbmDb("/whatever", tmpDir, cbmPath);
     expect(found).toBe(cbmPath);
   });
+
+  it("getAllNodesUnified returns nodes from both stores", () => {
+    const cbmPath = createTestCbmDb(tmpDir);
+    store.attachCbm(cbmPath);
+
+    // Create a decision node in Cortex's store
+    store.createNode({ kind: "decision", name: "Use Express", data: { description: "test" } });
+
+    const nodes = store.getAllNodesUnified("test");
+    const cortexNodes = nodes.filter((n) => !n.id.startsWith("cbm-"));
+    const cbmNodes = nodes.filter((n) => n.id.startsWith("cbm-"));
+
+    expect(cortexNodes.length).toBe(1);
+    expect(cortexNodes[0].name).toBe("Use Express");
+    expect(cbmNodes.length).toBe(3); // handleRequest, parseBody, Router
+    expect(cbmNodes[0].kind).toBe("function"); // lowercase mapped
+  });
+
+  it("getAllEdgesUnified returns edges from both stores", () => {
+    const cbmPath = createTestCbmDb(tmpDir);
+    store.attachCbm(cbmPath);
+
+    const edges = store.getAllEdgesUnified("test");
+    const cbmEdges = edges.filter((e) => e.id.startsWith("cbm-"));
+
+    expect(cbmEdges.length).toBe(2); // two CALLS edges
+    expect(cbmEdges[0].source_id.startsWith("cbm-")).toBe(true);
+    expect(cbmEdges[0].relation).toBe("CALLS");
+  });
+
+  it("getAllNodesUnified works without CBM attached", () => {
+    store.createNode({ kind: "decision", name: "Test decision" });
+    const nodes = store.getAllNodesUnified();
+    expect(nodes.length).toBe(1);
+    expect(nodes[0].name).toBe("Test decision");
+  });
 });

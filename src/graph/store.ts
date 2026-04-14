@@ -288,4 +288,66 @@ export class GraphStore {
   queryRaw<T>(sql: string, params: unknown[] = []): T[] {
     return this.db.prepare(sql).all(...params) as T[];
   }
+
+  private static readonly CBM_LABEL_MAP: Record<string, string> = {
+    function: "function",
+    method: "function",
+    class: "component",
+    module: "component",
+    interface: "component",
+    file: "path",
+    package: "path",
+    folder: "path",
+  };
+
+  getAllNodesUnified(cbmProject?: string): NodeRow[] {
+    const cortexNodes = this.getAllNodes();
+
+    if (!this.cbmAttached || !cbmProject) return cortexNodes;
+
+    const cbmNodes = this.db
+      .prepare(
+        `SELECT
+          'cbm-' || CAST(id AS TEXT) AS id,
+          LOWER(label) AS kind,
+          name,
+          qualified_name,
+          file_path,
+          properties AS data,
+          'personal' AS tier,
+          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS created_at,
+          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS updated_at
+        FROM cbm.nodes WHERE project = ?`
+      )
+      .all(cbmProject, cbmProject, cbmProject) as NodeRow[];
+
+    // Apply label-to-kind mapping
+    for (const node of cbmNodes) {
+      const mapped = GraphStore.CBM_LABEL_MAP[node.kind];
+      if (mapped) node.kind = mapped;
+    }
+
+    return [...cortexNodes, ...cbmNodes];
+  }
+
+  getAllEdgesUnified(cbmProject?: string): EdgeRow[] {
+    const cortexEdges = this.getAllEdges();
+
+    if (!this.cbmAttached || !cbmProject) return cortexEdges;
+
+    const cbmEdges = this.db
+      .prepare(
+        `SELECT
+          'cbm-' || CAST(id AS TEXT) AS id,
+          'cbm-' || CAST(source_id AS TEXT) AS source_id,
+          'cbm-' || CAST(target_id AS TEXT) AS target_id,
+          type AS relation,
+          properties AS data,
+          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS created_at
+        FROM cbm.edges WHERE project = ?`
+      )
+      .all(cbmProject, cbmProject) as EdgeRow[];
+
+    return [...cortexEdges, ...cbmEdges];
+  }
 }
