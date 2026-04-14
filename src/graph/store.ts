@@ -32,6 +32,7 @@ export interface EdgeAnnotationRow {
 
 export class GraphStore {
   private db: Database.Database;
+  private cbmAttached = false;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -260,5 +261,27 @@ export class GraphStore {
 
   close(): void {
     this.db.close();
+  }
+
+  isCbmAttached(): boolean {
+    return this.cbmAttached;
+  }
+
+  attachCbm(dbPath: string): void {
+    try {
+      this.db.exec(`ATTACH DATABASE '${dbPath}' AS cbm`);
+      // Verify it has the expected tables
+      const tables = this.db
+        .prepare("SELECT name FROM cbm.sqlite_master WHERE type = 'table'")
+        .all() as Array<{ name: string }>;
+      const tableNames = tables.map((t) => t.name);
+      if (tableNames.includes("nodes") && tableNames.includes("edges") && tableNames.includes("projects")) {
+        this.cbmAttached = true;
+      } else {
+        this.db.exec("DETACH DATABASE cbm");
+      }
+    } catch {
+      this.cbmAttached = false;
+    }
   }
 }
