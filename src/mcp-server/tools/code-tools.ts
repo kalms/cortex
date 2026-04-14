@@ -14,7 +14,13 @@ import {
 } from "../../graph/cbm-queries.js";
 
 const execFileAsync = promisify(execFile);
-const CBM_BINARY = process.env.CBM_BINARY_PATH || "codebase-memory-mcp";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const LOCAL_CBM = join(__dirname, "..", "..", "..", "bin", "codebase-memory-mcp");
+const CBM_BINARY = process.env.CBM_BINARY_PATH || (existsSync(LOCAL_CBM) ? LOCAL_CBM : "codebase-memory-mcp");
 
 async function callCbm(tool: string, args: Record<string, unknown>): Promise<string> {
   try {
