@@ -284,4 +284,8 @@ export class GraphStore {
       this.cbmAttached = false;
     }
   }
+
+  queryRaw<T>(sql: string, params: unknown[] = []): T[] {
+    return this.db.prepare(sql).all(...params) as T[];
+  }
 }
