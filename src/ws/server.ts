@@ -6,6 +6,7 @@ import { ClientRegistry } from './client-registry.js';
 import type { ServerMsg, Event, GraphMutation } from './types.js';
 import type { EventPersister } from '../events/worker/persister.js';
 
+/** Options passed to startWsServer. */
 export interface WsServerOpts {
   httpServer: HttpServer;
   persister: EventPersister;
@@ -13,6 +14,13 @@ export interface WsServerOpts {
   serverVersion: string;
 }
 
+/**
+ * Handle returned by startWsServer.
+ *
+ * `registry` is exposed so the caller can inspect connected clients (e.g.,
+ * for tests). `broadcast` is the primary call-site — main calls this when
+ * the worker posts a broadcast bundle.
+ */
 export interface WsServerHandle {
   registry: ClientRegistry;
   broadcast(bundle: { events: Event[]; mutations: GraphMutation[] }): void;
@@ -41,14 +49,16 @@ export function startWsServer(opts: WsServerOpts): WsServerHandle {
       registry.add(ws);
       ws.on('close', () => registry.remove(ws));
 
-      // Defer hello by 1 ms so the client always receives it in a separate
-      // readable event from the upgrade response. When both endpoints share
-      // the same event loop (test / same-process usage), the ws library
-      // processes the upgrade response and any immediately-following frames
-      // in a single socket.on('readable') callback, so a timer (not just
-      // setImmediate or setTimeout(0)) is needed to guarantee the hello
-      // arrives AFTER the client's `open` handler has run and the caller has
-      // had a chance to register a `message` listener.
+      // 5ms timer is a test-reliability measure, not a production concern.
+      // In same-process usage (tests), the ws lib delivers the upgrade response
+      // and immediately-following frames in the same socket.readable callback.
+      // setImmediate / setTimeout(0) are insufficient — the client's `open`
+      // event fires asynchronously on a loopback socket, and a `message` listener
+      // registered in that handler is sometimes too late to catch a frame sent
+      // synchronously after handleUpgrade. A short timer breaks the ordering and
+      // guarantees hello arrives in a separate I/O cycle after the client has
+      // had time to register its listener.
+      // TODO: investigate a proper fix (possibly a client-side "ready" handshake).
       setTimeout(() => {
         send(ws, {
           type: 'hello',

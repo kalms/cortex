@@ -30,8 +30,15 @@ export function parseGitLogOutput(raw: string): ParsedCommit[] {
 
   for (const line of raw.split('\n')) {
     if (line === '') {
-      if (current) commits.push(current);
-      current = null;
+      // Blank line terminates a commit ONLY if we've started reading files.
+      // Real `git log --format=... --name-status` inserts a blank line between
+      // the NUL-separated header and the name-status lines; skip that one.
+      if (current && current.files.length > 0) {
+        commits.push(current);
+        current = null;
+      }
+      // Otherwise, ignore: either we're between commits (current === null)
+      // or we just read the header and haven't seen files yet.
       continue;
     }
     if (line.includes('\0')) {

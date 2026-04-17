@@ -7,6 +7,7 @@ import type { EventPersister } from './persister.js';
 import { parseGitLogOutput, type ParsedCommit } from './git-log-parser.js';
 import { newUlid } from '../ulid.js';
 
+/** Construction options for GitWatcher. */
 export interface GitWatcherOpts {
   repoPath: string;
   persister: EventPersister;
@@ -96,11 +97,6 @@ export class GitWatcher {
         return;
       }
 
-      // git inserts a blank line between the --format header line and the
-      // --name-status file list. Strip those spurious blanks so parseGitLogOutput
-      // doesn't terminate the commit before seeing the file list.
-      output = stripPostHeaderBlanks(output);
-
       const commits = parseGitLogOutput(output).reverse(); // oldest first for chronological emission
       for (const c of commits) {
         this.opts.emit(this.commitToEvent(c));
@@ -135,22 +131,3 @@ export class GitWatcher {
   }
 }
 
-/**
- * git log --format=... --name-status inserts a blank line between the format
- * header line and the name-status file list. parseGitLogOutput uses blank lines
- * as commit terminators, so those spurious blanks cause files to be lost.
- *
- * This function removes blank lines that immediately follow a NUL-containing
- * header line, normalising the output to the format the parser expects.
- */
-function stripPostHeaderBlanks(raw: string): string {
-  const lines = raw.split('\n');
-  const result: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    result.push(lines[i]);
-    if (lines[i].includes('\0') && i + 1 < lines.length && lines[i + 1] === '') {
-      i++; // skip the blank line after the header
-    }
-  }
-  return result.join('\n');
-}
