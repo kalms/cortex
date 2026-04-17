@@ -76,7 +76,39 @@ function syncSimulation() {
 createWsClient({
   url: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
   onHello: (msg) => console.log('cortex ws hello', msg.project_id, msg.server_version),
-  onEvent: () => { /* stream component (Plan C) consumes these */ },
+  onEvent: (e) => {
+    if (e.kind === 'decision.superseded') {
+      // 3s sequence: pulse each GOVERNS edge of old (staggered), then flip to strike,
+      // then draw SUPERSEDES edge, then new node ring ripple, then new GOVERNS pulses.
+      const oldId = e.payload.old_id;
+      const newId = e.payload.new_id;
+
+      // Pulse governing edges of old, staggered.
+      const oldGoverns = [...state.edges.values()].filter(
+        (edge) => edge.source_id === oldId && edge.relation === 'GOVERNS',
+      );
+      oldGoverns.forEach((edge, i) => {
+        setTimeout(() => {
+          triggerSynapse(anim, {
+            kind: 'pulse',
+            source: edge.source_id,
+            target: edge.target_id,
+            duration: 30,
+          });
+        }, i * 80);
+      });
+
+      // After pulses, the actual `update_node` mutation will flip old.status = 'superseded'
+      // (emitted by the backend) — no extra work here.
+
+      // Ring the new node 1.2s in.
+      setTimeout(() => {
+        if (state.nodes.has(newId)) {
+          triggerSynapse(anim, { kind: 'ring', nodeId: newId, duration: 60 });
+        }
+      }, 1200);
+    }
+  },
   onMutation: (m) => {
     applyMutation(state, m);
     rebuildNeighbors();
