@@ -6,3 +6,4 @@ dist/
 .playwright-mcp/
 viewer-*.png
 bin/
+.worktrees/
