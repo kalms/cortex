@@ -1,4 +1,5 @@
-import { createGraphState, hydrate, edgeKey } from '/viewer/shared/state.js';
+import { createGraphState, hydrate, edgeKey, applyMutation } from '/viewer/shared/state.js';
+import { createWsClient } from '/viewer/shared/websocket.js';
 import { SHAPE_FOR_KIND, drawStrike } from '/viewer/shared/shapes.js';
 import {
   PALETTE_REST,
@@ -59,6 +60,29 @@ function rebuildNeighbors() {
   }
 }
 rebuildNeighbors();
+
+// --- WebSocket live updates ---
+function syncSimulation() {
+  simulation.nodes([...state.nodes.values()]);
+  simulation.force('link').links([...state.edges.values()].map(e => ({
+    source: e.source_id,
+    target: e.target_id,
+    relation: e.relation,
+  })));
+  simulation.alpha(0.3).restart();  // gentle reheat, not 1.0
+}
+
+createWsClient({
+  url: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
+  onHello: (msg) => console.log('cortex ws hello', msg.project_id, msg.server_version),
+  onEvent: () => { /* stream component (Plan C) consumes these */ },
+  onMutation: (m) => {
+    applyMutation(state, m);
+    rebuildNeighbors();
+    syncSimulation();
+  },
+  onBackfill: () => { /* events only (server sends mutations:[]) — for stream */ },
+});
 
 // --- Hover detection ---
 let hoveredId = null;
