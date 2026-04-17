@@ -18,6 +18,7 @@ export interface Decision {
   status: DecisionStatus;
   superseded_by?: string;
   created_by?: string;
+  author?: string;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,7 @@ export interface CreateDecisionInput {
   alternatives?: Alternative[];
   governs?: string[];
   references?: string[];
+  author?: string;
 }
 
 export interface UpdateDecisionInput {
@@ -38,6 +40,7 @@ export interface UpdateDecisionInput {
   alternatives?: Alternative[];
   status?: DecisionStatus;
   superseded_by?: string;
+  reason?: string;
 }
 
 export function nodeToDecision(node: NodeRow): Decision {
@@ -52,6 +55,7 @@ export function nodeToDecision(node: NodeRow): Decision {
     status: data.status ?? "active",
     superseded_by: data.superseded_by,
     created_by: data.created_by,
+    author: data.author ?? 'claude',
     created_at: node.created_at,
     updated_at: node.updated_at,
   };
