@@ -198,6 +198,7 @@ document.querySelectorAll('#filters input').forEach((cb) => {
 });
 
 function isVisible(node) {
+  if (focusSet && !focusSet.has(node.id)) return false;
   if (!activeKinds.has(node.kind)) return false;
   if (searchQuery && !node.name.toLowerCase().includes(searchQuery)) return false;
   return true;
@@ -379,4 +380,53 @@ canvas.addEventListener('click', (ev) => {
   }
   if (best) showDetail(best);
   else closeDetail();
+});
+
+// --- Focus mode ---
+// Double-click a node → restrict visible graph to its 1-hop neighborhood + edges.
+// Esc → clear focus.
+let focusId = null;
+
+function bfsNeighborhood(rootId, depth) {
+  const seen = new Set([rootId]);
+  let frontier = [rootId];
+  for (let d = 0; d < depth; d++) {
+    const next = [];
+    for (const id of frontier) {
+      const neighbors = neighborsOf.get(id) || new Set();
+      for (const n of neighbors) {
+        if (!seen.has(n)) { seen.add(n); next.push(n); }
+      }
+    }
+    frontier = next;
+  }
+  return seen;
+}
+
+let focusSet = null; // Set<id> of visible nodes when in focus mode.
+
+canvas.addEventListener('dblclick', (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left - rect.width / 2;
+  const my = ev.clientY - rect.top  - rect.height / 2;
+  let best = null;
+  let bestDist = Infinity;
+  for (const node of state.nodes.values()) {
+    const dx = (node.x ?? 0) - mx;
+    const dy = (node.y ?? 0) - my;
+    const d = dx * dx + dy * dy;
+    const r = nodeSize(node.kind) + 3;
+    if (d < r * r && d < bestDist) { best = node; bestDist = d; }
+  }
+  if (best) {
+    focusId = best.id;
+    focusSet = bfsNeighborhood(best.id, 1);
+  }
+});
+
+window.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    focusId = null;
+    focusSet = null;
+  }
 });
