@@ -58,6 +58,10 @@ npm run dev
 
 Starts the MCP server (stdio) and the 3D graph viewer at [http://localhost:3333/viewer](http://localhost:3333/viewer).
 
+## Graph UI
+
+Cortex emits structured events for every decision change and git commit, persists them to an append-only SQLite log at `.cortex/events.db`, and broadcasts them + derived graph mutations over a WebSocket at `ws://localhost:3333/ws`. The 2D browser viewer and activity stream (Plans B and C) will consume this stream. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) for the two-thread event pipeline, the WebSocket protocol, and extension recipes.
+
 ## Architecture
 
 ```
