@@ -236,3 +236,56 @@ Stream rendering lives in the viewer (`src/viewer/`). The backend emits events u
 **`tests/integration/ws-server.test.ts`** — starts a real HTTP+WS server on a random port, connects a real `ws` client, and asserts: `hello` on connect; `pong` in response to `ping`; `backfill_page` in response to `backfill`; `error` on malformed message without disconnect.
 
 **`tests/integration/worker.test.ts`** (and related) — covers the full worker message loop: `init` → `event` → `broadcast` round-trip using a real worker thread spawned via the bootstrap.
+
+## 2D viewer
+
+### Entry point
+
+[src/viewer/graph-viewer-2d.js](../../src/viewer/graph-viewer-2d.js) — the single
+entry module served at `/viewer/graph-viewer-2d.js`. It wires all `shared/`
+modules together, opens the WebSocket, and runs the render loop.
+
+### Module layout
+
+| Module | Owns | Pure? |
+|---|---|---|
+| `shared/state.js` | graph state + `applyMutation` | yes |
+| `shared/colors.js` | palette + `lerpRGB` + `rgbString` | yes |
+| `shared/shapes.js` | Canvas 2D shape primitives | yes (over a ctx) |
+| `shared/layout.js` | d3-force config + per-kind/relation tables | yes |
+| `shared/animation.js` | hover + synapse state machine | yes |
+| `shared/websocket.js` | reconnecting WS client | yes (over `WebSocket`) |
+| `graph-viewer-2d.js` | DOM wiring + render loop | no (side-effectful entry) |
+
+Every `shared/` module is unit-tested in Vitest. The entry file is
+hand-verified against the running dev server (canvas rendering and animation
+timing are not testable headlessly in v1).
+
+### Render loop
+
+Per frame (requestAnimationFrame):
+
+1. `simulation.tick()` — d3-force integrates positions
+2. `applyBreathing(t)` — sinusoidal velocity nudge per node
+3. `advance(anim, 1)` — lerp hover + colorMix, age synapses, prune expired
+4. `draw()` — clear, edges, nodes, synapse overlay (ordered for z-behavior)
+
+### Extending the viewer
+
+**Adding a new node kind** — extend `PALETTE_REST`, `PALETTE_HOVER`,
+`SIZE`, `CHARGE`, `SHAPE_FOR_KIND`. Reuse an existing shape or add one to
+`shapes.js`.
+
+**Adding a new mutation op** — extend `state.js::applyMutation`, extend the
+`onMutation` dispatcher in `graph-viewer-2d.js` to trigger any associated
+synapse.
+
+**Adding a new event-driven animation** — handle in `onEvent` callback,
+sequence `triggerSynapse` calls with `setTimeout` for staggered choreography.
+
+### Routes
+
+- `/viewer` — 2D viewer (default).
+- `/viewer/3d` — the original 3D viewer.
+- `/viewer/<asset>` — static asset serving from `src/viewer/`; supports
+  nested paths like `/viewer/shared/state.js` and `/viewer/3d/graph-viewer.js`.
