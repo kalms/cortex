@@ -99,6 +99,11 @@ createWsClient({
     }
   },
   onBackfill: () => { /* events only (server sends mutations:[]) — for stream */ },
+  // KNOWN LIMITATION: if the WS disconnects and mutations are emitted during
+  // the outage, they are not replayed on reconnect. Backfill carries events
+  // only (for the stream); the graph can silently drift from server state.
+  // Fix when >500-mutation drift recovery lands (spec: "client discards
+  // local state and calls GET /api/graph again").
 });
 
 // --- Hover detection ---
