@@ -23,7 +23,10 @@ export function createServer(
     bus ? { bus, project_id: cbmProject ?? "" } : {},
   );
   const decisionSearch = new DecisionSearch(store);
-  const decisionPromotion = new DecisionPromotion(store);
+  const decisionPromotion = new DecisionPromotion(
+    store,
+    bus ? { bus, project_id: cbmProject ?? "" } : {},
+  );
 
   registerDecisionTools(server, decisionService, decisionSearch);
   registerPromotionTools(server, decisionPromotion);
