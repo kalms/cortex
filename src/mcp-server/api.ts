@@ -1,4 +1,9 @@
-import { createServer as createHttpServer, IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer as createHttpServer,
+  IncomingMessage,
+  ServerResponse,
+  Server as HttpServer,
+} from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +20,22 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json",
 };
 
-export function startViewerServer(store: GraphStore, cbmProject?: string | null): Promise<number> {
+/**
+ * Handle returned by {@link startViewerServer}.
+ *
+ * The caller needs the raw `HttpServer` so it can attach additional listeners
+ * (notably the WebSocket server's `upgrade` handler). `port` is `-1` and
+ * `httpServer` is `null` when the requested port was unavailable.
+ */
+export interface ViewerServerHandle {
+  port: number;
+  httpServer: HttpServer | null;
+}
+
+export function startViewerServer(
+  store: GraphStore,
+  cbmProject?: string | null,
+): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
@@ -59,8 +79,13 @@ export function startViewerServer(store: GraphStore, cbmProject?: string | null)
     });
 
     const port = parseInt(process.env.CORTEX_VIEWER_PORT || "3333", 10);
+
+    httpServer.once("error", () => {
+      resolve({ port: -1, httpServer: null });
+    });
+
     httpServer.listen(port, () => {
-      resolve(port);
+      resolve({ port, httpServer });
     });
   });
 }
