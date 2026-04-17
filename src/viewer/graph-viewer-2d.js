@@ -138,9 +138,10 @@ createWsClient({
   // local state and calls GET /api/graph again").
 });
 
-// --- Hover detection ---
-let hoveredId = null;
-canvas.addEventListener('pointermove', (ev) => {
+// --- Hit-test: find the node under a pointer event, or null. ---
+// Single-source the nearest-node search used by hover, click, and dblclick.
+// Radius bias `+3` gives a small forgiving margin around each node's shape.
+function pickNodeAt(ev) {
   const rect = canvas.getBoundingClientRect();
   const mx = ev.clientX - rect.left - rect.width / 2;
   const my = ev.clientY - rect.top  - rect.height / 2;
@@ -153,6 +154,13 @@ canvas.addEventListener('pointermove', (ev) => {
     const r = nodeSize(node.kind) + 3;
     if (d < r * r && d < bestDist) { best = node; bestDist = d; }
   }
+  return best;
+}
+
+// --- Hover detection ---
+let hoveredId = null;
+canvas.addEventListener('pointermove', (ev) => {
+  const best = pickNodeAt(ev);
   if (best && best.id !== hoveredId) {
     hoveredId = best.id;
     const ns = neighborsOf.get(best.id) || new Set();
@@ -366,18 +374,7 @@ function closeDetail() {
 closePanel.addEventListener('click', closeDetail);
 
 canvas.addEventListener('click', (ev) => {
-  const rect = canvas.getBoundingClientRect();
-  const mx = ev.clientX - rect.left - rect.width / 2;
-  const my = ev.clientY - rect.top  - rect.height / 2;
-  let best = null;
-  let bestDist = Infinity;
-  for (const node of state.nodes.values()) {
-    const dx = (node.x ?? 0) - mx;
-    const dy = (node.y ?? 0) - my;
-    const d = dx * dx + dy * dy;
-    const r = nodeSize(node.kind) + 3;
-    if (d < r * r && d < bestDist) { best = node; bestDist = d; }
-  }
+  const best = pickNodeAt(ev);
   if (best) showDetail(best);
   else closeDetail();
 });
@@ -406,18 +403,7 @@ function bfsNeighborhood(rootId, depth) {
 let focusSet = null; // Set<id> of visible nodes when in focus mode.
 
 canvas.addEventListener('dblclick', (ev) => {
-  const rect = canvas.getBoundingClientRect();
-  const mx = ev.clientX - rect.left - rect.width / 2;
-  const my = ev.clientY - rect.top  - rect.height / 2;
-  let best = null;
-  let bestDist = Infinity;
-  for (const node of state.nodes.values()) {
-    const dx = (node.x ?? 0) - mx;
-    const dy = (node.y ?? 0) - my;
-    const d = dx * dx + dy * dy;
-    const r = nodeSize(node.kind) + 3;
-    if (d < r * r && d < bestDist) { best = node; bestDist = d; }
-  }
+  const best = pickNodeAt(ev);
   if (best) {
     focusId = best.id;
     focusSet = bfsNeighborhood(best.id, 1);
