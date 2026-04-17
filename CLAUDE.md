@@ -36,3 +36,7 @@ link_decision({ decision_id: "...", target: "...", relation: "GOVERNS" })
 
 ### Viewer
 The 3D graph viewer runs at http://localhost:3333/viewer when the server is active.
+
+## Architecture docs
+
+When working on the event pipeline, WebSocket server, or graph/stream viewers, read [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) first. It documents the two-thread model, event flow, design rationale, and extension recipes.
