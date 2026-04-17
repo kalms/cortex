@@ -75,6 +75,15 @@ export class GitWatcher {
     }
   }
 
+  /**
+   * Replace the governed-files map used to populate `decision_links` on
+   * new commit events. Called by the worker on `snapshot_update` messages
+   * when the main thread's view of decision → file governance changes.
+   */
+  updateGovernedFiles(map: Map<string, string[]>): void {
+    this.opts.governedFiles = map;
+  }
+
   /** Exposed for tests: scan without waiting for a watcher event. */
   async scan(): Promise<void> {
     if (this.busy) return;

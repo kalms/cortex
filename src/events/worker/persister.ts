@@ -10,13 +10,18 @@ const SCHEMA_PATH = join(__dirname, 'schema.sql');
 /**
  * Opens/creates `events.db` and exposes insert + backfill + meta operations.
  *
- * Owned exclusively by the worker thread. The main thread must NOT open this
- * DB — cross-thread writes on the same WAL are what the two-DB split
- * specifically avoids. If you need to read events from main, proxy through
- * the worker's message port.
+ * Two instances exist in a running process:
+ *   - Writer: owned by the worker thread. Only caller of `insert()` /
+ *     `setMeta()`.
+ *   - Reader: owned by the main thread for WS backfill queries. Only calls
+ *     `backfill()` / `getMeta()`. Read-only use is safe under SQLite WAL
+ *     with concurrent writers.
  *
- * Uses WAL mode so concurrent readers (e.g., future backfill replicas) don't
- * block the writer.
+ * The split keeps the WS server responsive to backfill requests without
+ * blocking on the worker, and avoids serializing every backfill through a
+ * MessagePort round-trip.
+ *
+ * Uses WAL mode so concurrent readers don't block the single writer.
  */
 export class EventPersister {
   private db: Database.Database;
