@@ -16,6 +16,7 @@ import {
   setHover,
   setEdgeHover,
   clearHover,
+  triggerSynapse,
 } from '/viewer/shared/animation.js';
 
 const canvas = document.getElementById('graph');
@@ -80,6 +81,22 @@ createWsClient({
     applyMutation(state, m);
     rebuildNeighbors();
     syncSimulation();
+    switch (m.op) {
+      case 'add_node':
+        triggerSynapse(anim, { kind: 'ring', nodeId: m.node.id, duration: 60 });
+        break;
+      case 'add_edge':
+        triggerSynapse(anim, {
+          kind: 'pulse',
+          edgeKey: edgeKey(m.edge),
+          source: m.edge.source_id,
+          target: m.edge.target_id,
+          duration: 45,
+        });
+        break;
+      // 'remove_node' is instant in v1. A true fade would require deferring
+      // state.nodes.delete() until the synapse expires — acceptable follow-up.
+    }
   },
   onBackfill: () => { /* events only (server sends mutations:[]) — for stream */ },
 });
@@ -178,6 +195,36 @@ function draw() {
     shape(ctx, sx, sy, r, rgbString(rgb, alpha));
     if (node.status === 'superseded') {
       drawStrike(ctx, sx, sy, r, 'rgba(255,255,255,' + (alpha * 0.8) + ')');
+    }
+  }
+  drawSynapses();
+}
+
+function drawSynapses() {
+  for (const s of anim.synapses) {
+    const progress = s.age / s.duration;  // 0→1
+    if (s.kind === 'ring') {
+      const node = state.nodes.get(s.nodeId);
+      if (!node) continue;
+      const [sx, sy] = worldToScreen(node.x || 0, node.y || 0);
+      const r = nodeSize(node.kind) + progress * 22;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(180,160,224,' + (1 - progress) + ')';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else if (s.kind === 'pulse') {
+      const a = state.nodes.get(s.source);
+      const b = state.nodes.get(s.target);
+      if (!a || !b) continue;
+      const [ax, ay] = worldToScreen(a.x || 0, a.y || 0);
+      const [bx, by] = worldToScreen(b.x || 0, b.y || 0);
+      const px = ax + (bx - ax) * progress;
+      const py = ay + (by - ay) * progress;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,' + (1 - progress) + ')';
+      ctx.fill();
     }
   }
 }
