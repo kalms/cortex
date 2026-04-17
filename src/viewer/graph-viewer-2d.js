@@ -1,7 +1,7 @@
 import { createGraphState, hydrate } from '/viewer/shared/state.js';
 import { SHAPE_FOR_KIND } from '/viewer/shared/shapes.js';
 import { PALETTE_REST, rgbString, BACKGROUND } from '/viewer/shared/colors.js';
-import { nodeSize } from '/viewer/shared/layout.js';
+import { nodeSize, createSimulation } from '/viewer/shared/layout.js';
 
 const canvas = document.getElementById('graph');
 const ctx = canvas.getContext('2d');
@@ -21,15 +21,32 @@ window.__cortex_viewer_state = state;  // hook for tests / debugging
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
-// Deterministic pseudo-random layout for static step 1 — replaced by d3-force next task.
-let i = 0;
-for (const node of state.nodes.values()) {
-  const angle = (i * 137.5) * (Math.PI / 180);      // golden-angle spread
-  const radius = 30 + Math.sqrt(i) * 30;
-  node.x = Math.cos(angle) * radius;
-  node.y = Math.sin(angle) * radius;
-  i++;
+const simulation = createSimulation()
+  .nodes([...state.nodes.values()])
+  .on('tick', () => {}); // render loop drives redraw, not d3
+simulation.force('link').links([...state.edges.values()].map(e => ({
+  source: e.source_id,
+  target: e.target_id,
+  relation: e.relation,
+})));
+
+// Ambient breathing: tiny sinusoidal velocity injection so the graph never
+// fully stills. Damping 0.92 keeps it from accelerating.
+function applyBreathing(t) {
+  for (const node of state.nodes.values()) {
+    node.vx = (node.vx || 0) * 0.92 + Math.sin(t * 0.008 + node.x * 0.01) * 0.0015;
+    node.vy = (node.vy || 0) * 0.92 + Math.cos(t * 0.006 + node.y * 0.01) * 0.0015;
+  }
 }
+
+let rafHandle = 0;
+function frame(t) {
+  simulation.tick();
+  applyBreathing(t);
+  draw();
+  rafHandle = requestAnimationFrame(frame);
+}
+rafHandle = requestAnimationFrame(frame);
 
 function worldToScreen(x, y) {
   return [x + canvas.clientWidth / 2, y + canvas.clientHeight / 2];
@@ -62,5 +79,3 @@ function draw() {
     shape(ctx, sx, sy, nodeSize(node.kind), rgbString(color, 1));
   }
 }
-
-draw();
