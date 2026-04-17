@@ -181,6 +181,28 @@ canvas.addEventListener('pointerleave', () => {
   tooltip.classList.remove('show');
 });
 
+// --- Search + filter ---
+let searchQuery = '';
+const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path']);
+
+const searchInput = document.getElementById('search');
+searchInput.addEventListener('input', (ev) => {
+  searchQuery = ev.target.value.toLowerCase();
+});
+
+document.querySelectorAll('#filters input').forEach((cb) => {
+  cb.addEventListener('change', () => {
+    const k = cb.dataset.kind;
+    if (cb.checked) activeKinds.add(k); else activeKinds.delete(k);
+  });
+});
+
+function isVisible(node) {
+  if (!activeKinds.has(node.kind)) return false;
+  if (searchQuery && !node.name.toLowerCase().includes(searchQuery)) return false;
+  return true;
+}
+
 // --- Render ---
 function worldToScreen(x, y) {
   return [x + canvas.clientWidth / 2, y + canvas.clientHeight / 2];
@@ -195,6 +217,7 @@ function draw() {
     const a = state.nodes.get(edge.source_id);
     const b = state.nodes.get(edge.target_id);
     if (!a || !b) continue;
+    if (!isVisible(a) || !isVisible(b)) continue;
     const eKey = edgeKey(edge);
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
@@ -210,6 +233,7 @@ function draw() {
   }
 
   for (const node of state.nodes.values()) {
+    if (!isVisible(node)) continue;
     const shape = SHAPE_FOR_KIND[node.kind] || SHAPE_FOR_KIND.file;
     const base = PALETTE_REST[node.kind] || PALETTE_REST.file;
     const hover = PALETTE_HOVER[node.kind] || PALETTE_HOVER.file;
