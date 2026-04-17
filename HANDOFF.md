@@ -37,7 +37,7 @@
 - **Tests:** 70 passing (7 test files)
 - **TypeScript:** compiles clean
 - **MCP tools:** 18 total (8 decision + 10 code)
-- **Viewer:** http://localhost:3333/viewer (run `npm run dev`)
+- **Viewer:** http://localhost:3334/viewer (run `npm run dev`); MCP plugin uses :3333
 
 ## What's Next
 
@@ -94,7 +94,7 @@ The PreToolUse hook on Edit/Write is the highest-leverage item — it makes deci
 
 ```bash
 cd ~/Development/cortex
-npm run dev          # Starts MCP server + viewer on :3333
+npm run dev          # Starts MCP server + viewer on :3334
 # Or re-seed first:
 rm -f .cortex/graph.db && npx tsx scripts/seed.ts && npm run dev
 ```

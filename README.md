@@ -56,7 +56,7 @@ Or for a built version:
 npm run dev
 ```
 
-Starts the MCP server (stdio) and the 3D graph viewer at [http://localhost:3333/viewer](http://localhost:3333/viewer).
+Starts the MCP server (stdio) and the 3D graph viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer). Port 3333 is reserved for the MCP plugin instance.
 
 ## Graph UI
 
@@ -93,8 +93,8 @@ Cortex emits structured events for every decision change and git commit, persist
          ▼
 ┌─────────────────┐
 │  HTTP Server     │
-│  :3333/api/graph │  ← unified nodes/edges from both stores
-│  :3333/viewer    │  ← 3D WebGL graph
+│  :3333/api/graph │  ← unified nodes/edges (MCP plugin)
+│  :3333/viewer    │  ← 3D WebGL graph (dev: :3334)
 └─────────────────┘
 ```
 
@@ -207,7 +207,7 @@ npx vitest run tests/graph/cbm-attach.test.ts  # Single file
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database |
-| `CORTEX_VIEWER_PORT` | `3333` | HTTP viewer port |
+| `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
 | `CBM_BINARY_PATH` | `codebase-memory-mcp` | Path to CBM binary (for index/detect_changes/delete) |
 | `CBM_DB_PATH` | Auto-discovered | Explicit path to CBM database (skips discovery) |
 

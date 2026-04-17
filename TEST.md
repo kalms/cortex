@@ -5,7 +5,7 @@
 ```bash
 npm install
 npm test                    # 70 unit tests via vitest
-npm run dev                 # Starts MCP server (stdio) + viewer (http://localhost:3333)
+npm run dev                 # Starts MCP server (stdio) + viewer (http://localhost:3334)
 ```
 
 ## Unit Tests
@@ -83,7 +83,7 @@ This opens a web UI where you can browse tools, call them interactively, and ins
 ```bash
 rm -f .cortex/graph.db && npx tsx scripts/seed.ts
 npm run dev
-open http://localhost:3333/viewer
+open http://localhost:3334/viewer
 ```
 
 The viewer shows the full graph — decisions, code entities, and all edges. Click nodes to see detail panels, use search and kind filters, test mobile layout at narrow viewport.
@@ -110,7 +110,7 @@ codebase-memory-mcp cli index_repository '{"path":"'$(pwd)'"}'
 npm run dev
 
 # Check unified node count (should be much higher than seed-only 14)
-curl -s http://localhost:3333/api/graph | python3 -c "
+curl -s http://localhost:3334/api/graph | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 cbm = sum(1 for n in d['nodes'] if str(n['id']).startswith('cbm-'))
@@ -147,7 +147,7 @@ get_graph_schema({})
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database |
-| `CORTEX_VIEWER_PORT` | `3333` | HTTP viewer port |
+| `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
 | `CBM_BINARY_PATH` | `codebase-memory-mcp` | Path to CBM binary (for index/detect_changes/delete) |
 | `CBM_DB_PATH` | Auto-discovered | Explicit path to CBM database (skips discovery) |
 
@@ -165,7 +165,7 @@ Cortex has the building blocks for a Claude Code plugin but isn't packaged as on
 | Plugin manifest | Minimal | `plugin.json` (name + version only) |
 | Skill: search-decisions | Working | `src/skills/search-decisions.md` |
 | Hook: suggest-capture | Working | `src/hooks/suggest-capture.sh` |
-| Viewer | Working | `http://localhost:3333/viewer` |
+| Viewer | Working | `http://localhost:3334/viewer` (dev) |
 
 ### What's Missing for Plugin Distribution
 
