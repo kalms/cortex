@@ -305,3 +305,78 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// --- Detail panel ---
+const detailPanel = document.getElementById('detail-panel');
+const detailContent = document.getElementById('detail-content');
+const closePanel = document.getElementById('close-panel');
+let selectedId = null;
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function field(label, value) {
+  return '<div class="field"><div class="field-label">' + escapeHtml(label) +
+    '</div><div class="field-value">' + value + '</div></div>';
+}
+
+function showDetail(node) {
+  selectedId = node.id;
+  const data = typeof node.data === 'string' ? JSON.parse(node.data) : (node.data || {});
+  let html = '<h2>' + escapeHtml(node.name) + '</h2>';
+  html += field('Kind', escapeHtml(node.kind));
+  if (node.tier)           html += field('Tier', escapeHtml(node.tier));
+  if (node.status)         html += field('Status', escapeHtml(node.status));
+  if (node.qualified_name) html += field('Qualified name', escapeHtml(node.qualified_name));
+  if (node.file_path)      html += field('File', escapeHtml(node.file_path));
+  if (data.rationale)      html += field('Rationale', escapeHtml(data.rationale));
+  if (data.description)    html += field('Description', escapeHtml(data.description));
+
+  const connected = [...state.edges.values()]
+    .filter(e => e.source_id === node.id || e.target_id === node.id)
+    .map(e => {
+      const otherId = e.source_id === node.id ? e.target_id : e.source_id;
+      const dir = e.source_id === node.id ? '→' : '←';
+      const other = state.nodes.get(otherId);
+      const name = other ? other.name : otherId;
+      return '<a href="#" class="connection-link" data-node-id="' + escapeHtml(otherId) +
+        '">' + escapeHtml(dir + ' ' + e.relation + ' ' + name) + '</a>';
+    });
+  if (connected.length) html += field('Connections', connected.join('<br>'));
+
+  html += field('ID', escapeHtml(node.id));
+  detailContent.innerHTML = html;
+  detailPanel.classList.remove('hidden');
+
+  detailContent.querySelectorAll('.connection-link').forEach(link => {
+    link.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const target = state.nodes.get(link.dataset.nodeId);
+      if (target) showDetail(target);
+    });
+  });
+}
+
+function closeDetail() {
+  selectedId = null;
+  detailPanel.classList.add('hidden');
+}
+
+closePanel.addEventListener('click', closeDetail);
+
+canvas.addEventListener('click', (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left - rect.width / 2;
+  const my = ev.clientY - rect.top  - rect.height / 2;
+  let best = null;
+  let bestDist = Infinity;
+  for (const node of state.nodes.values()) {
+    const dx = (node.x ?? 0) - mx;
+    const dy = (node.y ?? 0) - my;
+    const d = dx * dx + dy * dy;
+    const r = nodeSize(node.kind) + 3;
+    if (d < r * r && d < bestDist) { best = node; bestDist = d; }
+  }
+  if (best) showDetail(best);
+  else closeDetail();
+});
