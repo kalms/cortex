@@ -16,6 +16,18 @@
   </script>
 </head>
 <body>
+  <div id="toolbar">
+    <span id="logo">cortex</span>
+    <input type="text" id="search" placeholder="Search nodes...">
+    <div id="filters">
+      <label><input type="checkbox" data-kind="decision" checked> decisions</label>
+      <label><input type="checkbox" data-kind="file" checked> files</label>
+      <label><input type="checkbox" data-kind="function" checked> functions</label>
+      <label><input type="checkbox" data-kind="component" checked> components</label>
+      <label><input type="checkbox" data-kind="reference" checked> references</label>
+      <label><input type="checkbox" data-kind="path" checked> paths</label>
+    </div>
+  </div>
   <canvas id="graph"></canvas>
   <div id="tooltip"></div>
   <script type="module" src="/viewer/graph-viewer-2d.js"></script>
