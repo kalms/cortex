@@ -35,7 +35,7 @@ link_decision({ decision_id: "...", target: "...", relation: "GOVERNS" })
 `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
 
 ### Viewer
-The 3D graph viewer runs at http://localhost:3333/viewer when the server is active.
+The 3D graph viewer runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin.
 
 ## Architecture docs
 
