@@ -12,6 +12,10 @@ import { monotonicFactory } from 'ulid';
  */
 const generate = monotonicFactory();
 
+/**
+ * Returns a new ULID string. Monotonic within the same millisecond.
+ * See module-level comment on `generate` for rationale.
+ */
 export function newUlid(): string {
   return generate();
 }

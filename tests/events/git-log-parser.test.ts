@@ -55,4 +55,22 @@ describe('parseGitLogOutput', () => {
     const commits = parseGitLogOutput(out);
     expect(commits[0].files).toEqual([{ path: 'src/new.ts', status: 'R' }]);
   });
+
+  it('tolerates the blank line real git emits between format header and file list', () => {
+    const out = [
+      `abc1234${NUL}msg${NUL}author${NUL}1700000000`,
+      '',                                    // real git adds this blank line
+      'M\tfile.ts',
+      'A\tother.ts',
+      '',
+      `def5678${NUL}msg2${NUL}author${NUL}1700000001`,
+      '',
+      'A\tnew.ts',
+      '',
+    ].join('\n');
+    const commits = parseGitLogOutput(out);
+    expect(commits).toHaveLength(2);
+    expect(commits[0].files.map(f => f.path)).toEqual(['file.ts', 'other.ts']);
+    expect(commits[1].files.map(f => f.path)).toEqual(['new.ts']);
+  });
 });

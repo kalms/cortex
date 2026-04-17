@@ -1,5 +1,12 @@
 import type { Worker } from 'node:worker_threads';
 
+/**
+ * Configuration for WorkerSupervisor.
+ *
+ * `spawn` is called once on `start()` and again on each restart after a crash.
+ * `onSpawn` is called immediately after each spawn so the caller can (re)send
+ * init messages without caring whether it's the first start or a restart.
+ */
 export interface WorkerSupervisorOpts {
   /** Factory producing a fresh worker. Called on start and on each restart. */
   spawn: () => Worker;
