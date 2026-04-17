@@ -3,42 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cortex</title>
+  <title>Cortex — Graph</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/viewer/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "d3-force": "https://esm.sh/d3-force@3.0.0"
+      }
+    }
+  </script>
 </head>
 <body>
-  <div id="toolbar">
-    <span id="logo">cortex</span>
-    <button id="search-toggle" aria-label="Toggle search">&#x1F50D;</button>
-    <button id="filter-toggle" aria-label="Toggle filters">&#x2699;</button>
-    <input type="text" id="search" placeholder="Search nodes...">
-    <div id="filters">
-      <label><input type="checkbox" data-kind="function" checked> functions</label>
-      <label><input type="checkbox" data-kind="component" checked> components</label>
-      <label><input type="checkbox" data-kind="decision" checked> decisions</label>
-      <label><input type="checkbox" data-kind="path" checked> paths</label>
-      <label><input type="checkbox" data-kind="reference" checked> references</label>
-    </div>
-  </div>
-  <div id="graph-container"></div>
-  <div id="detail-panel" class="hidden">
-    <button id="close-panel">&times;</button>
-    <div id="detail-content"></div>
-  </div>
-  <script type="module">
-    import * as THREE from "https://unpkg.com/three@0.183.2/build/three.module.js";
-    window.THREE = THREE;
-
-    // Load 3d-force-graph UMD (needs window.THREE), then our viewer
-    await new Promise((resolve) => {
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/3d-force-graph@1.80.0/dist/3d-force-graph.min.js";
-      s.onload = resolve;
-      document.head.appendChild(s);
-    });
-    await import("/viewer/graph-viewer.js");
-  </script>
+  <canvas id="graph"></canvas>
+  <script type="module" src="/viewer/graph-viewer-2d.js"></script>
 </body>
 </html>

@@ -57,10 +57,22 @@ export function startViewerServer(
       }
 
       if (url === "/" || url.startsWith("/viewer")) {
-        const filePath =
-          url === "/" || url === "/viewer" || url === "/viewer/"
-            ? join(VIEWER_DIR, "index.html")
-            : join(VIEWER_DIR, url.replace("/viewer/", ""));
+        // Map URL → disk file under VIEWER_DIR.
+        // /            → index.html (2D viewer, the new default)
+        // /viewer      → index.html
+        // /viewer/     → index.html
+        // /viewer/3d   → 3d/index.html
+        // /viewer/3d/  → 3d/index.html
+        // /viewer/<p>  → <p>  (e.g., /viewer/graph-viewer-2d.js, /viewer/shared/state.js, /viewer/style.css, /viewer/3d/graph-viewer.js)
+        let rel: string;
+        if (url === "/" || url === "/viewer" || url === "/viewer/") {
+          rel = "index.html";
+        } else if (url === "/viewer/3d" || url === "/viewer/3d/") {
+          rel = "3d/index.html";
+        } else {
+          rel = url.replace(/^\/viewer\//, "");
+        }
+        const filePath = join(VIEWER_DIR, rel);
 
         try {
           const content = await readFile(filePath);
