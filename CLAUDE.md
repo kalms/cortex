@@ -34,8 +34,9 @@ link_decision({ decision_id: "...", target: "...", relation: "GOVERNS" })
 ### Code tools
 `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
 
-### Viewer
-The 3D graph viewer runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin.
+## Viewer
+
+The 2D graph viewer (default) runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin. The legacy 3D viewer is at `/viewer/3d`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md#2d-viewer) for module layout and extension recipes.
 
 ## Architecture docs
 
