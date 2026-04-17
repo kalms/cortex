@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { mkdirSync } from "node:fs";
 import { Worker } from "node:worker_threads";
-import { GraphStore } from "./graph/store.js";
+import { GraphStore, type NodeRow } from "./graph/store.js";
 import { createServer } from "./mcp-server/server.js";
 import { startViewerServer } from "./mcp-server/api.js";
 import { startWsServer, type WsServerHandle } from "./ws/server.js";
@@ -9,6 +9,7 @@ import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
 import { discoverCbmDb } from "./graph/cbm-discovery.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
+import type { WireNode } from "./events/types.js";
 
 const dbPath = process.env.CORTEX_DB_PATH || ".cortex/graph.db";
 const eventsDbPath = process.env.CORTEX_EVENTS_DB_PATH || ".cortex/events.db";
@@ -42,6 +43,55 @@ const bus = new EventBus();
 
 let wsHandle: WsServerHandle | null = null;
 
+/**
+ * Project NodeRow (SQLite shape with stringified `data`) into the WireNode
+ * shape the worker and wire protocol expect. Lifts `status` out of `data`
+ * so consumers (mutation deriver, viewer) can read it at top level.
+ */
+function toWireNodes(rows: NodeRow[]): WireNode[] {
+  return rows.map((n) => {
+    let parsed: Record<string, unknown> = {};
+    if (n.data) {
+      try {
+        parsed = JSON.parse(n.data) as Record<string, unknown>;
+      } catch {
+        parsed = {};
+      }
+    }
+    return {
+      id: n.id,
+      kind: n.kind,
+      name: n.name,
+      status: typeof parsed.status === "string" ? parsed.status : undefined,
+      data: parsed,
+    };
+  });
+}
+
+/**
+ * Build a map: repo-relative file path → decision ids governing that path.
+ * The GitWatcher uses this to populate `decision_links` on each commit event.
+ * Built from GOVERNS edges; target node's `file_path` (preferred) or `name`
+ * is used as the key.
+ */
+function buildGovernedFilesMap(s: GraphStore): Map<string, string[]> {
+  const edges = s.queryRaw<{ source_id: string; target_id: string }>(
+    "SELECT source_id, target_id FROM edges WHERE relation = 'GOVERNS'",
+  );
+  const nodesById = new Map(s.getAllNodesUnified().map((n) => [n.id, n]));
+  const map = new Map<string, string[]>();
+  for (const e of edges) {
+    const targetNode = nodesById.get(e.target_id);
+    if (!targetNode) continue;
+    const path = targetNode.file_path ?? targetNode.name;
+    if (!path) continue;
+    const list = map.get(path) ?? [];
+    list.push(e.source_id);
+    map.set(path, list);
+  }
+  return map;
+}
+
 // Spawn worker via .mjs bootstrap (see src/events/worker-bootstrap.mjs for
 // why this isn't just a plain `new Worker('./worker.ts')`).
 // The supervisor keeps the worker alive, restarting on crash with exponential
@@ -55,12 +105,15 @@ const supervisor = new WorkerSupervisor({
       if (msg.type === "broadcast" && wsHandle) wsHandle.broadcast(msg.bundle);
       else if (msg.type === "error") process.stderr.write(`[worker] ${msg.message}\n`);
     });
-    const nodes = store.getAllNodesUnified(cbmProject ?? undefined);
+    const wireNodes = toWireNodes(store.getAllNodesUnified(cbmProject ?? undefined));
+    const governedFilesMap = buildGovernedFilesMap(store);
     w.postMessage({
       type: "init",
       events_db_path: eventsDbPath,
       project_id: cbmProject ?? "",
-      nodes,
+      nodes: wireNodes,
+      repo_path: cwd,
+      governed_files: Object.fromEntries(governedFilesMap),
     });
   },
 });
