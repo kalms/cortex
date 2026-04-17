@@ -204,6 +204,7 @@ Stream rendering lives in the viewer (`src/viewer/`). The backend emits events u
 
 ## Deferred / future work
 
+- **`decision.proposed` emitter** — the event kind is declared in the type union and handled by the mutation deriver, but no v1 code path emits it. A "propose a decision" UI flow (Plan B) will add the emitter.
 - **Multi-user / collaboration** — every event already has `actor` + `project_id`. Add `{ type:'subscribe', project_id }` to the protocol; server sends only matching events. No schema migration needed.
 - **Gap detection** — add a gap-detector stage in the worker pipeline between `persister.insert()` and `deriveMutations()`. Emits `gap.detected` events when ULID timestamps show a hole.
 - **Temporal slider** — `events.db` is append-only and ULID-ordered. A time-travel query is `SELECT * FROM events WHERE id <= <ulid-at-time> ORDER BY id`.
@@ -224,7 +225,7 @@ Stream rendering lives in the viewer (`src/viewer/`). The backend emits events u
 
 **`tests/events/persister.test.ts`** — verifies insert, backfill cursor pagination, and getMeta/setMeta against an in-memory SQLite database (`:memory:`). Tests the WAL-mode init and schema apply.
 
-**`tests/events/worker-supervisor.test.ts`** — verifies restart on worker exit, exponential backoff delay, and `stop()` preventing further restarts. Uses a fake `Worker` that emits `exit` on demand.
+**`tests/integration/worker-crash.test.ts`** — verifies restart on worker exit, exponential backoff delay, and `stop()` preventing further restarts. Uses a fake `Worker` that emits `exit` on demand.
 
 **`tests/ws/client-registry.test.ts`** — verifies add/remove/broadcast fan-out, non-OPEN client eviction on send failure, and the closed-without-error evict path. Uses plain objects satisfying `WsLike`.
 
