@@ -19,6 +19,14 @@ import {
   triggerSynapse,
 } from '/viewer/shared/animation.js';
 import { searchMatch } from '/viewer/shared/search.js';
+import {
+  createCamera,
+  worldToScreen as camWorldToScreen,
+  screenToWorld as camScreenToWorld,
+  fitToBounds,
+  zoomAtPoint,
+  lerpCamera,
+} from '/viewer/shared/camera.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
@@ -37,6 +45,11 @@ const state = createGraphState();
 const anim = createAnimState();
 window.__cortex_viewer_state = state;
 window.__cortex_viewer_anim = anim;
+
+let camera = createCamera();
+let targetCamera = null;   // when set, frame() lerps camera toward it
+let hasInitiallyFit = false;
+window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
 
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
@@ -144,15 +157,20 @@ createWsClient({
 // Radius bias `+3` gives a small forgiving margin around each node's shape.
 function pickNodeAt(ev) {
   const rect = canvas.getBoundingClientRect();
-  const mx = ev.clientX - rect.left - rect.width / 2;
-  const my = ev.clientY - rect.top  - rect.height / 2;
+  const [wx, wy] = camScreenToWorld(
+    camera,
+    ev.clientX - rect.left,
+    ev.clientY - rect.top,
+    rect.width,
+    rect.height,
+  );
   let best = null;
   let bestDist = Infinity;
   for (const node of state.nodes.values()) {
-    const dx = (node.x ?? 0) - mx;
-    const dy = (node.y ?? 0) - my;
+    const dx = (node.x ?? 0) - wx;
+    const dy = (node.y ?? 0) - wy;
     const d = dx * dx + dy * dy;
-    const r = nodeSize(node.kind) + 3;
+    const r = (nodeSize(node.kind) + 3) / camera.zoom;
     if (d < r * r && d < bestDist) { best = node; bestDist = d; }
   }
   return best;
@@ -250,33 +268,36 @@ function isVisible(node) {
 }
 
 // --- Render ---
-function worldToScreen(x, y) {
-  return [x + canvas.clientWidth / 2, y + canvas.clientHeight / 2];
+function worldToScreen(wx, wy) {
+  return camWorldToScreen(camera, wx, wy, canvas.clientWidth, canvas.clientHeight);
 }
 
 function draw() {
   ctx.fillStyle = BACKGROUND;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
-  ctx.lineWidth = 0.5;
+  ctx.save();
+  ctx.translate(canvas.clientWidth / 2, canvas.clientHeight / 2);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.translate(-camera.x, -camera.y);
+
+  ctx.lineWidth = 0.5 / camera.zoom;   // keep edges crisp at any zoom
   for (const edge of state.edges.values()) {
     const a = state.nodes.get(edge.source_id);
     const b = state.nodes.get(edge.target_id);
     if (!a || !b) continue;
     if (!isVisible(a) || !isVisible(b)) continue;
-    const edgeBright = !searchQuery || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery));
-    const edgeSearchDim = edgeBright ? 1.0 : 0.15;
     const eKey = edgeKey(edge);
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
     const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * h;
+    const edgeBright = !searchQuery || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery));
+    const edgeSearchDim = edgeBright ? 1.0 : 0.15;
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
-    const [ax, ay] = worldToScreen(a.x ?? 0, a.y ?? 0);
-    const [bx, by] = worldToScreen(b.x ?? 0, b.y ?? 0);
     ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(bx, by);
+    ctx.moveTo(a.x ?? 0, a.y ?? 0);
+    ctx.lineTo(b.x ?? 0, b.y ?? 0);
     ctx.stroke();
   }
 
@@ -286,54 +307,47 @@ function draw() {
     const base = PALETTE_REST[node.kind] || PALETTE_REST.file;
     const hover = PALETTE_HOVER[node.kind] || PALETTE_HOVER.file;
     const nAnim = anim.nodes.get(node.id) || { highlight: 0, colorMix: 0 };
-
     const rgb = lerpRGB(base, hover, nAnim.colorMix);
-
-    // Status: 'proposed' / 'superseded' → 40% base opacity.
     const statusAlpha = node.status === 'proposed' || node.status === 'superseded' ? 0.4 : 1.0;
-    // Hover dims non-highlighted to 50% of base, highlighted nodes to base+0.25.
     const restAlpha  = statusAlpha * 0.5;
     const hoverAlpha = Math.min(1, statusAlpha + 0.25);
-    // If nothing is hovered (noone highlighted), use statusAlpha directly.
     const alpha = hoveredId === null
       ? statusAlpha
       : restAlpha + (hoverAlpha - restAlpha) * nAnim.highlight;
-
     const matches = searchMatch(node, searchQuery);
     const searchDim = searchQuery && !matches ? 0.15 : 1.0;
     const r = nodeSize(node.kind) * (1 + nAnim.highlight * 0.15);
-    const [sx, sy] = worldToScreen(node.x ?? 0, node.y ?? 0);
-    shape(ctx, sx, sy, r, rgbString(rgb, alpha * searchDim));
+    shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
     if (node.status === 'superseded') {
-      drawStrike(ctx, sx, sy, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
+      drawStrike(ctx, node.x ?? 0, node.y ?? 0, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
     }
   }
+
   drawSynapses();
+
+  ctx.restore();
 }
 
 function drawSynapses() {
   for (const s of anim.synapses) {
-    const progress = s.age / s.duration;  // 0→1
+    const progress = s.age / s.duration;
     if (s.kind === 'ring') {
       const node = state.nodes.get(s.nodeId);
       if (!node) continue;
-      const [sx, sy] = worldToScreen(node.x || 0, node.y || 0);
       const r = nodeSize(node.kind) + progress * 22;
       ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(180,160,224,' + (1 - progress) + ')';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1 / camera.zoom;
       ctx.stroke();
     } else if (s.kind === 'pulse') {
       const a = state.nodes.get(s.source);
       const b = state.nodes.get(s.target);
       if (!a || !b) continue;
-      const [ax, ay] = worldToScreen(a.x || 0, a.y || 0);
-      const [bx, by] = worldToScreen(b.x || 0, b.y || 0);
-      const px = ax + (bx - ax) * progress;
-      const py = ay + (by - ay) * progress;
+      const px = (a.x ?? 0) + ((b.x ?? 0) - (a.x ?? 0)) * progress;
+      const py = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * progress;
       ctx.beginPath();
-      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.arc(px, py, 2.5 / camera.zoom, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,255,255,' + (1 - progress) + ')';
       ctx.fill();
     }
@@ -349,6 +363,27 @@ function applyBreathing(t) {
 
 function frame(t) {
   simulation.tick();
+
+  if (!hasInitiallyFit && simulation.alpha() < 0.3) {
+    // Wait for the sim to actually reach roughly equilibrium before framing.
+    // With the Task 1 force tuning, alpha < 0.3 fires at ~tick 50 (≈0.8s at 60fps).
+    const fit = fitToBounds(state.nodes.values(), canvas.clientWidth, canvas.clientHeight, 40);
+    camera = fit;
+    hasInitiallyFit = true;
+  }
+
+  // Smooth camera animation toward a target, if one is set.
+  if (targetCamera) {
+    camera = lerpCamera(camera, targetCamera, 0.15);
+    const dx = targetCamera.x - camera.x;
+    const dy = targetCamera.y - camera.y;
+    const dz = targetCamera.zoom - camera.zoom;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005) {
+      camera = targetCamera;
+      targetCamera = null;
+    }
+  }
+
   applyBreathing(t);
   advance(anim, 1);
   draw();
