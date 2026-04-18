@@ -327,10 +327,6 @@ function isVisible(node) {
 }
 
 // --- Render ---
-function worldToScreen(wx, wy) {
-  return camWorldToScreen(camera, wx, wy, canvas.clientWidth, canvas.clientHeight);
-}
-
 function draw() {
   ctx.fillStyle = BACKGROUND;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
@@ -351,7 +347,11 @@ function draw() {
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
     const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * h;
-    const edgeBright = !searchQuery || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery));
+    // Hover wins locally: an edge attached to the hovered node stays bright
+    // even when search is active and the other endpoint doesn't match.
+    const edgeBright = !searchQuery
+      || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
+      || a.id === hoveredId || b.id === hoveredId;
     const edgeSearchDim = edgeBright ? 1.0 : 0.15;
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     ctx.beginPath();
@@ -373,8 +373,10 @@ function draw() {
     const alpha = hoveredId === null
       ? statusAlpha
       : restAlpha + (hoverAlpha - restAlpha) * nAnim.highlight;
+    // Hover wins locally: the hovered node is never dimmed by search.
     const matches = searchMatch(node, searchQuery);
-    const searchDim = searchQuery && !matches ? 0.15 : 1.0;
+    const isHovered = node.id === hoveredId;
+    const searchDim = searchQuery && !matches && !isHovered ? 0.15 : 1.0;
     const r = nodeSize(node.kind) * (1 + nAnim.highlight * 0.15);
     shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
     if (node.status === 'superseded') {
@@ -413,8 +415,10 @@ function drawLabels() {
 
     if (alpha <= 0) continue;
 
-    // Search dim also applies to labels.
-    if (searchQuery && !searchMatch(node, searchQuery)) alpha *= 0.15;
+    // Search dim also applies to labels, but hover wins (matches node rule).
+    if (searchQuery && !searchMatch(node, searchQuery) && node.id !== hoveredId) {
+      alpha *= 0.15;
+    }
 
     const [sx, sy] = camWorldToScreen(
       camera,
@@ -600,16 +604,19 @@ canvas.addEventListener('dblclick', (ev) => {
 });
 
 window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape') {
-    focusId = null;
-    focusSet = null;
-    targetCamera = fitToBounds(
-      state.nodes.values(),
-      canvas.clientWidth,
-      canvas.clientHeight,
-      40,
-    );
-  }
+  // Esc inside the search input is handled locally (clear + blur) — leave it alone.
+  if (document.activeElement === searchInput) return;
+  if (ev.key !== 'Escape') return;
+  // Only animate the camera if we were actually in focus mode. Otherwise Esc is a no-op.
+  if (!focusSet) return;
+  focusId = null;
+  focusSet = null;
+  targetCamera = fitToBounds(
+    state.nodes.values(),
+    canvas.clientWidth,
+    canvas.clientHeight,
+    40,
+  );
 });
 
 document.getElementById('recenter-btn').addEventListener('click', recenter);
