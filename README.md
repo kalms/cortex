@@ -56,7 +56,7 @@ Or for a built version:
 npm run dev
 ```
 
-Starts the MCP server (stdio) and the 3D graph viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer). Port 3333 is reserved for the MCP plugin instance.
+Starts the MCP server (stdio) and the 2D graph viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer) (the legacy 3D viewer is at `/viewer/3d`). Port 3333 is reserved for the MCP plugin instance.
 
 ## Graph UI
 
@@ -94,11 +94,11 @@ Cortex emits structured events for every decision change and git commit, persist
 ┌─────────────────┐
 │  HTTP Server     │
 │  :3333/api/graph │  ← unified nodes/edges (MCP plugin)
-│  :3333/viewer    │  ← 3D WebGL graph (dev: :3334)
+│  :3333/viewer    │  ← 2D canvas graph (dev: :3334; 3D at /viewer/3d)
 └─────────────────┘
 ```
 
-**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, 3d-force-graph + Three.js (WebGL)
+**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, d3-force + Canvas 2D (viewer), 3d-force-graph + Three.js (legacy 3D viewer)
 
 ## MCP Tools (18)
 
