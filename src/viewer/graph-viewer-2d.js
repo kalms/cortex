@@ -18,6 +18,7 @@ import {
   clearHover,
   triggerSynapse,
 } from '/viewer/shared/animation.js';
+import { searchMatch } from '/viewer/shared/search.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
@@ -194,21 +195,57 @@ let searchQuery = '';
 const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path']);
 
 const searchInput = document.getElementById('search');
+const searchCount = document.getElementById('search-count');
+
+function updateSearchCount() {
+  if (!searchQuery) {
+    searchCount.classList.add('hidden');
+    searchCount.textContent = '';
+    return;
+  }
+  let matches = 0;
+  let total = 0;
+  for (const node of state.nodes.values()) {
+    if (!isVisible(node)) continue;
+    total++;
+    if (searchMatch(node, searchQuery)) matches++;
+  }
+  searchCount.textContent = matches + ' / ' + total;
+  searchCount.classList.remove('hidden');
+}
+
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
+  updateSearchCount();
+});
+
+searchInput.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    searchInput.value = '';
+    searchQuery = '';
+    updateSearchCount();
+    searchInput.blur();
+  }
+});
+
+window.addEventListener('keydown', (ev) => {
+  if (ev.key === '/' && document.activeElement !== searchInput) {
+    ev.preventDefault();
+    searchInput.focus();
+  }
 });
 
 document.querySelectorAll('#filters input').forEach((cb) => {
   cb.addEventListener('change', () => {
     const k = cb.dataset.kind;
     if (cb.checked) activeKinds.add(k); else activeKinds.delete(k);
+    updateSearchCount();
   });
 });
 
 function isVisible(node) {
   if (focusSet && !focusSet.has(node.id)) return false;
   if (!activeKinds.has(node.kind)) return false;
-  if (searchQuery && !node.name.toLowerCase().includes(searchQuery)) return false;
   return true;
 }
 
@@ -227,12 +264,14 @@ function draw() {
     const b = state.nodes.get(edge.target_id);
     if (!a || !b) continue;
     if (!isVisible(a) || !isVisible(b)) continue;
+    const edgeBright = !searchQuery || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery));
+    const edgeSearchDim = edgeBright ? 1.0 : 0.15;
     const eKey = edgeKey(edge);
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
     const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * h;
-    ctx.strokeStyle = 'rgba(255,255,255,' + alpha + ')';
+    ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     const [ax, ay] = worldToScreen(a.x ?? 0, a.y ?? 0);
     const [bx, by] = worldToScreen(b.x ?? 0, b.y ?? 0);
     ctx.beginPath();
@@ -260,11 +299,13 @@ function draw() {
       ? statusAlpha
       : restAlpha + (hoverAlpha - restAlpha) * nAnim.highlight;
 
+    const matches = searchMatch(node, searchQuery);
+    const searchDim = searchQuery && !matches ? 0.15 : 1.0;
     const r = nodeSize(node.kind) * (1 + nAnim.highlight * 0.15);
     const [sx, sy] = worldToScreen(node.x ?? 0, node.y ?? 0);
-    shape(ctx, sx, sy, r, rgbString(rgb, alpha));
+    shape(ctx, sx, sy, r, rgbString(rgb, alpha * searchDim));
     if (node.status === 'superseded') {
-      drawStrike(ctx, sx, sy, r, 'rgba(255,255,255,' + (alpha * 0.8) + ')');
+      drawStrike(ctx, sx, sy, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
     }
   }
   drawSynapses();
