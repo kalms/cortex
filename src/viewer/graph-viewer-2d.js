@@ -51,6 +51,15 @@ let targetCamera = null;   // when set, frame() lerps camera toward it
 let hasInitiallyFit = false;
 window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
 
+function recenter() {
+  targetCamera = fitToBounds(
+    state.nodes.values(),
+    canvas.clientWidth,
+    canvas.clientHeight,
+    40,
+  );
+}
+
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
@@ -541,5 +550,15 @@ window.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     focusId = null;
     focusSet = null;
+  }
+});
+
+document.getElementById('recenter-btn').addEventListener('click', recenter);
+
+window.addEventListener('keydown', (ev) => {
+  if (document.activeElement === searchInput) return;
+  if (ev.key === 'f' || ev.key === 'F' || ev.key === 'r' || ev.key === 'R') {
+    ev.preventDefault();
+    recenter();
   }
 });

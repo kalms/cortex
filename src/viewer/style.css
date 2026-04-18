@@ -274,3 +274,20 @@ body {
 #graph.panning {
   cursor: grabbing;
 }
+
+/* -- Recenter button -- */
+#recenter-btn {
+  background: transparent;
+  border: 1px solid #222;
+  color: #888;
+  font-family: "Geist Mono", monospace;
+  font-size: 14px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1;
+}
+#recenter-btn:hover {
+  color: #ccc;
+  border-color: #444;
+}
