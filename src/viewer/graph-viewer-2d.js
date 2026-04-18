@@ -385,6 +385,51 @@ function draw() {
   drawSynapses();
 
   ctx.restore();
+
+  drawLabels();
+}
+
+function drawLabels() {
+  ctx.save();
+  ctx.font = '11px "Geist Mono", monospace';
+  ctx.textBaseline = 'middle';
+
+  for (const node of state.nodes.values()) {
+    if (!isVisible(node)) continue;
+
+    // Per-kind fade windows.
+    let alpha = 0;
+    if (node.kind === 'decision') {
+      alpha = 1;
+    } else if (node.kind === 'file') {
+      // 0.4 → 0.6 linear
+      const t = (camera.zoom - 0.4) / 0.2;
+      alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    } else {
+      // functions, components, references, paths: 0.9 → 1.1 linear
+      const t = (camera.zoom - 0.9) / 0.2;
+      alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    }
+
+    if (alpha <= 0) continue;
+
+    // Search dim also applies to labels.
+    if (searchQuery && !searchMatch(node, searchQuery)) alpha *= 0.15;
+
+    const [sx, sy] = camWorldToScreen(
+      camera,
+      node.x ?? 0,
+      node.y ?? 0,
+      canvas.clientWidth,
+      canvas.clientHeight,
+    );
+    // Offset label to the right of the node (size scales with on-screen apparent size).
+    const offset = nodeSize(node.kind) * camera.zoom + 4;
+    ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
+    ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
+  }
+
+  ctx.restore();
 }
 
 function drawSynapses() {
