@@ -240,6 +240,17 @@ function endPan(ev) {
 canvas.addEventListener('pointerup', endPan);
 canvas.addEventListener('pointercancel', endPan);
 
+canvas.addEventListener('wheel', (ev) => {
+  if (ev.deltaY === 0) return;
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = ev.clientX - rect.left;
+  const sy = ev.clientY - rect.top;
+  const factor = Math.exp(-ev.deltaY * 0.001);
+  camera = zoomAtPoint(camera, factor, sx, sy, rect.width, rect.height);
+  targetCamera = null;  // user-driven zoom cancels any in-progress animation
+}, { passive: false });
+
 canvas.addEventListener('pointerleave', (ev) => {
   endPan(ev);
   hoveredId = null;
