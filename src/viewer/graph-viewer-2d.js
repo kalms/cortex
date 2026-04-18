@@ -543,6 +543,14 @@ canvas.addEventListener('dblclick', (ev) => {
   if (best) {
     focusId = best.id;
     focusSet = bfsNeighborhood(best.id, 1);
+    // Animate camera to fit the focused subgraph.
+    const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
+    targetCamera = fitToBounds(
+      focusedNodes,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      80,
+    );
   }
 });
 
@@ -550,6 +558,12 @@ window.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     focusId = null;
     focusSet = null;
+    targetCamera = fitToBounds(
+      state.nodes.values(),
+      canvas.clientWidth,
+      canvas.clientHeight,
+      40,
+    );
   }
 });
 
