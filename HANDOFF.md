@@ -1,132 +1,164 @@
-# Cortex — Session Handoff (2026-04-17)
+# Cortex — Session Handoff (2026-04-18)
 
 ## What Was Done This Session
 
-### Plan A — Graph UI Backend (merged + pushed)
+### Plan B — 2D Graph Viewer (merged + pushed)
 
-Shipped the event pipeline, git watcher, and WebSocket server that power the upcoming 2D graph viewer and activity stream. 24 commits merged to main and pushed to `origin/main`.
+Shipped the complete nine-step ladder from the 2026-04-17 spec. 20 commits, then bundled and merged together with the follow-up below.
 
-- **Two-thread pipeline:** main thread runs the MCP server, HTTP server, and WebSocket broadcaster. Worker thread owns `events.db` (separate from `cortex.db`), derives graph mutations from events, and hosts the git watcher.
-- **Event schema:** 7 event kinds (`decision.*` + `commit`), dotted taxonomy for extensibility. ULID primary keys (sortable by time, monotonic within-ms). `events.db` schema at [src/events/worker/schema.sql](src/events/worker/schema.sql).
-- **WebSocket protocol at `/ws`:** `hello` → live `event` + `mutation` messages → client-driven `backfill` for history. Heartbeat via `ping`/`pong`. Full protocol in the spec.
-- **Git watcher:** chokidar on `.git/logs/HEAD`, parses commits with `git log <last>..HEAD --format=%H%x00%s%x00%an%x00%at --name-status`. `decision_links` (files governed by any decision) computed at emission, not render.
-- **Worker supervisor:** auto-restart on crash with exponential backoff (1s → 2s → 4s → cap 30s). Events in-flight during a crash are lost — accepted v1 tradeoff.
-- **DecisionService emits events** after every CRUD operation. Bus is optional — backward compatible with existing callers (tests, scripts).
-- **`author` field added** to decisions (defaults to `'claude'`). `visibility` deferred pending multi-user work.
+- **Six pure shared modules** — `state`, `colors`, `shapes`, `layout`, `animation`, `websocket` — all TDD'd in Vitest, no DOM dependency.
+- **Ladder:** static render → force sim + ambient breathing → hover lerp + tooltip → WebSocket live mutations → synapse animations (ring / pulse) → supersession choreography → search + filter → detail panel → focus mode.
+- **3D viewer moved** to `/viewer/3d`; 2D is the new default at `/viewer`.
+- **Reconnecting WebSocket client** with heartbeat (30s ping), backfill-on-reconnect, event dedupe by ULID.
+- **pickNodeAt refactor** extracted identical hit-test math from three handlers into one helper.
 
-**Tests: 119 passing.** Typecheck clean.
+### Plan B follow-up — Navigation, clustering, search UX (merged + pushed)
+
+Shipped on first-use feedback: the viewer had no way to navigate, the graph settled into a diffuse cloud instead of an Obsidian-style disk, and search hid non-matches (destroying context). 9 more commits.
+
+- **New `shared/camera.js`** — pure camera state + transform math (`createCamera`, `clampZoom`, `worldToScreen`, `screenToWorld`, `fitToBounds`, `zoomAtPoint`, `lerpCamera`). 13 unit tests.
+- **Pan** (drag empty canvas) + **zoom** (wheel / trackpad pinch via `wheel` + `ctrlKey`) + **fit-to-viewport on load** (triggers when `simulation.alpha() < 0.3`).
+- **`F` / `R` key + toolbar button** → smooth recenter via `targetCamera` + per-frame `lerpCamera`.
+- **Pan-to-fit on focus mode** — dblclick animates camera to fit the 1-hop subgraph; `Esc` animates back to full-graph fit. Esc-in-search-input is scoped to local clear+blur only.
+- **Zoom-gated persistent labels** — decisions always; files fade in 0.4→0.6; everything else fades in 0.9→1.1. Screen-space, constant font size.
+- **Force re-tune** for emergent disk: `forceCenter.strength 0.03→0.12`, link distances tightened (GOVERNS 70→45, CALLS 80→55, IMPORTS 100→70, co-changed 200→140), charges eased (decision -300→-220, file -100→-80, etc.). Same visuals, Obsidian-style shape.
+- **Search UX rework** — `isVisible()` keeps only hide-style gates (focus + kind filter); search became a 0.15 dim multiplier on nodes/edges/labels. **Hover wins locally** over dim (the hovered node never dims). New `/` keybinding focuses search; Esc in search clears + blurs. Match count `N / M` indicator.
+
+**Tests: 179 passing across 30 files** (119 backend + 42 Plan B viewer + 18 follow-up). Typecheck clean.
 
 ### Key artifacts
 
 | Artifact | Path |
 |---|---|
-| Spec | [docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md](docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md) |
-| Plan A (done) | [docs/superpowers/plans/2026-04-17-graph-ui-backend.md](docs/superpowers/plans/2026-04-17-graph-ui-backend.md) |
-| Architecture doc | [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) — read this before touching the event pipeline, WS server, or viewer |
-
-### Decisions captured (one)
-
-- **[4924bc84]** Investigate agent onboarding gap — during this session the agent made ~16 load-bearing decisions and captured none of them via `create_decision`, despite CLAUDE.md instructing it to. This is a dogfooding gap, not an agent-specific failure: any capable LLM will behave the same. The fix needs its own brainstorm (hook vs skill vs prompt redesign vs mid-session triggers).
+| Spec — Plan B | [docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md](docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md) |
+| Plan — Plan B | [docs/superpowers/plans/2026-04-17-graph-viewer-2d.md](docs/superpowers/plans/2026-04-17-graph-viewer-2d.md) |
+| Spec — follow-up | [docs/superpowers/specs/2026-04-18-graph-viewer-navigation-and-clustering.md](docs/superpowers/specs/2026-04-18-graph-viewer-navigation-and-clustering.md) |
+| Plan — follow-up | [docs/superpowers/plans/2026-04-18-graph-viewer-navigation-and-clustering.md](docs/superpowers/plans/2026-04-18-graph-viewer-navigation-and-clustering.md) |
+| Architecture doc | [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) — 2D viewer section documents module layout, render loop, extension recipes |
 
 ## Current State
 
-- **Branch:** `main`, synced with `origin/main` (24 commits pushed)
-- **Tests:** 119 passing across 22 files
-- **TypeScript:** compiles clean (`npx tsc --noEmit`)
-- **Dev viewer:** http://localhost:3334/viewer (run `npm run dev`); MCP plugin instance uses :3333
+- **Branch:** `main`, synced with `origin/main` (HEAD at `ba42486 Merge Plan B...`)
+- **Tests:** 179 passing across 30 files
+- **TypeScript:** `npx tsc --noEmit` clean
+- **Dev viewer:** http://localhost:3334/viewer (2D, default); http://localhost:3334/viewer/3d (legacy 3D); MCP plugin instance uses :3333
 - **WebSocket:** `ws://localhost:3334/ws` in dev
-- **New files:** `.cortex/events.db` (created on first run)
+- **Visual verification:** **pending** — the next session should run `npm run dev` and walk the 10-item post-impl checklist at the end of the follow-up plan before building on top of this work.
 
 ## What's Next
 
-### Primary: Plan B — 2D graph viewer (not yet planned)
+### Primary: visual QA of the shipped viewer
 
-The spec describes it; the plan file doesn't exist yet. The next session should:
+Before starting new work, run the post-implementation checklist from the follow-up plan (section: "Post-implementation manual verification"). Key items:
 
-1. **Start from the spec section "2D viewer (browser)"** ([spec link](docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md)) — already covers tech (d3-force + Canvas 2D, no framework), module layout (`src/viewer/graph-viewer-2d.js` + `shared/` dir), visual language (shapes, lerp hover, synapse animations), and a 9-step ladder (static render → force sim → hover → WS wiring → synapse → search → detail panel → focus mode).
-2. **Skip brainstorming** — design is already validated in the approved spec. Go straight to writing-plans.
-3. **Reuse the approved visual language** from the spec: greyscale at rest, per-type hover colors, equal-sided lavender diamond for decisions (r=7–8px), circle for files, dot for functions, pill for components, hex for references, triangle for paths. Option G ghost-fill at 40% base opacity for proposed/superseded.
-4. **Use the shipped backend** — `/api/graph` for initial hydration, `/ws` for live mutations. Protocol types in [src/events/types.ts](src/events/types.ts) (re-exported from [src/ws/types.ts](src/ws/types.ts)).
+- Fit-on-load frames the whole graph with padding
+- Pan drags smoothly; clicking after a drag does NOT open the detail panel
+- Wheel zoom pins the world-point-under-cursor
+- `F` / `R` smoothly recenter with ~300ms lerp
+- Zoom-gated labels fade (not pop)
+- Focus-mode smoothly re-frames; Esc smoothly returns
+- Force tuning: graph should form a visible disk with clusters you can see by eye
+- Search "auth" (or any substring): matched subgraph bright, rest dim; hovering a dimmed node lights it up
 
-**Estimated scope:** ~15 tasks, similar shape to Plan A. Steps 1–5 of the ladder = v1 "good"; steps 6–9 = v1 "complete." Each independently shippable.
+If any step fails, it's either a regression or a tuning call (force params). Address before building on top.
 
-### Secondary: Plan C — Activity stream + graph↔stream sync
+### Secondary: Plan C — activity stream + graph↔stream sync
 
-Not yet planned. Spec covers layout, event rendering, search/filter chips, live streaming behavior, backfill, and graph↔stream click-sync. Build after Plan B stabilizes — they share the same WebSocket connection and some visual primitives.
+Not yet planned. Spec covers layout, event rendering, search/filter chips, live streaming behavior, backfill, graph↔stream click-sync. The backend already emits events; the 2D viewer already consumes mutations from the same WebSocket. Stream is mostly DOM + a new route at `/viewer/stream` — shares the WS connection with the graph.
 
-### Tertiary: Onboarding gap investigation
+Sensible next-session structure: brainstorm → spec → plan → implement, same cadence as Plans A/B.
 
-Decision [4924bc84] is a brainstorm-in-waiting. When it happens, consider:
+### Tertiary: onboarding-gap brainstorm
 
-- Hook-based: post-commit scan of the diff + "any decisions to capture?" prompt
-- Skill-based: a `review-recent-commits` skill that sweeps and suggests
-- Prompt-based: more active SessionStart reminder with concrete examples
-- Mid-session triggers: before merge, when a spec/plan doc is written
+Decision `4924bc84` from Plan A is still a brainstorm-in-waiting. Agents (including me this session and last) consistently ship significant architectural work without capturing decisions via `create_decision`, despite CLAUDE.md instructions. Options to explore: hook-based post-commit prompt, a `review-recent-commits` skill that sweeps and suggests, a more active SessionStart reminder, or mid-session triggers when a plan/spec doc lands.
 
 ## Tech Debt Carried Over (not blockers)
 
-- **`src/ws/server.ts:~52`** — 5ms `setTimeout` before sending `hello` works around a same-process WebSocket frame-ordering quirk on loopback. TODO in the comment. Real fix probably needs a client-sent `ready` handshake.
-- **Bootstrap duplication** — `src/events/worker-bootstrap.mjs` and `tests/integration/worker-bootstrap.mjs` differ by ~15 lines. Acceptable for v1 given tsx + Node 23 + worker_threads headaches; consolidate later.
-- **`tsconfig.json`** doesn't copy `.mjs` to `dist/`. Only matters for `npm run build` + `npm start`; dev mode (`npm run dev`) is unaffected. Add a postbuild step when we start shipping compiled output.
-- **`tests/integration/end-to-end.test.ts`** still passes raw `NodeRow`-shaped objects to `snapshot_update`. Doesn't break any assertions; fix next time that file is touched.
+### Viewer / Plan B area
+
+- **`anim.nodes` grows unbounded.** `setHover()` adds entries but never evicts them on `remove_node`. Over many add/remove cycles, ghost entries accumulate (harmless — their highlight lerps to 0 — but leaky). Fix: call `anim.nodes.delete(id)` from `onMutation`'s `remove_node` branch.
+- **`syncSimulation()` reheats on every mutation including attribute-only `update_node`.** Visible as a light graph twitch when a decision's `status` flips. Short-circuit: `if (m.op !== 'update_node') rebuildNeighbors(); syncSimulation();`.
+- **`seen` Set in `websocket.js` is unbounded.** ~26 MB at 1M events over a very long session. Add an LRU or `seen.size > N ? seen.clear()` guard.
+- **Reconnect drift:** if the WS disconnects and mutations are emitted during the outage, they are not replayed. Inline `KNOWN LIMITATION` comment in `graph-viewer-2d.js`. Real fix is the spec-mentioned `>500 mutation → re-fetch /api/graph` recovery.
+- **Fit-on-load has no tick-count fallback.** A degenerate simulation that never reaches `alpha < 0.3` would leave `hasInitiallyFit = false` forever. Add `|| tickCount > 60` as belt-and-braces.
+- **Dblclick fires click first.** A double-click opens the detail panel AND enters focus mode. The panel shows the focus root — reasonable behavior, but unintentional. Decide UX and add `closeDetail()` in the dblclick handler if it feels wrong.
+- **3D viewer toolbar lacks `file` kind checkbox.** Pre-existing; more visible now that `/viewer/3d` is documented as a persistent alternate entry point.
+- **`graph-viewer-2d.js` is ~630 lines.** Detail-panel block (~100 lines) is the one section that isn't camera/search/hover/render — candidate for extraction to `shared/detail-panel.js` when Plan C lands and the file grows more.
+- **Inconsistent keydown-handler activeElement checks.** Three `window` keydown listeners (`/`, `Escape`, `F/R`) with slightly different guards. A single dispatcher would centralize intent.
+
+### Backend / Plan A area (carried from previous handoff, still open)
+
+- **`src/ws/server.ts:~52`** — 5ms `setTimeout` before `hello` works around a same-process WebSocket frame-ordering quirk. TODO comment in place.
+- **Bootstrap duplication** — `src/events/worker-bootstrap.mjs` and `tests/integration/worker-bootstrap.mjs` differ by ~15 lines.
+- **`tsconfig.json`** doesn't copy `.mjs` to `dist/`. Matters only for `npm run build` + `npm start`; dev mode unaffected.
+- **`tests/integration/end-to-end.test.ts`** still passes raw `NodeRow`-shaped objects to `snapshot_update`.
+
+### Deferred from the follow-up spec (explicit out-of-scope)
+
+- Node drag (d3-force `.drag()` wiring)
+- Minimap
+- Touch / pinch-zoom beyond the `wheel`+`ctrlKey` trackpad path
+- Keyboard shortcuts beyond `F` / `R` / `Esc` / `/`
+- Community detection (Louvain), cluster coloring, spatial separation
+- Temporal slider, gap detection, decision-panel enrichments
 
 ## Quick Start for Next Session
 
 ```bash
 cd ~/Development/cortex
-git pull                          # sanity check
-npm install                       # if deps changed
-npm test                          # should be 119 passing
-npm run dev                       # MCP + viewer + /ws on :3334
+git pull                              # sanity check
+npm install                           # if deps changed
+npm test                              # expect 179 passing
+npx tsc --noEmit                      # expect clean
+npm run dev                           # MCP + 2D viewer + WS on :3334
+open http://localhost:3334/viewer     # the shipped 2D viewer
+open http://localhost:3334/viewer/3d  # legacy 3D still available
 ```
 
-To explore what was built:
+To verify the viewer end-to-end (before building on top):
 
 ```bash
-# Read the design
-open docs/architecture/graph-ui.md
-
-# Verify the event pipeline end-to-end
-# (watch this file + make a dummy commit; observe events.db grow)
-sqlite3 .cortex/events.db "SELECT id, kind, actor FROM events ORDER BY id DESC LIMIT 10;"
-
-# Hit the API
-curl -s http://localhost:3334/api/graph | jq '.nodes | length'
+# Trigger a few mutations to watch synapse animations:
+#   (in another shell — or via Claude Code with MCP tools enabled)
+#   create_decision → new lavender diamond + ring ripple
+#   link_decision   → new GOVERNS edge + pulse particle
+#   supersede_decision → staggered pulses + ring on new node
+#
+# Check navigation: drag to pan, wheel to zoom, F to recenter, dblclick for focus, Esc to return
+# Check search:     press /, type "auth" (or any substring), verify dim + hover-wins behavior
 ```
 
-To kick off Plan B:
+To start Plan C:
 
 ```
-/plan-from-spec docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md sections: "2D viewer (browser)"
+/brainstorm activity stream (Plan C) from the 2026-04-17 spec
 ```
 
-(Or invoke `superpowers:writing-plans` directly — the spec is already approved and committed.)
+Or pick up the onboarding-gap brainstorm instead. Both are outstanding.
 
 ## Key Files (new from this session)
 
 | File | What it does |
-|------|-------------|
-| [src/events/types.ts](src/events/types.ts) | Event + GraphMutation + WS message type unions |
-| [src/events/bus.ts](src/events/bus.ts) | Main-thread event bus (facade for DecisionService) |
-| [src/events/ulid.ts](src/events/ulid.ts) | ULID generator (monotonic within-ms) |
-| [src/events/worker.ts](src/events/worker.ts) | Worker thread entry; composes persister + deriver + watcher |
-| [src/events/worker-bootstrap.mjs](src/events/worker-bootstrap.mjs) | Registers tsx inside the worker (Node + worker_thread quirk) |
-| [src/events/worker-supervisor.ts](src/events/worker-supervisor.ts) | Auto-restart worker with exp backoff |
-| [src/events/worker/persister.ts](src/events/worker/persister.ts) | `events.db` writer + backfill reader |
-| [src/events/worker/mutation-deriver.ts](src/events/worker/mutation-deriver.ts) | Pure function: Event → GraphMutation[] |
-| [src/events/worker/git-log-parser.ts](src/events/worker/git-log-parser.ts) | Pure parser for `git log --format=... --name-status` output |
-| [src/events/worker/git-watcher.ts](src/events/worker/git-watcher.ts) | chokidar + parser; emits `commit` events |
-| [src/ws/server.ts](src/ws/server.ts) | WebSocket server at `/ws` |
-| [src/ws/client-registry.ts](src/ws/client-registry.ts) | Connection set with fan-out broadcast and auto-eviction |
-| [src/ws/protocol.ts](src/ws/protocol.ts) | `encodeServer` / `decodeClient` message codecs |
+|---|---|
+| [src/viewer/shared/state.js](src/viewer/shared/state.js) | Pure graph state + `applyMutation` + `edgeKey` + `hydrate` |
+| [src/viewer/shared/colors.js](src/viewer/shared/colors.js) | `PALETTE_REST`, `PALETTE_HOVER`, `EDGE_ALPHA`, `BACKGROUND`, `lerpRGB`, `rgbString` |
+| [src/viewer/shared/shapes.js](src/viewer/shared/shapes.js) | `drawDiamond/Circle/Hex/Pill/Tri/Strike` + `SHAPE_FOR_KIND` |
+| [src/viewer/shared/layout.js](src/viewer/shared/layout.js) | d3-force config + per-kind/relation tables; `createSimulation` |
+| [src/viewer/shared/animation.js](src/viewer/shared/animation.js) | Hover lerp state + synapse queue + `advance` |
+| [src/viewer/shared/websocket.js](src/viewer/shared/websocket.js) | Reconnecting client + heartbeat + backfill dedupe |
+| [src/viewer/shared/camera.js](src/viewer/shared/camera.js) | Pure camera + transform math (pan/zoom/fit) |
+| [src/viewer/shared/search.js](src/viewer/shared/search.js) | `searchMatch(node, query)` predicate |
+| [src/viewer/graph-viewer-2d.js](src/viewer/graph-viewer-2d.js) | Entry — DOM wiring + render loop + interaction handlers |
+| [src/viewer/3d/](src/viewer/3d/) | Legacy 3D viewer (unchanged, moved from `src/viewer/`) |
 
 ## Key Files (modified this session)
 
 | File | Change |
-|------|--------|
-| [src/decisions/service.ts](src/decisions/service.ts) | Accepts optional bus, emits events on every mutation |
-| [src/decisions/promotion.ts](src/decisions/promotion.ts) | Same treatment — emits `decision.promoted` |
-| [src/decisions/types.ts](src/decisions/types.ts) | Added `author?: string` to Decision + inputs; `reason?: string` to UpdateDecisionInput |
-| [src/mcp-server/api.ts](src/mcp-server/api.ts) | Returns `{ port, httpServer }` so caller can attach WS upgrade handler |
-| [src/mcp-server/server.ts](src/mcp-server/server.ts) | Accepts optional bus, forwards to DecisionService + DecisionPromotion |
-| [src/index.ts](src/index.ts) | Wires EventBus + WorkerSupervisor + WebSocket server + snapshot projection |
+|---|---|
+| [src/mcp-server/api.ts](src/mcp-server/api.ts) | Routing: `/viewer` → 2D; `/viewer/3d` → 3D; `/viewer/<asset>` → static |
+| [src/viewer/index.html](src/viewer/index.html) | Canvas + importmap (d3-force CDN) + toolbar (search + match-count + recenter + filters) + tooltip + detail panel |
+| [src/viewer/style.css](src/viewer/style.css) | 2D canvas, tooltip, search group, recenter button, `.panning` cursor |
+| [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) | Appended "2D viewer" section: module layout, render loop, extension recipes |
+| [CLAUDE.md](CLAUDE.md) | "Viewer" pointer updated for 2D default + 3D alternate |
+| [README.md](README.md) | "3D graph viewer" references updated to reflect new default |
+| [package.json](package.json) | Added `d3-force@^3.0.0` as devDependency (served via CDN in browser) |
