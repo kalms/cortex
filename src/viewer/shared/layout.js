@@ -24,21 +24,21 @@ const SIZE = {
 };
 
 const CHARGE = {
-  decision: -300,
-  file: -100,
-  function: -50,
-  component: -50,
-  reference: -50,
-  path: -30,
+  decision: -220,
+  file: -80,
+  function: -40,
+  component: -40,
+  reference: -40,
+  path: -25,
 };
 
 const LINK_DIST = {
-  GOVERNS: 70,
-  CALLS: 80,
-  IMPORTS: 100,
-  SUPERSEDES: 60,
-  REFERENCES: 100,
-  'co-changed': 200,
+  GOVERNS: 45,
+  CALLS: 55,
+  IMPORTS: 70,
+  SUPERSEDES: 40,
+  REFERENCES: 70,
+  'co-changed': 140,
 };
 
 const LINK_STR = {
@@ -75,7 +75,7 @@ export function createSimulation() {
   return forceSimulation()
     .force('link',   forceLink().id(n => n.id).distance(linkDistance).strength(linkStrength))
     .force('charge', forceManyBody().strength(nodeCharge))
-    .force('center', forceCenter(0, 0).strength(0.03))
+    .force('center', forceCenter(0, 0).strength(0.12))
     .force('collide', forceCollide().radius(n => nodeSize(n.kind) + 4))
     .alpha(1);
 }

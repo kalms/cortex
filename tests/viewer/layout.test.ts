@@ -71,5 +71,11 @@ describe('layout', () => {
       expect(sim.force('collide')).toBeTruthy();
       sim.stop();
     });
+
+    it('center force strength is > 0.05 (pinned — emergent disk requires a real center pull)', () => {
+      const sim = createSimulation();
+      expect(sim.force('center').strength()).toBeGreaterThan(0.05);
+      sim.stop();
+    });
   });
 });
