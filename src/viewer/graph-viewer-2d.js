@@ -178,7 +178,30 @@ function pickNodeAt(ev) {
 
 // --- Hover detection ---
 let hoveredId = null;
+
+// --- Pan state ---
+let isPanning = false;
+let panStart = null;  // { screenX, screenY, cameraX, cameraY }
+let didPan = false;   // suppress click after a drag
+
+canvas.addEventListener('pointerdown', (ev) => {
+  // Only pan if no node is under the cursor (otherwise let click/dblclick through).
+  if (pickNodeAt(ev)) return;
+  isPanning = true;
+  panStart = { screenX: ev.clientX, screenY: ev.clientY, cameraX: camera.x, cameraY: camera.y };
+  canvas.classList.add('panning');
+  canvas.setPointerCapture(ev.pointerId);
+});
+
 canvas.addEventListener('pointermove', (ev) => {
+  if (isPanning && panStart) {
+    const dx = (ev.clientX - panStart.screenX) / camera.zoom;
+    const dy = (ev.clientY - panStart.screenY) / camera.zoom;
+    camera = { ...camera, x: panStart.cameraX - dx, y: panStart.cameraY - dy };
+    targetCamera = null;  // cancel any in-progress lerp — user is driving now
+    didPan = true;
+    return;
+  }
   const best = pickNodeAt(ev);
   if (best && best.id !== hoveredId) {
     hoveredId = best.id;
@@ -202,7 +225,23 @@ canvas.addEventListener('pointermove', (ev) => {
   tooltip.style.top  = (ev.clientY + 14) + 'px';
 });
 
-canvas.addEventListener('pointerleave', () => {
+function endPan(ev) {
+  if (!isPanning) return;
+  isPanning = false;
+  panStart = null;
+  canvas.classList.remove('panning');
+  if (ev && ev.pointerId !== undefined) {
+    try { canvas.releasePointerCapture(ev.pointerId); } catch { /* ignore */ }
+  }
+  // Keep didPan set through the immediately-following click, then clear.
+  setTimeout(() => { didPan = false; }, 0);
+}
+
+canvas.addEventListener('pointerup', endPan);
+canvas.addEventListener('pointercancel', endPan);
+
+canvas.addEventListener('pointerleave', (ev) => {
+  endPan(ev);
   hoveredId = null;
   clearHover(anim);
   tooltip.classList.remove('show');
@@ -450,6 +489,7 @@ function closeDetail() {
 closePanel.addEventListener('click', closeDetail);
 
 canvas.addEventListener('click', (ev) => {
+  if (didPan) return;
   const best = pickNodeAt(ev);
   if (best) showDetail(best);
   else closeDetail();
