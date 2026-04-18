@@ -252,3 +252,25 @@ body {
   white-space: nowrap;
 }
 #tooltip.show { opacity: 1; }
+
+/* -- Search group (input + match count) -- */
+#search-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+#search-count {
+  position: absolute;
+  right: 8px;
+  color: #555;
+  font-size: 10px;
+  font-family: "Geist Mono", monospace;
+  pointer-events: none;
+  user-select: none;
+}
+#search-count.hidden { display: none; }
+
+/* Cursor while panning (Task 5 will add the .panning class) */
+#graph.panning {
+  cursor: grabbing;
+}
