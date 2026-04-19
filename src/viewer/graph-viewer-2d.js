@@ -37,6 +37,7 @@ import {
   advanceTransitions,
   interpolated,
 } from '/viewer/shared/transitions.js';
+import { pathGroupId } from '/viewer/shared/groups.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
@@ -63,7 +64,6 @@ window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
 
 // --- Projection state (must be hoisted above sim setup; inputs are read by reproject). ---
 let projected = null;   // current projection output
-let lastProjectionInputs = null;
 const transitionState = createTransitionState();
 let lastFrameT = 0;
 
@@ -128,7 +128,7 @@ function reproject(reason) {
       const stateNode = state.nodes.get(id) || n;
       let exitPos = { x: n.x ?? 0, y: n.y ?? 0 };
       if (stateNode && stateNode.file_path) {
-        const parentId = `group:path:${dirnameOf(stateNode.file_path)}`;
+        const parentId = pathGroupId(dirnameOf(stateNode.file_path));
         const parent = next.visibleNodes.get(parentId);
         if (parent && parent.x !== undefined) exitPos = { x: parent.x, y: parent.y };
       }
@@ -139,7 +139,6 @@ function reproject(reason) {
 
   const changed = projectionDeltaIsInteresting(projected, next);
   projected = next;
-  lastProjectionInputs = inputs;
   if (changed) {
     simulation.nodes([...projected.visibleNodes.values()]);
     simulation.force('link').links([...projected.visibleEdges.values()].map((e) => ({
@@ -188,7 +187,7 @@ function applyEntryPositions(next, prev) {
     } else {
       const stateNode = state.nodes.get(id);
       if (stateNode && stateNode.file_path) {
-        const parentDirId = `group:path:${dirnameOf(stateNode.file_path)}`;
+        const parentDirId = pathGroupId(dirnameOf(stateNode.file_path));
         const parent = prevVisible.get(parentDirId);
         if (parent && parent.x !== undefined) {
           n.x = parent.x + jitter(); n.y = parent.y + jitter();
@@ -224,7 +223,7 @@ function findAncestorRep(memberId) {
   if (!projected) return null;
   const stateNode = state.nodes.get(memberId);
   if (!stateNode || !stateNode.file_path) return null;
-  const dirId = `group:path:${dirnameOf(stateNode.file_path)}`;
+  const dirId = pathGroupId(dirnameOf(stateNode.file_path));
   return projected.visibleNodes.get(dirId) ?? null;
 }
 
