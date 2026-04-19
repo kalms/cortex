@@ -199,6 +199,16 @@ function bandIndexFor(zoom) {
   return BAND_TABLE.length - 1;
 }
 
+function zoomLevelForBandBelow(bandIndex) {
+  // Return a zoom that lands inside the next closer band.
+  // BAND_TABLE[bandIndex].maxZoom is the upper bound of the current band.
+  // Pick the midpoint of the next band (one step closer).
+  const i = Math.min(BAND_TABLE.length - 1, bandIndex + 1);
+  const prevMax = i > 0 ? BAND_TABLE[i - 1].maxZoom : 0;
+  const currMax = BAND_TABLE[i].maxZoom === Infinity ? 4 : BAND_TABLE[i].maxZoom;
+  return (prevMax + currMax) / 2;
+}
+
 function findAncestorRep(memberId) {
   if (!projected) return null;
   const stateNode = state.nodes.get(memberId);
@@ -747,6 +757,7 @@ function frame(t) {
 
   // Smooth camera animation toward a target, if one is set.
   if (targetCamera) {
+    const prevBand = bandIndexFor(camera.zoom);
     camera = lerpCamera(camera, targetCamera, 0.15);
     const dx = targetCamera.x - camera.x;
     const dy = targetCamera.y - camera.y;
@@ -755,6 +766,7 @@ function frame(t) {
       camera = targetCamera;
       targetCamera = null;
     }
+    if (bandIndexFor(camera.zoom) !== prevBand) reproject('band-cross');
   }
 
   applyBreathing(t);
@@ -852,19 +864,31 @@ function bfsNeighborhood(rootId, depth) {
 
 canvas.addEventListener('dblclick', (ev) => {
   const best = pickNodeAt(ev);
-  if (best) {
-    focusId = best.id;
-    focusSet = bfsNeighborhood(best.id, 1);
-    // Animate camera to fit the focused subgraph.
-    const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
-    targetCamera = fitToBounds(
-      focusedNodes,
-      canvas.clientWidth,
-      canvas.clientHeight,
-      80,
-    );
-    reproject('focus-enter');
+  if (!best) return;
+
+  if (best.kind === 'group') {
+    // Drill: compute a zoom that places this group inside the next closer band
+    // so its children become visible, centered on the group.
+    const targetZoom = zoomLevelForBandBelow(bandIndexFor(camera.zoom));
+    targetCamera = {
+      x: best.x ?? camera.x,
+      y: best.y ?? camera.y,
+      zoom: targetZoom,
+    };
+    return;
   }
+
+  focusId = best.id;
+  focusSet = bfsNeighborhood(best.id, 1);
+  // Animate camera to fit the focused subgraph.
+  const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
+  targetCamera = fitToBounds(
+    focusedNodes,
+    canvas.clientWidth,
+    canvas.clientHeight,
+    80,
+  );
+  reproject('focus-enter');
 });
 
 window.addEventListener('keydown', (ev) => {
