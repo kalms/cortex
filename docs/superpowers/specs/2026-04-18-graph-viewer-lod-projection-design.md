@@ -419,6 +419,8 @@ Additions to existing checklist:
 - **Breadcrumb** for deep focus/drill paths.
 - **Co-change clustering** — groups derived from commit co-occurrence.
 - **Server-side aggregation** — if client-side derivation gets too expensive (>10k nodes), move the group derivation stage into the worker pipeline and emit groups as part of `/api/graph`. The projection interface doesn't change — it just accepts pre-derived groups instead of deriving them.
+- **Edge reclassify transitions** — aggregate ↔ constituent cross-fade on band crossings (spec §5 taxonomy item 3). Shipped feature snaps these changes; pleasant transition deferred as a visual-polish follow-up.
+- **Hull fade + empty-territory dashed halo** — §5's 200ms hull opacity transition and the "decision visible, members all hidden" dashed-halo signal both ship as instant rather than animated in v1.
 
 ## Cross-references
 

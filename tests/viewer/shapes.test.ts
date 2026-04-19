@@ -7,6 +7,7 @@ import {
   drawTri,
   drawStrike,
 } from '../../src/viewer/shared/shapes.js';
+import { drawRoundedRect, drawHull, SHAPE_FOR_KIND } from '../../src/viewer/shared/shapes.js';
 
 function mockCtx() {
   const calls: Array<[string, ...unknown[]]> = [];
@@ -87,5 +88,71 @@ describe('shapes', () => {
     const fillStyleIdx = ctx.calls.findIndex(c => c[0] === 'fillStyle=');
     expect(fillStyleIdx).toBeGreaterThanOrEqual(0);
     expect(fillStyleIdx).toBeLessThan(fillIdx);
+  });
+});
+
+describe('drawRoundedRect', () => {
+  it('draws a filled rect with arcTo corners and fill style', () => {
+    const calls: string[] = [];
+    const ctx: any = {
+      beginPath: () => calls.push('beginPath'),
+      moveTo:    () => calls.push('moveTo'),
+      lineTo:    () => calls.push('lineTo'),
+      arcTo:     () => calls.push('arcTo'),
+      closePath: () => calls.push('closePath'),
+      fill:      () => calls.push('fill'),
+      stroke:    () => calls.push('stroke'),
+      set fillStyle(v) { calls.push(`fill=${v}`); },
+      set strokeStyle(v) { calls.push(`stroke=${v}`); },
+    };
+    drawRoundedRect(ctx, 0, 0, 10, '#abc');
+    expect(calls).toContain('beginPath');
+    expect(calls).toContain('fill=#abc');
+    expect(calls).toContain('fill');
+    expect(calls.filter((c) => c === 'arcTo').length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('drawHull', () => {
+  it('draws a convex hull polygon for 3+ points', () => {
+    const calls: string[] = [];
+    const ctx: any = {
+      beginPath: () => calls.push('beginPath'),
+      moveTo:    () => calls.push('moveTo'),
+      lineTo:    () => calls.push('lineTo'),
+      closePath: () => calls.push('closePath'),
+      fill:      () => calls.push('fill'),
+      stroke:    () => calls.push('stroke'),
+      set fillStyle(v) { calls.push(`fill=${v}`); },
+      set strokeStyle(v) { calls.push(`stroke=${v}`); },
+      set lineWidth(v) {},
+    };
+    const points = [
+      { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 },
+    ];
+    drawHull(ctx, points, 'rgba(100,100,200,0.1)', 'rgba(100,100,200,0.8)');
+    expect(calls).toContain('beginPath');
+    expect(calls).toContain('closePath');
+    expect(calls).toContain('fill');
+    expect(calls).toContain('stroke');
+  });
+
+  it('does nothing for fewer than 3 points', () => {
+    const calls: string[] = [];
+    const ctx: any = {
+      beginPath: () => calls.push('beginPath'),
+      moveTo:    () => calls.push('moveTo'),
+      fill:      () => calls.push('fill'),
+      stroke:    () => calls.push('stroke'),
+      set fillStyle(v) {}, set strokeStyle(v) {}, set lineWidth(v) {},
+    };
+    drawHull(ctx, [{ x: 0, y: 0 }, { x: 1, y: 1 }], '#fff', '#fff');
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('SHAPE_FOR_KIND', () => {
+  it('includes group kind pointing to drawRoundedRect', () => {
+    expect(SHAPE_FOR_KIND.group).toBe(drawRoundedRect);
   });
 });

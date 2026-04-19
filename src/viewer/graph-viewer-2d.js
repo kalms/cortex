@@ -1,6 +1,6 @@
 import { createGraphState, hydrate, edgeKey, applyMutation } from '/viewer/shared/state.js';
 import { createWsClient } from '/viewer/shared/websocket.js';
-import { SHAPE_FOR_KIND, drawStrike } from '/viewer/shared/shapes.js';
+import { SHAPE_FOR_KIND, drawStrike, drawHull } from '/viewer/shared/shapes.js';
 import {
   PALETTE_REST,
   PALETTE_HOVER,
@@ -27,6 +27,17 @@ import {
   zoomAtPoint,
   lerpCamera,
 } from '/viewer/shared/camera.js';
+import { project, projectionDeltaIsInteresting, BAND_TABLE } from '/viewer/shared/projection.js';
+import { sizeAt, edgeStrokeAt } from '/viewer/shared/sizing.js';
+import {
+  createTransitionState,
+  diffProjection,
+  enterTransition,
+  exitTransition,
+  advanceTransitions,
+  interpolated,
+} from '/viewer/shared/transitions.js';
+import { pathGroupId } from '/viewer/shared/groups.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
@@ -51,6 +62,29 @@ let targetCamera = null;   // when set, frame() lerps camera toward it
 let hasInitiallyFit = false;
 window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
 
+// --- Projection state (must be hoisted above sim setup; inputs are read by reproject). ---
+let projected = null;   // current projection output
+const transitionState = createTransitionState();
+let lastFrameT = 0;
+
+// Hoisted inputs to projectionInputs(): these are also mutated by the search/filter
+// handlers and focus mode lower in the file. Originals were declared later; moved
+// up so reproject() can see them.
+const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path',
+                             'variable', 'section', 'type', 'project']);
+let searchQuery = '';
+let focusId = null;
+let focusSet = null;
+
+function projectionInputs() {
+  return {
+    zoom: camera.zoom,
+    focus: focusSet ? { root: focusId, depth: 1 } : null,
+    filters: activeKinds,
+    search: searchQuery,
+  };
+}
+
 function recenter() {
   targetCamera = fitToBounds(
     state.nodes.values(),
@@ -63,14 +97,159 @@ function recenter() {
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
-const simulation = createSimulation()
-  .nodes([...state.nodes.values()])
-  .on('tick', () => {});
-simulation.force('link').links([...state.edges.values()].map(e => ({
-  source: e.source_id,
-  target: e.target_id,
-  relation: e.relation,
-})));
+const simulation = createSimulation().on('tick', () => {});
+
+/**
+ * Run the projection and, if the visible set changed, feed the sim + reheat.
+ * Single choke point for all projection-input changes (filter, search, zoom,
+ * focus, mutation).
+ * @param reason {'mutation'|'filter'|'search'|'band-cross'|'focus-enter'|'focus-exit'}
+ */
+function reproject(reason) {
+  const inputs = projectionInputs();
+  const next = project(state, inputs);
+  const isInitialProjection = projected === null;
+  applyEntryPositions(next, projected);
+
+  if (!isInitialProjection) {
+    const diff = diffProjection(projected, next);
+
+    for (const id of diff.entering) {
+      const n = next.visibleNodes.get(id);
+      if (!n) continue;
+      // Seed transition with the resolved position (set by applyEntryPositions
+      // above) so the node blooms at its landing spot rather than the origin.
+      const spawn = { x: n.x ?? 0, y: n.y ?? 0 };
+      enterTransition(transitionState, id, spawn, 280);
+    }
+
+    for (const id of diff.exiting) {
+      const n = projected?.visibleNodes.get(id);
+      if (!n) continue;
+      const stateNode = state.nodes.get(id) || n;
+      let exitPos = { x: n.x ?? 0, y: n.y ?? 0 };
+      if (stateNode && stateNode.file_path) {
+        const parentId = pathGroupId(dirnameOf(stateNode.file_path));
+        const parent = next.visibleNodes.get(parentId);
+        if (parent && parent.x !== undefined) exitPos = { x: parent.x, y: parent.y };
+      }
+      exitTransition(transitionState, id,
+        { x: n.x ?? 0, y: n.y ?? 0, opacity: 1, scale: 1 }, exitPos, 220);
+    }
+  }
+
+  const changed = projectionDeltaIsInteresting(projected, next);
+  projected = next;
+  if (changed) {
+    simulation.nodes([...projected.visibleNodes.values()]);
+    simulation.force('link').links([...projected.visibleEdges.values()].map((e) => ({
+      source: e.source_id,
+      target: e.target_id,
+      relation: e.relation,
+      aggregate: !!e.aggregate,
+      count: e.count,
+    })));
+    simulation.alpha(alphaFor(reason)).restart();
+  }
+}
+
+/** Per-reason reheat alpha (spec §4). */
+function alphaFor(reason) {
+  switch (reason) {
+    case 'focus-enter':
+    case 'focus-exit': return 0.5;
+    case 'band-cross': return 0.4;
+    case 'mutation':
+    case 'filter':    return 0.3;
+    case 'search':    return 0.2;
+    default:          return 0.3;
+  }
+}
+
+/**
+ * Seed positions for entering nodes so they emerge from their parent's
+ * centroid rather than the origin. Persisting nodes keep their current pos.
+ */
+function applyEntryPositions(next, prev) {
+  const prevVisible = prev ? prev.visibleNodes : new Map();
+  for (const [id, n] of next.visibleNodes) {
+    if (prevVisible.has(id)) {
+      const old = prevVisible.get(id);
+      if (old.x !== undefined) { n.x = old.x; n.y = old.y; n.vx = old.vx; n.vy = old.vy; }
+      continue;
+    }
+    if (n.kind === 'group' && n.members && n.members.length) {
+      let sx = 0, sy = 0, count = 0;
+      for (const m of n.members) {
+        const old = prevVisible.get(m);
+        if (old && old.x !== undefined) { sx += old.x; sy += old.y; count++; }
+      }
+      if (count) { n.x = sx / count + jitter(); n.y = sy / count + jitter(); }
+    } else {
+      const stateNode = state.nodes.get(id);
+      if (stateNode && stateNode.file_path) {
+        const parentDirId = pathGroupId(dirnameOf(stateNode.file_path));
+        const parent = prevVisible.get(parentDirId);
+        if (parent && parent.x !== undefined) {
+          n.x = parent.x + jitter(); n.y = parent.y + jitter();
+        }
+      }
+    }
+  }
+}
+
+function jitter() { return (Math.random() - 0.5) * 8; }
+function dirnameOf(p) {
+  const i = p.lastIndexOf('/');
+  return i > 0 ? p.slice(0, i) : '';
+}
+function bandIndexFor(zoom) {
+  for (let i = 0; i < BAND_TABLE.length; i++) {
+    if (zoom < BAND_TABLE[i].maxZoom) return i;
+  }
+  return BAND_TABLE.length - 1;
+}
+
+function zoomLevelForBandBelow(bandIndex) {
+  // Return a zoom that lands inside the next closer band.
+  // BAND_TABLE[bandIndex].maxZoom is the upper bound of the current band.
+  // Pick the midpoint of the next band (one step closer).
+  const i = Math.min(BAND_TABLE.length - 1, bandIndex + 1);
+  const prevMax = i > 0 ? BAND_TABLE[i - 1].maxZoom : 0;
+  const currMax = BAND_TABLE[i].maxZoom === Infinity ? 4 : BAND_TABLE[i].maxZoom;
+  return (prevMax + currMax) / 2;
+}
+
+function findAncestorRep(memberId) {
+  if (!projected) return null;
+  const stateNode = state.nodes.get(memberId);
+  if (!stateNode || !stateNode.file_path) return null;
+  const dirId = pathGroupId(dirnameOf(stateNode.file_path));
+  return projected.visibleNodes.get(dirId) ?? null;
+}
+
+function findAggregateEdgeNear(wx, wy, threshold) {
+  if (!projected) return null;
+  for (const edge of projected.visibleEdges.values()) {
+    if (!edge.aggregate) continue;
+    const a = projected.visibleNodes.get(edge.source_id);
+    const b = projected.visibleNodes.get(edge.target_id);
+    if (!a || !b) continue;
+    if (distToSegment(wx, wy, a.x, a.y, b.x, b.y) <= threshold) return edge;
+  }
+  return null;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+  const cx = x1 + t * dx, cy = y1 + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+reproject('mutation');
 
 // --- Neighbor index --- rebuild whenever edges change.
 let neighborsOf = new Map();
@@ -86,16 +265,6 @@ function rebuildNeighbors() {
 rebuildNeighbors();
 
 // --- WebSocket live updates ---
-function syncSimulation() {
-  simulation.nodes([...state.nodes.values()]);
-  simulation.force('link').links([...state.edges.values()].map(e => ({
-    source: e.source_id,
-    target: e.target_id,
-    relation: e.relation,
-  })));
-  simulation.alpha(0.3).restart();  // gentle reheat, not 1.0
-}
-
 createWsClient({
   url: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
   onHello: (msg) => console.log('cortex ws hello', msg.project_id, msg.server_version),
@@ -135,7 +304,7 @@ createWsClient({
   onMutation: (m) => {
     applyMutation(state, m);
     rebuildNeighbors();
-    syncSimulation();
+    reproject('mutation');
     switch (m.op) {
       case 'add_node':
         triggerSynapse(anim, { kind: 'ring', nodeId: m.node.id, duration: 60 });
@@ -175,7 +344,7 @@ function pickNodeAt(ev) {
   );
   let best = null;
   let bestDist = Infinity;
-  for (const node of state.nodes.values()) {
+  for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
     const dx = (node.x ?? 0) - wx;
     const dy = (node.y ?? 0) - wy;
     const d = dx * dx + dy * dy;
@@ -230,6 +399,23 @@ canvas.addEventListener('pointermove', (ev) => {
     clearHover(anim);
     tooltip.classList.remove('show');
   }
+  if (!best && projected) {
+    // Check proximity to an aggregate edge.
+    const rect2 = canvas.getBoundingClientRect();
+    const [wx, wy] = camScreenToWorld(
+      camera, ev.clientX - rect2.left, ev.clientY - rect2.top,
+      rect2.width, rect2.height,
+    );
+    const foundEdge = findAggregateEdgeNear(wx, wy, 5 / camera.zoom);
+    if (foundEdge) {
+      const relations = Object.entries(foundEdge.relations || { [foundEdge.relation]: foundEdge.count })
+        .map(([r, n]) => `${n} ${r}`).join(', ');
+      tooltip.textContent = relations;
+      tooltip.classList.add('show');
+    } else if (!hoveredId) {
+      tooltip.classList.remove('show');
+    }
+  }
   tooltip.style.left = (ev.clientX + 14) + 'px';
   tooltip.style.top  = (ev.clientY + 14) + 'px';
 });
@@ -256,8 +442,11 @@ canvas.addEventListener('wheel', (ev) => {
   const sx = ev.clientX - rect.left;
   const sy = ev.clientY - rect.top;
   const factor = Math.exp(-ev.deltaY * 0.001);
+  const prevBand = bandIndexFor(camera.zoom);
   camera = zoomAtPoint(camera, factor, sx, sy, rect.width, rect.height);
   targetCamera = null;  // user-driven zoom cancels any in-progress animation
+  const nextBand = bandIndexFor(camera.zoom);
+  if (prevBand !== nextBand) reproject('band-cross');
 }, { passive: false });
 
 canvas.addEventListener('pointerleave', (ev) => {
@@ -268,8 +457,7 @@ canvas.addEventListener('pointerleave', (ev) => {
 });
 
 // --- Search + filter ---
-let searchQuery = '';
-const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path']);
+// searchQuery, activeKinds are declared near the top of the file (hoisted for reproject).
 
 const searchInput = document.getElementById('search');
 const searchCount = document.getElementById('search-count');
@@ -282,8 +470,7 @@ function updateSearchCount() {
   }
   let matches = 0;
   let total = 0;
-  for (const node of state.nodes.values()) {
-    if (!isVisible(node)) continue;
+  for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
     total++;
     if (searchMatch(node, searchQuery)) matches++;
   }
@@ -291,9 +478,18 @@ function updateSearchCount() {
   searchCount.classList.remove('hidden');
 }
 
+let searchDebounce = null;
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
   updateSearchCount();
+  if (searchDebounce) {
+    clearTimeout(searchDebounce);
+    searchDebounce = null;
+  }
+  searchDebounce = setTimeout(() => {
+    reproject('search');
+    updateSearchCount();
+  }, 200);
 });
 
 searchInput.addEventListener('keydown', (ev) => {
@@ -302,6 +498,12 @@ searchInput.addEventListener('keydown', (ev) => {
     searchQuery = '';
     updateSearchCount();
     searchInput.blur();
+    if (searchDebounce) {
+      clearTimeout(searchDebounce);
+      searchDebounce = null;
+    }
+    reproject('search');
+    updateSearchCount();   // refresh after reproject
   }
 });
 
@@ -317,14 +519,9 @@ document.querySelectorAll('#filters input').forEach((cb) => {
     const k = cb.dataset.kind;
     if (cb.checked) activeKinds.add(k); else activeKinds.delete(k);
     updateSearchCount();
+    reproject('filter');
   });
 });
-
-function isVisible(node) {
-  if (focusSet && !focusSet.has(node.id)) return false;
-  if (!activeKinds.has(node.kind)) return false;
-  return true;
-}
 
 // --- Render ---
 function draw() {
@@ -336,23 +533,62 @@ function draw() {
   ctx.scale(camera.zoom, camera.zoom);
   ctx.translate(-camera.x, -camera.y);
 
-  ctx.lineWidth = 0.5 / camera.zoom;   // keep edges crisp at any zoom
-  for (const edge of state.edges.values()) {
-    const a = state.nodes.get(edge.source_id);
-    const b = state.nodes.get(edge.target_id);
+  // Edge endpoints may be group representatives (not in state.nodes); resolve
+  // from the projection first, fall back to raw state for the initial frame.
+  const visibleNodeLookup = projected?.visibleNodes;
+  const lookupNode = (id) =>
+    (visibleNodeLookup && visibleNodeLookup.get(id)) || state.nodes.get(id);
+
+  // --- Territory hulls (drawn behind edges + nodes) ---
+  if (projected && projected.groups) {
+    for (const g of projected.groups) {
+      if (g.kind !== 'territory') continue;
+      const decisionNode = projected.visibleNodes.get(g.decisionId);
+      if (!decisionNode) continue;
+      const points = [];
+      for (const m of g.members) {
+        const vis = projected.visibleNodes.get(m);
+        if (vis && vis.x !== undefined) { points.push({ x: vis.x, y: vis.y }); continue; }
+        // Member folded into a supernode — include the supernode's position instead.
+        const anc = findAncestorRep(m);
+        if (anc && anc.x !== undefined) points.push({ x: anc.x, y: anc.y });
+      }
+      // Always include the decision itself in the hull.
+      if (decisionNode.x !== undefined) points.push({ x: decisionNode.x, y: decisionNode.y });
+      if (points.length < 3) continue;
+      const basePalette = PALETTE_REST[decisionNode.kind] || PALETTE_REST.decision || [160, 140, 200];
+      const hoverPalette = PALETTE_HOVER[decisionNode.kind] || PALETTE_HOVER.decision || [200, 180, 240];
+      drawHull(ctx, points,
+        rgbString(basePalette, 0.08),
+        rgbString(hoverPalette, 0.35));
+    }
+  }
+
+  for (const edge of (projected?.visibleEdges.values() ?? state.edges.values())) {
+    const a = lookupNode(edge.source_id);
+    const b = lookupNode(edge.target_id);
     if (!a || !b) continue;
-    if (!isVisible(a) || !isVisible(b)) continue;
-    const eKey = edgeKey(edge);
+
+    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
-    const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * h;
-    // Hover wins locally: an edge attached to the hovered node stays bright
-    // even when search is active and the other endpoint doesn't match.
+    const isSelectedEdge =
+      selectedId !== null && (edge.source_id === selectedId || edge.target_id === selectedId);
+    const selectionBoost = isSelectedEdge ? 1.0 : 0;
+    const effectiveHighlight = Math.max(h, selectionBoost);
+    const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * effectiveHighlight;
+
     const edgeBright = !searchQuery
       || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
-      || a.id === hoveredId || b.id === hoveredId;
+      || a.id === hoveredId || b.id === hoveredId
+      || isSelectedEdge;
     const edgeSearchDim = edgeBright ? 1.0 : 0.15;
+
+    // Aggregate edges get thicker stroke proportional to log2(count).
+    const aggregateBoost = edge.aggregate ? (1 + Math.log2(Math.max(1, edge.count))) : 1;
+    ctx.lineWidth = edgeStrokeAt(edge.relation, camera.zoom) * aggregateBoost;
+
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     ctx.beginPath();
     ctx.moveTo(a.x ?? 0, a.y ?? 0);
@@ -360,27 +596,89 @@ function draw() {
     ctx.stroke();
   }
 
-  for (const node of state.nodes.values()) {
-    if (!isVisible(node)) continue;
+  // Iterate over both currently-visible nodes AND those still exiting
+  // (exiting nodes are no longer in projected.visibleNodes but must draw until
+  // their transition expires).
+  const visibleMap = projected?.visibleNodes ?? new Map();
+  const exitingIds = new Set(
+    [...transitionState.transitions.entries()]
+      .filter(([, tr]) => tr.phase === 'exiting')
+      .map(([id]) => id),
+  );
+  const idsToRender = new Set([...visibleMap.keys(), ...exitingIds]);
+  for (const id of idsToRender) {
+    const node = visibleMap.get(id) || state.nodes.get(id);
+    if (!node) continue;
+
     const shape = SHAPE_FOR_KIND[node.kind] || SHAPE_FOR_KIND.file;
-    const base = PALETTE_REST[node.kind] || PALETTE_REST.file;
-    const hover = PALETTE_HOVER[node.kind] || PALETTE_HOVER.file;
+    const base = node.kind === 'group'
+      ? [108, 116, 132]
+      : (PALETTE_REST[node.kind] || PALETTE_REST.file);
+    const hover = node.kind === 'group'
+      ? [168, 176, 192]
+      : (PALETTE_HOVER[node.kind] || PALETTE_HOVER.file);
     const nAnim = anim.nodes.get(node.id) || { highlight: 0, colorMix: 0 };
-    const rgb = lerpRGB(base, hover, nAnim.colorMix);
+    const isSelected = node.id === selectedId;
+    const isSelectionNeighbor = selectedId !== null && (neighborsOf.get(selectedId) || new Set()).has(node.id);
+    const selectionLevel = isSelected ? 1.0 : (isSelectionNeighbor ? 0.6 : 0);
+    const combinedHighlight = Math.max(nAnim.highlight, selectionLevel);
+    const rgb = lerpRGB(base, hover, Math.max(nAnim.colorMix, selectionLevel));
     const statusAlpha = node.status === 'proposed' || node.status === 'superseded' ? 0.4 : 1.0;
     const restAlpha  = statusAlpha * 0.5;
     const hoverAlpha = Math.min(1, statusAlpha + 0.25);
-    const alpha = hoveredId === null
+    const alpha = hoveredId === null && !isSelected && !isSelectionNeighbor
       ? statusAlpha
-      : restAlpha + (hoverAlpha - restAlpha) * nAnim.highlight;
+      : restAlpha + (hoverAlpha - restAlpha) * combinedHighlight;
     // Hover wins locally: the hovered node is never dimmed by search.
     const matches = searchMatch(node, searchQuery);
     const isHovered = node.id === hoveredId;
-    const searchDim = searchQuery && !matches && !isHovered ? 0.15 : 1.0;
-    const r = nodeSize(node.kind) * (1 + nAnim.highlight * 0.15);
-    shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
+    const searchDim = searchQuery && !matches && !isHovered && !isSelected && !isSelectionNeighbor ? 0.15 : 1.0;
+
+    // Rendered radius: group uses physics-size (world=8 * log factor), else use
+    // sizeAt for apparent-size clamping.
+    const r = node.kind === 'group'
+      ? (nodeSize(node) + combinedHighlight * 1.5)
+      : sizeAt(node.kind, camera.zoom) * (1 + combinedHighlight * 0.15);
+
+    // Apply transition opacity/scale/position if present.
+    const trans = transitionState.transitions.get(node.id);
+    let tOpacity = 1, tScale = 1;
+    if (trans) {
+      const v = interpolated(trans);
+      tOpacity = v.opacity;
+      tScale = v.scale;
+      // For entering/exiting, override the sim's position with the interpolated one.
+      node.x = v.x;
+      node.y = v.y;
+    }
+
+    const finalAlpha = alpha * searchDim * tOpacity;
+    const finalR = r * tScale;
+    shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
+
+    if (isSelected) {
+      ctx.beginPath();
+      const ringR = finalR + 2;
+      const cx = node.x ?? 0;
+      const cy = node.y ?? 0;
+      if (node.kind === 'group') {
+        ctx.rect(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+      } else if (node.kind === 'decision' || node.kind === 'project') {
+        // Diamond outline
+        ctx.moveTo(cx,           cy - ringR);
+        ctx.lineTo(cx + ringR,   cy);
+        ctx.lineTo(cx,           cy + ringR);
+        ctx.lineTo(cx - ringR,   cy);
+        ctx.closePath();
+      } else {
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      }
+      ctx.strokeStyle = rgbString(hover, 0.9);
+      ctx.lineWidth = 1 / camera.zoom;
+      ctx.stroke();
+    }
     if (node.status === 'superseded') {
-      drawStrike(ctx, node.x ?? 0, node.y ?? 0, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
+      drawStrike(ctx, node.x ?? 0, node.y ?? 0, finalR, 'rgba(255,255,255,' + (alpha * searchDim * tOpacity * 0.8) + ')');
     }
   }
 
@@ -396,9 +694,7 @@ function drawLabels() {
   ctx.font = '11px "Geist Mono", monospace';
   ctx.textBaseline = 'middle';
 
-  for (const node of state.nodes.values()) {
-    if (!isVisible(node)) continue;
-
+  for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
     // Per-kind fade windows.
     let alpha = 0;
     if (node.kind === 'decision') {
@@ -412,6 +708,8 @@ function drawLabels() {
       const t = (camera.zoom - 0.9) / 0.2;
       alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
     }
+
+    if (node.kind === 'group') alpha = 1;   // groups are always labeled
 
     if (alpha <= 0) continue;
 
@@ -431,6 +729,13 @@ function drawLabels() {
     const offset = nodeSize(node.kind) * camera.zoom + 4;
     ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
     ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
+
+    if (node.kind === 'group' && node.memberCount && node.memberCount > 1) {
+      const countText = ' · ' + node.memberCount;
+      ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
+      const nameW = ctx.measureText(String(node.name || '')).width;
+      ctx.fillText(countText, sx + offset + nameW, sy + 3);
+    }
   }
 
   ctx.restore();
@@ -472,24 +777,38 @@ function applyBreathing(t) {
 function frame(t) {
   simulation.tick();
 
+  const dt = lastFrameT ? t - lastFrameT : 16;
+  lastFrameT = t;
+  advanceTransitions(transitionState, dt);
+
   if (!hasInitiallyFit && simulation.alpha() < 0.3) {
     // Wait for the sim to actually reach roughly equilibrium before framing.
     // With the Task 1 force tuning, alpha < 0.3 fires at ~tick 50 (≈0.8s at 60fps).
     const fit = fitToBounds(state.nodes.values(), canvas.clientWidth, canvas.clientHeight, 40);
+    const prevBand = bandIndexFor(camera.zoom);
     camera = fit;
     hasInitiallyFit = true;
+    if (bandIndexFor(camera.zoom) !== prevBand) reproject('band-cross');
   }
 
   // Smooth camera animation toward a target, if one is set.
   if (targetCamera) {
+    const prevBand = bandIndexFor(camera.zoom);
     camera = lerpCamera(camera, targetCamera, 0.15);
     const dx = targetCamera.x - camera.x;
     const dy = targetCamera.y - camera.y;
     const dz = targetCamera.zoom - camera.zoom;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005) {
+    const converged = Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005;
+    if (converged) {
       camera = targetCamera;
       targetCamera = null;
     }
+    const nextBand = bandIndexFor(camera.zoom);
+    // Reproject on any per-frame band cross, AND unconditionally on lerp
+    // convergence — catches cases where multiple bands were crossed in a
+    // single lerp step (the per-frame check only sees the first/last band
+    // and can miss the intermediate ones).
+    if (nextBand !== prevBand || converged) reproject('band-cross');
   }
 
   applyBreathing(t);
@@ -567,7 +886,7 @@ canvas.addEventListener('click', (ev) => {
 // --- Focus mode ---
 // Double-click a node → restrict visible graph to its 1-hop neighborhood + edges.
 // Esc → clear focus.
-let focusId = null;
+// focusId, focusSet are declared near the top of the file (hoisted for reproject).
 
 function bfsNeighborhood(rootId, depth) {
   const seen = new Set([rootId]);
@@ -585,22 +904,33 @@ function bfsNeighborhood(rootId, depth) {
   return seen;
 }
 
-let focusSet = null; // Set<id> of visible nodes when in focus mode.
-
 canvas.addEventListener('dblclick', (ev) => {
   const best = pickNodeAt(ev);
-  if (best) {
-    focusId = best.id;
-    focusSet = bfsNeighborhood(best.id, 1);
-    // Animate camera to fit the focused subgraph.
-    const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
-    targetCamera = fitToBounds(
-      focusedNodes,
-      canvas.clientWidth,
-      canvas.clientHeight,
-      80,
-    );
+  if (!best) return;
+
+  if (best.kind === 'group') {
+    // Drill: compute a zoom that places this group inside the next closer band
+    // so its children become visible, centered on the group.
+    const targetZoom = zoomLevelForBandBelow(bandIndexFor(camera.zoom));
+    targetCamera = {
+      x: best.x ?? camera.x,
+      y: best.y ?? camera.y,
+      zoom: targetZoom,
+    };
+    return;
   }
+
+  focusId = best.id;
+  focusSet = bfsNeighborhood(best.id, 1);
+  // Animate camera to fit the focused subgraph.
+  const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
+  targetCamera = fitToBounds(
+    focusedNodes,
+    canvas.clientWidth,
+    canvas.clientHeight,
+    80,
+  );
+  reproject('focus-enter');
 });
 
 window.addEventListener('keydown', (ev) => {
@@ -617,6 +947,7 @@ window.addEventListener('keydown', (ev) => {
     canvas.clientHeight,
     40,
   );
+  reproject('focus-exit');
 });
 
 document.getElementById('recenter-btn').addEventListener('click', recenter);
