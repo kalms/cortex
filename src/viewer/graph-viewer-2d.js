@@ -27,7 +27,7 @@ import {
   zoomAtPoint,
   lerpCamera,
 } from '/viewer/shared/camera.js';
-import { project, projectionDeltaIsInteresting } from '/viewer/shared/projection.js';
+import { project, projectionDeltaIsInteresting, BAND_TABLE } from '/viewer/shared/projection.js';
 import { sizeAt, edgeStrokeAt } from '/viewer/shared/sizing.js';
 
 const canvas = document.getElementById('graph');
@@ -152,6 +152,12 @@ function jitter() { return (Math.random() - 0.5) * 8; }
 function dirnameOf(p) {
   const i = p.lastIndexOf('/');
   return i > 0 ? p.slice(0, i) : '';
+}
+function bandIndexFor(zoom) {
+  for (let i = 0; i < BAND_TABLE.length; i++) {
+    if (zoom < BAND_TABLE[i].maxZoom) return i;
+  }
+  return BAND_TABLE.length - 1;
 }
 
 reproject('mutation');
@@ -330,8 +336,11 @@ canvas.addEventListener('wheel', (ev) => {
   const sx = ev.clientX - rect.left;
   const sy = ev.clientY - rect.top;
   const factor = Math.exp(-ev.deltaY * 0.001);
+  const prevBand = bandIndexFor(camera.zoom);
   camera = zoomAtPoint(camera, factor, sx, sy, rect.width, rect.height);
   targetCamera = null;  // user-driven zoom cancels any in-progress animation
+  const nextBand = bandIndexFor(camera.zoom);
+  if (prevBand !== nextBand) reproject('band-cross');
 }, { passive: false });
 
 canvas.addEventListener('pointerleave', (ev) => {
@@ -363,9 +372,12 @@ function updateSearchCount() {
   searchCount.classList.remove('hidden');
 }
 
+let searchDebounce = null;
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
   updateSearchCount();
+  if (searchDebounce) clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => { reproject('search'); }, 200);
 });
 
 searchInput.addEventListener('keydown', (ev) => {
@@ -374,6 +386,8 @@ searchInput.addEventListener('keydown', (ev) => {
     searchQuery = '';
     updateSearchCount();
     searchInput.blur();
+    if (searchDebounce) clearTimeout(searchDebounce);
+    reproject('search');
   }
 });
 
@@ -389,6 +403,7 @@ document.querySelectorAll('#filters input').forEach((cb) => {
     const k = cb.dataset.kind;
     if (cb.checked) activeKinds.add(k); else activeKinds.delete(k);
     updateSearchCount();
+    reproject('filter');
   });
 });
 
@@ -682,6 +697,7 @@ canvas.addEventListener('dblclick', (ev) => {
       canvas.clientHeight,
       80,
     );
+    reproject('focus-enter');
   }
 });
 
@@ -699,6 +715,7 @@ window.addEventListener('keydown', (ev) => {
     canvas.clientHeight,
     40,
   );
+  reproject('focus-exit');
 });
 
 document.getElementById('recenter-btn').addEventListener('click', recenter);
