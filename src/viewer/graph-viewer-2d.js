@@ -1,6 +1,6 @@
 import { createGraphState, hydrate, edgeKey, applyMutation } from '/viewer/shared/state.js';
 import { createWsClient } from '/viewer/shared/websocket.js';
-import { SHAPE_FOR_KIND, drawStrike } from '/viewer/shared/shapes.js';
+import { SHAPE_FOR_KIND, drawStrike, drawHull } from '/viewer/shared/shapes.js';
 import {
   PALETTE_REST,
   PALETTE_HOVER,
@@ -158,6 +158,14 @@ function bandIndexFor(zoom) {
     if (zoom < BAND_TABLE[i].maxZoom) return i;
   }
   return BAND_TABLE.length - 1;
+}
+
+function findAncestorRep(memberId) {
+  if (!projected) return null;
+  const stateNode = state.nodes.get(memberId);
+  if (!stateNode || !stateNode.file_path) return null;
+  const dirId = `group:path:${dirnameOf(stateNode.file_path)}`;
+  return projected.visibleNodes.get(dirId) ?? null;
 }
 
 reproject('mutation');
@@ -422,6 +430,31 @@ function draw() {
   const visibleNodeLookup = projected?.visibleNodes;
   const lookupNode = (id) =>
     (visibleNodeLookup && visibleNodeLookup.get(id)) || state.nodes.get(id);
+
+  // --- Territory hulls (drawn behind edges + nodes) ---
+  if (projected && projected.groups) {
+    for (const g of projected.groups) {
+      if (g.kind !== 'territory') continue;
+      const decisionNode = projected.visibleNodes.get(g.decisionId);
+      if (!decisionNode) continue;
+      const points = [];
+      for (const m of g.members) {
+        const vis = projected.visibleNodes.get(m);
+        if (vis && vis.x !== undefined) { points.push({ x: vis.x, y: vis.y }); continue; }
+        // Member folded into a supernode — include the supernode's position instead.
+        const anc = findAncestorRep(m);
+        if (anc && anc.x !== undefined) points.push({ x: anc.x, y: anc.y });
+      }
+      // Always include the decision itself in the hull.
+      if (decisionNode.x !== undefined) points.push({ x: decisionNode.x, y: decisionNode.y });
+      if (points.length < 3) continue;
+      const basePalette = PALETTE_REST[decisionNode.kind] || PALETTE_REST.decision || [160, 140, 200];
+      const hoverPalette = PALETTE_HOVER[decisionNode.kind] || PALETTE_HOVER.decision || [200, 180, 240];
+      drawHull(ctx, points,
+        rgbString(basePalette, 0.08),
+        rgbString(hoverPalette, 0.35));
+    }
+  }
 
   ctx.lineWidth = 0.5 / camera.zoom;   // keep edges crisp at any zoom
   for (const edge of (projected?.visibleEdges.values() ?? state.edges.values())) {
