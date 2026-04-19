@@ -798,11 +798,17 @@ function frame(t) {
     const dx = targetCamera.x - camera.x;
     const dy = targetCamera.y - camera.y;
     const dz = targetCamera.zoom - camera.zoom;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005) {
+    const converged = Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005;
+    if (converged) {
       camera = targetCamera;
       targetCamera = null;
     }
-    if (bandIndexFor(camera.zoom) !== prevBand) reproject('band-cross');
+    const nextBand = bandIndexFor(camera.zoom);
+    // Reproject on any per-frame band cross, AND unconditionally on lerp
+    // convergence — catches cases where multiple bands were crossed in a
+    // single lerp step (the per-frame check only sees the first/last band
+    // and can miss the intermediate ones).
+    if (nextBand !== prevBand || converged) reproject('band-cross');
   }
 
   applyBreathing(t);
