@@ -70,6 +70,75 @@ export function drawPill(ctx, x, y, r, fill, stroke) {
   if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
 }
 
+export function drawRoundedRect(ctx, x, y, r, fill, stroke) {
+  // Square-ish rounded rect, centered on (x, y), half-size r.
+  const half = r;
+  const radius = Math.min(r * 0.35, 4);
+  ctx.beginPath();
+  ctx.moveTo(x - half + radius, y - half);
+  ctx.lineTo(x + half - radius, y - half);
+  ctx.arcTo(x + half, y - half, x + half, y - half + radius, radius);
+  ctx.lineTo(x + half, y + half - radius);
+  ctx.arcTo(x + half, y + half, x + half - radius, y + half, radius);
+  ctx.lineTo(x - half + radius, y + half);
+  ctx.arcTo(x - half, y + half, x - half, y + half - radius, radius);
+  ctx.lineTo(x - half, y - half + radius);
+  ctx.arcTo(x - half, y - half, x - half + radius, y - half, radius);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+
+/**
+ * Draw a convex-hull polygon around the given points with a fill + stroke.
+ * Uses monotone-chain; no-op for <3 points.
+ */
+export function drawHull(ctx, points, fill, stroke) {
+  if (!points || points.length < 3) return;
+  const hull = convexHull(points);
+  if (hull.length < 3) return;
+
+  ctx.beginPath();
+  ctx.moveTo(hull[0].x, hull[0].y);
+  for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
+  }
+}
+
+function convexHull(pts) {
+  const points = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const n = points.length;
+  if (n < 3) return points.slice();
+  const lower = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function cross(o, a, b) {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
 /**
  * Diagonal strike line across a node (used for superseded decisions).
  */
@@ -92,4 +161,5 @@ export const SHAPE_FOR_KIND = {
   component: drawPill,
   reference: drawHex,
   path:      drawTri,
+  group:     drawRoundedRect,
 };
