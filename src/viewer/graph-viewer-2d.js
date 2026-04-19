@@ -453,8 +453,12 @@ function draw() {
 
   for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
     const shape = SHAPE_FOR_KIND[node.kind] || SHAPE_FOR_KIND.file;
-    const base = PALETTE_REST[node.kind] || PALETTE_REST.file;
-    const hover = PALETTE_HOVER[node.kind] || PALETTE_HOVER.file;
+    const base = node.kind === 'group'
+      ? [108, 116, 132]
+      : (PALETTE_REST[node.kind] || PALETTE_REST.file);
+    const hover = node.kind === 'group'
+      ? [168, 176, 192]
+      : (PALETTE_HOVER[node.kind] || PALETTE_HOVER.file);
     const nAnim = anim.nodes.get(node.id) || { highlight: 0, colorMix: 0 };
     const isSelected = node.id === selectedId;
     const isSelectionNeighbor = selectedId !== null && (neighborsOf.get(selectedId) || new Set()).has(node.id);
@@ -471,11 +475,19 @@ function draw() {
     const matches = searchMatch(node, searchQuery);
     const isHovered = node.id === hoveredId;
     const searchDim = searchQuery && !matches && !isHovered && !isSelected && !isSelectionNeighbor ? 0.15 : 1.0;
-    const r = nodeSize(node.kind) * (1 + combinedHighlight * 0.15);
+
+    // Rendered radius: group uses physics-size (world=8 * log factor), else use
+    // sizeAt for apparent-size clamping.
+    const r = node.kind === 'group'
+      ? (nodeSize(node) + combinedHighlight * 1.5)
+      : sizeAt(node.kind, camera.zoom) * (1 + combinedHighlight * 0.15);
+
     shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
+
     if (isSelected) {
       ctx.beginPath();
-      ctx.arc(node.x ?? 0, node.y ?? 0, r + 2, 0, Math.PI * 2);
+      if (node.kind === 'group') ctx.rect(node.x - r - 2, node.y - r - 2, (r + 2) * 2, (r + 2) * 2);
+      else ctx.arc(node.x ?? 0, node.y ?? 0, r + 2, 0, Math.PI * 2);
       ctx.strokeStyle = rgbString(hover, 0.9);
       ctx.lineWidth = 1 / camera.zoom;
       ctx.stroke();
@@ -512,6 +524,8 @@ function drawLabels() {
       alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
     }
 
+    if (node.kind === 'group') alpha = 1;   // groups are always labeled
+
     if (alpha <= 0) continue;
 
     // Search dim also applies to labels, but hover wins (matches node rule).
@@ -530,6 +544,13 @@ function drawLabels() {
     const offset = nodeSize(node.kind) * camera.zoom + 4;
     ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
     ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
+
+    if (node.kind === 'group' && node.memberCount) {
+      const countText = ' · ' + node.memberCount;
+      ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
+      const nameW = ctx.measureText(String(node.name || '')).width;
+      ctx.fillText(countText, sx + offset + nameW, sy + 3);
+    }
   }
 
   ctx.restore();

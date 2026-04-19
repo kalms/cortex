@@ -17,6 +17,7 @@ export const SIZE = {
   reference: { world: 3,   min_px: 5,  max_px: 9  },
   function:  { world: 2.5, min_px: 5,  max_px: 8  },
   path:      { world: 2.5, min_px: 5,  max_px: 8  },
+  group:     { world: 8,   min_px: 12, max_px: 26 },
 };
 
 const DEFAULT_SIZE = { world: 4, min_px: 5, max_px: 10 };
