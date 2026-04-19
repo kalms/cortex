@@ -346,12 +346,17 @@ function draw() {
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
-    const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * h;
+    const isSelectedEdge =
+      selectedId !== null && (edge.source_id === selectedId || edge.target_id === selectedId);
+    const selectionBoost = isSelectedEdge ? 1.0 : 0;
+    const effectiveHighlight = Math.max(h, selectionBoost);
+    const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * effectiveHighlight;
     // Hover wins locally: an edge attached to the hovered node stays bright
     // even when search is active and the other endpoint doesn't match.
     const edgeBright = !searchQuery
       || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
-      || a.id === hoveredId || b.id === hoveredId;
+      || a.id === hoveredId || b.id === hoveredId
+      || isSelectedEdge;
     const edgeSearchDim = edgeBright ? 1.0 : 0.15;
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     ctx.beginPath();
@@ -366,19 +371,30 @@ function draw() {
     const base = PALETTE_REST[node.kind] || PALETTE_REST.file;
     const hover = PALETTE_HOVER[node.kind] || PALETTE_HOVER.file;
     const nAnim = anim.nodes.get(node.id) || { highlight: 0, colorMix: 0 };
-    const rgb = lerpRGB(base, hover, nAnim.colorMix);
+    const isSelected = node.id === selectedId;
+    const isSelectionNeighbor = selectedId !== null && (neighborsOf.get(selectedId) || new Set()).has(node.id);
+    const selectionLevel = isSelected ? 1.0 : (isSelectionNeighbor ? 0.6 : 0);
+    const combinedHighlight = Math.max(nAnim.highlight, selectionLevel);
+    const rgb = lerpRGB(base, hover, Math.max(nAnim.colorMix, selectionLevel));
     const statusAlpha = node.status === 'proposed' || node.status === 'superseded' ? 0.4 : 1.0;
     const restAlpha  = statusAlpha * 0.5;
     const hoverAlpha = Math.min(1, statusAlpha + 0.25);
-    const alpha = hoveredId === null
+    const alpha = hoveredId === null && !isSelected && !isSelectionNeighbor
       ? statusAlpha
-      : restAlpha + (hoverAlpha - restAlpha) * nAnim.highlight;
+      : restAlpha + (hoverAlpha - restAlpha) * combinedHighlight;
     // Hover wins locally: the hovered node is never dimmed by search.
     const matches = searchMatch(node, searchQuery);
     const isHovered = node.id === hoveredId;
-    const searchDim = searchQuery && !matches && !isHovered ? 0.15 : 1.0;
-    const r = nodeSize(node.kind) * (1 + nAnim.highlight * 0.15);
+    const searchDim = searchQuery && !matches && !isHovered && !isSelected && !isSelectionNeighbor ? 0.15 : 1.0;
+    const r = nodeSize(node.kind) * (1 + combinedHighlight * 0.15);
     shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
+    if (isSelected) {
+      ctx.beginPath();
+      ctx.arc(node.x ?? 0, node.y ?? 0, r + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = rgbString(hover, 0.9);
+      ctx.lineWidth = 1 / camera.zoom;
+      ctx.stroke();
+    }
     if (node.status === 'superseded') {
       drawStrike(ctx, node.x ?? 0, node.y ?? 0, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
     }
