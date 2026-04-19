@@ -48,26 +48,29 @@ export function derivePathGroups(nodes) {
   for (const n of nodes) {
     if (n.kind === 'decision') continue;  // top-level, never in a path group
 
+    // Extract a file path this node is associated with.
+    let ownerFilePath = null;
     if (n.kind === 'file' && n.file_path) {
-      const dir = dirOf(n.file_path);
-      if (dir !== null) {
-        if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());
-        dirMembers.get(dir).add(n.id);
-      }
+      ownerFilePath = n.file_path;
     } else if (n.qualified_name) {
-      // function / reference / component — nest under owning file path.
-      const owner = qualifiedNameFile(n.qualified_name);
-      if (owner) {
-        if (!fileMembers.has(owner)) fileMembers.set(owner, new Set());
-        fileMembers.get(owner).add(n.id);
-      }
+      ownerFilePath = qualifiedNameFile(n.qualified_name);
     } else if (n.file_path) {
-      // leaf with a path but not a file kind — bucket by dir as a last resort.
-      const dir = dirOf(n.file_path);
-      if (dir !== null) {
-        if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());
-        dirMembers.get(dir).add(n.id);
-      }
+      ownerFilePath = n.file_path;
+    }
+    if (!ownerFilePath) continue;
+
+    // Bucket under the owning file (for file-group aggregation).
+    if (n.kind !== 'file') {
+      if (!fileMembers.has(ownerFilePath)) fileMembers.set(ownerFilePath, new Set());
+      fileMembers.get(ownerFilePath).add(n.id);
+    }
+
+    // Bucket under the directory (for dir-group aggregation). Every non-decision
+    // node with an owning file path contributes to its dir's group count.
+    const dir = dirOf(ownerFilePath);
+    if (dir !== null) {
+      if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());
+      dirMembers.get(dir).add(n.id);
     }
   }
 

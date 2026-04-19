@@ -34,8 +34,9 @@ export const BAND_TABLE = [
   { maxZoom: 1.0, visibleKinds: new Set(['decision']),                emitDirGroups: 'mid',    emitFileGroups: false, emitLeafFiles: false },
   { maxZoom: 2.0, visibleKinds: new Set(['decision', 'file']),        emitDirGroups: 'none',   emitFileGroups: true,  emitLeafFiles: true  },
   { maxZoom: Infinity,
-                  visibleKinds: new Set(['decision', 'file',
-                    'function', 'component', 'reference', 'path']),   emitDirGroups: 'none',   emitFileGroups: false, emitLeafFiles: true  },
+                  visibleKinds: new Set(['decision', 'file', 'function', 'component',
+                    'reference', 'path', 'variable', 'section', 'type', 'project']),
+                                                                      emitDirGroups: 'none',   emitFileGroups: false, emitLeafFiles: true  },
 ];
 
 function bandFor(zoom) {
