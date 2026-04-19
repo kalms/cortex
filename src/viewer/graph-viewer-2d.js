@@ -70,7 +70,8 @@ let lastFrameT = 0;
 // Hoisted inputs to projectionInputs(): these are also mutated by the search/filter
 // handlers and focus mode lower in the file. Originals were declared later; moved
 // up so reproject() can see them.
-const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path']);
+const activeKinds = new Set(['decision', 'file', 'function', 'component', 'reference', 'path',
+                             'variable', 'section', 'type', 'project']);
 let searchQuery = '';
 let focusId = null;
 let focusSet = null;
@@ -485,7 +486,10 @@ searchInput.addEventListener('input', (ev) => {
     clearTimeout(searchDebounce);
     searchDebounce = null;
   }
-  searchDebounce = setTimeout(() => { reproject('search'); }, 200);
+  searchDebounce = setTimeout(() => {
+    reproject('search');
+    updateSearchCount();
+  }, 200);
 });
 
 searchInput.addEventListener('keydown', (ev) => {
@@ -499,6 +503,7 @@ searchInput.addEventListener('keydown', (ev) => {
       searchDebounce = null;
     }
     reproject('search');
+    updateSearchCount();   // refresh after reproject
   }
 });
 
@@ -653,8 +658,21 @@ function draw() {
 
     if (isSelected) {
       ctx.beginPath();
-      if (node.kind === 'group') ctx.rect(node.x - finalR - 2, node.y - finalR - 2, (finalR + 2) * 2, (finalR + 2) * 2);
-      else ctx.arc(node.x ?? 0, node.y ?? 0, finalR + 2, 0, Math.PI * 2);
+      const ringR = finalR + 2;
+      const cx = node.x ?? 0;
+      const cy = node.y ?? 0;
+      if (node.kind === 'group') {
+        ctx.rect(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+      } else if (node.kind === 'decision' || node.kind === 'project') {
+        // Diamond outline
+        ctx.moveTo(cx,           cy - ringR);
+        ctx.lineTo(cx + ringR,   cy);
+        ctx.lineTo(cx,           cy + ringR);
+        ctx.lineTo(cx - ringR,   cy);
+        ctx.closePath();
+      } else {
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      }
       ctx.strokeStyle = rgbString(hover, 0.9);
       ctx.lineWidth = 1 / camera.zoom;
       ctx.stroke();
@@ -712,7 +730,7 @@ function drawLabels() {
     ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
     ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
 
-    if (node.kind === 'group' && node.memberCount) {
+    if (node.kind === 'group' && node.memberCount && node.memberCount > 1) {
       const countText = ' · ' + node.memberCount;
       ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
       const nameW = ctx.measureText(String(node.name || '')).width;
@@ -767,8 +785,10 @@ function frame(t) {
     // Wait for the sim to actually reach roughly equilibrium before framing.
     // With the Task 1 force tuning, alpha < 0.3 fires at ~tick 50 (≈0.8s at 60fps).
     const fit = fitToBounds(state.nodes.values(), canvas.clientWidth, canvas.clientHeight, 40);
+    const prevBand = bandIndexFor(camera.zoom);
     camera = fit;
     hasInitiallyFit = true;
+    if (bandIndexFor(camera.zoom) !== prevBand) reproject('band-cross');
   }
 
   // Smooth camera animation toward a target, if one is set.

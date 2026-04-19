@@ -18,6 +18,10 @@ export const SIZE = {
   function:  { world: 2.5, min_px: 5,  max_px: 8  },
   path:      { world: 2.5, min_px: 5,  max_px: 8  },
   group:     { world: 8,   min_px: 12, max_px: 26 },
+  variable:  { world: 2.5, min_px: 5,  max_px: 8  },   // similar to function
+  section:   { world: 2,   min_px: 4,  max_px: 7  },   // slightly smaller
+  type:      { world: 3,   min_px: 5,  max_px: 9  },   // similar to reference
+  project:   { world: 8,   min_px: 12, max_px: 20 },   // larger, once per repo
 };
 
 const DEFAULT_SIZE = { world: 4, min_px: 5, max_px: 10 };

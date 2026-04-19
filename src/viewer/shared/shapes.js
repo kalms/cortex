@@ -162,4 +162,8 @@ export const SHAPE_FOR_KIND = {
   reference: drawHex,
   path:      drawTri,
   group:     drawRoundedRect,
+  variable:  drawCircle,     // small circle like function
+  section:   drawHex,        // hex like reference
+  type:      drawPill,       // pill like component
+  project:   drawDiamond,    // diamond like decision — semantically "top-level"
 };
