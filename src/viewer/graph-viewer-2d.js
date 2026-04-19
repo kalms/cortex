@@ -98,6 +98,12 @@ hydrate(state, graph);
 
 const simulation = createSimulation().on('tick', () => {});
 
+/**
+ * Run the projection and, if the visible set changed, feed the sim + reheat.
+ * Single choke point for all projection-input changes (filter, search, zoom,
+ * focus, mutation).
+ * @param reason {'mutation'|'filter'|'search'|'band-cross'|'focus-enter'|'focus-exit'}
+ */
 function reproject(reason) {
   const inputs = projectionInputs();
   const next = project(state, inputs);
@@ -147,6 +153,7 @@ function reproject(reason) {
   }
 }
 
+/** Per-reason reheat alpha (spec §4). */
 function alphaFor(reason) {
   switch (reason) {
     case 'focus-enter':
@@ -159,6 +166,10 @@ function alphaFor(reason) {
   }
 }
 
+/**
+ * Seed positions for entering nodes so they emerge from their parent's
+ * centroid rather than the origin. Persisting nodes keep their current pos.
+ */
 function applyEntryPositions(next, prev) {
   const prevVisible = prev ? prev.visibleNodes : new Map();
   for (const [id, n] of next.visibleNodes) {
@@ -471,7 +482,10 @@ let searchDebounce = null;
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
   updateSearchCount();
-  if (searchDebounce) clearTimeout(searchDebounce);
+  if (searchDebounce) {
+    clearTimeout(searchDebounce);
+    searchDebounce = null;
+  }
   searchDebounce = setTimeout(() => { reproject('search'); }, 200);
 });
 
@@ -481,7 +495,10 @@ searchInput.addEventListener('keydown', (ev) => {
     searchQuery = '';
     updateSearchCount();
     searchInput.blur();
-    if (searchDebounce) clearTimeout(searchDebounce);
+    if (searchDebounce) {
+      clearTimeout(searchDebounce);
+      searchDebounce = null;
+    }
     reproject('search');
   }
 });

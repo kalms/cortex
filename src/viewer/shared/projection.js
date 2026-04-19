@@ -12,9 +12,12 @@ import { derivePathGroups, deriveTerritories, pathGroupId } from './groups.js';
 import { edgeKey } from './state.js';
 
 /**
- * Zoom bands, from far to close. A node kind is emitted as a leaf only when
- * the current zoom falls within its visibility range; otherwise it folds into
- * its ancestor group (its path-group or, last resort, stays hidden).
+ * Zoom bands, from far to close. Determines which kinds emit as leaves
+ * and whether dir/file groups are synthesized as supernodes.
+ *
+ * A node kind is emitted as a leaf only when the current zoom falls within
+ * its visibility range; otherwise it folds into its ancestor group (its
+ * path-group or, last resort, stays hidden).
  *
  * Decisions are always visible. Dir groups appear at far/mid zoom; file
  * groups at mid zoom; leaves progressively at closer zoom.
@@ -43,7 +46,9 @@ function bandFor(zoom) {
 }
 
 /**
- * project(state, inputs) → { visibleNodes, visibleEdges, groups }
+ * Pure projection function — sole authority for what the simulation and
+ * renderer see. Reads full state + UX inputs, returns visible nodes/edges
+ * and synthesized groups (path aggregations + decision territories).
  *
  * inputs: { zoom, focus, filters, search }
  *   focus:    null | { root, depth }
@@ -54,6 +59,10 @@ function bandFor(zoom) {
  *   visibleNodes: Map<id, node | groupRepresentative>
  *   visibleEdges: Map<key, edge | aggregateEdge>
  *   groups:       Array<groupSpec>   (for hull / territory rendering)
+ *
+ * @param state {{ nodes: Map, edges: Map }}
+ * @param inputs {{ zoom, focus, filters, search }}
+ * @returns {{ visibleNodes: Map, visibleEdges: Map, groups: Array }}
  */
 export function project(state, inputs) {
   const { zoom, focus, filters, search } = inputs;
@@ -115,6 +124,12 @@ export function project(state, inputs) {
   }
 
   // Determine which groups to emit as visible supernodes.
+  // 'top'/'mid' for emitDirGroups is a tree-forest reading, NOT a filesystem-depth check:
+  //  - 'top' emits dir groups that have no dir-group ancestor in the derived set
+  //    (i.e. roots of the forest formed by the dir groups we actually derived).
+  //  - 'mid' additionally includes groups one nesting level below the roots.
+  // This handles realistic repos where top-level dirs aren't at depth=1 because
+  // intermediate dirs got collapsed up during derivation.
   const emittedGroupIds = new Set();
   if (band.emitDirGroups === 'top') {
     for (const id of rootDirGroupIds) emittedGroupIds.add(id);
@@ -284,9 +299,9 @@ export function project(state, inputs) {
 }
 
 /**
- * True iff the *visible node id set* or the *visible edge id set* differs
- * between previous and current projections. Purely visual changes (size,
- * stroke weight at a given zoom) do not count.
+ * True iff the visible node or edge id sets differ between projections.
+ * Used to gate sim reheat — pure visual changes (size at current zoom)
+ * are not considered interesting.
  */
 export function projectionDeltaIsInteresting(previous, current) {
   if (!previous) return true;
