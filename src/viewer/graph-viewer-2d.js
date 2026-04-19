@@ -29,6 +29,14 @@ import {
 } from '/viewer/shared/camera.js';
 import { project, projectionDeltaIsInteresting, BAND_TABLE } from '/viewer/shared/projection.js';
 import { sizeAt, edgeStrokeAt } from '/viewer/shared/sizing.js';
+import {
+  createTransitionState,
+  diffProjection,
+  enterTransition,
+  exitTransition,
+  advanceTransitions,
+  interpolated,
+} from '/viewer/shared/transitions.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
@@ -56,6 +64,8 @@ window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
 // --- Projection state (must be hoisted above sim setup; inputs are read by reproject). ---
 let projected = null;   // current projection output
 let lastProjectionInputs = null;
+const transitionState = createTransitionState();
+let lastFrameT = 0;
 
 // Hoisted inputs to projectionInputs(): these are also mutated by the search/filter
 // handlers and focus mode lower in the file. Originals were declared later; moved
@@ -91,7 +101,36 @@ const simulation = createSimulation().on('tick', () => {});
 function reproject(reason) {
   const inputs = projectionInputs();
   const next = project(state, inputs);
+  const isInitialProjection = projected === null;
   applyEntryPositions(next, projected);
+
+  if (!isInitialProjection) {
+    const diff = diffProjection(projected, next);
+
+    for (const id of diff.entering) {
+      const n = next.visibleNodes.get(id);
+      if (!n) continue;
+      // Seed transition with the resolved position (set by applyEntryPositions
+      // above) so the node blooms at its landing spot rather than the origin.
+      const spawn = { x: n.x ?? 0, y: n.y ?? 0 };
+      enterTransition(transitionState, id, spawn, 280);
+    }
+
+    for (const id of diff.exiting) {
+      const n = projected?.visibleNodes.get(id);
+      if (!n) continue;
+      const stateNode = state.nodes.get(id) || n;
+      let exitPos = { x: n.x ?? 0, y: n.y ?? 0 };
+      if (stateNode && stateNode.file_path) {
+        const parentId = `group:path:${dirnameOf(stateNode.file_path)}`;
+        const parent = next.visibleNodes.get(parentId);
+        if (parent && parent.x !== undefined) exitPos = { x: parent.x, y: parent.y };
+      }
+      exitTransition(transitionState, id,
+        { x: n.x ?? 0, y: n.y ?? 0, opacity: 1, scale: 1 }, exitPos, 220);
+    }
+  }
+
   const changed = projectionDeltaIsInteresting(projected, next);
   projected = next;
   lastProjectionInputs = inputs;
@@ -526,7 +565,20 @@ function draw() {
     ctx.stroke();
   }
 
-  for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
+  // Iterate over both currently-visible nodes AND those still exiting
+  // (exiting nodes are no longer in projected.visibleNodes but must draw until
+  // their transition expires).
+  const visibleMap = projected?.visibleNodes ?? new Map();
+  const exitingIds = new Set(
+    [...transitionState.transitions.entries()]
+      .filter(([, tr]) => tr.phase === 'exiting')
+      .map(([id]) => id),
+  );
+  const idsToRender = new Set([...visibleMap.keys(), ...exitingIds]);
+  for (const id of idsToRender) {
+    const node = visibleMap.get(id) || state.nodes.get(id);
+    if (!node) continue;
+
     const shape = SHAPE_FOR_KIND[node.kind] || SHAPE_FOR_KIND.file;
     const base = node.kind === 'group'
       ? [108, 116, 132]
@@ -557,18 +609,32 @@ function draw() {
       ? (nodeSize(node) + combinedHighlight * 1.5)
       : sizeAt(node.kind, camera.zoom) * (1 + combinedHighlight * 0.15);
 
-    shape(ctx, node.x ?? 0, node.y ?? 0, r, rgbString(rgb, alpha * searchDim));
+    // Apply transition opacity/scale/position if present.
+    const trans = transitionState.transitions.get(node.id);
+    let tOpacity = 1, tScale = 1;
+    if (trans) {
+      const v = interpolated(trans);
+      tOpacity = v.opacity;
+      tScale = v.scale;
+      // For entering/exiting, override the sim's position with the interpolated one.
+      node.x = v.x;
+      node.y = v.y;
+    }
+
+    const finalAlpha = alpha * searchDim * tOpacity;
+    const finalR = r * tScale;
+    shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
 
     if (isSelected) {
       ctx.beginPath();
-      if (node.kind === 'group') ctx.rect(node.x - r - 2, node.y - r - 2, (r + 2) * 2, (r + 2) * 2);
-      else ctx.arc(node.x ?? 0, node.y ?? 0, r + 2, 0, Math.PI * 2);
+      if (node.kind === 'group') ctx.rect(node.x - finalR - 2, node.y - finalR - 2, (finalR + 2) * 2, (finalR + 2) * 2);
+      else ctx.arc(node.x ?? 0, node.y ?? 0, finalR + 2, 0, Math.PI * 2);
       ctx.strokeStyle = rgbString(hover, 0.9);
       ctx.lineWidth = 1 / camera.zoom;
       ctx.stroke();
     }
     if (node.status === 'superseded') {
-      drawStrike(ctx, node.x ?? 0, node.y ?? 0, r, 'rgba(255,255,255,' + (alpha * searchDim * 0.8) + ')');
+      drawStrike(ctx, node.x ?? 0, node.y ?? 0, finalR, 'rgba(255,255,255,' + (alpha * searchDim * tOpacity * 0.8) + ')');
     }
   }
 
@@ -666,6 +732,10 @@ function applyBreathing(t) {
 
 function frame(t) {
   simulation.tick();
+
+  const dt = lastFrameT ? t - lastFrameT : 16;
+  lastFrameT = t;
+  advanceTransitions(transitionState, dt);
 
   if (!hasInitiallyFit && simulation.alpha() < 0.3) {
     // Wait for the sim to actually reach roughly equilibrium before framing.
