@@ -168,6 +168,27 @@ function findAncestorRep(memberId) {
   return projected.visibleNodes.get(dirId) ?? null;
 }
 
+function findAggregateEdgeNear(wx, wy, threshold) {
+  if (!projected) return null;
+  for (const edge of projected.visibleEdges.values()) {
+    if (!edge.aggregate) continue;
+    const a = projected.visibleNodes.get(edge.source_id);
+    const b = projected.visibleNodes.get(edge.target_id);
+    if (!a || !b) continue;
+    if (distToSegment(wx, wy, a.x, a.y, b.x, b.y) <= threshold) return edge;
+  }
+  return null;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+  const cx = x1 + t * dx, cy = y1 + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
 reproject('mutation');
 
 // --- Neighbor index --- rebuild whenever edges change.
@@ -318,6 +339,23 @@ canvas.addEventListener('pointermove', (ev) => {
     clearHover(anim);
     tooltip.classList.remove('show');
   }
+  if (!best && projected) {
+    // Check proximity to an aggregate edge.
+    const rect2 = canvas.getBoundingClientRect();
+    const [wx, wy] = camScreenToWorld(
+      camera, ev.clientX - rect2.left, ev.clientY - rect2.top,
+      rect2.width, rect2.height,
+    );
+    const foundEdge = findAggregateEdgeNear(wx, wy, 5 / camera.zoom);
+    if (foundEdge) {
+      const relations = Object.entries(foundEdge.relations || { [foundEdge.relation]: foundEdge.count })
+        .map(([r, n]) => `${n} ${r}`).join(', ');
+      tooltip.textContent = relations;
+      tooltip.classList.add('show');
+    } else if (!hoveredId) {
+      tooltip.classList.remove('show');
+    }
+  }
   tooltip.style.left = (ev.clientX + 14) + 'px';
   tooltip.style.top  = (ev.clientY + 14) + 'px';
 });
@@ -456,12 +494,12 @@ function draw() {
     }
   }
 
-  ctx.lineWidth = 0.5 / camera.zoom;   // keep edges crisp at any zoom
   for (const edge of (projected?.visibleEdges.values() ?? state.edges.values())) {
     const a = lookupNode(edge.source_id);
     const b = lookupNode(edge.target_id);
     if (!a || !b) continue;
-    const eKey = edgeKey(edge);
+
+    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
@@ -470,13 +508,17 @@ function draw() {
     const selectionBoost = isSelectedEdge ? 1.0 : 0;
     const effectiveHighlight = Math.max(h, selectionBoost);
     const alpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * effectiveHighlight;
-    // Hover wins locally: an edge attached to the hovered node stays bright
-    // even when search is active and the other endpoint doesn't match.
+
     const edgeBright = !searchQuery
       || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
       || a.id === hoveredId || b.id === hoveredId
       || isSelectedEdge;
     const edgeSearchDim = edgeBright ? 1.0 : 0.15;
+
+    // Aggregate edges get thicker stroke proportional to log2(count).
+    const aggregateBoost = edge.aggregate ? (1 + Math.log2(Math.max(1, edge.count))) : 1;
+    ctx.lineWidth = edgeStrokeAt(edge.relation, camera.zoom) * aggregateBoost;
+
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     ctx.beginPath();
     ctx.moveTo(a.x ?? 0, a.y ?? 0);
