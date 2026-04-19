@@ -7,3 +7,6 @@ dist/
 viewer-*.png
 bin/
 .worktrees/
+.claude/settings.local.json
+qa-*.png
+qa2-*.png
