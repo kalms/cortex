@@ -9,13 +9,20 @@ import {
 
 describe('layout', () => {
   describe('nodeSize', () => {
-    it('returns per-kind radii', () => {
-      expect(nodeSize('decision')).toBeGreaterThanOrEqual(7);
-      expect(nodeSize('decision')).toBeLessThanOrEqual(8);
-      expect(nodeSize('file')).toBeGreaterThanOrEqual(4);
-      expect(nodeSize('file')).toBeLessThanOrEqual(6);
-      expect(nodeSize('function')).toBeGreaterThanOrEqual(2);
-      expect(nodeSize('function')).toBeLessThanOrEqual(3);
+    it('returns per-kind world sizes from sizing module', () => {
+      expect(nodeSize('decision')).toBe(10);
+      expect(nodeSize('file')).toBe(5);
+      expect(nodeSize('function')).toBe(2.5);
+    });
+
+    it('accepts a node object too', () => {
+      expect(nodeSize({ kind: 'file' })).toBe(5);
+    });
+
+    it('uses groupWorldSize for group nodes', () => {
+      const small = nodeSize({ kind: 'group', memberCount: 2 });
+      const big   = nodeSize({ kind: 'group', memberCount: 64 });
+      expect(big).toBeGreaterThan(small);
     });
 
     it('falls back for unknown kinds', () => {
