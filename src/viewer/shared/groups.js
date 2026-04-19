@@ -44,13 +44,11 @@ export function derivePathGroups(nodes) {
   // Bucket leaves by their file_path's dir, and file → children.
   const dirMembers = new Map();   // dirPath → Set<nodeId>
   const fileMembers = new Map();  // filePath → Set<nodeId>
-  const fileNodeIds = new Set();  // ids of nodes with kind === 'file'
 
   for (const n of nodes) {
     if (n.kind === 'decision') continue;  // top-level, never in a path group
 
     if (n.kind === 'file' && n.file_path) {
-      fileNodeIds.add(n.id);
       const dir = dirOf(n.file_path);
       if (dir !== null) {
         if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());

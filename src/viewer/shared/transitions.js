@@ -5,6 +5,11 @@
  * Time units throughout are milliseconds; callers pass dt each frame.
  */
 
+/**
+ * Compute the set of node ids that entered and exited between two projections.
+ * `null` previous treats all current ids as entering.
+ * @returns {{ entering: Set<string>, exiting: Set<string> }}
+ */
 export function diffProjection(previous, current) {
   const entering = new Set();
   const exiting = new Set();
@@ -15,10 +20,15 @@ export function diffProjection(previous, current) {
   return { entering, exiting };
 }
 
+/** Create an empty transition state container. */
 export function createTransitionState() {
   return { transitions: new Map() };
 }
 
+/**
+ * Register an entering transition starting at spawnPos with opacity/scale 0→1.
+ * Default duration 280ms.
+ */
 export function enterTransition(state, id, spawnPos, duration = 280) {
   state.transitions.set(id, {
     phase: 'entering',
@@ -29,6 +39,10 @@ export function enterTransition(state, id, spawnPos, duration = 280) {
   });
 }
 
+/**
+ * Register an exiting transition from currentRender toward exitPos with
+ * opacity→0, scale→0.6. Default duration 220ms.
+ */
 export function exitTransition(state, id, currentRender, exitPos, duration = 220) {
   state.transitions.set(id, {
     phase: 'exiting',
@@ -39,6 +53,9 @@ export function exitTransition(state, id, currentRender, exitPos, duration = 220
   });
 }
 
+/**
+ * Age every active transition by `dtMs` and remove those whose age >= duration.
+ */
 export function advanceTransitions(state, dtMs) {
   for (const [id, t] of state.transitions) {
     t.age += dtMs;
@@ -46,17 +63,34 @@ export function advanceTransitions(state, dtMs) {
   }
 }
 
+/**
+ * Sample a transition's current interpolated value.
+ * Entering uses ease-out-back on scale only (bloom overshoot), ease-out-cubic
+ * on position + opacity (monotonic, stays in [0,1]). Exiting uses linear
+ * position (matches spec §5), ease-in on opacity + scale.
+ */
 export function interpolated(t) {
   const u = Math.max(0, Math.min(1, t.age / t.duration));
-  // Position and opacity use a monotonic ease so opacity stays in [0, 1].
-  // Scale uses ease-out-back for a slight bloom overshoot on entering.
-  const easeMain = t.phase === 'entering' ? easeOutCubic(u) : easeIn(u);
-  const easeScale = t.phase === 'entering' ? easeOutBack(u) : easeIn(u);
+  if (t.phase === 'entering') {
+    // Entering: ease-out-cubic keeps opacity monotonic in [0,1]; scale gets
+    // ease-out-back for a slight bloom overshoot.
+    const easedScale = easeOutBack(u);
+    const eased      = easeOutCubic(u);
+    return {
+      x:       lerp(t.from.x,       t.to.x,       eased),
+      y:       lerp(t.from.y,       t.to.y,       eased),
+      opacity: lerp(t.from.opacity, t.to.opacity, eased),
+      scale:   lerp(t.from.scale,   t.to.scale,   easedScale),
+    };
+  }
+  // Exiting — spec §5: "position linear lerps toward parent centroid";
+  // opacity + scale use ease-in so the fade accelerates at the end.
+  const eased = easeIn(u);
   return {
-    x:       lerp(t.from.x,       t.to.x,       easeMain),
-    y:       lerp(t.from.y,       t.to.y,       easeMain),
-    opacity: lerp(t.from.opacity, t.to.opacity, easeMain),
-    scale:   lerp(t.from.scale,   t.to.scale,   easeScale),
+    x:       lerp(t.from.x,       t.to.x,       u),      // linear
+    y:       lerp(t.from.y,       t.to.y,       u),      // linear
+    opacity: lerp(t.from.opacity, t.to.opacity, eased),
+    scale:   lerp(t.from.scale,   t.to.scale,   eased),
   };
 }
 
