@@ -197,4 +197,89 @@ describe('projection', () => {
       expect(projectionDeltaIsInteresting(p1, p2)).toBe(false);
     });
   });
+
+  describe('mid-zoom discrimination', () => {
+    it('emits mid-depth path groups at zoom 0.7 that are not present at zoom 0.3', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/worker/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/events/worker/b.ts' },
+          { id: 'c', kind: 'file', name: 'c', file_path: 'src/events/worker/sub/c.ts' },
+          { id: 'd', kind: 'file', name: 'd', file_path: 'src/events/worker/sub/d.ts' },
+        ],
+        [],
+      );
+      const farOut = project(state, { ...defaultInputs, zoom: 0.3 });
+      const midOut = project(state, { ...defaultInputs, zoom: 0.7 });
+
+      // At far zoom, only top-of-forest dir groups emit.
+      const farIds = [...farOut.visibleNodes.keys()];
+      // At mid zoom, one level deeper is additionally emitted.
+      const midIds = [...midOut.visibleNodes.keys()];
+
+      // Mid should include strictly more group representatives than far,
+      // or the same set (if there's no deeper forest level to include).
+      expect(midIds.length).toBeGreaterThanOrEqual(farIds.length);
+
+      // Specifically, if the dir-group forest has depth>1, mid picks up a deeper node.
+      const farHasSub = farIds.includes('group:path:src/events/worker/sub');
+      const midHasSub = midIds.includes('group:path:src/events/worker/sub');
+      expect(farHasSub).toBe(false);
+      expect(midHasSub).toBe(true);
+    });
+  });
+
+  describe('raw-edge passthrough', () => {
+    it('passes through a non-aggregate edge when both endpoints are visible leaves', () => {
+      const state = makeState(
+        [
+          { id: 'f1', kind: 'file', name: 'a.ts', file_path: 'src/a.ts' },
+          { id: 'f2', kind: 'file', name: 'b.ts', file_path: 'src/b.ts' },
+        ],
+        [{ source_id: 'f1', target_id: 'f2', relation: 'CALLS' }],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 3.0 });
+      const edges = [...out.visibleEdges.values()];
+      expect(edges.length).toBe(1);
+      expect(edges[0].aggregate).toBeFalsy();
+      expect(edges[0].source_id).toBe('f1');
+      expect(edges[0].target_id).toBe('f2');
+      expect(edges[0].relation).toBe('CALLS');
+    });
+  });
+
+  describe('aggregate relations breakdown', () => {
+    it('preserves per-relation counts and picks the majority relation as top-level', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/events/b.ts' },
+          { id: 'c', kind: 'file', name: 'c', file_path: 'src/graph/c.ts' },
+          { id: 'd', kind: 'file', name: 'd', file_path: 'src/graph/d.ts' },
+        ],
+        [
+          { source_id: 'a', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'b', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'a', target_id: 'd', relation: 'IMPORTS' },
+        ],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3 });
+      const aggs = [...out.visibleEdges.values()].filter((e) => e.aggregate);
+      expect(aggs.length).toBe(1);
+      const agg = aggs[0];
+
+      // Majority is CALLS (2 vs 1 IMPORTS).
+      expect(agg.relation).toBe('CALLS');
+
+      // Relations object carries the breakdown.
+      expect(typeof agg.relations).toBe('object');
+      expect(agg.relations).not.toBeNull();
+      expect(agg.relations.CALLS).toBe(2);
+      expect(agg.relations.IMPORTS).toBe(1);
+
+      // Sum of breakdown equals count.
+      const sum = Object.values(agg.relations).reduce((s: number, n: any) => s + n, 0);
+      expect(sum).toBe(agg.count);
+    });
+  });
 });

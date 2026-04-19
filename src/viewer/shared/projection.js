@@ -62,6 +62,18 @@ export function project(state, inputs) {
   const allNodes = [...state.nodes.values()];
   const allEdges = [...state.edges.values()];
 
+  // Precompute focus neighborhood once per call (O(E) build, O(1) lookup).
+  let focusNeighbors = null;
+  if (focus) {
+    focusNeighbors = new Set([focus.root]);
+    if (focus.depth >= 1) {
+      for (const e of allEdges) {
+        if (e.source_id === focus.root) focusNeighbors.add(e.target_id);
+        else if (e.target_id === focus.root) focusNeighbors.add(e.source_id);
+      }
+    }
+  }
+
   // Derive groups once per call.
   const pathGroups = derivePathGroups(allNodes);
   const territories = deriveTerritories(allNodes, allEdges);
@@ -135,7 +147,7 @@ export function project(state, inputs) {
 
   for (const n of allNodes) {
     if (!filters.has(n.kind) && n.kind !== 'decision') continue;
-    if (focus && !inFocus(n.id, focus, allEdges)) continue;
+    if (focus && !focusNeighbors.has(n.id)) continue;
 
     // Decisions are always visible (when not filtered out).
     if (n.kind === 'decision') {
@@ -158,7 +170,7 @@ export function project(state, inputs) {
     const q = String(search).toLowerCase();
     for (const n of allNodes) {
       if (!filters.has(n.kind) && n.kind !== 'decision') continue;
-      if (focus && !inFocus(n.id, focus, allEdges)) continue;
+      if (focus && !focusNeighbors.has(n.id)) continue;
       if (!nameMatches(n, q)) continue;
       visibleLeafIds.add(n.id);
       // Un-emit every ancestor group covering this leaf so the leaf doesn't
@@ -290,16 +302,6 @@ export function projectionDeltaIsInteresting(previous, current) {
 }
 
 // ---- helpers ----
-
-function inFocus(id, focus, edges) {
-  if (id === focus.root) return true;
-  if (focus.depth < 1) return false;
-  for (const e of edges) {
-    if (e.source_id === focus.root && e.target_id === id) return true;
-    if (e.target_id === focus.root && e.source_id === id) return true;
-  }
-  return false;
-}
 
 function nameMatches(node, query) {
   return (node.name && node.name.toLowerCase().includes(query))
