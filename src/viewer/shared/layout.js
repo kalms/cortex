@@ -5,31 +5,23 @@ import {
   forceCenter,
   forceCollide,
 } from 'd3-force';
+import { worldSize, groupWorldSize } from './sizing.js';
 
 /**
- * d3-force configuration for the 2D graph viewer.
+ * d3-force configuration for the 2D viewer.
  *
- * Pure tables for kind → size / charge and relation → distance / strength are
- * exported so the render loop can use them directly and tests can assert
- * their contents. `createSimulation()` wires them into a running simulation.
+ * Charges and link distances/strengths live here (they're force-specific);
+ * node sizes come from sizing.js so the render and the physics agree.
  */
-
-const SIZE = {
-  decision: 7.5,
-  file: 5,
-  function: 2.5,
-  component: 4.5,
-  reference: 4.5,
-  path: 3.5,
-};
 
 const CHARGE = {
   decision: -220,
-  file: -80,
+  file:     -80,
   function: -40,
   component: -40,
   reference: -40,
-  path: -25,
+  path:     -25,
+  group:    -180,   // supernodes repel like mid-weight decisions
 };
 
 const LINK_DIST = {
@@ -50,8 +42,12 @@ const LINK_STR = {
   'co-changed': 0.1,
 };
 
-export function nodeSize(kind) {
-  return SIZE[kind] ?? 4;
+export function nodeSize(kindOrNode) {
+  // Accept either a kind string (test convention) or a node object.
+  if (typeof kindOrNode === 'string') return worldSize(kindOrNode);
+  const n = kindOrNode;
+  if (n.kind === 'group') return groupWorldSize(n.memberCount ?? 1);
+  return worldSize(n.kind);
 }
 
 export function nodeCharge(node) {
@@ -66,16 +62,11 @@ export function linkStrength(link) {
   return LINK_STR[link.relation] ?? 0.3;
 }
 
-/**
- * Build a running d3 simulation, forces pre-configured.
- * Call `.nodes(...)` and `.force('link').links(...)` on the returned sim
- * after hydrating graph state.
- */
 export function createSimulation() {
   return forceSimulation()
     .force('link',   forceLink().id(n => n.id).distance(linkDistance).strength(linkStrength))
     .force('charge', forceManyBody().strength(nodeCharge))
     .force('center', forceCenter(0, 0).strength(0.12))
-    .force('collide', forceCollide().radius(n => nodeSize(n.kind) + 4))
+    .force('collide', forceCollide().radius(n => nodeSize(n) + 4))
     .alpha(1);
 }
