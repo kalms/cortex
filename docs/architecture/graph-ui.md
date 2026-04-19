@@ -251,11 +251,15 @@ modules together, opens the WebSocket, and runs the render loop.
 |---|---|---|
 | `shared/state.js` | graph state + `applyMutation` | yes |
 | `shared/colors.js` | palette + `lerpRGB` + `rgbString` | yes |
-| `shared/shapes.js` | Canvas 2D shape primitives | yes (over a ctx) |
-| `shared/layout.js` | d3-force config + per-kind/relation tables | yes |
+| `shared/shapes.js` | Canvas 2D shape primitives incl. rounded-rect + hull | yes (over a ctx) |
+| `shared/sizing.js` | per-kind `{ world, min_px, max_px }` + `sizeAt(kind, zoom)` + edge stroke | yes |
+| `shared/groups.js` | path + territory group derivation | yes |
+| `shared/projection.js` | `project(state, inputs)` — LOD, aggregation, force-visible | yes |
+| `shared/transitions.js` | projection-diff → enter/exit transition state | yes |
+| `shared/layout.js` | d3-force config (reads sizing) | yes |
 | `shared/animation.js` | hover + synapse state machine | yes |
 | `shared/websocket.js` | reconnecting WS client | yes (over `WebSocket`) |
-| `graph-viewer-2d.js` | DOM wiring + render loop | no (side-effectful entry) |
+| `graph-viewer-2d.js` | DOM wiring + render loop + interaction | no (side-effectful entry) |
 
 Every `shared/` module is unit-tested in Vitest. The entry file is
 hand-verified against the running dev server (canvas rendering and animation
@@ -269,6 +273,38 @@ Per frame (requestAnimationFrame):
 2. `applyBreathing(t)` — sinusoidal velocity nudge per node
 3. `advance(anim, 1)` — lerp hover + colorMix, age synapses, prune expired
 4. `draw()` — clear, edges, nodes, synapse overlay (ordered for z-behavior)
+
+### Projection pipeline
+
+The render loop does not read from `shared/state.js` directly. It reads from
+the output of `project(state, { zoom, focus, filters, search })`, which
+returns:
+
+- `visibleNodes` — the leaves and synthesized group representatives to render + simulate
+- `visibleEdges` — raw edges + aggregate edges for folded endpoints
+- `groups` — emitted path groups + visible territory specs (for hull rendering)
+
+`reproject(reason)` is the single choke point. It runs the projection,
+checks whether the visible set changed (`projectionDeltaIsInteresting`),
+and if so: feeds the sim, reheats alpha, and registers enter/exit
+transitions for the deltas.
+
+**Reheat triggers:**
+
+| Event | `reason` | Alpha |
+|---|---|---|
+| Graph mutation | `mutation` | 0.3 |
+| Kind filter toggle | `filter` | 0.3 |
+| Search input (debounced 200ms) | `search` | 0.2 |
+| Zoom crossing BAND_TABLE threshold | `band-cross` | 0.4 |
+| Focus enter/exit | `focus-*` | 0.5 |
+
+Pan, hover, selection, and intra-band zoom do *not* reheat.
+
+**New-node positioning** inherits from parent: an entering leaf starts at
+its path-group's centroid, an entering supernode starts at the centroid of
+its (now-leaving) children. This turns what would be "positions re-rolled
+by d3-force" into "emerging from where they belong."
 
 ### Extending the viewer
 

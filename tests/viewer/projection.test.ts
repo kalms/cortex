@@ -1,0 +1,285 @@
+import { describe, it, expect } from 'vitest';
+import {
+  project,
+  BAND_TABLE,
+  projectionDeltaIsInteresting,
+} from '../../src/viewer/shared/projection.js';
+
+function makeState(nodes: any[], edges: any[]) {
+  return {
+    nodes: new Map(nodes.map((n) => [n.id, n])),
+    edges: new Map(edges.map((e, i) => [`ek:${i}`, e])),
+  };
+}
+
+const defaultInputs = {
+  zoom: 1.0,
+  focus: null,
+  filters: new Set(['decision', 'file', 'function', 'component', 'reference', 'path']),
+  search: '',
+};
+
+describe('projection', () => {
+  describe('BAND_TABLE', () => {
+    it('has four bands covering zoom from 0 to Infinity', () => {
+      expect(BAND_TABLE.length).toBe(4);
+      expect(BAND_TABLE[0].maxZoom).toBeCloseTo(0.4);
+      expect(BAND_TABLE[BAND_TABLE.length - 1].maxZoom).toBe(Infinity);
+    });
+  });
+
+  describe('far zoom (< 0.4×) — decisions + top-level groups only', () => {
+    it('emits decisions and top-level path groups, not leaves', () => {
+      const state = makeState(
+        [
+          { id: 'd1', kind: 'decision', name: 'D1' },
+          { id: 'a', kind: 'file', name: 'a.ts', file_path: 'src/events/worker/a.ts' },
+          { id: 'b', kind: 'file', name: 'b.ts', file_path: 'src/events/worker/b.ts' },
+          { id: 'c', kind: 'file', name: 'c.ts', file_path: 'src/graph/c.ts' },
+          { id: 'c2', kind: 'file', name: 'c2.ts', file_path: 'src/graph/c2.ts' },
+        ],
+        [],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3 });
+      const ids = [...out.visibleNodes.keys()];
+      expect(ids).toContain('d1');
+      // Leaves must not appear
+      expect(ids).not.toContain('a');
+      expect(ids).not.toContain('c');
+      // Some top-level path group must appear
+      expect(ids.some((id) => id.startsWith('group:path:src'))).toBe(true);
+    });
+  });
+
+  describe('close zoom (> 2.0×) — all leaves visible', () => {
+    it('emits all leaves including functions', () => {
+      const state = makeState(
+        [
+          { id: 'd1', kind: 'decision', name: 'D1' },
+          { id: 'f1', kind: 'file', name: 'a.ts', file_path: 'src/a.ts' },
+          { id: 'fn1', kind: 'function', name: 'doThing',
+            file_path: 'src/a.ts', qualified_name: 'src/a.ts::doThing' },
+        ],
+        [],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 3.0 });
+      const ids = [...out.visibleNodes.keys()];
+      expect(ids).toContain('d1');
+      expect(ids).toContain('f1');
+      expect(ids).toContain('fn1');
+    });
+  });
+
+  describe('search force-visible', () => {
+    it('forces a matching folded leaf visible at far zoom with ancestor path', () => {
+      const state = makeState(
+        [
+          { id: 'd1', kind: 'decision', name: 'D1' },
+          { id: 'a', kind: 'file', name: 'persister.ts',
+            file_path: 'src/events/worker/persister.ts' },
+          { id: 'b', kind: 'file', name: 'git-watcher.ts',
+            file_path: 'src/events/worker/git-watcher.ts' },
+          { id: 'c', kind: 'file', name: 'other.ts', file_path: 'src/other/x.ts' },
+          { id: 'c2', kind: 'file', name: 'other2.ts', file_path: 'src/other/y.ts' },
+        ],
+        [],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3, search: 'persister' });
+      const ids = [...out.visibleNodes.keys()];
+      expect(ids).toContain('a');   // matched leaf forced visible
+    });
+  });
+
+  describe('focus restriction', () => {
+    it('restricts to root + 1-hop neighborhood', () => {
+      const state = makeState(
+        [
+          { id: 'r', kind: 'file', name: 'root.ts', file_path: 'src/r.ts' },
+          { id: 'n1', kind: 'file', name: 'n1.ts', file_path: 'src/n1.ts' },
+          { id: 'n2', kind: 'file', name: 'n2.ts', file_path: 'src/n2.ts' },
+          { id: 'far', kind: 'file', name: 'far.ts', file_path: 'src/far.ts' },
+        ],
+        [
+          { source_id: 'r', target_id: 'n1', relation: 'CALLS' },
+          { source_id: 'r', target_id: 'n2', relation: 'CALLS' },
+        ],
+      );
+      const out = project(state, {
+        ...defaultInputs, zoom: 3.0, focus: { root: 'r', depth: 1 },
+      });
+      const ids = [...out.visibleNodes.keys()];
+      expect(ids.sort()).toEqual(['n1', 'n2', 'r']);
+    });
+  });
+
+  describe('aggregate edges', () => {
+    it('rolls edges between folded supernodes into an aggregate edge', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/events/b.ts' },
+          { id: 'c', kind: 'file', name: 'c', file_path: 'src/graph/c.ts' },
+          { id: 'd', kind: 'file', name: 'd', file_path: 'src/graph/d.ts' },
+        ],
+        [
+          { source_id: 'a', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'b', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'a', target_id: 'd', relation: 'IMPORTS' },
+        ],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3 });
+      const aggs = [...out.visibleEdges.values()].filter((e) => e.aggregate);
+      expect(aggs.length).toBeGreaterThanOrEqual(1);
+      const total = aggs.reduce((sum, e) => sum + e.count, 0);
+      expect(total).toBe(3);
+    });
+  });
+
+  describe('dangling edge — forced-visible node to folded neighbor', () => {
+    it('emits an aggregate edge from the forced leaf to the neighbor supernode', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'persister.ts',
+            file_path: 'src/events/worker/persister.ts' },
+          { id: 'b', kind: 'file', name: 'other.ts', file_path: 'src/graph/other.ts' },
+          { id: 'b2', kind: 'file', name: 'other2.ts', file_path: 'src/graph/other2.ts' },
+        ],
+        [{ source_id: 'a', target_id: 'b', relation: 'CALLS' }],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3, search: 'persister' });
+      const visibleIds = new Set(out.visibleNodes.keys());
+      expect(visibleIds.has('a')).toBe(true);
+      expect(visibleIds.has('b')).toBe(false);
+      // There must be an edge whose target is the supernode containing b.
+      const hasAggToNeighborGroup = [...out.visibleEdges.values()].some(
+        (e) => e.source_id === 'a' && e.target_id.startsWith('group:path:src/graph'),
+      );
+      expect(hasAggToNeighborGroup).toBe(true);
+    });
+  });
+
+  describe('idempotence', () => {
+    it('same inputs → same output shape (by deep-equal)', () => {
+      const state = makeState(
+        [
+          { id: 'd1', kind: 'decision', name: 'D1' },
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/b.ts' },
+        ],
+        [],
+      );
+      const a = project(state, { ...defaultInputs, zoom: 0.5 });
+      const b = project(state, { ...defaultInputs, zoom: 0.5 });
+      expect([...a.visibleNodes.keys()].sort()).toEqual([...b.visibleNodes.keys()].sort());
+      expect([...a.visibleEdges.keys()].sort()).toEqual([...b.visibleEdges.keys()].sort());
+    });
+  });
+
+  describe('projectionDeltaIsInteresting', () => {
+    it('false when previous is null and current is any projection', () => {
+      const state = makeState([{ id: 'a', kind: 'file', name: 'a' }], []);
+      const curr = project(state, defaultInputs);
+      expect(projectionDeltaIsInteresting(null, curr)).toBe(true);
+    });
+
+    it('true when visible node id set differs', () => {
+      const s1 = makeState([{ id: 'a', kind: 'file', name: 'a' }], []);
+      const s2 = makeState([{ id: 'b', kind: 'file', name: 'b' }], []);
+      const p1 = project(s1, defaultInputs);
+      const p2 = project(s2, defaultInputs);
+      expect(projectionDeltaIsInteresting(p1, p2)).toBe(true);
+    });
+
+    it('false when node ids identical and edges identical', () => {
+      const s = makeState([{ id: 'a', kind: 'file', name: 'a' }], []);
+      const p1 = project(s, defaultInputs);
+      const p2 = project(s, defaultInputs);
+      expect(projectionDeltaIsInteresting(p1, p2)).toBe(false);
+    });
+  });
+
+  describe('mid-zoom discrimination', () => {
+    it('emits mid-depth path groups at zoom 0.7 that are not present at zoom 0.3', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/worker/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/events/worker/b.ts' },
+          { id: 'c', kind: 'file', name: 'c', file_path: 'src/events/worker/sub/c.ts' },
+          { id: 'd', kind: 'file', name: 'd', file_path: 'src/events/worker/sub/d.ts' },
+        ],
+        [],
+      );
+      const farOut = project(state, { ...defaultInputs, zoom: 0.3 });
+      const midOut = project(state, { ...defaultInputs, zoom: 0.7 });
+
+      // At far zoom, only top-of-forest dir groups emit.
+      const farIds = [...farOut.visibleNodes.keys()];
+      // At mid zoom, one level deeper is additionally emitted.
+      const midIds = [...midOut.visibleNodes.keys()];
+
+      // Mid should include strictly more group representatives than far,
+      // or the same set (if there's no deeper forest level to include).
+      expect(midIds.length).toBeGreaterThanOrEqual(farIds.length);
+
+      // Specifically, if the dir-group forest has depth>1, mid picks up a deeper node.
+      const farHasSub = farIds.includes('group:path:src/events/worker/sub');
+      const midHasSub = midIds.includes('group:path:src/events/worker/sub');
+      expect(farHasSub).toBe(false);
+      expect(midHasSub).toBe(true);
+    });
+  });
+
+  describe('raw-edge passthrough', () => {
+    it('passes through a non-aggregate edge when both endpoints are visible leaves', () => {
+      const state = makeState(
+        [
+          { id: 'f1', kind: 'file', name: 'a.ts', file_path: 'src/a.ts' },
+          { id: 'f2', kind: 'file', name: 'b.ts', file_path: 'src/b.ts' },
+        ],
+        [{ source_id: 'f1', target_id: 'f2', relation: 'CALLS' }],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 3.0 });
+      const edges = [...out.visibleEdges.values()];
+      expect(edges.length).toBe(1);
+      expect(edges[0].aggregate).toBeFalsy();
+      expect(edges[0].source_id).toBe('f1');
+      expect(edges[0].target_id).toBe('f2');
+      expect(edges[0].relation).toBe('CALLS');
+    });
+  });
+
+  describe('aggregate relations breakdown', () => {
+    it('preserves per-relation counts and picks the majority relation as top-level', () => {
+      const state = makeState(
+        [
+          { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/a.ts' },
+          { id: 'b', kind: 'file', name: 'b', file_path: 'src/events/b.ts' },
+          { id: 'c', kind: 'file', name: 'c', file_path: 'src/graph/c.ts' },
+          { id: 'd', kind: 'file', name: 'd', file_path: 'src/graph/d.ts' },
+        ],
+        [
+          { source_id: 'a', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'b', target_id: 'c', relation: 'CALLS' },
+          { source_id: 'a', target_id: 'd', relation: 'IMPORTS' },
+        ],
+      );
+      const out = project(state, { ...defaultInputs, zoom: 0.3 });
+      const aggs = [...out.visibleEdges.values()].filter((e) => e.aggregate);
+      expect(aggs.length).toBe(1);
+      const agg = aggs[0];
+
+      // Majority is CALLS (2 vs 1 IMPORTS).
+      expect(agg.relation).toBe('CALLS');
+
+      // Relations object carries the breakdown.
+      expect(typeof agg.relations).toBe('object');
+      expect(agg.relations).not.toBeNull();
+      expect(agg.relations.CALLS).toBe(2);
+      expect(agg.relations.IMPORTS).toBe(1);
+
+      // Sum of breakdown equals count.
+      const sum = Object.values(agg.relations).reduce((s: number, n: any) => s + n, 0);
+      expect(sum).toBe(agg.count);
+    });
+  });
+});
