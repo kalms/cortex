@@ -69,6 +69,11 @@ let targetCamera = null;   // when set, frame() lerps camera toward it
 let hasInitiallyFit = false;
 window.__cortex_viewer_camera = () => camState.camera;  // hook for tests / debugging
 
+let pendingAutoFit = false;
+let autoFitLerp = null;  // { from, to, t0 } while animating
+
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
 // --- Projection state (must be hoisted above sim setup; inputs are read by reproject). ---
 let projected = null;   // current projection output
 const transitionState = createTransitionState();
@@ -104,7 +109,14 @@ function recenter() {
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
-const simulation = createSimulation().on('tick', () => {});
+const simulation = createSimulation().on('tick', () => {
+  if (pendingAutoFit && simulation.alpha() < 0.02) {
+    pendingAutoFit = false;
+    const nodes = [...projected.visibleNodes.values()];
+    const target = fitToBounds(nodes, canvas.width / devicePixelRatio, canvas.height / devicePixelRatio, 40);
+    autoFitLerp = { from: { ...camState.camera }, to: target, t0: performance.now() };
+  }
+});
 // Set boundary radius to match canvas dimensions immediately (resize() ran before sim was created).
 {
   const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
@@ -165,6 +177,7 @@ function reproject(reason) {
     simulation.force('link').distance(link => linkDistance(link) * adapt);
     simulation.force('charge').strength(node => nodeCharge(node) * adapt);
     simulation.alpha(alphaFor(reason)).restart();
+    if (camState.mode === 'overview') pendingAutoFit = true;
   }
 }
 
@@ -380,6 +393,7 @@ let didPan = false;   // suppress click after a drag
 canvas.addEventListener('pointerdown', (ev) => {
   // Only pan if no node is under the cursor (otherwise let click/dblclick through).
   if (pickNodeAt(ev)) return;
+  if (camState.mode === 'overview') return;  // no pan in overview
   isPanning = true;
   panStart = { screenX: ev.clientX, screenY: ev.clientY, cameraX: camState.camera.x, cameraY: camState.camera.y };
   canvas.classList.add('panning');
@@ -855,6 +869,13 @@ function frame(t) {
     camState.camera = fit;
     hasInitiallyFit = true;
     if (bandIndexFor(camState.camera.zoom) !== prevBand) reproject('band-cross');
+  }
+
+  // Auto-fit lerp after reheat settles (overview mode).
+  if (autoFitLerp) {
+    const t = Math.min(1, (performance.now() - autoFitLerp.t0) / 400);
+    camState.camera = lerpCamera(autoFitLerp.from, autoFitLerp.to, easeOutCubic(t));
+    if (t >= 1) autoFitLerp = null;
   }
 
   // Smooth camera animation toward a target, if one is set.
