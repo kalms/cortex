@@ -225,5 +225,15 @@ describe('layout', () => {
       f(1.0);
       expect(file.vx).toBe(0);
     });
+
+    it('.strength(s) scales force magnitude linearly', () => {
+      const mk = () => ([
+        { id: 'd1', kind: 'decision', governs: ['a'], x: 0, y: 0, vx: 0, vy: 0 },
+        { id: 'a', kind: 'group', x: 100, y: 0, vx: 0, vy: 0 },
+      ]);
+      const ns1 = mk(); const f1 = forceGovernance(0.3); f1.initialize(ns1); f1(1.0);
+      const ns2 = mk(); const f2 = forceGovernance(0.6); f2.initialize(ns2); f2(1.0);
+      expect(Math.abs(ns2[0].vx)).toBeCloseTo(Math.abs(ns1[0].vx) * 2, 5);
+    });
   });
 });
