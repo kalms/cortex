@@ -9,7 +9,7 @@ import {
   rgbString,
   BACKGROUND,
 } from '/viewer/shared/colors.js';
-import { nodeSize, createSimulation } from '/viewer/shared/layout.js';
+import { nodeSize, nodeCharge, linkDistance, createSimulation, adaptiveScale } from '/viewer/shared/layout.js';
 import {
   createAnimState,
   advance,
@@ -48,6 +48,10 @@ function resize() {
   canvas.width = canvas.clientWidth * DPR;
   canvas.height = canvas.clientHeight * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (typeof simulation !== 'undefined' && simulation) {
+    const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
+    simulation.force('boundary').radius(r);
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -98,6 +102,11 @@ const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
 const simulation = createSimulation().on('tick', () => {});
+// Set boundary radius to match canvas dimensions immediately (resize() ran before sim was created).
+{
+  const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
+  simulation.force('boundary').radius(r);
+}
 
 /**
  * Run the projection and, if the visible set changed, feed the sim + reheat.
@@ -149,6 +158,9 @@ function reproject(reason) {
       aggregate: !!e.aggregate,
       count: e.count,
     })));
+    const adapt = adaptiveScale(projected.visibleNodes.size);
+    simulation.force('link').distance(link => linkDistance(link) * adapt);
+    simulation.force('charge').strength(node => nodeCharge(node) * adapt);
     simulation.alpha(alphaFor(reason)).restart();
   }
 }

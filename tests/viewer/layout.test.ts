@@ -78,14 +78,27 @@ describe('layout', () => {
       const sim = createSimulation();
       expect(sim.force('link')).toBeTruthy();
       expect(sim.force('charge')).toBeTruthy();
-      expect(sim.force('center')).toBeTruthy();
       expect(sim.force('collide')).toBeTruthy();
       sim.stop();
     });
 
-    it('center force strength is > 0.05 (pinned — emergent disk requires a real center pull)', () => {
+    it('boundary force has a configured strength', () => {
       const sim = createSimulation();
-      expect(sim.force('center').strength()).toBeGreaterThan(0.05);
+      expect(sim.force('boundary').strength()).toBeGreaterThan(0);
+      sim.stop();
+    });
+
+    it('includes boundary, group, governance forces', () => {
+      const sim = createSimulation();
+      expect(sim.force('boundary')).toBeTruthy();
+      expect(sim.force('group')).toBeTruthy();
+      expect(sim.force('governance')).toBeTruthy();
+      sim.stop();
+    });
+
+    it('drops the forceCenter (boundary replaces it)', () => {
+      const sim = createSimulation();
+      expect(sim.force('center')).toBeFalsy();
       sim.stop();
     });
   });

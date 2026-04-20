@@ -2,7 +2,6 @@ import {
   forceSimulation,
   forceLink,
   forceManyBody,
-  forceCenter,
   forceCollide,
 } from 'd3-force';
 import { worldSize, groupWorldSize } from './sizing.js';
@@ -62,12 +61,24 @@ export function linkStrength(link) {
   return LINK_STR[link.relation] ?? 0.3;
 }
 
-export function createSimulation() {
+const DEFAULT_BOUNDARY_STRENGTH = 0.8;
+const DEFAULT_GROUP_STRENGTH    = 0.35;
+const DEFAULT_GOVERN_STRENGTH   = 0.25;
+
+function collideRadius(n) {
+  if (n.kind === 'group' && n.radius) return n.radius + 4;
+  return nodeSize(n) + 4;
+}
+
+export function createSimulation(opts = {}) {
+  const radius = opts.radius ?? 400;
   return forceSimulation()
-    .force('link',   forceLink().id(n => n.id).distance(linkDistance).strength(linkStrength))
-    .force('charge', forceManyBody().strength(nodeCharge))
-    .force('center', forceCenter(0, 0).strength(0.12))
-    .force('collide', forceCollide().radius(n => nodeSize(n) + 4))
+    .force('link',       forceLink().id(n => n.id).distance(linkDistance).strength(linkStrength))
+    .force('charge',     forceManyBody().strength(nodeCharge))
+    .force('collide',    forceCollide().radius(collideRadius))
+    .force('boundary',   forceBoundary(radius, DEFAULT_BOUNDARY_STRENGTH))
+    .force('group',      forceGroup(DEFAULT_GROUP_STRENGTH))
+    .force('governance', forceGovernance(DEFAULT_GOVERN_STRENGTH))
     .alpha(1);
 }
 
