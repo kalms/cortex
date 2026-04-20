@@ -10,6 +10,7 @@
 
 import { derivePathGroups, deriveTerritories, pathGroupId } from './groups.js';
 import { edgeKey } from './state.js';
+import { supernodeDims } from './sizing.js';
 
 /**
  * Band table — structure-primary. Depth-2 dir supernodes form the backbone
@@ -188,16 +189,21 @@ export function project(state, inputs) {
   for (const id of emittedGroupIds) {
     const g = groupById.get(id);
     if (!g) continue;
+    const label = labelFor(g);
+    const dims = supernodeDims(label);
     // Group representative: synthetic node with id === g.id.
     visibleNodes.set(g.id, {
       id: g.id,
       kind: 'group',
-      name: labelFor(g),
+      name: label,
       groupKind: g.kind,          // 'dir' or 'file'
       members: g.members,
       memberCount: g.memberCount,
       dirPath: g.dirPath,
       filePath: g.filePath,
+      boxW: dims.w,
+      boxH: dims.h,
+      radius: dims.radius,
       // x/y filled in by syncSimulation's inherit-from-centroid logic later.
     });
   }

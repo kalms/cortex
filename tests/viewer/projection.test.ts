@@ -335,4 +335,23 @@ describe('projection', () => {
       expect(sum).toBe(agg.count);
     });
   });
+
+  describe('supernode dimensions', () => {
+    it('group representatives include boxW/boxH/radius from supernodeDims', () => {
+      const state = makeState(
+        [
+          { id: 'f1', kind: 'file', file_path: 'src/events/a.ts' },
+          { id: 'f2', kind: 'file', file_path: 'src/events/b.ts' },
+        ],
+        [],
+      );
+      const filters = new Set(['file', 'decision']);
+      const { visibleNodes } = project(state, { zoom: 0.3, focus: null, filters, search: '' });
+      const g = visibleNodes.get('group:path:src/events');
+      expect(g).toBeDefined();
+      expect(g.boxW).toBeGreaterThan(0);
+      expect(g.boxH).toBeGreaterThan(0);
+      expect(g.radius).toBeGreaterThan(0);
+    });
+  });
 });
