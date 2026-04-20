@@ -710,12 +710,32 @@ function draw() {
   drawLabels();
 }
 
+/**
+ * Returns true iff a node's label should render at the given zoom.
+ * Selection and search-match are overrides handled by the caller.
+ *   group:    always
+ *   decision: always
+ *   file:     zoom >= 0.7
+ *   function/reference/component/etc: zoom >= 2.0
+ */
+function labelVisibleAt(node, zoom) {
+  if (node.kind === 'group' || node.kind === 'decision') return true;
+  if (node.kind === 'file') return zoom >= 0.7;
+  return zoom >= 2.0;
+}
+
 function drawLabels() {
   ctx.save();
   ctx.font = '11px "Geist Mono", monospace';
   ctx.textBaseline = 'middle';
 
   for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
+    const isSelected = node.id === selectedId;
+    const isSearchMatch = searchQuery && searchMatch(node, searchQuery);
+
+    // Gate: skip unless the band allows it or a selection/search override applies.
+    if (!labelVisibleAt(node, camera.zoom) && !isSelected && !isSearchMatch) continue;
+
     // Per-kind fade windows.
     let alpha = 0;
     if (node.kind === 'decision') {
@@ -732,10 +752,13 @@ function drawLabels() {
 
     if (node.kind === 'group') alpha = 1;   // groups are always labeled
 
+    // Override: selected or search-match nodes always render at full alpha.
+    if (isSelected || isSearchMatch) alpha = Math.max(alpha, 1);
+
     if (alpha <= 0) continue;
 
     // Search dim also applies to labels, but hover wins (matches node rule).
-    if (searchQuery && !searchMatch(node, searchQuery) && node.id !== hoveredId) {
+    if (searchQuery && !isSearchMatch && node.id !== hoveredId) {
       alpha *= 0.15;
     }
 
