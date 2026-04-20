@@ -5,6 +5,7 @@ import {
   sizeAt,
   groupWorldSize,
   edgeStrokeAt,
+  supernodeDims,
 } from '../../src/viewer/shared/sizing.js';
 
 describe('sizing', () => {
@@ -99,6 +100,37 @@ describe('sizing', () => {
     it('CALLS can thin more than GOVERNS at far zoom', () => {
       const z = 0.2;
       expect(edgeStrokeAt('GOVERNS', z)).toBeGreaterThan(edgeStrokeAt('CALLS', z));
+    });
+  });
+
+  describe('supernodeDims', () => {
+    it('returns wider box for longer labels', () => {
+      const short = supernodeDims('ws/');
+      const long  = supernodeDims('docs/superpowers/');
+      expect(long.w).toBeGreaterThan(short.w);
+    });
+
+    it('enforces minimum width of 32', () => {
+      const dim = supernodeDims('a/');
+      expect(dim.w).toBeGreaterThanOrEqual(32);
+    });
+
+    it('has constant height', () => {
+      expect(supernodeDims('ws/').h).toBe(supernodeDims('docs/superpowers/').h);
+      expect(supernodeDims('x').h).toBe(20);
+    });
+
+    it('radius fits the box (≥ half its diagonal / 2)', () => {
+      const d = supernodeDims('src/events/');
+      expect(d.radius).toBeGreaterThanOrEqual(Math.max(d.w, d.h) / 2);
+    });
+
+    it('works in node (no DOM canvas) via fallback measurement', () => {
+      // vitest runs in node by default — measureText unavailable. Should still
+      // return a plausible width proportional to character count.
+      const a = supernodeDims('aaaa/');
+      const b = supernodeDims('aaaaaaaa/');
+      expect(b.w).toBeGreaterThan(a.w);
     });
   });
 });
