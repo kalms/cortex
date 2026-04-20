@@ -5,6 +5,7 @@ import {
   linkDistance,
   linkStrength,
   createSimulation,
+  forceBoundary,
 } from '../../src/viewer/shared/layout.js';
 
 describe('layout', () => {
@@ -83,6 +84,58 @@ describe('layout', () => {
       const sim = createSimulation();
       expect(sim.force('center').strength()).toBeGreaterThan(0.05);
       sim.stop();
+    });
+  });
+
+  describe('forceBoundary', () => {
+    it('applies zero force to a node inside the radius', () => {
+      const n = { x: 50, y: 0, vx: 0, vy: 0 };
+      const f = forceBoundary(100, 1.0, 0, 0);
+      f.initialize([n]);
+      f(0.5); // alpha = 0.5
+      expect(n.vx).toBe(0);
+      expect(n.vy).toBe(0);
+    });
+
+    it('applies inward spring force to a node outside the radius', () => {
+      const n = { x: 200, y: 0, vx: 0, vy: 0 };  // 100 units outside R=100
+      const f = forceBoundary(100, 1.0, 0, 0);
+      f.initialize([n]);
+      f(0.5);
+      expect(n.vx).toBeLessThan(0);       // pushed back toward center
+      expect(n.vy).toBe(0);                // no vertical component (on axis)
+    });
+
+    it('scales strength with excess distance (farther = stronger pull)', () => {
+      const near = { x: 110, y: 0, vx: 0, vy: 0 };   // 10 outside
+      const far  = { x: 200, y: 0, vx: 0, vy: 0 };   // 100 outside
+      const f = forceBoundary(100, 1.0, 0, 0);
+      f.initialize([near, far]);
+      f(1.0);
+      expect(Math.abs(far.vx)).toBeGreaterThan(Math.abs(near.vx));
+    });
+
+    it('.radius(r) setter updates the active radius', () => {
+      const n = { x: 150, y: 0, vx: 0, vy: 0 };
+      const f = forceBoundary(100, 1.0, 0, 0);
+      f.initialize([n]);
+      f(1.0);
+      const pushAt100 = n.vx;
+      n.vx = 0;
+      f.radius(200);                        // widen radius — now node is inside
+      f(1.0);
+      expect(n.vx).toBe(0);
+      expect(pushAt100).toBeLessThan(0);
+    });
+
+    it('.strength(s) setter scales force magnitude', () => {
+      const n1 = { x: 200, y: 0, vx: 0, vy: 0 };
+      const n2 = { x: 200, y: 0, vx: 0, vy: 0 };
+      const f1 = forceBoundary(100, 1.0, 0, 0);
+      const f2 = forceBoundary(100, 2.0, 0, 0);
+      f1.initialize([n1]); f2.initialize([n2]);
+      f1(1.0); f2(1.0);
+      expect(Math.abs(n2.vx)).toBeCloseTo(Math.abs(n1.vx) * 2, 5);
     });
   });
 });

@@ -70,3 +70,34 @@ export function createSimulation() {
     .force('collide', forceCollide().radius(n => nodeSize(n) + 4))
     .alpha(1);
 }
+
+/**
+ * Soft outer containment force. Nodes inside `radius` feel zero force;
+ * nodes outside feel an inward spring whose magnitude scales with how far
+ * past the radius they are. Pairs with group gravity to produce a circular
+ * layout with free interior placement.
+ *
+ *   radius   — containment radius in world units
+ *   strength — spring constant (default 0.8)
+ *   cx, cy   — center point in world units (default 0, 0)
+ */
+export function forceBoundary(radius, strength = 0.8, cx = 0, cy = 0) {
+  let nodes;
+  function f(alpha) {
+    for (const n of nodes) {
+      const dx = n.x - cx;
+      const dy = n.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d > radius) {
+        const excess = d - radius;
+        const factor = strength * alpha * (excess / d);
+        n.vx -= dx * factor;
+        n.vy -= dy * factor;
+      }
+    }
+  }
+  f.initialize = function(_nodes) { nodes = _nodes; };
+  f.strength = function(s) { if (arguments.length) { strength = s; return f; } return strength; };
+  f.radius = function(r) { if (arguments.length) { radius = r; return f; } return radius; };
+  return f;
+}
