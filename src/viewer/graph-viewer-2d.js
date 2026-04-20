@@ -44,8 +44,19 @@ import { pathGroupId } from '/viewer/shared/groups.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
+const modeIndicator = document.getElementById('mode-indicator');
 const ctx = canvas.getContext('2d');
 const DPR = window.devicePixelRatio || 1;
+
+function setMode(mode, focusLabel) {
+  camState.mode = mode;
+  if (modeIndicator) {
+    modeIndicator.className = `mode-indicator mode-${mode}`;
+    modeIndicator.textContent = mode === 'focus'
+      ? `FOCUS: ${focusLabel ?? ''}`
+      : 'OVERVIEW';
+  }
+}
 
 function resize() {
   canvas.width = canvas.clientWidth * DPR;
@@ -177,6 +188,7 @@ function reproject(reason) {
     const adapt = adaptiveScale(projected.visibleNodes.size);
     simulation.force('link').distance(link => linkDistance(link) * adapt);
     simulation.force('charge').strength(node => nodeCharge(node) * adapt);
+    simulation.force('boundary').strength(camState.mode === 'focus' ? 0 : 0.8);
     simulation.alpha(alphaFor(reason)).restart();
     if (camState.mode === 'overview') pendingAutoFit = true;
   }
@@ -1011,6 +1023,7 @@ canvas.addEventListener('dblclick', (ev) => {
 
   focusId = best.id;
   focusSet = bfsNeighborhood(best.id, 1);
+  setMode('focus', best.name);
   // Animate camera to fit the focused subgraph.
   const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
   autoFitLerp = null;
@@ -1031,6 +1044,7 @@ window.addEventListener('keydown', (ev) => {
   if (!focusSet) return;
   focusId = null;
   focusSet = null;
+  setMode('overview');
   autoFitLerp = null;
   targetCamera = fitToBounds(
     state.nodes.values(),
