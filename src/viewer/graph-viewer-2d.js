@@ -18,7 +18,7 @@ import {
   clearHover,
   triggerSynapse,
 } from '/viewer/shared/animation.js';
-import { searchMatch } from '/viewer/shared/search.js';
+import { searchMatch, findMatches } from '/viewer/shared/search.js';
 import {
   createCamera,
   worldToScreen as camWorldToScreen,
@@ -510,6 +510,9 @@ canvas.addEventListener('pointerleave', (ev) => {
 
 const searchInput = document.getElementById('search');
 const searchCount = document.getElementById('search-count');
+const chip = document.getElementById('search-chip');
+const chipCount = document.getElementById('search-chip-count');
+const chipMenu = document.getElementById('search-chip-menu');
 
 function updateSearchCount() {
   if (!searchQuery) {
@@ -527,6 +530,20 @@ function updateSearchCount() {
   searchCount.classList.remove('hidden');
 }
 
+function cameraForMatches(matches) {
+  const canvasW = canvas.width / devicePixelRatio;
+  const canvasH = canvas.height / devicePixelRatio;
+  return fitToBounds(matches, canvasW, canvasH, 80);
+}
+
+function lerpCameraTo(target) {
+  autoFitLerp = { from: { ...camState.camera }, to: target, t0: performance.now() };
+}
+
+searchInput.addEventListener('focus', () => {
+  if (!camState.saved) saveCamera(camState);
+});
+
 let searchDebounce = null;
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
@@ -538,8 +555,36 @@ searchInput.addEventListener('input', (ev) => {
   searchDebounce = setTimeout(() => {
     reproject('search');
     updateSearchCount();
+
+    const matches = findMatches([...state.nodes.values()], searchQuery);
+
+    if (matches.length === 0) {
+      chip.hidden = true;
+      chipMenu.hidden = true;
+      return;
+    }
+
+    chip.hidden = false;
+    chipCount.textContent = String(matches.length);
+
+    // Camera lerp to fit matches (single match → center; many → fit bounds)
+    lerpCameraTo(cameraForMatches(matches));
+
+    // Populate menu
+    chipMenu.innerHTML = '';
+    for (const m of matches) {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>${m.name}</strong> <span class="path">${m.file_path ?? ''}</span>`;
+      li.addEventListener('click', () => {
+        lerpCameraTo(cameraForMatches([m]));
+        chipMenu.hidden = true;
+      });
+      chipMenu.appendChild(li);
+    }
   }, 200);
 });
+
+chip.addEventListener('click', () => { chipMenu.hidden = !chipMenu.hidden; });
 
 searchInput.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
@@ -553,6 +598,10 @@ searchInput.addEventListener('keydown', (ev) => {
     }
     reproject('search');
     updateSearchCount();   // refresh after reproject
+    chip.hidden = true;
+    chipMenu.hidden = true;
+    autoFitLerp = null;
+    restoreCamera(camState);
   }
 });
 
