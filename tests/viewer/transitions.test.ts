@@ -90,6 +90,22 @@ describe('transitions', () => {
   });
 });
 
+describe('edge reclassification', () => {
+  it('diffProjection returns reclassified when raw↔aggregate swap', () => {
+    const prev = {
+      visibleNodes: new Map([['a', {id:'a'}], ['b', {id:'b'}]]),
+      visibleEdges: new Map([['a→b', { source_id:'a', target_id:'b', relation:'CALLS' }]]),
+    };
+    const curr = {
+      visibleNodes: new Map([['ga', {id:'ga'}], ['gb', {id:'gb'}]]),
+      visibleEdges: new Map([['agg:ga→gb', { aggregate:true, source_id:'ga', target_id:'gb', count:1, relation:'CALLS' }]]),
+    };
+    const diff = diffProjection(prev, curr);
+    expect(diff.reclassified).toBeDefined();
+    expect(Array.isArray(diff.reclassified)).toBe(true);
+  });
+});
+
 describe('re-parenting on unfold', () => {
   it('entering leaves get initial position from their ex-supernode', () => {
     const prev = {

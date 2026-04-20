@@ -89,6 +89,7 @@ function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 let projected = null;   // current projection output
 const transitionState = createTransitionState();
 let lastFrameT = 0;
+let edgeReclassify = [];  // Array<{ from, to, age, duration, _lastTick? }>
 
 // Hoisted inputs to projectionInputs(): these are also mutated by the search/filter
 // handlers and focus mode lower in the file. Originals were declared later; moved
@@ -149,6 +150,10 @@ function reproject(reason) {
 
   if (!isInitialProjection) {
     const diff = diffProjection(projected, next);
+
+    if (diff.reclassified && diff.reclassified.length > 0) {
+      edgeReclassify = edgeReclassify.concat(diff.reclassified);
+    }
 
     for (const { id, from } of diff.entering) {
       const n = next.visibleNodes.get(id);
@@ -670,12 +675,52 @@ function draw() {
     }
   }
 
+  // Build a set of edge keys currently being cross-faded so the main loop can skip them.
+  const reclassifyKeys = new Set();
+  for (const rc of edgeReclassify) {
+    reclassifyKeys.add(edgeKey({ source_id: rc.from.source_id, target_id: rc.from.target_id, relation: rc.from.relation }));
+    reclassifyKeys.add(edgeKey({ source_id: rc.to.source_id, target_id: rc.to.target_id, relation: rc.to.relation }));
+  }
+
+  /**
+   * Draw a single edge with an alpha multiplier.
+   * @param {object} edge
+   * @param {{ alpha: number }} opts
+   */
+  function drawEdge(edge, opts) {
+    const a = lookupNode(edge.source_id);
+    const b = lookupNode(edge.target_id);
+    if (!a || !b) return;
+    const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
+    const eKey2 = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
+    const eAnim2 = anim.edges.get(eKey2);
+    const h2 = eAnim2 ? eAnim2.highlight : 0;
+    const isSelEdge = selectedId !== null && (edge.source_id === selectedId || edge.target_id === selectedId);
+    const effHi = Math.max(h2, isSelEdge ? 1.0 : 0);
+    const baseAlpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * effHi;
+    const bright = !searchQuery
+      || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
+      || a.id === hoveredId || b.id === hoveredId
+      || isSelEdge;
+    const dimFactor = bright ? 1.0 : 0.15;
+    const aggBoost = edge.aggregate ? (1 + Math.log2(Math.max(1, edge.count))) : 1;
+    ctx.lineWidth = edgeStrokeAt(edge.relation, camState.camera.zoom) * aggBoost;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (baseAlpha * dimFactor * opts.alpha) + ')';
+    ctx.beginPath();
+    ctx.moveTo(a.x ?? 0, a.y ?? 0);
+    ctx.lineTo(b.x ?? 0, b.y ?? 0);
+    ctx.stroke();
+  }
+
   for (const edge of (projected?.visibleEdges.values() ?? state.edges.values())) {
+    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
+    // Skip edges currently in a cross-fade — they are drawn in the reclassify block below.
+    if (reclassifyKeys.has(eKey)) continue;
+
     const a = lookupNode(edge.source_id);
     const b = lookupNode(edge.target_id);
     if (!a || !b) continue;
 
-    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
@@ -700,6 +745,13 @@ function draw() {
     ctx.moveTo(a.x ?? 0, a.y ?? 0);
     ctx.lineTo(b.x ?? 0, b.y ?? 0);
     ctx.stroke();
+  }
+
+  // Cross-fade block: draw outgoing (from) edge fading out, incoming (to) fading in.
+  for (const rc of edgeReclassify) {
+    const p = rc.age / rc.duration;
+    drawEdge(rc.from, { alpha: 1 - p });
+    drawEdge(rc.to,   { alpha: p });
   }
 
   // Iterate over both currently-visible nodes AND those still exiting
@@ -930,6 +982,12 @@ function frame(t) {
   const dt = lastFrameT ? t - lastFrameT : 16;
   lastFrameT = t;
   advanceTransitions(transitionState, dt);
+
+  // Advance edge reclassification cross-fades.
+  for (const rc of edgeReclassify) {
+    rc.age = Math.min(rc.duration, rc.age + dt);
+  }
+  edgeReclassify = edgeReclassify.filter(rc => rc.age < rc.duration);
 
   if (!hasInitiallyFit && simulation.alpha() < 0.3) {
     // Wait for the sim to actually reach roughly equilibrium before framing.

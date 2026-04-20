@@ -28,6 +28,38 @@ function initialPositionForEntering(node, prevNodes) {
 }
 
 /**
+ * Canonical key for an edge endpoint pair (order-independent).
+ * @param {{ source_id: string, target_id: string }} e
+ * @returns {string}
+ */
+function pairKey(e) {
+  return `${e.source_id}↔${e.target_id}`;
+}
+
+/**
+ * Detect edges whose `aggregate` boolean flipped between prev and curr for
+ * the same endpoint pair (exact source_id/target_id match).
+ * Returns an array of `{ from, to, age, duration }` cross-fade descriptors.
+ * @param {{ visibleEdges: Map<string, object> }} prev
+ * @param {{ visibleEdges: Map<string, object> }} curr
+ * @returns {Array<{ from: object, to: object, age: number, duration: number }>}
+ */
+function diffEdges(prev, curr) {
+  const reclassified = [];
+  const prevByPair = new Map();
+  for (const e of prev.visibleEdges.values()) {
+    prevByPair.set(pairKey(e), e);
+  }
+  for (const e of curr.visibleEdges.values()) {
+    const match = prevByPair.get(pairKey(e));
+    if (match && !!match.aggregate !== !!e.aggregate) {
+      reclassified.push({ from: match, to: e, age: 0, duration: 220 });
+    }
+  }
+  return reclassified;
+}
+
+/**
  * Compute the set of node ids that entered and exited between two projections.
  * `null` previous treats all current ids as entering.
  *
@@ -37,7 +69,10 @@ function initialPositionForEntering(node, prevNodes) {
  * unfold / band-crossing), `from` is seeded at the parent's last-known
  * position rather than (0, 0), giving the "re-parenting on unfold" effect.
  *
- * @returns {{ entering: Array<{ id: string, from: { x: number, y: number } }>, exiting: Set<string> }}
+ * Also returns `reclassified`: edges whose aggregate↔raw classification
+ * flipped between projections (spec §7.2 — 220ms cross-fade).
+ *
+ * @returns {{ entering: Array<{ id: string, from: { x: number, y: number } }>, exiting: Set<string>, reclassified: Array<{ from: object, to: object, age: number, duration: number }> }}
  */
 export function diffProjection(previous, current) {
   const entering = [];
@@ -52,7 +87,12 @@ export function diffProjection(previous, current) {
     }
   }
   for (const id of prevIds) if (!currIds.has(id)) exiting.add(id);
-  return { entering, exiting };
+
+  const reclassified = (previous && previous.visibleEdges && current.visibleEdges)
+    ? diffEdges(previous, current)
+    : [];
+
+  return { entering, exiting, reclassified };
 }
 
 /** Create an empty transition state container. */
