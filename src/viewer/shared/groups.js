@@ -50,12 +50,16 @@ export function derivePathGroups(nodes, opts = {}) {
     if (n.kind === 'decision') continue;  // top-level, never in a path group
 
     // Extract a file path this node is associated with.
+    // Prefer file_path for file kind; qualified_name (when it encodes a file
+    // path via `::` separator) for functions/refs; fall back to file_path
+    // for anything else that has one (components, variables, sections, paths).
     let ownerFilePath = null;
     if (n.kind === 'file' && n.file_path) {
       ownerFilePath = n.file_path;
     } else if (n.qualified_name) {
       ownerFilePath = qualifiedNameFile(n.qualified_name);
-    } else if (n.file_path) {
+    }
+    if (!ownerFilePath && n.file_path) {
       ownerFilePath = n.file_path;
     }
     if (!ownerFilePath) continue;
