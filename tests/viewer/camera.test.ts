@@ -7,6 +7,9 @@ import {
   fitToBounds,
   zoomAtPoint,
   lerpCamera,
+  createCameraState,
+  saveCamera,
+  restoreCamera,
 } from '../../src/viewer/shared/camera.js';
 
 describe('camera', () => {
@@ -98,5 +101,37 @@ describe('camera', () => {
     expect(lerpCamera(a, b, 0)).toEqual(a);
     expect(lerpCamera(a, b, 1)).toEqual(b);
     expect(lerpCamera(a, b, 0.5)).toEqual({ x: 50, y: -25, zoom: 1.5 });
+  });
+});
+
+describe('camera state with mode + save/restore', () => {
+  it('createCameraState returns mode=overview by default', () => {
+    const s = createCameraState();
+    expect(s.mode).toBe('overview');
+    expect(s.saved).toBe(null);
+  });
+
+  it('saveCamera snapshots current x/y/zoom', () => {
+    const s = createCameraState();
+    s.camera = { x: 10, y: 20, zoom: 1.5 };
+    saveCamera(s);
+    expect(s.saved).toEqual({ x: 10, y: 20, zoom: 1.5 });
+  });
+
+  it('restoreCamera replaces camera with saved and clears saved', () => {
+    const s = createCameraState();
+    s.camera = { x: 10, y: 20, zoom: 1.5 };
+    saveCamera(s);
+    s.camera = { x: 99, y: 99, zoom: 3 };
+    restoreCamera(s);
+    expect(s.camera).toEqual({ x: 10, y: 20, zoom: 1.5 });
+    expect(s.saved).toBe(null);
+  });
+
+  it('restoreCamera is a no-op if nothing was saved', () => {
+    const s = createCameraState();
+    s.camera = { x: 5, y: 5, zoom: 1 };
+    restoreCamera(s);
+    expect(s.camera).toEqual({ x: 5, y: 5, zoom: 1 });
   });
 });
