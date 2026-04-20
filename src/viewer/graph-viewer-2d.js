@@ -98,6 +98,7 @@ function projectionInputs() {
 }
 
 function recenter() {
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     state.nodes.values(),
     canvas.clientWidth,
@@ -999,6 +1000,7 @@ canvas.addEventListener('dblclick', (ev) => {
     // Drill: compute a zoom that places this group inside the next closer band
     // so its children become visible, centered on the group.
     const targetZoom = zoomLevelForBandBelow(bandIndexFor(camState.camera.zoom));
+    autoFitLerp = null;
     targetCamera = {
       x: best.x ?? camState.camera.x,
       y: best.y ?? camState.camera.y,
@@ -1011,6 +1013,7 @@ canvas.addEventListener('dblclick', (ev) => {
   focusSet = bfsNeighborhood(best.id, 1);
   // Animate camera to fit the focused subgraph.
   const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     focusedNodes,
     canvas.clientWidth,
@@ -1028,6 +1031,7 @@ window.addEventListener('keydown', (ev) => {
   if (!focusSet) return;
   focusId = null;
   focusSet = null;
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     state.nodes.values(),
     canvas.clientWidth,
