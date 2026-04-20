@@ -7,6 +7,46 @@ import {
   parentPathGroupId,
 } from '../../src/viewer/shared/groups.js';
 
+describe('derivePathGroups — depth-cap', () => {
+  it('collapses deep paths into depth-2 parents when {depth: 2}', () => {
+    const nodes = [
+      { id: 'n1', kind: 'file', file_path: 'src/events/worker/persister.ts' },
+      { id: 'n2', kind: 'file', file_path: 'src/events/worker/git-watcher.ts' },
+      { id: 'n3', kind: 'file', file_path: 'src/events/bus.ts' },
+      { id: 'n4', kind: 'file', file_path: 'src/viewer/shared/projection.js' },
+      { id: 'n5', kind: 'file', file_path: 'src/viewer/shared/groups.js' },
+    ];
+    const groups = derivePathGroups(nodes, { depth: 2 });
+    const ids = groups.map(g => g.id).filter(id => id.startsWith('group:path:'));
+    expect(ids).toContain('group:path:src/events');
+    expect(ids).toContain('group:path:src/viewer');
+    // Deeper ones should NOT be emitted:
+    expect(ids).not.toContain('group:path:src/events/worker');
+    expect(ids).not.toContain('group:path:src/viewer/shared');
+  });
+
+  it('rolls up deep members into their depth-2 ancestor', () => {
+    const nodes = [
+      { id: 'n1', kind: 'file', file_path: 'src/events/worker/persister.ts' },
+      { id: 'n2', kind: 'file', file_path: 'src/events/bus.ts' },
+    ];
+    const groups = derivePathGroups(nodes, { depth: 2 });
+    const events = groups.find(g => g.id === 'group:path:src/events');
+    expect(events.members).toEqual(expect.arrayContaining(['n1', 'n2']));
+    expect(events.memberCount).toBe(2);
+  });
+
+  it('keeps existing behavior when no opts passed (backward compat)', () => {
+    const nodes = [
+      { id: 'n1', kind: 'file', file_path: 'src/events/worker/persister.ts' },
+      { id: 'n2', kind: 'file', file_path: 'src/events/worker/git-watcher.ts' },
+    ];
+    const groups = derivePathGroups(nodes);
+    const ids = groups.map(g => g.id);
+    expect(ids).toContain('group:path:src/events/worker');
+  });
+});
+
 function makeNode(id: string, kind: string, file_path?: string, qualified_name?: string) {
   return { id, kind, name: id, file_path, qualified_name };
 }
