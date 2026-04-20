@@ -1,6 +1,6 @@
 import { createGraphState, hydrate, edgeKey, applyMutation } from '/viewer/shared/state.js';
 import { createWsClient } from '/viewer/shared/websocket.js';
-import { SHAPE_FOR_KIND, drawStrike, drawHull } from '/viewer/shared/shapes.js';
+import { SHAPE_FOR_KIND, drawRoundedRectWH, drawStrike, drawHull } from '/viewer/shared/shapes.js';
 import {
   PALETTE_REST,
   PALETTE_HOVER,
@@ -666,7 +666,14 @@ function draw() {
 
     const finalAlpha = alpha * searchDim * tOpacity;
     const finalR = r * tScale;
-    shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
+
+    if (node.kind === 'group') {
+      const bw = (node.boxW ?? 48) * tScale;
+      const bh = (node.boxH ?? 20) * tScale;
+      drawRoundedRectWH(ctx, node.x ?? 0, node.y ?? 0, bw, bh, rgbString(rgb, finalAlpha));
+    } else {
+      shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
+    }
 
     if (isSelected) {
       ctx.beginPath();
@@ -674,7 +681,9 @@ function draw() {
       const cx = node.x ?? 0;
       const cy = node.y ?? 0;
       if (node.kind === 'group') {
-        ctx.rect(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+        const bw = (node.boxW ?? 48) * tScale;
+        const bh = (node.boxH ?? 20) * tScale;
+        ctx.rect(cx - bw / 2 - 2, cy - bh / 2 - 2, bw + 4, bh + 4);
       } else if (node.kind === 'decision' || node.kind === 'project') {
         // Diamond outline
         ctx.moveTo(cx,           cy - ringR);
@@ -737,16 +746,28 @@ function drawLabels() {
       canvas.clientWidth,
       canvas.clientHeight,
     );
-    // Offset label to the right of the node (size scales with on-screen apparent size).
-    const offset = nodeSize(node.kind) * camera.zoom + 4;
-    ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
-    ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
 
-    if (node.kind === 'group' && node.memberCount && node.memberCount > 1) {
-      const countText = ' · ' + node.memberCount;
-      ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
-      const nameW = ctx.measureText(String(node.name || '')).width;
-      ctx.fillText(countText, sx + offset + nameW, sy + 3);
+    if (node.kind === 'group') {
+      // Group label is centered inside the rounded rect.
+      const nameText = String(node.name || '');
+      const countText = (node.memberCount && node.memberCount > 1) ? ' · ' + node.memberCount : '';
+      const fullText = nameText + countText;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';
+      ctx.fillText(nameText, sx, sy);
+      if (countText) {
+        const nameW = ctx.measureText(nameText).width;
+        const totalW = ctx.measureText(fullText).width;
+        // Draw count portion offset so the full string is centered.
+        ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
+        ctx.fillText(countText, sx + nameW - totalW / 2, sy);
+      }
+      ctx.textAlign = 'left';
+    } else {
+      // Offset label to the right of the node (size scales with on-screen apparent size).
+      const offset = nodeSize(node.kind) * camera.zoom + 4;
+      ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
+      ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
     }
   }
 
