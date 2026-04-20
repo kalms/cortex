@@ -6,6 +6,7 @@ import {
   linkStrength,
   createSimulation,
   forceBoundary,
+  forceGroup,
 } from '../../src/viewer/shared/layout.js';
 
 describe('layout', () => {
@@ -136,6 +137,49 @@ describe('layout', () => {
       f1.initialize([n1]); f2.initialize([n2]);
       f1(1.0); f2(1.0);
       expect(Math.abs(n2.vx)).toBeCloseTo(Math.abs(n1.vx) * 2, 5);
+    });
+  });
+
+  describe('forceGroup', () => {
+    it('pulls non-super nodes toward their group centroid', () => {
+      const a = { id: 'a', kind: 'file', group: 'g1', x: 0,   y: 0,   vx: 0, vy: 0 };
+      const b = { id: 'b', kind: 'file', group: 'g1', x: 100, y: 0,   vx: 0, vy: 0 };
+      const c = { id: 'c', kind: 'file', group: 'g1', x: 50,  y: 100, vx: 0, vy: 0 };
+      const f = forceGroup(0.5);
+      f.initialize([a, b, c]);
+      f(1.0);
+      // centroid of g1 = (50, 33.33). 'a' at (0,0) should be pulled toward it.
+      expect(a.vx).toBeGreaterThan(0);    // pulled rightward
+      expect(a.vy).toBeGreaterThan(0);    // pulled downward
+    });
+
+    it('does not pull supernodes themselves', () => {
+      const sup = { id: 'g1', kind: 'group', group: 'g1', x: 0, y: 0, vx: 0, vy: 0 };
+      const leaf = { id: 'a', kind: 'file', group: 'g1', x: 100, y: 0, vx: 0, vy: 0 };
+      const f = forceGroup(0.5);
+      f.initialize([sup, leaf]);
+      f(1.0);
+      expect(sup.vx).toBe(0);
+      expect(sup.vy).toBe(0);
+    });
+
+    it('ignores nodes with no group', () => {
+      const n = { id: 'x', kind: 'decision', group: null, x: 50, y: 50, vx: 0, vy: 0 };
+      const f = forceGroup(0.5);
+      f.initialize([n]);
+      f(1.0);
+      expect(n.vx).toBe(0);
+      expect(n.vy).toBe(0);
+    });
+
+    it('.strength(s) scales force magnitude linearly', () => {
+      const mk = () => ([
+        { id: 'a', kind: 'file', group: 'g', x: 0,   y: 0, vx: 0, vy: 0 },
+        { id: 'b', kind: 'file', group: 'g', x: 100, y: 0, vx: 0, vy: 0 },
+      ]);
+      const ns1 = mk();  const f1 = forceGroup(0.3); f1.initialize(ns1); f1(1.0);
+      const ns2 = mk();  const f2 = forceGroup(0.6); f2.initialize(ns2); f2(1.0);
+      expect(Math.abs(ns2[0].vx)).toBeCloseTo(Math.abs(ns1[0].vx) * 2, 5);
     });
   });
 });

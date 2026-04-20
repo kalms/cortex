@@ -101,3 +101,35 @@ export function forceBoundary(radius, strength = 0.8, cx = 0, cy = 0) {
   f.radius = function(r) { if (arguments.length) { radius = r; return f; } return radius; };
   return f;
 }
+
+/**
+ * Group gravity. Each non-supernode with a `group` property feels a pull
+ * toward its group's centroid (computed from peers sharing the same group).
+ * Supernodes do NOT feel this force — they're the anchors peers pull toward.
+ * Nodes without a group are untouched.
+ *
+ *   strength — default 0.35
+ */
+export function forceGroup(strength = 0.35) {
+  let nodes;
+  function f(alpha) {
+    const centroids = new Map();
+    for (const n of nodes) {
+      if (!n.group) continue;
+      let c = centroids.get(n.group);
+      if (!c) { c = { x: 0, y: 0, count: 0 }; centroids.set(n.group, c); }
+      c.x += n.x; c.y += n.y; c.count += 1;
+    }
+    for (const c of centroids.values()) { c.x /= c.count; c.y /= c.count; }
+    for (const n of nodes) {
+      if (!n.group || n.kind === 'group') continue;
+      const c = centroids.get(n.group);
+      if (!c) continue;
+      n.vx += (c.x - n.x) * strength * alpha;
+      n.vy += (c.y - n.y) * strength * alpha;
+    }
+  }
+  f.initialize = function(_nodes) { nodes = _nodes; };
+  f.strength = function(s) { if (arguments.length) { strength = s; return f; } return strength; };
+  return f;
+}
