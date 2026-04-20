@@ -7,6 +7,7 @@ import {
   createSimulation,
   forceBoundary,
   forceGroup,
+  forceGovernance,
 } from '../../src/viewer/shared/layout.js';
 
 describe('layout', () => {
@@ -180,6 +181,49 @@ describe('layout', () => {
       const ns1 = mk();  const f1 = forceGroup(0.3); f1.initialize(ns1); f1(1.0);
       const ns2 = mk();  const f2 = forceGroup(0.6); f2.initialize(ns2); f2(1.0);
       expect(Math.abs(ns2[0].vx)).toBeCloseTo(Math.abs(ns1[0].vx) * 2, 5);
+    });
+  });
+
+  describe('forceGovernance', () => {
+    it('pulls a decision toward the centroid of its governed nodes', () => {
+      const d = { id: 'd1', kind: 'decision', governs: ['a', 'b'], x: 0, y: 0, vx: 0, vy: 0 };
+      const a = { id: 'a', kind: 'group', x: 100, y: 0, vx: 0, vy: 0 };
+      const b = { id: 'b', kind: 'group', x: 100, y: 100, vx: 0, vy: 0 };
+      const f = forceGovernance(0.5);
+      f.initialize([d, a, b]);
+      f(1.0);
+      expect(d.vx).toBeGreaterThan(0);    // territory centroid is at (100, 50)
+      expect(d.vy).toBeGreaterThan(0);
+    });
+
+    it('leaves decisions with empty territory alone (no NaN, no drift)', () => {
+      const d = { id: 'd1', kind: 'decision', governs: [], x: 10, y: 10, vx: 0, vy: 0 };
+      const f = forceGovernance(0.5);
+      f.initialize([d]);
+      f(1.0);
+      expect(d.vx).toBe(0);
+      expect(d.vy).toBe(0);
+      expect(Number.isNaN(d.vx)).toBe(false);
+    });
+
+    it('ignores governs members that are not in the node set', () => {
+      const d = { id: 'd1', kind: 'decision', governs: ['ghost', 'a'], x: 0, y: 0, vx: 0, vy: 0 };
+      const a = { id: 'a', kind: 'group', x: 100, y: 0, vx: 0, vy: 0 };
+      const f = forceGovernance(0.5);
+      f.initialize([d, a]);
+      f(1.0);
+      // Only 'a' counts → pull toward (100, 0)
+      expect(d.vx).toBeGreaterThan(0);
+      expect(d.vy).toBe(0);
+    });
+
+    it('does not affect non-decision nodes', () => {
+      const file = { id: 'f', kind: 'file', governs: ['a'], x: 0, y: 0, vx: 0, vy: 0 };
+      const a = { id: 'a', kind: 'group', x: 100, y: 0, vx: 0, vy: 0 };
+      const f = forceGovernance(0.5);
+      f.initialize([file, a]);
+      f(1.0);
+      expect(file.vx).toBe(0);
     });
   });
 });

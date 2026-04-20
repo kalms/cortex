@@ -133,3 +133,33 @@ export function forceGroup(strength = 0.35) {
   f.strength = function(s) { if (arguments.length) { strength = s; return f; } return strength; };
   return f;
 }
+
+/**
+ * Governance gravity. Each decision is pulled toward the centroid of its
+ * `governs` targets that are currently in the node set. A decision with
+ * no visible territory feels no force (no drift, no NaN).
+ *
+ *   strength — default 0.25
+ */
+export function forceGovernance(strength = 0.25) {
+  let nodes;
+  function f(alpha) {
+    const byId = new Map();
+    for (const n of nodes) byId.set(n.id, n);
+    for (const n of nodes) {
+      if (n.kind !== 'decision') continue;
+      let tx = 0, ty = 0, count = 0;
+      for (const targetId of (n.governs || [])) {
+        const t = byId.get(targetId);
+        if (t) { tx += t.x; ty += t.y; count += 1; }
+      }
+      if (count === 0) continue;
+      tx /= count; ty /= count;
+      n.vx += (tx - n.x) * strength * alpha;
+      n.vy += (ty - n.y) * strength * alpha;
+    }
+  }
+  f.initialize = function(_nodes) { nodes = _nodes; };
+  f.strength = function(s) { if (arguments.length) { strength = s; return f; } return strength; };
+  return f;
+}
