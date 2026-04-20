@@ -38,7 +38,8 @@ export function parentPathGroupId(dirPath) {
  * child function/reference nodes, those are grouped under a file-kind group
  * so the projection can fold functions into the file.
  */
-export function derivePathGroups(nodes) {
+export function derivePathGroups(nodes, opts = {}) {
+  const maxDepth = opts.depth ?? Infinity;
   const groups = new Map();   // id → group spec
 
   // Bucket leaves by their file_path's dir, and file → children.
@@ -67,8 +68,9 @@ export function derivePathGroups(nodes) {
 
     // Bucket under the directory (for dir-group aggregation). Every non-decision
     // node with an owning file path contributes to its dir's group count.
-    const dir = dirOf(ownerFilePath);
-    if (dir !== null) {
+    const rawDir = dirOf(ownerFilePath);
+    if (rawDir !== null) {
+      const dir = capToDepth(rawDir, maxDepth);
       if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());
       dirMembers.get(dir).add(n.id);
     }
@@ -142,6 +144,13 @@ function dirOf(path) {
   const idx = path.lastIndexOf('/');
   if (idx <= 0) return null;
   return path.slice(0, idx);
+}
+
+function capToDepth(dirPath, maxDepth) {
+  if (!Number.isFinite(maxDepth)) return dirPath;
+  const parts = dirPath.split('/');
+  if (parts.length <= maxDepth) return dirPath;
+  return parts.slice(0, maxDepth).join('/');
 }
 
 function qualifiedNameFile(qn) {
