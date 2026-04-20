@@ -62,9 +62,13 @@ function resize() {
   canvas.width = canvas.clientWidth * DPR;
   canvas.height = canvas.clientHeight * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  if (typeof simulation !== 'undefined' && simulation) {
-    const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
-    simulation.force('boundary').radius(r);
+  try {
+    if (simulation) {
+      const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
+      simulation.force('boundary').radius(r);
+    }
+  } catch (_) {
+    // TDZ: simulation not yet initialized at initial resize; post-creation block sets initial radius
   }
 }
 window.addEventListener('resize', resize);

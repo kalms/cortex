@@ -24,7 +24,12 @@ function initialPositionForEntering(node, prevNodes) {
       y: (parent.y ?? 0) + (Math.random() - 0.5) * 20,
     };
   }
-  return { x: 0, y: 0 };
+  // Cold-start fallback: scatter in a small ring so coincident nodes can
+  // break symmetry under charge/collide. 200px radius keeps them on-canvas
+  // for auto-fit to frame.
+  const angle = Math.random() * Math.PI * 2;
+  const r = 80 + Math.random() * 120;
+  return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 }
 
 /**
