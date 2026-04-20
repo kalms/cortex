@@ -163,3 +163,12 @@ export function forceGovernance(strength = 0.25) {
   f.strength = function(s) { if (arguments.length) { strength = s; return f; } return strength; };
   return f;
 }
+
+/**
+ * Scale factor for link distance + charge, inversely proportional to
+ * sqrt(N visible). Keeps the graph's natural radius ≈ constant across
+ * bands as the visible node count changes.
+ */
+export function adaptiveScale(visibleCount) {
+  return 50 / Math.sqrt(Math.max(1, visibleCount));
+}

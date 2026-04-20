@@ -8,6 +8,7 @@ import {
   forceBoundary,
   forceGroup,
   forceGovernance,
+  adaptiveScale,
 } from '../../src/viewer/shared/layout.js';
 
 describe('layout', () => {
@@ -234,6 +235,22 @@ describe('layout', () => {
       const ns1 = mk(); const f1 = forceGovernance(0.3); f1.initialize(ns1); f1(1.0);
       const ns2 = mk(); const f2 = forceGovernance(0.6); f2.initialize(ns2); f2(1.0);
       expect(Math.abs(ns2[0].vx)).toBeCloseTo(Math.abs(ns1[0].vx) * 2, 5);
+    });
+  });
+
+  describe('adaptiveScale', () => {
+    it('returns a larger factor for fewer nodes (spread them more)', () => {
+      expect(adaptiveScale(10)).toBeGreaterThan(adaptiveScale(100));
+    });
+
+    it('follows 50 / sqrt(N)', () => {
+      expect(adaptiveScale(25)).toBeCloseTo(10, 5);
+      expect(adaptiveScale(100)).toBeCloseTo(5, 5);
+    });
+
+    it('guards against N=0', () => {
+      expect(adaptiveScale(0)).toBe(50);
+      expect(Number.isNaN(adaptiveScale(0))).toBe(false);
     });
   });
 });
