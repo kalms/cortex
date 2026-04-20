@@ -275,6 +275,19 @@ body {
   cursor: grabbing;
 }
 
+/* -- Mode indicator -- */
+.mode-indicator {
+  display: inline-block;
+  padding: 4px 8px;
+  font: 10px/1 -apple-system, sans-serif;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+.mode-indicator.mode-overview { background: #1f2430; color: #7a8294; }
+.mode-indicator.mode-focus    { background: #2a3547; color: #6ea8fe; }
+
 /* -- Recenter button -- */
 #recenter-btn {
   background: transparent;
