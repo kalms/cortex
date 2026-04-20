@@ -150,7 +150,7 @@ function reproject(reason) {
   if (!isInitialProjection) {
     const diff = diffProjection(projected, next);
 
-    for (const id of diff.entering) {
+    for (const { id } of diff.entering) {
       const n = next.visibleNodes.get(id);
       if (!n) continue;
       // Seed transition with the resolved position (set by applyEntryPositions
