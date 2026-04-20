@@ -459,6 +459,7 @@ canvas.addEventListener('wheel', (ev) => {
   if (camState.mode === 'focus') {
     const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
     camState.camera = zoomAtPoint(camState.camera, factor, sx, sy, canvas.width, canvas.height);
+    targetCamera = null;  // user is driving — cancel any in-progress lerp
     reproject('focus-zoom');
     return;
   }
@@ -466,6 +467,7 @@ canvas.addEventListener('wheel', (ev) => {
   // Overview: step through band thresholds.
   const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
   camState.camera = zoomAtPoint(camState.camera, factor, sx, sy, canvas.width, canvas.height);
+  targetCamera = null;  // user is driving — cancel any in-progress lerp
   reproject('zoom-band');
 }, { passive: false });
 
