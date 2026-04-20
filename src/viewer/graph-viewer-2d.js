@@ -150,12 +150,13 @@ function reproject(reason) {
   if (!isInitialProjection) {
     const diff = diffProjection(projected, next);
 
-    for (const { id } of diff.entering) {
+    for (const { id, from } of diff.entering) {
       const n = next.visibleNodes.get(id);
       if (!n) continue;
-      // Seed transition with the resolved position (set by applyEntryPositions
-      // above) so the node blooms at its landing spot rather than the origin.
-      const spawn = { x: n.x ?? 0, y: n.y ?? 0 };
+      // Prefer the transition's computed-from position over the pre-resolved n.x/y.
+      const spawn = from ?? { x: n.x ?? 0, y: n.y ?? 0 };
+      // Sync the node position back so the force sim starts from the same place.
+      if (from) { n.x = from.x; n.y = from.y; }
       enterTransition(transitionState, id, spawn, 280);
     }
 
