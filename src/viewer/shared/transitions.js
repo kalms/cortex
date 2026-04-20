@@ -6,16 +6,51 @@
  */
 
 /**
+ * Return an initial spawn position for a newly-entering node.
+ * If the node carries a `.group` id that was visible in the previous
+ * projection (i.e. the node is a child emerging from an unfolded supernode),
+ * we seed it at the parent's last-known position plus a small random jitter
+ * so that children don't all stack on the same pixel.
+ * Falls back to (0, 0) when no parent context is available.
+ * @param {{ group?: string }} node
+ * @param {Map<string, { x?: number, y?: number }> | null} prevNodes
+ * @returns {{ x: number, y: number }}
+ */
+function initialPositionForEntering(node, prevNodes) {
+  if (node.group && prevNodes && prevNodes.has(node.group)) {
+    const parent = prevNodes.get(node.group);
+    return {
+      x: (parent.x ?? 0) + (Math.random() - 0.5) * 20,
+      y: (parent.y ?? 0) + (Math.random() - 0.5) * 20,
+    };
+  }
+  return { x: 0, y: 0 };
+}
+
+/**
  * Compute the set of node ids that entered and exited between two projections.
  * `null` previous treats all current ids as entering.
- * @returns {{ entering: Set<string>, exiting: Set<string> }}
+ *
+ * Entering items are returned as `{ id, from: { x, y } }` objects so that
+ * callers can seed entering animations at the correct position.  When a
+ * node's parent supernode was visible in the previous projection (supernode
+ * unfold / band-crossing), `from` is seeded at the parent's last-known
+ * position rather than (0, 0), giving the "re-parenting on unfold" effect.
+ *
+ * @returns {{ entering: Array<{ id: string, from: { x: number, y: number } }>, exiting: Set<string> }}
  */
 export function diffProjection(previous, current) {
-  const entering = new Set();
+  const entering = [];
   const exiting = new Set();
-  const prevIds = previous ? new Set(previous.visibleNodes.keys()) : new Set();
+  const prevNodes = previous ? previous.visibleNodes : null;
+  const prevIds = prevNodes ? new Set(prevNodes.keys()) : new Set();
   const currIds = new Set(current.visibleNodes.keys());
-  for (const id of currIds) if (!prevIds.has(id)) entering.add(id);
+  for (const id of currIds) {
+    if (!prevIds.has(id)) {
+      const node = current.visibleNodes.get(id);
+      entering.push({ id, from: initialPositionForEntering(node, prevNodes) });
+    }
+  }
   for (const id of prevIds) if (!currIds.has(id)) exiting.add(id);
   return { entering, exiting };
 }
