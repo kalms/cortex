@@ -574,7 +574,7 @@ searchInput.addEventListener('input', (ev) => {
     chipMenu.innerHTML = '';
     for (const m of matches) {
       const li = document.createElement('li');
-      li.innerHTML = `<strong>${m.name}</strong> <span class="path">${m.file_path ?? ''}</span>`;
+      li.innerHTML = `<strong>${escapeHtml(m.name)}</strong> <span class="path">${escapeHtml(m.file_path ?? '')}</span>`;
       li.addEventListener('click', () => {
         lerpCameraTo(cameraForMatches([m]));
         chipMenu.hidden = true;
@@ -585,6 +585,13 @@ searchInput.addEventListener('input', (ev) => {
 });
 
 chip.addEventListener('click', () => { chipMenu.hidden = !chipMenu.hidden; });
+
+document.addEventListener('click', (ev) => {
+  if (chipMenu.hidden) return;
+  if (ev.target === chip || chip.contains(ev.target)) return;
+  if (chipMenu.contains(ev.target)) return;
+  chipMenu.hidden = true;
+});
 
 searchInput.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
