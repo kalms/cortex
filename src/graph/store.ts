@@ -277,31 +277,24 @@ export class GraphStore {
 
   // --- FTS ---
 
-  indexDecisionContent(
-    nodeId: string,
-    title: string,
-    description: string,
-    rationale: string,
-    problem = "",
-    resolution = ""
-  ): void {
+  indexDecisionContent(id: string, name: string, data: Record<string, unknown>): void {
     this.db
       .prepare(
         "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
       )
-      .run(title, description, rationale, problem, resolution, nodeId);
+      .run(
+        name ?? "",
+        (data.description as string | undefined) ?? "",
+        (data.rationale as string | undefined) ?? "",
+        (data.problem as string | undefined) ?? "",
+        (data.resolution as string | undefined) ?? "",
+        id
+      );
   }
 
-  updateDecisionContent(
-    nodeId: string,
-    title: string,
-    description: string,
-    rationale: string,
-    problem = "",
-    resolution = ""
-  ): void {
-    this.removeDecisionContent(nodeId);
-    this.indexDecisionContent(nodeId, title, description, rationale, problem, resolution);
+  updateDecisionContent(id: string, name: string, data: Record<string, unknown>): void {
+    this.removeDecisionContent(id);
+    this.indexDecisionContent(id, name, data);
   }
 
   removeDecisionContent(nodeId: string): void {

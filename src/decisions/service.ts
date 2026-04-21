@@ -38,6 +38,8 @@ export class DecisionService {
       alternatives: input.alternatives ?? [],
       status: "active" as const,
       author: input.author ?? 'claude',
+      problem: input.problem ?? null,
+      resolution: input.resolution ?? null,
     };
 
     const node = this.store.createNode({
@@ -47,7 +49,7 @@ export class DecisionService {
       tier: "personal",
     });
 
-    this.store.indexDecisionContent(node.id, input.title, input.description, input.rationale);
+    this.store.indexDecisionContent(node.id, input.title, data);
 
     const governedIds: string[] = [];
     if (input.governs) {
@@ -147,13 +149,15 @@ export class DecisionService {
     if (input.alternatives !== undefined) { newData.alternatives = input.alternatives; changed.push('alternatives'); }
     if (input.status !== undefined && input.status !== existingData.status) { newData.status = input.status; changed.push('status'); }
     if (input.superseded_by !== undefined) { newData.superseded_by = input.superseded_by; changed.push('superseded_by'); }
+    if (input.problem !== undefined) { newData.problem = input.problem; changed.push('problem'); }
+    if (input.resolution !== undefined) { newData.resolution = input.resolution; changed.push('resolution'); }
 
     const updatedNode = this.store.updateNode(id, {
       name: newData.title,
       data: JSON.stringify(newData),
     });
 
-    this.store.updateDecisionContent(id, newData.title, newData.description, newData.rationale);
+    this.store.updateDecisionContent(id, newData.title, newData);
 
     if (input.superseded_by) {
       const existing = this.store.findEdges({ source_id: input.superseded_by, target_id: id, relation: "SUPERSEDES" });
