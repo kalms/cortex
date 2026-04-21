@@ -86,5 +86,19 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
 
     case 'commit':
       return [];
+
+    case 'decision.ratified':
+      return [];
+
+    case 'pr.opened': {
+      const node = lookup(event.payload.pr_number.toString());
+      return node ? [{ op: 'add_node', node }] : [];
+    }
+
+    case 'pr.touched':
+      return [];
+
+    case 'pr.merged':
+      return [];
   }
 }

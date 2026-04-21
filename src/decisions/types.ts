@@ -6,7 +6,7 @@ export interface Alternative {
 }
 
 export type Tier = "personal" | "team" | "public";
-export type DecisionStatus = "active" | "superseded" | "deprecated";
+export type DecisionStatus = "proposed" | "active" | "superseded" | "deprecated";
 
 export interface Decision {
   id: string;
@@ -16,11 +16,13 @@ export interface Decision {
   alternatives: Alternative[];
   tier: Tier;
   status: DecisionStatus;
-  superseded_by?: string;
-  created_by?: string;
-  author?: string;
+  superseded_by: string | null;
+  author: string | null;
   created_at: string;
   updated_at: string;
+  // NEW — narrative split
+  problem: string | null;
+  resolution: string | null;
 }
 
 export interface CreateDecisionInput {
@@ -31,6 +33,8 @@ export interface CreateDecisionInput {
   governs?: string[];
   references?: string[];
   author?: string;
+  problem?: string | null;
+  resolution?: string | null;
 }
 
 export interface UpdateDecisionInput {
@@ -41,6 +45,32 @@ export interface UpdateDecisionInput {
   status?: DecisionStatus;
   superseded_by?: string;
   reason?: string;
+  problem?: string | null;
+  resolution?: string | null;
+}
+
+export interface ProposeDecisionInput {
+  title: string;
+  problem: string;
+  resolution: string;
+  rationale: string;
+  alternatives?: Alternative[];
+  governs?: string[];
+  references?: string[];
+  author?: string;
+  pr_number?: number;
+}
+
+export interface SupersedeDecisionInput {
+  old_decision_id: string;
+  title: string;
+  problem: string;
+  resolution: string;
+  rationale: string;
+  alternatives?: Alternative[];
+  governs?: string[];
+  references?: string[];
+  author?: string;
 }
 
 export function nodeToDecision(node: NodeRow): Decision {
@@ -53,10 +83,11 @@ export function nodeToDecision(node: NodeRow): Decision {
     alternatives: data.alternatives ?? [],
     tier: node.tier as Tier,
     status: data.status ?? "active",
-    superseded_by: data.superseded_by,
-    created_by: data.created_by,
-    author: data.author ?? 'claude',
+    superseded_by: data.superseded_by ?? null,
+    author: data.author ?? null,
     created_at: node.created_at,
     updated_at: node.updated_at,
+    problem: data.problem ?? null,
+    resolution: data.resolution ?? null,
   };
 }
