@@ -147,6 +147,49 @@ describe("PRService.merge", () => {
     prs.merge(pr.number);
     expect(() => prs.merge(pr.number)).toThrow();
   });
+
+  it("merge with no introduced decisions succeeds with empty ratified list", () => {
+    const pr = prs.open({ title: "simple", author: "m" });
+    const result = prs.merge(pr.number);
+    expect(result.ratified_decisions).toEqual([]);
+    const merged = events.find((e) => e.kind === "pr.merged") as any;
+    expect(merged.payload.ratified_decisions).toEqual([]);
+  });
+
+  it("merge skips decisions already active, does not re-ratify", () => {
+    const pr = prs.open({ title: "x", author: "m" });
+    // Pre-ratified (active) decision introduced by this PR
+    const active = decisions.create({
+      title: "already", description: "d", rationale: "r", problem: "p", resolution: "r",
+    });
+    // link via PR_INTRODUCES_DECISION manually
+    store.createEdge({
+      source_id: prs.get(pr.number)!.id,
+      target_id: active.id,
+      relation: "PR_INTRODUCES_DECISION",
+      data: {},
+    });
+    const result = prs.merge(pr.number);
+    expect(result.ratified_decisions).not.toContain(active.id);
+    // no second decision.ratified for this id
+    const ratifiedEvents = events.filter(
+      (e) => e.kind === "decision.ratified" && (e as any).payload.decision_id === active.id
+    );
+    expect(ratifiedEvents.length).toBe(0);
+  });
+
+  it("ratify emits decision.ratified but NOT decision.updated", () => {
+    const pr = prs.open({ title: "x", author: "m" });
+    const prop = decisions.propose({
+      title: "y", problem: "p", resolution: "r", rationale: "w", pr_number: pr.number,
+    });
+    events.length = 0; // clear prior events
+    prs.merge(pr.number);
+    const ratified = events.filter((e) => e.kind === "decision.ratified");
+    const updated = events.filter((e) => e.kind === "decision.updated");
+    expect(ratified.length).toBe(1);
+    expect(updated.length).toBe(0);
+  });
 });
 
 describe("PRService.getWithRefs", () => {
@@ -175,5 +218,15 @@ describe("PRService.getWithRefs", () => {
     const view = prs.getWithRefs(pr.number)!;
     expect(view.introduces_decisions).toContain(intro.id);
     expect(view.implements_decisions).toContain(impl.id);
+  });
+
+  it("returns empty arrays when PR has no refs", () => {
+    const pr = prs.open({ title: "bare", author: "m" });
+    const view = prs.getWithRefs(pr.number)!;
+    expect(view.introduces_decisions).toEqual([]);
+    expect(view.implements_decisions).toEqual([]);
+    expect(view.challenges_decisions).toEqual([]);
+    expect(view.discusses_decisions).toEqual([]);
+    expect(view.linked_prs).toEqual([]);
   });
 });

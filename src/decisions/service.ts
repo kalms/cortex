@@ -382,14 +382,22 @@ export class DecisionService {
   }
 
   ratify(decisionId: string, viaPrNumber: number): void {
-    const d = this.get(decisionId);
-    if (!d) throw new Error(`Decision not found: ${decisionId}`);
-    if (d.status !== "proposed") return;
-    this.update(decisionId, { status: "active" });
+    const node = this.store.getNode(decisionId);
+    if (!node || node.kind !== "decision") throw new Error(`Decision not found: ${decisionId}`);
+    const data = typeof node.data === "string" ? JSON.parse(node.data || "{}") : node.data;
+    if (data.status !== "proposed") return;
+    data.status = "active";
+    this.store.updateNode(decisionId, { data: JSON.stringify(data) });
+    this.store.updateDecisionContent(decisionId, node.name, {
+      description: data.description,
+      rationale: data.rationale,
+      problem: data.problem,
+      resolution: data.resolution,
+    });
     this.emit({
       id: newUlid(),
       kind: "decision.ratified",
-      actor: "claude",
+      actor: data.author ?? "claude",
       project_id: this.projectId,
       created_at: Date.now(),
       payload: { decision_id: decisionId, via_pr_number: viaPrNumber },
