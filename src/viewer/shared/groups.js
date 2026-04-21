@@ -38,7 +38,8 @@ export function parentPathGroupId(dirPath) {
  * child function/reference nodes, those are grouped under a file-kind group
  * so the projection can fold functions into the file.
  */
-export function derivePathGroups(nodes) {
+export function derivePathGroups(nodes, opts = {}) {
+  const maxDepth = opts.depth ?? Infinity;
   const groups = new Map();   // id → group spec
 
   // Bucket leaves by their file_path's dir, and file → children.
@@ -49,12 +50,16 @@ export function derivePathGroups(nodes) {
     if (n.kind === 'decision') continue;  // top-level, never in a path group
 
     // Extract a file path this node is associated with.
+    // Prefer file_path for file kind; qualified_name (when it encodes a file
+    // path via `::` separator) for functions/refs; fall back to file_path
+    // for anything else that has one (components, variables, sections, paths).
     let ownerFilePath = null;
     if (n.kind === 'file' && n.file_path) {
       ownerFilePath = n.file_path;
     } else if (n.qualified_name) {
       ownerFilePath = qualifiedNameFile(n.qualified_name);
-    } else if (n.file_path) {
+    }
+    if (!ownerFilePath && n.file_path) {
       ownerFilePath = n.file_path;
     }
     if (!ownerFilePath) continue;
@@ -67,8 +72,9 @@ export function derivePathGroups(nodes) {
 
     // Bucket under the directory (for dir-group aggregation). Every non-decision
     // node with an owning file path contributes to its dir's group count.
-    const dir = dirOf(ownerFilePath);
-    if (dir !== null) {
+    const rawDir = dirOf(ownerFilePath);
+    if (rawDir !== null) {
+      const dir = capToDepth(rawDir, maxDepth);
       if (!dirMembers.has(dir)) dirMembers.set(dir, new Set());
       dirMembers.get(dir).add(n.id);
     }
@@ -142,6 +148,13 @@ function dirOf(path) {
   const idx = path.lastIndexOf('/');
   if (idx <= 0) return null;
   return path.slice(0, idx);
+}
+
+function capToDepth(dirPath, maxDepth) {
+  if (!Number.isFinite(maxDepth)) return dirPath;
+  const parts = dirPath.split('/');
+  if (parts.length <= maxDepth) return dirPath;
+  return parts.slice(0, maxDepth).join('/');
 }
 
 function qualifiedNameFile(qn) {

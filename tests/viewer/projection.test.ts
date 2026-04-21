@@ -199,7 +199,11 @@ describe('projection', () => {
   });
 
   describe('mid-zoom discrimination', () => {
-    it('emits mid-depth path groups at zoom 0.7 that are not present at zoom 0.3', () => {
+    it('emits depth-3 path groups at zoom 0.7 that are not present (collapsed) at zoom 0.3', () => {
+      // With the structure-primary band table, depth is capped by dirDepth:
+      //   overview (zoom 0.3): dirDepth=2 → src/events/worker caps to src/events
+      //   mid     (zoom 0.7): dirDepth=3 → src/events/worker stays at depth 3
+      //   depth-4 paths (src/events/worker/sub) cap to depth-3 at mid zoom.
       const state = makeState(
         [
           { id: 'a', kind: 'file', name: 'a', file_path: 'src/events/worker/a.ts' },
@@ -212,20 +216,20 @@ describe('projection', () => {
       const farOut = project(state, { ...defaultInputs, zoom: 0.3 });
       const midOut = project(state, { ...defaultInputs, zoom: 0.7 });
 
-      // At far zoom, only top-of-forest dir groups emit.
       const farIds = [...farOut.visibleNodes.keys()];
-      // At mid zoom, one level deeper is additionally emitted.
       const midIds = [...midOut.visibleNodes.keys()];
 
-      // Mid should include strictly more group representatives than far,
-      // or the same set (if there's no deeper forest level to include).
-      expect(midIds.length).toBeGreaterThanOrEqual(farIds.length);
+      // At far zoom (dirDepth=2): paths cap to depth-2, so all files collapse into src/events.
+      expect(farIds.includes('group:path:src/events')).toBe(true);
+      expect(farIds.includes('group:path:src/events/worker')).toBe(false);
 
-      // Specifically, if the dir-group forest has depth>1, mid picks up a deeper node.
-      const farHasSub = farIds.includes('group:path:src/events/worker/sub');
-      const midHasSub = midIds.includes('group:path:src/events/worker/sub');
-      expect(farHasSub).toBe(false);
-      expect(midHasSub).toBe(true);
+      // At mid zoom (dirDepth=3): depth-3 group src/events/worker is emitted.
+      // depth-4 path src/events/worker/sub caps to src/events/worker (not a separate group).
+      expect(midIds.includes('group:path:src/events/worker')).toBe(true);
+      expect(midIds.includes('group:path:src/events/worker/sub')).toBe(false);
+
+      // Mid should include at least as many group representatives as far.
+      expect(midIds.length).toBeGreaterThanOrEqual(farIds.length);
     });
   });
 
@@ -245,6 +249,55 @@ describe('projection', () => {
       expect(edges[0].source_id).toBe('f1');
       expect(edges[0].target_id).toBe('f2');
       expect(edges[0].relation).toBe('CALLS');
+    });
+  });
+
+  describe('BAND_TABLE — structure-primary', () => {
+    const mkState = () => {
+      const nodes = new Map();
+      const add = (id: string, kind: string, extra: any = {}) => nodes.set(id, { id, kind, name: id, ...extra });
+      add('d1', 'decision');
+      add('f1', 'file',     { file_path: 'src/events/worker/a.ts' });
+      add('f2', 'file',     { file_path: 'src/events/worker/b.ts' });
+      add('f3', 'file',     { file_path: 'src/events/bus.ts' });
+      add('f4', 'file',     { file_path: 'src/viewer/shared/x.ts' });
+      add('f5', 'file',     { file_path: 'src/viewer/shared/y.ts' });
+      add('f6', 'file',     { file_path: 'docs/architecture/ui.md' });
+      add('f7', 'file',     { file_path: 'docs/architecture/events.md' });
+      return { nodes, edges: new Map() };
+    };
+    const filters = new Set(['file', 'decision', 'function']);
+
+    it('overview (≤0.4×) emits depth-2 dir supernodes + decisions', () => {
+      const state = mkState();
+      const { visibleNodes } = project(state, { zoom: 0.3, focus: null, filters, search: '' });
+      const ids = [...visibleNodes.keys()];
+      expect(ids).toContain('d1');
+      expect(ids).toContain('group:path:src/events');
+      expect(ids).toContain('group:path:src/viewer');
+      expect(ids).toContain('group:path:docs/architecture');
+      // Deeper supernodes should NOT be present at overview:
+      expect(ids).not.toContain('group:path:src/events/worker');
+      expect(ids).not.toContain('group:path:src/viewer/shared');
+      // Leaves should NOT be present at overview:
+      expect(ids).not.toContain('f1');
+      expect(ids).not.toContain('f2');
+    });
+
+    it('mid (0.4–1.0×) emits depth-3 dir supernodes', () => {
+      const state = mkState();
+      const { visibleNodes } = project(state, { zoom: 0.7, focus: null, filters, search: '' });
+      const ids = [...visibleNodes.keys()];
+      expect(ids).toContain('group:path:src/events/worker');
+      expect(ids).toContain('group:path:src/viewer/shared');
+    });
+
+    it('close (1.0–2.0×) emits leaf files', () => {
+      const state = mkState();
+      const { visibleNodes } = project(state, { zoom: 1.5, focus: null, filters, search: '' });
+      const ids = [...visibleNodes.keys()];
+      expect(ids).toContain('f1');
+      expect(ids).toContain('f2');
     });
   });
 
@@ -280,6 +333,25 @@ describe('projection', () => {
       // Sum of breakdown equals count.
       const sum = Object.values(agg.relations).reduce((s: number, n: any) => s + n, 0);
       expect(sum).toBe(agg.count);
+    });
+  });
+
+  describe('supernode dimensions', () => {
+    it('group representatives include boxW/boxH/radius from supernodeDims', () => {
+      const state = makeState(
+        [
+          { id: 'f1', kind: 'file', file_path: 'src/events/a.ts' },
+          { id: 'f2', kind: 'file', file_path: 'src/events/b.ts' },
+        ],
+        [],
+      );
+      const filters = new Set(['file', 'decision']);
+      const { visibleNodes } = project(state, { zoom: 0.3, focus: null, filters, search: '' });
+      const g = visibleNodes.get('group:path:src/events');
+      expect(g).toBeDefined();
+      expect(g.boxW).toBeGreaterThan(0);
+      expect(g.boxH).toBeGreaterThan(0);
+      expect(g.radius).toBeGreaterThan(0);
     });
   });
 });

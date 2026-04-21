@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
+import { ok, empty, error as errorResponse } from "../response.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -27,9 +28,10 @@ export function registerDecisionTools(
     async (params) => {
       try {
         const decision = service.create(params);
-        return { content: [{ type: "text" as const, text: JSON.stringify(decision, null, 2) }] };
+        return ok(JSON.stringify(decision, null, 2));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -49,9 +51,11 @@ export function registerDecisionTools(
     async ({ id, ...updates }) => {
       try {
         const decision = service.update(id, updates);
-        return { content: [{ type: "text" as const, text: JSON.stringify(decision, null, 2) }] };
+        return ok(JSON.stringify(decision, null, 2));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -65,9 +69,11 @@ export function registerDecisionTools(
     async ({ id }) => {
       try {
         service.delete(id);
-        return { content: [{ type: "text" as const, text: JSON.stringify({ deleted: id }) }] };
+        return ok(JSON.stringify({ deleted: id }));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -81,9 +87,11 @@ export function registerDecisionTools(
     async ({ id }) => {
       try {
         const result = service.get(id);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        return ok(JSON.stringify(result, null, 2));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) return empty(`get_decision(${id})`);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -98,9 +106,11 @@ export function registerDecisionTools(
     async ({ query, scope }) => {
       try {
         const results = search.search(query, scope);
-        return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
+        if (results.length === 0) return empty(`search_decisions(${query})`);
+        return ok(JSON.stringify(results, null, 2));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -114,9 +124,13 @@ export function registerDecisionTools(
     async ({ qualified_name }) => {
       try {
         const results = search.whyWasThisBuilt(qualified_name);
-        return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
+        if (!results || (Array.isArray(results) && results.length === 0)) {
+          return empty(`why_was_this_built(${qualified_name})`);
+        }
+        return ok(JSON.stringify(results, null, 2));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        return errorResponse("internal_error", msg);
       }
     }
   );
@@ -137,13 +151,11 @@ export function registerDecisionTools(
         } else {
           service.linkReference(decision_id, target);
         }
-        return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ linked: true, decision_id, target, relation: rel }) },
-          ],
-        };
+        return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
       } catch (e) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ error: String(e) }) }], isError: true };
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
+        return errorResponse("internal_error", msg);
       }
     }
   );

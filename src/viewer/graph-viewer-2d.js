@@ -1,6 +1,6 @@
 import { createGraphState, hydrate, edgeKey, applyMutation } from '/viewer/shared/state.js';
 import { createWsClient } from '/viewer/shared/websocket.js';
-import { SHAPE_FOR_KIND, drawStrike, drawHull } from '/viewer/shared/shapes.js';
+import { SHAPE_FOR_KIND, drawRoundedRectWH, drawStrike, drawHull } from '/viewer/shared/shapes.js';
 import {
   PALETTE_REST,
   PALETTE_HOVER,
@@ -9,7 +9,7 @@ import {
   rgbString,
   BACKGROUND,
 } from '/viewer/shared/colors.js';
-import { nodeSize, createSimulation } from '/viewer/shared/layout.js';
+import { nodeSize, nodeCharge, linkDistance, createSimulation, adaptiveScale } from '/viewer/shared/layout.js';
 import {
   createAnimState,
   advance,
@@ -18,7 +18,7 @@ import {
   clearHover,
   triggerSynapse,
 } from '/viewer/shared/animation.js';
-import { searchMatch } from '/viewer/shared/search.js';
+import { searchMatch, findMatches } from '/viewer/shared/search.js';
 import {
   createCamera,
   worldToScreen as camWorldToScreen,
@@ -26,6 +26,9 @@ import {
   fitToBounds,
   zoomAtPoint,
   lerpCamera,
+  createCameraState,
+  saveCamera,
+  restoreCamera,
 } from '/viewer/shared/camera.js';
 import { project, projectionDeltaIsInteresting, BAND_TABLE } from '/viewer/shared/projection.js';
 import { sizeAt, edgeStrokeAt } from '/viewer/shared/sizing.js';
@@ -41,13 +44,32 @@ import { pathGroupId } from '/viewer/shared/groups.js';
 
 const canvas = document.getElementById('graph');
 const tooltip = document.getElementById('tooltip');
+const modeIndicator = document.getElementById('mode-indicator');
 const ctx = canvas.getContext('2d');
 const DPR = window.devicePixelRatio || 1;
+
+function setMode(mode, focusLabel) {
+  camState.mode = mode;
+  if (modeIndicator) {
+    modeIndicator.className = `mode-indicator mode-${mode}`;
+    modeIndicator.textContent = mode === 'focus'
+      ? `FOCUS: ${focusLabel ?? ''}`
+      : 'OVERVIEW';
+  }
+}
 
 function resize() {
   canvas.width = canvas.clientWidth * DPR;
   canvas.height = canvas.clientHeight * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  try {
+    if (simulation) {
+      const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
+      simulation.force('boundary').radius(r);
+    }
+  } catch (_) {
+    // TDZ: simulation not yet initialized at initial resize; post-creation block sets initial radius
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -57,15 +79,21 @@ const anim = createAnimState();
 window.__cortex_viewer_state = state;
 window.__cortex_viewer_anim = anim;
 
-let camera = createCamera();
+const camState = createCameraState();
 let targetCamera = null;   // when set, frame() lerps camera toward it
 let hasInitiallyFit = false;
-window.__cortex_viewer_camera = () => camera;  // hook for tests / debugging
+window.__cortex_viewer_camera = () => camState.camera;  // hook for tests / debugging
+
+let pendingAutoFit = false;
+let autoFitLerp = null;  // { from, to, t0 } while animating
+
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 
 // --- Projection state (must be hoisted above sim setup; inputs are read by reproject). ---
 let projected = null;   // current projection output
 const transitionState = createTransitionState();
 let lastFrameT = 0;
+let edgeReclassify = [];  // Array<{ from, to, age, duration, _lastTick? }>
 
 // Hoisted inputs to projectionInputs(): these are also mutated by the search/filter
 // handlers and focus mode lower in the file. Originals were declared later; moved
@@ -78,7 +106,7 @@ let focusSet = null;
 
 function projectionInputs() {
   return {
-    zoom: camera.zoom,
+    zoom: camState.camera.zoom,
     focus: focusSet ? { root: focusId, depth: 1 } : null,
     filters: activeKinds,
     search: searchQuery,
@@ -86,6 +114,7 @@ function projectionInputs() {
 }
 
 function recenter() {
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     state.nodes.values(),
     canvas.clientWidth,
@@ -97,7 +126,19 @@ function recenter() {
 const graph = await fetch('/api/graph').then(r => r.json());
 hydrate(state, graph);
 
-const simulation = createSimulation().on('tick', () => {});
+const simulation = createSimulation().on('tick', () => {
+  if (pendingAutoFit && simulation.alpha() < 0.02) {
+    pendingAutoFit = false;
+    const nodes = [...projected.visibleNodes.values()];
+    const target = fitToBounds(nodes, canvas.width / devicePixelRatio, canvas.height / devicePixelRatio, 40);
+    autoFitLerp = { from: { ...camState.camera }, to: target, t0: performance.now() };
+  }
+});
+// Set boundary radius to match canvas dimensions immediately (resize() ran before sim was created).
+{
+  const r = Math.min(canvas.width, canvas.height) / window.devicePixelRatio * 0.40;
+  simulation.force('boundary').radius(r);
+}
 
 /**
  * Run the projection and, if the visible set changed, feed the sim + reheat.
@@ -114,12 +155,17 @@ function reproject(reason) {
   if (!isInitialProjection) {
     const diff = diffProjection(projected, next);
 
-    for (const id of diff.entering) {
+    if (diff.reclassified && diff.reclassified.length > 0) {
+      edgeReclassify = edgeReclassify.concat(diff.reclassified);
+    }
+
+    for (const { id, from } of diff.entering) {
       const n = next.visibleNodes.get(id);
       if (!n) continue;
-      // Seed transition with the resolved position (set by applyEntryPositions
-      // above) so the node blooms at its landing spot rather than the origin.
-      const spawn = { x: n.x ?? 0, y: n.y ?? 0 };
+      // Prefer the transition's computed-from position over the pre-resolved n.x/y.
+      const spawn = from ?? { x: n.x ?? 0, y: n.y ?? 0 };
+      // Sync the node position back so the force sim starts from the same place.
+      if (from) { n.x = from.x; n.y = from.y; }
       enterTransition(transitionState, id, spawn, 280);
     }
 
@@ -149,7 +195,12 @@ function reproject(reason) {
       aggregate: !!e.aggregate,
       count: e.count,
     })));
+    const adapt = adaptiveScale(projected.visibleNodes.size);
+    simulation.force('link').distance(link => linkDistance(link) * adapt);
+    simulation.force('charge').strength(node => nodeCharge(node) * adapt);
+    simulation.force('boundary').strength(camState.mode === 'focus' ? 0 : 0.8);
     simulation.alpha(alphaFor(reason)).restart();
+    if (camState.mode === 'overview') pendingAutoFit = true;
   }
 }
 
@@ -336,7 +387,7 @@ createWsClient({
 function pickNodeAt(ev) {
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = camScreenToWorld(
-    camera,
+    camState.camera,
     ev.clientX - rect.left,
     ev.clientY - rect.top,
     rect.width,
@@ -348,7 +399,7 @@ function pickNodeAt(ev) {
     const dx = (node.x ?? 0) - wx;
     const dy = (node.y ?? 0) - wy;
     const d = dx * dx + dy * dy;
-    const r = (nodeSize(node.kind) + 3) / camera.zoom;
+    const r = (nodeSize(node.kind) + 3) / camState.camera.zoom;
     if (d < r * r && d < bestDist) { best = node; bestDist = d; }
   }
   return best;
@@ -365,17 +416,18 @@ let didPan = false;   // suppress click after a drag
 canvas.addEventListener('pointerdown', (ev) => {
   // Only pan if no node is under the cursor (otherwise let click/dblclick through).
   if (pickNodeAt(ev)) return;
+  if (camState.mode === 'overview') return;  // no pan in overview
   isPanning = true;
-  panStart = { screenX: ev.clientX, screenY: ev.clientY, cameraX: camera.x, cameraY: camera.y };
+  panStart = { screenX: ev.clientX, screenY: ev.clientY, cameraX: camState.camera.x, cameraY: camState.camera.y };
   canvas.classList.add('panning');
   canvas.setPointerCapture(ev.pointerId);
 });
 
 canvas.addEventListener('pointermove', (ev) => {
   if (isPanning && panStart) {
-    const dx = (ev.clientX - panStart.screenX) / camera.zoom;
-    const dy = (ev.clientY - panStart.screenY) / camera.zoom;
-    camera = { ...camera, x: panStart.cameraX - dx, y: panStart.cameraY - dy };
+    const dx = (ev.clientX - panStart.screenX) / camState.camera.zoom;
+    const dy = (ev.clientY - panStart.screenY) / camState.camera.zoom;
+    camState.camera = { ...camState.camera, x: panStart.cameraX - dx, y: panStart.cameraY - dy };
     targetCamera = null;  // cancel any in-progress lerp — user is driving now
     didPan = true;
     return;
@@ -403,10 +455,10 @@ canvas.addEventListener('pointermove', (ev) => {
     // Check proximity to an aggregate edge.
     const rect2 = canvas.getBoundingClientRect();
     const [wx, wy] = camScreenToWorld(
-      camera, ev.clientX - rect2.left, ev.clientY - rect2.top,
+      camState.camera, ev.clientX - rect2.left, ev.clientY - rect2.top,
       rect2.width, rect2.height,
     );
-    const foundEdge = findAggregateEdgeNear(wx, wy, 5 / camera.zoom);
+    const foundEdge = findAggregateEdgeNear(wx, wy, 5 / camState.camera.zoom);
     if (foundEdge) {
       const relations = Object.entries(foundEdge.relations || { [foundEdge.relation]: foundEdge.count })
         .map(([r, n]) => `${n} ${r}`).join(', ');
@@ -436,17 +488,24 @@ canvas.addEventListener('pointerup', endPan);
 canvas.addEventListener('pointercancel', endPan);
 
 canvas.addEventListener('wheel', (ev) => {
-  if (ev.deltaY === 0) return;
   ev.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  const sx = ev.clientX - rect.left;
-  const sy = ev.clientY - rect.top;
-  const factor = Math.exp(-ev.deltaY * 0.001);
-  const prevBand = bandIndexFor(camera.zoom);
-  camera = zoomAtPoint(camera, factor, sx, sy, rect.width, rect.height);
-  targetCamera = null;  // user-driven zoom cancels any in-progress animation
-  const nextBand = bandIndexFor(camera.zoom);
-  if (prevBand !== nextBand) reproject('band-cross');
+  const sx = (ev.clientX - rect.left) * devicePixelRatio;
+  const sy = (ev.clientY - rect.top)  * devicePixelRatio;
+
+  if (camState.mode === 'focus') {
+    const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
+    camState.camera = zoomAtPoint(camState.camera, factor, sx, sy, canvas.width, canvas.height);
+    targetCamera = null;  // user is driving — cancel any in-progress lerp
+    reproject('focus-zoom');
+    return;
+  }
+
+  // Overview: step through band thresholds.
+  const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+  camState.camera = zoomAtPoint(camState.camera, factor, sx, sy, canvas.width, canvas.height);
+  targetCamera = null;  // user is driving — cancel any in-progress lerp
+  reproject('zoom-band');
 }, { passive: false });
 
 canvas.addEventListener('pointerleave', (ev) => {
@@ -461,6 +520,9 @@ canvas.addEventListener('pointerleave', (ev) => {
 
 const searchInput = document.getElementById('search');
 const searchCount = document.getElementById('search-count');
+const chip = document.getElementById('search-chip');
+const chipCount = document.getElementById('search-chip-count');
+const chipMenu = document.getElementById('search-chip-menu');
 
 function updateSearchCount() {
   if (!searchQuery) {
@@ -478,6 +540,20 @@ function updateSearchCount() {
   searchCount.classList.remove('hidden');
 }
 
+function cameraForMatches(matches) {
+  const canvasW = canvas.width / devicePixelRatio;
+  const canvasH = canvas.height / devicePixelRatio;
+  return fitToBounds(matches, canvasW, canvasH, 80);
+}
+
+function lerpCameraTo(target) {
+  autoFitLerp = { from: { ...camState.camera }, to: target, t0: performance.now() };
+}
+
+searchInput.addEventListener('focus', () => {
+  if (!camState.saved) saveCamera(camState);
+});
+
 let searchDebounce = null;
 searchInput.addEventListener('input', (ev) => {
   searchQuery = ev.target.value.toLowerCase();
@@ -489,7 +565,42 @@ searchInput.addEventListener('input', (ev) => {
   searchDebounce = setTimeout(() => {
     reproject('search');
     updateSearchCount();
+
+    const matches = findMatches([...state.nodes.values()], searchQuery);
+
+    if (matches.length === 0) {
+      chip.hidden = true;
+      chipMenu.hidden = true;
+      return;
+    }
+
+    chip.hidden = false;
+    chipCount.textContent = String(matches.length);
+
+    // Camera lerp to fit matches (single match → center; many → fit bounds)
+    lerpCameraTo(cameraForMatches(matches));
+
+    // Populate menu
+    chipMenu.innerHTML = '';
+    for (const m of matches) {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>${escapeHtml(m.name)}</strong> <span class="path">${escapeHtml(m.file_path ?? '')}</span>`;
+      li.addEventListener('click', () => {
+        lerpCameraTo(cameraForMatches([m]));
+        chipMenu.hidden = true;
+      });
+      chipMenu.appendChild(li);
+    }
   }, 200);
+});
+
+chip.addEventListener('click', () => { chipMenu.hidden = !chipMenu.hidden; });
+
+document.addEventListener('click', (ev) => {
+  if (chipMenu.hidden) return;
+  if (ev.target === chip || chip.contains(ev.target)) return;
+  if (chipMenu.contains(ev.target)) return;
+  chipMenu.hidden = true;
 });
 
 searchInput.addEventListener('keydown', (ev) => {
@@ -504,6 +615,10 @@ searchInput.addEventListener('keydown', (ev) => {
     }
     reproject('search');
     updateSearchCount();   // refresh after reproject
+    chip.hidden = true;
+    chipMenu.hidden = true;
+    autoFitLerp = null;
+    restoreCamera(camState);
   }
 });
 
@@ -530,8 +645,8 @@ function draw() {
 
   ctx.save();
   ctx.translate(canvas.clientWidth / 2, canvas.clientHeight / 2);
-  ctx.scale(camera.zoom, camera.zoom);
-  ctx.translate(-camera.x, -camera.y);
+  ctx.scale(camState.camera.zoom, camState.camera.zoom);
+  ctx.translate(-camState.camera.x, -camState.camera.y);
 
   // Edge endpoints may be group representatives (not in state.nodes); resolve
   // from the projection first, fall back to raw state for the initial frame.
@@ -564,12 +679,52 @@ function draw() {
     }
   }
 
+  // Build a set of edge keys currently being cross-faded so the main loop can skip them.
+  const reclassifyKeys = new Set();
+  for (const rc of edgeReclassify) {
+    reclassifyKeys.add(edgeKey({ source_id: rc.from.source_id, target_id: rc.from.target_id, relation: rc.from.relation }));
+    reclassifyKeys.add(edgeKey({ source_id: rc.to.source_id, target_id: rc.to.target_id, relation: rc.to.relation }));
+  }
+
+  /**
+   * Draw a single edge with an alpha multiplier.
+   * @param {object} edge
+   * @param {{ alpha: number }} opts
+   */
+  function drawEdge(edge, opts) {
+    const a = lookupNode(edge.source_id);
+    const b = lookupNode(edge.target_id);
+    if (!a || !b) return;
+    const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
+    const eKey2 = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
+    const eAnim2 = anim.edges.get(eKey2);
+    const h2 = eAnim2 ? eAnim2.highlight : 0;
+    const isSelEdge = selectedId !== null && (edge.source_id === selectedId || edge.target_id === selectedId);
+    const effHi = Math.max(h2, isSelEdge ? 1.0 : 0);
+    const baseAlpha = alphaSpec.rest + (alphaSpec.hover - alphaSpec.rest) * effHi;
+    const bright = !searchQuery
+      || (searchMatch(a, searchQuery) && searchMatch(b, searchQuery))
+      || a.id === hoveredId || b.id === hoveredId
+      || isSelEdge;
+    const dimFactor = bright ? 1.0 : 0.15;
+    const aggBoost = edge.aggregate ? (1 + Math.log2(Math.max(1, edge.count))) : 1;
+    ctx.lineWidth = edgeStrokeAt(edge.relation, camState.camera.zoom) * aggBoost;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (baseAlpha * dimFactor * opts.alpha) + ')';
+    ctx.beginPath();
+    ctx.moveTo(a.x ?? 0, a.y ?? 0);
+    ctx.lineTo(b.x ?? 0, b.y ?? 0);
+    ctx.stroke();
+  }
+
   for (const edge of (projected?.visibleEdges.values() ?? state.edges.values())) {
+    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
+    // Skip edges currently in a cross-fade — they are drawn in the reclassify block below.
+    if (reclassifyKeys.has(eKey)) continue;
+
     const a = lookupNode(edge.source_id);
     const b = lookupNode(edge.target_id);
     if (!a || !b) continue;
 
-    const eKey = edgeKey({ source_id: edge.source_id, target_id: edge.target_id, relation: edge.relation });
     const alphaSpec = EDGE_ALPHA[edge.relation] || EDGE_ALPHA.CALLS;
     const eAnim = anim.edges.get(eKey);
     const h = eAnim ? eAnim.highlight : 0;
@@ -587,13 +742,20 @@ function draw() {
 
     // Aggregate edges get thicker stroke proportional to log2(count).
     const aggregateBoost = edge.aggregate ? (1 + Math.log2(Math.max(1, edge.count))) : 1;
-    ctx.lineWidth = edgeStrokeAt(edge.relation, camera.zoom) * aggregateBoost;
+    ctx.lineWidth = edgeStrokeAt(edge.relation, camState.camera.zoom) * aggregateBoost;
 
     ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * edgeSearchDim) + ')';
     ctx.beginPath();
     ctx.moveTo(a.x ?? 0, a.y ?? 0);
     ctx.lineTo(b.x ?? 0, b.y ?? 0);
     ctx.stroke();
+  }
+
+  // Cross-fade block: draw outgoing (from) edge fading out, incoming (to) fading in.
+  for (const rc of edgeReclassify) {
+    const p = rc.age / rc.duration;
+    drawEdge(rc.from, { alpha: 1 - p });
+    drawEdge(rc.to,   { alpha: p });
   }
 
   // Iterate over both currently-visible nodes AND those still exiting
@@ -638,7 +800,7 @@ function draw() {
     // sizeAt for apparent-size clamping.
     const r = node.kind === 'group'
       ? (nodeSize(node) + combinedHighlight * 1.5)
-      : sizeAt(node.kind, camera.zoom) * (1 + combinedHighlight * 0.15);
+      : sizeAt(node.kind, camState.camera.zoom) * (1 + combinedHighlight * 0.15);
 
     // Apply transition opacity/scale/position if present.
     const trans = transitionState.transitions.get(node.id);
@@ -654,7 +816,14 @@ function draw() {
 
     const finalAlpha = alpha * searchDim * tOpacity;
     const finalR = r * tScale;
-    shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
+
+    if (node.kind === 'group') {
+      const bw = (node.boxW ?? 48) * tScale;
+      const bh = (node.boxH ?? 20) * tScale;
+      drawRoundedRectWH(ctx, node.x ?? 0, node.y ?? 0, bw, bh, rgbString(rgb, finalAlpha));
+    } else {
+      shape(ctx, node.x ?? 0, node.y ?? 0, finalR, rgbString(rgb, finalAlpha));
+    }
 
     if (isSelected) {
       ctx.beginPath();
@@ -662,7 +831,9 @@ function draw() {
       const cx = node.x ?? 0;
       const cy = node.y ?? 0;
       if (node.kind === 'group') {
-        ctx.rect(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+        const bw = (node.boxW ?? 48) * tScale;
+        const bh = (node.boxH ?? 20) * tScale;
+        ctx.rect(cx - bw / 2 - 2, cy - bh / 2 - 2, bw + 4, bh + 4);
       } else if (node.kind === 'decision' || node.kind === 'project') {
         // Diamond outline
         ctx.moveTo(cx,           cy - ringR);
@@ -674,7 +845,7 @@ function draw() {
         ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
       }
       ctx.strokeStyle = rgbString(hover, 0.9);
-      ctx.lineWidth = 1 / camera.zoom;
+      ctx.lineWidth = 1 / camState.camera.zoom;
       ctx.stroke();
     }
     if (node.status === 'superseded') {
@@ -689,52 +860,87 @@ function draw() {
   drawLabels();
 }
 
+/**
+ * Returns true iff a node's label should render at the given zoom.
+ * Selection and search-match are overrides handled by the caller.
+ *   group:    always
+ *   decision: always
+ *   file:     zoom >= 0.7
+ *   function/reference/component/etc: zoom >= 2.0
+ */
+function labelVisibleAt(node, zoom) {
+  if (node.kind === 'group' || node.kind === 'decision') return true;
+  if (node.kind === 'file') return zoom >= 0.7;
+  return zoom >= 2.0;
+}
+
 function drawLabels() {
   ctx.save();
   ctx.font = '11px "Geist Mono", monospace';
   ctx.textBaseline = 'middle';
 
   for (const node of (projected?.visibleNodes.values() ?? state.nodes.values())) {
+    const isSelected = node.id === selectedId;
+    const isSearchMatch = searchQuery && searchMatch(node, searchQuery);
+
+    // Gate: skip unless the band allows it or a selection/search override applies.
+    if (!labelVisibleAt(node, camState.camera.zoom) && !isSelected && !isSearchMatch) continue;
+
     // Per-kind fade windows.
     let alpha = 0;
     if (node.kind === 'decision') {
       alpha = 1;
     } else if (node.kind === 'file') {
       // 0.4 → 0.6 linear
-      const t = (camera.zoom - 0.4) / 0.2;
+      const t = (camState.camera.zoom - 0.4) / 0.2;
       alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
     } else {
       // functions, components, references, paths: 0.9 → 1.1 linear
-      const t = (camera.zoom - 0.9) / 0.2;
+      const t = (camState.camera.zoom - 0.9) / 0.2;
       alpha = t <= 0 ? 0 : t >= 1 ? 1 : t;
     }
 
     if (node.kind === 'group') alpha = 1;   // groups are always labeled
 
+    // Override: selected or search-match nodes always render at full alpha.
+    if (isSelected || isSearchMatch) alpha = Math.max(alpha, 1);
+
     if (alpha <= 0) continue;
 
     // Search dim also applies to labels, but hover wins (matches node rule).
-    if (searchQuery && !searchMatch(node, searchQuery) && node.id !== hoveredId) {
+    if (searchQuery && !isSearchMatch && node.id !== hoveredId) {
       alpha *= 0.15;
     }
 
     const [sx, sy] = camWorldToScreen(
-      camera,
+      camState.camera,
       node.x ?? 0,
       node.y ?? 0,
       canvas.clientWidth,
       canvas.clientHeight,
     );
-    // Offset label to the right of the node (size scales with on-screen apparent size).
-    const offset = nodeSize(node.kind) * camera.zoom + 4;
-    ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
-    ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
 
-    if (node.kind === 'group' && node.memberCount && node.memberCount > 1) {
-      const countText = ' · ' + node.memberCount;
-      ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
-      const nameW = ctx.measureText(String(node.name || '')).width;
-      ctx.fillText(countText, sx + offset + nameW, sy + 3);
+    if (node.kind === 'group') {
+      // Group label is centered inside the rounded rect.
+      const nameText = String(node.name || '');
+      const countText = (node.memberCount && node.memberCount > 1) ? ' · ' + node.memberCount : '';
+      const fullText = nameText + countText;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';
+      ctx.fillText(nameText, sx, sy);
+      if (countText) {
+        const nameW = ctx.measureText(nameText).width;
+        const totalW = ctx.measureText(fullText).width;
+        // Draw count portion offset so the full string is centered.
+        ctx.fillStyle = 'rgba(120,120,120,' + alpha + ')';
+        ctx.fillText(countText, sx + nameW - totalW / 2, sy);
+      }
+      ctx.textAlign = 'left';
+    } else {
+      // Offset label to the right of the node (size scales with on-screen apparent size).
+      const offset = nodeSize(node.kind) * camState.camera.zoom + 4;
+      ctx.fillStyle = 'rgba(153,153,153,' + alpha + ')';   // #999
+      ctx.fillText(String(node.name || ''), sx + offset, sy + 3);
     }
   }
 
@@ -751,7 +957,7 @@ function drawSynapses() {
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(180,160,224,' + (1 - progress) + ')';
-      ctx.lineWidth = 1 / camera.zoom;
+      ctx.lineWidth = 1 / camState.camera.zoom;
       ctx.stroke();
     } else if (s.kind === 'pulse') {
       const a = state.nodes.get(s.source);
@@ -760,7 +966,7 @@ function drawSynapses() {
       const px = (a.x ?? 0) + ((b.x ?? 0) - (a.x ?? 0)) * progress;
       const py = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * progress;
       ctx.beginPath();
-      ctx.arc(px, py, 2.5 / camera.zoom, 0, Math.PI * 2);
+      ctx.arc(px, py, 2.5 / camState.camera.zoom, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,255,255,' + (1 - progress) + ')';
       ctx.fill();
     }
@@ -781,29 +987,42 @@ function frame(t) {
   lastFrameT = t;
   advanceTransitions(transitionState, dt);
 
+  // Advance edge reclassification cross-fades.
+  for (const rc of edgeReclassify) {
+    rc.age = Math.min(rc.duration, rc.age + dt);
+  }
+  edgeReclassify = edgeReclassify.filter(rc => rc.age < rc.duration);
+
   if (!hasInitiallyFit && simulation.alpha() < 0.3) {
     // Wait for the sim to actually reach roughly equilibrium before framing.
     // With the Task 1 force tuning, alpha < 0.3 fires at ~tick 50 (≈0.8s at 60fps).
     const fit = fitToBounds(state.nodes.values(), canvas.clientWidth, canvas.clientHeight, 40);
-    const prevBand = bandIndexFor(camera.zoom);
-    camera = fit;
+    const prevBand = bandIndexFor(camState.camera.zoom);
+    camState.camera = fit;
     hasInitiallyFit = true;
-    if (bandIndexFor(camera.zoom) !== prevBand) reproject('band-cross');
+    if (bandIndexFor(camState.camera.zoom) !== prevBand) reproject('band-cross');
+  }
+
+  // Auto-fit lerp after reheat settles (overview mode).
+  if (autoFitLerp) {
+    const t = Math.min(1, (performance.now() - autoFitLerp.t0) / 400);
+    camState.camera = lerpCamera(autoFitLerp.from, autoFitLerp.to, easeOutCubic(t));
+    if (t >= 1) autoFitLerp = null;
   }
 
   // Smooth camera animation toward a target, if one is set.
   if (targetCamera) {
-    const prevBand = bandIndexFor(camera.zoom);
-    camera = lerpCamera(camera, targetCamera, 0.15);
-    const dx = targetCamera.x - camera.x;
-    const dy = targetCamera.y - camera.y;
-    const dz = targetCamera.zoom - camera.zoom;
+    const prevBand = bandIndexFor(camState.camera.zoom);
+    camState.camera = lerpCamera(camState.camera, targetCamera, 0.15);
+    const dx = targetCamera.x - camState.camera.x;
+    const dy = targetCamera.y - camState.camera.y;
+    const dz = targetCamera.zoom - camState.camera.zoom;
     const converged = Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dz) < 0.005;
     if (converged) {
-      camera = targetCamera;
+      camState.camera = targetCamera;
       targetCamera = null;
     }
-    const nextBand = bandIndexFor(camera.zoom);
+    const nextBand = bandIndexFor(camState.camera.zoom);
     // Reproject on any per-frame band cross, AND unconditionally on lerp
     // convergence — catches cases where multiple bands were crossed in a
     // single lerp step (the per-frame check only sees the first/last band
@@ -911,10 +1130,11 @@ canvas.addEventListener('dblclick', (ev) => {
   if (best.kind === 'group') {
     // Drill: compute a zoom that places this group inside the next closer band
     // so its children become visible, centered on the group.
-    const targetZoom = zoomLevelForBandBelow(bandIndexFor(camera.zoom));
+    const targetZoom = zoomLevelForBandBelow(bandIndexFor(camState.camera.zoom));
+    autoFitLerp = null;
     targetCamera = {
-      x: best.x ?? camera.x,
-      y: best.y ?? camera.y,
+      x: best.x ?? camState.camera.x,
+      y: best.y ?? camState.camera.y,
       zoom: targetZoom,
     };
     return;
@@ -922,8 +1142,10 @@ canvas.addEventListener('dblclick', (ev) => {
 
   focusId = best.id;
   focusSet = bfsNeighborhood(best.id, 1);
+  setMode('focus', best.name);
   // Animate camera to fit the focused subgraph.
   const focusedNodes = [...state.nodes.values()].filter((n) => focusSet.has(n.id));
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     focusedNodes,
     canvas.clientWidth,
@@ -941,6 +1163,8 @@ window.addEventListener('keydown', (ev) => {
   if (!focusSet) return;
   focusId = null;
   focusSet = null;
+  setMode('overview');
+  autoFitLerp = null;
   targetCamera = fitToBounds(
     state.nodes.values(),
     canvas.clientWidth,

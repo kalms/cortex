@@ -58,6 +58,13 @@ actually starts, renders, transitions, or handles interaction without errors.
    - Exercise the specific behavior the task added (zoom, click, filter,
      search, dblclick, Esc, etc.)
    - Capture screenshots at key states
+
+   **Screenshot location:** All QA screenshots MUST be written to
+   `.playwright-mcp/` (Playwright MCP default) or `.tmp/` — never to the
+   repo root or any other tracked directory. Both paths are gitignored.
+   If the tool defaults elsewhere, pass an explicit path (e.g. the
+   `filename` arg to `browser_take_screenshot`). Screenshots at the repo
+   root clutter `git status` and risk committing large binary artifacts.
 4. Report findings:
    - **Runtime errors / stack traces** → block completion, fix before review
    - **Visible regressions vs. previous state** → block completion

@@ -38,11 +38,11 @@ export function createTestCbmDb(dir: string): string {
     );
     INSERT INTO projects VALUES ('test', '2026-04-13T00:00:00Z', '/test/repo');
     INSERT INTO nodes (project, label, name, qualified_name, file_path, start_line, end_line)
-      VALUES ('test', 'Function', 'handleRequest', 'src/server.ts::handleRequest', 'src/server.ts', 10, 25);
+      VALUES ('test', 'Function', 'handleRequest', 'test.src.server.handleRequest', 'src/server.ts', 10, 25);
     INSERT INTO nodes (project, label, name, qualified_name, file_path, start_line, end_line)
-      VALUES ('test', 'Function', 'parseBody', 'src/server.ts::parseBody', 'src/server.ts', 30, 45);
+      VALUES ('test', 'Function', 'parseBody', 'test.src.server.parseBody', 'src/server.ts', 30, 45);
     INSERT INTO nodes (project, label, name, qualified_name, file_path, start_line, end_line)
-      VALUES ('test', 'Class', 'Router', 'src/router.ts::Router', 'src/router.ts', 1, 80);
+      VALUES ('test', 'Class', 'Router', 'test.src.router.Router', 'src/router.ts', 1, 80);
     INSERT INTO edges (project, source_id, target_id, type)
       VALUES ('test', 1, 2, 'CALLS');
     INSERT INTO edges (project, source_id, target_id, type)
@@ -102,18 +102,22 @@ describe("CBM ATTACH", () => {
   it("searchGraph finds nodes by qualified name pattern", () => {
     const cbmPath = createTestCbmDb(tmpDir);
     store.attachCbm(cbmPath);
-    const results = searchGraph(store, "test", { qn_pattern: "src/router%" });
+    const results = searchGraph(store, "test", { qn_pattern: "test.src.router%" });
     expect(results.length).toBe(1);
     expect(results[0].name).toBe("Router");
   });
 
-  it("getGraphSchema returns distinct labels and edge types", () => {
+  it("getGraphSchema returns distinct labels and edge types with counts", () => {
     const cbmPath = createTestCbmDb(tmpDir);
     store.attachCbm(cbmPath);
     const schema = getGraphSchema(store, "test");
-    expect(schema.labels).toContain("Function");
-    expect(schema.labels).toContain("Class");
-    expect(schema.edgeTypes).toContain("CALLS");
+    // labels and edgeTypes are now {name, count}[] objects
+    expect(schema.labels.map((l) => l.name)).toContain("Function");
+    expect(schema.labels.map((l) => l.name)).toContain("Class");
+    expect(schema.edgeTypes.map((e) => e.name)).toContain("CALLS");
+    // counts are numeric
+    const funcEntry = schema.labels.find((l) => l.name === "Function");
+    expect(funcEntry?.count).toBeGreaterThanOrEqual(1);
   });
 
   it("tracePath follows CALLS edges outbound", () => {
@@ -121,7 +125,10 @@ describe("CBM ATTACH", () => {
     store.attachCbm(cbmPath);
     const results = tracePath(store, "test", { function_name: "handleRequest", mode: "calls" });
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.some((r) => r.name === "parseBody")).toBe(true);
+    // results are now {node, depth}[] — extract .node for name checks
+    expect(results.some((r) => r.node.name === "parseBody")).toBe(true);
+    // depth 1 = direct callee
+    expect(results[0].depth).toBe(1);
   });
 
   it("tracePath follows CALLS edges inbound", () => {
@@ -129,7 +136,8 @@ describe("CBM ATTACH", () => {
     store.attachCbm(cbmPath);
     const results = tracePath(store, "test", { function_name: "handleRequest", mode: "callers" });
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.some((r) => r.name === "Router")).toBe(true);
+    // results are now {node, depth}[] — extract .node for name checks
+    expect(results.some((r) => r.node.name === "Router")).toBe(true);
   });
 
   it("listProjects returns all CBM projects", () => {

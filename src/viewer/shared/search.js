@@ -9,3 +9,18 @@ export function searchMatch(node, query) {
   const name = String(node && node.name ? node.name : '').toLowerCase();
   return name.includes(query.toLowerCase());
 }
+
+/**
+ * Returns the subset of `nodes` whose name contains `query`
+ * (case-insensitive). Empty query → empty array (no match = no camera move).
+ */
+export function findMatches(nodes, query) {
+  if (!query) return [];
+  const q = query.toLowerCase();
+  const out = [];
+  for (const n of nodes) {
+    const name = String(n && n.name ? n.name : '').toLowerCase();
+    if (name.includes(q)) out.push(n);
+  }
+  return out;
+}

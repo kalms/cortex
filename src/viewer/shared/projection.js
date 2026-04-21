@@ -10,33 +10,27 @@
 
 import { derivePathGroups, deriveTerritories, pathGroupId } from './groups.js';
 import { edgeKey } from './state.js';
+import { supernodeDims } from './sizing.js';
 
 /**
- * Zoom bands, from far to close. Determines which kinds emit as leaves
- * and whether dir/file groups are synthesized as supernodes.
+ * Band table — structure-primary. Depth-2 dir supernodes form the backbone
+ * at overview; decisions are always visible and positioned via governance
+ * gravity (see layout.js) near their territories.
  *
- * A node kind is emitted as a leaf only when the current zoom falls within
- * its visibility range; otherwise it folds into its ancestor group (its
- * path-group or, last resort, stays hidden).
- *
- * Decisions are always visible. Dir groups appear at far/mid zoom; file
- * groups at mid zoom; leaves progressively at closer zoom.
- *
- * `emitDirGroups`:
- *   'top'  — only root-level dir groups (those whose parent dir path has no
- *            group of its own in the derived set).
- *   'mid'  — root dir groups plus one more layer of nesting (children of
- *            root groups that are themselves dir groups).
- *   'none' — no dir groups emitted; their leaves (if visible) surface directly.
+ * dirDepth = max filesystem depth of emitted dir groups. Dir groups deeper
+ * than dirDepth collapse up into their depth-`dirDepth` ancestor.
  */
 export const BAND_TABLE = [
-  { maxZoom: 0.4, visibleKinds: new Set(['decision']),                emitDirGroups: 'top',    emitFileGroups: false, emitLeafFiles: false },
-  { maxZoom: 1.0, visibleKinds: new Set(['decision']),                emitDirGroups: 'mid',    emitFileGroups: false, emitLeafFiles: false },
-  { maxZoom: 2.0, visibleKinds: new Set(['decision', 'file']),        emitDirGroups: 'none',   emitFileGroups: true,  emitLeafFiles: true  },
+  { maxZoom: 0.4, visibleKinds: new Set(['decision']),
+    dirDepth: 2, emitDirGroups: true, emitFileGroups: false, emitLeafFiles: false },
+  { maxZoom: 1.0, visibleKinds: new Set(['decision']),
+    dirDepth: 3, emitDirGroups: true, emitFileGroups: false, emitLeafFiles: false },
+  { maxZoom: 2.0, visibleKinds: new Set(['decision', 'file']),
+    dirDepth: Infinity, emitDirGroups: false, emitFileGroups: true, emitLeafFiles: true },
   { maxZoom: Infinity,
-                  visibleKinds: new Set(['decision', 'file', 'function', 'component',
-                    'reference', 'path', 'variable', 'section', 'type', 'project']),
-                                                                      emitDirGroups: 'none',   emitFileGroups: false, emitLeafFiles: true  },
+    visibleKinds: new Set(['decision', 'file', 'function', 'component',
+      'reference', 'path', 'variable', 'section', 'type', 'project']),
+    dirDepth: Infinity, emitDirGroups: false, emitFileGroups: false, emitLeafFiles: true },
 ];
 
 function bandFor(zoom) {
@@ -85,7 +79,7 @@ export function project(state, inputs) {
   }
 
   // Derive groups once per call.
-  const pathGroups = derivePathGroups(allNodes);
+  const pathGroups = derivePathGroups(allNodes, { depth: band.dirDepth });
   const territories = deriveTerritories(allNodes, allEdges);
 
   const groupById = new Map(pathGroups.map((g) => [g.id, g]));
@@ -103,40 +97,14 @@ export function project(state, inputs) {
     for (const m of g.members) leafAncestor.set(m, g.id);
   }
 
-  // Classify dir groups by their rank in the dir-group forest:
-  //   rootDirGroups = dir groups with no dir-group ancestor.
-  //   midDirGroups  = dir groups whose immediate dir ancestor is a root.
-  const dirGroupIds = new Set(
-    pathGroups.filter((g) => g.kind === 'dir').map((g) => g.id),
-  );
-  const rootDirGroupIds = new Set();
-  const midDirGroupIds = new Set();
-  for (const g of pathGroups) {
-    if (g.kind !== 'dir') continue;
-    if (!hasDirAncestor(g.dirPath, dirGroupIds)) {
-      rootDirGroupIds.add(g.id);
-    }
-  }
-  for (const g of pathGroups) {
-    if (g.kind !== 'dir') continue;
-    if (rootDirGroupIds.has(g.id)) continue;
-    const parent = nearestDirAncestor(g.dirPath, dirGroupIds);
-    if (parent && rootDirGroupIds.has(parent)) midDirGroupIds.add(g.id);
-  }
-
   // Determine which groups to emit as visible supernodes.
-  // 'top'/'mid' for emitDirGroups is a tree-forest reading, NOT a filesystem-depth check:
-  //  - 'top' emits dir groups that have no dir-group ancestor in the derived set
-  //    (i.e. roots of the forest formed by the dir groups we actually derived).
-  //  - 'mid' additionally includes groups one nesting level below the roots.
-  // This handles realistic repos where top-level dirs aren't at depth=1 because
-  // intermediate dirs got collapsed up during derivation.
+  // derivePathGroups was called with { depth: band.dirDepth }, so all dir groups
+  // in pathGroups are already capped to the correct depth — emit all of them.
   const emittedGroupIds = new Set();
-  if (band.emitDirGroups === 'top') {
-    for (const id of rootDirGroupIds) emittedGroupIds.add(id);
-  } else if (band.emitDirGroups === 'mid') {
-    for (const id of rootDirGroupIds) emittedGroupIds.add(id);
-    for (const id of midDirGroupIds) emittedGroupIds.add(id);
+  if (band.emitDirGroups) {
+    for (const g of pathGroups) {
+      if (g.kind === 'dir') emittedGroupIds.add(g.id);
+    }
   }
   if (band.emitFileGroups) {
     for (const g of pathGroups) {
@@ -221,16 +189,21 @@ export function project(state, inputs) {
   for (const id of emittedGroupIds) {
     const g = groupById.get(id);
     if (!g) continue;
+    const label = labelFor(g);
+    const dims = supernodeDims(label);
     // Group representative: synthetic node with id === g.id.
     visibleNodes.set(g.id, {
       id: g.id,
       kind: 'group',
-      name: labelFor(g),
+      name: label,
       groupKind: g.kind,          // 'dir' or 'file'
       members: g.members,
       memberCount: g.memberCount,
       dirPath: g.dirPath,
       filePath: g.filePath,
+      boxW: dims.w,
+      boxH: dims.h,
+      radius: dims.radius,
       // x/y filled in by syncSimulation's inherit-from-centroid logic later.
     });
   }
@@ -360,18 +333,6 @@ function parentPathGroupIdFromSpec(g, groupById) {
     return nearestDirAncestor(g.dirPath, dirIds);
   }
   return null;
-}
-
-/**
- * True if any strict ancestor directory of `dirPath` has a dir group in `dirGroupIds`.
- */
-function hasDirAncestor(dirPath, dirGroupIds) {
-  const parts = dirPath.split('/');
-  for (let i = parts.length - 1; i > 0; i--) {
-    const ancestor = parts.slice(0, i).join('/');
-    if (dirGroupIds.has(pathGroupId(ancestor))) return true;
-  }
-  return false;
 }
 
 /**
