@@ -4,16 +4,21 @@ import { DecisionService } from "../../src/decisions/service.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Event } from "../../src/events/types.js";
 
 describe("DecisionService.supersede", () => {
   let dir: string;
   let store: GraphStore;
   let service: DecisionService;
+  let events: Event[];
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "cortex-sup-"));
     store = new GraphStore(join(dir, "g.db"));
-    service = new DecisionService(store);
+    events = [];
+    service = new DecisionService(store, {
+      bus: { emit: (e: Event) => events.push(e) },
+    });
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -54,5 +59,45 @@ describe("DecisionService.supersede", () => {
       .prepare("SELECT COUNT(*) as c FROM nodes WHERE kind='decision'")
       .get() as { c: number };
     expect(dbCount.c).toBe(0);
+  });
+
+  it("emits decision.created for new and decision.superseded for old", () => {
+    const old = service.create({
+      title: "old",
+      description: "d",
+      rationale: "r",
+      problem: "p",
+      resolution: "res",
+    });
+    events.length = 0; // clear the create event
+    service.supersede({
+      old_decision_id: old.id,
+      title: "new",
+      problem: "np",
+      resolution: "nr",
+      rationale: "why",
+    });
+    expect(events.filter((e) => e.kind === "decision.created").length).toBe(1);
+    expect(events.filter((e) => e.kind === "decision.superseded").length).toBe(1);
+  });
+
+  it("creates exactly one SUPERSEDES edge", () => {
+    const old = service.create({
+      title: "old",
+      description: "d",
+      rationale: "r",
+      problem: "p",
+      resolution: "res",
+    });
+    const next = service.supersede({
+      old_decision_id: old.id,
+      title: "new",
+      problem: "np",
+      resolution: "nr",
+      rationale: "why",
+    });
+    const edges = store.findEdges({ source_id: next.id, target_id: old.id });
+    const supersedeEdges = edges.filter((e) => e.relation === "SUPERSEDES");
+    expect(supersedeEdges.length).toBe(1);
   });
 });

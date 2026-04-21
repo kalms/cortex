@@ -156,6 +156,7 @@ export class DecisionService {
     if (input.superseded_by !== undefined) { newData.superseded_by = input.superseded_by; changed.push('superseded_by'); }
     if (input.problem !== undefined) { newData.problem = input.problem; changed.push('problem'); }
     if (input.resolution !== undefined) { newData.resolution = input.resolution; changed.push('resolution'); }
+    if (input.author !== undefined) { newData.author = input.author; changed.push('author'); }
 
     const updatedNode = this.store.updateNode(id, {
       name: newData.title,
@@ -260,11 +261,7 @@ export class DecisionService {
       this.update(input.old_decision_id, {
         status: "superseded",
         superseded_by: created.id,
-      });
-      this.store.createEdge({
-        source_id: created.id,
-        target_id: input.old_decision_id,
-        relation: "SUPERSEDES",
+        author: input.author,
       });
       return created;
     });

@@ -48,4 +48,27 @@ describe("DecisionService.propose", () => {
     expect((ev as any).payload.decision_id).toBe(d.id);
     expect((ev as any).payload.pr_number).toBeNull();
   });
+
+  it("links decision to PR when pr_number provided", () => {
+    // Pre-insert a pull_request node directly via store
+    const prNode = store.createNode({
+      kind: "pull_request",
+      name: "feature x",
+      data: { number: 512, state: "open", author: "mira" },
+      tier: "personal",
+    });
+    const d = service.propose({
+      title: "causal ordering",
+      problem: "p",
+      resolution: "r",
+      rationale: "w",
+      pr_number: 512,
+    });
+    // Edge must exist
+    const edges = store.findEdges({ source_id: prNode.id, target_id: d.id });
+    expect(edges.some((e) => e.relation === "PR_INTRODUCES_DECISION")).toBe(true);
+    // Event payload should carry the number
+    const ev = events.find((e) => e.kind === "decision.proposed") as any;
+    expect(ev.payload.pr_number).toBe(512);
+  });
 });

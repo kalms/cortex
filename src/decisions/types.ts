@@ -48,6 +48,7 @@ export interface UpdateDecisionInput {
   reason?: string;
   problem?: string | null;
   resolution?: string | null;
+  author?: string;
 }
 
 export interface ProposeDecisionInput {
