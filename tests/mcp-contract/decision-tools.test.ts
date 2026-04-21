@@ -82,9 +82,10 @@ describe("decision-tools contract", () => {
       expect(ResponseSchema.safeParse(res).success).toBe(true);
     });
 
-    it("search_decisions: query with no matches returns empty or ok", async () => {
+    it("search_decisions: query with no matches returns empty", async () => {
       const res = await callTool(h, "search_decisions", { query: "zzzNonexistentQuery999" });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
+      expect(res.content[0].text).toMatch(/^No results: /);
     });
   });
 
