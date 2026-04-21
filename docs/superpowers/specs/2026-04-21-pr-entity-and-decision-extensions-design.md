@@ -25,10 +25,12 @@ This is the substrate for Spec B (viewer port). Spec A ships independently: the 
 
 ## In Scope
 
-- Schema additions:
-  - `decisions` table: add nullable `problem TEXT`, `resolution TEXT` columns; leave existing `description` for backwards compat.
-  - New tables: `pull_requests`, `pr_touches`, `pr_decision_refs`, `pr_links`, `decision_relations`.
-  - New FTS5 triggers covering `problem` + `resolution`.
+- Schema additions (graph-native, no new tables):
+  - Decision `data` JSON: add nullable `problem`, `resolution` fields; leave existing `description` for backwards compat.
+  - Decision `status` JSON field: accept new value `'proposed'` alongside existing `active | superseded | deprecated`.
+  - New `nodes.kind` value: `'pull_request'`, with PR fields (number, state, touches[], source, external_ref, …) inside `data`.
+  - New `edges.relation` values: `PR_INTRODUCES_DECISION`, `PR_IMPLEMENTS_DECISION`, `PR_CHALLENGES_DECISION`, `PR_DISCUSSES_DECISION`, `PR_LINK_DEPENDS_ON`, `PR_LINK_RELATED_TO`, `DECISION_RELATED_TO`, `DECISION_DEPENDS_ON`.
+  - FTS5 `decisions_fts` virtual table: drop and recreate with added `problem` + `resolution` columns; repopulate from existing decision nodes.
 - New MCP tools: `propose_decision`, `supersede_decision`, `open_pr`, `add_pr_touch`, `merge_pr`, `get_pr`.
 - Extended MCP tools: `update_decision` (new fields), `get_decision` (new fields + PR refs + decision relations), `search_decisions` (FTS over new fields).
 - New event kinds emitted by the worker: `pr.opened`, `pr.touched`, `pr.merged`, `decision.ratified`; start emitting previously-declared `decision.proposed`.
@@ -48,111 +50,102 @@ This is the substrate for Spec B (viewer port). Spec A ships independently: the 
 
 ## Architecture
 
-### Schema — decisions (additive)
+### Storage model — graph-native (no new tables)
 
+Cortex persists decisions and all typed relationships through a generic graph schema (`src/graph/schema.ts`): the `nodes` table (discriminated by `kind`, with a JSON `data` column for kind-specific fields) and the `edges` table (discriminated by `relation`, with a JSON `data` column). Decisions today are `nodes` rows with `kind='decision'`; supersedes links, governance, and references are all rows in `edges`. This spec introduces no new tables — only new `kind` / `relation` values and new fields inside the existing JSON `data` columns.
+
+#### Decision `data` JSON — new fields (additive)
+
+```jsonc
+{
+  "problem":    "TEXT or null",   // new — narrative: what question this decision answers
+  "resolution": "TEXT or null",   // new — narrative: what was decided
+  // existing fields unchanged: rationale, alternatives, author, status, superseded_by
+}
+```
+
+`title` / `description` remain in the `nodes` row (`name` column holds title; `description` lives in `data`). `description` is legacy — new writes SHOULD populate `problem` + `resolution`. Existing reads see `description` as the combined narrative when `problem` / `resolution` are null. API returns all three; callers can pick.
+
+Provenance mapping (no change):
+
+- Spec's `proposedBy` → existing `author` field in decision `data`.
+- Spec's `proposedAt` → existing `created_at` column on `nodes`.
+
+Status enum extends: `status ∈ { proposed, active, superseded, deprecated }` (today's values: `active`, `superseded`, `deprecated`; `proposed` is new and lives in the same JSON field).
+
+#### PR as a node — `kind='pull_request'`
+
+```jsonc
+{
+  "number":           123,                          // int, monotonic; allocated by open_pr
+  "title":            "...",                         // also stored as nodes.name
+  "state":            "draft|open|merged|closed",
+  "author":           "...",
+  "opened_at":        "ISO 8601",
+  "merged_at":        "ISO 8601 or null",
+  "closed_at":        "ISO 8601 or null",
+  "branch":           "... or null",
+  "description":      "... or null",
+  "introduces_frame": "frame label or null",         // string matching derived-frame convention
+  "additions":        0,
+  "comment_count":    0,
+  "last_activity_at": "ISO 8601 or null",
+  "source":           "native|mirror|scenario",      // forward-compat
+  "external_ref":     { "provider": "...", "repo": "...", "number": 456, "url": "..." } or null,
+  "last_synced_at":   "ISO 8601 or null",
+  "touches":          [                              // inline — see note below
+    { "frame_id": "src/temporal", "node_name": "timeline.ts", "action": "added" },
+    { "frame_id": "src/events",   "node_name": "emitter.ts",  "action": "modified" }
+  ]
+}
+```
+
+PR node `id` is a UUID (matching decisions). PR `number` is a display identifier inside `data`.
+
+**Number allocation:** `open_pr` computes
 ```sql
-ALTER TABLE decisions ADD COLUMN problem TEXT;
-ALTER TABLE decisions ADD COLUMN resolution TEXT;
+SELECT COALESCE(MAX(CAST(json_extract(data, '$.number') AS INTEGER)), 0) + 1
+FROM nodes
+WHERE kind = 'pull_request';
 ```
+Monotonic across the whole Cortex instance. Sufficient for v1 (one Cortex instance per user, scenarios are short-lived). A future GitHub adapter handles external-vs-internal numbering at its own layer.
 
-Existing columns (`title`, `description`, `rationale`, `alternatives`, `tier`, `status`, `superseded_by`, `author`, `created_at`, `updated_at`) are unchanged.
+**Touches stored inline on the PR node** rather than as `edges` rows. Rationale: `edges.target_id` is `NOT NULL REFERENCES nodes(id)`, so edges cannot point at nodes that do not yet exist — and PR `touches` with `action='added'` reference files that will not exist until merge. The inline array sidesteps placeholder-node complexity. Viewer resolves `(frame_id, node_name)` pairs to live nodes at render time (same resolution logic either way). Trade-off: "which PRs touch node X?" is answered by iterating active PRs, not by edge traversal. Acceptable for expected v1 scale.
 
-- `problem` — narrative: what question this decision answers.
-- `resolution` — narrative: what was decided.
-- `description` stays in place as legacy. New writes SHOULD populate `problem` + `resolution`; existing reads see `description` as the combined narrative when `problem` / `resolution` are null. API layer returns both; callers can pick.
+#### New edge relations
 
-Provenance mapping (no schema change):
+| `relation` | source kind | target kind | `data` |
+|---|---|---|---|
+| `PR_INTRODUCES_DECISION`  | pull_request | decision     | `{}` |
+| `PR_IMPLEMENTS_DECISION`  | pull_request | decision     | `{}` |
+| `PR_CHALLENGES_DECISION`  | pull_request | decision     | `{}` |
+| `PR_DISCUSSES_DECISION`   | pull_request | decision     | `{}` |
+| `PR_LINK_DEPENDS_ON`      | pull_request | pull_request | `{}` |
+| `PR_LINK_RELATED_TO`      | pull_request | pull_request | `{}` |
+| `DECISION_RELATED_TO`     | decision     | decision     | `{}` |
+| `DECISION_DEPENDS_ON`     | decision     | decision     | `{}` |
 
-- Spec's `proposedBy` → existing `author` column.
-- Spec's `proposedAt` → existing `created_at` column.
+Existing relations (`GOVERNS`, `REFERENCES`, `SUPERSEDES`) are unchanged. `PR_*_DECISION` edges cover the four PR-role categories from the multiplayer spec (§3.1: introducedIn, implementedBy, challengedBy, discussedIn) as distinct relation values; the API surface exposes them as four arrays on `get_decision` and as relation-grouped arrays on `get_pr`. Decision-side `relatedTo` and `dependsOn` are directional edges; `get_decision` resolves both incoming and outgoing to build the display array.
 
-Status enum extends existing values — `proposed` added:
+#### FTS5
 
-```
-status ∈ { proposed, active, superseded, deprecated }
-```
-
-(Today's values: `active`, `superseded`, `deprecated`. `proposed` is new and lives in the same column.)
-
-### Schema — pull requests (new)
-
+Existing:
 ```sql
-CREATE TABLE pull_requests (
-  project_id       TEXT NOT NULL,
-  number           INTEGER NOT NULL,
-  title            TEXT NOT NULL,
-  state            TEXT NOT NULL CHECK(state IN ('draft','open','merged','closed')),
-  author           TEXT,
-  opened_at        TEXT NOT NULL,          -- ISO 8601
-  merged_at        TEXT,
-  closed_at        TEXT,
-  branch           TEXT,
-  description      TEXT,
-  introduces_frame TEXT,                   -- string label matching derived-frame convention
-  additions        INTEGER NOT NULL DEFAULT 0,
-  comment_count    INTEGER NOT NULL DEFAULT 0,
-  last_activity_at TEXT,
-  source           TEXT,                   -- 'native' | 'mirror' | 'scenario'
-  external_provider TEXT,                  -- e.g. 'github'
-  external_repo    TEXT,
-  external_number  INTEGER,
-  external_url     TEXT,
-  last_synced_at   TEXT,
-  PRIMARY KEY (project_id, number)
-);
-
-CREATE TABLE pr_touches (
-  project_id TEXT NOT NULL,
-  pr_number  INTEGER NOT NULL,
-  frame_id   TEXT NOT NULL,                -- derived frame label (e.g. 'src/viewer')
-  node_name  TEXT NOT NULL,                -- file name within frame (e.g. 'projection.js')
-  action     TEXT NOT NULL CHECK(action IN ('added','modified')),
-  PRIMARY KEY (project_id, pr_number, frame_id, node_name),
-  FOREIGN KEY (project_id, pr_number) REFERENCES pull_requests(project_id, number) ON DELETE CASCADE
-);
-
-CREATE TABLE pr_decision_refs (
-  project_id  TEXT NOT NULL,
-  pr_number   INTEGER NOT NULL,
-  decision_id TEXT NOT NULL,
-  relation    TEXT NOT NULL CHECK(relation IN ('introduces','implements','challenges','discusses')),
-  PRIMARY KEY (project_id, pr_number, decision_id, relation),
-  FOREIGN KEY (project_id, pr_number) REFERENCES pull_requests(project_id, number) ON DELETE CASCADE
-);
-
-CREATE TABLE pr_links (
-  project_id TEXT NOT NULL,
-  pr_a       INTEGER NOT NULL,
-  pr_b       INTEGER NOT NULL,
-  relation   TEXT NOT NULL CHECK(relation IN ('depends_on','related_to')),
-  PRIMARY KEY (project_id, pr_a, pr_b, relation)
+CREATE VIRTUAL TABLE decisions_fts USING fts5(
+  title, description, rationale, node_id UNINDEXED
 );
 ```
 
-**Key choices:**
-
-- PR `number` is **Cortex-allocated**, monotonic per project. Makes scenario-created and native PRs have stable references. Mirror adapter (future) stores external number separately and maps; collision with Cortex's own allocation handled at adapter layer.
-- `introduces_frame` is a **string label**, not a FK. Frames stay derived from paths; a PR can introduce a frame that does not yet exist in the derivation (because its files have not been merged). After merge, the files land and the frame surfaces naturally.
-- Touches reference nodes by `(frame_id, node_name)` string pair — not by a node FK — so a PR can reference files that do not yet exist (pre-merge). The viewer resolves the string pair to live nodes when it renders.
-- `pr_decision_refs.relation` covers all four PR-role categories from the multiplayer spec (§3.1: introducedIn, implementedBy, challengedBy, discussedIn) in a single table with a typed relation column. The API surface exposes them as the spec's four distinct arrays; storage is unified.
-
-### Schema — decision relations (new)
-
+New: drop and recreate with added columns, then repopulate from the base table:
 ```sql
-CREATE TABLE decision_relations (
-  project_id    TEXT NOT NULL,
-  from_decision TEXT NOT NULL,
-  to_decision   TEXT NOT NULL,
-  relation      TEXT NOT NULL CHECK(relation IN ('related_to','depends_on')),
-  PRIMARY KEY (project_id, from_decision, to_decision, relation)
+DROP TABLE IF EXISTS decisions_fts;
+CREATE VIRTUAL TABLE decisions_fts USING fts5(
+  title, description, rationale, problem, resolution, node_id UNINDEXED
 );
+-- repopulate by iterating existing decision nodes and re-running indexDecisionContent()
 ```
 
-Directional. `related_to` is bidirectional in meaning but stored one-sided; API resolves both directions on read.
-
-### FTS5
-
-Existing decisions FTS index adds `problem` and `resolution` columns. New triggers mirror the existing INSERT/UPDATE/DELETE pattern. Reindex job runs once at migration for existing rows (null problem/resolution → empty contribution).
+SQLite FTS5 does not support `ALTER ADD COLUMN`; drop + recreate + repopulate is the standard pattern. Existing content is reindexed with empty `problem` / `resolution` contributions until mutations write values.
 
 ### MCP tools — contract summary
 
@@ -236,19 +229,19 @@ open_pr → add_pr_touch (×N) → merge_pr
 
 ## Migration
 
-Single forward-only migration script, registered in the existing migration runner:
+Cortex has no explicit migration runner — schema is defined in `src/graph/schema.ts` and applied at `GraphStore` constructor via `migrate()` (which runs `CREATE_TABLES` + `CREATE_INDEXES` + `CREATE_FTS`). This spec adds no new tables; the only physical schema change is the FTS5 virtual table definition.
 
-1. `ALTER TABLE decisions ADD COLUMN problem TEXT`
-2. `ALTER TABLE decisions ADD COLUMN resolution TEXT`
-3. Create `pull_requests`, `pr_touches`, `pr_decision_refs`, `pr_links`, `decision_relations` tables + indexes
-4. Drop + recreate decisions FTS5 virtual table with `problem` and `resolution` added; repopulate from base table
-5. Re-register FTS triggers
+Steps at `GraphStore` startup:
 
-**Idempotency:** migration checks for column existence before ALTER; re-running is a noop. Matches existing migration conventions.
+1. **FTS5 recreation (first startup after upgrade only):** detect whether `decisions_fts` has the old column set; if so, `DROP TABLE decisions_fts` and recreate via the new `CREATE_FTS` constant. Then iterate existing `nodes WHERE kind='decision'` and call `indexDecisionContent()` for each to repopulate. Detection query: `PRAGMA table_info(decisions_fts)` — if `problem` column is absent, recreate.
+2. **No `nodes` / `edges` schema changes** — new `kind` and `relation` values are just new string literals; the existing tables accept them.
+3. **JSON data shape** is not enforced at the DB layer; service-layer code writes the new fields, and readers treat absent fields as null.
 
-**Rollback:** not supported (additive migrations, no down script). Existing migration system does not support rollback; this spec does not change that.
+**Idempotency:** after the one-shot FTS recreate, `CREATE_FTS` uses `IF NOT EXISTS` — subsequent startups are noops. Matches the existing `IF NOT EXISTS` convention on all CREATE statements.
 
-**Backwards compat assertion:** existing decisions remain readable via `get_decision` with `problem = null`, `resolution = null`. No data loss, no behavior change for decisions that existed before migration.
+**Rollback:** not supported (the existing schema system does not support rollback; this spec does not change that). The FTS recreate is non-destructive — repopulation reads from the base `nodes` table, so data cannot be lost by this migration.
+
+**Backwards compat assertion:** existing decisions (written before upgrade) remain readable via `get_decision` with `problem = null` and `resolution = null`. Existing `search_decisions` queries keep matching as before; FTS hits on the new columns are additive. No data loss, no behavior change for decisions that existed before migration.
 
 ## Testing Strategy
 
@@ -274,7 +267,7 @@ Single forward-only migration script, registered in the existing migration runne
 
 1. **Author mutability.** `update_decision` currently allows any field change. Should `author` be immutable after creation (preserving original proposer identity)? **Proposed default:** immutable. `updated_at` tracks last mutation; an optional `last_updated_by` column could be added later if audit becomes a requirement. Not in scope here.
 2. **PR number collision across mirror + native.** If a GitHub adapter lands later with external numbers matching Cortex-allocated numbers, the adapter must namespace (e.g. mirror PRs allocate from a reserved high range or use `external_number` as primary display and allocate internal numbers starting from 10000). **Deferred:** adapter's problem; schema already separates internal from external.
-3. **Frame label stability under rename.** If a directory renames, existing `pr_touches.frame_id` values orphan. **Accepted for v1:** the scenario runner and any native PR creation happens in a short time window; real mirror adapters will need resolution logic. Flagged for Spec C / future GitHub adapter.
+3. **Frame label stability under rename.** If a directory renames, existing `(frame_id, node_name)` entries in a PR node's inline `data.touches` array orphan. **Accepted for v1:** the scenario runner and any native PR creation happens in a short time window; real mirror adapters will need resolution logic. Flagged for Spec C / future GitHub adapter.
 4. **Empty-alternatives canonical form.** Existing `decisions.alternatives` uses JSON; new tools preserve that. `propose_decision` with no alternatives stores `[]`, not null.
 
 ## Follow-on work (not this spec)
