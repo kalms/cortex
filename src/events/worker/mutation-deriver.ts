@@ -88,17 +88,61 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
       return [];
 
     case 'decision.ratified':
-      return [];
+      return [
+        {
+          op: 'update_node',
+          id: event.payload.decision_id,
+          fields: { data: { status: 'active' } },
+        },
+      ];
 
-    case 'pr.opened': {
-      const node = lookup(event.payload.pr_number.toString());
-      return node ? [{ op: 'add_node', node }] : [];
-    }
+    case 'pr.opened':
+      return [
+        {
+          op: 'add_node',
+          node: {
+            id: `pr:${event.payload.pr_number}`,
+            kind: 'pull_request',
+            name: event.payload.title,
+            data: {
+              number: event.payload.pr_number,
+              state: event.payload.state,
+              source: event.payload.source,
+              author: event.payload.author,
+            },
+          },
+        },
+      ];
 
     case 'pr.touched':
-      return [];
+      return [
+        {
+          op: 'update_node',
+          id: `pr:${event.payload.pr_number}`,
+          fields: {
+            data: {
+              last_touch: {
+                frame_id: event.payload.frame_id,
+                node_name: event.payload.node_name,
+                action: event.payload.action,
+              },
+            },
+          },
+        },
+      ];
 
     case 'pr.merged':
-      return [];
+      return [
+        {
+          op: 'update_node',
+          id: `pr:${event.payload.pr_number}`,
+          fields: { data: { state: 'merged' } },
+        },
+        ...event.payload.ratified_decisions.map((decisionId) => ({
+          op: 'update_node' as const,
+          id: decisionId,
+          fields: { data: { status: 'active' } },
+        })),
+      ];
   }
 }

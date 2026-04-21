@@ -114,3 +114,45 @@ describe('deriveMutations', () => {
     ]);
   });
 });
+
+describe('deriveMutations — PR + decision ratification events', () => {
+  it('pr.opened produces add_node for pull_request', () => {
+    const ev = env<Event & { kind: 'pr.opened' }>({
+      kind: 'pr.opened',
+      payload: { pr_number: 1, title: 'x', author: 'm', state: 'open', source: 'native' },
+    });
+    const muts = deriveMutations(ev, lookup);
+    expect(muts.length).toBeGreaterThan(0);
+    const addNode = muts.find((m) => m.op === 'add_node');
+    expect(addNode).toBeDefined();
+    expect((addNode as any).node.kind).toBe('pull_request');
+  });
+
+  it('pr.touched produces update_node for the pull_request', () => {
+    const ev = env<Event & { kind: 'pr.touched' }>({
+      kind: 'pr.touched',
+      payload: { pr_number: 1, frame_id: 'a', node_name: 'b', action: 'added' },
+    });
+    const muts = deriveMutations(ev, lookup);
+    expect(muts.some((m) => m.op === 'update_node')).toBe(true);
+  });
+
+  it('pr.merged produces update_node for PR and update_node per ratified decision', () => {
+    const ev = env<Event & { kind: 'pr.merged' }>({
+      kind: 'pr.merged',
+      payload: { pr_number: 1, ratified_decisions: ['d1', 'd2'] },
+    });
+    const muts = deriveMutations(ev, lookup);
+    const updates = muts.filter((m) => m.op === 'update_node');
+    expect(updates.length).toBe(3); // 1 PR + 2 decisions
+  });
+
+  it('decision.ratified produces update_node for the decision', () => {
+    const ev = env<Event & { kind: 'decision.ratified' }>({
+      kind: 'decision.ratified',
+      payload: { decision_id: 'd1', via_pr_number: 1 },
+    });
+    const muts = deriveMutations(ev, lookup);
+    expect(muts.some((m) => m.op === 'update_node' && (m as any).id === 'd1')).toBe(true);
+  });
+});
