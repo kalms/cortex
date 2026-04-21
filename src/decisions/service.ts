@@ -381,6 +381,21 @@ export class DecisionService {
       });
   }
 
+  ratify(decisionId: string, viaPrNumber: number): void {
+    const d = this.get(decisionId);
+    if (!d) throw new Error(`Decision not found: ${decisionId}`);
+    if (d.status !== "proposed") return;
+    this.update(decisionId, { status: "active" });
+    this.emit({
+      id: newUlid(),
+      kind: "decision.ratified",
+      actor: "claude",
+      project_id: this.projectId,
+      created_at: Date.now(),
+      payload: { decision_id: decisionId, via_pr_number: viaPrNumber },
+    });
+  }
+
   private findPrByNumber(num: number): { id: string } | null {
     const row = (this.store as any).db
       .prepare(
