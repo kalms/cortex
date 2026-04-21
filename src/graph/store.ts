@@ -44,7 +44,51 @@ export class GraphStore {
   private migrate(): void {
     this.db.exec(CREATE_TABLES);
     this.db.exec(CREATE_INDEXES);
+    this.migrateFts();
     this.db.exec(CREATE_FTS);
+  }
+
+  private migrateFts(): void {
+    // Detect whether decisions_fts exists and lacks the new columns.
+    const existing = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decisions_fts'")
+      .get() as { name?: string } | undefined;
+    if (!existing?.name) return; // fresh DB — CREATE_FTS will build the new shape
+
+    const cols = this.db
+      .prepare("PRAGMA table_info(decisions_fts)")
+      .all()
+      .map((r: { name: string }) => r.name);
+    if (cols.includes("problem") && cols.includes("resolution")) return;
+
+    // Drop and repopulate atomically.
+    const repopulate = this.db.transaction(() => {
+      this.db.exec("DROP TABLE decisions_fts;");
+      this.db.exec(`
+        CREATE VIRTUAL TABLE decisions_fts USING fts5(
+          title, description, rationale, problem, resolution,
+          node_id UNINDEXED
+        );
+      `);
+      const rows = this.db
+        .prepare("SELECT id, name, data FROM nodes WHERE kind = 'decision'")
+        .all() as { id: string; name: string; data: string }[];
+      const insert = this.db.prepare(
+        "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
+      );
+      for (const row of rows) {
+        const data = JSON.parse(row.data || "{}");
+        insert.run(
+          row.name ?? "",
+          data.description ?? "",
+          data.rationale ?? "",
+          data.problem ?? "",
+          data.resolution ?? "",
+          row.id
+        );
+      }
+    });
+    repopulate();
   }
 
   listTables(): string[] {
@@ -233,15 +277,31 @@ export class GraphStore {
 
   // --- FTS ---
 
-  indexDecisionContent(nodeId: string, title: string, description: string, rationale: string): void {
+  indexDecisionContent(
+    nodeId: string,
+    title: string,
+    description: string,
+    rationale: string,
+    problem = "",
+    resolution = ""
+  ): void {
     this.db
-      .prepare("INSERT INTO decisions_fts (node_id, title, description, rationale) VALUES (?, ?, ?, ?)")
-      .run(nodeId, title, description, rationale);
+      .prepare(
+        "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(title, description, rationale, problem, resolution, nodeId);
   }
 
-  updateDecisionContent(nodeId: string, title: string, description: string, rationale: string): void {
+  updateDecisionContent(
+    nodeId: string,
+    title: string,
+    description: string,
+    rationale: string,
+    problem = "",
+    resolution = ""
+  ): void {
     this.removeDecisionContent(nodeId);
-    this.indexDecisionContent(nodeId, title, description, rationale);
+    this.indexDecisionContent(nodeId, title, description, rationale, problem, resolution);
   }
 
   removeDecisionContent(nodeId: string): void {

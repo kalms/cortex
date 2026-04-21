@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);
 
 export const CREATE_FTS = `
 CREATE VIRTUAL TABLE IF NOT EXISTS decisions_fts USING fts5(
-  title, description, rationale,
+  title, description, rationale, problem, resolution,
   node_id UNINDEXED
 );
 `;
