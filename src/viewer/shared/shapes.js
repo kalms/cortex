@@ -91,6 +91,30 @@ export function drawRoundedRect(ctx, x, y, r, fill, stroke) {
 }
 
 /**
+ * Asymmetric rounded rect centered on (x, y) with explicit width and height.
+ * Used for group supernodes whose dimensions come from label-fit projection data.
+ */
+export function drawRoundedRectWH(ctx, x, y, w, h, fill, stroke) {
+  const hw = w / 2;
+  const hh = h / 2;
+  const radius = Math.min(hw * 0.35, hh * 0.35, 4);
+  ctx.beginPath();
+  ctx.moveTo(x - hw + radius, y - hh);
+  ctx.lineTo(x + hw - radius, y - hh);
+  ctx.arcTo(x + hw, y - hh, x + hw, y - hh + radius, radius);
+  ctx.lineTo(x + hw, y + hh - radius);
+  ctx.arcTo(x + hw, y + hh, x + hw - radius, y + hh, radius);
+  ctx.lineTo(x - hw + radius, y + hh);
+  ctx.arcTo(x - hw, y + hh, x - hw, y + hh - radius, radius);
+  ctx.lineTo(x - hw, y - hh + radius);
+  ctx.arcTo(x - hw, y - hh, x - hw + radius, y - hh, radius);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+
+/**
  * Draw a convex-hull polygon around the given points with a fill + stroke.
  * Uses monotone-chain; no-op for <3 points.
  */

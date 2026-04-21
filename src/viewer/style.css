@@ -275,6 +275,53 @@ body {
   cursor: grabbing;
 }
 
+.search-chip {
+  margin-left: 6px;
+  padding: 3px 8px;
+  font: 11px/1 -apple-system, sans-serif;
+  color: #d8dde7;
+  background: #1f2430;
+  border: 1px solid #2a3547;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.search-chip:hover { background: #2a3547; }
+.search-chip .chevron { margin-left: 4px; opacity: .7; }
+.search-chip-menu {
+  position: absolute;
+  z-index: 10;
+  margin: 4px 0 0 0;
+  padding: 4px 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #11141b;
+  border: 1px solid #1f2430;
+  border-radius: 4px;
+  list-style: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+.search-chip-menu li {
+  padding: 6px 10px;
+  cursor: pointer;
+  font: 12px/1.3 -apple-system, sans-serif;
+  color: #d8dde7;
+}
+.search-chip-menu li:hover { background: #1f2430; }
+.search-chip-menu li .path { color: #7a8294; font-size: 10.5px; }
+
+/* -- Mode indicator -- */
+.mode-indicator {
+  display: inline-block;
+  padding: 4px 8px;
+  font: 10px/1 -apple-system, sans-serif;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+.mode-indicator.mode-overview { background: #1f2430; color: #7a8294; }
+.mode-indicator.mode-focus    { background: #2a3547; color: #6ea8fe; }
+
 /* -- Recenter button -- */
 #recenter-btn {
   background: transparent;

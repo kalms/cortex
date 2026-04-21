@@ -98,3 +98,27 @@ export function lerpCamera(from, to, t) {
     zoom: from.zoom + (to.zoom - from.zoom) * t,
   };
 }
+
+/**
+ * Camera state container used by the entry file. Wraps a camera with mode
+ * (overview | focus) and a save slot for search return-to.
+ */
+export function createCameraState() {
+  return {
+    camera: createCamera(),
+    mode: 'overview',
+    saved: null,
+  };
+}
+
+/** Snapshot the current camera for later restore. */
+export function saveCamera(state) {
+  state.saved = { x: state.camera.x, y: state.camera.y, zoom: state.camera.zoom };
+}
+
+/** Restore a previously-saved camera; no-op if none. Clears the slot. */
+export function restoreCamera(state) {
+  if (!state.saved) return;
+  state.camera = state.saved;
+  state.saved = null;
+}

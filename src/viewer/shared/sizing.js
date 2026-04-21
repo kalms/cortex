@@ -75,3 +75,40 @@ export function edgeStrokeAt(relation, zoom) {
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
+
+/**
+ * Supernode dimensions derived from label width. Returns the bounding box
+ * (w×h) and a radius that fits the diagonal — used by collide force and
+ * render to keep labels legible regardless of path length.
+ *
+ * Uses OffscreenCanvas measureText in browsers; falls back to a
+ * char-count estimate in node (tests) so this stays pure.
+ */
+const SN_FONT = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+const SN_MIN_W = 32;
+const SN_H = 20;
+const SN_H_PAD = 18;
+
+let _measureCtx = null;
+function measureLabel(text) {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    if (!_measureCtx) _measureCtx = new OffscreenCanvas(8, 8).getContext('2d');
+    _measureCtx.font = SN_FONT;
+    return _measureCtx.measureText(text).width;
+  }
+  if (typeof document !== 'undefined') {
+    if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d');
+    _measureCtx.font = SN_FONT;
+    return _measureCtx.measureText(text).width;
+  }
+  // Node / vitest fallback: ~6px per char at 11px font.
+  return text.length * 6;
+}
+
+export function supernodeDims(label) {
+  const tw = measureLabel(String(label));
+  const w = Math.max(SN_MIN_W, Math.round(tw + SN_H_PAD));
+  const h = SN_H;
+  const radius = Math.hypot(w, h) / 2;
+  return { w, h, radius };
+}
