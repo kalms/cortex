@@ -1,5 +1,5 @@
 import { GraphStore, NodeRow } from "../graph/store.js";
-import type { Decision, CreateDecisionInput, UpdateDecisionInput } from "./types.js";
+import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput } from "./types.js";
 import { nodeToDecision } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
@@ -238,6 +238,62 @@ export class DecisionService {
       .filter((n): n is NodeRow => n !== undefined);
 
     return { ...decision, governs, references };
+  }
+
+  propose(input: ProposeDecisionInput): Decision {
+    const data: Record<string, unknown> = {
+      title: input.title,
+      description: input.resolution,
+      rationale: input.rationale,
+      alternatives: input.alternatives ?? [],
+      author: input.author ?? 'claude',
+      status: "proposed",
+      superseded_by: null,
+      problem: input.problem,
+      resolution: input.resolution,
+    };
+    const node = this.store.createNode({ kind: "decision", name: input.title, data, tier: "personal" });
+    this.store.indexDecisionContent(node.id, input.title, {
+      description: input.resolution,
+      rationale: input.rationale,
+      problem: input.problem,
+      resolution: input.resolution,
+    });
+    for (const target of input.governs ?? []) this.linkGoverns(node.id, target);
+    for (const ref of input.references ?? []) this.linkReference(node.id, ref);
+    if (input.pr_number != null) {
+      const prNode = this.findPrByNumber(input.pr_number);
+      if (prNode) {
+        this.store.createEdge({
+          source_id: prNode.id,
+          target_id: node.id,
+          relation: "PR_INTRODUCES_DECISION",
+        });
+      }
+    }
+    this.emit({
+      id: newUlid(),
+      kind: 'decision.proposed',
+      actor: (data.author as string),
+      project_id: this.projectId,
+      created_at: Date.now(),
+      payload: {
+        decision_id: node.id,
+        title: input.title,
+        pr_number: input.pr_number ?? null,
+      },
+    });
+    return nodeToDecision(node);
+  }
+
+  private findPrByNumber(num: number): { id: string } | null {
+    const row = (this.store as any).db
+      .prepare(
+        `SELECT id FROM nodes WHERE kind = 'pull_request'
+         AND CAST(json_extract(data, '$.number') AS INTEGER) = ?`
+      )
+      .get(num) as { id: string } | undefined;
+    return row ?? null;
   }
 
   private emit(event: Event): void {
