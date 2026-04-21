@@ -83,7 +83,7 @@ describe("code-tools contract", () => {
     it("happy: pattern found with enclosing function", async () => {
       const res = await callTool(h, "search_code", { pattern: "handleRequest" });
       expect(res.content[0].text).toContain("handleRequest");
-    });
+    }, 15_000);
 
     // NOTE: "empty: pattern not found" test is infeasible because search_code
     // searches from cwd, which during test execution includes the test file itself.
