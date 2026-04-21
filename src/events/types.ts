@@ -1,3 +1,5 @@
+import type { PRState, PRSource, PRTouchAction } from "../prs/types.js";
+
 /**
  * Event envelope common to every event kind.
  *
@@ -61,7 +63,8 @@ export type Event =
       payload: {
         decision_id: string;
         title: string;
-        would_govern_file_ids: string[];
+        would_govern_file_ids?: string[];
+        pr_number: number | null;
       };
     })
   | (EventEnvelope & {
@@ -72,6 +75,36 @@ export type Event =
         files: { path: string; status: 'A' | 'M' | 'D' | 'R' | 'C' | 'T' }[];
         /** Decisions governing any of the touched files. Computed at emission, not render. */
         decision_links: string[];
+      };
+    })
+  | (EventEnvelope & {
+      kind: 'decision.ratified';
+      payload: { decision_id: string; via_pr_number: number };
+    })
+  | (EventEnvelope & {
+      kind: 'pr.opened';
+      payload: {
+        pr_number: number;
+        title: string;
+        author: string | null;
+        state: PRState;
+        source: PRSource;
+      };
+    })
+  | (EventEnvelope & {
+      kind: 'pr.touched';
+      payload: {
+        pr_number: number;
+        frame_id: string;
+        node_name: string;
+        action: PRTouchAction;
+      };
+    })
+  | (EventEnvelope & {
+      kind: 'pr.merged';
+      payload: {
+        pr_number: number;
+        ratified_decisions: string[];
       };
     });
 

@@ -5,9 +5,11 @@ import { GraphStore } from "../../src/graph/store.js";
 import { registerCodeTools } from "../../src/mcp-server/tools/code-tools.js";
 import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
 import { registerPromotionTools } from "../../src/mcp-server/tools/promotion-tools.js";
+import { registerPRTools } from "../../src/mcp-server/tools/pr-tools.js";
 import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionSearch } from "../../src/decisions/search.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
+import { PRService } from "../../src/prs/service.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,6 +19,8 @@ export interface HarnessContext {
   store: GraphStore;
   project: string;
   fixtureDir: string;
+  service: DecisionService;
+  prService: PRService;
   close: () => Promise<void>;
 }
 
@@ -43,11 +47,17 @@ export async function createHarness(): Promise<HarnessContext> {
   const service = new DecisionService(store);
   const search = new DecisionSearch(store);
   const promotion = new DecisionPromotion(store);
+  const prService = new PRService(store, {
+    default_actor: "tester",
+    project_id: project,
+    decisions: service,
+  });
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project);
   registerDecisionTools(server, service, search);
   registerPromotionTools(server, promotion);
+  registerPRTools(server, prService);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -60,6 +70,8 @@ export async function createHarness(): Promise<HarnessContext> {
     store,
     project,
     fixtureDir,
+    service,
+    prService,
     close: async () => {
       await client.close();
       await server.close();
