@@ -24,6 +24,8 @@ export function registerDecisionTools(
       alternatives: z.array(AlternativeSchema).optional().describe("Rejected alternatives with reasons"),
       governs: z.array(z.string()).optional().describe("Node IDs or file paths this decision governs"),
       references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
+      problem: z.string().optional().describe("Narrative: what question this decision answers"),
+      resolution: z.string().optional().describe("Narrative: what was decided"),
     },
     async (params) => {
       try {
@@ -31,6 +33,54 @@ export function registerDecisionTools(
         return ok(JSON.stringify(decision, null, 2));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        return errorResponse("internal_error", msg);
+      }
+    }
+  );
+
+  server.tool(
+    "propose_decision",
+    "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces'.",
+    {
+      title: z.string(),
+      problem: z.string(),
+      resolution: z.string(),
+      rationale: z.string(),
+      alternatives: z.array(AlternativeSchema).optional(),
+      governs: z.array(z.string()).optional(),
+      references: z.array(z.string()).optional(),
+      pr_number: z.number().int().optional(),
+    },
+    async (params) => {
+      try {
+        const d = service.propose(params);
+        return ok(JSON.stringify(d, null, 2));
+      } catch (e) {
+        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "supersede_decision",
+    "Atomically create a new decision that supersedes an existing one.",
+    {
+      old_decision_id: z.string(),
+      title: z.string(),
+      problem: z.string(),
+      resolution: z.string(),
+      rationale: z.string(),
+      alternatives: z.array(AlternativeSchema).optional(),
+      governs: z.array(z.string()).optional(),
+      references: z.array(z.string()).optional(),
+    },
+    async (params) => {
+      try {
+        const d = service.supersede(params);
+        return ok(JSON.stringify(d, null, 2));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) return empty(`supersede_decision(${params.old_decision_id})`);
         return errorResponse("internal_error", msg);
       }
     }
@@ -47,6 +97,8 @@ export function registerDecisionTools(
       alternatives: z.array(AlternativeSchema).optional(),
       status: z.enum(["active", "superseded", "deprecated"]).optional(),
       superseded_by: z.string().optional().describe("ID of the superseding decision"),
+      problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
+      resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
     },
     async ({ id, ...updates }) => {
       try {
@@ -85,14 +137,9 @@ export function registerDecisionTools(
       id: z.string().describe("Decision node ID"),
     },
     async ({ id }) => {
-      try {
-        const result = service.get(id);
-        return ok(JSON.stringify(result, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`get_decision(${id})`);
-        return errorResponse("internal_error", msg);
-      }
+      const d = service.getWithRefs(id);
+      if (!d) return empty(`get_decision(${id})`);
+      return ok(JSON.stringify(d, null, 2));
     }
   );
 
@@ -141,16 +188,17 @@ export function registerDecisionTools(
     {
       decision_id: z.string().describe("Decision node ID"),
       target: z.string().describe("Target node ID or file path"),
-      relation: z.enum(["GOVERNS", "REFERENCES"]).optional().describe("Edge type (default: GOVERNS)"),
+      relation: z.enum(["GOVERNS", "REFERENCES", "RELATED_TO", "DEPENDS_ON"])
+        .optional()
+        .describe("Edge type (default: GOVERNS)"),
     },
     async ({ decision_id, target, relation }) => {
       try {
         const rel = relation ?? "GOVERNS";
-        if (rel === "GOVERNS") {
-          service.linkGoverns(decision_id, target);
-        } else {
-          service.linkReference(decision_id, target);
-        }
+        if (rel === "GOVERNS") service.linkGoverns(decision_id, target);
+        else if (rel === "REFERENCES") service.linkReference(decision_id, target);
+        else if (rel === "RELATED_TO") service.linkRelatedTo(decision_id, target);
+        else if (rel === "DEPENDS_ON") service.linkDependsOn(decision_id, target);
         return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
