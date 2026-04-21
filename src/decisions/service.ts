@@ -1,5 +1,5 @@
 import { GraphStore, NodeRow } from "../graph/store.js";
-import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput } from "./types.js";
+import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs, PRRef } from "./types.js";
 import { nodeToDecision } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
@@ -314,6 +314,74 @@ export class DecisionService {
       },
     });
     return nodeToDecision(node);
+  }
+
+  linkRelatedTo(fromId: string, toId: string): void {
+    this.requireDecisions(fromId, toId);
+    this.store.createEdge({ source_id: fromId, target_id: toId, relation: "DECISION_RELATED_TO" });
+  }
+
+  linkDependsOn(fromId: string, toId: string): void {
+    this.requireDecisions(fromId, toId);
+    this.store.createEdge({ source_id: fromId, target_id: toId, relation: "DECISION_DEPENDS_ON" });
+  }
+
+  private requireDecisions(...ids: string[]): void {
+    for (const id of ids) {
+      const n = this.store.getNode(id);
+      if (!n || n.kind !== "decision") throw new Error(`Decision not found: ${id}`);
+    }
+  }
+
+  getWithRefs(id: string): DecisionWithRefs | null {
+    const node = this.store.getNode(id);
+    if (!node || node.kind !== "decision") return null;
+    const base = nodeToDecision(node);
+
+    const outgoing = this.store.findEdges({ source_id: id });
+    const incoming = this.store.findEdges({ target_id: id });
+
+    const related = [
+      ...outgoing.filter((e) => e.relation === "DECISION_RELATED_TO"),
+      ...incoming.filter((e) => e.relation === "DECISION_RELATED_TO"),
+    ];
+    const deps = outgoing.filter((e) => e.relation === "DECISION_DEPENDS_ON");
+    const prIntro = incoming.filter((e) => e.relation === "PR_INTRODUCES_DECISION");
+    const prImpl = incoming.filter((e) => e.relation === "PR_IMPLEMENTS_DECISION");
+    const prChal = incoming.filter((e) => e.relation === "PR_CHALLENGES_DECISION");
+    const prDisc = incoming.filter((e) => e.relation === "PR_DISCUSSES_DECISION");
+
+    return {
+      ...base,
+      related_decisions: related
+        .map((e) => (e.source_id === id ? e.target_id : e.source_id))
+        .map((otherId) => this.store.getNode(otherId))
+        .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "decision")
+        .map((n) => nodeToDecision(n)),
+      depends_on: deps
+        .map((e) => this.store.getNode(e.target_id))
+        .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "decision")
+        .map((n) => nodeToDecision(n)),
+      introduced_in: this.firstPrRef(prIntro),
+      implemented_by: this.prRefsFromEdges(prImpl),
+      challenged_by: this.prRefsFromEdges(prChal),
+      discussed_in: this.prRefsFromEdges(prDisc),
+    };
+  }
+
+  private firstPrRef(edges: Array<{ source_id: string }>): PRRef | null {
+    const refs = this.prRefsFromEdges(edges);
+    return refs[0] ?? null;
+  }
+
+  private prRefsFromEdges(edges: Array<{ source_id: string }>): PRRef[] {
+    return edges
+      .map((e) => this.store.getNode(e.source_id))
+      .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "pull_request")
+      .map((n) => {
+        const data = JSON.parse(n.data || "{}");
+        return { number: data.number, title: n.name, state: data.state };
+      });
   }
 
   private findPrByNumber(num: number): { id: string } | null {

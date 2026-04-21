@@ -1,4 +1,5 @@
 import type { NodeRow } from "../graph/store.js";
+import type { PRState } from "../prs/types.js";
 
 export interface Alternative {
   name: string;
@@ -71,6 +72,21 @@ export interface SupersedeDecisionInput {
   governs?: string[];
   references?: string[];
   author?: string;
+}
+
+export interface PRRef {
+  number: number;
+  title: string;
+  state: PRState;
+}
+
+export interface DecisionWithRefs extends Decision {
+  related_decisions: Decision[];
+  depends_on: Decision[];
+  introduced_in: PRRef | null;
+  implemented_by: PRRef[];
+  challenged_by: PRRef[];
+  discussed_in: PRRef[];
 }
 
 export function nodeToDecision(node: NodeRow): Decision {
