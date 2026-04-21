@@ -1,6 +1,6 @@
 import { mkdtempSync, cpSync, existsSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { discoverCbmDb } from "../../src/graph/cbm-discovery.js";
@@ -86,6 +86,8 @@ export async function teardown() {
   }
   const fixtureCopy = process.env.CORTEX_CONTRACT_FIXTURE_DIR;
   if (fixtureCopy) {
-    try { rmSync(fixtureCopy, { recursive: true }); } catch { /* ignore */ }
+    // fixtureCopy is at `<workDir>/sample-project`; remove the whole workDir.
+    const workDir = dirname(fixtureCopy);
+    try { rmSync(workDir, { recursive: true }); } catch { /* ignore */ }
   }
 }

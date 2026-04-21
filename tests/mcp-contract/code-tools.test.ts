@@ -82,6 +82,7 @@ describe("code-tools contract", () => {
   describe("search_code", () => {
     it("happy: pattern found with enclosing function", async () => {
       const res = await callTool(h, "search_code", { pattern: "handleRequest" });
+      expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.content[0].text).toContain("handleRequest");
     }, 15_000);
 
@@ -91,6 +92,18 @@ describe("code-tools contract", () => {
     // causing the test to fail. In a real use, users would call search_code from a
     // cwd that doesn't contain the test suite. The happy path above validates the
     // response contract (either results or "No results"), so the empty case is covered.
+  });
+
+  describe("delete_project", () => {
+    it("validates structured response (success or structured error)", async () => {
+      // Use an obviously-nonexistent project name to avoid mutating real state.
+      const res = await callTool(h, "delete_project", { project: "zzzNonexistentProjectForTesting_9f3a" });
+      expect(ResponseSchema.safeParse(res).success).toBe(true);
+      // Must not be bare prose — either success (unlikely for nonexistent) or structured ErrorResponse.
+      if (res.isError) {
+        expect(res.content[0].text).toMatch(/^ERROR reason=/);
+      }
+    });
   });
 
   describe("list_projects", () => {
