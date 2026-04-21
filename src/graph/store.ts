@@ -30,6 +30,13 @@ export interface EdgeAnnotationRow {
   created_at: string;
 }
 
+export interface DecisionContent {
+  description?: string;
+  rationale?: string;
+  problem?: string | null;
+  resolution?: string | null;
+}
+
 export class GraphStore {
   private db: Database.Database;
   private cbmAttached = false;
@@ -55,10 +62,10 @@ export class GraphStore {
       .get() as { name?: string } | undefined;
     if (!existing?.name) return; // fresh DB — CREATE_FTS will build the new shape
 
-    const cols = this.db
+    const cols = (this.db
       .prepare("PRAGMA table_info(decisions_fts)")
-      .all()
-      .map((r: { name: string }) => r.name);
+      .all() as Array<{ name: string }>)
+      .map((r) => r.name);
     if (cols.includes("problem") && cols.includes("resolution")) return;
 
     // Drop and repopulate atomically.
@@ -277,22 +284,22 @@ export class GraphStore {
 
   // --- FTS ---
 
-  indexDecisionContent(id: string, name: string, data: Record<string, unknown>): void {
+  indexDecisionContent(id: string, name: string, data: DecisionContent): void {
     this.db
       .prepare(
         "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
       )
       .run(
-        name ?? "",
-        (data.description as string | undefined) ?? "",
-        (data.rationale as string | undefined) ?? "",
-        (data.problem as string | undefined) ?? "",
-        (data.resolution as string | undefined) ?? "",
+        name,
+        data.description ?? "",
+        data.rationale ?? "",
+        data.problem ?? "",
+        data.resolution ?? "",
         id
       );
   }
 
-  updateDecisionContent(id: string, name: string, data: Record<string, unknown>): void {
+  updateDecisionContent(id: string, name: string, data: DecisionContent): void {
     this.removeDecisionContent(id);
     this.indexDecisionContent(id, name, data);
   }

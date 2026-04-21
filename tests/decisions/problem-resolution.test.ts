@@ -65,6 +65,32 @@ describe("DecisionService — problem + resolution", () => {
     expect(u.resolution).toBe("new resolution");
   });
 
+  it("update with only problem leaves resolution untouched", () => {
+    const d = service.create({
+      title: "LOD",
+      description: "legacy",
+      rationale: "why",
+      problem: "original problem",
+      resolution: "original resolution",
+    });
+    const u = service.update(d.id, { problem: "new problem" });
+    expect(u.problem).toBe("new problem");
+    expect(u.resolution).toBe("original resolution");
+  });
+
+  it("update with explicit null clears problem", () => {
+    const d = service.create({
+      title: "LOD",
+      description: "legacy",
+      rationale: "why",
+      problem: "to be cleared",
+      resolution: "untouched",
+    });
+    const u = service.update(d.id, { problem: null });
+    expect(u.problem).toBeNull();
+    expect(u.resolution).toBe("untouched");
+  });
+
   it("search matches on problem field", () => {
     service.create({
       title: "LOD",

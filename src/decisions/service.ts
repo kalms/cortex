@@ -49,7 +49,12 @@ export class DecisionService {
       tier: "personal",
     });
 
-    this.store.indexDecisionContent(node.id, input.title, data);
+    this.store.indexDecisionContent(node.id, input.title, {
+      description: data.description,
+      rationale: data.rationale,
+      problem: data.problem,
+      resolution: data.resolution,
+    });
 
     const governedIds: string[] = [];
     if (input.governs) {
@@ -157,7 +162,12 @@ export class DecisionService {
       data: JSON.stringify(newData),
     });
 
-    this.store.updateDecisionContent(id, newData.title, newData);
+    this.store.updateDecisionContent(id, newData.title, {
+      description: newData.description,
+      rationale: newData.rationale,
+      problem: newData.problem,
+      resolution: newData.resolution,
+    });
 
     if (input.superseded_by) {
       const existing = this.store.findEdges({ source_id: input.superseded_by, target_id: id, relation: "SUPERSEDES" });
