@@ -345,6 +345,11 @@ export class GraphStore {
     }
   }
 
+  transaction<T>(fn: () => T): T {
+    const run = this.db.transaction(fn);
+    return run();
+  }
+
   queryRaw<T>(sql: string, params: unknown[] = []): T[] {
     return this.db.prepare(sql).all(...params) as T[];
   }

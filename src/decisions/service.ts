@@ -1,5 +1,5 @@
 import { GraphStore, NodeRow } from "../graph/store.js";
-import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput } from "./types.js";
+import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput } from "./types.js";
 import { nodeToDecision } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
@@ -238,6 +238,36 @@ export class DecisionService {
       .filter((n): n is NodeRow => n !== undefined);
 
     return { ...decision, governs, references };
+  }
+
+  supersede(input: SupersedeDecisionInput): Decision {
+    return this.store.transaction(() => {
+      const oldNode = this.store.getNode(input.old_decision_id);
+      if (!oldNode || oldNode.kind !== "decision") {
+        throw new Error(`Decision not found: ${input.old_decision_id}`);
+      }
+      const created = this.create({
+        title: input.title,
+        description: input.resolution,
+        rationale: input.rationale,
+        alternatives: input.alternatives,
+        governs: input.governs,
+        references: input.references,
+        author: input.author,
+        problem: input.problem,
+        resolution: input.resolution,
+      });
+      this.update(input.old_decision_id, {
+        status: "superseded",
+        superseded_by: created.id,
+      });
+      this.store.createEdge({
+        source_id: created.id,
+        target_id: input.old_decision_id,
+        relation: "SUPERSEDES",
+      });
+      return created;
+    });
   }
 
   propose(input: ProposeDecisionInput): Decision {
