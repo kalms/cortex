@@ -1,0 +1,78 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createHarness, type HarnessContext, callTool } from "./harness.js";
+
+describe("decision extensions contract", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  it("propose_decision creates status=proposed and is readable via get_decision", async () => {
+    const r = await callTool(h, "propose_decision", {
+      title: "D1",
+      problem: "p",
+      resolution: "r",
+      rationale: "why",
+    });
+    const d = JSON.parse(r.content[0].text);
+    expect(d.status).toBe("proposed");
+    expect(d.problem).toBe("p");
+    expect(d.resolution).toBe("r");
+
+    const g = JSON.parse((await callTool(h, "get_decision", { id: d.id })).content[0].text);
+    expect(g.status).toBe("proposed");
+    expect(g.problem).toBe("p");
+  });
+
+  it("supersede_decision atomic: old becomes superseded, new is active, superseded_by backlink set", async () => {
+    const a = JSON.parse(
+      (await callTool(h, "create_decision", {
+        title: "old", description: "d", rationale: "r", problem: "p", resolution: "res",
+      })).content[0].text
+    );
+    const b = JSON.parse(
+      (await callTool(h, "supersede_decision", {
+        old_decision_id: a.id, title: "new", problem: "np", resolution: "nr", rationale: "why",
+      })).content[0].text
+    );
+    expect(b.status).toBe("active");
+    const ga = JSON.parse((await callTool(h, "get_decision", { id: a.id })).content[0].text);
+    expect(ga.status).toBe("superseded");
+    expect(ga.superseded_by).toBe(b.id);
+  });
+
+  it("link_decision supports RELATED_TO and DEPENDS_ON", async () => {
+    const a = JSON.parse((await callTool(h, "create_decision", { title: "A", description: "d", rationale: "r" })).content[0].text);
+    const b = JSON.parse((await callTool(h, "create_decision", { title: "B", description: "d", rationale: "r" })).content[0].text);
+    const c = JSON.parse((await callTool(h, "create_decision", { title: "C", description: "d", rationale: "r" })).content[0].text);
+
+    await callTool(h, "link_decision", { decision_id: a.id, target: b.id, relation: "RELATED_TO" });
+    await callTool(h, "link_decision", { decision_id: a.id, target: c.id, relation: "DEPENDS_ON" });
+
+    const view = JSON.parse((await callTool(h, "get_decision", { id: a.id })).content[0].text);
+    expect(view.related_decisions.map((d: any) => d.id)).toContain(b.id);
+    expect(view.depends_on.map((d: any) => d.id)).toContain(c.id);
+  });
+
+  it("legacy decision (no problem/resolution) remains readable with null fields", async () => {
+    // write directly via store to simulate legacy row
+    const { store } = h;
+    const node = store.createNode({
+      kind: "decision",
+      name: "Old",
+      data: { description: "d", rationale: "r" },
+    });
+
+    const g = JSON.parse((await callTool(h, "get_decision", { id: node.id })).content[0].text);
+    expect(g.problem).toBeNull();
+    expect(g.resolution).toBeNull();
+    expect(g.description).toBe("d");
+  });
+
+  it("search_decisions finds matches on new problem field", async () => {
+    await callTool(h, "propose_decision", {
+      title: "Z", problem: "unicorn banana rarity", resolution: "x", rationale: "r",
+    });
+    const r = await callTool(h, "search_decisions", { query: "unicorn" });
+    expect(r.content[0].text).toContain("unicorn");
+  });
+});
