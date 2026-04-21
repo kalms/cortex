@@ -141,7 +141,16 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
       const node = nodes[0];
       try {
-        const content = await readFile(node.file_path, "utf-8");
+        // Resolve file_path: it's relative to project root, so prepend root_path
+        const projectRow = store.queryRaw<{ root_path: string }>(
+          "SELECT root_path FROM cbm.projects WHERE name = ?",
+          [cbmProject]
+        );
+        if (projectRow.length === 0) {
+          return errorResponse("project_not_found", `Project ${cbmProject} not found in CBM DB`);
+        }
+        const fullPath = join(projectRow[0].root_path, node.file_path);
+        const content = await readFile(fullPath, "utf-8");
         const lines = content.split("\n");
         const start = Math.max(0, node.start_line - 1);
         const end = Math.min(lines.length, node.end_line);
