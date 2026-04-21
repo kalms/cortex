@@ -82,6 +82,8 @@ export interface PRRef {
 }
 
 export interface DecisionWithRefs extends Decision {
+  governs: NodeRow[];           // preserved from legacy get_decision shape
+  references: NodeRow[];        // preserved from legacy get_decision shape
   related_decisions: Decision[];
   depends_on: Decision[];
   introduced_in: PRRef | null;

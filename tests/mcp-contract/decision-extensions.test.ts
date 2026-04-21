@@ -75,4 +75,25 @@ describe("decision extensions contract", () => {
     const r = await callTool(h, "search_decisions", { query: "unicorn" });
     expect(r.content[0].text).toContain("unicorn");
   });
+
+  it("get_decision preserves governs and references arrays (regression for I1)", async () => {
+    // Create a decision with a governed file path
+    const created = JSON.parse(
+      (await callTool(h, "create_decision", {
+        title: "GovRef",
+        description: "d",
+        rationale: "r",
+        problem: "p",
+        resolution: "res",
+        governs: ["src/viewer/projection.js"],
+      })).content[0].text
+    );
+    const view = JSON.parse(
+      (await callTool(h, "get_decision", { id: created.id })).content[0].text
+    );
+    expect(Array.isArray(view.governs)).toBe(true);
+    expect(view.governs.length).toBeGreaterThanOrEqual(1);
+    // references can be empty but must be present
+    expect(Array.isArray(view.references)).toBe(true);
+  });
 });

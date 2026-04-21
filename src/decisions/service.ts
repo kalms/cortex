@@ -348,8 +348,20 @@ export class DecisionService {
     const prChal = incoming.filter((e) => e.relation === "PR_CHALLENGES_DECISION");
     const prDisc = incoming.filter((e) => e.relation === "PR_DISCUSSES_DECISION");
 
+    const governs = outgoing
+      .filter((e) => e.relation === "GOVERNS")
+      .map((e) => this.store.getNode(e.target_id))
+      .filter((n): n is NodeRow => n !== undefined);
+
+    const references = outgoing
+      .filter((e) => e.relation === "REFERENCES")
+      .map((e) => this.store.getNode(e.target_id))
+      .filter((n): n is NodeRow => n !== undefined);
+
     return {
       ...base,
+      governs,
+      references,
       related_decisions: related
         .map((e) => (e.source_id === id ? e.target_id : e.source_id))
         .map((otherId) => this.store.getNode(otherId))

@@ -132,7 +132,7 @@ export function registerDecisionTools(
 
   server.tool(
     "get_decision",
-    "Get a decision with its resolved GOVERNS and REFERENCES links",
+    "Get a decision with all resolved relationships: governs (code nodes), references (external nodes), related_decisions, depends_on, and PR back-refs (introduced_in, implemented_by, challenged_by, discussed_in)",
     {
       id: z.string().describe("Decision node ID"),
     },
