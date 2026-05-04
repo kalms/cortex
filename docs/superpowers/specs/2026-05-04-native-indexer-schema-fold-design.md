@@ -103,7 +103,29 @@ The viewer's existing CBM_LABEL_MAP collapse (`function`/`component`/`path`) is 
 | `target_id` | `target_id` | `'ctx-' \|\| CAST(target_id AS TEXT)` |
 | `type` | `relation` | preserved |
 | `properties` | `data` | preserved |
-| — | `created_at` | `datetime('now')` |
+| — | `created_at` | `cbm_projects.indexed_at` lookup (preserves indexing-time provenance) |
+
+### 2.4.1 `data` JSON schema (code rows)
+
+After Phase 4, code-entity rows in `nodes.data` carry these canonical keys (formerly CBM-authored, now Cortex-native — the indexer is part of Cortex):
+
+| Key | Type | Applies to | Meaning |
+|---|---|---|---|
+| `signature` | string | function/method | Source signature including parameter list |
+| `return_type` | string | function/method | Return type as parsed |
+| `param_names` | string[] | function/method | Parameter names |
+| `param_types` | string[] | function/method | Parameter types (positionally aligned with `param_names`) |
+| `base_classes` | string[] | class | Names of base classes |
+| `parent_class` | string | method | Containing class name |
+| `decorators` | string[] | function/method/class | Raw decorator/annotation source |
+| `decorator_tags` | string[] | function/method/class | Derived semantic tags (`controller`, `route`, `test`, ...) — populated by enrichment pass |
+| `docstring` | string | function/method/class | Extracted docstring text |
+| `route_method` | string | function | HTTP method (`GET`, `POST`, ...) — present iff this is an HTTP route handler |
+| `route_path` | string | function | URL pattern — same as above |
+| `is_test` | boolean | any | Heuristic — is this a test entity |
+| `is_entry_point` | boolean | any | Heuristic — is this an entry point (main, exported handler, etc.) |
+
+The set is open — pipeline passes may add more keys over time. Decision/PR/TODO rows use disjoint keys (`description`, `rationale`, `problem`, `resolution`, `title`, `status`, ...). Polymorphism in `data` is by `kind`; consumers branch on the row's kind and read the keys they expect.
 
 ### 2.5 Bookkeeping table renames
 
@@ -256,15 +278,15 @@ The TS-side and C-side schema changes are tightly coupled — splitting them acr
 
 ---
 
-## 6. Open questions
+## 6. Resolved choices
 
-1. **Edge `created_at` for migrated rows.** `cbm_edges` doesn't track creation time; we set `datetime('now')` at migration. Is that OK, or do we want to fall back to `cbm_projects.indexed_at` like for nodes? Lean: `datetime('now')` is fine — it's a one-time stamp at migration, not the original indexing time, and downstream code doesn't depend on it.
+These were open questions during brainstorming; resolutions captured here for the implementation plan.
 
-2. **Code-edge filter in `code-queries.ts`.** When listing "code edges" (e.g., `tracePath`), do we filter by `project = ?` (denormalized) or by `relation IN ('CALLS', 'IMPORTS', ...)`? Lean: filter by `project = ?` — symmetrical with how nodes are filtered, no need to enumerate the code-relation set.
+1. **Edge `created_at` for migrated rows** — use `cbm_projects.indexed_at` (same as nodes). Preserves indexing-time provenance; we may want it later to log "when did this edge get indexed". The migration SQL above reflects this.
 
-3. **Should `getAllNodesUnified` keep the `cbmProject` parameter?** After the fold, all rows live in one table; the parameter only filters by `project`. Could rename to `getAllNodes(project?)` or keep for diff continuity. Lean: rename — Phase 4 simplifies the signature.
+2. **Code-edge filter in `code-queries.ts`** — filter by `WHERE project = ?` (matches CBM's existing pattern; symmetrical with node queries; no need to enumerate the code-relation set).
 
-4. **What happens to the `data` JSON shape difference?** CBM's `properties` JSON might have different keys than Cortex's `data` (decision-shape vs code-shape). They share the `data` column but consumers know which keys to expect from the row's `kind`. No structural change needed.
+3. **`getAllNodesUnified` parameter shape** — accept `project: string | string[]`. Single-project is the common case; multi-project supports future microservices/multi-repo workflows where a query might want code from two related repos at once. Implementation: when array, expand to `project IN (?, ?, ...)` with bound parameters. Same applies to `getAllEdgesUnified` and the project-scoped functions in `code-queries.ts`. Method name stays `getAllNodesUnified` for diff continuity through Phase 4; rename in Phase 8.
 
 ---
 
