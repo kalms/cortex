@@ -117,7 +117,7 @@ Cortex emits structured events for every decision change and git commit, persist
 
 ### Code Tools — SQL (7)
 
-These query codebase-memory-mcp's database directly via SQLite ATTACH (no subprocess, millisecond response):
+These query the indexer's database directly via SQLite ATTACH (no subprocess, millisecond response):
 
 | Tool | Description |
 |------|-------------|
@@ -131,7 +131,7 @@ These query codebase-memory-mcp's database directly via SQLite ATTACH (no subpro
 
 ### Code Tools — Subprocess (3)
 
-These still spawn the codebase-memory-mcp binary (write operations):
+These spawn the `bin/cortex-indexer` binary (write operations):
 
 | Tool | Description |
 |------|-------------|
@@ -166,15 +166,17 @@ The 3D viewer at `/viewer` renders the unified knowledge graph in WebGL using [3
 - **Search & filters:** real-time text search, kind filter checkboxes
 - **Mobile:** responsive bottom half-sheet panel, collapsed toolbar toggles at < 768px
 
-## CBM Integration
+## Native Indexer
 
-Cortex discovers and ATTACHes codebase-memory-mcp's SQLite database read-only on startup. Code entities and decisions live in separate database files but are queried as a unified graph.
+Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives at `internal/cbm/`, absorbed from [kalms/codebase-memory-mcp](https://github.com/kalms/codebase-memory-mcp) via git subtree on 2026-05-04. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install.
+
+The indexer writes to a SQLite database under `~/.cache/codebase-memory-mcp/` (path retained for compatibility with existing caches). Cortex discovers and ATTACHes that database read-only on startup, so code entities and decisions live in separate database files but are queried as a unified graph.
 
 - **Discovery:** Scans `~/.cache/codebase-memory-mcp/` for a database matching the current working directory
-- **WAL visibility:** Cortex sees CBM's latest indexed data automatically — no re-attach needed
-- **Zero lock contention:** CBM writes to its file, Cortex reads it. SQLite WAL MVCC handles concurrency.
+- **WAL visibility:** Cortex sees the latest indexed data automatically — no re-attach needed
+- **Zero lock contention:** the indexer writes to its file, Cortex reads it. SQLite WAL MVCC handles concurrency.
 
-Override the CBM database path with `CBM_DB_PATH` env var.
+Override the database path with `CBM_DB_PATH` env var.
 
 ## Seeding Test Data
 
@@ -208,8 +210,9 @@ npx vitest run tests/graph/cbm-attach.test.ts  # Single file
 |----------|---------|-------------|
 | `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database |
 | `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
-| `CBM_BINARY_PATH` | `codebase-memory-mcp` | Path to CBM binary (for index/detect_changes/delete) |
-| `CBM_DB_PATH` | Auto-discovered | Explicit path to CBM database (skips discovery) |
+| `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary (for index/detect_changes/delete) |
+| `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
+| `CBM_DB_PATH` | Auto-discovered | Explicit path to the indexer database (skips discovery) |
 
 ## Project Structure
 
