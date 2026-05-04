@@ -1,6 +1,6 @@
 # Cortex
 
-Knowledge graph MCP server with decision provenance. Combines structural code indexing (via [codebase-memory-mcp](https://github.com/anthropics/codebase-memory-mcp)) with decision tracking on a unified SQLite knowledge graph, plus a 3D WebGL graph viewer.
+Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 3D WebGL graph viewer. The indexer is built from CBM (originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed in-tree under `internal/cbm/` on 2026-05-04).
 
 Cortex answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
 
