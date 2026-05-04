@@ -92,7 +92,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qn_pattern: z.string().optional(),
     },
     async (params) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const qn = params.qn_pattern ? normalize(params.qn_pattern, cbmProject) : undefined;
@@ -113,7 +113,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       max_depth: z.number().int().min(1).max(10).optional(),
     },
     async (params) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const results = tracePath(store, cbmProject, params);
@@ -133,7 +133,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qualified_name: z.string().min(1, "qualified_name must not be empty"),
     },
     async ({ qualified_name }) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const qn = normalize(qualified_name, cbmProject);
@@ -143,7 +143,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         // Resolve file_path: it's relative to project root, so prepend root_path
         const projectRow = store.queryRaw<{ root_path: string }>(
-          "SELECT root_path FROM cbm.projects WHERE name = ?",
+          "SELECT root_path FROM cbm_projects WHERE name = ?",
           [cbmProject]
         );
         if (projectRow.length === 0) {
@@ -169,7 +169,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "List node labels, edge types, and their counts in the knowledge graph",
     {},
     async () => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const schema = getGraphSchema(store, cbmProject);
@@ -185,8 +185,13 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "List all indexed projects",
     {},
     async () => {
-      if (!store.isCbmAttached()) return errorResponse("internal_error", "No CBM database attached.");
-      const projects = listProjects(store);
+      let projects;
+      try {
+        projects = listProjects(store);
+      } catch (e) {
+        if (e instanceof Error && /no such table/i.test(e.message)) return empty("list_projects()");
+        throw e;
+      }
       if (projects.length === 0) return empty("list_projects()");
       const text = projects.map((p) => `${p.name} — ${p.root_path} (indexed: ${p.indexed_at})`).join("\n");
       return ok(text);
@@ -201,9 +206,14 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       path: z.string().optional().describe("Repository path to check (default: current directory)"),
     },
     async ({ path }) => {
-      if (!store.isCbmAttached()) return errorResponse("internal_error", "No CBM database attached.");
       const cwd = path || process.cwd();
-      const status = indexStatus(store, cwd);
+      let status;
+      try {
+        status = indexStatus(store, cwd);
+      } catch (e) {
+        if (e instanceof Error && /no such table/i.test(e.message)) return empty(`index_status(${cwd})`);
+        throw e;
+      }
       if (!status) return empty(`index_status(${cwd})`);
       return ok(`Indexed: ${status.name} at ${status.root_path} (last: ${status.indexed_at})`);
     }
@@ -249,7 +259,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
 
       if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
 
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return ok(grepOutput);
       }
 
@@ -260,7 +270,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         const [, filePath, lineNum] = match;
         const lineNumber = parseInt(lineNum, 10);
         const enclosing = store.queryRaw<CbmNode>(
-          `SELECT * FROM cbm.nodes
+          `SELECT * FROM cbm_nodes
            WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
            ORDER BY (end_line - start_line) ASC LIMIT 1`,
           [cbmProject, filePath, lineNumber, lineNumber]
