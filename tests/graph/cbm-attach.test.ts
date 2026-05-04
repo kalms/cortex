@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { GraphStore } from "../../src/graph/store.js";
-import { searchGraph, getGraphSchema, tracePath, listProjects, indexStatus } from "../../src/graph/cbm-queries.js";
+import { searchGraph, getGraphSchema, tracePath, listProjects, indexStatus } from "../../src/graph/code-queries.js";
 import { discoverCbmDb } from "../../src/graph/cbm-discovery.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";

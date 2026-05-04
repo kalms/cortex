@@ -49,7 +49,7 @@ export function searchGraph(
   }
 
   return store.queryRaw<CbmNode>(
-    `SELECT * FROM cbm.nodes WHERE ${conditions.join(" AND ")} LIMIT 100`,
+    `SELECT * FROM cbm_nodes WHERE ${conditions.join(" AND ")} LIMIT 100`,
     values
   );
 }
@@ -60,12 +60,12 @@ export function getGraphSchema(
   project: string
 ): { labels: Array<{ name: string; count: number }>; edgeTypes: Array<{ name: string; count: number }> } {
   const labels = store.queryRaw<{ name: string; count: number }>(
-    "SELECT label AS name, COUNT(*) AS count FROM cbm.nodes WHERE project = ? GROUP BY label ORDER BY name",
+    "SELECT label AS name, COUNT(*) AS count FROM cbm_nodes WHERE project = ? GROUP BY label ORDER BY name",
     [project]
   );
 
   const edgeTypes = store.queryRaw<{ name: string; count: number }>(
-    "SELECT type AS name, COUNT(*) AS count FROM cbm.edges WHERE project = ? GROUP BY type ORDER BY name",
+    "SELECT type AS name, COUNT(*) AS count FROM cbm_edges WHERE project = ? GROUP BY type ORDER BY name",
     [project]
   );
 
@@ -79,7 +79,7 @@ export function tracePath(
   params: { function_name: string; mode: string; max_depth?: number }
 ): Array<{ node: CbmNode; depth: number }> {
   const startNodes = store.queryRaw<CbmNode>(
-    "SELECT * FROM cbm.nodes WHERE project = ? AND name = ? LIMIT 1",
+    "SELECT * FROM cbm_nodes WHERE project = ? AND name = ? LIMIT 1",
     [project, params.function_name]
   );
   if (startNodes.length === 0) return [];
@@ -90,8 +90,8 @@ export function tracePath(
 
   const recursive =
     direction === "outbound"
-      ? "SELECT e.target_id, t.depth + 1 FROM cbm.edges e JOIN trace t ON e.source_id = t.node_id"
-      : "SELECT e.source_id, t.depth + 1 FROM cbm.edges e JOIN trace t ON e.target_id = t.node_id";
+      ? "SELECT e.target_id, t.depth + 1 FROM cbm_edges e JOIN trace t ON e.source_id = t.node_id"
+      : "SELECT e.source_id, t.depth + 1 FROM cbm_edges e JOIN trace t ON e.target_id = t.node_id";
 
   const sql = `WITH RECURSIVE trace(node_id, depth) AS (
     SELECT ?, 0
@@ -99,7 +99,7 @@ export function tracePath(
     ${recursive}
     WHERE e.project = ? AND e.type IN ('CALLS', 'IMPORTS') AND t.depth < ?
   )
-  SELECT n.*, MIN(t.depth) AS depth FROM cbm.nodes n
+  SELECT n.*, MIN(t.depth) AS depth FROM cbm_nodes n
   JOIN trace t ON n.id = t.node_id
   WHERE n.id != ?
   GROUP BY n.id
@@ -110,12 +110,12 @@ export function tracePath(
 }
 
 export function listProjects(store: GraphStore): CbmProject[] {
-  return store.queryRaw<CbmProject>("SELECT * FROM cbm.projects");
+  return store.queryRaw<CbmProject>("SELECT * FROM cbm_projects");
 }
 
 export function indexStatus(store: GraphStore, rootPath: string): CbmProject | null {
   const results = store.queryRaw<CbmProject>(
-    "SELECT * FROM cbm.projects WHERE root_path = ?",
+    "SELECT * FROM cbm_projects WHERE root_path = ?",
     [rootPath]
   );
   return results[0] ?? null;

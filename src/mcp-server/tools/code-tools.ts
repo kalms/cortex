@@ -11,7 +11,7 @@ import {
   listProjects,
   indexStatus,
   CbmNode,
-} from "../../graph/cbm-queries.js";
+} from "../../graph/code-queries.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
