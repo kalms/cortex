@@ -221,12 +221,12 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         const { stdout } = await execFileAsync("rg", [
           "--no-heading", "--line-number", "--color=never", pattern, ".",
-        ], { timeout: 10_000 });
+        ], { timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
         grepOutput = stdout;
       } catch (err: any) {
         if (err.code === "ENOENT") {
           try {
-            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000 });
+            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
             grepOutput = stdout;
           } catch (err2: any) {
             if (err2.code === "ENOENT") {
