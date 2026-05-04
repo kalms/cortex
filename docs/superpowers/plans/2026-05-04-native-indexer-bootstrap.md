@@ -247,37 +247,41 @@ Expected: tag created locally. Leave un-pushed.
 
 Goal of this phase: `npm install` builds `bin/cortex-indexer` from `internal/cbm/`. The downloaded Mach-O binary at `bin/codebase-memory-mcp` and the GitHub-release download script `scripts/install-cbm.sh` are both removed. Cortex's existing MCP code-tools path continues to work (it's still spawning a binary; only the binary's source has changed).
 
-### Task 2.1: Read and understand CBM's Makefile output target
+### Task 2.1: Confirm CBM Makefile build characteristics
 
 **Files:** read-only
 
-- [ ] **Step 1: Identify what `make cbm` produces and where**
+> **Phase 1 finding:** `internal/cbm/Makefile.cbm` is NOT relocatable — its rules use paths relative to its own directory (e.g. `MAIN_SRC = src/main.c`). It must be invoked with `cd internal/cbm && make -f Makefile.cbm <target>`. Running `make -f internal/cbm/Makefile.cbm cbm` from cortex root fails with "No rule to make target `src/main.c`".
+>
+> Phase 1 also confirmed: the `cbm` Makefile target produces a binary named `codebase-memory-mcp` (not `cbm`) at `internal/cbm/build/c/codebase-memory-mcp`. ~169 MB. The `cbm` target name and the `codebase-memory-mcp` output filename are CBM's existing conventions; we don't change them inside `internal/cbm/`.
 
-Run:
+- [ ] **Step 1: Confirm output path**
+
 ```bash
-grep -nE "^cbm:|\$\(BIN\)|@cp|install:" internal/cbm/Makefile.cbm | head -20
+cd /Users/rka/Development/cortex
+(cd internal/cbm && make -f Makefile.cbm cbm 2>&1 | tail -5)
+ls -lh internal/cbm/build/c/codebase-memory-mcp
 ```
 
-Expected: shows the `cbm:` target's recipe — likely producing a binary at `internal/cbm/cbm` or `internal/cbm/build/cbm` or similar. Note the exact output path; the build script in Task 2.2 needs it.
+Expected: build runs (or "up to date" if unchanged); binary at `internal/cbm/build/c/codebase-memory-mcp` exists, ~150–200 MB, executable.
 
 - [ ] **Step 2: Verify `make cbm` is idempotent**
 
-Run twice:
+Run twice from cortex root:
 ```bash
-make -f internal/cbm/Makefile.cbm cbm
-make -f internal/cbm/Makefile.cbm cbm
+(cd internal/cbm && make -f Makefile.cbm cbm) | tail -2
+(cd internal/cbm && make -f Makefile.cbm cbm) | tail -2
 ```
 
-Expected: second invocation reports `make: 'cbm' is up to date.` or near-instant rebuild. This confirms the Makefile correctly tracks build state — important for npm postinstall not re-doing 90s of work on every `npm install`.
+Expected: second invocation reports `make: Nothing to be done for 'cbm'.` or near-instant. Confirms the build script's skip-rebuild logic is needed only as a belt-and-suspenders.
 
 - [ ] **Step 3: Identify CBM's clean target**
 
-Run:
 ```bash
-grep -nE "^clean|distclean" internal/cbm/Makefile.cbm | head -5
+grep -nE "^[a-z][a-z_-]*clean" internal/cbm/Makefile.cbm | head -5
 ```
 
-Expected: a `clean-c` or `clean` target exists. Note the name; `scripts/build-indexer.sh` may want to support a clean rebuild via env var.
+Expected: `clean-c` target exists (Phase 1 used it; it removes `internal/cbm/build/c/`).
 
 ### Task 2.2: Write `scripts/build-indexer.sh`
 
@@ -292,20 +296,26 @@ Write to `scripts/build-indexer.sh`:
 # build-indexer.sh — Builds the native indexer (CBM) from internal/cbm/ and
 # installs the resulting binary at bin/cortex-indexer. Invoked by npm postinstall.
 #
-# Skips the build if bin/cortex-indexer is already present and newer than the
-# CBM Makefile and source tree's most recent change. Set CORTEX_FORCE_REBUILD=1
+# CBM's Makefile is not relocatable: rules reference src/ paths relative to
+# the Makefile's own directory. We cd into internal/cbm/ to invoke it. The
+# Makefile's `cbm` target produces a binary named `codebase-memory-mcp` at
+# build/c/codebase-memory-mcp; we copy it to bin/cortex-indexer for Cortex.
+#
+# Skips the build if bin/cortex-indexer is already present and newer than
+# anything in internal/cbm/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1
 # to override.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INDEXER_SRC="$ROOT/internal/cbm"
+INDEXER_BUILD="$INDEXER_SRC/build/c/codebase-memory-mcp"
 INDEXER_DEST="$ROOT/bin/cortex-indexer"
 MAKE_TARGET="cbm"
 
 # Skip path: binary exists, no force, and no source file is newer than the binary
 if [ -z "${CORTEX_FORCE_REBUILD:-}" ] && [ -x "$INDEXER_DEST" ]; then
   if ! find "$INDEXER_SRC/src" "$INDEXER_SRC/Makefile.cbm" \
-        -newer "$INDEXER_DEST" -print -quit | grep -q .; then
+        -newer "$INDEXER_DEST" -print -quit 2>/dev/null | grep -q .; then
     echo "cortex-indexer up to date at $INDEXER_DEST"
     exit 0
   fi
@@ -319,21 +329,19 @@ done
 mkdir -p "$ROOT/bin"
 
 echo "Building cortex-indexer from internal/cbm/ ..."
-make -f "$INDEXER_SRC/Makefile.cbm" "$MAKE_TARGET"
+# Must invoke the Makefile from inside internal/cbm/ — its rules use
+# Makefile-relative paths and don't tolerate -f from a parent directory.
+(cd "$INDEXER_SRC" && make -f Makefile.cbm "$MAKE_TARGET")
 
-# Locate the produced binary — Makefile output path may be one of these
-for candidate in "$INDEXER_SRC/cbm" "$INDEXER_SRC/build/cbm" "$INDEXER_SRC/bin/cbm"; do
-  if [ -x "$candidate" ]; then
-    cp "$candidate" "$INDEXER_DEST"
-    chmod +x "$INDEXER_DEST"
-    echo "cortex-indexer installed at $INDEXER_DEST"
-    exit 0
-  fi
-done
+if [ ! -x "$INDEXER_BUILD" ]; then
+  echo "error: build succeeded but expected binary not found" >&2
+  echo "expected: $INDEXER_BUILD" >&2
+  exit 1
+fi
 
-echo "error: build succeeded but no cbm binary found in expected locations" >&2
-echo "checked: $INDEXER_SRC/cbm, $INDEXER_SRC/build/cbm, $INDEXER_SRC/bin/cbm" >&2
-exit 1
+cp "$INDEXER_BUILD" "$INDEXER_DEST"
+chmod +x "$INDEXER_DEST"
+echo "cortex-indexer installed at $INDEXER_DEST"
 ```
 
 - [ ] **Step 2: Make it executable**
@@ -638,7 +646,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Run:
 ```bash
 rm -f bin/cortex-indexer
-make -f internal/cbm/Makefile.cbm clean-c 2>/dev/null || true
+(cd internal/cbm && make -f Makefile.cbm clean-c) 2>/dev/null || true
 npm install --ignore-scripts
 npm run postinstall
 ls -l bin/cortex-indexer
