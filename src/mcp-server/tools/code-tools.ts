@@ -17,18 +17,17 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 
 const execFileAsync = promisify(execFile);
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const LOCAL_CBM = join(__dirname, "..", "..", "..", "bin", "codebase-memory-mcp");
-const CBM_BINARY = process.env.CBM_BINARY_PATH || (existsSync(LOCAL_CBM) ? LOCAL_CBM : "codebase-memory-mcp");
+const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
+const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
 
 // 5B: callCbm now handles binary in-stdout errors and returns structured responses
 async function callCbm(tool: string, args: Record<string, unknown>) {
   try {
-    const { stdout } = await execFileAsync(CBM_BINARY, ["cli", tool, JSON.stringify(args)], {
+    const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,
     });
     // Binary always exits 0; errors come back as {"isError":true,"content":[...]} in stdout.
@@ -36,15 +35,15 @@ async function callCbm(tool: string, args: Record<string, unknown>) {
       const parsed = JSON.parse(stdout);
       if (parsed?.isError) {
         const detail = parsed.content?.[0]?.text ?? "(no detail)";
-        return errorResponse("binary_failed", `codebase-memory-mcp ${tool}: ${detail}`);
+        return errorResponse("binary_failed", `cortex-indexer ${tool}: ${detail}`);
       }
     } catch {
-      return errorResponse("binary_failed", `codebase-memory-mcp ${tool}: unexpected non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
+      return errorResponse("binary_failed", `cortex-indexer ${tool}: unexpected non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
     }
     return ok(stdout);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return errorResponse("binary_failed", `codebase-memory-mcp ${tool} failed: ${msg}`);
+    return errorResponse("binary_failed", `cortex-indexer ${tool} failed: ${msg}`);
   }
 }
 
