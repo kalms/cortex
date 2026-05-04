@@ -1,9 +1,8 @@
 import { mkdtempSync, cpSync, existsSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { discoverCbmDb } from "../../src/graph/cbm-discovery.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -22,10 +21,18 @@ export async function setup() {
   const fixtureCopy = join(workDir, "sample-project");
   cpSync(FIXTURE_SRC, fixtureCopy, { recursive: true });
 
+  // Use a fresh cortex.db inside the work dir so each test run is isolated.
+  const cortexDbPath = resolve(join(workDir, "cortex.db"));
+
   const indexResult = execFileSync(
     BINARY,
     ["cli", "index_repository", JSON.stringify({ repo_path: fixtureCopy })],
-    { stdio: ["ignore", "pipe", "pipe"], timeout: 60_000, encoding: "utf8" }
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+      encoding: "utf8",
+      env: { ...process.env, CORTEX_DB: cortexDbPath },
+    }
   );
 
   // The binary always exits 0. Check for isError in JSON output.
@@ -43,26 +50,21 @@ export async function setup() {
     );
   }
 
-  const cbmDbPath = discoverCbmDb(fixtureCopy);
-  if (!cbmDbPath) {
-    throw new Error(`globalSetup: discoverCbmDb could not find DB for ${fixtureCopy} after indexing.`);
-  }
-
-  // Derive project name from the attached DB.
-  // Open the DB briefly to read the project name for this root_path.
-  // (We can't use GraphStore here to avoid an import cycle in globalSetup; use better-sqlite3 directly.)
+  // Open the cortex.db the indexer just wrote to.
   const Database = (await import("better-sqlite3")).default;
-  const db = new Database(cbmDbPath, { readonly: true });
-  const row = db.prepare("SELECT name FROM cbm_projects WHERE root_path = ?").get(fixtureCopy) as { name: string } | undefined;
+  const db = new Database(cortexDbPath, { readonly: true });
+  const row = db
+    .prepare("SELECT name FROM cbm_projects WHERE root_path = ?")
+    .get(fixtureCopy) as { name: string } | undefined;
 
   if (!row) {
     db.close();
-    throw new Error(`globalSetup: no project row found in ${cbmDbPath} for ${fixtureCopy}`);
+    throw new Error(`globalSetup: no cbm_projects row found in ${cortexDbPath} for ${fixtureCopy}`);
   }
 
-  const nodeCount = db.prepare(
-    "SELECT COUNT(*) AS c FROM cbm_nodes WHERE project = ?"
-  ).get(row.name) as { c: number };
+  const nodeCount = db
+    .prepare("SELECT COUNT(*) AS c FROM cbm_nodes WHERE project = ?")
+    .get(row.name) as { c: number };
   db.close();
 
   if (nodeCount.c === 0) {
@@ -74,19 +76,17 @@ export async function setup() {
 
   process.env.CORTEX_CONTRACT_FIXTURE_DIR = fixtureCopy;
   process.env.CORTEX_CONTRACT_PROJECT = row.name;
-  process.env.CORTEX_CONTRACT_CBM_DB = cbmDbPath;
+  process.env.CORTEX_CONTRACT_CORTEX_DB = cortexDbPath;
+  // Keep the legacy var name briefly so harness.ts can read either during the
+  // transition. Will be removed in 3b.7 cleanup.
+  process.env.CORTEX_CONTRACT_CBM_DB = cortexDbPath;
 }
 
 export async function teardown() {
-  const dbPath = process.env.CORTEX_CONTRACT_CBM_DB;
-  if (dbPath) {
-    for (const suffix of ["", "-shm", "-wal"]) {
-      try { rmSync(dbPath + suffix); } catch { /* may not exist */ }
-    }
-  }
   const fixtureCopy = process.env.CORTEX_CONTRACT_FIXTURE_DIR;
   if (fixtureCopy) {
-    // fixtureCopy is at `<workDir>/sample-project`; remove the whole workDir.
+    // fixtureCopy is at `<workDir>/sample-project`; remove the whole workDir
+    // (which also deletes cortex.db sitting alongside it).
     const workDir = dirname(fixtureCopy);
     try { rmSync(workDir, { recursive: true }); } catch { /* ignore */ }
   }
