@@ -1,0 +1,225 @@
+# Release pipeline: lint → test → build → smoke/soak → draft → verify → publish
+#
+# Security (security-static + codeql-gate) starts immediately and runs in
+# parallel with lint/test/build/smoke/soak. It only blocks the final verify
+# step — everything else proceeds independently.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v0.8.0)"
+        required: true
+        type: string
+      release_notes:
+        description: "Release notes (optional — auto-generated from commits if empty)"
+        required: false
+        type: string
+      replace:
+        description: "Replace existing release if it exists"
+        required: false
+        type: boolean
+        default: false
+      soak_level:
+        description: 'Soak: full (quick+asan), quick (10min), none'
+        type: choice
+        options: ['full', 'quick', 'none']
+        default: 'quick'
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Security (starts immediately, blocks only verify) ───────────
+  security:
+    uses: ./.github/workflows/_security.yml
+    secrets: inherit
+
+  # ── 1. Lint (cppcheck + clang-format) ───────────────────────────
+  lint:
+    uses: ./.github/workflows/_lint.yml
+
+  # ── 2. Tests (all platforms, full suite for release) ────────────
+  test:
+    needs: [lint]
+    uses: ./.github/workflows/_test.yml
+    with:
+      skip_perf: false
+
+  # ── 3. Build all platforms ──────────────────────────────────────
+  build:
+    needs: [test]
+    uses: ./.github/workflows/_build.yml
+    with:
+      version: ${{ inputs.version }}
+
+  # ── 4. Smoke test every binary ──────────────────────────────────
+  smoke:
+    needs: [build]
+    uses: ./.github/workflows/_smoke.yml
+
+  # ── 5. Soak tests ──────────────────────────────────────────────
+  soak:
+    if: ${{ inputs.soak_level != 'none' }}
+    needs: [build]
+    uses: ./.github/workflows/_soak.yml
+    with:
+      duration_minutes: 10
+      run_asan: ${{ inputs.soak_level == 'full' }}
+      version: ${{ inputs.version }}
+
+  # ── 6. Create DRAFT release ────────────────────────────────────
+  release-draft:
+    needs: [smoke, soak]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la *.tar.gz *.zip
+
+      - name: Generate checksums
+        run: sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: '*.tar.gz,*.zip,checksums.txt'
+
+      - name: Generate SBOM
+        run: |
+          python3 -c "
+          import json
+          sbom = {
+            'spdxVersion': 'SPDX-2.3',
+            'dataLicense': 'CC0-1.0',
+            'SPDXID': 'SPDXRef-DOCUMENT',
+            'name': 'codebase-memory-mcp-${{ inputs.version }}',
+            'documentNamespace': 'https://github.com/DeusData/codebase-memory-mcp/releases/${{ inputs.version }}',
+            'creationInfo': {
+              'created': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+              'creators': ['Tool: codebase-memory-mcp-release-pipeline']
+            },
+            'packages': [
+              {'SPDXID': 'SPDXRef-Package-sqlite3', 'name': 'sqlite3', 'versionInfo': '3.49.1', 'downloadLocation': 'https://sqlite.org', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-yyjson', 'name': 'yyjson', 'versionInfo': '0.10.0', 'downloadLocation': 'https://github.com/ibireme/yyjson', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-mongoose', 'name': 'mongoose', 'versionInfo': '7.16', 'downloadLocation': 'https://github.com/cesanta/mongoose', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-mimalloc', 'name': 'mimalloc', 'versionInfo': '2.1.7', 'downloadLocation': 'https://github.com/microsoft/mimalloc', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-xxhash', 'name': 'xxhash', 'versionInfo': '0.8.2', 'downloadLocation': 'https://github.com/Cyan4973/xxHash', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-tre', 'name': 'tre', 'versionInfo': '0.8.0', 'downloadLocation': 'https://github.com/laurikari/tre', 'filesAnalyzed': False},
+              {'SPDXID': 'SPDXRef-Package-tree-sitter', 'name': 'tree-sitter', 'versionInfo': '0.24.4', 'downloadLocation': 'https://github.com/tree-sitter/tree-sitter', 'filesAnalyzed': False}
+            ]
+          }
+          json.dump(sbom, open('sbom.json', 'w'), indent=2)
+          "
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
+        with:
+          subject-path: '*.tar.gz'
+          sbom-path: 'sbom.json'
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Sign artifacts
+        run: |
+          for f in *.tar.gz *.zip checksums.txt; do
+            cosign sign-blob --yes --bundle "${f}.bundle" "$f"
+          done
+
+      - name: Delete existing release
+        if: ${{ inputs.replace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: gh release delete "$VERSION" --yes --cleanup-tag || true
+
+      - name: Create tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag -f "$VERSION"
+          git push origin "$VERSION" --force
+
+      - uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
+        with:
+          tag_name: ${{ inputs.version }}
+          draft: true
+          files: |
+            *.tar.gz
+            *.zip
+            checksums.txt
+            sbom.json
+            *.bundle
+          body: ${{ inputs.release_notes || '' }}
+          generate_release_notes: ${{ inputs.release_notes == '' }}
+
+  # ── 7. Verify + Publish (requires security gate) ───────────────
+  verify:
+    needs: [release-draft, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download and extract release binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          mkdir -p assets binaries
+          gh release download "$VERSION" --dir assets --repo "$GITHUB_REPOSITORY" --pattern '*.tar.gz' --pattern '*.zip'
+          for f in assets/*.tar.gz; do
+            NAME=$(basename "$f" .tar.gz)
+            tar -xzf "$f" -C binaries/ 2>/dev/null || true
+            [ -f binaries/codebase-memory-mcp ] && mv binaries/codebase-memory-mcp "binaries/${NAME}"
+          done
+          for f in assets/*.zip; do
+            NAME=$(basename "$f" .zip)
+            unzip -o "$f" -d binaries/ 2>/dev/null || true
+            [ -f binaries/codebase-memory-mcp.exe ] && mv binaries/codebase-memory-mcp.exe "binaries/${NAME}.exe"
+          done
+          cp install.sh binaries/ 2>/dev/null || true
+          cp install.ps1 binaries/ 2>/dev/null || true
+          ls -la binaries/
+
+      - name: Security audits on all release binaries
+        run: |
+          for bin in binaries/codebase-memory-mcp*; do
+            [ -f "$bin" ] || continue
+            echo "--- Auditing: $(basename "$bin") ---"
+            scripts/security-strings.sh "$bin"
+          done
+
+      - name: VirusTotal scan
+        uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5.0.0
+        id: virustotal
+        with:
+          vt_api_key: ${{ secrets.VIRUS_TOTAL_SCANNER_API_KEY }}
+          files: binaries/*
+
+      - name: Wait for VirusTotal results
+        env:
+          VT_API_KEY: ${{ secrets.VIRUS_TOTAL_SCANNER_API_KEY }}
+          VT_ANALYSIS: ${{ steps.virustotal.outputs.analysis }}
+        run: scripts/ci/check-virustotal.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: gh release edit "$VERSION" --draft=false --repo "$GITHUB_REPOSITORY"

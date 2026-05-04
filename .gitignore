@@ -5,7 +5,7 @@ dist/
 .superpowers/
 .playwright-mcp/
 viewer-*.png
-bin/
+bin/cortex-indexer
 .worktrees/
 .claude/settings.local.json
 qa-*.png

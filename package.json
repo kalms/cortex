@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "postinstall": "bash scripts/install-cbm.sh",
+    "postinstall": "bash scripts/build-indexer.sh",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "CORTEX_VIEWER_PORT=3334 tsx src/index.ts",

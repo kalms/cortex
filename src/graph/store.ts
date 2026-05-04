@@ -39,7 +39,6 @@ export interface DecisionContent {
 
 export class GraphStore {
   private db: Database.Database;
-  private cbmAttached = false;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -323,28 +322,6 @@ export class GraphStore {
     this.db.close();
   }
 
-  isCbmAttached(): boolean {
-    return this.cbmAttached;
-  }
-
-  attachCbm(dbPath: string): void {
-    try {
-      this.db.exec(`ATTACH DATABASE '${dbPath}' AS cbm`);
-      // Verify it has the expected tables
-      const tables = this.db
-        .prepare("SELECT name FROM cbm.sqlite_master WHERE type = 'table'")
-        .all() as Array<{ name: string }>;
-      const tableNames = tables.map((t) => t.name);
-      if (tableNames.includes("nodes") && tableNames.includes("edges") && tableNames.includes("projects")) {
-        this.cbmAttached = true;
-      } else {
-        this.db.exec("DETACH DATABASE cbm");
-      }
-    } catch {
-      this.cbmAttached = false;
-    }
-  }
-
   transaction<T>(fn: () => T): T {
     const run = this.db.transaction(fn);
     return run();
@@ -368,7 +345,7 @@ export class GraphStore {
   getAllNodesUnified(cbmProject?: string): NodeRow[] {
     const cortexNodes = this.getAllNodes();
 
-    if (!this.cbmAttached || !cbmProject) return cortexNodes;
+    if (!cbmProject) return cortexNodes;
 
     const cbmNodes = this.db
       .prepare(
@@ -380,9 +357,9 @@ export class GraphStore {
           file_path,
           properties AS data,
           'personal' AS tier,
-          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS created_at,
-          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS updated_at
-        FROM cbm.nodes WHERE project = ?`
+          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS created_at,
+          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS updated_at
+        FROM cbm_nodes WHERE project = ?`
       )
       .all(cbmProject, cbmProject, cbmProject) as NodeRow[];
 
@@ -398,7 +375,7 @@ export class GraphStore {
   getAllEdgesUnified(cbmProject?: string): EdgeRow[] {
     const cortexEdges = this.getAllEdges();
 
-    if (!this.cbmAttached || !cbmProject) return cortexEdges;
+    if (!cbmProject) return cortexEdges;
 
     const cbmEdges = this.db
       .prepare(
@@ -408,8 +385,8 @@ export class GraphStore {
           'cbm-' || CAST(target_id AS TEXT) AS target_id,
           type AS relation,
           properties AS data,
-          (SELECT indexed_at FROM cbm.projects WHERE name = ?) AS created_at
-        FROM cbm.edges WHERE project = ?`
+          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS created_at
+        FROM cbm_edges WHERE project = ?`
       )
       .all(cbmProject, cbmProject) as EdgeRow[];
 
