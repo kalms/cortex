@@ -11,40 +11,46 @@ import {
   listProjects,
   indexStatus,
   CbmNode,
-} from "../../graph/cbm-queries.js";
+} from "../../graph/code-queries.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 
 const execFileAsync = promisify(execFile);
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const LOCAL_CBM = join(__dirname, "..", "..", "..", "bin", "codebase-memory-mcp");
-const CBM_BINARY = process.env.CBM_BINARY_PATH || (existsSync(LOCAL_CBM) ? LOCAL_CBM : "codebase-memory-mcp");
+const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
+const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
+const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 // 5B: callCbm now handles binary in-stdout errors and returns structured responses
 async function callCbm(tool: string, args: Record<string, unknown>) {
+  // Make the indexer write to the same SQLite file Cortex uses. Without this
+  // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
+  // Cortex would never see the data.
+  const cortexDb = pathResolve(process.env.CORTEX_DB_PATH || ".cortex/graph.db");
+  const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
   try {
-    const { stdout } = await execFileAsync(CBM_BINARY, ["cli", tool, JSON.stringify(args)], {
+    const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,
+      env: subprocEnv,
     });
     // Binary always exits 0; errors come back as {"isError":true,"content":[...]} in stdout.
     try {
       const parsed = JSON.parse(stdout);
       if (parsed?.isError) {
         const detail = parsed.content?.[0]?.text ?? "(no detail)";
-        return errorResponse("binary_failed", `codebase-memory-mcp ${tool}: ${detail}`);
+        return errorResponse("binary_failed", `cortex-indexer ${tool}: ${detail}`);
       }
     } catch {
-      return errorResponse("binary_failed", `codebase-memory-mcp ${tool}: unexpected non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
+      return errorResponse("binary_failed", `cortex-indexer ${tool}: unexpected non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
     }
     return ok(stdout);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return errorResponse("binary_failed", `codebase-memory-mcp ${tool} failed: ${msg}`);
+    return errorResponse("binary_failed", `cortex-indexer ${tool} failed: ${msg}`);
   }
 }
 
@@ -92,7 +98,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qn_pattern: z.string().optional(),
     },
     async (params) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const qn = params.qn_pattern ? normalize(params.qn_pattern, cbmProject) : undefined;
@@ -113,7 +119,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       max_depth: z.number().int().min(1).max(10).optional(),
     },
     async (params) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const results = tracePath(store, cbmProject, params);
@@ -133,7 +139,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qualified_name: z.string().min(1, "qualified_name must not be empty"),
     },
     async ({ qualified_name }) => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const qn = normalize(qualified_name, cbmProject);
@@ -143,7 +149,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         // Resolve file_path: it's relative to project root, so prepend root_path
         const projectRow = store.queryRaw<{ root_path: string }>(
-          "SELECT root_path FROM cbm.projects WHERE name = ?",
+          "SELECT root_path FROM cbm_projects WHERE name = ?",
           [cbmProject]
         );
         if (projectRow.length === 0) {
@@ -169,7 +175,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "List node labels, edge types, and their counts in the knowledge graph",
     {},
     async () => {
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
       const schema = getGraphSchema(store, cbmProject);
@@ -185,8 +191,13 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "List all indexed projects",
     {},
     async () => {
-      if (!store.isCbmAttached()) return errorResponse("internal_error", "No CBM database attached.");
-      const projects = listProjects(store);
+      let projects;
+      try {
+        projects = listProjects(store);
+      } catch (e) {
+        if (e instanceof Error && /no such table/i.test(e.message)) return empty("list_projects()");
+        throw e;
+      }
       if (projects.length === 0) return empty("list_projects()");
       const text = projects.map((p) => `${p.name} — ${p.root_path} (indexed: ${p.indexed_at})`).join("\n");
       return ok(text);
@@ -201,9 +212,14 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       path: z.string().optional().describe("Repository path to check (default: current directory)"),
     },
     async ({ path }) => {
-      if (!store.isCbmAttached()) return errorResponse("internal_error", "No CBM database attached.");
       const cwd = path || process.cwd();
-      const status = indexStatus(store, cwd);
+      let status;
+      try {
+        status = indexStatus(store, cwd);
+      } catch (e) {
+        if (e instanceof Error && /no such table/i.test(e.message)) return empty(`index_status(${cwd})`);
+        throw e;
+      }
       if (!status) return empty(`index_status(${cwd})`);
       return ok(`Indexed: ${status.name} at ${status.root_path} (last: ${status.indexed_at})`);
     }
@@ -221,12 +237,12 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         const { stdout } = await execFileAsync("rg", [
           "--no-heading", "--line-number", "--color=never", pattern, ".",
-        ], { timeout: 10_000 });
+        ], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
         grepOutput = stdout;
       } catch (err: any) {
         if (err.code === "ENOENT") {
           try {
-            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000 });
+            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
             grepOutput = stdout;
           } catch (err2: any) {
             if (err2.code === "ENOENT") {
@@ -249,7 +265,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
 
       if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
 
-      if (!store.isCbmAttached() || !cbmProject) {
+      if (!cbmProject) {
         return ok(grepOutput);
       }
 
@@ -260,7 +276,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         const [, filePath, lineNum] = match;
         const lineNumber = parseInt(lineNum, 10);
         const enclosing = store.queryRaw<CbmNode>(
-          `SELECT * FROM cbm.nodes
+          `SELECT * FROM cbm_nodes
            WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
            ORDER BY (end_line - start_line) ASC LIMIT 1`,
           [cbmProject, filePath, lineNumber, lineNumber]

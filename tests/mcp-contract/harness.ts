@@ -10,7 +10,7 @@ import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionSearch } from "../../src/decisions/search.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
 import { PRService } from "../../src/prs/service.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -27,22 +27,26 @@ export interface HarnessContext {
 export async function createHarness(): Promise<HarnessContext> {
   if (process.env.CORTEX_CONTRACT_BINARY_MISSING === "1") {
     throw new Error(
-      "Harness unavailable: bin/codebase-memory-mcp not found during globalSetup. Install the binary and re-run."
+      "Harness unavailable: bin/cortex-indexer not found during globalSetup. Build the indexer (npm install runs scripts/build-indexer.sh) and re-run."
     );
   }
 
   const fixtureDir = process.env.CORTEX_CONTRACT_FIXTURE_DIR;
   const project = process.env.CORTEX_CONTRACT_PROJECT;
-  const cbmDbPath = process.env.CORTEX_CONTRACT_CBM_DB;
-  if (!fixtureDir || !project || !cbmDbPath) {
+  const sharedDbPath = process.env.CORTEX_CONTRACT_CORTEX_DB;
+  if (!fixtureDir || !project || !sharedDbPath) {
     throw new Error("Harness: globalSetup did not populate env vars (did it run?).");
   }
 
-  // Each test gets its own Cortex graph.db (decision storage) to avoid cross-test pollution.
-  const cortexDbDir = mkdtempSync(join(tmpdir(), "cortex-harness-"));
-  const cortexDbPath = join(cortexDbDir, "graph.db");
+  // Each test gets a per-test copy of the unified cortex.db so decision/PR
+  // mutations from one test don't leak into the next. The indexer's cbm_*
+  // tables come along for the ride, so search_graph / trace_path / etc.
+  // see the same indexed fixture across all tests.
+  const harnessDir = mkdtempSync(join(tmpdir(), "cortex-harness-"));
+  const cortexDbPath = join(harnessDir, "cortex.db");
+  copyFileSync(sharedDbPath, cortexDbPath);
+
   const store = new GraphStore(cortexDbPath);
-  store.attachCbm(cbmDbPath);
 
   const service = new DecisionService(store);
   const search = new DecisionSearch(store);
@@ -76,7 +80,7 @@ export async function createHarness(): Promise<HarnessContext> {
       await client.close();
       await server.close();
       store.close();
-      try { rmSync(cortexDbDir, { recursive: true }); } catch { /* ignore */ }
+      try { rmSync(harnessDir, { recursive: true }); } catch { /* ignore */ }
     },
   };
 }
