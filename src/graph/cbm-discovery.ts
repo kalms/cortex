@@ -34,7 +34,7 @@ export function discoverCbmDb(
     try {
       const db = new Database(dbPath, { readonly: true });
       const rows = db
-        .prepare("SELECT root_path FROM projects WHERE root_path = ?")
+        .prepare("SELECT root_path FROM cbm_projects WHERE root_path = ?")
         .all(rootPath) as Array<{ root_path: string }>;
       db.close();
       if (rows.length > 0) return dbPath;
