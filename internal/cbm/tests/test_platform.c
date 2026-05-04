@@ -68,6 +68,47 @@ TEST(platform_mmap_nonexistent) {
     PASS();
 }
 
+TEST(resolve_db_path_uses_cortex_db_env) {
+    setenv("CORTEX_DB", "/tmp/cortex-test-resolve.db", 1);
+    char buf[1024];
+    const char *result = cbm_resolve_db_path("anyproject", buf, sizeof(buf));
+    ASSERT_NOT_NULL(result);
+    ASSERT_STR_EQ(result, "/tmp/cortex-test-resolve.db");
+    unsetenv("CORTEX_DB");
+    PASS();
+}
+
+TEST(resolve_db_path_falls_back_to_cache_dir_when_env_unset) {
+    unsetenv("CORTEX_DB");
+    char buf[1024];
+    const char *result = cbm_resolve_db_path("myproj", buf, sizeof(buf));
+    ASSERT_NOT_NULL(result);
+    /* Should end in "/myproj.db" — exact prefix depends on platform's cache dir */
+    size_t n = strlen(result);
+    ASSERT_TRUE(n > strlen("/myproj.db"));
+    ASSERT_STR_EQ(result + n - strlen("/myproj.db"), "/myproj.db");
+    PASS();
+}
+
+TEST(resolve_db_path_handles_null_project_in_env_mode) {
+    setenv("CORTEX_DB", "/tmp/cortex-test-null.db", 1);
+    char buf[1024];
+    const char *result = cbm_resolve_db_path(NULL, buf, sizeof(buf));
+    /* When CORTEX_DB is set, project is not consulted — should return env value */
+    ASSERT_NOT_NULL(result);
+    ASSERT_STR_EQ(result, "/tmp/cortex-test-null.db");
+    unsetenv("CORTEX_DB");
+    PASS();
+}
+
+TEST(resolve_db_path_returns_null_with_null_project_and_no_env) {
+    unsetenv("CORTEX_DB");
+    char buf[1024];
+    const char *result = cbm_resolve_db_path(NULL, buf, sizeof(buf));
+    ASSERT_NULL(result);
+    PASS();
+}
+
 SUITE(platform) {
     RUN_TEST(platform_now_ns);
     RUN_TEST(platform_now_ms);
@@ -77,4 +118,8 @@ SUITE(platform) {
     RUN_TEST(platform_file_size);
     RUN_TEST(platform_mmap);
     RUN_TEST(platform_mmap_nonexistent);
+    RUN_TEST(resolve_db_path_uses_cortex_db_env);
+    RUN_TEST(resolve_db_path_falls_back_to_cache_dir_when_env_unset);
+    RUN_TEST(resolve_db_path_handles_null_project_in_env_mode);
+    RUN_TEST(resolve_db_path_returns_null_with_null_project_and_no_env);
 }

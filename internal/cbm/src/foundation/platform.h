@@ -100,6 +100,20 @@ const char *cbm_app_local_dir(void);
  * Returns static buffer or NULL if home is unavailable. */
 const char *cbm_resolve_cache_dir(void);
 
+/* Resolve the SQLite database path to use for indexing.
+ *
+ * Priority:
+ *   1. CORTEX_DB env var if set — used verbatim, ignores `project`.
+ *   2. Per-project file at <cache_dir>/<project>.db (existing default).
+ *
+ * Writes the resolved path into `buf` (size `bufsz`) and returns it on success.
+ * Returns NULL when CORTEX_DB is unset AND `project` is NULL — caller error.
+ *
+ * Used by the pipeline (write path) and resolve_store (read path) so both
+ * honor the CORTEX_DB unification when set.
+ */
+const char *cbm_resolve_db_path(const char *project, char *buf, size_t bufsz);
+
 /* ── File system ───────────────────────────────────────────────── */
 
 /* Check if a path exists. */

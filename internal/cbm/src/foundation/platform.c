@@ -5,6 +5,7 @@
  */
 #include "platform.h"
 
+#include "foundation/compat.h"
 #include "foundation/constants.h"
 #include <fcntl.h>
 #include <stdint.h>
@@ -371,5 +372,26 @@ const char *cbm_resolve_cache_dir(void) {
         return NULL;
     }
     snprintf(buf, sizeof(buf), "%s/.cache/codebase-memory-mcp", home);
+    return buf;
+}
+
+const char *cbm_resolve_db_path(const char *project, char *buf, size_t bufsz) {
+    if (!buf || bufsz == 0) {
+        return NULL;
+    }
+    char tmp[CBM_SZ_1K];
+    cbm_safe_getenv("CORTEX_DB", tmp, sizeof(tmp), NULL);
+    if (tmp[0]) {
+        snprintf(buf, bufsz, "%s", tmp);
+        return buf;
+    }
+    if (!project) {
+        return NULL;
+    }
+    const char *cdir = cbm_resolve_cache_dir();
+    if (!cdir) {
+        cdir = cbm_tmpdir();
+    }
+    snprintf(buf, bufsz, "%s/%s.db", cdir, project);
     return buf;
 }
