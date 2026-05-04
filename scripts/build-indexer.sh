@@ -45,6 +45,7 @@ if [ ! -x "$INDEXER_BUILD" ]; then
   exit 1
 fi
 
-cp "$INDEXER_BUILD" "$INDEXER_DEST"
-chmod +x "$INDEXER_DEST"
+cp "$INDEXER_BUILD" "$INDEXER_DEST.tmp"
+chmod +x "$INDEXER_DEST.tmp"
+mv "$INDEXER_DEST.tmp" "$INDEXER_DEST"
 echo "cortex-indexer installed at $INDEXER_DEST"

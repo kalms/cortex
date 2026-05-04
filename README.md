@@ -168,7 +168,7 @@ The 3D viewer at `/viewer` renders the unified knowledge graph in WebGL using [3
 
 ## Native Indexer
 
-Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives at `internal/cbm/`, absorbed from [kalms/codebase-memory-mcp](https://github.com/kalms/codebase-memory-mcp) via git subtree on 2026-05-04. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install.
+Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives at `internal/cbm/`, absorbed from [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) via git subtree on 2026-05-04. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install.
 
 The indexer writes to a SQLite database under `~/.cache/codebase-memory-mcp/` (path retained for compatibility with existing caches). Cortex discovers and ATTACHes that database read-only on startup, so code entities and decisions live in separate database files but are queried as a unified graph.
 
