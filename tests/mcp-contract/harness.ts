@@ -27,7 +27,7 @@ export interface HarnessContext {
 export async function createHarness(): Promise<HarnessContext> {
   if (process.env.CORTEX_CONTRACT_BINARY_MISSING === "1") {
     throw new Error(
-      "Harness unavailable: bin/codebase-memory-mcp not found during globalSetup. Install the binary and re-run."
+      "Harness unavailable: bin/cortex-indexer not found during globalSetup. Build the indexer (npm install runs scripts/build-indexer.sh) and re-run."
     );
   }
 
