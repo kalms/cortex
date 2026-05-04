@@ -26,11 +26,14 @@ This unblocks v0.3 frame extraction (which reads code entities + decisions + PRs
 | # | Goal | Measure |
 |---|---|---|
 | G1 | CBM source lives in Cortex's tree under `internal/cbm/` with full git history | `git log --oneline internal/cbm/` shows CBM commits |
-| G2 | Code entities (functions, classes, methods, files, symbols) live in `cortex.db`'s `nodes`/`edges` tables alongside decisions / PRs / TODOs | `SELECT DISTINCT kind FROM nodes` returns code + decision + pr kinds from one db |
-| G3 | The 9 existing CBM-backed MCP tools continue to work with identical contracts | `tests/mcp-contract/` passes unchanged |
-| G4 | `bin/codebase-memory-mcp` (downloaded), `scripts/install-cbm.sh` (download script), `~/.cache/codebase-memory-mcp/` discovery — all gone | grep returns no references |
-| G5 | A v0.2 deployment with an existing attached CBM database at `~/.cache/codebase-memory-mcp/<project>.db` migrates cleanly on first v0.3 startup | manual test on a v0.2 snapshot; entities accessible after upgrade |
-| G6 | `npm install` builds the indexer locally — no GitHub release fetch, no auth required | fresh clone + `npm install` produces a working binary |
+| G2 | Code entities (functions, classes, methods, files, symbols) live in `<repo>/.cortex/db`'s `nodes`/`edges` tables alongside decisions / PRs / TODOs | `SELECT DISTINCT kind FROM nodes` returns code + decision + pr kinds from one db |
+| G3 | `cortex.db` lives at repo root (`<repo>/.cortex/db`), gitignored. Cross-machine team sharing is unblocked (deferred to v0.3.1: tracked markdown artifacts as canonical form) | startup logs show repo-root path; running `cortex` in two different repos produces two distinct DB files |
+| G4 | Per-machine cache at `~/.cache/cortex/<cache-key>.db` accelerates re-indexing across Cortex installs on the same machine | second `index_repository` invocation in a fresh install on the same repo skips parsing (verifiable via timing or log output) |
+| G5 | The 14 CBM MCP tools (minus `manage_adr`, intentionally superseded) all bridge through Cortex's MCP — including `query_graph`, `get_architecture`, `ingest_traces` not currently bridged | `tests/mcp-contract/` covers all 13 bridged tools |
+| G6 | CBM's MCP shell (`internal/cbm/src/mcp/`), graph-UI HTTP server (`internal/cbm/graph-ui/`, `vendored/mongoose`), and the `cbm` binary's stdio MCP mode are removed | grep + tree inspection confirm; `cbm --serve` (or equivalent) no longer exists |
+| G7 | `bin/codebase-memory-mcp` (downloaded), `scripts/install-cbm.sh` (download script), `~/.cache/codebase-memory-mcp/` discovery — all gone | grep returns no references |
+| G8 | A v0.2 deployment with `cortex.db` + attached CBM cache migrates cleanly on first v0.3 startup | manual test on a v0.2 snapshot; entities + decisions accessible after upgrade |
+| G9 | `npm install` builds the indexer locally — no GitHub release fetch, no auth required | fresh clone + `npm install` produces a working binary |
 
 ---
 
@@ -132,30 +135,83 @@ For Cortex's unified model, CBM's storage layer needs:
 
 This is real C-side work, but bounded. CBM's parsing, AST extraction, semantic, simhash, watcher, and pipeline modules don't need to change — only the storage entry point (`cbm_store_open` / `project_db_path` in [src/mcp/mcp.c](../../../internal/cbm/src/mcp/mcp.c#L681) and the foundation `cache_dir` resolver).
 
-### 2.4 Migration from v0.2
+### 2.4 Storage layout
+
+Two files, both in well-known locations:
+
+```
+<repo>/.cortex/db                    ← operational store: code entities + decisions + PRs + TODOs
+                                       per-repo, repo-root location enables team sharing via git
+~/.cache/cortex/<cache-key>.db       ← build artifact: indexer output, content-addressed
+                                       per-machine, shared across Cortex installs
+```
+
+**Why repo-root.** Anyone who clones the repo gets the graph. Decisions and TODOs live alongside the code they describe; `git pull` syncs team-wide state. This is the "shared semantic knowledge graph" framing made operational, and it falls out naturally from the v0.3 multiplayer-engineering posture.
+
+**Tracking strategy.** `<repo>/.cortex/db` is a SQLite file — binary, big, conflict-prone. We don't track the file itself in git. Instead:
+
+- `<repo>/.cortex/decisions/<id>.md` — decision records as markdown (frontmatter + body). **Tracked.** This is the canonical form; `cortex.db` is a derived index.
+- `<repo>/.cortex/todos/<id>.md` — TODOs as markdown. **Tracked.**
+- `<repo>/.cortex/prs/` — *not tracked*. PR state lives on the forge (GitHub/GitLab); we mirror it locally for canvas rendering only.
+- `<repo>/.cortex/db` — **gitignored.** Rebuilt on first load by reading tracked artifacts + running the indexer.
+- `<repo>/.cortex/local/` — **gitignored.** User-private artifacts (drafts, personal TODOs, scratch decisions). Same shape as the tracked dirs.
+
+This is the same pattern as Terraform / dbt / Prisma: human-readable artifacts are source of truth, the binary db is a derived cache. Diffs are reviewable, merges work, no SQLite-corruption risk.
+
+**For v0.3 first ship**, we cut the scope: `cortex.db` is gitignored and tracked artifacts are deferred to a follow-up (decisions/TODOs export-import is mechanical to add but not on the critical path for "drop-in CBM replacement"). The repo-root location locks in now; the artifact-export layer is a v0.3.1.
+
+**Cache layer.** `~/.cache/cortex/<cache-key>.db` is the deterministic build output. `cache-key = sha256(remote_url + HEAD_sha + indexer_version + grammars_version)`. Flow:
+
+1. `index_repository` computes the cache key
+2. If cache file exists → bulk-import its `nodes`/`edges` into local `<repo>/.cortex/db` via SQL `INSERT INTO ... SELECT ...` (no parsing, sub-second)
+3. Else → run the full parse, write to *both* the cache file and `<repo>/.cortex/db`
+4. CBM's existing simhash + `projects.indexed_at` freshness checks layer on top — they prevent re-parsing when content is unchanged even between cache misses
+
+Joins between user state (decisions / PRs / TODOs in `<repo>/.cortex/db`) and code entities use `qualified_name` (deterministic from `(project, file_path, name, kind)`) as the soft foreign key, not ULID `id`. Node IDs can be regenerated locally on cache import without breaking decision governance refs.
+
+### 2.5 Migration from v0.2
 
 A v0.2 deployment has:
-- `cortex.db` with decisions/PRs (no code entities)
+- `cortex.db` (in the v0.2 install location, *not* repo-root) with decisions/PRs only
 - An attached CBM database at `~/.cache/codebase-memory-mcp/<project>.db` with code entities
 
-On first v0.3 startup, `src/graph/code-discovery.ts` performs a one-time migration if it detects a CBM cache file matching the current project:
+On first v0.3 startup, the migration runner:
 
-1. Open the CBM cache read-only via ATTACH
-2. Stream-copy `cbm.nodes` into `cortex.db`'s `nodes` table (mapping CBM's `label` → `kind`, preserving `qualified_name` / `file_path` / `start_line` / `end_line`)
-3. Stream-copy `cbm.edges` into `cortex.db`'s `edges` table (mapping CBM's `type` → `relation`)
-4. Write a marker row into a new `migrations` table indicating CBM-import done
-5. Detach; CBM cache file remains on disk untouched (user can delete manually)
+1. Locates the v0.2 `cortex.db` (default location or explicit env var) and copies its decisions/PRs/edges into `<repo>/.cortex/db`
+2. Locates the v0.2 CBM cache by scanning `~/.cache/codebase-memory-mcp/` for an entry matching the current repo's root path
+3. Stream-copies `cbm.nodes` → `nodes` (mapping `label` → `kind`, preserving qualified_name / file_path / start_line / end_line / project)
+4. Stream-copies `cbm.edges` → `edges` (mapping `type` → `relation`)
+5. Writes a marker row into a `migrations` table
+6. Old files left on disk untouched (user deletes manually)
 
-Subsequent startups skip the migration. The migration is idempotent (re-running is a no-op via marker check). If CBM cache is absent (fresh install), nothing happens — first `index_repository` call populates the unified graph natively.
+Subsequent startups skip the migration via the marker. If neither file exists (fresh install), nothing happens — first `index_repository` call populates `<repo>/.cortex/db` natively.
 
-### 2.5 What CBM's MCP shell becomes
+### 2.6 CBM's MCP shell — strip it
 
-CBM today is *also* an MCP server. We don't need that — Cortex is the MCP server. CBM's MCP module (`internal/cbm/src/mcp/`) becomes dead code from Cortex's perspective. Two options:
+CBM today is *also* an MCP server. Cortex is the MCP server now; CBM's MCP module is dead code that risks weird regressions later (e.g. someone running the binary directly hits CBM's MCP interface and gets confusing duplicate behavior). We strip it as part of absorption.
 
-**A. Leave it.** Dead code doesn't hurt; reduces merge complexity.
-**B. Strip it.** Removes ~one module; signals "this is now Cortex's indexer, not an MCP product."
+What gets removed:
+- `internal/cbm/src/mcp/mcp.c`, `mcp.h` — entire MCP server implementation
+- The MCP-server entry point in `internal/cbm/src/main.c` (the `cbm` binary's stdio MCP mode)
+- `internal/cbm/src/mcp/`-related tests in `internal/cbm/tests/`
+- `vendored/mongoose` — only used by CBM's HTTP-based graph-UI server (also dead from Cortex's POV)
+- The `graph-ui/` directory (CBM's own 3D viewer; superseded by Cortex's viewer)
 
-**Decision: A for v0.3.** Keep CBM's source as-imported. Stripping is a future cleanup once we're confident we never need to re-sync from upstream. The CLI subcommands we *use* (`cli index_repository`, etc.) live in CBM's `cli/` module and are unaffected either way.
+What stays:
+- `internal/cbm/src/cli/` — the CLI entry point that Cortex spawns via `execFile`
+- All parsing/AST/semantic/simhash/store/pipeline/watcher modules — the actual indexing core
+- All vendored deps used by the indexer core (`tree-sitter`, `sqlite3`, `xxhash`, `yyjson`, `mimalloc`, `nomic`, `tre`)
+
+**Bridge verification.** Cortex currently exposes 10 of CBM's 14 MCP tools. The 4 unbridged: `query_graph` (Cypher), `get_architecture`, `manage_adr` (deliberately superseded by Cortex's decision system), `ingest_traces`. As part of stripping CBM's MCP shell, three new tools are wired into Cortex's MCP — calling into CBM's CLI surface or directly into cortex.db:
+
+| Tool | Bridge approach |
+|---|---|
+| `query_graph` | New `cli query_graph` subcommand on the indexer (CBM has `cypher_query_t` internals); Cortex's MCP tool spawns it and returns the JSON |
+| `get_architecture` | Same pattern (new `cli get_architecture` subcommand) |
+| `ingest_traces` | Same pattern (new `cli ingest_traces` subcommand) |
+| `manage_adr` | Intentionally not bridged — Cortex's decision system replaces it |
+
+Step 6 of the implementation order owns the strip + bridge work (renamed accordingly).
 
 ---
 
@@ -227,10 +283,32 @@ Now that everything lives in one file, fold CBM's prefixed tables into Cortex's 
 
 **Validation:** Manual test — checkout a v0.2 commit, run a real index, switch to v0.3, verify entities accessible via `search_graph` and `trace_path` without re-indexing.
 
-### Step 6 — Cleanup
+### Step 6 — Strip CBM's MCP shell + bridge missing tools
+
+Per §2.6:
+
+1. Delete `internal/cbm/src/mcp/`, the MCP-server entry in `internal/cbm/src/main.c`, related tests
+2. Delete `internal/cbm/graph-ui/` and `internal/cbm/vendored/mongoose`
+3. Verify `make -f internal/cbm/Makefile.cbm cbm` still builds and tests pass
+4. Add new CLI subcommands inside `internal/cbm/src/cli/`: `query_graph`, `get_architecture`, `ingest_traces` — call into CBM's existing query / architecture / trace internals (handlers exist in `mcp.c`, lift them to CLI)
+5. Add Cortex MCP tool registrations for the three new bridged tools in `src/mcp-server/tools/code-tools.ts`
+6. Add `tests/mcp-contract/` coverage for the three new tools
+
+**Validation:** All 13 bridged code tools (`index_repository`, `detect_changes`, `delete_project`, `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `list_projects`, `index_status`, `search_code`, `query_graph`, `get_architecture`, `ingest_traces`) pass contract tests. `cbm --help` shows only the CLI subcommands; no MCP-server mode remains. `manage_adr` deliberately not bridged.
+
+### Step 7 — Repo-root cortex.db + cache layer
+
+1. Cortex's startup path resolves `<repo>/.cortex/db` as the operational store (not the install-local `cortex.db`)
+2. Add `~/.cache/cortex/<cache-key>.db` build-artifact cache: write on full index, read on subsequent index calls
+3. `<repo>/.cortex/.gitignore` auto-created with `db`, `db-wal`, `db-shm`, `local/` entries on first run
+4. Existing tests updated to point at the new path; fixtures use temp repos
+
+**Validation:** Running `index_repository` in two fresh Cortex installs (same machine, same repo) shows the second skipping parse via cache; logs include "imported from cache key abc123…".
+
+### Step 8 — Final cleanup
 
 - Rename remaining `cbm*` symbols in TS (`cbmProject`, `CbmNode`, etc.) → `code*` / `IndexerNode` / etc.
-- Update `README.md` "CBM Integration" section → "Native Indexer"
+- Update `README.md` "CBM Integration" section → "Native Indexer"; update storage-layout description
 - Update `CLAUDE.md` if it mentions CBM
 - Delete `tests/graph/cbm-attach.test.ts` if not already replaced
 
@@ -256,21 +334,22 @@ Now that everything lives in one file, fold CBM's prefixed tables into Cortex's 
 ## 5. Open questions
 
 1. **Test runner integration.** Does `npm test` in Cortex skip CBM's C tests entirely, or run them in CI only? Lean: skip in dev, run via dedicated CI step.
-2. **CBM's MCP shell.** Leave as-is in `internal/cbm/src/mcp/` (current call), or strip in step 6 cleanup? Lean: leave for now.
-3. **Indexer binary name.** `cortex-indexer` (matches Cortex naming) or `cbm` (matches CBM naming, less rename churn). Lean: `cortex-indexer` — signals the absorption.
-4. **Embedded HTTP server (mongoose).** CBM ships a graph-UI HTTP server at port 9749. Cortex has its own viewer. The mongoose code is dead from Cortex's POV. Strip or leave? Lean: leave (zero-cost dead code) until we strip CBM's MCP shell in a future cleanup.
-5. **CBM CLI invocation contract.** Today: `codebase-memory-mcp cli <tool> <json-args>`. Post-absorption: `cortex-indexer cli <tool> <json-args> --db-path ...`. Implementing the `--db-path` flag is part of step 3; the open question is whether we plumb it as a flag (visible in the contract) or as an env var (`CORTEX_DB`). Lean: env var only — keeps Cortex's TS code paths consistent and avoids changing CBM's argv parsing.
-6. **Phase 1 corpus survey scope.** The user agreed to take this on. Scope: which repos, which metrics. This is feeding Track 3 (frame extraction) — a separate spec, but the survey can run in parallel with Track 1 implementation (CBM already produces the index stats; we just need to run it across N repos and compare).
+2. **Indexer binary name.** `cortex-indexer` (matches Cortex naming) or `cbm` (matches CBM naming, less rename churn). Lean: `cortex-indexer` — signals the absorption.
+3. **DB-path plumbing.** Implementing the override is part of step 3; the open question is whether we plumb it as a CLI flag (visible in the contract) or as an env var (`CORTEX_DB`). Lean: env var only — keeps Cortex's TS code paths consistent and avoids changing CBM's argv parsing.
+4. **Cache key composition.** `cache-key = sha256(remote_url + HEAD_sha + indexer_version + grammars_version)` — confirms repo identity and indexer determinism. Open: should `remote_url` be normalized (e.g. ssh ↔ https form, fork variations)? Lean: normalize to `<host>/<owner>/<repo>` — two clones from different forks of the same upstream still share cache.
+5. **Tracked markdown artifacts.** Spec scopes this to v0.3.1 (post-Track-1). Open: timing — ship the export/import layer immediately after Track 1, or after Track 4 (viewer) so the canvas is the testbed? Lean: immediately after Track 1, before frame-extraction work — the artifact format influences how decisions/TODOs surface in the canvas.
+6. **User-private state.** `<repo>/.cortex/local/` for personal artifacts (gitignored). Open: do personal decisions show on the canvas (visible only to the local user) or live entirely off-canvas as drafts? Lean: visible locally, with a "personal" visual treatment (probably a different ring style); not synced. Defer to v0.3.1 design pass.
+7. **Phase 1 corpus survey scope.** The user agreed to take this on. Scope: which repos, which metrics. This is feeding Track 3 (frame extraction) — a separate spec, but the survey can run in parallel with Track 1 implementation (CBM already produces the index stats; we just need to run it across N repos and compare).
 
 ---
 
 ## 6. Out-of-scope future work
 
+- **Tracked markdown artifacts (v0.3.1).** `<repo>/.cortex/decisions/<id>.md`, `<repo>/.cortex/todos/<id>.md` as canonical form, `cortex.db` as derived cache. Cross-machine team sharing through git. Includes `.cortex/local/` for user-private artifacts. Mechanical to add but not on the critical path for "drop-in CBM replacement."
 - **N-API binding.** Replace subprocess invocation with in-process FFI. Wins ~50ms per indexer call, costs significant binding maintenance. Defer until profiling shows it matters.
-- **Strip CBM's MCP shell.** Remove `internal/cbm/src/mcp/` once we're confident we never need upstream sync. Reduces dead code.
-- **Strip CBM's graph-UI HTTP server.** Same reasoning.
 - **Switch to FFI-loaded grammars.** Today CBM's grammars are statically compiled in. If we want runtime grammar loading (for plugin grammars), this is a real change.
 - **WASM fallback.** If a platform exists where building C is impossible (some CI sandboxes), a `web-tree-sitter` fallback keeps Cortex usable. Not needed yet.
+- **Distributed cache.** A team could share `~/.cache/cortex/<key>.db` files via S3 / artifact registry / etc. so even cross-machine onboarding skips re-indexing. Not required for v0.3.
 
 ---
 
@@ -289,5 +368,8 @@ To be created via `create_decision` when implementation completes (IDs assigned 
 
 - **Absorb CBM into Cortex.** Replaces "depend on external codebase-memory-mcp binary." Rationale: ownership of indexing pipeline, no upstream-PR latency, infrastructure reuse for v0.3 frame extraction. Alternatives considered: WASM rewrite (rejected — months of work to redo what CBM has), N-API binding (rejected — adds build surface for unmeasured perf gain), keep external (rejected — defeats v0.3 ambition).
 - **Unify code entities into cortex.db nodes/edges.** Replaces SQLite ATTACH. Rationale: one query path for frame extraction; eliminates ATTACH operational complexity. Alternatives: separate code-entity namespace inside cortex.db (rejected — wants `getAllNodesUnified`); separate file ATTACHed (rejected — same as today, no win).
+- **`cortex.db` lives at repo root (`<repo>/.cortex/db`).** Replaces install-local DB location. Rationale: makes the graph repo-scoped — anyone with repo access can share the same semantic knowledge graph. Aligns with v0.3 multiplayer-engineering framing. Alternatives: install-local (rejected — prevents team sharing); per-repo file under user dir (rejected — couples to checkout path, breaks worktrees). DB itself stays gitignored; tracked markdown artifacts as canonical form deferred to v0.3.1.
+- **Per-machine content-addressed cache at `~/.cache/cortex/<key>.db`.** Restores the cross-install cache CBM provided today. Cache key = `sha256(remote_url + HEAD + indexer_version + grammars_version)`. New Cortex installs on the same machine bootstrap from cache without re-parsing. Decisions/PRs/TODOs stay in `<repo>/.cortex/db` (cache only carries indexer output).
 - **Subprocess invocation, not FFI.** Rationale: keep process boundary for debuggability; perf gain unmeasured. Defer FFI to v0.4 if profiling justifies.
+- **Strip CBM's MCP shell and graph-UI HTTP server.** Replaces "leave dead code in place." Rationale: dead code risks regressions later (binary running in MCP-server mode would shadow Cortex's MCP); cleanup reduces audit surface; the unbridged tools (`query_graph`, `get_architecture`, `ingest_traces`) are wired through Cortex's MCP as part of the strip so functionality is preserved. `manage_adr` intentionally not bridged — Cortex's decision system supersedes it.
 - **Subtree merge for absorption (over vendor-copy).** Rationale: preserves CBM's git history for blame and archaeology; one-time operation; reverse-sync from upstream not a goal.
