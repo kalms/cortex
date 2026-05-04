@@ -77,9 +77,6 @@ export async function setup() {
   process.env.CORTEX_CONTRACT_FIXTURE_DIR = fixtureCopy;
   process.env.CORTEX_CONTRACT_PROJECT = row.name;
   process.env.CORTEX_CONTRACT_CORTEX_DB = cortexDbPath;
-  // Keep the legacy var name briefly so harness.ts can read either during the
-  // transition. Will be removed in 3b.7 cleanup.
-  process.env.CORTEX_CONTRACT_CBM_DB = cortexDbPath;
 }
 
 export async function teardown() {

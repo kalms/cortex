@@ -33,7 +33,7 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const fixtureDir = process.env.CORTEX_CONTRACT_FIXTURE_DIR;
   const project = process.env.CORTEX_CONTRACT_PROJECT;
-  const sharedDbPath = process.env.CORTEX_CONTRACT_CORTEX_DB ?? process.env.CORTEX_CONTRACT_CBM_DB;
+  const sharedDbPath = process.env.CORTEX_CONTRACT_CORTEX_DB;
   if (!fixtureDir || !project || !sharedDbPath) {
     throw new Error("Harness: globalSetup did not populate env vars (did it run?).");
   }
