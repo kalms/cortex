@@ -4685,7 +4685,7 @@ int cbm_store_count_vectors(cbm_store_t *s, const char *project) {
         return 0;
     }
     sqlite3_stmt *stmt = NULL;
-    const char *sql = "SELECT count(*) FROM node_vectors WHERE project = ?1";
+    const char *sql = "SELECT count(*) FROM cbm_node_vectors WHERE project = ?1";
     if (sqlite3_prepare_v2(s->db, sql, SQLITE_AUTO_LEN, &stmt, NULL) != SQLITE_OK) {
         return 0;
     }
@@ -4728,7 +4728,7 @@ enum {
 static bool vs_load_enriched_vector(cbm_store_t *s, const char *project, const char *token,
                                     float *out) {
     sqlite3_stmt *tv_stmt = NULL;
-    const char *tv_sql = "SELECT vector, idf FROM token_vectors"
+    const char *tv_sql = "SELECT vector, idf FROM cbm_token_vectors"
                          " WHERE project = ?1 AND token = ?2 LIMIT 1";
     if (sqlite3_prepare_v2(s->db, tv_sql, SQLITE_AUTO_LEN, &tv_stmt, NULL) != SQLITE_OK) {
         return false;
@@ -4891,7 +4891,7 @@ int cbm_store_vector_search(cbm_store_t *s, const char *project, const char **ke
      * then re-score with min across all keywords in the append helper. */
     const char *sql = "SELECT n.id, n.name, n.qualified_name, n.file_path, n.label,"
                       "       cbm_cosine_i8(v.vector, ?1) as score, v.vector"
-                      " FROM node_vectors v"
+                      " FROM cbm_node_vectors v"
                       " INNER JOIN cbm_nodes n ON n.id = v.node_id"
                       " WHERE v.project = ?2"
                       " AND n.label IN ('Function','Method','Class')"

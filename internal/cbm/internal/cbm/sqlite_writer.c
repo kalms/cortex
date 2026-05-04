@@ -2016,11 +2016,11 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
          "NULL,\n\t\t\tupdated_at TEXT NOT NULL\n\t\t)"},
         {"index", "sqlite_autoindex_cbm_project_summaries_1", "cbm_project_summaries",
          autoindex_summaries_root, NULL},
-        {"table", "node_vectors", "node_vectors", vectors_root,
-         "CREATE TABLE node_vectors (\n\t\tnode_id INTEGER PRIMARY KEY,\n\t\tproject TEXT NOT "
+        {"table", "cbm_node_vectors", "cbm_node_vectors", vectors_root,
+         "CREATE TABLE cbm_node_vectors (\n\t\tnode_id INTEGER PRIMARY KEY,\n\t\tproject TEXT NOT "
          "NULL,\n\t\tvector BLOB NOT NULL\n\t)"},
-        {"table", "token_vectors", "token_vectors", token_vecs_root,
-         "CREATE TABLE token_vectors (\n\t\tid INTEGER PRIMARY KEY,\n\t\tproject "
+        {"table", "cbm_token_vectors", "cbm_token_vectors", token_vecs_root,
+         "CREATE TABLE cbm_token_vectors (\n\t\tid INTEGER PRIMARY KEY,\n\t\tproject "
          "TEXT NOT NULL,\n\t\ttoken TEXT NOT NULL,\n\t\tvector BLOB NOT NULL,\n\t\tidf INTEGER "
          "NOT NULL\n\t)"},
         {"table", "sqlite_sequence", "sqlite_sequence", sqlite_seq_root,
