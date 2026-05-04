@@ -677,12 +677,11 @@ static const char *cache_dir(char *buf, size_t bufsz) {
     return buf;
 }
 
-/* Returns full .db path for a project: <cache_dir>/<project>.db */
+/* Returns full .db path for a project: <cache_dir>/<project>.db
+ * Honors CORTEX_DB env var via cbm_resolve_db_path; otherwise falls back
+ * to the legacy per-project file under ~/.cache/codebase-memory-mcp/. */
 static const char *project_db_path(const char *project, char *buf, size_t bufsz) {
-    char dir[CBM_SZ_1K];
-    cache_dir(dir, sizeof(dir));
-    snprintf(buf, bufsz, "%s/%s.db", dir, project);
-    return buf;
+    return cbm_resolve_db_path(project, buf, bufsz);
 }
 
 /* ── Store resolution ──────────────────────────────────────────── */
