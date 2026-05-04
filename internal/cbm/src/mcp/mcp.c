@@ -1136,14 +1136,14 @@ static char *bm25_search(cbm_store_t *store, const char *project, const char *qu
      * excluded entirely — agents rarely want those as discovery results. */
     const char *sql =
         "SELECT n.id, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, "
-        "       (bm25(nodes_fts) "
+        "       (bm25(cbm_nodes_fts) "
         "        - CASE WHEN n.label IN ('Function','Method') THEN 10.0 "
         "               WHEN n.label = 'Route' THEN 8.0 "
         "               WHEN n.label IN ('Class','Interface','Type','Enum') THEN 5.0 "
         "               ELSE 0.0 END) AS rank "
-        "FROM nodes_fts "
-        "JOIN nodes n ON n.id = nodes_fts.rowid "
-        "WHERE nodes_fts MATCH ?1 "
+        "FROM cbm_nodes_fts "
+        "JOIN cbm_nodes n ON n.id = cbm_nodes_fts.rowid "
+        "WHERE cbm_nodes_fts MATCH ?1 "
         "  AND n.project = ?2 "
         "  AND n.label NOT IN ('File','Folder','Module','Section','Variable','Project') "
         "ORDER BY rank "
@@ -1162,8 +1162,8 @@ static char *bm25_search(cbm_store_t *store, const char *project, const char *qu
     int total = 0;
     {
         const char *count_sql =
-            "SELECT COUNT(*) FROM nodes_fts JOIN nodes n ON n.id = nodes_fts.rowid "
-            "WHERE nodes_fts MATCH ?1 AND n.project = ?2 "
+            "SELECT COUNT(*) FROM cbm_nodes_fts JOIN cbm_nodes n ON n.id = cbm_nodes_fts.rowid "
+            "WHERE cbm_nodes_fts MATCH ?1 AND n.project = ?2 "
             "  AND n.label NOT IN ('File','Folder','Module','Section','Variable','Project')";
         sqlite3_stmt *cs = NULL;
         if (sqlite3_prepare_v2(db, count_sql, BM25_SQL_AUTO_LEN, &cs, NULL) == SQLITE_OK) {

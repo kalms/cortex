@@ -924,7 +924,7 @@ TEST(store_integrity_corrupt_bad_path) {
     ASSERT_NOT_NULL(s);
     sqlite3 *db = cbm_store_get_db(s);
     sqlite3_exec(db,
-                 "INSERT INTO projects (name, indexed_at, root_path) "
+                 "INSERT INTO cbm_projects (name, indexed_at, root_path) "
                  "VALUES ('some-project', '2024-01-01', '826');",
                  NULL, NULL, NULL);
     ASSERT_FALSE(cbm_store_check_integrity(s));
@@ -940,7 +940,7 @@ TEST(store_integrity_corrupt_too_many_rows) {
     for (int i = 0; i < 10; i++) {
         char sql[256];
         snprintf(sql, sizeof(sql),
-                 "INSERT INTO projects (name, indexed_at, root_path) "
+                 "INSERT INTO cbm_projects (name, indexed_at, root_path) "
                  "VALUES ('proj-%d', '2024-01-01', '/tmp/%d');",
                  i, i);
         sqlite3_exec(db, sql, NULL, NULL, NULL);

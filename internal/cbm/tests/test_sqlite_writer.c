@@ -79,26 +79,26 @@ TEST(sw_minimal_data) {
     sqlite3_finalize(stmt);
 
     /* Node count */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 2);
     sqlite3_finalize(stmt);
 
     /* Edge count */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM edges", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 1);
     sqlite3_finalize(stmt);
 
     /* Project row */
-    sqlite3_prepare_v2(db, "SELECT name, root_path FROM projects", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name, root_path FROM cbm_projects", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "test");
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 1), "/tmp/test");
     sqlite3_finalize(stmt);
 
     /* Node content: check node 2 */
-    sqlite3_prepare_v2(db, "SELECT qualified_name, label FROM nodes WHERE id=2", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT qualified_name, label FROM cbm_nodes WHERE id=2", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "test.main.hello");
@@ -106,7 +106,7 @@ TEST(sw_minimal_data) {
     sqlite3_finalize(stmt);
 
     /* Edge content: check edge 1 */
-    sqlite3_prepare_v2(db, "SELECT source_id, target_id, type FROM edges WHERE id=1", -1, &stmt,
+    sqlite3_prepare_v2(db, "SELECT source_id, target_id, type FROM cbm_edges WHERE id=1", -1, &stmt,
                        NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
@@ -212,13 +212,13 @@ TEST(sw_scale_and_indexes) {
 
     /* Row counts */
     int nc = 0, ec = 0;
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     nc = sqlite3_column_int(stmt, 0);
     sqlite3_finalize(stmt);
     ASSERT_EQ(nc, 100);
 
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM edges", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ec = sqlite3_column_int(stmt, 0);
     sqlite3_finalize(stmt);
@@ -228,7 +228,7 @@ TEST(sw_scale_and_indexes) {
     int cnt = 0;
 
     /* label index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM nodes WHERE project='proj' AND label='Function'",
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND label='Function'",
                        -1, &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -236,7 +236,7 @@ TEST(sw_scale_and_indexes) {
     ASSERT_EQ(cnt, 20);
 
     /* name index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM nodes WHERE project='proj' AND name='sym_042'", -1,
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND name='sym_042'", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -245,7 +245,7 @@ TEST(sw_scale_and_indexes) {
 
     /* file_path index */
     sqlite3_prepare_v2(db,
-                       "SELECT COUNT(*) FROM nodes WHERE project='proj' AND file_path='alpha.go'",
+                       "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND file_path='alpha.go'",
                        -1, &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -253,7 +253,7 @@ TEST(sw_scale_and_indexes) {
     ASSERT_EQ(cnt, 20);
 
     /* edge type index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM edges WHERE project='proj' AND type='DEFINES'", -1,
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges WHERE project='proj' AND type='DEFINES'", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -262,7 +262,7 @@ TEST(sw_scale_and_indexes) {
 
     /* QN unique lookup */
     sqlite3_prepare_v2(
-        db, "SELECT id FROM nodes WHERE project='proj' AND qualified_name='proj.pkg.sym_050'", -1,
+        db, "SELECT id FROM cbm_nodes WHERE project='proj' AND qualified_name='proj.pkg.sym_050'", -1,
         &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
@@ -342,13 +342,13 @@ TEST(sw_multi_page) {
     sqlite3_finalize(stmt);
 
     /* COUNT(*) must be exactly N */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), N);
     sqlite3_finalize(stmt);
 
     /* Verify no rowid gaps: min=1, max=N, count=N */
-    sqlite3_prepare_v2(db, "SELECT MIN(rowid), MAX(rowid), COUNT(DISTINCT rowid) FROM nodes", -1,
+    sqlite3_prepare_v2(db, "SELECT MIN(rowid), MAX(rowid), COUNT(DISTINCT rowid) FROM cbm_nodes", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 1);
@@ -357,13 +357,13 @@ TEST(sw_multi_page) {
     sqlite3_finalize(stmt);
 
     /* Check first and last node by rowid */
-    sqlite3_prepare_v2(db, "SELECT name FROM nodes WHERE rowid=1", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name FROM cbm_nodes WHERE rowid=1", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "f0000");
     sqlite3_finalize(stmt);
 
-    sqlite3_prepare_v2(db, "SELECT name FROM nodes WHERE rowid=192", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name FROM cbm_nodes WHERE rowid=192", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "f0191");

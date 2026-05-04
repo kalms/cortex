@@ -1638,14 +1638,14 @@ static void write_metadata_tables(write_db_ctx_t *w, uint32_t *projects_root,
     RecordBuilder r1;
     RecordBuilder r2;
     rec_init(&r1);
-    rec_add_text(&r1, "nodes");
+    rec_add_text(&r1, "cbm_nodes");
     rec_add_int(&r1, w->node_count > 0 ? w->nodes[w->node_count - SKIP_ONE].id : 0);
     int seq1_len;
     uint8_t *seq1 = rec_finalize(&r1, &seq1_len);
     rec_free(&r1);
 
     rec_init(&r2);
-    rec_add_text(&r2, "edges");
+    rec_add_text(&r2, "cbm_edges");
     rec_add_int(&r2, w->edge_count > 0 ? w->edges[w->edge_count - SKIP_ONE].id : 0);
     int seq2_len;
     uint8_t *seq2 = rec_finalize(&r2, &seq2_len);
@@ -1966,55 +1966,55 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // SQLite's schema loader expects autoindexes immediately after their table.
     // Mis-ordering causes rootpage mapping corruption in the schema cache.
     MasterEntry master[] = {
-        {"table", "projects", "projects", projects_root,
-         "CREATE TABLE projects (\n\t\tname TEXT PRIMARY KEY,\n\t\tindexed_at TEXT NOT "
+        {"table", "cbm_projects", "cbm_projects", projects_root,
+         "CREATE TABLE cbm_projects (\n\t\tname TEXT PRIMARY KEY,\n\t\tindexed_at TEXT NOT "
          "NULL,\n\t\troot_path TEXT NOT NULL\n\t)"},
-        {"index", "sqlite_autoindex_projects_1", "projects", autoindex_projects_root, NULL},
-        {"table", "file_hashes", "file_hashes", file_hashes_root,
-         "CREATE TABLE file_hashes (\n\t\tproject TEXT NOT NULL REFERENCES projects(name) ON "
+        {"index", "sqlite_autoindex_cbm_projects_1", "cbm_projects", autoindex_projects_root, NULL},
+        {"table", "cbm_file_hashes", "cbm_file_hashes", file_hashes_root,
+         "CREATE TABLE cbm_file_hashes (\n\t\tproject TEXT NOT NULL REFERENCES cbm_projects(name) ON "
          "DELETE CASCADE,\n\t\trel_path TEXT NOT NULL,\n\t\tsha256 TEXT NOT NULL,\n\t\tmtime_ns "
          "INTEGER NOT NULL DEFAULT 0,\n\t\tsize INTEGER NOT NULL DEFAULT 0,\n\t\tPRIMARY KEY "
          "(project, rel_path)\n\t)"},
-        {"index", "sqlite_autoindex_file_hashes_1", "file_hashes", autoindex_file_hashes_root,
+        {"index", "sqlite_autoindex_cbm_file_hashes_1", "cbm_file_hashes", autoindex_file_hashes_root,
          NULL},
-        {"table", "nodes", "nodes", nodes_root,
-         "CREATE TABLE nodes (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
-         "NULL REFERENCES projects(name) ON DELETE CASCADE,\n\t\tlabel TEXT NOT NULL,\n\t\tname "
+        {"table", "cbm_nodes", "cbm_nodes", nodes_root,
+         "CREATE TABLE cbm_nodes (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
+         "NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,\n\t\tlabel TEXT NOT NULL,\n\t\tname "
          "TEXT NOT NULL,\n\t\tqualified_name TEXT NOT NULL,\n\t\tfile_path TEXT DEFAULT "
          "'',\n\t\tstart_line INTEGER DEFAULT 0,\n\t\tend_line INTEGER DEFAULT 0,\n\t\tproperties "
          "TEXT DEFAULT '{}',\n\t\tUNIQUE(project, qualified_name)\n\t)"},
-        {"index", "sqlite_autoindex_nodes_1", "nodes", autoindex_nodes_root, NULL},
-        {"index", "idx_nodes_label", "nodes", idx_nodes_label_root,
-         "CREATE INDEX idx_nodes_label ON nodes(project, label)"},
-        {"index", "idx_nodes_name", "nodes", idx_nodes_name_root,
-         "CREATE INDEX idx_nodes_name ON nodes(project, name)"},
-        {"index", "idx_nodes_file", "nodes", idx_nodes_file_root,
-         "CREATE INDEX idx_nodes_file ON nodes(project, file_path)"},
-        {"table", "edges", "edges", edges_root,
-         "CREATE TABLE edges (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
-         "NULL REFERENCES projects(name) ON DELETE CASCADE,\n\t\tsource_id INTEGER NOT NULL "
-         "REFERENCES nodes(id) ON DELETE CASCADE,\n\t\ttarget_id INTEGER NOT NULL REFERENCES "
-         "nodes(id) ON DELETE CASCADE,\n\t\ttype TEXT NOT NULL,\n\t\tproperties TEXT DEFAULT "
+        {"index", "sqlite_autoindex_cbm_nodes_1", "cbm_nodes", autoindex_nodes_root, NULL},
+        {"index", "idx_cbm_nodes_label", "cbm_nodes", idx_nodes_label_root,
+         "CREATE INDEX idx_cbm_nodes_label ON cbm_nodes(project, label)"},
+        {"index", "idx_cbm_nodes_name", "cbm_nodes", idx_nodes_name_root,
+         "CREATE INDEX idx_cbm_nodes_name ON cbm_nodes(project, name)"},
+        {"index", "idx_cbm_nodes_file", "cbm_nodes", idx_nodes_file_root,
+         "CREATE INDEX idx_cbm_nodes_file ON cbm_nodes(project, file_path)"},
+        {"table", "cbm_edges", "cbm_edges", edges_root,
+         "CREATE TABLE cbm_edges (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
+         "NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,\n\t\tsource_id INTEGER NOT NULL "
+         "REFERENCES cbm_nodes(id) ON DELETE CASCADE,\n\t\ttarget_id INTEGER NOT NULL REFERENCES "
+         "cbm_nodes(id) ON DELETE CASCADE,\n\t\ttype TEXT NOT NULL,\n\t\tproperties TEXT DEFAULT "
          "'{}',\n\t\turl_path_gen TEXT GENERATED ALWAYS AS "
          "(json_extract(properties,'$.url_path')),\n\t\tUNIQUE(source_id, target_id, type)\n\t)"},
-        {"index", "sqlite_autoindex_edges_1", "edges", autoindex_edges_root, NULL},
-        {"index", "idx_edges_source", "edges", idx_edges_source_root,
-         "CREATE INDEX idx_edges_source ON edges(source_id, type)"},
-        {"index", "idx_edges_target", "edges", idx_edges_target_root,
-         "CREATE INDEX idx_edges_target ON edges(target_id, type)"},
-        {"index", "idx_edges_type", "edges", idx_edges_type_root,
-         "CREATE INDEX idx_edges_type ON edges(project, type)"},
-        {"index", "idx_edges_target_type", "edges", idx_edges_target_type_root,
-         "CREATE INDEX idx_edges_target_type ON edges(project, target_id, type)"},
-        {"index", "idx_edges_source_type", "edges", idx_edges_source_type_root,
-         "CREATE INDEX idx_edges_source_type ON edges(project, source_id, type)"},
-        {"index", "idx_edges_url_path", "edges", idx_edges_url_path_root,
-         "CREATE INDEX idx_edges_url_path ON edges(project, url_path_gen)"},
-        {"table", "project_summaries", "project_summaries", summaries_root,
-         "CREATE TABLE project_summaries (\n\t\t\tproject TEXT PRIMARY KEY,\n\t\t\tsummary TEXT "
+        {"index", "sqlite_autoindex_cbm_edges_1", "cbm_edges", autoindex_edges_root, NULL},
+        {"index", "idx_cbm_edges_source", "cbm_edges", idx_edges_source_root,
+         "CREATE INDEX idx_cbm_edges_source ON cbm_edges(source_id, type)"},
+        {"index", "idx_cbm_edges_target", "cbm_edges", idx_edges_target_root,
+         "CREATE INDEX idx_cbm_edges_target ON cbm_edges(target_id, type)"},
+        {"index", "idx_cbm_edges_type", "cbm_edges", idx_edges_type_root,
+         "CREATE INDEX idx_cbm_edges_type ON cbm_edges(project, type)"},
+        {"index", "idx_cbm_edges_target_type", "cbm_edges", idx_edges_target_type_root,
+         "CREATE INDEX idx_cbm_edges_target_type ON cbm_edges(project, target_id, type)"},
+        {"index", "idx_cbm_edges_source_type", "cbm_edges", idx_edges_source_type_root,
+         "CREATE INDEX idx_cbm_edges_source_type ON cbm_edges(project, source_id, type)"},
+        {"index", "idx_cbm_edges_url_path", "cbm_edges", idx_edges_url_path_root,
+         "CREATE INDEX idx_cbm_edges_url_path ON cbm_edges(project, url_path_gen)"},
+        {"table", "cbm_project_summaries", "cbm_project_summaries", summaries_root,
+         "CREATE TABLE cbm_project_summaries (\n\t\t\tproject TEXT PRIMARY KEY,\n\t\t\tsummary TEXT "
          "NOT NULL,\n\t\t\tsource_hash TEXT NOT NULL,\n\t\t\tcreated_at TEXT NOT "
          "NULL,\n\t\t\tupdated_at TEXT NOT NULL\n\t\t)"},
-        {"index", "sqlite_autoindex_project_summaries_1", "project_summaries",
+        {"index", "sqlite_autoindex_cbm_project_summaries_1", "cbm_project_summaries",
          autoindex_summaries_root, NULL},
         {"table", "node_vectors", "node_vectors", vectors_root,
          "CREATE TABLE node_vectors (\n\t\tnode_id INTEGER PRIMARY KEY,\n\t\tproject TEXT NOT "

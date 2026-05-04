@@ -766,7 +766,7 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
 
     /* First pass: find max node ID for mapping array */
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db, "SELECT MAX(id) FROM nodes WHERE project = ?", CBM_NOT_FOUND, &stmt,
+    if (sqlite3_prepare_v2(db, "SELECT MAX(id) FROM cbm_nodes WHERE project = ?", CBM_NOT_FOUND, &stmt,
                            NULL) != SQLITE_OK) {
         cbm_store_close(store);
         return CBM_NOT_FOUND;
@@ -788,7 +788,7 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
     if (sqlite3_prepare_v2(
             db,
             "SELECT id, label, name, qualified_name, file_path, start_line, end_line, properties "
-            "FROM nodes WHERE project = ? ORDER BY id",
+            "FROM cbm_nodes WHERE project = ? ORDER BY id",
             CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         free(old_to_new);
         cbm_store_close(store);
@@ -816,7 +816,7 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
     /* Load all edges, remap IDs */
     if (sqlite3_prepare_v2(db,
                            "SELECT source_id, target_id, type, properties "
-                           "FROM edges WHERE project = ?",
+                           "FROM cbm_edges WHERE project = ?",
                            CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         free(old_to_new);
         cbm_store_close(store);
