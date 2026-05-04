@@ -282,14 +282,14 @@ static void dump_and_persist(cbm_gbuf_t *gbuf, const char *db_path, const char *
          * any triggers that could have kept nodes_fts synchronized, so we
          * rebuild from the nodes table here.  See the full-dump path in
          * pipeline.c for the matching logic. */
-        cbm_store_exec(hash_store, "INSERT INTO nodes_fts(nodes_fts) VALUES('delete-all');");
+        cbm_store_exec(hash_store, "INSERT INTO cbm_nodes_fts(cbm_nodes_fts) VALUES('delete-all');");
         if (cbm_store_exec(hash_store,
-                           "INSERT INTO nodes_fts(rowid, name, qualified_name, label, file_path) "
+                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
                            "SELECT id, cbm_camel_split(name), qualified_name, label, file_path "
-                           "FROM nodes;") != CBM_STORE_OK) {
+                           "FROM cbm_nodes;") != CBM_STORE_OK) {
             cbm_store_exec(hash_store,
-                           "INSERT INTO nodes_fts(rowid, name, qualified_name, label, file_path) "
-                           "SELECT id, name, qualified_name, label, file_path FROM nodes;");
+                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
+                           "SELECT id, name, qualified_name, label, file_path FROM cbm_nodes;");
         }
 
         cbm_store_close(hash_store);
