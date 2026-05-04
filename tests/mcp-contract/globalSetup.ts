@@ -8,7 +8,7 @@ import { discoverCbmDb } from "../../src/graph/cbm-discovery.js";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
 const FIXTURE_SRC = join(REPO_ROOT, "tests", "fixtures", "sample-project");
-const BINARY = join(REPO_ROOT, "bin", "codebase-memory-mcp");
+const BINARY = join(REPO_ROOT, "bin", "cortex-indexer");
 
 export async function setup() {
   if (!existsSync(BINARY)) {
