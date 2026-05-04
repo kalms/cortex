@@ -53,7 +53,7 @@ export async function setup() {
   // (We can't use GraphStore here to avoid an import cycle in globalSetup; use better-sqlite3 directly.)
   const Database = (await import("better-sqlite3")).default;
   const db = new Database(cbmDbPath, { readonly: true });
-  const row = db.prepare("SELECT name FROM projects WHERE root_path = ?").get(fixtureCopy) as { name: string } | undefined;
+  const row = db.prepare("SELECT name FROM cbm_projects WHERE root_path = ?").get(fixtureCopy) as { name: string } | undefined;
 
   if (!row) {
     db.close();
@@ -61,7 +61,7 @@ export async function setup() {
   }
 
   const nodeCount = db.prepare(
-    "SELECT COUNT(*) AS c FROM nodes WHERE project = ?"
+    "SELECT COUNT(*) AS c FROM cbm_nodes WHERE project = ?"
   ).get(row.name) as { c: number };
   db.close();
 
