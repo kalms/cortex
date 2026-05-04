@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
 const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
+const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 // 5B: callCbm now handles binary in-stdout errors and returns structured responses
 async function callCbm(tool: string, args: Record<string, unknown>) {
@@ -220,12 +221,12 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         const { stdout } = await execFileAsync("rg", [
           "--no-heading", "--line-number", "--color=never", pattern, ".",
-        ], { timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
+        ], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
         grepOutput = stdout;
       } catch (err: any) {
         if (err.code === "ENOENT") {
           try {
-            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
+            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
             grepOutput = stdout;
           } catch (err2: any) {
             if (err2.code === "ENOENT") {
