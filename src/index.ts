@@ -7,7 +7,6 @@ import { startViewerServer } from "./mcp-server/api.js";
 import { startWsServer, type WsServerHandle } from "./ws/server.js";
 import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
-import { discoverCbmDb } from "./graph/cbm-discovery.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
 import type { WireNode } from "./events/types.js";
 
@@ -17,21 +16,31 @@ mkdirSync(".cortex", { recursive: true });
 
 const store = new GraphStore(dbPath);
 
-// Discover and attach CBM database
 const cwd = process.cwd();
-const cbmDbPath = discoverCbmDb(cwd, undefined, process.env.CBM_DB_PATH);
 let cbmProject: string | null = null;
 
-if (cbmDbPath) {
-  store.attachCbm(cbmDbPath);
-  if (store.isCbmAttached()) {
-    const projects = store.queryRaw<{ name: string }>(
-      "SELECT name FROM cbm.projects WHERE root_path = ?",
+// Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
+// writes to the same cortex.db file when CORTEX_DB env var is set; once it has
+// run at least once for this repo, cbm_projects has a row keyed by absolute
+// repo path. Until then, cbmProject is null and code-tools surface a clear
+// "not indexed" error.
+try {
+  const row = store
+    .queryRaw<{ name: string }>(
+      "SELECT name FROM cbm_projects WHERE root_path = ? LIMIT 1",
       [cwd],
-    );
-    cbmProject = projects[0]?.name ?? null;
-    process.stderr.write(`Cortex: attached CBM database (project: ${cbmProject})\n`);
+    )[0];
+  if (row) {
+    cbmProject = row.name;
+    process.stderr.write(`Cortex: indexed project '${cbmProject}' (root: ${cwd})\n`);
+  } else {
+    process.stderr.write(`Cortex: no indexed project for ${cwd} — run index_repository\n`);
   }
+} catch (e) {
+  // cbm_projects table doesn't exist yet — first run, indexer hasn't created it.
+  // That's fine: index_repository will create it on first call.
+  if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
+  process.stderr.write(`Cortex: no indexer state in cortex.db — run index_repository\n`);
 }
 
 // Main-thread persister for WS backfill reads only.
