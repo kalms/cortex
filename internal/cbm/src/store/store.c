@@ -212,22 +212,22 @@ static void iso_now(char *buf, size_t sz) {
 /* ── Schema ─────────────────────────────────────────────────────── */
 
 static int init_schema(cbm_store_t *s) {
-    const char *ddl = "CREATE TABLE IF NOT EXISTS projects ("
+    const char *ddl = "CREATE TABLE IF NOT EXISTS cbm_projects ("
                       "  name TEXT PRIMARY KEY,"
                       "  indexed_at TEXT NOT NULL,"
                       "  root_path TEXT NOT NULL"
                       ");"
-                      "CREATE TABLE IF NOT EXISTS file_hashes ("
-                      "  project TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,"
+                      "CREATE TABLE IF NOT EXISTS cbm_file_hashes ("
+                      "  project TEXT NOT NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,"
                       "  rel_path TEXT NOT NULL,"
                       "  sha256 TEXT NOT NULL,"
                       "  mtime_ns INTEGER NOT NULL DEFAULT 0,"
                       "  size INTEGER NOT NULL DEFAULT 0,"
                       "  PRIMARY KEY (project, rel_path)"
                       ");"
-                      "CREATE TABLE IF NOT EXISTS nodes ("
+                      "CREATE TABLE IF NOT EXISTS cbm_nodes ("
                       "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                      "  project TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,"
+                      "  project TEXT NOT NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,"
                       "  label TEXT NOT NULL,"
                       "  name TEXT NOT NULL,"
                       "  qualified_name TEXT NOT NULL,"
@@ -237,16 +237,16 @@ static int init_schema(cbm_store_t *s) {
                       "  properties TEXT DEFAULT '{}',"
                       "  UNIQUE(project, qualified_name)"
                       ");"
-                      "CREATE TABLE IF NOT EXISTS edges ("
+                      "CREATE TABLE IF NOT EXISTS cbm_edges ("
                       "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                      "  project TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,"
-                      "  source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,"
-                      "  target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,"
+                      "  project TEXT NOT NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,"
+                      "  source_id INTEGER NOT NULL REFERENCES cbm_nodes(id) ON DELETE CASCADE,"
+                      "  target_id INTEGER NOT NULL REFERENCES cbm_nodes(id) ON DELETE CASCADE,"
                       "  type TEXT NOT NULL,"
                       "  properties TEXT DEFAULT '{}',"
                       "  UNIQUE(source_id, target_id, type)"
                       ");"
-                      "CREATE TABLE IF NOT EXISTS project_summaries ("
+                      "CREATE TABLE IF NOT EXISTS cbm_project_summaries ("
                       "  project TEXT PRIMARY KEY,"
                       "  summary TEXT NOT NULL,"
                       "  source_hash TEXT NOT NULL,"
@@ -268,7 +268,7 @@ static int init_schema(cbm_store_t *s) {
     {
         char *fts_err = NULL;
         int fts_rc = sqlite3_exec(s->db,
-                                  "CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5("
+                                  "CREATE VIRTUAL TABLE IF NOT EXISTS cbm_nodes_fts USING fts5("
                                   "  name, qualified_name, label, file_path,"
                                   "  content='',"
                                   "  tokenize='unicode61 remove_diacritics 2'"
@@ -283,14 +283,14 @@ static int init_schema(cbm_store_t *s) {
 
 static int create_user_indexes(cbm_store_t *s) {
     const char *sql =
-        "CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(project, label);"
-        "CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(project, name);"
-        "CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(project, file_path);"
-        "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id, type);"
-        "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id, type);"
-        "CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(project, type);"
-        "CREATE INDEX IF NOT EXISTS idx_edges_target_type ON edges(project, target_id, type);"
-        "CREATE INDEX IF NOT EXISTS idx_edges_source_type ON edges(project, source_id, type);";
+        "CREATE INDEX IF NOT EXISTS idx_cbm_nodes_label ON cbm_nodes(project, label);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_nodes_name ON cbm_nodes(project, name);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_nodes_file ON cbm_nodes(project, file_path);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_edges_source ON cbm_edges(source_id, type);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_edges_target ON cbm_edges(target_id, type);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_edges_type ON cbm_edges(project, type);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_edges_target_type ON cbm_edges(project, target_id, type);"
+        "CREATE INDEX IF NOT EXISTS idx_cbm_edges_source_type ON cbm_edges(project, source_id, type);";
     return exec_sql(s, sql);
 }
 
