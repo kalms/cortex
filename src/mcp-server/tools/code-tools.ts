@@ -17,7 +17,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 
 const execFileAsync = promisify(execFile);
-import { join } from "node:path";
+import { join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -27,9 +27,15 @@ const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 // 5B: callCbm now handles binary in-stdout errors and returns structured responses
 async function callCbm(tool: string, args: Record<string, unknown>) {
+  // Make the indexer write to the same SQLite file Cortex uses. Without this
+  // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
+  // Cortex would never see the data.
+  const cortexDb = pathResolve(process.env.CORTEX_DB_PATH || ".cortex/graph.db");
+  const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
   try {
     const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,
+      env: subprocEnv,
     });
     // Binary always exits 0; errors come back as {"isError":true,"content":[...]} in stdout.
     try {
