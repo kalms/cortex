@@ -86,25 +86,15 @@ CREATE TABLE IF NOT EXISTS edge_annotations (
 `;
 ```
 
-- [ ] **Step 3: Update `CREATE_INDEXES` to add new indexes**
+- [ ] **Step 3: Leave `CREATE_INDEXES` UNCHANGED in this task**
 
-Replace `CREATE_INDEXES` in `src/graph/schema.ts`:
+The three new compound indexes referencing the `project` column (`idx_nodes_kind_project`, `idx_nodes_kind_file`, `idx_edges_project_relation`) are **deferred to Task 4.2**. Adding them to `CREATE_INDEXES` here would error on legacy DBs that don't yet have the `project` column — `CREATE INDEX IF NOT EXISTS` validates column references regardless of the `IF NOT EXISTS` clause. Task 4.2's `migrateSchemaFold()` will:
 
-```typescript
-export const CREATE_INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
-CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
-CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name ON nodes(qualified_name);
-CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes(file_path);
-CREATE INDEX IF NOT EXISTS idx_nodes_tier ON nodes(tier);
-CREATE INDEX IF NOT EXISTS idx_nodes_kind_project ON nodes(kind, project);
-CREATE INDEX IF NOT EXISTS idx_nodes_kind_file ON nodes(kind, file_path);
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);
-CREATE INDEX IF NOT EXISTS idx_edges_project_relation ON edges(project, relation);
-`;
-```
+1. ALTER TABLE to add the new columns onto legacy DBs
+2. Create the three new compound indexes (which now reference existing columns)
+3. Append those three index definitions to `CREATE_INDEXES` in `schema.ts` so fresh DBs get them too on next open
+
+Leave `CREATE_INDEXES` exactly as it is in this task. Only `CREATE_TABLES` changes.
 
 - [ ] **Step 4: Type-check**
 
@@ -143,9 +133,12 @@ EOF
 
 **Files:**
 - Modify: `src/graph/store.ts`
+- Modify: `src/graph/schema.ts` (add the three deferred compound indexes to `CREATE_INDEXES`)
 - Create: `tests/graph/schema-fold-migration.test.ts`
 
-**Goal:** When `GraphStore` opens a DB that has `cbm_nodes` (a v0.3-Phase-3b shape), run a one-shot transactional migration: ALTER nodes/edges, copy `cbm_nodes` → `nodes`, copy `cbm_edges` → `edges`, drop old data tables, rename bookkeeping tables, rebuild FTS. Idempotent (probe-based).
+**Goal:** When `GraphStore` opens a DB that has `cbm_nodes` (a v0.3-Phase-3b shape), run a one-shot transactional migration: ALTER nodes/edges, copy `cbm_nodes` → `nodes`, copy `cbm_edges` → `edges`, drop old data tables, rename bookkeeping tables, rebuild FTS. Idempotent (probe-based). Also adds the three compound indexes (`idx_nodes_kind_project`, `idx_nodes_kind_file`, `idx_edges_project_relation`) deferred from Task 4.1 — to `CREATE_INDEXES` in `schema.ts`. Reorders `migrate()` so the migration runs before `CREATE_INDEXES`, so fresh-and-legacy DBs both arrive at the same final shape.
+
+**Migrate() order:** the plan in Step 4 below changes `GraphStore.migrate()` from `[CREATE_TABLES, CREATE_INDEXES, migrateFts, CREATE_FTS]` to `[CREATE_TABLES, migrateSchemaFold, CREATE_INDEXES, migrateFts, CREATE_FTS]`. The migration runs **before** index creation so legacy DBs ALTER their columns into existence before any index references them. Fresh DBs see migrateSchemaFold's probe return early (no cbm_nodes), then CREATE_INDEXES creates all indexes against columns that already exist via CREATE_TABLES.
 
 **Note:** This task lands the migration code but the contract test suite **fails at the end of this commit** because the migration runs but `code-queries.ts` (Task 4.3) still queries `cbm_nodes`. That's intentional — Task 4.3 closes the gap.
 
@@ -278,19 +271,43 @@ Expected: FAIL. The migration method doesn't exist yet, so `cbm_nodes` is still 
 Run: `sed -n '40,100p' src/graph/store.ts`
 Expected: shows the constructor, `migrate()`, and the existing `migrateFts()` helper.
 
-- [ ] **Step 4: Add the migration method**
+- [ ] **Step 4: Add the deferred indexes to `CREATE_INDEXES` in `schema.ts`**
 
-In `src/graph/store.ts`, modify the `migrate()` method to also call `migrateSchemaFold()`, and add the new private method. The migrate method becomes:
+In `src/graph/schema.ts`, add three lines to `CREATE_INDEXES`:
+
+```typescript
+export const CREATE_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
+CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
+CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name ON nodes(qualified_name);
+CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes(file_path);
+CREATE INDEX IF NOT EXISTS idx_nodes_tier ON nodes(tier);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);
+CREATE INDEX IF NOT EXISTS idx_nodes_kind_project ON nodes(kind, project);
+CREATE INDEX IF NOT EXISTS idx_nodes_kind_file ON nodes(kind, file_path);
+CREATE INDEX IF NOT EXISTS idx_edges_project_relation ON edges(project, relation);
+`;
+```
+
+These now reference the `project` column added in Task 4.1's `CREATE_TABLES` (fresh DBs) and added in this task's `migrateSchemaFold()` via ALTER (legacy DBs). The index creation runs after `migrateSchemaFold()` per the new `migrate()` order (next step), so columns are guaranteed to exist on both paths.
+
+- [ ] **Step 5: Rewire `migrate()` order in `store.ts`**
+
+In `src/graph/store.ts`, modify the `migrate()` method to call `migrateSchemaFold()` **before** `CREATE_INDEXES`. The migrate method becomes:
 
 ```typescript
 private migrate(): void {
   this.db.exec(CREATE_TABLES);
+  this.migrateSchemaFold();
   this.db.exec(CREATE_INDEXES);
   this.migrateFts();
   this.db.exec(CREATE_FTS);
-  this.migrateSchemaFold();
 }
 ```
+
+The order matters: `migrateSchemaFold()` ALTERs the `project` column onto legacy DBs **before** `CREATE_INDEXES` tries to create indexes that reference that column. Fresh DBs see the migration probe return early (no `cbm_nodes`), then `CREATE_INDEXES` creates all indexes against columns that already exist from `CREATE_TABLES`.
 
 Add the new `migrateSchemaFold` method directly after `migrateFts` (around line 99, before `listTables`):
 
@@ -398,25 +415,25 @@ private migrateSchemaFold(): void {
 }
 ```
 
-- [ ] **Step 5: Type-check**
+- [ ] **Step 6: Type-check**
 
 Run: `npx tsc --noEmit`
 Expected: exit 0.
 
-- [ ] **Step 6: Run the new migration test — verify it now passes**
+- [ ] **Step 7: Run the new migration test — verify it now passes**
 
 Run: `npm test -- tests/graph/schema-fold-migration.test.ts 2>&1 | tail -15`
 Expected: PASS. Both `it()` blocks pass.
 
-- [ ] **Step 7: Run the full test suite**
+- [ ] **Step 8: Run the full test suite**
 
 Run: `npm test 2>&1 | tail -10`
 Expected: schema-fold-migration test passes; **mcp-contract suite fails** (expected — code-queries.ts still queries `cbm_nodes` which the migration just dropped). Approximately 14-19 contract failures, plus the schema-fold-migration tests passing.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/graph/store.ts tests/graph/schema-fold-migration.test.ts
+git add src/graph/store.ts src/graph/schema.ts tests/graph/schema-fold-migration.test.ts
 git commit -m "$(cat <<'EOF'
 feat(graph): add Phase 4 schema fold migration runner
 
