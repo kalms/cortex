@@ -49,6 +49,7 @@ export class GraphStore {
 
   private migrate(): void {
     this.db.exec(CREATE_TABLES);
+    this.migrateSchemaFold();
     this.db.exec(CREATE_INDEXES);
     this.migrateFts();
     this.db.exec(CREATE_FTS);
@@ -95,6 +96,121 @@ export class GraphStore {
       }
     });
     repopulate();
+  }
+
+  /**
+   * Phase 4 schema fold: cbm_nodes/cbm_edges → nodes/edges with kind discriminator.
+   *
+   * Two-part migration:
+   *
+   * Part A (always runs): Ensures nodes/edges have the Phase-4 columns
+   * (start_line, end_line, project). Runs probe-based ALTER TABLE since
+   * SQLite ALTER doesn't support IF NOT EXISTS.
+   *
+   * Part B (cbm_* fold, only when cbm_nodes exists): Copies cbm_nodes →
+   * nodes and cbm_edges → edges, drops old data tables, renames bookkeeping
+   * tables to ctx_*, rebuilds FTS5. Runs inside a single transaction with
+   * FK enforcement off so cascade-deletes don't fire prematurely.
+   */
+  private migrateSchemaFold(): void {
+    // Part A: always add missing columns so CREATE_INDEXES (which references
+    // the `project` column) never fails on a legacy DB that lacks them.
+    const nodeCols = (this.db.prepare("PRAGMA table_info(nodes)").all() as Array<{ name: string }>)
+      .map((r) => r.name);
+    if (!nodeCols.includes("start_line")) this.db.exec("ALTER TABLE nodes ADD COLUMN start_line INTEGER");
+    if (!nodeCols.includes("end_line"))   this.db.exec("ALTER TABLE nodes ADD COLUMN end_line INTEGER");
+    if (!nodeCols.includes("project"))    this.db.exec("ALTER TABLE nodes ADD COLUMN project TEXT");
+
+    const edgeCols = (this.db.prepare("PRAGMA table_info(edges)").all() as Array<{ name: string }>)
+      .map((r) => r.name);
+    if (!edgeCols.includes("project")) this.db.exec("ALTER TABLE edges ADD COLUMN project TEXT");
+
+    // Part B: cbm_* fold — only runs when cbm_nodes exists (idempotent probe).
+    const cbmNodesExists = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cbm_nodes'")
+      .get() as { name?: string } | undefined;
+    if (!cbmNodesExists?.name) return; // already migrated, or fresh DB
+
+    // FK off for the duration: we DROP cbm_nodes after copying, and we don't want
+    // ON DELETE CASCADE to wipe cbm_edges before we've copied them.
+    this.db.pragma("foreign_keys = OFF");
+
+    try {
+      const tx = this.db.transaction(() => {
+        // 1. Copy cbm_edges → edges. Done before nodes (logical, not strictly
+        // required since FK is off).
+        this.db.exec(`
+          INSERT INTO edges (id, source_id, target_id, relation, data, created_at, project)
+          SELECT
+            'ctx-e' || CAST(id AS TEXT),
+            'ctx-' || CAST(source_id AS TEXT),
+            'ctx-' || CAST(target_id AS TEXT),
+            type,
+            properties,
+            (SELECT indexed_at FROM cbm_projects WHERE name = cbm_edges.project),
+            project
+          FROM cbm_edges
+        `);
+
+        // 2. Copy cbm_nodes → nodes.
+        this.db.exec(`
+          INSERT INTO nodes (
+            id, kind, name, qualified_name, file_path, data, tier,
+            created_at, updated_at, start_line, end_line, project
+          )
+          SELECT
+            'ctx-' || CAST(id AS TEXT),
+            LOWER(label),
+            name, qualified_name, file_path,
+            properties,
+            'shared',
+            (SELECT indexed_at FROM cbm_projects WHERE name = cbm_nodes.project),
+            (SELECT indexed_at FROM cbm_projects WHERE name = cbm_nodes.project),
+            start_line, end_line, project
+          FROM cbm_nodes
+        `);
+
+        // 3. Sanity check: row counts must match. If not, the copy is incomplete —
+        // roll back the transaction (don't DROP) so we don't lose data.
+        const srcEdges = (this.db.prepare("SELECT COUNT(*) AS c FROM cbm_edges").get() as { c: number }).c;
+        const dstEdges = (this.db.prepare("SELECT COUNT(*) AS c FROM edges WHERE id LIKE 'ctx-e%'").get() as { c: number }).c;
+        if (srcEdges !== dstEdges) {
+          throw new Error(`schema fold: edge count mismatch ${srcEdges} → ${dstEdges}`);
+        }
+        const srcNodes = (this.db.prepare("SELECT COUNT(*) AS c FROM cbm_nodes").get() as { c: number }).c;
+        const dstNodes = (this.db.prepare("SELECT COUNT(*) AS c FROM nodes WHERE id LIKE 'ctx-%'").get() as { c: number }).c;
+        if (srcNodes !== dstNodes) {
+          throw new Error(`schema fold: node count mismatch ${srcNodes} → ${dstNodes}`);
+        }
+
+        // 5. Drop old data tables.
+        this.db.exec("DROP TABLE cbm_edges");
+        this.db.exec("DROP TABLE cbm_nodes");
+
+        // 6. Rename bookkeeping tables.
+        this.db.exec("ALTER TABLE cbm_projects RENAME TO ctx_projects");
+        this.db.exec("ALTER TABLE cbm_file_hashes RENAME TO ctx_file_hashes");
+        this.db.exec("ALTER TABLE cbm_project_summaries RENAME TO ctx_project_summaries");
+
+        // 7. FTS5 rebuild — virtual tables can't be ALTER RENAME'd.
+        this.db.exec("DROP TABLE IF EXISTS cbm_nodes_fts");
+        this.db.exec(`
+          CREATE VIRTUAL TABLE ctx_nodes_fts USING fts5(
+            name, qualified_name, kind, file_path,
+            content='',
+            tokenize='unicode61 remove_diacritics 2'
+          )
+        `);
+        this.db.exec(`
+          INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path)
+          SELECT rowid, name, qualified_name, kind, file_path
+          FROM nodes WHERE id LIKE 'ctx-%'
+        `);
+      });
+      tx();
+    } finally {
+      this.db.pragma("foreign_keys = ON");
+    }
   }
 
   listTables(): string[] {

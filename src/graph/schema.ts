@@ -41,6 +41,9 @@ CREATE INDEX IF NOT EXISTS idx_nodes_tier ON nodes(tier);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);
+CREATE INDEX IF NOT EXISTS idx_nodes_kind_project ON nodes(kind, project);
+CREATE INDEX IF NOT EXISTS idx_nodes_kind_file ON nodes(kind, file_path);
+CREATE INDEX IF NOT EXISTS idx_edges_project_relation ON edges(project, relation);
 `;
 
 export const CREATE_FTS = `
