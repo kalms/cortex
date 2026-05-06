@@ -58,7 +58,7 @@ async function callCbm(tool: string, args: Record<string, unknown>) {
 function formatNodes(nodes: CbmNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
-    .map((n) => `${n.label} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`)
+    .map((n) => `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`)
     .join("\n");
 }
 
@@ -125,7 +125,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       const results = tracePath(store, cbmProject, params);
       if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
       const lines = results.map((r) =>
-        `[d=${r.depth}] ${r.node.label} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
+        `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
       );
       return ok(lines.join("\n"));
     }
@@ -149,7 +149,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       try {
         // Resolve file_path: it's relative to project root, so prepend root_path
         const projectRow = store.queryRaw<{ root_path: string }>(
-          "SELECT root_path FROM cbm_projects WHERE name = ?",
+          "SELECT root_path FROM ctx_projects WHERE name = ?",
           [cbmProject]
         );
         if (projectRow.length === 0) {
@@ -276,13 +276,14 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         const [, filePath, lineNum] = match;
         const lineNumber = parseInt(lineNum, 10);
         const enclosing = store.queryRaw<CbmNode>(
-          `SELECT * FROM cbm_nodes
+          `SELECT * FROM nodes
            WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+             AND kind NOT IN ('decision', 'pr', 'todo')
            ORDER BY (end_line - start_line) ASC LIMIT 1`,
           [cbmProject, filePath, lineNumber, lineNumber]
         );
         if (enclosing.length > 0) {
-          return `${line}  // in ${enclosing[0].label} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;
+          return `${line}  // in ${enclosing[0].kind} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;
         }
         return line;
       });
