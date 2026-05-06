@@ -8,7 +8,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   data        TEXT NOT NULL DEFAULT '{}',
   tier        TEXT NOT NULL DEFAULT 'personal',
   created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  updated_at  TEXT NOT NULL,
+  start_line  INTEGER,
+  end_line    INTEGER,
+  project     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -17,7 +20,8 @@ CREATE TABLE IF NOT EXISTS edges (
   target_id   TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
   relation    TEXT NOT NULL,
   data        TEXT NOT NULL DEFAULT '{}',
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  project     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edge_annotations (
