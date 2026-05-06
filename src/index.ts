@@ -21,13 +21,13 @@ let cbmProject: string | null = null;
 
 // Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
 // writes to the same cortex.db file when CORTEX_DB env var is set; once it has
-// run at least once for this repo, cbm_projects has a row keyed by absolute
+// run at least once for this repo, ctx_projects has a row keyed by absolute
 // repo path. Until then, cbmProject is null and code-tools surface a clear
 // "not indexed" error.
 try {
   const row = store
     .queryRaw<{ name: string }>(
-      "SELECT name FROM cbm_projects WHERE root_path = ? LIMIT 1",
+      "SELECT name FROM ctx_projects WHERE root_path = ? LIMIT 1",
       [cwd],
     )[0];
   if (row) {
@@ -37,7 +37,7 @@ try {
     process.stderr.write(`Cortex: no indexed project for ${cwd} — run index_repository\n`);
   }
 } catch (e) {
-  // cbm_projects table doesn't exist yet — first run, indexer hasn't created it.
+  // ctx_projects table doesn't exist yet — first run, indexer hasn't created it.
   // That's fine: index_repository will create it on first call.
   if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
   process.stderr.write(`Cortex: no indexer state in cortex.db — run index_repository\n`);
