@@ -18,6 +18,13 @@
 
 typedef struct cbm_store cbm_store_t;
 
+/* Phase-4 schema fold: nodes.id is TEXT 'ctx-<int>'.  These counters are
+ * seeded from MAX(id) on store-open and increment for every inserted row.
+ * Exposed here so graph_buffer.c can read them without reaching into the
+ * opaque struct through a back-channel. */
+int64_t cbm_store_next_node_id(const cbm_store_t *s);
+int64_t cbm_store_next_edge_id(const cbm_store_t *s);
+
 /* ── Result codes ───────────────────────────────────────────────── */
 
 #define CBM_STORE_OK 0

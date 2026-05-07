@@ -649,14 +649,16 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_info_t *fil
          * DELETE FROM to wipe prior rows (there's no underlying content table).
          * Falls back to plain names if cbm_camel_split is unavailable (which
          * shouldn't happen because we always register it, but we stay defensive). */
-        cbm_store_exec(hash_store, "INSERT INTO cbm_nodes_fts(cbm_nodes_fts) VALUES('delete-all');");
+        cbm_store_exec(hash_store, "INSERT INTO ctx_nodes_fts(ctx_nodes_fts) VALUES('delete-all');");
         if (cbm_store_exec(hash_store,
-                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
-                           "SELECT id, cbm_camel_split(name), qualified_name, label, file_path "
-                           "FROM cbm_nodes;") != CBM_STORE_OK) {
+                           "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
+                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), cbm_camel_split(name), "
+                           "qualified_name, kind, file_path "
+                           "FROM nodes WHERE project IS NOT NULL;") != CBM_STORE_OK) {
             cbm_store_exec(hash_store,
-                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
-                           "SELECT id, name, qualified_name, label, file_path FROM cbm_nodes;");
+                           "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
+                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), name, qualified_name, kind, "
+                           "file_path FROM nodes WHERE project IS NOT NULL;");
         }
 
         cbm_store_close(hash_store);
