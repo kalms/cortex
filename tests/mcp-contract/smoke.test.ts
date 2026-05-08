@@ -16,6 +16,6 @@ describe("mcp-contract smoke", () => {
   it("get_graph_schema returns labels", async () => {
     const res = await callTool(h, "get_graph_schema", {});
     expect(res.isError).toBeFalsy();
-    expect(res.content[0].text).toMatch(/Function/);
+    expect(res.content[0].text).toMatch(/function/);
   });
 });
