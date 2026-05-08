@@ -74,7 +74,7 @@ describe("code-tools contract", () => {
   describe("get_graph_schema", () => {
     it("happy: returns labels and counts", async () => {
       const res = await callTool(h, "get_graph_schema", {});
-      expect(res.content[0].text).toMatch(/Function: \d+/);
+      expect(res.content[0].text).toMatch(/function: \d+/);
       expect(res.content[0].text).toMatch(/Edge types:/);
     });
   });

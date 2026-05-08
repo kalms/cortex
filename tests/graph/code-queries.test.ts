@@ -34,10 +34,10 @@ describe("code-queries against unified cortex.db", () => {
 
     store = new GraphStore(cortexDbPath);
     const row = store.queryRaw<{ name: string }>(
-      "SELECT name FROM cbm_projects WHERE root_path = ?",
+      "SELECT name FROM ctx_projects WHERE root_path = ?",
       [fixture]
     )[0];
-    if (!row) throw new Error("no cbm_projects row");
+    if (!row) throw new Error("no ctx_projects row");
     project = row.name;
   }, 60_000);
 
@@ -80,7 +80,7 @@ describe("code-queries against unified cortex.db", () => {
 
   it("getAllNodesUnified returns merged Cortex + indexer rows", () => {
     const all = store.getAllNodesUnified(project);
-    const hasIndexerRows = all.some((n) => n.id.startsWith("cbm-"));
+    const hasIndexerRows = all.some((n) => n.id.startsWith("ctx-"));
     expect(hasIndexerRows).toBe(true);
   });
 });
