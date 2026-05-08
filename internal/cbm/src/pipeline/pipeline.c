@@ -652,12 +652,12 @@ static int dump_and_persist_hashes(cbm_pipeline_t *p, const cbm_file_info_t *fil
         cbm_store_exec(hash_store, "INSERT INTO ctx_nodes_fts(ctx_nodes_fts) VALUES('delete-all');");
         if (cbm_store_exec(hash_store,
                            "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
-                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), cbm_camel_split(name), "
+                           "SELECT rowid, cbm_camel_split(name), "
                            "qualified_name, kind, file_path "
                            "FROM nodes WHERE project IS NOT NULL;") != CBM_STORE_OK) {
             cbm_store_exec(hash_store,
                            "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
-                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), name, qualified_name, kind, "
+                           "SELECT rowid, name, qualified_name, kind, "
                            "file_path FROM nodes WHERE project IS NOT NULL;");
         }
 
