@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveCortexDbPath } from "../../src/db/resolve-path.js";
@@ -35,7 +35,7 @@ describe("resolveCortexDbPath", () => {
     }
   });
 
-  it("falls back to cwd-relative when no .git found", () => {
+  it("falls back to startDir-relative when no .git found", () => {
     const noGit = mkdtempSync(join(tmpdir(), "cortex-nogit-"));
     expect(resolveCortexDbPath(noGit)).toBe(join(noGit, ".cortex", "db"));
     rmSync(noGit, { recursive: true, force: true });
