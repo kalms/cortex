@@ -764,10 +764,15 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
         return CBM_NOT_FOUND;
     }
 
-    /* First pass: find max node ID for mapping array */
+    /* Phase-4: nodes.id is TEXT 'ctx-<int>'. The graph_buffer uses in-memory
+     * integer IDs for graph traversal, mapped from the TEXT ctx-ids via parse. */
+
+    /* First pass: find max node integer ID for mapping array */
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db, "SELECT MAX(id) FROM cbm_nodes WHERE project = ?", CBM_NOT_FOUND, &stmt,
-                           NULL) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db,
+                           "SELECT IFNULL(MAX(CAST(SUBSTR(id, 5) AS INTEGER)), 0) "
+                           "FROM nodes WHERE project = ? AND id LIKE 'ctx-%'",
+                           CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         cbm_store_close(store);
         return CBM_NOT_FOUND;
     }
@@ -787,8 +792,8 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
     /* Load all nodes */
     if (sqlite3_prepare_v2(
             db,
-            "SELECT id, label, name, qualified_name, file_path, start_line, end_line, properties "
-            "FROM cbm_nodes WHERE project = ? ORDER BY id",
+            "SELECT id, kind, name, qualified_name, file_path, start_line, end_line, data "
+            "FROM nodes WHERE project = ? ORDER BY id",
             CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         free(old_to_new);
         cbm_store_close(store);
@@ -797,7 +802,12 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
     sqlite3_bind_text(stmt, SKIP_ONE, project, CBM_NOT_FOUND, SQLITE_STATIC);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        int64_t old_id = sqlite3_column_int64(stmt, 0);
+        /* Parse TEXT 'ctx-<int>' id to int64 for mapping */
+        int64_t old_id = 0;
+        const char *id_text = (const char *)sqlite3_column_text(stmt, 0);
+        if (id_text && strncmp(id_text, "ctx-", 4) == 0) {
+            old_id = (int64_t)strtoll(id_text + 4, NULL, 10);
+        }
         const char *label = (const char *)sqlite3_column_text(stmt, SKIP_ONE);
         const char *name = (const char *)sqlite3_column_text(stmt, GB_COL_2);
         const char *qn = (const char *)sqlite3_column_text(stmt, GB_COL_3);
@@ -807,7 +817,7 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
         const char *props = (const char *)sqlite3_column_text(stmt, GB_COL_7);
 
         int64_t new_id = cbm_gbuf_upsert_node(gb, label, name, qn, fp, sl, el, props);
-        if (new_id > 0 && old_id <= max_old_id) {
+        if (new_id > 0 && old_id > 0 && old_id <= max_old_id) {
             old_to_new[old_id] = new_id;
         }
     }
@@ -815,8 +825,8 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
 
     /* Load all edges, remap IDs */
     if (sqlite3_prepare_v2(db,
-                           "SELECT source_id, target_id, type, properties "
-                           "FROM cbm_edges WHERE project = ?",
+                           "SELECT source_id, target_id, relation, data "
+                           "FROM edges WHERE project = ?",
                            CBM_NOT_FOUND, &stmt, NULL) != SQLITE_OK) {
         free(old_to_new);
         cbm_store_close(store);
@@ -825,13 +835,19 @@ int cbm_gbuf_load_from_db(cbm_gbuf_t *gb, const char *db_path, const char *proje
     sqlite3_bind_text(stmt, SKIP_ONE, project, CBM_NOT_FOUND, SQLITE_STATIC);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        int64_t old_src = sqlite3_column_int64(stmt, 0);
-        int64_t old_tgt = sqlite3_column_int64(stmt, SKIP_ONE);
+        /* Parse TEXT 'ctx-<int>' source/target ids */
+        int64_t old_src = 0, old_tgt = 0;
+        const char *src_text = (const char *)sqlite3_column_text(stmt, 0);
+        const char *tgt_text = (const char *)sqlite3_column_text(stmt, SKIP_ONE);
+        if (src_text && strncmp(src_text, "ctx-", 4) == 0)
+            old_src = (int64_t)strtoll(src_text + 4, NULL, 10);
+        if (tgt_text && strncmp(tgt_text, "ctx-", 4) == 0)
+            old_tgt = (int64_t)strtoll(tgt_text + 4, NULL, 10);
         const char *type = (const char *)sqlite3_column_text(stmt, GB_COL_2);
         const char *props = (const char *)sqlite3_column_text(stmt, GB_COL_3);
 
-        int64_t new_src = (old_src <= max_old_id) ? old_to_new[old_src] : 0;
-        int64_t new_tgt = (old_tgt <= max_old_id) ? old_to_new[old_tgt] : 0;
+        int64_t new_src = (old_src > 0 && old_src <= max_old_id) ? old_to_new[old_src] : 0;
+        int64_t new_tgt = (old_tgt > 0 && old_tgt <= max_old_id) ? old_to_new[old_tgt] : 0;
         if (new_src > 0 && new_tgt > 0) {
             cbm_gbuf_insert_edge(gb, new_src, new_tgt, type, props);
         }

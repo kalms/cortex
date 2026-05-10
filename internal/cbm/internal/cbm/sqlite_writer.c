@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
 
 #define CBM_PAGE_SIZE 65536
 
@@ -97,8 +98,11 @@ enum {
     INTERIOR_TABLE_FLAG = 0x05,
     INTERIOR_INDEX_FLAG = 0x02,
     NEWLINE_BYTE = 0x0A,
-    NODE_SORT_THREADS = 4,
-    EDGE_SORT_THREADS = 7,
+    /* New schema: nodes has 7 user indexes (kind, name, qn, file, tier,
+     * kind+project, kind+file_path). Edges has 4 (source, target, relation,
+     * project+relation). Total sorts = 7+4 = 11. */
+    NODE_SORT_THREADS = 7,
+    EDGE_SORT_THREADS = 4,
     TOTAL_SORT_THREADS = 11,
     ERR_SORT_FAILED = -4,
     ERR_WRITE_FAILED = -3,
@@ -109,15 +113,17 @@ enum {
     INTERIOR_CELL_BUF = 20,
     FIRST_ROWID = 1,
     FIRST_DATA_PAGE = 2,
+    /* Node sort indexes */
     NSORT_NAME = 1,
-    NSORT_FILE = 2,
-    NSORT_QN = 3,
+    NSORT_QN = 2,
+    NSORT_FILE = 3,
+    NSORT_TIER = 4,
+    NSORT_KIND_PROJECT = 5,
+    NSORT_KIND_FILE = 6,
+    /* Edge sort indexes */
     ESORT_TARGET = 1,
-    ESORT_TYPE = 2,
-    ESORT_PROJ_TGT_TYPE = 3,
-    ESORT_PROJ_SRC_TYPE = 4,
-    ESORT_URL_PATH = 5,
-    ESORT_SRC_TGT_TYPE = 6,
+    ESORT_RELATION = 2,
+    ESORT_PROJ_RELATION = 3,
     SQLITE_HEADER_SIZE = 100,
     SHIFT_8 = 8,
     SHIFT_16 = 16,
@@ -714,41 +720,81 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
     return root;
 }
 
+// --- ID formatting helpers (Cortex schema) ---
+
+/* Format an integer counter as 'ctx-<int>' for nodes. buf must be >=32 bytes. */
+static void format_node_id(char *buf, size_t buflen, int64_t counter) {
+    snprintf(buf, buflen, "ctx-%lld", (long long)counter);
+}
+
+/* Format an integer counter as 'ctx-e<int>' for edges. buf must be >=32 bytes. */
+static void format_edge_id(char *buf, size_t buflen, int64_t counter) {
+    snprintf(buf, buflen, "ctx-e%lld", (long long)counter);
+}
+
+/* Heap-allocated lowercase copy. Returns NULL on alloc failure or NULL input. */
+static char *str_to_lower(const char *s) {
+    if (!s) return NULL;
+    size_t n = strlen(s);
+    char *out = (char *)malloc(n + SKIP_ONE);
+    if (!out) return NULL;
+    for (size_t i = 0; i < n; i++) out[i] = (char)tolower((unsigned char)s[i]);
+    out[n] = '\0';
+    return out;
+}
+
 // --- Table record builders ---
 
-// Build a nodes table record: (id, project, label, name, qualified_name, file_path, start_line,
-// end_line, properties)
-static uint8_t *build_node_record(const CBMDumpNode *n, int *out_len) {
+// Build a nodes table record matching Cortex's nodes schema (12 columns):
+//   id TEXT PK, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT,
+//   data TEXT, tier TEXT, created_at TEXT, updated_at TEXT,
+//   start_line INTEGER, end_line INTEGER, project TEXT
+static uint8_t *build_node_record(const CBMDumpNode *n, const char *indexed_at, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
-    rec_add_int(&r, n->id);
-    rec_add_text(&r, n->project);
-    rec_add_text(&r, n->label);
-    rec_add_text(&r, n->name);
-    rec_add_text(&r, n->qualified_name);
+    char id_buf[32];
+    format_node_id(id_buf, sizeof(id_buf), n->id);
+    char *kind = str_to_lower(n->label ? n->label : "");
+
+    rec_add_text(&r, id_buf);
+    rec_add_text(&r, kind ? kind : "");
+    rec_add_text(&r, n->name ? n->name : "");
+    rec_add_text(&r, n->qualified_name ? n->qualified_name : "");
     rec_add_text(&r, n->file_path ? n->file_path : "");
+    rec_add_text(&r, n->properties ? n->properties : "{}"); /* properties → data */
+    rec_add_text(&r, "shared");                              /* tier */
+    rec_add_text(&r, indexed_at ? indexed_at : "");         /* created_at */
+    rec_add_text(&r, indexed_at ? indexed_at : "");         /* updated_at */
     rec_add_int(&r, n->start_line);
     rec_add_int(&r, n->end_line);
-    rec_add_text(&r, n->properties ? n->properties : "{}");
+    rec_add_text(&r, n->project ? n->project : "");
 
+    free(kind);
     uint8_t *data = rec_finalize(&r, out_len);
     rec_free(&r);
     return data;
 }
 
-// Build an edges table record: (id, project, source_id, target_id, type, properties)
-// url_path_gen is a VIRTUAL generated column — NOT stored in the record.
-static uint8_t *build_edge_record(const CBMDumpEdge *e, int *out_len) {
+// Build an edges table record matching Cortex's edges schema (7 columns):
+//   id TEXT PK, source_id TEXT, target_id TEXT, relation TEXT,
+//   data TEXT, created_at TEXT, project TEXT
+static uint8_t *build_edge_record(const CBMDumpEdge *e, const char *indexed_at, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
-    rec_add_int(&r, e->id);
-    rec_add_text(&r, e->project);
-    rec_add_int(&r, e->source_id);
-    rec_add_int(&r, e->target_id);
-    rec_add_text(&r, e->type);
-    rec_add_text(&r, e->properties ? e->properties : "{}");
+    char id_buf[32], src_buf[32], tgt_buf[32];
+    format_edge_id(id_buf, sizeof(id_buf), e->id);
+    format_node_id(src_buf, sizeof(src_buf), e->source_id);
+    format_node_id(tgt_buf, sizeof(tgt_buf), e->target_id);
+
+    rec_add_text(&r, id_buf);
+    rec_add_text(&r, src_buf);
+    rec_add_text(&r, tgt_buf);
+    rec_add_text(&r, e->type ? e->type : "");               /* type → relation */
+    rec_add_text(&r, e->properties ? e->properties : "{}"); /* properties → data */
+    rec_add_text(&r, indexed_at ? indexed_at : "");         /* created_at */
+    rec_add_text(&r, e->project ? e->project : "");
 
     uint8_t *data = rec_finalize(&r, out_len);
     rec_free(&r);
@@ -846,103 +892,6 @@ static uint8_t *build_index_entry_2text_rowid(const char *col1, const char *col2
     // Index cell: varint(payload_len) + payload
     int vl = varint_len(payload_len);
     int total = vl + payload_len;
-    uint8_t *cell = (uint8_t *)malloc(total);
-    if (!cell) {
-        free(payload);
-        *out_len = 0;
-        return NULL;
-    }
-    int pos = put_varint(cell, payload_len);
-    memcpy(cell + pos, payload, payload_len);
-    free(payload);
-    *out_len = total;
-    return cell;
-}
-
-// Build index entry for (int64, text) + rowid (e.g., idx_edges_source)
-static uint8_t *build_index_entry_int_text_rowid(int64_t val, const char *text, int64_t rowid,
-                                                 int *out_len) {
-    RecordBuilder r;
-    rec_init(&r);
-    rec_add_int(&r, val);
-    rec_add_text(&r, text);
-    rec_add_int(&r, rowid);
-    int payload_len = 0;
-    uint8_t *payload = rec_finalize(&r, &payload_len);
-    rec_free(&r);
-    if (!payload) {
-        *out_len = 0;
-        return NULL;
-    }
-
-    int vl = varint_len(payload_len);
-    int total = vl + payload_len;
-    uint8_t *cell = (uint8_t *)malloc(total);
-    if (!cell) {
-        free(payload);
-        *out_len = 0;
-        return NULL;
-    }
-    int pos = put_varint(cell, payload_len);
-    memcpy(cell + pos, payload, payload_len);
-    free(payload);
-    *out_len = total;
-    return cell;
-}
-
-// Build index entry for (text, int64, text) + rowid (e.g., idx_edges_target_type)
-static uint8_t *build_index_entry_text_int_text_rowid(const char *t1, int64_t val, const char *t2,
-                                                      int64_t rowid, int *out_len) {
-    RecordBuilder r;
-    rec_init(&r);
-    rec_add_text(&r, t1);
-    rec_add_int(&r, val);
-    rec_add_text(&r, t2);
-    rec_add_int(&r, rowid);
-    int payload_len = 0;
-    uint8_t *payload = rec_finalize(&r, &payload_len);
-    rec_free(&r);
-    if (!payload) {
-        *out_len = 0;
-        return NULL;
-    }
-
-    int vl = varint_len(payload_len);
-    int total = vl + payload_len;
-    uint8_t *cell = (uint8_t *)malloc(total);
-    if (!cell) {
-        free(payload);
-        *out_len = 0;
-        return NULL;
-    }
-    int pos = put_varint(cell, payload_len);
-    memcpy(cell + pos, payload, payload_len);
-    free(payload);
-    *out_len = total;
-    return cell;
-}
-
-// Build UNIQUE index entry for (text, text) + rowid (e.g., nodes unique(project, qualified_name))
-// Build UNIQUE index entry for (int64, int64, text) + rowid (edges unique(source_id, target_id,
-// type))
-static uint8_t *build_index_entry_unique_2int_text_rowid(int64_t v1, int64_t v2, const char *text,
-                                                         int64_t rowid, int *out_len) {
-    RecordBuilder r;
-    rec_init(&r);
-    rec_add_int(&r, v1);
-    rec_add_int(&r, v2);
-    rec_add_text(&r, text);
-    rec_add_int(&r, rowid);
-    int payload_len = 0;
-    uint8_t *payload = rec_finalize(&r, &payload_len);
-    rec_free(&r);
-    if (!payload) {
-        *out_len = 0;
-        return NULL;
-    }
-
-    int vlen = varint_len(payload_len);
-    int total = vlen + payload_len;
     uint8_t *cell = (uint8_t *)malloc(total);
     if (!cell) {
         free(payload);
@@ -1203,162 +1152,119 @@ static int *make_sorted_perm(int n, int (*cmp)(const void *, const void *)) {
     return perm;
 }
 
-// --- Node index comparators (project is same for all, skip it) ---
+// --- Node index comparators (Cortex schema) ---
 
+// idx_nodes_kind: single-column TEXT index on kind (== LOWER(label))
 static int cmp_node_by_label(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].label), safe_str(g_sort_nodes[ib].label));
-    if (c) {
-        return c;
-    }
+    if (c) return c;
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
+// idx_nodes_name: single-column TEXT index on name
 static int cmp_node_by_name(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].name), safe_str(g_sort_nodes[ib].name));
-    if (c) {
-        return c;
-    }
+    if (c) return c;
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
-static int cmp_node_by_file(const void *a, const void *b) {
-    int ia = *(const int *)a;
-    int ib = *(const int *)b;
-    int c = strcmp(safe_str(g_sort_nodes[ia].file_path), safe_str(g_sort_nodes[ib].file_path));
-    if (c) {
-        return c;
-    }
-    return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
-}
-
+// idx_nodes_qualified_name: single-column TEXT index on qualified_name
 static int cmp_node_by_qn(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_nodes[ia].qualified_name),
                    safe_str(g_sort_nodes[ib].qualified_name));
-    if (c) {
-        return c;
-    }
+    if (c) return c;
     return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
 }
 
-// --- Edge index comparators ---
-
-// idx_edges_source: (source_id, type) + rowid
-static int cmp_edge_by_source_type(const void *a, const void *b) {
+// idx_nodes_file_path: single-column TEXT index on file_path
+static int cmp_node_by_file(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
-    int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c) {
-        return c;
-    }
-    c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
+    int c = strcmp(safe_str(g_sort_nodes[ia].file_path), safe_str(g_sort_nodes[ib].file_path));
+    if (c) return c;
+    return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
+}
+
+// idx_nodes_tier: all rows have tier='shared' so sort is just by rowid
+static int cmp_node_by_tier(const void *a, const void *b) {
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
+    /* tier is constant "shared" for all rows; break ties by rowid */
+    return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
+}
+
+// idx_nodes_kind_project: 2-column (kind TEXT, project TEXT)
+static int cmp_node_by_kind_project(const void *a, const void *b) {
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
+    int c = strcmp(safe_str(g_sort_nodes[ia].label), safe_str(g_sort_nodes[ib].label));
+    if (c) return c;
+    c = strcmp(safe_str(g_sort_nodes[ia].project), safe_str(g_sort_nodes[ib].project));
+    if (c) return c;
+    return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
+}
+
+// idx_nodes_kind_file: 2-column (kind TEXT, file_path TEXT)
+static int cmp_node_by_kind_file(const void *a, const void *b) {
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
+    int c = strcmp(safe_str(g_sort_nodes[ia].label), safe_str(g_sort_nodes[ib].label));
+    if (c) return c;
+    c = strcmp(safe_str(g_sort_nodes[ia].file_path), safe_str(g_sort_nodes[ib].file_path));
+    if (c) return c;
+    return cmp_i64(g_sort_nodes[ia].id, g_sort_nodes[ib].id);
+}
+
+// --- Edge index comparators (Cortex schema) ---
+
+// idx_edges_source: single-column source_id TEXT — sort lexicographically over 'ctx-<int>'
+// (numeric int sort doesn't match SQLite BINARY text collation: 'ctx-2' > 'ctx-10').
+static int cmp_edge_by_source(const void *a, const void *b) {
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
+    char buf_a[32], buf_b[32];
+    format_node_id(buf_a, sizeof(buf_a), g_sort_edges[ia].source_id);
+    format_node_id(buf_b, sizeof(buf_b), g_sort_edges[ib].source_id);
+    int c = strcmp(buf_a, buf_b);
+    if (c) return c;
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
-// idx_edges_target: (target_id, type) + rowid
-static int cmp_edge_by_target_type(const void *a, const void *b) {
+// idx_edges_target: single-column target_id TEXT (same lexicographic ordering as source).
+static int cmp_edge_by_target(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
-    int c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c) {
-        return c;
-    }
-    c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
+    char buf_a[32], buf_b[32];
+    format_node_id(buf_a, sizeof(buf_a), g_sort_edges[ia].target_id);
+    format_node_id(buf_b, sizeof(buf_b), g_sort_edges[ib].target_id);
+    int c = strcmp(buf_a, buf_b);
+    if (c) return c;
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
-// idx_edges_type: (project, type) + rowid
-static int cmp_edge_by_type(const void *a, const void *b) {
+// idx_edges_relation: single-column relation TEXT (== type)
+static int cmp_edge_by_relation(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
     int c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
+    if (c) return c;
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
-// idx_edges_target_type: (project, target_id, type) + rowid
-static int cmp_edge_by_proj_target_type(const void *a, const void *b) {
+// idx_edges_project_relation: 2-column (project TEXT, relation TEXT)
+static int cmp_edge_by_proj_relation(const void *a, const void *b) {
     int ia = *(const int *)a;
     int ib = *(const int *)b;
-    int c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c) {
-        return c;
-    }
+    int c = strcmp(safe_str(g_sort_edges[ia].project), safe_str(g_sort_edges[ib].project));
+    if (c) return c;
     c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
-    return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
-}
-
-// idx_edges_source_type: (project, source_id, type) + rowid
-static int cmp_edge_by_proj_source_type(const void *a, const void *b) {
-    int ia = *(const int *)a;
-    int ib = *(const int *)b;
-    int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c) {
-        return c;
-    }
-    c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
-    return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
-}
-
-// idx_edges_url_path: (project, url_path_gen) + rowid — NULL sorts first
-static int cmp_edge_by_url_path(const void *a, const void *b) {
-    int ia = *(const int *)a;
-    int ib = *(const int *)b;
-    const char *ua = g_sort_edges[ia].url_path;
-    const char *ub = g_sort_edges[ib].url_path;
-    bool na = (!ua || ua[0] == '\0');
-    bool nb = (!ub || ub[0] == '\0');
-    if (na && nb) {
-        return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
-    }
-    if (na) {
-        return CBM_NOT_FOUND;
-    }
-    if (nb) {
-        return SERIAL_SIZE_INT8;
-    }
-    int c = strcmp(ua, ub);
-    if (c) {
-        return c;
-    }
-    return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
-}
-
-// autoindex_edges_1: UNIQUE(source_id, target_id, type) + rowid
-static int cmp_edge_by_src_tgt_type(const void *a, const void *b) {
-    int ia = *(const int *)a;
-    int ib = *(const int *)b;
-    int c = cmp_i64(g_sort_edges[ia].source_id, g_sort_edges[ib].source_id);
-    if (c) {
-        return c;
-    }
-    c = cmp_i64(g_sort_edges[ia].target_id, g_sort_edges[ib].target_id);
-    if (c) {
-        return c;
-    }
-    c = strcmp(safe_str(g_sort_edges[ia].type), safe_str(g_sort_edges[ib].type));
-    if (c) {
-        return c;
-    }
+    if (c) return c;
     return cmp_i64(g_sort_edges[ia].id, g_sort_edges[ib].id);
 }
 
@@ -1379,52 +1285,50 @@ static void *sort_worker(void *arg) {
 /* Edge index cell builder callback: builds one index cell from an edge. */
 typedef uint8_t *(*edge_cell_fn)(const CBMDumpEdge *e, int *out_len);
 
-static uint8_t *ecell_source(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_int_text_rowid(e->source_id, e->type, e->id, out_len);
-}
-static uint8_t *ecell_target(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_int_text_rowid(e->target_id, e->type, e->id, out_len);
-}
-static uint8_t *ecell_type(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_2text_rowid(e->project, e->type, e->id, out_len);
-}
-static uint8_t *ecell_proj_target_type(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_text_int_text_rowid(e->project, e->target_id, e->type, e->id, out_len);
-}
-static uint8_t *ecell_proj_source_type(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_text_int_text_rowid(e->project, e->source_id, e->type, e->id, out_len);
-}
-static uint8_t *ecell_src_tgt_type(const CBMDumpEdge *e, int *out_len) {
-    return build_index_entry_unique_2int_text_rowid(e->source_id, e->target_id, e->type, e->id,
-                                                    out_len);
-}
-static uint8_t *ecell_url_path(const CBMDumpEdge *e, int *out_len) {
-    const char *url = (e->url_path && e->url_path[0] != '\0') ? e->url_path : NULL;
+/* Build a 1-column TEXT index cell: (text_val) + rowid.
+ * Used for idx_edges_source (source_id TEXT) and idx_edges_target (target_id TEXT). */
+static uint8_t *build_index_entry_1text_rowid(const char *col, int64_t rowid, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
-    rec_add_text(&r, e->project);
-    if (url) {
-        rec_add_text(&r, url);
-    } else {
-        rec_add_null(&r);
-    }
-    rec_add_int(&r, e->id);
+    rec_add_text(&r, col);
+    rec_add_int(&r, rowid);
     int payload_len = 0;
     uint8_t *payload = rec_finalize(&r, &payload_len);
     rec_free(&r);
-    int vlen = varint_len(payload_len);
-    int total = vlen + payload_len;
+    if (!payload) { *out_len = 0; return NULL; }
+    int vl = varint_len(payload_len);
+    int total = vl + payload_len;
     uint8_t *cell = (uint8_t *)malloc(total);
-    if (!cell) {
-        free(payload);
-        *out_len = 0;
-        return NULL;
-    }
+    if (!cell) { free(payload); *out_len = 0; return NULL; }
     int pos = put_varint(cell, payload_len);
     memcpy(cell + pos, payload, payload_len);
     free(payload);
     *out_len = total;
     return cell;
+}
+
+/* idx_edges_source: (source_id TEXT) + rowid */
+static uint8_t *ecell_source(const CBMDumpEdge *e, int *out_len) {
+    char src_buf[32];
+    format_node_id(src_buf, sizeof(src_buf), e->source_id);
+    return build_index_entry_1text_rowid(src_buf, e->id, out_len);
+}
+
+/* idx_edges_target: (target_id TEXT) + rowid */
+static uint8_t *ecell_target(const CBMDumpEdge *e, int *out_len) {
+    char tgt_buf[32];
+    format_node_id(tgt_buf, sizeof(tgt_buf), e->target_id);
+    return build_index_entry_1text_rowid(tgt_buf, e->id, out_len);
+}
+
+/* idx_edges_relation: (relation TEXT) + rowid */
+static uint8_t *ecell_relation(const CBMDumpEdge *e, int *out_len) {
+    return build_index_entry_1text_rowid(safe_str(e->type), e->id, out_len);
+}
+
+/* idx_edges_project_relation: (project TEXT, relation TEXT) + rowid */
+static uint8_t *ecell_proj_relation(const CBMDumpEdge *e, int *out_len) {
+    return build_index_entry_2text_rowid(safe_str(e->project), safe_str(e->type), e->id, out_len);
 }
 
 /* Build an edge index from a pre-sorted permutation using a cell builder callback. */
@@ -1467,24 +1371,59 @@ static uint32_t build_edge_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpEd
     return root;
 }
 
-/* Node column getter for index building. */
-typedef const char *(*node_col_fn)(const CBMDumpNode *n);
-static const char *ncol_label(const CBMDumpNode *n) {
-    return n->label;
-}
-static const char *ncol_name(const CBMDumpNode *n) {
-    return n->name;
-}
-static const char *ncol_file(const CBMDumpNode *n) {
-    return n->file_path ? n->file_path : "";
-}
-static const char *ncol_qn(const CBMDumpNode *n) {
-    return n->qualified_name;
+/* Node cell builder callback for index building. */
+typedef uint8_t *(*node_cell_fn)(const CBMDumpNode *n, int *out_len);
+
+/* idx_nodes_kind: (kind TEXT) + rowid — kind = LOWER(label) */
+static uint8_t *ncell_kind(const CBMDumpNode *n, int *out_len) {
+    char *kind = str_to_lower(n->label ? n->label : "");
+    uint8_t *cell = build_index_entry_1text_rowid(kind ? kind : "", n->id, out_len);
+    free(kind);
+    return cell;
 }
 
-/* Build a 2-text node index from a pre-sorted permutation. Returns root page or 0. */
+/* idx_nodes_name: (name TEXT) + rowid */
+static uint8_t *ncell_name(const CBMDumpNode *n, int *out_len) {
+    return build_index_entry_1text_rowid(n->name ? n->name : "", n->id, out_len);
+}
+
+/* idx_nodes_qualified_name: (qualified_name TEXT) + rowid */
+static uint8_t *ncell_qn(const CBMDumpNode *n, int *out_len) {
+    return build_index_entry_1text_rowid(n->qualified_name ? n->qualified_name : "", n->id, out_len);
+}
+
+/* idx_nodes_file_path: (file_path TEXT) + rowid */
+static uint8_t *ncell_file(const CBMDumpNode *n, int *out_len) {
+    return build_index_entry_1text_rowid(n->file_path ? n->file_path : "", n->id, out_len);
+}
+
+/* idx_nodes_tier: (tier TEXT) + rowid — tier is always "shared" for code nodes */
+static uint8_t *ncell_tier(const CBMDumpNode *n, int *out_len) {
+    return build_index_entry_1text_rowid("shared", n->id, out_len);
+}
+
+/* idx_nodes_kind_project: (kind TEXT, project TEXT) + rowid */
+static uint8_t *ncell_kind_project(const CBMDumpNode *n, int *out_len) {
+    char *kind = str_to_lower(n->label ? n->label : "");
+    uint8_t *cell =
+        build_index_entry_2text_rowid(kind ? kind : "", n->project ? n->project : "", n->id, out_len);
+    free(kind);
+    return cell;
+}
+
+/* idx_nodes_kind_file: (kind TEXT, file_path TEXT) + rowid */
+static uint8_t *ncell_kind_file(const CBMDumpNode *n, int *out_len) {
+    char *kind = str_to_lower(n->label ? n->label : "");
+    uint8_t *cell = build_index_entry_2text_rowid(kind ? kind : "",
+                                                  n->file_path ? n->file_path : "", n->id, out_len);
+    free(kind);
+    return cell;
+}
+
+/* Build a node index from a pre-sorted permutation using a cell builder callback.
+ * Returns root page or 0. */
 static uint32_t build_node_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpNode *nodes,
-                                        int node_count, int *perm, node_col_fn col_fn) {
+                                        int node_count, int *perm, node_cell_fn cell_fn) {
     if (node_count <= 0) {
         return write_index_btree(fp, next_page, NULL, NULL, 0);
     }
@@ -1501,8 +1440,7 @@ static uint32_t build_node_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpNo
     }
     for (int i = 0; i < node_count; i++) {
         int si = perm[i];
-        idx_cells[i] = build_index_entry_2text_rowid(nodes[si].project, col_fn(&nodes[si]),
-                                                     nodes[si].id, &idx_lens[i]);
+        idx_cells[i] = cell_fn(&nodes[si], &idx_lens[i]);
         if (!idx_cells[i]) {
             for (int j = 0; j < i; j++) {
                 free(idx_cells[j]);
@@ -1570,18 +1508,31 @@ static int write_one_table(write_db_ctx_t *w, uint32_t *root, const void *items,
     return 0;
 }
 
+/* Wrapper structs so adapters can forward indexed_at to record builders. */
+typedef struct {
+    const CBMDumpNode *nodes;
+    const char *indexed_at;
+} NodeTableCtx;
+
+typedef struct {
+    const CBMDumpEdge *edges;
+    const char *indexed_at;
+} EdgeTableCtx;
+
 /* Adapter functions for write_one_table */
 static uint8_t *adapt_build_node(const void *items, int i, int *out_len) {
-    return build_node_record(&((const CBMDumpNode *)items)[i], out_len);
+    const NodeTableCtx *ctx = (const NodeTableCtx *)items;
+    return build_node_record(&ctx->nodes[i], ctx->indexed_at, out_len);
 }
 static int64_t adapt_node_id(const void *items, int i) {
-    return ((const CBMDumpNode *)items)[i].id;
+    return ((const NodeTableCtx *)items)->nodes[i].id;
 }
 static uint8_t *adapt_build_edge(const void *items, int i, int *out_len) {
-    return build_edge_record(&((const CBMDumpEdge *)items)[i], out_len);
+    const EdgeTableCtx *ctx = (const EdgeTableCtx *)items;
+    return build_edge_record(&ctx->edges[i], ctx->indexed_at, out_len);
 }
 static int64_t adapt_edge_id(const void *items, int i) {
-    return ((const CBMDumpEdge *)items)[i].id;
+    return ((const EdgeTableCtx *)items)->edges[i].id;
 }
 static uint8_t *adapt_build_vector(const void *items, int i, int *out_len) {
     return build_vector_record(&((const CBMDumpVector *)items)[i], out_len);
@@ -1600,11 +1551,13 @@ static int64_t adapt_token_vec_id(const void *items, int i) {
 static int write_data_tables(write_db_ctx_t *w, uint32_t *nodes_root, uint32_t *edges_root,
                              uint32_t *vectors_root, uint32_t *token_vecs_root) {
     int rc;
-    rc = write_one_table(w, nodes_root, w->nodes, w->node_count, adapt_build_node, adapt_node_id);
+    NodeTableCtx node_ctx = {w->nodes, w->indexed_at};
+    rc = write_one_table(w, nodes_root, &node_ctx, w->node_count, adapt_build_node, adapt_node_id);
     if (rc != 0) {
         return rc;
     }
-    rc = write_one_table(w, edges_root, w->edges, w->edge_count, adapt_build_edge, adapt_edge_id);
+    EdgeTableCtx edge_ctx = {w->edges, w->indexed_at};
+    rc = write_one_table(w, edges_root, &edge_ctx, w->edge_count, adapt_build_edge, adapt_edge_id);
     if (rc != 0) {
         return rc;
     }
@@ -1635,29 +1588,8 @@ static void write_metadata_tables(write_db_ctx_t *w, uint32_t *projects_root,
     *file_hashes_root = write_table_btree(w->fp, &w->next_page, NULL, NULL, NULL, 0, false);
     *summaries_root = write_table_btree(w->fp, &w->next_page, NULL, NULL, NULL, 0, false);
 
-    RecordBuilder r1;
-    RecordBuilder r2;
-    rec_init(&r1);
-    rec_add_text(&r1, "cbm_nodes");
-    rec_add_int(&r1, w->node_count > 0 ? w->nodes[w->node_count - SKIP_ONE].id : 0);
-    int seq1_len;
-    uint8_t *seq1 = rec_finalize(&r1, &seq1_len);
-    rec_free(&r1);
-
-    rec_init(&r2);
-    rec_add_text(&r2, "cbm_edges");
-    rec_add_int(&r2, w->edge_count > 0 ? w->edges[w->edge_count - SKIP_ONE].id : 0);
-    int seq2_len;
-    uint8_t *seq2 = rec_finalize(&r2, &seq2_len);
-    rec_free(&r2);
-
-    const uint8_t *seq_recs[] = {seq1, seq2};
-    int seq_lens[] = {seq1_len, seq2_len};
-    int64_t seq_rowids[] = {FIRST_ROWID, FIRST_DATA_PAGE};
-    *sqlite_seq_root =
-        write_table_btree(w->fp, &w->next_page, seq_recs, seq_lens, seq_rowids, PAIR_LEN, false);
-    free(seq1);
-    free(seq2);
+    /* Cortex schema uses TEXT PKs — no AUTOINCREMENT tables. sqlite_sequence stays empty. */
+    *sqlite_seq_root = write_table_btree(w->fp, &w->next_page, NULL, NULL, NULL, 0, false);
 }
 
 /* Write the SQLite file header on page 1 with master entries. */
@@ -1759,45 +1691,47 @@ static void pad_file_to_page_boundary(FILE *fp, uint32_t next_page) {
     }
 }
 
-/* Build all 4 node index B-trees. Returns 0 on success, ERR_SORT_FAILED on failure. */
+/* Build all 7 node index B-trees (Cortex schema). Returns 0 on success. */
 static int build_node_indexes(FILE *fp, uint32_t *next_page, CBMDumpNode *nodes, int node_count,
-                              SortJob *nsorts, uint32_t *label_root, uint32_t *name_root,
-                              uint32_t *file_root, uint32_t *qn_root) {
-    *label_root =
-        build_node_index_sorted(fp, next_page, nodes, node_count, nsorts[0].perm, ncol_label);
-    *name_root = build_node_index_sorted(fp, next_page, nodes, node_count, nsorts[NSORT_NAME].perm,
-                                         ncol_name);
-    *file_root = build_node_index_sorted(fp, next_page, nodes, node_count, nsorts[NSORT_FILE].perm,
-                                         ncol_file);
-    *qn_root =
-        build_node_index_sorted(fp, next_page, nodes, node_count, nsorts[NSORT_QN].perm, ncol_qn);
-    if (node_count > 0 && (!*label_root || !*name_root || !*file_root || !*qn_root)) {
+                              SortJob *nsorts,
+                              uint32_t *kind_root, uint32_t *name_root, uint32_t *qn_root,
+                              uint32_t *file_root, uint32_t *tier_root,
+                              uint32_t *kind_project_root, uint32_t *kind_file_root) {
+    *kind_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                         nsorts[0].perm, ncell_kind);
+    *name_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                         nsorts[NSORT_NAME].perm, ncell_name);
+    *qn_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                        nsorts[NSORT_QN].perm, ncell_qn);
+    *file_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                          nsorts[NSORT_FILE].perm, ncell_file);
+    *tier_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                          nsorts[NSORT_TIER].perm, ncell_tier);
+    *kind_project_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                                  nsorts[NSORT_KIND_PROJECT].perm, ncell_kind_project);
+    *kind_file_root = build_node_index_sorted(fp, next_page, nodes, node_count,
+                                               nsorts[NSORT_KIND_FILE].perm, ncell_kind_file);
+    if (node_count > 0 && (!*kind_root || !*name_root || !*qn_root || !*file_root ||
+                           !*tier_root || !*kind_project_root || !*kind_file_root)) {
         return ERR_SORT_FAILED;
     }
     return 0;
 }
 
-/* Build all 7 edge index B-trees. Returns 0 on success, ERR_SORT_FAILED on failure. */
+/* Build all 4 edge index B-trees (Cortex schema). Returns 0 on success. */
 static int build_edge_indexes(FILE *fp, uint32_t *next_page, CBMDumpEdge *edges, int edge_count,
-                              SortJob *esorts, uint32_t *source_root, uint32_t *target_root,
-                              uint32_t *type_root, uint32_t *tgt_type_root, uint32_t *src_type_root,
-                              uint32_t *url_path_root, uint32_t *auto_root) {
+                              SortJob *esorts,
+                              uint32_t *source_root, uint32_t *target_root,
+                              uint32_t *relation_root, uint32_t *proj_relation_root) {
     *source_root =
         build_edge_index_sorted(fp, next_page, edges, edge_count, esorts[0].perm, ecell_source);
-    *target_root = build_edge_index_sorted(fp, next_page, edges, edge_count,
-                                           esorts[ESORT_TARGET].perm, ecell_target);
-    *type_root = build_edge_index_sorted(fp, next_page, edges, edge_count, esorts[ESORT_TYPE].perm,
-                                         ecell_type);
-    *tgt_type_root = build_edge_index_sorted(
-        fp, next_page, edges, edge_count, esorts[ESORT_PROJ_TGT_TYPE].perm, ecell_proj_target_type);
-    *src_type_root = build_edge_index_sorted(
-        fp, next_page, edges, edge_count, esorts[ESORT_PROJ_SRC_TYPE].perm, ecell_proj_source_type);
-    *url_path_root = build_edge_index_sorted(fp, next_page, edges, edge_count,
-                                             esorts[ESORT_URL_PATH].perm, ecell_url_path);
-    *auto_root = build_edge_index_sorted(fp, next_page, edges, edge_count,
-                                         esorts[ESORT_SRC_TGT_TYPE].perm, ecell_src_tgt_type);
-    if (edge_count > 0 && (!*source_root || !*target_root || !*type_root || !*tgt_type_root ||
-                           !*src_type_root || !*url_path_root || !*auto_root)) {
+    *target_root =
+        build_edge_index_sorted(fp, next_page, edges, edge_count, esorts[ESORT_TARGET].perm, ecell_target);
+    *relation_root =
+        build_edge_index_sorted(fp, next_page, edges, edge_count, esorts[ESORT_RELATION].perm, ecell_relation);
+    *proj_relation_root =
+        build_edge_index_sorted(fp, next_page, edges, edge_count, esorts[ESORT_PROJ_RELATION].perm, ecell_proj_relation);
+    if (edge_count > 0 && (!*source_root || !*target_root || !*relation_root || !*proj_relation_root)) {
         return ERR_SORT_FAILED;
     }
     return 0;
@@ -1877,56 +1811,141 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // Parallel sort: all 11 index permutations sorted simultaneously.
     // Sorting is O(N log N) per index — the dominant CPU cost in index building.
     // Cell building + B-tree writing remains serial (sequential page allocation).
+    /* SortJob order MUST match the NSORT_ and ESORT_ enum values in this file.
+     * NSORT: KIND=0, NAME=1, QN=2, FILE=3, TIER=4, KIND_PROJECT=5, KIND_FILE=6
+     * ESORT: SOURCE=0, TARGET=1, RELATION=2, PROJ_RELATION=3 */
     SortJob nsorts[] = {
-        {node_count, cmp_node_by_label, NULL},
+        {node_count, cmp_node_by_label, NULL},          /* idx_nodes_kind */
         {node_count, cmp_node_by_name, NULL},
-        {node_count, cmp_node_by_file, NULL},
         {node_count, cmp_node_by_qn, NULL},
+        {node_count, cmp_node_by_file, NULL},
+        {node_count, cmp_node_by_tier, NULL},
+        {node_count, cmp_node_by_kind_project, NULL},
+        {node_count, cmp_node_by_kind_file, NULL},
     };
     SortJob esorts[] = {
-        {edge_count, cmp_edge_by_source_type, NULL},
-        {edge_count, cmp_edge_by_target_type, NULL},
-        {edge_count, cmp_edge_by_type, NULL},
-        {edge_count, cmp_edge_by_proj_target_type, NULL},
-        {edge_count, cmp_edge_by_proj_source_type, NULL},
-        {edge_count, cmp_edge_by_url_path, NULL},
-        {edge_count, cmp_edge_by_src_tgt_type, NULL},
+        {edge_count, cmp_edge_by_source, NULL},
+        {edge_count, cmp_edge_by_target, NULL},
+        {edge_count, cmp_edge_by_relation, NULL},
+        {edge_count, cmp_edge_by_proj_relation, NULL},
     };
 
     CBM_PROF_START(t_sort);
     parallel_sort_indexes(nsorts, NODE_SORT_THREADS, esorts, EDGE_SORT_THREADS);
     CBM_PROF_END_N("write_db", "3_parallel_sort_indexes", t_sort, node_count + edge_count);
 
-    /* Phase 4-5: Build node + edge index B-trees */
+    /* Phase 4-5: Build node + edge index B-trees (Cortex schema). */
     CBM_PROF_START(t_node_idx);
-    uint32_t idx_nodes_label_root;
+    uint32_t idx_nodes_kind_root;
     uint32_t idx_nodes_name_root;
+    uint32_t idx_nodes_qn_root;
     uint32_t idx_nodes_file_root;
-    uint32_t autoindex_nodes_root;
-    int nrc = build_node_indexes(fp, &next_page, nodes, node_count, nsorts, &idx_nodes_label_root,
-                                 &idx_nodes_name_root, &idx_nodes_file_root, &autoindex_nodes_root);
+    uint32_t idx_nodes_tier_root;
+    uint32_t idx_nodes_kind_project_root;
+    uint32_t idx_nodes_kind_file_root;
+    int nrc = build_node_indexes(fp, &next_page, nodes, node_count, nsorts,
+                                 &idx_nodes_kind_root, &idx_nodes_name_root,
+                                 &idx_nodes_qn_root, &idx_nodes_file_root,
+                                 &idx_nodes_tier_root, &idx_nodes_kind_project_root,
+                                 &idx_nodes_kind_file_root);
     CBM_PROF_END_N("write_db", "4_node_indexes_seq", t_node_idx, node_count * NODE_SORT_THREADS);
     if (nrc != 0) {
         (void)fclose(fp);
         return nrc;
     }
 
+    /* Autoindex for nodes(id TEXT PK). For TEXT PRIMARY KEY (no rowid alias),
+     * SQLite expects a populated UNIQUE index mapping (id_text → rowid). Cells
+     * must be sorted lexicographically by id_text. The integer counter we use
+     * for both rowid and the int suffix in 'ctx-<int>' is sequential, but text
+     * sort order ≠ int sort order ('ctx-10' < 'ctx-2'), so we sort by formatted
+     * text. */
+    uint32_t autoindex_nodes_root = 0;
+    if (node_count > 0) {
+        int *node_perm = (int *)malloc(node_count * sizeof(int));
+        for (int i = 0; i < node_count; i++) node_perm[i] = i;
+        /* Reuse cmp_node_by_label-style approach but sort by formatted id text. */
+        struct { CBMDumpNode *base; } pctx = {nodes};
+        (void)pctx;  /* qsort_r is portability-fragile; use a small inline sort below. */
+        /* Insertion sort — node_count is small enough relative to other sorts. */
+        for (int i = 1; i < node_count; i++) {
+            int key = node_perm[i];
+            char key_buf[32];
+            format_node_id(key_buf, sizeof(key_buf), nodes[key].id);
+            int j = i - 1;
+            while (j >= 0) {
+                char cmp_buf[32];
+                format_node_id(cmp_buf, sizeof(cmp_buf), nodes[node_perm[j]].id);
+                if (strcmp(cmp_buf, key_buf) <= 0) break;
+                node_perm[j + 1] = node_perm[j];
+                j--;
+            }
+            node_perm[j + 1] = key;
+        }
+        uint8_t **cells = (uint8_t **)malloc(node_count * sizeof(uint8_t *));
+        int *lens = (int *)malloc(node_count * sizeof(int));
+        for (int i = 0; i < node_count; i++) {
+            char id_buf[32];
+            format_node_id(id_buf, sizeof(id_buf), nodes[node_perm[i]].id);
+            cells[i] = build_index_entry_1text_rowid(id_buf, nodes[node_perm[i]].id, &lens[i]);
+        }
+        autoindex_nodes_root = write_index_btree(fp, &next_page, cells, lens, node_count);
+        for (int i = 0; i < node_count; i++) free(cells[i]);
+        free(cells);
+        free(lens);
+        free(node_perm);
+    } else {
+        autoindex_nodes_root = write_index_btree(fp, &next_page, NULL, NULL, 0);
+    }
+
     CBM_PROF_START(t_edge_idx);
     uint32_t idx_edges_source_root;
     uint32_t idx_edges_target_root;
-    uint32_t idx_edges_type_root;
-    uint32_t idx_edges_target_type_root;
-    uint32_t idx_edges_source_type_root;
-    uint32_t idx_edges_url_path_root;
-    uint32_t autoindex_edges_root;
-    int erc = build_edge_indexes(fp, &next_page, edges, edge_count, esorts, &idx_edges_source_root,
-                                 &idx_edges_target_root, &idx_edges_type_root,
-                                 &idx_edges_target_type_root, &idx_edges_source_type_root,
-                                 &idx_edges_url_path_root, &autoindex_edges_root);
+    uint32_t idx_edges_relation_root;
+    uint32_t idx_edges_proj_relation_root;
+    int erc = build_edge_indexes(fp, &next_page, edges, edge_count, esorts,
+                                 &idx_edges_source_root, &idx_edges_target_root,
+                                 &idx_edges_relation_root, &idx_edges_proj_relation_root);
     CBM_PROF_END_N("write_db", "5_edge_indexes_seq", t_edge_idx, edge_count * EDGE_SORT_THREADS);
     if (erc != 0) {
         (void)fclose(fp);
         return erc;
+    }
+
+    /* Autoindex for edges(id TEXT PK). Same rationale as nodes; lexicographic
+     * sort over 'ctx-e<int>'. */
+    uint32_t autoindex_edges_root = 0;
+    if (edge_count > 0) {
+        int *edge_perm = (int *)malloc(edge_count * sizeof(int));
+        for (int i = 0; i < edge_count; i++) edge_perm[i] = i;
+        for (int i = 1; i < edge_count; i++) {
+            int key = edge_perm[i];
+            char key_buf[32];
+            format_edge_id(key_buf, sizeof(key_buf), edges[key].id);
+            int j = i - 1;
+            while (j >= 0) {
+                char cmp_buf[32];
+                format_edge_id(cmp_buf, sizeof(cmp_buf), edges[edge_perm[j]].id);
+                if (strcmp(cmp_buf, key_buf) <= 0) break;
+                edge_perm[j + 1] = edge_perm[j];
+                j--;
+            }
+            edge_perm[j + 1] = key;
+        }
+        uint8_t **cells = (uint8_t **)malloc(edge_count * sizeof(uint8_t *));
+        int *lens = (int *)malloc(edge_count * sizeof(int));
+        for (int i = 0; i < edge_count; i++) {
+            char id_buf[32];
+            format_edge_id(id_buf, sizeof(id_buf), edges[edge_perm[i]].id);
+            cells[i] = build_index_entry_1text_rowid(id_buf, edges[edge_perm[i]].id, &lens[i]);
+        }
+        autoindex_edges_root = write_index_btree(fp, &next_page, cells, lens, edge_count);
+        for (int i = 0; i < edge_count; i++) free(cells[i]);
+        free(cells);
+        free(lens);
+        free(edge_perm);
+    } else {
+        autoindex_edges_root = write_index_btree(fp, &next_page, NULL, NULL, 0);
     }
 
     // Autoindex for projects(name TEXT PK) — single text column
@@ -1965,62 +1984,72 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     // table → autoindex → user indexes → next table → autoindex → user indexes → ...
     // SQLite's schema loader expects autoindexes immediately after their table.
     // Mis-ordering causes rootpage mapping corruption in the schema cache.
+    /* DDL strings here MUST match Cortex's CREATE_TABLES + CREATE_INDEXES in
+     * src/graph/schema.ts exactly so that when GraphStore opens the DB and runs
+     * `CREATE TABLE IF NOT EXISTS nodes (...)`, the IF NOT EXISTS sees a matching
+     * existing schema and skips. Whitespace in the DDL is faithfully preserved. */
     MasterEntry master[] = {
-        {"table", "cbm_projects", "cbm_projects", projects_root,
-         "CREATE TABLE cbm_projects (\n\t\tname TEXT PRIMARY KEY,\n\t\tindexed_at TEXT NOT "
+        /* Cortex-owned data tables (post-Phase-4). */
+        {"table", "nodes", "nodes", nodes_root,
+         "CREATE TABLE nodes (\n  id          TEXT PRIMARY KEY,\n  kind        TEXT NOT NULL,\n  "
+         "name        TEXT NOT NULL,\n  qualified_name TEXT,\n  file_path   TEXT,\n  data        "
+         "TEXT NOT NULL DEFAULT '{}',\n  tier        TEXT NOT NULL DEFAULT 'personal',\n  "
+         "created_at  TEXT NOT NULL,\n  updated_at  TEXT NOT NULL,\n  start_line  INTEGER,\n  "
+         "end_line    INTEGER,\n  project     TEXT\n)"},
+        {"index", "sqlite_autoindex_nodes_1", "nodes", autoindex_nodes_root, NULL},
+        {"index", "idx_nodes_kind", "nodes", idx_nodes_kind_root,
+         "CREATE INDEX idx_nodes_kind ON nodes(kind)"},
+        {"index", "idx_nodes_name", "nodes", idx_nodes_name_root,
+         "CREATE INDEX idx_nodes_name ON nodes(name)"},
+        {"index", "idx_nodes_qualified_name", "nodes", idx_nodes_qn_root,
+         "CREATE INDEX idx_nodes_qualified_name ON nodes(qualified_name)"},
+        {"index", "idx_nodes_file_path", "nodes", idx_nodes_file_root,
+         "CREATE INDEX idx_nodes_file_path ON nodes(file_path)"},
+        {"index", "idx_nodes_tier", "nodes", idx_nodes_tier_root,
+         "CREATE INDEX idx_nodes_tier ON nodes(tier)"},
+        {"index", "idx_nodes_kind_project", "nodes", idx_nodes_kind_project_root,
+         "CREATE INDEX idx_nodes_kind_project ON nodes(kind, project)"},
+        {"index", "idx_nodes_kind_file", "nodes", idx_nodes_kind_file_root,
+         "CREATE INDEX idx_nodes_kind_file ON nodes(kind, file_path)"},
+
+        {"table", "edges", "edges", edges_root,
+         "CREATE TABLE edges (\n  id          TEXT PRIMARY KEY,\n  source_id   TEXT NOT NULL "
+         "REFERENCES nodes(id) ON DELETE CASCADE,\n  target_id   TEXT NOT NULL REFERENCES "
+         "nodes(id) ON DELETE CASCADE,\n  relation    TEXT NOT NULL,\n  data        TEXT NOT "
+         "NULL DEFAULT '{}',\n  created_at  TEXT NOT NULL,\n  project     TEXT\n)"},
+        {"index", "sqlite_autoindex_edges_1", "edges", autoindex_edges_root, NULL},
+        {"index", "idx_edges_source", "edges", idx_edges_source_root,
+         "CREATE INDEX idx_edges_source ON edges(source_id)"},
+        {"index", "idx_edges_target", "edges", idx_edges_target_root,
+         "CREATE INDEX idx_edges_target ON edges(target_id)"},
+        {"index", "idx_edges_relation", "edges", idx_edges_relation_root,
+         "CREATE INDEX idx_edges_relation ON edges(relation)"},
+        {"index", "idx_edges_project_relation", "edges", idx_edges_proj_relation_root,
+         "CREATE INDEX idx_edges_project_relation ON edges(project, relation)"},
+
+        /* Indexer-owned bookkeeping tables (formerly cbm_*). */
+        {"table", "ctx_projects", "ctx_projects", projects_root,
+         "CREATE TABLE ctx_projects (\n\t\tname TEXT PRIMARY KEY,\n\t\tindexed_at TEXT NOT "
          "NULL,\n\t\troot_path TEXT NOT NULL\n\t)"},
-        {"index", "sqlite_autoindex_cbm_projects_1", "cbm_projects", autoindex_projects_root, NULL},
-        {"table", "cbm_file_hashes", "cbm_file_hashes", file_hashes_root,
-         "CREATE TABLE cbm_file_hashes (\n\t\tproject TEXT NOT NULL REFERENCES cbm_projects(name) ON "
-         "DELETE CASCADE,\n\t\trel_path TEXT NOT NULL,\n\t\tsha256 TEXT NOT NULL,\n\t\tmtime_ns "
+        {"index", "sqlite_autoindex_ctx_projects_1", "ctx_projects", autoindex_projects_root, NULL},
+        {"table", "ctx_file_hashes", "ctx_file_hashes", file_hashes_root,
+         "CREATE TABLE ctx_file_hashes (\n\t\tproject TEXT NOT NULL REFERENCES ctx_projects(name) "
+         "ON DELETE CASCADE,\n\t\trel_path TEXT NOT NULL,\n\t\tsha256 TEXT NOT NULL,\n\t\tmtime_ns "
          "INTEGER NOT NULL DEFAULT 0,\n\t\tsize INTEGER NOT NULL DEFAULT 0,\n\t\tPRIMARY KEY "
          "(project, rel_path)\n\t)"},
-        {"index", "sqlite_autoindex_cbm_file_hashes_1", "cbm_file_hashes", autoindex_file_hashes_root,
-         NULL},
-        {"table", "cbm_nodes", "cbm_nodes", nodes_root,
-         "CREATE TABLE cbm_nodes (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
-         "NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,\n\t\tlabel TEXT NOT NULL,\n\t\tname "
-         "TEXT NOT NULL,\n\t\tqualified_name TEXT NOT NULL,\n\t\tfile_path TEXT DEFAULT "
-         "'',\n\t\tstart_line INTEGER DEFAULT 0,\n\t\tend_line INTEGER DEFAULT 0,\n\t\tproperties "
-         "TEXT DEFAULT '{}',\n\t\tUNIQUE(project, qualified_name)\n\t)"},
-        {"index", "sqlite_autoindex_cbm_nodes_1", "cbm_nodes", autoindex_nodes_root, NULL},
-        {"index", "idx_cbm_nodes_label", "cbm_nodes", idx_nodes_label_root,
-         "CREATE INDEX idx_cbm_nodes_label ON cbm_nodes(project, label)"},
-        {"index", "idx_cbm_nodes_name", "cbm_nodes", idx_nodes_name_root,
-         "CREATE INDEX idx_cbm_nodes_name ON cbm_nodes(project, name)"},
-        {"index", "idx_cbm_nodes_file", "cbm_nodes", idx_nodes_file_root,
-         "CREATE INDEX idx_cbm_nodes_file ON cbm_nodes(project, file_path)"},
-        {"table", "cbm_edges", "cbm_edges", edges_root,
-         "CREATE TABLE cbm_edges (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n\t\tproject TEXT NOT "
-         "NULL REFERENCES cbm_projects(name) ON DELETE CASCADE,\n\t\tsource_id INTEGER NOT NULL "
-         "REFERENCES cbm_nodes(id) ON DELETE CASCADE,\n\t\ttarget_id INTEGER NOT NULL REFERENCES "
-         "cbm_nodes(id) ON DELETE CASCADE,\n\t\ttype TEXT NOT NULL,\n\t\tproperties TEXT DEFAULT "
-         "'{}',\n\t\turl_path_gen TEXT GENERATED ALWAYS AS "
-         "(json_extract(properties,'$.url_path')),\n\t\tUNIQUE(source_id, target_id, type)\n\t)"},
-        {"index", "sqlite_autoindex_cbm_edges_1", "cbm_edges", autoindex_edges_root, NULL},
-        {"index", "idx_cbm_edges_source", "cbm_edges", idx_edges_source_root,
-         "CREATE INDEX idx_cbm_edges_source ON cbm_edges(source_id, type)"},
-        {"index", "idx_cbm_edges_target", "cbm_edges", idx_edges_target_root,
-         "CREATE INDEX idx_cbm_edges_target ON cbm_edges(target_id, type)"},
-        {"index", "idx_cbm_edges_type", "cbm_edges", idx_edges_type_root,
-         "CREATE INDEX idx_cbm_edges_type ON cbm_edges(project, type)"},
-        {"index", "idx_cbm_edges_target_type", "cbm_edges", idx_edges_target_type_root,
-         "CREATE INDEX idx_cbm_edges_target_type ON cbm_edges(project, target_id, type)"},
-        {"index", "idx_cbm_edges_source_type", "cbm_edges", idx_edges_source_type_root,
-         "CREATE INDEX idx_cbm_edges_source_type ON cbm_edges(project, source_id, type)"},
-        {"index", "idx_cbm_edges_url_path", "cbm_edges", idx_edges_url_path_root,
-         "CREATE INDEX idx_cbm_edges_url_path ON cbm_edges(project, url_path_gen)"},
-        {"table", "cbm_project_summaries", "cbm_project_summaries", summaries_root,
-         "CREATE TABLE cbm_project_summaries (\n\t\t\tproject TEXT PRIMARY KEY,\n\t\t\tsummary TEXT "
-         "NOT NULL,\n\t\t\tsource_hash TEXT NOT NULL,\n\t\t\tcreated_at TEXT NOT "
+        {"index", "sqlite_autoindex_ctx_file_hashes_1", "ctx_file_hashes",
+         autoindex_file_hashes_root, NULL},
+        {"table", "ctx_project_summaries", "ctx_project_summaries", summaries_root,
+         "CREATE TABLE ctx_project_summaries (\n\t\t\tproject TEXT PRIMARY KEY,\n\t\t\tsummary "
+         "TEXT NOT NULL,\n\t\t\tsource_hash TEXT NOT NULL,\n\t\t\tcreated_at TEXT NOT "
          "NULL,\n\t\t\tupdated_at TEXT NOT NULL\n\t\t)"},
-        {"index", "sqlite_autoindex_cbm_project_summaries_1", "cbm_project_summaries",
+        {"index", "sqlite_autoindex_ctx_project_summaries_1", "ctx_project_summaries",
          autoindex_summaries_root, NULL},
-        {"table", "cbm_node_vectors", "cbm_node_vectors", vectors_root,
-         "CREATE TABLE cbm_node_vectors (\n\t\tnode_id INTEGER PRIMARY KEY,\n\t\tproject TEXT NOT "
+        {"table", "ctx_node_vectors", "ctx_node_vectors", vectors_root,
+         "CREATE TABLE ctx_node_vectors (\n\t\tnode_id INTEGER PRIMARY KEY,\n\t\tproject TEXT NOT "
          "NULL,\n\t\tvector BLOB NOT NULL\n\t)"},
-        {"table", "cbm_token_vectors", "cbm_token_vectors", token_vecs_root,
-         "CREATE TABLE cbm_token_vectors (\n\t\tid INTEGER PRIMARY KEY,\n\t\tproject "
+        {"table", "ctx_token_vectors", "ctx_token_vectors", token_vecs_root,
+         "CREATE TABLE ctx_token_vectors (\n\t\tid INTEGER PRIMARY KEY,\n\t\tproject "
          "TEXT NOT NULL,\n\t\ttoken TEXT NOT NULL,\n\t\tvector BLOB NOT NULL,\n\t\tidf INTEGER "
          "NOT NULL\n\t)"},
         {"table", "sqlite_sequence", "sqlite_sequence", sqlite_seq_root,

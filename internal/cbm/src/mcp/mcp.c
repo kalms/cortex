@@ -1134,17 +1134,17 @@ static char *bm25_search(cbm_store_t *store, const char *project, const char *qu
      * make high-value labels sort first.  File/Folder/Module/Variable are
      * excluded entirely — agents rarely want those as discovery results. */
     const char *sql =
-        "SELECT n.id, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, "
-        "       (bm25(cbm_nodes_fts) "
-        "        - CASE WHEN n.label IN ('Function','Method') THEN 10.0 "
-        "               WHEN n.label = 'Route' THEN 8.0 "
-        "               WHEN n.label IN ('Class','Interface','Type','Enum') THEN 5.0 "
+        "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, "
+        "       (bm25(ctx_nodes_fts) "
+        "        - CASE WHEN n.kind IN ('function','method') THEN 10.0 "
+        "               WHEN n.kind = 'route' THEN 8.0 "
+        "               WHEN n.kind IN ('class','interface','type','enum') THEN 5.0 "
         "               ELSE 0.0 END) AS rank "
-        "FROM cbm_nodes_fts "
-        "JOIN cbm_nodes n ON n.id = cbm_nodes_fts.rowid "
-        "WHERE cbm_nodes_fts MATCH ?1 "
+        "FROM ctx_nodes_fts "
+        "JOIN nodes n ON n.id = 'ctx-' || ctx_nodes_fts.rowid "
+        "WHERE ctx_nodes_fts MATCH ?1 "
         "  AND n.project = ?2 "
-        "  AND n.label NOT IN ('File','Folder','Module','Section','Variable','Project') "
+        "  AND n.kind NOT IN ('file','folder','module','section','variable','project') "
         "ORDER BY rank "
         "LIMIT ?3 OFFSET ?4";
 
@@ -1161,9 +1161,9 @@ static char *bm25_search(cbm_store_t *store, const char *project, const char *qu
     int total = 0;
     {
         const char *count_sql =
-            "SELECT COUNT(*) FROM cbm_nodes_fts JOIN cbm_nodes n ON n.id = cbm_nodes_fts.rowid "
-            "WHERE cbm_nodes_fts MATCH ?1 AND n.project = ?2 "
-            "  AND n.label NOT IN ('File','Folder','Module','Section','Variable','Project')";
+            "SELECT COUNT(*) FROM ctx_nodes_fts JOIN nodes n ON n.id = 'ctx-' || ctx_nodes_fts.rowid "
+            "WHERE ctx_nodes_fts MATCH ?1 AND n.project = ?2 "
+            "  AND n.kind NOT IN ('file','folder','module','section','variable','project')";
         sqlite3_stmt *cs = NULL;
         if (sqlite3_prepare_v2(db, count_sql, BM25_SQL_AUTO_LEN, &cs, NULL) == SQLITE_OK) {
             sqlite3_bind_text(cs, BM25_BIND_QUERY, fts_query, BM25_SQL_AUTO_LEN,

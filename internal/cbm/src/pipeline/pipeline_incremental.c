@@ -282,14 +282,16 @@ static void dump_and_persist(cbm_gbuf_t *gbuf, const char *db_path, const char *
          * any triggers that could have kept nodes_fts synchronized, so we
          * rebuild from the nodes table here.  See the full-dump path in
          * pipeline.c for the matching logic. */
-        cbm_store_exec(hash_store, "INSERT INTO cbm_nodes_fts(cbm_nodes_fts) VALUES('delete-all');");
+        cbm_store_exec(hash_store, "INSERT INTO ctx_nodes_fts(ctx_nodes_fts) VALUES('delete-all');");
         if (cbm_store_exec(hash_store,
-                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
-                           "SELECT id, cbm_camel_split(name), qualified_name, label, file_path "
-                           "FROM cbm_nodes;") != CBM_STORE_OK) {
+                           "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
+                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), cbm_camel_split(name), "
+                           "qualified_name, kind, file_path "
+                           "FROM nodes WHERE project IS NOT NULL;") != CBM_STORE_OK) {
             cbm_store_exec(hash_store,
-                           "INSERT INTO cbm_nodes_fts(rowid, name, qualified_name, label, file_path) "
-                           "SELECT id, name, qualified_name, label, file_path FROM cbm_nodes;");
+                           "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
+                           "SELECT CAST(SUBSTR(id, 5) AS INTEGER), name, qualified_name, kind, "
+                           "file_path FROM nodes WHERE project IS NOT NULL;");
         }
 
         cbm_store_close(hash_store);
