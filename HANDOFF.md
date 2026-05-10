@@ -1,164 +1,175 @@
-# Cortex — Session Handoff (2026-04-18)
+# Cortex — Session Handoff (2026-05-10)
 
-## What Was Done This Session
+## TL;DR
 
-### Plan B — 2D Graph Viewer (merged + pushed)
+Phase 4 of the **CBM absorption** track is **done and merged to main**. Code entities now live in Cortex's `nodes`/`edges` tables alongside decisions, distinguished by `kind`. The indexer's bulk-write fast path (`sqlite_writer.c`) was rewritten to produce the unified schema directly via raw B-tree pages — perf overhead vs pre-Phase-4 is **+3%** on a 45k LOC C corpus.
 
-Shipped the complete nine-step ladder from the 2026-04-17 spec. 20 commits, then bundled and merged together with the follow-up below.
+- **Branch:** `main`, synced with `origin/main` (HEAD `68f33f4`)
+- **Tags:** `phase-1-subtree-merged` → `phase-2-build-pipeline` → `phase-3a-storage-retarget` → `phase-3b-ts-side` → `phase-4-schema-fold` (all five pushed)
+- **Tests:** 48 files / 360 passed / 1 skipped / 0 failed
+- **Indexer:** `bin/cortex-indexer` builds clean (`bash scripts/build-indexer.sh`)
+- **Schema:** single SQLite file at `<install>/.cortex/graph.db`; no ATTACH; no `cbm_*` tables anywhere
 
-- **Six pure shared modules** — `state`, `colors`, `shapes`, `layout`, `animation`, `websocket` — all TDD'd in Vitest, no DOM dependency.
-- **Ladder:** static render → force sim + ambient breathing → hover lerp + tooltip → WebSocket live mutations → synapse animations (ring / pulse) → supersession choreography → search + filter → detail panel → focus mode.
-- **3D viewer moved** to `/viewer/3d`; 2D is the new default at `/viewer`.
-- **Reconnecting WebSocket client** with heartbeat (30s ping), backfill-on-reconnect, event dedupe by ULID.
-- **pickNodeAt refactor** extracted identical hit-test math from three handlers into one helper.
+## What was done this session
 
-### Plan B follow-up — Navigation, clustering, search UX (merged + pushed)
+### Phase 4 — Schema fold (12 commits, merged + pushed)
 
-Shipped on first-use feedback: the viewer had no way to navigate, the graph settled into a diffuse cloud instead of an Obsidian-style disk, and search hid non-matches (destroying context). 9 more commits.
+Spec: [docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md](docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md)
+Plan: [docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md](docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md)
 
-- **New `shared/camera.js`** — pure camera state + transform math (`createCamera`, `clampZoom`, `worldToScreen`, `screenToWorld`, `fitToBounds`, `zoomAtPoint`, `lerpCamera`). 13 unit tests.
-- **Pan** (drag empty canvas) + **zoom** (wheel / trackpad pinch via `wheel` + `ctrlKey`) + **fit-to-viewport on load** (triggers when `simulation.alpha() < 0.3`).
-- **`F` / `R` key + toolbar button** → smooth recenter via `targetCamera` + per-frame `lerpCamera`.
-- **Pan-to-fit on focus mode** — dblclick animates camera to fit the 1-hop subgraph; `Esc` animates back to full-graph fit. Esc-in-search-input is scoped to local clear+blur only.
-- **Zoom-gated persistent labels** — decisions always; files fade in 0.4→0.6; everything else fades in 0.9→1.1. Screen-space, constant font size.
-- **Force re-tune** for emergent disk: `forceCenter.strength 0.03→0.12`, link distances tightened (GOVERNS 70→45, CALLS 80→55, IMPORTS 100→70, co-changed 200→140), charges eased (decision -300→-220, file -100→-80, etc.). Same visuals, Obsidian-style shape.
-- **Search UX rework** — `isVisible()` keeps only hide-style gates (focus + kind filter); search became a 0.15 dim multiplier on nodes/edges/labels. **Hover wins locally** over dim (the hovered node never dims). New `/` keybinding focuses search; Esc in search clears + blurs. Match count `N / M` indicator.
+**TS-side**
+- `nodes` gets nullable `start_line`, `end_line`, `project` columns; `edges` gets `project`. Three new compound indexes (`idx_nodes_kind_project`, `idx_nodes_kind_file`, `idx_edges_project_relation`).
+- `CBM_LABEL_MAP` deleted — kinds are granular now (`function`, `class`, `method`, `interface`, `enum`, ...). The previous collapse to `function`/`component`/`path` is gone. **Viewer styling regression** — see Tech Debt below.
+- `getAllNodesUnified` / `getAllEdgesUnified` simplify to a single `SELECT FROM nodes` / `edges` with optional project filter (`string | string[]`).
+- `code-queries.ts` (renamed from `cbm-queries.ts` in Phase 3b) queries `nodes WHERE project = ? AND kind NOT IN ('decision','pr','todo')`.
 
-**Tests: 179 passing across 30 files** (119 backend + 42 Plan B viewer + 18 follow-up). Typecheck clean.
+**C-side**
+- The bulk-write fast path (`internal/cbm/internal/cbm/sqlite_writer.c`) was rewritten to produce Cortex's `nodes`/`edges` schema via raw B-tree page writes. Record builders updated for the new column shape; comparators sort by formatted text id (so SQLite BINARY collation reads back in the same order); index B-trees rebuilt for the new index set; `sqlite_autoindex_nodes_1` / `sqlite_autoindex_edges_1` populated explicitly because TEXT PRIMARY KEY needs an explicit autoindex.
+- The SQL-API path (`cbm_store_t.upsert_node` / `insert_edge`) also writes the new schema; in-process `next_node_id` / `next_edge_id` counters seed from `MAX(SUBSTR(id, 5))` on store-open.
+- Bookkeeping tables renamed `cbm_*` → `ctx_*` (`ctx_projects`, `ctx_file_hashes`, `ctx_project_summaries`, `ctx_nodes_fts`, `ctx_node_vectors`, `ctx_token_vectors`).
+- `init_schema` no longer creates `nodes`/`edges` (Cortex owns them).
 
-### Key artifacts
+**Break-away policy**
+- The user is the only consumer; no migration shim ships. `migrateSchemaFold()`, `cbm-discovery.ts`, `schema-fold-migration.test.ts`, `fts-migration.test.ts` were deleted. Existing `cortex.db` files must be deleted manually (the user already did this).
 
-| Artifact | Path |
+### Verification
+
+| Stage | Result |
 |---|---|
-| Spec — Plan B | [docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md](docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md) |
-| Plan — Plan B | [docs/superpowers/plans/2026-04-17-graph-viewer-2d.md](docs/superpowers/plans/2026-04-17-graph-viewer-2d.md) |
-| Spec — follow-up | [docs/superpowers/specs/2026-04-18-graph-viewer-navigation-and-clustering.md](docs/superpowers/specs/2026-04-18-graph-viewer-navigation-and-clustering.md) |
-| Plan — follow-up | [docs/superpowers/plans/2026-04-18-graph-viewer-navigation-and-clustering.md](docs/superpowers/plans/2026-04-18-graph-viewer-navigation-and-clustering.md) |
-| Architecture doc | [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) — 2D viewer section documents module layout, render loop, extension recipes |
+| Build | clean |
+| `PRAGMA integrity_check` on smoke DB | `ok` |
+| Full test suite | 48 files / 360 passed / 1 skipped / 0 failed |
+| Perf on 45k LOC C corpus | 39.88s vs 38.68s pre-Phase-4 = **+3%** |
 
-## Current State
+Linear extrapolation: ~160s for Linux (180k LOC) — well under the 3-min budget.
 
-- **Branch:** `main`, synced with `origin/main` (HEAD at `ba42486 Merge Plan B...`)
-- **Tests:** 179 passing across 30 files
-- **TypeScript:** `npx tsc --noEmit` clean
-- **Dev viewer:** http://localhost:3334/viewer (2D, default); http://localhost:3334/viewer/3d (legacy 3D); MCP plugin instance uses :3333
-- **WebSocket:** `ws://localhost:3334/ws` in dev
-- **Visual verification:** **pending** — the next session should run `npm run dev` and walk the 10-item post-impl checklist at the end of the follow-up plan before building on top of this work.
+## What's next
 
-## What's Next
+### Phase 6 — strip CBM's MCP shell + bridge missing tools
 
-### Primary: visual QA of the shipped viewer
+**This is the next logical step.** Spec sections [§2.6](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md) and [§3 Step 6](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md).
 
-Before starting new work, run the post-implementation checklist from the follow-up plan (section: "Post-implementation manual verification"). Key items:
+CBM is itself an MCP server today; its MCP shell is dead code from Cortex's POV (Cortex is the MCP server, CBM is just the indexer subprocess). What gets removed:
+- `internal/cbm/src/mcp/mcp.c` and `mcp.h` (entire MCP server impl)
+- The MCP-server entry in `internal/cbm/src/main.c` (the `cbm` binary's stdio MCP mode)
+- `internal/cbm/graph-ui/` directory (CBM's own 3D viewer)
+- `internal/cbm/vendored/mongoose` (CBM's HTTP server for that viewer)
+- Related tests in `internal/cbm/tests/` for the MCP module
 
-- Fit-on-load frames the whole graph with padding
-- Pan drags smoothly; clicking after a drag does NOT open the detail panel
-- Wheel zoom pins the world-point-under-cursor
-- `F` / `R` smoothly recenter with ~300ms lerp
-- Zoom-gated labels fade (not pop)
-- Focus-mode smoothly re-frames; Esc smoothly returns
-- Force tuning: graph should form a visible disk with clusters you can see by eye
-- Search "auth" (or any substring): matched subgraph bright, rest dim; hovering a dimmed node lights it up
+What gets added:
+- New CLI subcommands inside `internal/cbm/src/cli/`: `query_graph` (Cypher), `get_architecture`, `ingest_traces`. Handlers exist today inside `mcp.c` — lift them to CLI before deleting `mcp.c`.
+- New MCP tool registrations in `src/mcp-server/tools/code-tools.ts` for the three.
+- Contract test coverage in `tests/mcp-contract/` for the three.
 
-If any step fails, it's either a regression or a tuning call (force params). Address before building on top.
+**`manage_adr` is intentionally NOT bridged** — Cortex's decision system supersedes it.
 
-### Secondary: Plan C — activity stream + graph↔stream sync
+**Validation:** `tests/mcp-contract/` covers all 13 bridged code tools. `cbm --help` shows only CLI subcommands; no MCP-server mode remains.
 
-Not yet planned. Spec covers layout, event rendering, search/filter chips, live streaming behavior, backfill, graph↔stream click-sync. The backend already emits events; the 2D viewer already consumes mutations from the same WebSocket. Stream is mostly DOM + a new route at `/viewer/stream` — shares the WS connection with the graph.
+**Risk:** removing `mcp/` will break compile if anything outside `mcp/` imports from there. Grep `internal/cbm/src/` for MCP-module references before deleting.
 
-Sensible next-session structure: brainstorm → spec → plan → implement, same cadence as Plans A/B.
+### Phase 7 — repo-root cortex.db + cache layer
 
-### Tertiary: onboarding-gap brainstorm
+[§3 Step 7](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md). Move the operational store from `<install>/.cortex/graph.db` to `<repo>/.cortex/db`. Add a content-addressed build-artifact cache at `~/.cache/cortex/<key>.db` (key = `sha256(remote_url + HEAD_sha + indexer_version + grammars_version)`). Auto-create `<repo>/.cortex/.gitignore` on first run.
 
-Decision `4924bc84` from Plan A is still a brainstorm-in-waiting. Agents (including me this session and last) consistently ship significant architectural work without capturing decisions via `create_decision`, despite CLAUDE.md instructions. Options to explore: hook-based post-commit prompt, a `review-recent-commits` skill that sweeps and suggests, a more active SessionStart reminder, or mid-session triggers when a plan/spec doc lands.
+The intent: anyone who clones the repo gets the same graph; cross-machine onboarding skips re-parsing.
 
-## Tech Debt Carried Over (not blockers)
+### Phase 8 — final cleanup
 
-### Viewer / Plan B area
+[§3 Step 8](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md). Rename remaining `cbm*` symbols in TS (`cbmProject`, `CbmNode`, `CbmEdge`, `CbmProject`) → `code*` / `IndexerNode` / etc. Validate `grep -ri 'cbm\|CBM\|codebase-memory' src/ tests/` returns nothing outside `internal/cbm/`.
 
-- **`anim.nodes` grows unbounded.** `setHover()` adds entries but never evicts them on `remove_node`. Over many add/remove cycles, ghost entries accumulate (harmless — their highlight lerps to 0 — but leaky). Fix: call `anim.nodes.delete(id)` from `onMutation`'s `remove_node` branch.
-- **`syncSimulation()` reheats on every mutation including attribute-only `update_node`.** Visible as a light graph twitch when a decision's `status` flips. Short-circuit: `if (m.op !== 'update_node') rebuildNeighbors(); syncSimulation();`.
-- **`seen` Set in `websocket.js` is unbounded.** ~26 MB at 1M events over a very long session. Add an LRU or `seen.size > N ? seen.clear()` guard.
-- **Reconnect drift:** if the WS disconnects and mutations are emitted during the outage, they are not replayed. Inline `KNOWN LIMITATION` comment in `graph-viewer-2d.js`. Real fix is the spec-mentioned `>500 mutation → re-fetch /api/graph` recovery.
-- **Fit-on-load has no tick-count fallback.** A degenerate simulation that never reaches `alpha < 0.3` would leave `hasInitiallyFit = false` forever. Add `|| tickCount > 60` as belt-and-braces.
-- **Dblclick fires click first.** A double-click opens the detail panel AND enters focus mode. The panel shows the focus root — reasonable behavior, but unintentional. Decide UX and add `closeDetail()` in the dblclick handler if it feels wrong.
-- **3D viewer toolbar lacks `file` kind checkbox.** Pre-existing; more visible now that `/viewer/3d` is documented as a persistent alternate entry point.
-- **`graph-viewer-2d.js` is ~630 lines.** Detail-panel block (~100 lines) is the one section that isn't camera/search/hover/render — candidate for extraction to `shared/detail-panel.js` when Plan C lands and the file grows more.
-- **Inconsistent keydown-handler activeElement checks.** Three `window` keydown listeners (`/`, `Escape`, `F/R`) with slightly different guards. A single dispatcher would centralize intent.
+### Phase 5 was DROPPED
 
-### Backend / Plan A area (carried from previous handoff, still open)
+The original spec planned a v0.2-cache migration shim (read pre-Phase-4 `~/.cache/codebase-memory-mcp/<project>.db` and migrate). The user adopted a "break-away" policy (sole consumer, accept manual `rm cortex.db` on upgrade), so Phase 5 is no longer needed.
 
-- **`src/ws/server.ts:~52`** — 5ms `setTimeout` before `hello` works around a same-process WebSocket frame-ordering quirk. TODO comment in place.
-- **Bootstrap duplication** — `src/events/worker-bootstrap.mjs` and `tests/integration/worker-bootstrap.mjs` differ by ~15 lines.
-- **`tsconfig.json`** doesn't copy `.mjs` to `dist/`. Matters only for `npm run build` + `npm start`; dev mode unaffected.
-- **`tests/integration/end-to-end.test.ts`** still passes raw `NodeRow`-shaped objects to `snapshot_update`.
+## Tech debt carried over (not blockers)
 
-### Deferred from the follow-up spec (explicit out-of-scope)
+### Phase 4 follow-ups
 
-- Node drag (d3-force `.drag()` wiring)
-- Minimap
-- Touch / pinch-zoom beyond the `wheel`+`ctrlKey` trackpad path
-- Keyboard shortcuts beyond `F` / `R` / `Esc` / `/`
-- Community detection (Louvain), cluster coloring, spatial separation
-- Temporal slider, gap detection, decision-panel enrichments
+- **Viewer regression — granular kinds.** The 2D viewer's color/shape map was tuned against the old collapsed `function`/`component`/`path` set. After Phase 4, kinds are granular (`class`, `method`, `interface`, `enum`, ...) and unmapped kinds render with default styling. Pick this up in a small viewer-styling pass before/after Phase 7.
+- **CBM C tests broken.** `internal/cbm/tests/` (CBM's own ~2700-test suite) still references `cbm_*` table names + old column names. Out-of-scope for Phase 4. Two options: (a) update CBM tests to the new schema in a separate branch, (b) accept that we don't run them in Cortex CI (already the case — `npm test` runs only Cortex's TS suite). Document if (b) is the long-term call.
+- **Lean grammar parser ~100MB.** `internal/cbm/internal/cbm/vendored/grammars/lean/parser.c`. GitHub flagged on push but accepted (under the 100MB hard limit). Future Git LFS consideration if repo grows.
+- **`tests/mcp-contract/decision-tools.test.ts` has 1 skipped test.** Pre-existing, not touched by Phase 4. Worth investigating someday.
+- **Indexer's `cbm_*` symbols (TS-side: `CbmNode`, `CbmEdge`, `CbmProject`).** Type interfaces still named `Cbm*` for diff continuity. Phase 8 renames.
 
-## Quick Start for Next Session
+### From earlier sessions (still open)
+
+- **`anim.nodes` grows unbounded** in viewer; `setHover` adds, `remove_node` doesn't evict. Harmless but leaky.
+- **`syncSimulation()` reheats on attribute-only `update_node`.** Visible twitch when a decision flips status.
+- **`seen` Set in `websocket.js` unbounded.** ~26MB at 1M events.
+- **WS reconnect drift:** mutations during outage aren't replayed; spec mentions a `>500 mutation → re-fetch /api/graph` recovery, not yet implemented.
+- **`src/ws/server.ts:~52`** has a 5ms `setTimeout` workaround for same-process WS frame ordering (TODO comment in place).
+- **`tsconfig.json`** doesn't copy `.mjs` to `dist/` (matters for `npm run build` only; dev unaffected).
+
+## Project conventions (recap)
+
+From [.claude/rules/workflow.md](.claude/rules/workflow.md):
+- **Branch first.** Never commit to `main` directly. Naming: `feature/<scope>/<desc>` where scope ∈ `{component, page, api, store, config, layout, css, db}`.
+- **Atomic commits.** One logical change per commit. Format: `<type>(<scope>): <description>`.
+- **Merge protocol.** `git merge --no-ff <branch>` then `git branch -d <branch>`. Push only when explicitly asked.
+- **Gates.** Visual QA (Gate 0) for UI changes; `/review` (Gate 1) before marking tasks complete; `qa` agent (Gate 2) before merge. Backend-only / docs work may skip Gate 0.
+- **Decisions.** Capture architectural choices via `create_decision` after they land. The "onboarding gap" — agents shipping without capturing — is still an open item from earlier sessions.
+
+From [CLAUDE.md](CLAUDE.md):
+- Prefer `search_code` over Grep for code search (annotates matches with enclosing function/class).
+- Before modifying code, check `why_was_this_built({ qualified_name })` for governing decisions.
+- The 2D viewer is at `http://localhost:3334/viewer` in dev (`npm run dev`); MCP plugin instance uses :3333.
+
+## Quick start for next session
 
 ```bash
 cd ~/Development/cortex
-git pull                              # sanity check
-npm install                           # if deps changed
-npm test                              # expect 179 passing
-npx tsc --noEmit                      # expect clean
-npm run dev                           # MCP + 2D viewer + WS on :3334
-open http://localhost:3334/viewer     # the shipped 2D viewer
-open http://localhost:3334/viewer/3d  # legacy 3D still available
+git pull                              # sanity check; should be clean
+npm install                           # postinstall builds bin/cortex-indexer
+npm test                              # expect 48 files / 360 passed / 1 skipped / 0 failed
+bash scripts/build-indexer.sh         # rebuild indexer if you've touched C
+bin/cortex-indexer --help             # confirm binary works
+npm run dev                           # MCP + viewer + WS on :3334
 ```
 
-To verify the viewer end-to-end (before building on top):
+To kick off Phase 6:
 
 ```bash
-# Trigger a few mutations to watch synapse animations:
-#   (in another shell — or via Claude Code with MCP tools enabled)
-#   create_decision → new lavender diamond + ring ripple
-#   link_decision   → new GOVERNS edge + pulse particle
-#   supersede_decision → staggered pulses + ring on new node
-#
-# Check navigation: drag to pan, wheel to zoom, F to recenter, dblclick for focus, Esc to return
-# Check search:     press /, type "auth" (or any substring), verify dim + hover-wins behavior
+# Survey what's there before deletion
+ls internal/cbm/src/mcp/
+ls internal/cbm/graph-ui/
+grep -rn '"manage_adr"\|query_graph\|get_architecture\|ingest_traces' internal/cbm/src/
 ```
 
-To start Plan C:
+Then brainstorm → spec → plan → execute, same cadence as Phase 4.
 
 ```
-/brainstorm activity stream (Plan C) from the 2026-04-17 spec
+# Recommended invocation for the next session
+/brainstorm Phase 6 of the CBM absorption: strip CBM's MCP shell and bridge query_graph / get_architecture / ingest_traces. Spec is at docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md §3 Step 6.
 ```
 
-Or pick up the onboarding-gap brainstorm instead. Both are outstanding.
+## Key artifacts
 
-## Key Files (new from this session)
-
-| File | What it does |
+| Artifact | Path |
 |---|---|
-| [src/viewer/shared/state.js](src/viewer/shared/state.js) | Pure graph state + `applyMutation` + `edgeKey` + `hydrate` |
-| [src/viewer/shared/colors.js](src/viewer/shared/colors.js) | `PALETTE_REST`, `PALETTE_HOVER`, `EDGE_ALPHA`, `BACKGROUND`, `lerpRGB`, `rgbString` |
-| [src/viewer/shared/shapes.js](src/viewer/shared/shapes.js) | `drawDiamond/Circle/Hex/Pill/Tri/Strike` + `SHAPE_FOR_KIND` |
-| [src/viewer/shared/layout.js](src/viewer/shared/layout.js) | d3-force config + per-kind/relation tables; `createSimulation` |
-| [src/viewer/shared/animation.js](src/viewer/shared/animation.js) | Hover lerp state + synapse queue + `advance` |
-| [src/viewer/shared/websocket.js](src/viewer/shared/websocket.js) | Reconnecting client + heartbeat + backfill dedupe |
-| [src/viewer/shared/camera.js](src/viewer/shared/camera.js) | Pure camera + transform math (pan/zoom/fit) |
-| [src/viewer/shared/search.js](src/viewer/shared/search.js) | `searchMatch(node, query)` predicate |
-| [src/viewer/graph-viewer-2d.js](src/viewer/graph-viewer-2d.js) | Entry — DOM wiring + render loop + interaction handlers |
-| [src/viewer/3d/](src/viewer/3d/) | Legacy 3D viewer (unchanged, moved from `src/viewer/`) |
+| Parent spec — CBM absorption | [docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md) |
+| Phase 4 spec | [docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md](docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md) |
+| Phase 4 plan | [docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md](docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md) |
+| Architecture doc — graph UI | [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) |
+| Workflow rules | [.claude/rules/workflow.md](.claude/rules/workflow.md) |
+| Project instructions | [CLAUDE.md](CLAUDE.md) |
 
-## Key Files (modified this session)
+## Key files (modified this session)
 
 | File | Change |
 |---|---|
-| [src/mcp-server/api.ts](src/mcp-server/api.ts) | Routing: `/viewer` → 2D; `/viewer/3d` → 3D; `/viewer/<asset>` → static |
-| [src/viewer/index.html](src/viewer/index.html) | Canvas + importmap (d3-force CDN) + toolbar (search + match-count + recenter + filters) + tooltip + detail panel |
-| [src/viewer/style.css](src/viewer/style.css) | 2D canvas, tooltip, search group, recenter button, `.panning` cursor |
-| [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) | Appended "2D viewer" section: module layout, render loop, extension recipes |
-| [CLAUDE.md](CLAUDE.md) | "Viewer" pointer updated for 2D default + 3D alternate |
-| [README.md](README.md) | "3D graph viewer" references updated to reflect new default |
-| [package.json](package.json) | Added `d3-force@^3.0.0` as devDependency (served via CDN in browser) |
+| [src/graph/schema.ts](src/graph/schema.ts) | New columns on nodes/edges + 3 compound indexes |
+| [src/graph/store.ts](src/graph/store.ts) | `CBM_LABEL_MAP` deleted; `getAll*Unified` simplified; `migrateSchemaFold` removed (break-away) |
+| [src/graph/code-queries.ts](src/graph/code-queries.ts) | All SQL targets unified `nodes`/`edges` with `kind` filter |
+| [src/index.ts](src/index.ts) | `cbm_projects` → `ctx_projects` |
+| [src/mcp-server/tools/code-tools.ts](src/mcp-server/tools/code-tools.ts) | Inline SQL + output formatters use `kind` |
+| [internal/cbm/src/store/store.c](internal/cbm/src/store/store.c) | `init_schema`, INSERT helpers, SELECT queries all use new schema |
+| [internal/cbm/internal/cbm/sqlite_writer.c](internal/cbm/internal/cbm/sqlite_writer.c) | Bulk-write path rewritten — record builders, comparators, master catalog, autoindex population |
+| [internal/cbm/src/pipeline/pipeline.c](internal/cbm/src/pipeline/pipeline.c) | FTS backfill uses `nodes.rowid` directly |
+| [tests/mcp-contract/globalSetup.ts](tests/mcp-contract/globalSetup.ts) | `cbm_projects`/`cbm_nodes` → `ctx_projects`/`nodes` |
+| [tests/graph/code-queries.test.ts](tests/graph/code-queries.test.ts) | `ctx-` prefix; `ctx_projects` reference |
+| [tests/mcp-contract/code-tools.test.ts](tests/mcp-contract/code-tools.test.ts) | Lowercase kind regex |
+| [tests/mcp-contract/smoke.test.ts](tests/mcp-contract/smoke.test.ts) | Lowercase kind regex |
+| [README.md](README.md) | Architecture diagram, native-indexer section, env vars, project structure all reflect single-file post-Phase-4 layout |
+| (deleted) `src/graph/cbm-discovery.ts` | Phase 5 migration shim — no longer needed |
+| (deleted) `tests/graph/schema-fold-migration.test.ts` | Tested the migration we deleted |
+| (deleted) `tests/graph/fts-migration.test.ts` | Tested pre-Phase-4 legacy FTS upgrade — break-away |
