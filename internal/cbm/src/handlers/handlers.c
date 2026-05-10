@@ -38,7 +38,7 @@ enum {
 #define MCP_S_TO_US 1000000LL
 
 #define SLEN(s) (sizeof(s) - 1)
-#include "mcp/mcp.h"
+#include "handlers/handlers.h"
 #include "store/store.h"
 #include <sqlite3.h>
 #include "cypher/cypher.h"

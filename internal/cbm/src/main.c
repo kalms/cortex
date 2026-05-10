@@ -13,7 +13,7 @@
  * Watcher runs in a background thread, polling for git changes.
  * HTTP UI server (optional) runs in a background thread on localhost.
  */
-#include "mcp/mcp.h"
+#include "handlers/handlers.h"
 #include "watcher/watcher.h"
 #include "pipeline/pipeline.h"
 #include "store/store.h"

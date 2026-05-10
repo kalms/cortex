@@ -5,7 +5,7 @@
  */
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
-#include <mcp/mcp.h>
+#include <handlers/handlers.h>
 #include <store/store.h>
 #include <yyjson/yyjson.h>
 #include <string.h>

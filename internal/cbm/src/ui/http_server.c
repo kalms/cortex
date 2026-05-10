@@ -14,7 +14,7 @@
 #include "ui/http_server.h"
 #include "ui/embedded_assets.h"
 #include "ui/layout3d.h"
-#include "mcp/mcp.h"
+#include "handlers/handlers.h"
 #include "store/store.h"
 /* pipeline.h no longer needed — indexing runs as subprocess */
 #include "foundation/log.h"
