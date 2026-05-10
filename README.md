@@ -78,16 +78,20 @@ Cortex emits structured events for every decision change and git commit, persist
 │                          detect_changes,      │
 │                          delete_project       │
 ├──────────────────────────────────────────────┤
-│  DecisionService  │  CBM Queries (SQL)        │
-│  DecisionSearch   │  ATTACH cbm.db READ ONLY  │
-│  DecisionPromotion│                           │
+│  DecisionService  │  Code Queries (SQL)       │
+│  DecisionSearch   │  SELECT FROM nodes/edges  │
+│  DecisionPromotion│  WHERE kind != decision   │
 ├──────────────────────────────────────────────┤
 │  Cortex GraphStore (SQLite/WAL)               │
-│  nodes ─ edges ─ annotations ─ FTS5           │
-│              ┌───────────────────┐            │
-│              │ ATTACH cbm.db     │            │
-│              │ (read-only)       │            │
-│              └───────────────────┘            │
+│  Single file: <install>/.cortex/graph.db      │
+│   ├─ nodes   (decisions + code, kind disc.)   │
+│   ├─ edges   (governance + code-graph)        │
+│   ├─ edge_annotations                         │
+│   ├─ decisions_fts                            │
+│   └─ ctx_*  (indexer bookkeeping —            │
+│              projects, file_hashes,           │
+│              project_summaries, nodes_fts,    │
+│              node_vectors, token_vectors)     │
 └──────────────────────────────────────────────┘
          │
          ▼
@@ -97,6 +101,8 @@ Cortex emits structured events for every decision change and git commit, persist
 │  :3333/viewer    │  ← 2D canvas graph (dev: :3334; 3D at /viewer/3d)
 └─────────────────┘
 ```
+
+The indexer subprocess writes directly into Cortex's `nodes`/`edges` tables (post-Phase-4 schema fold) using `'ctx-<int>'` text IDs and lowercase `kind` values. SQLite ATTACH is no longer used; both the indexer and Cortex's TS layer operate on the same single `cortex.db` file with WAL concurrency.
 
 **Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, d3-force + Canvas 2D (viewer), 3d-force-graph + Three.js (legacy 3D viewer)
 
@@ -117,7 +123,7 @@ Cortex emits structured events for every decision change and git commit, persist
 
 ### Code Tools — SQL (7)
 
-These query the indexer's database directly via SQLite ATTACH (no subprocess, millisecond response):
+These query the unified `nodes`/`edges` tables directly (no subprocess, millisecond response). Code-entity rows are distinguished from decision/PR/TODO rows by `kind`:
 
 | Tool | Description |
 |------|-------------|
@@ -170,13 +176,13 @@ The 3D viewer at `/viewer` renders the unified knowledge graph in WebGL using [3
 
 Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives at `internal/cbm/`, absorbed from [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) via git subtree on 2026-05-04. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install.
 
-The indexer writes to a SQLite database under `~/.cache/codebase-memory-mcp/` (path retained for compatibility with existing caches). Cortex discovers and ATTACHes that database read-only on startup, so code entities and decisions live in separate database files but are queried as a unified graph.
+The indexer and Cortex share a single SQLite file (`<install>/.cortex/graph.db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); decisions/PRs/TODOs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
 
-- **Discovery:** Scans `~/.cache/codebase-memory-mcp/` for a database matching the current working directory
-- **WAL visibility:** Cortex sees the latest indexed data automatically — no re-attach needed
-- **Zero lock contention:** the indexer writes to its file, Cortex reads it. SQLite WAL MVCC handles concurrency.
+- **Single-file architecture:** no SQLite ATTACH, no separate cache file. Both processes operate on the same `cortex.db` with WAL concurrency.
+- **Bulk-write fast path:** `internal/cbm/internal/cbm/sqlite_writer.c` constructs the SQLite file via raw B-tree page writes for full-index runs. Schema-aware after Phase 4 (writes Cortex's `nodes`/`edges` directly). Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
+- **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` env pointing at the same SQLite file.
 
-Override the database path with `CBM_DB_PATH` env var.
+The historical `~/.cache/codebase-memory-mcp/` cache directory is gone (Phase 3a/3b/4). Migration paths for v0.2/v0.3 legacy DBs were dropped under a "break-away" decision — there is no automatic upgrade. Delete your existing `cortex.db` and re-run `index_repository` to pick up the new schema.
 
 ## Seeding Test Data
 
@@ -189,30 +195,32 @@ Seeds 6 code entities, 5 decisions (with supersession + promotions), and 1 refer
 ## Testing
 
 ```bash
-npm test                                       # 70 tests
-npm run test:watch                             # Watch mode
-npx vitest run tests/graph/cbm-attach.test.ts  # Single file
+npm test                                          # 360 tests, 48 files
+npm run test:watch                                # Watch mode
+npx vitest run tests/graph/code-queries.test.ts   # Single file
 ```
+
+Major suites:
 
 | Suite | Tests | Covers |
 |-------|-------|--------|
 | `tests/graph/store.test.ts` | 15 | Schema, node/edge CRUD, annotations, FTS |
-| `tests/graph/fts.test.ts` | 5 | FTS5 index/search/update/remove |
-| `tests/graph/query.test.ts` | 7 | getConnected, findPath |
-| `tests/graph/cbm-attach.test.ts` | 18 | ATTACH, discovery, CBM queries, unified graph |
+| `tests/graph/code-queries.test.ts` | 6 | End-to-end: indexer → unified `nodes`/`edges` → query |
 | `tests/decisions/service.test.ts` | 14 | Decision CRUD with GOVERNS/REFERENCES edges |
-| `tests/decisions/search.test.ts` | 7 | FTS search, scoped search, whyWasThisBuilt |
-| `tests/decisions/promotion.test.ts` | 4 | Tier promotion |
+| `tests/mcp-contract/code-tools.test.ts` | 19 | All 10 code-tool MCP contract scenarios |
+| `tests/mcp-contract/decision-tools.test.ts` | 11 | All 8 decision-tool MCP contracts |
+| `tests/viewer/*.test.ts` | ~120 | Viewer layout, projection, sizing, camera, etc. |
+| `tests/events/*.test.ts` | ~40 | Event pipeline + mutation derivation |
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database |
+| `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database (TS-side connection string) |
+| `CORTEX_DB` | _(set by Cortex)_ | Same path, passed to the indexer subprocess so it writes to the same file |
 | `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary (for index/detect_changes/delete) |
 | `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
-| `CBM_DB_PATH` | Auto-discovered | Explicit path to the indexer database (skips discovery) |
 
 ## Project Structure
 
@@ -228,13 +236,12 @@ hooks/
   hooks.json                        # Hook configuration (Grep nudge + commit capture)
   suggest-capture.sh                # Post-commit decision capture reminder
 src/
-  index.ts                          # Entry point — CBM discovery, MCP + HTTP servers
+  index.ts                          # Entry point — MCP + HTTP servers, project resolution
   graph/
-    schema.ts                       # SQL DDL (tables, indexes, FTS5)
-    store.ts                        # GraphStore — CRUD, ATTACH, unified queries
+    schema.ts                       # SQL DDL (tables, indexes, FTS5) — single-file schema
+    store.ts                        # GraphStore — CRUD, unified getAllNodes/Edges
     query.ts                        # Traversal helpers (getConnected, findPath)
-    cbm-queries.ts                  # SQL queries against attached CBM database
-    cbm-discovery.ts                # Finds CBM database by scanning ~/.cache/
+    code-queries.ts                 # SQL queries against the unified nodes/edges
   decisions/
     types.ts                        # Decision interfaces
     service.ts                      # Decision CRUD + link operations
