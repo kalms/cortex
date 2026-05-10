@@ -38,8 +38,6 @@ enum {
 #include <sqlite3.h>
 #include "cypher/cypher.h"
 #include "pipeline/pipeline.h"
-#include "cli/cli.h"
-#include "watcher/watcher.h"
 #include "foundation/mem.h"
 #include "foundation/diagnostics.h"
 #include "foundation/platform.h"
@@ -60,7 +58,6 @@ enum {
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <time.h>
 
 /* ── Constants ────────────────────────────────────────────────── */
 
@@ -168,10 +165,9 @@ bool cbm_mcp_get_bool_arg(const char *args_json, const char *key) {
  * ══════════════════════════════════════════════════════════════════ */
 
 struct cbm_mcp_server {
-    cbm_store_t *store;     /* currently open project store (or NULL) */
-    bool owns_store;        /* true if we opened the store */
-    char *current_project;  /* which project store is open for (heap) */
-    time_t store_last_used; /* last time resolve_store was called for a named project */
+    cbm_store_t *store;    /* currently open project store (or NULL) */
+    bool owns_store;       /* true if we opened the store */
+    char *current_project; /* which project store is open for (heap) */
 };
 
 cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
@@ -238,14 +234,11 @@ static const char *project_db_path(const char *project, char *buf, size_t bufsz)
 /* ── Store resolution ──────────────────────────────────────────── */
 
 /* Open the right project's .db file for query tools.
- * Caches the connection — reopens only when project changes.
- * Tracks last-access time so the event loop can evict idle stores. */
+ * Caches the connection — reopens only when the project changes. */
 static cbm_store_t *resolve_store(cbm_mcp_server_t *srv, const char *project) {
     if (!project) {
         return NULL; /* project is required — no implicit fallback */
     }
-
-    srv->store_last_used = time(NULL);
 
     /* Already open for this project? */
     if (srv->current_project && strcmp(srv->current_project, project) == 0 && srv->store) {
