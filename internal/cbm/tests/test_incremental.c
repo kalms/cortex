@@ -13,7 +13,7 @@
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
 #include "test_helpers.h"
-#include <mcp/mcp.h>
+#include <handlers/handlers.h>
 #include <store/store.h>
 #include <pipeline/pipeline.h>
 #include <foundation/log.h>

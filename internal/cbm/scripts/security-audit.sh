@@ -170,7 +170,7 @@ while IFS= read -r match; do
     file=$(echo "$match" | cut -d: -f1)
     relfile="${file#"$ROOT/"}"
     case "$relfile" in
-        src/cli/cli.c|src/store/store.c|src/pipeline/*.c|src/foundation/log.c|src/ui/http_server.c|src/ui/config.c|src/mcp/mcp.c)
+        src/cli/cli.c|src/store/store.c|src/pipeline/*.c|src/foundation/log.c|src/ui/http_server.c|src/ui/config.c|src/handlers/handlers.c)
             ;; # Known safe
         *)
             echo "REVIEW: ${match}"
@@ -230,7 +230,7 @@ fi
 echo ""
 echo "--- Scanning MCP tool handlers for file reads ---"
 
-MCP_FILE="$ROOT/src/mcp/mcp.c"
+MCP_FILE="$ROOT/src/handlers/handlers.c"
 MCP_READS_OK=true
 if [ -f "$MCP_FILE" ]; then
     # Known safe file reads in mcp.c (with line-range context)
@@ -243,7 +243,7 @@ if [ -f "$MCP_FILE" ]; then
     # Known count as of v0.5.5: update this when legitimate reads are added
     EXPECTED_MAX=12
     if [ "$FOPEN_COUNT" -gt "$EXPECTED_MAX" ]; then
-        echo "REVIEW: src/mcp/mcp.c has $FOPEN_COUNT file read operations (expected max $EXPECTED_MAX)"
+        echo "REVIEW: src/handlers/handlers.c has $FOPEN_COUNT file read operations (expected max $EXPECTED_MAX)"
         echo "  New file reads in MCP tool handlers must be reviewed for data exfiltration risk."
         MCP_READS_OK=false
     fi

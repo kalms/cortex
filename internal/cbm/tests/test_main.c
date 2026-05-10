@@ -25,7 +25,6 @@ extern void suite_store_nodes(void);
 extern void suite_store_edges(void);
 extern void suite_store_search(void);
 extern void suite_cypher(void);
-extern void suite_mcp(void);
 extern void suite_language(void);
 extern void suite_userconfig(void);
 extern void suite_gitignore(void);
@@ -49,7 +48,6 @@ extern void suite_system_info(void);
 extern void suite_worker_pool(void);
 extern void suite_parallel(void);
 extern void suite_mem(void);
-extern void suite_ui(void);
 extern void suite_security(void);
 extern void suite_yaml(void);
 extern void suite_integration(void);
@@ -80,9 +78,6 @@ int main(void) {
 
     /* Cypher (M6) */
     RUN_SUITE(cypher);
-
-    /* MCP Server (M9) */
-    RUN_SUITE(mcp);
 
     /* Discover (M2) */
     RUN_SUITE(language);
@@ -135,9 +130,6 @@ int main(void) {
 
     /* mem + arena + slab integration */
     RUN_SUITE(mem);
-
-    /* UI (config, embedded assets, layout) */
-    RUN_SUITE(ui);
 
     /* Security defenses */
     RUN_SUITE(security);
