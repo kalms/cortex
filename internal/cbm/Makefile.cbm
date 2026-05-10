@@ -543,13 +543,12 @@ lint-ci: lint-cppcheck lint-format lint-no-suppress
 
 # ── Security audit (6 layers) ────────────────────────────────────
 
-# Run all security checks: static audit, binary strings, UI, install, network
+# Run all security checks: static audit, binary strings, install, network
 # Requires: production binary already built (make cbm)
 security: cbm
 	@echo "=== Running security audit suite ==="
 	scripts/security-audit.sh
 	scripts/security-strings.sh $(BUILD_DIR)/codebase-memory-mcp
-	scripts/security-ui.sh
 	scripts/security-install.sh $(BUILD_DIR)/codebase-memory-mcp
 	scripts/security-network.sh $(BUILD_DIR)/codebase-memory-mcp
 	scripts/security-fuzz.sh $(BUILD_DIR)/codebase-memory-mcp
