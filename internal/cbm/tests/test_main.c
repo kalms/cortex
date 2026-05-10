@@ -49,7 +49,6 @@ extern void suite_system_info(void);
 extern void suite_worker_pool(void);
 extern void suite_parallel(void);
 extern void suite_mem(void);
-extern void suite_ui(void);
 extern void suite_security(void);
 extern void suite_yaml(void);
 extern void suite_integration(void);
@@ -135,9 +134,6 @@ int main(void) {
 
     /* mem + arena + slab integration */
     RUN_SUITE(mem);
-
-    /* UI (config, embedded assets, layout) */
-    RUN_SUITE(ui);
 
     /* Security defenses */
     RUN_SUITE(security);
