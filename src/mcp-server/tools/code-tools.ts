@@ -15,9 +15,10 @@ import {
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
+import { resolveCortexDbPath } from "../../db/resolve-path.js";
 
 const execFileAsync = promisify(execFile);
-import { join, resolve as pathResolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -30,7 +31,7 @@ async function callCbm(tool: string, args: Record<string, unknown>) {
   // Make the indexer write to the same SQLite file Cortex uses. Without this
   // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
   // Cortex would never see the data.
-  const cortexDb = pathResolve(process.env.CORTEX_DB_PATH || ".cortex/graph.db");
+  const cortexDb = resolveCortexDbPath();
   const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
   try {
     const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
