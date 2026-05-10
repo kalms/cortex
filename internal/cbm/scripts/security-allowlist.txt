@@ -23,11 +23,11 @@ src/watcher/watcher.c:cbm_popen:git file count (git_file_count)
 src/watcher/watcher.c:popen:via cbm_popen wrapper calls
 
 # ── MCP server: search and change detection ────────────────────────────────
-src/mcp/mcp.c:cbm_popen:search_code via grep (pattern in temp file, path validated)
-src/mcp/mcp.c:cbm_popen:detect_changes via git diff (args validated)
-src/mcp/mcp.c:cbm_popen:git ls-files count for auto-index (session_root validated)
-src/mcp/mcp.c:cbm_popen:update check to api.github.com (hardcoded URL)
-src/mcp/mcp.c:popen:via cbm_popen wrapper calls
+src/handlers/handlers.c:cbm_popen:search_code via grep (pattern in temp file, path validated)
+src/handlers/handlers.c:cbm_popen:detect_changes via git diff (args validated)
+src/handlers/handlers.c:cbm_popen:git ls-files count for auto-index (session_root validated)
+src/handlers/handlers.c:cbm_popen:update check to api.github.com (hardcoded URL)
+src/handlers/handlers.c:popen:via cbm_popen wrapper calls
 
 # ── Pipeline: git history parsing (fallback when libgit2 not available) ────
 src/pipeline/pass_githistory.c:cbm_popen:git log for file history (path validated)
