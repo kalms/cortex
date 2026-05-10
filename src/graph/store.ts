@@ -331,65 +331,51 @@ export class GraphStore {
     return this.db.prepare(sql).all(...params) as T[];
   }
 
-  private static readonly CBM_LABEL_MAP: Record<string, string> = {
-    function: "function",
-    method: "function",
-    class: "component",
-    module: "component",
-    interface: "component",
-    file: "path",
-    package: "path",
-    folder: "path",
-  };
+  /**
+   * Return all nodes (decision/PR/TODO/code-entity), optionally filtered to a project.
+   *
+   * After Phase 4, code rows live in `nodes` directly with `kind` discriminator —
+   * no CBM_LABEL_MAP collapse, no separate cbm_nodes table. Decision/PR/TODO rows
+   * have project=NULL; code rows have project=<name>. Passing a project filter
+   * drops decision rows; omitting it returns all rows.
+   */
+  getAllNodesUnified(project?: string | string[]): NodeRow[] {
+    if (!project) return this.getAllNodes();
 
-  getAllNodesUnified(cbmProject?: string): NodeRow[] {
-    const cortexNodes = this.getAllNodes();
-
-    if (!cbmProject) return cortexNodes;
-
-    const cbmNodes = this.db
-      .prepare(
-        `SELECT
-          'cbm-' || CAST(id AS TEXT) AS id,
-          LOWER(label) AS kind,
-          name,
-          qualified_name,
-          file_path,
-          properties AS data,
-          'personal' AS tier,
-          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS created_at,
-          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS updated_at
-        FROM cbm_nodes WHERE project = ?`
-      )
-      .all(cbmProject, cbmProject, cbmProject) as NodeRow[];
-
-    // Apply label-to-kind mapping
-    for (const node of cbmNodes) {
-      const mapped = GraphStore.CBM_LABEL_MAP[node.kind];
-      if (mapped) node.kind = mapped;
+    if (Array.isArray(project)) {
+      if (project.length === 0) return this.getAllNodes();
+      const placeholders = project.map(() => "?").join(", ");
+      return this.db
+        .prepare(`SELECT * FROM nodes WHERE project IN (${placeholders}) OR project IS NULL`)
+        .all(...project) as NodeRow[];
     }
 
-    return [...cortexNodes, ...cbmNodes];
+    return this.db
+      .prepare("SELECT * FROM nodes WHERE project = ? OR project IS NULL")
+      .all(project) as NodeRow[];
   }
 
-  getAllEdgesUnified(cbmProject?: string): EdgeRow[] {
-    const cortexEdges = this.getAllEdges();
+  /**
+   * Return all edges (governance + code-graph), optionally filtered to a project.
+   *
+   * After Phase 4, code edges live in `edges` directly with project denormalized.
+   * Governance edges (GOVERNS, SUPERSEDES, ...) have project=NULL — they're
+   * cross-cutting. Passing a project filter returns code-edges for that project
+   * plus all governance edges; omitting it returns everything.
+   */
+  getAllEdgesUnified(project?: string | string[]): EdgeRow[] {
+    if (!project) return this.getAllEdges();
 
-    if (!cbmProject) return cortexEdges;
+    if (Array.isArray(project)) {
+      if (project.length === 0) return this.getAllEdges();
+      const placeholders = project.map(() => "?").join(", ");
+      return this.db
+        .prepare(`SELECT * FROM edges WHERE project IN (${placeholders}) OR project IS NULL`)
+        .all(...project) as EdgeRow[];
+    }
 
-    const cbmEdges = this.db
-      .prepare(
-        `SELECT
-          'cbm-' || CAST(id AS TEXT) AS id,
-          'cbm-' || CAST(source_id AS TEXT) AS source_id,
-          'cbm-' || CAST(target_id AS TEXT) AS target_id,
-          type AS relation,
-          properties AS data,
-          (SELECT indexed_at FROM cbm_projects WHERE name = ?) AS created_at
-        FROM cbm_edges WHERE project = ?`
-      )
-      .all(cbmProject, cbmProject) as EdgeRow[];
-
-    return [...cortexEdges, ...cbmEdges];
+    return this.db
+      .prepare("SELECT * FROM edges WHERE project = ? OR project IS NULL")
+      .all(project) as EdgeRow[];
   }
 }

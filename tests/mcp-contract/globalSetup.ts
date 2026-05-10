@@ -54,16 +54,16 @@ export async function setup() {
   const Database = (await import("better-sqlite3")).default;
   const db = new Database(cortexDbPath, { readonly: true });
   const row = db
-    .prepare("SELECT name FROM cbm_projects WHERE root_path = ?")
+    .prepare("SELECT name FROM ctx_projects WHERE root_path = ?")
     .get(fixtureCopy) as { name: string } | undefined;
 
   if (!row) {
     db.close();
-    throw new Error(`globalSetup: no cbm_projects row found in ${cortexDbPath} for ${fixtureCopy}`);
+    throw new Error(`globalSetup: no ctx_projects row found in ${cortexDbPath} for ${fixtureCopy}`);
   }
 
   const nodeCount = db
-    .prepare("SELECT COUNT(*) AS c FROM cbm_nodes WHERE project = ?")
+    .prepare("SELECT COUNT(*) AS c FROM nodes WHERE project = ?")
     .get(row.name) as { c: number };
   db.close();
 
