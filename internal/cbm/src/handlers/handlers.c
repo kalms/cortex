@@ -189,18 +189,6 @@ cbm_mcp_server_t *cbm_mcp_server_new(const char *store_path) {
     return srv;
 }
 
-cbm_store_t *cbm_mcp_server_store(cbm_mcp_server_t *srv) {
-    return srv ? srv->store : NULL;
-}
-
-void cbm_mcp_server_set_project(cbm_mcp_server_t *srv, const char *project) {
-    if (!srv) {
-        return;
-    }
-    free(srv->current_project);
-    srv->current_project = project ? heap_strdup(project) : NULL;
-}
-
 void cbm_mcp_server_free(cbm_mcp_server_t *srv) {
     if (!srv) {
         return;

@@ -12,10 +12,6 @@
 
 #include <stdbool.h>
 
-/* ── Forward declarations ─────────────────────────────────────── */
-
-typedef struct cbm_store cbm_store_t; /* from store/store.h */
-
 /* ── MCP protocol helpers ─────────────────────────────────────── */
 
 /* Format an MCP tool result with text content. Returns heap-allocated JSON. */
@@ -48,14 +44,5 @@ void cbm_mcp_server_free(cbm_mcp_server_t *srv);
 
 /* Dispatch a tool call by name. Returns MCP tool result JSON. */
 char *cbm_mcp_handle_tool(cbm_mcp_server_t *srv, const char *tool_name, const char *args_json);
-
-/* ── Testing helpers ───────────────────────────────────────────── */
-
-/* Get the store handle from a server (for test setup). */
-cbm_store_t *cbm_mcp_server_store(cbm_mcp_server_t *srv);
-
-/* Set the project name associated with the server's current store (for test setup).
- * This prevents resolve_store() from trying to open a .db file when tools specify a project. */
-void cbm_mcp_server_set_project(cbm_mcp_server_t *srv, const char *project);
 
 #endif /* CBM_HANDLERS_H */
