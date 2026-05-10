@@ -86,6 +86,51 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     async ({ project }) => callCbm("delete_project", { project })
   );
 
+  // 6.8: bridge three indexer tools that don't yet have TS registrations
+  server.tool(
+    "query_graph",
+    "Execute a Cypher-style query against the code graph",
+    {
+      query: z.string().describe("Cypher query string"),
+      project: z.string().optional().describe("Project name (default: active project)"),
+      max_rows: z.number().int().optional().describe("Maximum rows to return"),
+    },
+    async ({ query, project, max_rows }) => {
+      const args: Record<string, unknown> = { query };
+      if (project !== undefined) args.project = project;
+      else if (cbmProject) args.project = cbmProject;
+      if (max_rows !== undefined) args.max_rows = max_rows;
+      return callCbm("query_graph", args);
+    }
+  );
+
+  server.tool(
+    "get_architecture",
+    "Get architectural overview by aspect (structure, dependencies, routes, all)",
+    {
+      aspects: z
+        .array(z.string())
+        .optional()
+        .describe('Aspects to include, e.g. ["all"]'),
+      project: z.string().optional().describe("Project name (default: active project)"),
+    },
+    async ({ aspects, project }) => {
+      const args: Record<string, unknown> = { aspects: aspects ?? ["all"] };
+      if (project !== undefined) args.project = project;
+      else if (cbmProject) args.project = cbmProject;
+      return callCbm("get_architecture", args);
+    }
+  );
+
+  server.tool(
+    "ingest_traces",
+    "Ingest runtime traces to enrich the graph",
+    {
+      traces: z.array(z.unknown()).describe("Array of trace records"),
+    },
+    async ({ traces }) => callCbm("ingest_traces", { traces })
+  );
+
   // --- SQL-based tools (6) ---
 
   // 5E: search_graph with normalize
