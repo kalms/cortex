@@ -1,0 +1,492 @@
+#include "cbm.h"
+#include "arena.h" // CtxArena, ctx_arena_init/alloc/strdup/destroy
+#include "helpers.h"
+#include "lang_specs.h"
+#include "extract_unified.h"
+#include "extract_sfc.h"
+#include "lsp/go_lsp.h"
+#include "lsp/c_lsp.h"
+#include "preprocessor.h"
+#include "foundation/compat.h"
+#include "tree_sitter/api.h" // TSParser, TSNode, TSTree, TSInput, TSLanguage, TSPoint, TSParseOptions, TSParseState
+#include "foundation/constants.h"
+#include <stdint.h> // uint32_t, uint64_t, int64_t
+#include <stdlib.h>
+#include <string.h>
+#include <time.h> // struct timespec, CLOCK_MONOTONIC
+
+// Atomic counters for profiling parse vs extraction time (nanoseconds).
+// Accessed from multiple threads; using _Atomic for safe accumulation.
+#include <stdatomic.h>
+static _Atomic uint64_t total_parse_ns = 0;
+static _Atomic uint64_t total_extract_ns = 0;
+static _Atomic uint64_t total_lsp_ns = 0;
+static _Atomic uint64_t total_preprocess_ns = 0;
+static _Atomic uint64_t total_files_preprocessed = 0;
+static _Atomic uint64_t total_files = 0;
+
+#define NSEC_PER_SEC 1000000000ULL
+#define USEC_TO_NSEC 1000ULL
+/* Use compat.h's ctx_clock_gettime which accepts CLOCK_MONOTONIC (value
+ * varies by platform: 1 on Linux/Windows, 6 on macOS). We pass the
+ * platform value via the compat.h fallback. */
+#ifdef __APPLE__
+#define CTX_CLOCK_MONO 6
+#else
+#define CTX_CLOCK_MONO 1
+#endif
+
+static uint64_t now_ns(void) {
+    struct timespec ts;
+    ctx_clock_gettime(CTX_CLOCK_MONO, &ts);
+    return ((uint64_t)ts.tv_sec * NSEC_PER_SEC) + (uint64_t)ts.tv_nsec;
+}
+
+// ctx_get_profile returns accumulated parse/extract times and file count.
+void ctx_get_profile(ctx_profile_out_t out) {
+    *out.parse_ns = atomic_load(&total_parse_ns);
+    *out.extract_ns = atomic_load(&total_extract_ns);
+    *out.files = atomic_load(&total_files);
+}
+
+uint64_t ctx_get_lsp_ns(void) {
+    return atomic_load(&total_lsp_ns);
+}
+
+uint64_t ctx_get_preprocess_ns(void) {
+    return atomic_load(&total_preprocess_ns);
+}
+
+uint64_t ctx_get_files_preprocessed(void) {
+    return atomic_load(&total_files_preprocessed);
+}
+
+// ctx_reset_profile zeros the profiling counters.
+void ctx_reset_profile(void) {
+    atomic_store(&total_parse_ns, 0);
+    atomic_store(&total_extract_ns, 0);
+    atomic_store(&total_lsp_ns, 0);
+    atomic_store(&total_preprocess_ns, 0);
+    atomic_store(&total_files_preprocessed, 0);
+    atomic_store(&total_files, 0);
+}
+
+// --- Growable array push functions ---
+
+#define GROW_ARRAY(arr, arena)                                                                   \
+    do {                                                                                         \
+        if ((arr)->count >= (arr)->cap) {                                                        \
+            int new_cap = (arr)->cap == 0 ? CTX_SZ_32 : (arr)->cap * PAIR_LEN;                   \
+            void *new_items = ctx_arena_alloc((arena), (size_t)new_cap * sizeof(*(arr)->items)); \
+            if (!new_items)                                                                      \
+                return;                                                                          \
+            if ((arr)->items && (arr)->count > 0) {                                              \
+                memcpy(new_items, (arr)->items, (size_t)(arr)->count * sizeof(*(arr)->items));   \
+            }                                                                                    \
+            (arr)->items = new_items;                                                            \
+            (arr)->cap = new_cap;                                                                \
+        }                                                                                        \
+    } while (0)
+
+void ctx_defs_push(CtxDefArray *arr, CtxArena *a, CtxDefinition def) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = def;
+}
+
+void ctx_calls_push(CtxCallArray *arr, CtxArena *a, CtxCall call) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = call;
+}
+
+void ctx_imports_push(CtxImportArray *arr, CtxArena *a, CtxImport imp) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = imp;
+}
+
+void ctx_usages_push(CtxUsageArray *arr, CtxArena *a, CtxUsage usage) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = usage;
+}
+
+void ctx_throws_push(CtxThrowArray *arr, CtxArena *a, CtxThrow thr) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = thr;
+}
+
+void ctx_rw_push(CtxRWArray *arr, CtxArena *a, CtxReadWrite rw) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = rw;
+}
+
+void ctx_typerefs_push(CtxTypeRefArray *arr, CtxArena *a, CtxTypeRef tr) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = tr;
+}
+
+void ctx_envaccess_push(CtxEnvAccessArray *arr, CtxArena *a, CtxEnvAccess ea) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = ea;
+}
+
+void ctx_typeassign_push(CtxTypeAssignArray *arr, CtxArena *a, CtxTypeAssign ta) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = ta;
+}
+
+void ctx_stringref_push(CtxStringRefArray *arr, CtxArena *a, CtxStringRef sr) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = sr;
+}
+
+void ctx_infrabinding_push(CtxInfraBindingArray *arr, CtxArena *a, CtxInfraBinding ib) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = ib;
+}
+
+void ctx_impltrait_push(CtxImplTraitArray *arr, CtxArena *a, CtxImplTrait it) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = it;
+}
+
+void ctx_resolvedcall_push(CtxResolvedCallArray *arr, CtxArena *a, CtxResolvedCall rc) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = rc;
+}
+
+void ctx_channels_push(CtxChannelArray *arr, CtxArena *a, CtxChannel ch) {
+    GROW_ARRAY(arr, a);
+    arr->items[arr->count++] = ch;
+}
+
+// --- String input reader (for parse_with_options) ---
+
+typedef struct {
+    const char *string;
+    uint32_t length;
+} CtxStringInput;
+
+static const char *ctx_string_read(void *payload, uint32_t byte, TSPoint point,
+                                   uint32_t *bytes_read) {
+    (void)point;
+    CtxStringInput *self = (CtxStringInput *)payload;
+    if (byte >= self->length) {
+        *bytes_read = 0;
+        return "";
+    }
+    *bytes_read = self->length - byte;
+    return self->string + byte;
+}
+
+// --- Parse timeout callback ---
+
+static bool ctx_timeout_cb(TSParseState *state) {
+    uint64_t deadline = *(uint64_t *)state->payload;
+    return now_ns() > deadline;
+}
+
+// --- Thread-local parser pool ---
+// TSParser is not thread-safe, but can be reused across files on the same thread.
+// We keep one parser per thread, and just switch language as needed.
+// This avoids ~70K ts_parser_new()/ts_parser_delete() cycles on large repos.
+
+static CTX_TLS TSParser *tl_parser = NULL;
+static CTX_TLS CtxLanguage tl_parser_lang = CTX_LANG_COUNT; // invalid sentinel
+
+// Get or create a thread-local parser configured for the given language.
+static TSParser *get_thread_parser(const TSLanguage *ts_lang, CtxLanguage lang) {
+    if (!tl_parser) {
+        tl_parser = ts_parser_new();
+        if (!tl_parser) {
+            return NULL;
+        }
+        tl_parser_lang = CTX_LANG_COUNT;
+    }
+    if (tl_parser_lang != lang) {
+        ts_parser_set_language(tl_parser, ts_lang);
+        tl_parser_lang = lang;
+    }
+    return tl_parser;
+}
+
+// --- Init/Shutdown ---
+
+static int ctx_initialized = 0;
+
+int ctx_init(void) {
+    if (ctx_initialized) {
+        return 0;
+    }
+    enum { CTX_INIT_DONE = 1 };
+    ctx_initialized = CTX_INIT_DONE;
+    return 0;
+}
+
+void ctx_reset_thread_parser(void) {
+    // Release parser's internal slab-allocated subtrees (stack, cached token).
+    // Must be called BEFORE ctx_slab_reset_thread() to avoid corrupting
+    // live slab chunks that the parser still references.
+    if (tl_parser) {
+        ts_parser_reset(tl_parser);
+    }
+}
+
+void ctx_destroy_thread_parser(void) {
+    // Full cleanup: delete the parser. Call on worker thread exit.
+    if (tl_parser) {
+        ts_parser_delete(tl_parser);
+        tl_parser = NULL;
+        tl_parser_lang = CTX_LANG_COUNT;
+    }
+}
+
+void ctx_shutdown(void) {
+    // Clean up thread-local parser for the calling thread.
+    // Note: other threads' TLS parsers are freed when those threads exit.
+    ctx_destroy_thread_parser();
+    ctx_initialized = 0;
+}
+
+// --- Main extraction function ---
+
+CtxFileResult *ctx_extract_file(const char *source, int source_len, CtxLanguage language,
+                                const char *project, const char *rel_path, int64_t timeout_micros,
+                                const char **extra_defines, const char **include_paths) {
+    // Allocate result on heap (arena inside for all string data)
+    enum { SINGLE = 1 };
+    CtxFileResult *result = (CtxFileResult *)calloc(SINGLE, sizeof(CtxFileResult));
+    if (!result) {
+        return NULL;
+    }
+
+    ctx_arena_init(&result->arena);
+    CtxArena *a = &result->arena;
+
+    // Get language spec
+    const CtxLangSpec *spec = ctx_lang_spec(language);
+    if (!spec) {
+        result->has_error = true;
+        result->error_msg = ctx_arena_strdup(a, "unsupported language");
+        return result;
+    }
+
+    // Get tree-sitter language
+    const TSLanguage *ts_lang = ctx_ts_language(language);
+    if (!ts_lang) {
+        result->has_error = true;
+        result->error_msg = ctx_arena_strdup(a, "no tree-sitter grammar");
+        return result;
+    }
+
+    // Get thread-local parser (reused across files on same thread)
+    TSParser *parser = get_thread_parser(ts_lang, language);
+    if (!parser) {
+        result->has_error = true;
+        result->error_msg = ctx_arena_strdup(a, "parser alloc failed");
+        return result;
+    }
+
+    // Reset parser state from any previous parse (cancellation flags etc.)
+    ts_parser_reset(parser);
+
+    uint64_t t0 = now_ns();
+
+    // Build string input + timeout options for parse_with_options
+    CtxStringInput str_input = {source, (uint32_t)source_len};
+    TSInput ts_input = {
+        &str_input,
+        ctx_string_read,
+        TSInputEncodingUTF8,
+        NULL,
+    };
+
+    TSParseOptions opts = {0};
+    uint64_t deadline_ns = 0; // cppcheck-suppress unreadVariable
+    if (timeout_micros > 0) {
+        deadline_ns = t0 + ((uint64_t)timeout_micros * USEC_TO_NSEC);
+        opts.payload = &deadline_ns;
+        opts.progress_callback = ctx_timeout_cb;
+    }
+
+    TSTree *tree = ts_parser_parse_with_options(parser, NULL, ts_input, opts);
+    uint64_t t1 = now_ns();
+
+    if (!tree) {
+        result->has_error = true;
+        result->error_msg =
+            ctx_arena_strdup(a, timeout_micros > 0 ? "parse timeout" : "parse failed");
+        return result;
+    }
+
+    TSNode root = ts_tree_root_node(tree);
+
+    // Compute module QN
+    result->module_qn = ctx_fqn_module(a, project, rel_path);
+    result->is_test_file = ctx_is_test_file(rel_path, language);
+
+    // Build extraction context
+    CtxExtractCtx ctx = {
+        .arena = a,
+        .result = result,
+        .source = source,
+        .source_len = source_len,
+        .language = language,
+        .project = project,
+        .rel_path = rel_path,
+        .module_qn = result->module_qn,
+        .root = root,
+    };
+
+    // Run extractors: defs + imports use separate walks (unique recursion patterns),
+    // then a single unified cursor walk handles the remaining 7 extractors.
+    ctx_extract_definitions(&ctx);
+    ctx_extract_imports(&ctx);
+    ctx_extract_unified(&ctx);
+
+    // Channel detection (Socket.IO / EventEmitter) — JS/TS only.
+    ctx_extract_channels(&ctx);
+
+    // K8s / Kustomize semantic pass (additional structured extraction for YAML-based infra files).
+    if (ctx.language == CTX_LANG_KUSTOMIZE || ctx.language == CTX_LANG_K8S) {
+        ctx_extract_k8s(&ctx);
+    }
+
+    // SFC extraction (Vue / Svelte) — re-parse <script>, scan <template>.
+    if (language == CTX_LANG_VUE || language == CTX_LANG_SVELTE) {
+        ctx_extract_sfc(&ctx);
+    }
+
+    // SFC extraction (Vue / Svelte) — re-parse <script>, scan <template>.
+    if (language == CTX_LANG_VUE || language == CTX_LANG_SVELTE) {
+        ctx_extract_sfc(&ctx);
+    }
+
+    // LSP type-aware call resolution
+    uint64_t lsp_start = now_ns();
+    if (language == CTX_LANG_GO) {
+        ctx_run_go_lsp(a, result, source, source_len, root);
+    }
+    if (language == CTX_LANG_C || language == CTX_LANG_CPP || language == CTX_LANG_CUDA) {
+        ctx_run_c_lsp(a, result, source, source_len, root, language != CTX_LANG_C);
+    }
+    atomic_fetch_add(&total_lsp_ns, now_ns() - lsp_start);
+
+    // Second pass: preprocess C/C++/CUDA and extract additional macro-hidden calls.
+    // Defs keep original-source line numbers; only CALLS are extracted from expanded source.
+    if (language == CTX_LANG_C || language == CTX_LANG_CPP || language == CTX_LANG_CUDA) {
+        uint64_t pp_start = now_ns();
+        char *expanded = ctx_preprocess(source, source_len, rel_path, extra_defines, include_paths,
+                                        language != CTX_LANG_C);
+        if (expanded) {
+            int expanded_len = (int)strlen(expanded);
+            // Record calls count before second pass
+            int calls_before = result->calls.count;
+
+            // Parse expanded source with fresh tree
+            TSParser *pp_parser = get_thread_parser(ts_lang, language);
+            if (pp_parser) {
+                ts_parser_reset(pp_parser);
+                CtxStringInput pp_input = {expanded, (uint32_t)expanded_len};
+                TSInput pp_ts_input = {
+                    &pp_input,
+                    ctx_string_read,
+                    TSInputEncodingUTF8,
+                    NULL,
+                };
+                TSParseOptions pp_opts = {0};
+                TSTree *pp_tree =
+                    ts_parser_parse_with_options(pp_parser, NULL, pp_ts_input, pp_opts);
+                if (pp_tree) {
+                    TSNode pp_root = ts_tree_root_node(pp_tree);
+
+                    // Build context for expanded source — extract only calls via unified extractor
+                    CtxExtractCtx pp_ctx = {
+                        .arena = a,
+                        .result = result,
+                        .source = expanded,
+                        .source_len = expanded_len,
+                        .language = language,
+                        .project = project,
+                        .rel_path = rel_path,
+                        .module_qn = result->module_qn,
+                        .root = pp_root,
+                    };
+                    // Re-run unified extraction on expanded source.
+                    // This adds macro-expanded calls; duplicates with original calls are
+                    // harmless (pipeline deduplicates by caller+callee).
+                    ctx_extract_unified(&pp_ctx);
+
+                    // Also run LSP on expanded source for additional type-resolved calls
+                    // (language is already C/C++/CUDA — checked in enclosing block)
+                    ctx_run_c_lsp(a, result, expanded, expanded_len, pp_root,
+                                  language != CTX_LANG_C);
+
+                    ts_tree_delete(pp_tree);
+                }
+            }
+            ctx_preprocess_free(expanded);
+            atomic_fetch_add(&total_files_preprocessed, 1);
+            (void)calls_before; // used for future logging
+        }
+        atomic_fetch_add(&total_preprocess_ns, now_ns() - pp_start);
+    }
+
+    uint64_t t2 = now_ns();
+
+    result->imports_count = result->imports.count;
+
+    // Accumulate profiling counters
+    atomic_fetch_add(&total_parse_ns, t1 - t0);
+    atomic_fetch_add(&total_extract_ns, t2 - t1);
+    atomic_fetch_add(&total_files, 1);
+
+    // Retain tree for cross-file LSP reuse (caller frees via ctx_free_tree)
+    result->cached_tree = tree;
+    result->cached_lang = language;
+    return result;
+}
+
+void ctx_free_result(CtxFileResult *result) {
+    if (!result) {
+        return;
+    }
+    if (result->cached_tree) {
+        ts_tree_delete(result->cached_tree);
+        result->cached_tree = NULL;
+    }
+    ctx_arena_destroy(&result->arena);
+    free(result);
+}
+
+void ctx_free_tree(CtxFileResult *result) {
+    if (result && result->cached_tree) {
+        ts_tree_delete(result->cached_tree);
+        result->cached_tree = NULL;
+    }
+}
+
+void ctx_free_tree_ptr(TSTree *tree) {
+    if (tree) {
+        ts_tree_delete(tree);
+    }
+}
+
+TSTree *ctx_parse_string(const char *source, int source_len, CtxLanguage language) {
+    const TSLanguage *ts_lang = ctx_ts_language(language);
+    if (!ts_lang) {
+        return NULL;
+    }
+    TSParser *parser = get_thread_parser(ts_lang, language);
+    if (!parser) {
+        return NULL;
+    }
+    ts_parser_reset(parser);
+    CtxStringInput str_input = {source, (uint32_t)source_len};
+    TSInput ts_input = {
+        &str_input,
+        ctx_string_read,
+        TSInputEncodingUTF8,
+        NULL,
+    };
+    TSParseOptions opts = {0};
+    return ts_parser_parse_with_options(parser, NULL, ts_input, opts);
+}

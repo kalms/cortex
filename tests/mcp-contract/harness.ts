@@ -39,9 +39,10 @@ export async function createHarness(): Promise<HarnessContext> {
   }
 
   // Each test gets a per-test copy of the unified cortex.db so decision/PR
-  // mutations from one test don't leak into the next. The indexer's cbm_*
-  // tables come along for the ride, so search_graph / trace_path / etc.
-  // see the same indexed fixture across all tests.
+  // mutations from one test don't leak into the next. The indexer's
+  // nodes/edges and ctx_* bookkeeping tables come along for the ride, so
+  // search_graph / trace_path / etc. see the same indexed fixture across
+  // all tests.
   const harnessDir = mkdtempSync(join(tmpdir(), "cortex-harness-"));
   const cortexDbPath = join(harnessDir, "cortex.db");
   copyFileSync(sharedDbPath, cortexDbPath);
