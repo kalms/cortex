@@ -34,15 +34,15 @@ export interface ViewerServerHandle {
 
 export function startViewerServer(
   store: GraphStore,
-  cbmProject?: string | null,
+  indexerProject?: string | null,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
 
       if (url === "/api/graph") {
-        const nodes = store.getAllNodesUnified(cbmProject ?? undefined);
-        const rawEdges = store.getAllEdgesUnified(cbmProject ?? undefined);
+        const nodes = store.getAllNodesUnified(indexerProject ?? undefined);
+        const rawEdges = store.getAllEdgesUnified(indexerProject ?? undefined);
         const edges = rawEdges.map((e) => ({
           ...e,
           source: e.source_id,
