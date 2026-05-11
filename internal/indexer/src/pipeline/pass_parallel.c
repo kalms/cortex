@@ -425,10 +425,12 @@ static void insert_def_into_gbuf(extract_worker_state_t *ws, const ctx_file_info
 }
 
 static void log_extract_fail(int pos, uint64_t ms, const char *path) {
-    if (pos < PP_LOG_THRESH) {
-        ctx_log_warn("parallel.extract.file.fail", "pos", itoa_log(pos), "elapsed_ms",
-                     itoa_log((int)ms), "path", path);
-    }
+    /* Always log extraction failures — they're rare (typically <0.5% of files)
+     * and knowing exactly which files failed is critical for diagnosis. The
+     * PP_LOG_THRESH gate on start/done entries exists to suppress per-file
+     * noise on large repos; failures don't have that volume problem. */
+    ctx_log_warn("parallel.extract.file.fail", "pos", itoa_log(pos), "elapsed_ms",
+                 itoa_log((int)ms), "path", path);
 }
 
 static void log_extract_done(int pos, uint64_t ms, int defs, const char *path) {
@@ -461,10 +463,20 @@ static void extract_worker(int worker_id, void *ctx_ptr) {
         int file_idx = ec->sorted[sort_pos].idx;
         const ctx_file_info_t *fi = &ec->files[file_idx];
 
+        /* Skip zero-byte files silently — they're legitimate (empty __init__.py,
+         * stub fixtures, etc.) and have nothing to extract. read_file would
+         * return NULL on them (mmap-of-empty-file convention), which we'd
+         * mis-count as an error. */
+        if (fi->size <= 0) {
+            continue;
+        }
+
         /* Read + extract */
         int source_len = 0;
         char *source = read_file(fi->path, &source_len);
         if (!source) {
+            ctx_log_warn("parallel.extract.file.read_fail", "pos", itoa_log(sort_pos), "path",
+                         fi->rel_path);
             ws->errors++;
             continue;
         }
