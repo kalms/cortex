@@ -44,14 +44,14 @@ static const char *unquote_string(CBMArena *a, const char *s) {
         return NULL;
     }
     size_t len = strlen(s);
-    if (len < CBM_QUOTE_PAIR) {
+    if (len < CTX_QUOTE_PAIR) {
         return NULL;
     }
     char first = s[0];
-    char last = s[len - CBM_QUOTE_OFFSET];
+    char last = s[len - CTX_QUOTE_OFFSET];
     if ((first == '"' && last == '"') || (first == '\'' && last == '\'') ||
         (first == '`' && last == '`')) {
-        return cbm_arena_strndup(a, s + CBM_QUOTE_OFFSET, len - CBM_QUOTE_PAIR);
+        return ctx_arena_strndup(a, s + CTX_QUOTE_OFFSET, len - CTX_QUOTE_PAIR);
     }
     return NULL;
 }
@@ -64,7 +64,7 @@ static const char *literal_from_arg(CBMExtractCtx *ctx, TSNode arg) {
     if (strcmp(kind, "string") != 0 && strcmp(kind, "string_literal") != 0) {
         return NULL;
     }
-    char *text = cbm_node_text(ctx->arena, arg, ctx->source);
+    char *text = ctx_node_text(ctx->arena, arg, ctx->source);
     return unquote_string(ctx->arena, text);
 }
 
@@ -94,8 +94,8 @@ static void scan_string_consts(CBMExtractCtx *ctx, chan_const_table_t *tbl) {
                 const char *vk = ts_node_type(value_node);
                 if (strcmp(nk, "identifier") == 0 &&
                     (strcmp(vk, "string") == 0 || strcmp(vk, "string_literal") == 0)) {
-                    char *name_text = cbm_node_text(ctx->arena, name_node, ctx->source);
-                    char *value_text = cbm_node_text(ctx->arena, value_node, ctx->source);
+                    char *name_text = ctx_node_text(ctx->arena, name_node, ctx->source);
+                    char *value_text = ctx_node_text(ctx->arena, value_node, ctx->source);
                     const char *unq = unquote_string(ctx->arena, value_text);
                     if (name_text && unq) {
                         tbl->items[tbl->count].name = name_text;
@@ -139,7 +139,7 @@ static const char *enclosing_function_qn(CBMExtractCtx *ctx, TSNode node) {
             strcmp(pk, "function") == 0 || strcmp(pk, "method_signature") == 0) {
             TSNode name_node = ts_node_child_by_field_name(parent, TS_FIELD("name"));
             if (!ts_node_is_null(name_node)) {
-                char *name = cbm_node_text(ctx->arena, name_node, ctx->source);
+                char *name = ctx_node_text(ctx->arena, name_node, ctx->source);
                 if (name && name[0]) {
                     return name;
                 }
@@ -168,7 +168,7 @@ static bool is_listen_method(const char *name) {
  * (which means we skip — we don't want to mistake any .emit()/.on() call
  * for a channel). */
 static const char *classify_receiver(CBMExtractCtx *ctx, TSNode object_node) {
-    char *text = cbm_node_text(ctx->arena, object_node, ctx->source);
+    char *text = ctx_node_text(ctx->arena, object_node, ctx->source);
     if (!text) {
         return NULL;
     }
@@ -206,12 +206,12 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
         return;
     }
 
-    char *method = cbm_node_text(ctx->arena, property, ctx->source);
+    char *method = ctx_node_text(ctx->arena, property, ctx->source);
     CBMChannelDirection direction;
     if (is_emit_method(method)) {
-        direction = CBM_CHANNEL_EMIT;
+        direction = CTX_CHANNEL_EMIT;
     } else if (is_listen_method(method)) {
-        direction = CBM_CHANNEL_LISTEN;
+        direction = CTX_CHANNEL_LISTEN;
     } else {
         return;
     }
@@ -237,7 +237,7 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
         /* Try identifier resolution via the constant table. */
         const char *kind = ts_node_type(first);
         if (strcmp(kind, "identifier") == 0) {
-            char *ident = cbm_node_text(ctx->arena, first, ctx->source);
+            char *ident = ctx_node_text(ctx->arena, first, ctx->source);
             channel_name = resolve_identifier(consts, ident);
         }
     }
@@ -251,15 +251,15 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
         .enclosing_func_qn = enclosing_function_qn(ctx, call),
         .direction = direction,
     };
-    cbm_channels_push(&ctx->result->channels, ctx->arena, ch);
+    ctx_channels_push(&ctx->result->channels, ctx->arena, ch);
 }
 
 /* ── Entry point ────────────────────────────────────────────────── */
 
-void cbm_extract_channels(CBMExtractCtx *ctx) {
+void ctx_extract_channels(CBMExtractCtx *ctx) {
     /* Only JS/TS variants — Socket.IO and EventEmitter are Node.js ecosystem. */
-    if (ctx->language != CBM_LANG_JAVASCRIPT && ctx->language != CBM_LANG_TYPESCRIPT &&
-        ctx->language != CBM_LANG_TSX) {
+    if (ctx->language != CTX_LANG_JAVASCRIPT && ctx->language != CTX_LANG_TYPESCRIPT &&
+        ctx->language != CTX_LANG_TSX) {
         return;
     }
 

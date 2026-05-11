@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, cbm_arena_sprintf/strndup
+#include "arena.h" // CBMArena, ctx_arena_sprintf/strndup
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -59,12 +59,12 @@ static const char *clean_type_name(CBMArena *a, const char *name) {
     size_t len = strlen(name);
     for (size_t i = 0; i < len; i++) {
         if (name[i] == '<' || name[i] == '[') {
-            return cbm_arena_strndup(a, name, i);
+            return ctx_arena_strndup(a, name, i);
         }
     }
     // Strip trailing ? (optionals)
     if (len > 0 && name[len - SKIP_ONE] == '?') {
-        return cbm_arena_strndup(a, name, len - SKIP_ONE);
+        return ctx_arena_strndup(a, name, len - SKIP_ONE);
     }
     return name;
 }
@@ -76,11 +76,11 @@ static const char *extract_type_text(CBMArena *a, TSNode node, const char *sourc
         const char *kind = ts_node_type(node);
         if (strcmp(kind, "type_identifier") == 0 || strcmp(kind, "identifier") == 0 ||
             strcmp(kind, "simple_identifier") == 0 || strcmp(kind, "name") == 0) {
-            return cbm_node_text(a, node, source);
+            return ctx_node_text(a, node, source);
         }
         if (strcmp(kind, "generic_type") == 0 || strcmp(kind, "parameterized_type") == 0) {
             if (ts_node_child_count(node) > 0) {
-                return cbm_node_text(a, ts_node_child(node, 0), source);
+                return ctx_node_text(a, ts_node_child(node, 0), source);
             }
         }
         if (strcmp(kind, "pointer_type") == 0 || strcmp(kind, "reference_type") == 0 ||
@@ -98,7 +98,7 @@ static const char *extract_type_text(CBMArena *a, TSNode node, const char *sourc
         }
         break;
     }
-    return clean_type_name(a, cbm_node_text(a, node, source));
+    return clean_type_name(a, ctx_node_text(a, node, source));
 }
 
 // Add a type reference for a function.
@@ -117,7 +117,7 @@ static void add_type_ref(CBMExtractCtx *ctx, const char *type_name, const char *
     CBMTypeRef tr;
     tr.type_name = type_name;
     tr.enclosing_func_qn = func_qn;
-    cbm_typerefs_push(&ctx->result->type_refs, ctx->arena, tr);
+    ctx_typerefs_push(&ctx->result->type_refs, ctx->arena, tr);
 }
 
 // Extract parameter types from a parameters/formal_parameters node.
@@ -165,7 +165,7 @@ static void extract_ts_body_type_refs(CBMExtractCtx *ctx, TSNode node, const cha
             TSNode child = ts_node_child(node, i);
             if (strcmp(ts_node_type(child), "type_identifier") == 0 ||
                 strcmp(ts_node_type(child), "identifier") == 0) {
-                add_type_ref(ctx, cbm_node_text(ctx->arena, child, ctx->source), func_qn);
+                add_type_ref(ctx, ctx_node_text(ctx->arena, child, ctx->source), func_qn);
             }
         }
     } else if (strcmp(kind, "variable_declarator") == 0) {
@@ -196,7 +196,7 @@ static void extract_java_body_type_refs(CBMExtractCtx *ctx, TSNode node, const c
                 for (uint32_t j = 0; j < nta; j++) {
                     TSNode ta = ts_node_child(child, j);
                     if (strcmp(ts_node_type(ta), "type_identifier") == 0) {
-                        add_type_ref(ctx, cbm_node_text(ctx->arena, ta, ctx->source), func_qn);
+                        add_type_ref(ctx, ctx_node_text(ctx->arena, ta, ctx->source), func_qn);
                     }
                 }
             }
@@ -209,29 +209,29 @@ static void process_body_type_ref(CBMExtractCtx *ctx, TSNode node, const char *f
     const char *kind = ts_node_type(node);
 
     switch (ctx->language) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         if (strcmp(kind, "var_spec") == 0 || strcmp(kind, "type_assertion") == 0 ||
             strcmp(kind, "type_conversion_expression") == 0 ||
             strcmp(kind, "composite_literal") == 0) {
             extract_type_field_ref(ctx, node, func_qn);
         }
         break;
-    case CBM_LANG_TYPESCRIPT:
-    case CBM_LANG_TSX:
+    case CTX_LANG_TYPESCRIPT:
+    case CTX_LANG_TSX:
         extract_ts_body_type_refs(ctx, node, kind, func_qn);
         break;
-    case CBM_LANG_JAVA:
+    case CTX_LANG_JAVA:
         extract_java_body_type_refs(ctx, node, kind, func_qn);
         break;
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         if (strcmp(kind, "assignment") == 0) {
             TSNode type_node = ts_node_child_by_field_name(node, TS_FIELD("type"));
             if (!ts_node_is_null(type_node)) {
-                add_type_ref(ctx, cbm_node_text(ctx->arena, type_node, ctx->source), func_qn);
+                add_type_ref(ctx, ctx_node_text(ctx->arena, type_node, ctx->source), func_qn);
             }
         }
         break;
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         if (strcmp(kind, "let_declaration") == 0 || strcmp(kind, "type_cast_expression") == 0) {
             extract_type_field_ref(ctx, node, func_qn);
         }
@@ -264,11 +264,11 @@ static void process_func_type_refs(CBMExtractCtx *ctx, TSNode node) {
     if (ts_node_is_null(name_node)) {
         return;
     }
-    char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
+    char *func_name = ctx_node_text(ctx->arena, name_node, ctx->source);
     if (!func_name || !func_name[0]) {
         return;
     }
-    const char *func_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
+    const char *func_qn = ctx_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
     TSNode params = ts_node_child_by_field_name(node, TS_FIELD("parameters"));
     if (!ts_node_is_null(params)) {
         extract_param_type_refs(ctx, params, func_qn);
@@ -296,7 +296,7 @@ static void walk_type_refs(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *s
     while (top > 0) {
         TSNode node = stack[--top];
 
-        if (cbm_kind_in_set(node, spec->function_node_types)) {
+        if (ctx_kind_in_set(node, spec->function_node_types)) {
             process_func_type_refs(ctx, node);
             continue;
         }
@@ -307,8 +307,8 @@ static void walk_type_refs(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *s
     }
 }
 
-void cbm_extract_type_refs(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+void ctx_extract_type_refs(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -328,16 +328,16 @@ static void extract_signature_type_refs(CBMExtractCtx *ctx, TSNode node, WalkSta
     if (ts_node_is_null(name_node)) {
         return;
     }
-    char *func_name = cbm_node_text(ctx->arena, name_node, ctx->source);
+    char *func_name = ctx_node_text(ctx->arena, name_node, ctx->source);
     if (!func_name || !func_name[0]) {
         return;
     }
 
     const char *func_qn;
     if (state->enclosing_class_qn) {
-        func_qn = cbm_arena_sprintf(ctx->arena, "%s.%s", state->enclosing_class_qn, func_name);
+        func_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", state->enclosing_class_qn, func_name);
     } else {
-        func_qn = cbm_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
+        func_qn = ctx_fqn_compute(ctx->arena, ctx->project, ctx->rel_path, func_name);
     }
 
     TSNode params = ts_node_child_by_field_name(node, TS_FIELD("parameters"));
@@ -352,7 +352,7 @@ void handle_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, 
         return;
     }
 
-    if (cbm_kind_in_set(node, spec->function_node_types)) {
+    if (ctx_kind_in_set(node, spec->function_node_types)) {
         extract_signature_type_refs(ctx, node, state);
         return;
     }

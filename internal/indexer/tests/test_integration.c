@@ -25,13 +25,13 @@
 
 static char g_tmpdir[256];
 static char g_dbpath[512];
-static cbm_mcp_server_t *g_srv = NULL;
+static ctx_mcp_server_t *g_srv = NULL;
 static char *g_project = NULL;
 
 /* Create source files in temp directory */
 static int create_test_project(void) {
-    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_integ_XXXXXX");
-    if (!cbm_mkdtemp(g_tmpdir))
+    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/ctx_integ_XXXXXX");
+    if (!ctx_mkdtemp(g_tmpdir))
         return -1;
 
     char path[512];
@@ -101,7 +101,7 @@ static int integration_setup(void) {
         return -1;
 
     /* Derive project name (same logic the pipeline uses) */
-    g_project = cbm_project_name_from_path(g_tmpdir);
+    g_project = ctx_project_name_from_path(g_tmpdir);
     if (!g_project)
         return -1;
 
@@ -114,7 +114,7 @@ static int integration_setup(void) {
     /* Ensure cache dir exists */
     char cache_dir[512];
     snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
-    cbm_mkdir(cache_dir);
+    ctx_mkdir(cache_dir);
 
     /* Remove stale db from previous test runs */
     unlink(g_dbpath);
@@ -125,14 +125,14 @@ static int integration_setup(void) {
      *   3. Pipeline runs → dumps to ~/.cache/.../<project>.db
      *   4. Server reopens from that db
      * This exercises the exact same path as real usage. */
-    g_srv = cbm_mcp_server_new(NULL);
+    g_srv = ctx_mcp_server_new(NULL);
     if (!g_srv)
         return -1;
 
     /* Index our temp project via MCP tool handler */
     char args[512];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", g_tmpdir);
-    char *resp = cbm_mcp_handle_tool(g_srv, "index_repository", args);
+    char *resp = ctx_mcp_handle_tool(g_srv, "index_repository", args);
     if (!resp)
         return -1;
 
@@ -144,7 +144,7 @@ static int integration_setup(void) {
 
 static void integration_teardown(void) {
     if (g_srv) {
-        cbm_mcp_server_free(g_srv);
+        ctx_mcp_server_free(g_srv);
         g_srv = NULL;
     }
     free(g_project);
@@ -170,43 +170,43 @@ static void integration_teardown(void) {
 static char *call_tool(const char *tool, const char *args) {
     if (!g_srv)
         return NULL;
-    return cbm_mcp_handle_tool(g_srv, tool, args);
+    return ctx_mcp_handle_tool(g_srv, tool, args);
 }
 
 TEST(integ_index_has_nodes) {
     /* Open the indexed db directly and check node counts */
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    int nodes = cbm_store_count_nodes(store, g_project);
+    int nodes = ctx_store_count_nodes(store, g_project);
     /* We expect: 3 File nodes + 3+ Function/Method nodes per file +
      * Folder/Package/Module nodes. Should be at least 8. */
     ASSERT_TRUE(nodes >= 8);
 
-    cbm_store_close(store);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_index_has_edges) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    int edges = cbm_store_count_edges(store, g_project);
+    int edges = ctx_store_count_edges(store, g_project);
     /* We expect CONTAINS_FILE edges + CALLS edges + others */
     ASSERT_TRUE(edges >= 3);
 
-    cbm_store_close(store);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_index_has_functions) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int count = 0;
-    int rc = cbm_store_find_nodes_by_label(store, g_project, "Function", &funcs, &count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    int rc = ctx_store_find_nodes_by_label(store, g_project, "Function", &funcs, &count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     /* Python: greet, farewell, main. Go: Add, Multiply, Compute. JS: validate, process */
     ASSERT_TRUE(count >= 6);
 
@@ -224,19 +224,19 @@ TEST(integ_index_has_functions) {
     ASSERT_TRUE(found_add);
     ASSERT_TRUE(found_validate);
 
-    cbm_store_free_nodes(funcs, count);
-    cbm_store_close(store);
+    ctx_store_free_nodes(funcs, count);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_index_has_files) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t *files = NULL;
+    ctx_node_t *files = NULL;
     int count = 0;
-    int rc = cbm_store_find_nodes_by_label(store, g_project, "File", &files, &count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    int rc = ctx_store_find_nodes_by_label(store, g_project, "File", &files, &count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_EQ(count, 3); /* main.py, utils.go, app.js */
 
     bool found_py = false, found_go = false, found_js = false;
@@ -252,22 +252,22 @@ TEST(integ_index_has_files) {
     ASSERT_TRUE(found_go);
     ASSERT_TRUE(found_js);
 
-    cbm_store_free_nodes(files, count);
-    cbm_store_close(store);
+    ctx_store_free_nodes(files, count);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_index_has_calls) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    int call_count = cbm_store_count_edges_by_type(store, g_project, "CALLS");
+    int call_count = ctx_store_count_edges_by_type(store, g_project, "CALLS");
     /* Python: main→greet, main→farewell, main→print
      * Go: Multiply→Add, Compute→Multiply, Compute→Add
      * JS: process→validate */
     ASSERT_TRUE(call_count >= 4);
 
-    cbm_store_close(store);
+    ctx_store_close(store);
     PASS();
 }
 
@@ -418,7 +418,7 @@ TEST(integ_mcp_delete_project) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(integ_pipeline_fqn_compute) {
-    char *fqn = cbm_pipeline_fqn_compute("myproject", "src/utils.go", "Add");
+    char *fqn = ctx_pipeline_fqn_compute("myproject", "src/utils.go", "Add");
     ASSERT_NOT_NULL(fqn);
     ASSERT_STR_EQ(fqn, "myproject.src.utils.Add");
     free(fqn);
@@ -426,7 +426,7 @@ TEST(integ_pipeline_fqn_compute) {
 }
 
 TEST(integ_pipeline_fqn_module) {
-    char *fqn = cbm_pipeline_fqn_module("myproject", "src/utils.go");
+    char *fqn = ctx_pipeline_fqn_module("myproject", "src/utils.go");
     ASSERT_NOT_NULL(fqn);
     ASSERT_STR_EQ(fqn, "myproject.src.utils");
     free(fqn);
@@ -434,7 +434,7 @@ TEST(integ_pipeline_fqn_module) {
 }
 
 TEST(integ_pipeline_project_name) {
-    char *name = cbm_project_name_from_path("/home/user/my-project");
+    char *name = ctx_project_name_from_path("/home/user/my-project");
     ASSERT_NOT_NULL(name);
     /* Should contain "my-project" or a sanitized version */
     ASSERT_NOT_NULL(strstr(name, "my-project"));
@@ -444,16 +444,16 @@ TEST(integ_pipeline_project_name) {
 
 TEST(integ_pipeline_cancel) {
     /* Create and immediately cancel a pipeline */
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
 
-    cbm_pipeline_cancel(p);
-    int rc = cbm_pipeline_run(p);
+    ctx_pipeline_cancel(p);
+    int rc = ctx_pipeline_run(p);
     /* Should return -1 (cancelled) or complete with partial results */
     /* Either way, it shouldn't crash */
     (void)rc;
 
-    cbm_pipeline_free(p);
+    ctx_pipeline_free(p);
     PASS();
 }
 
@@ -462,65 +462,65 @@ TEST(integ_pipeline_cancel) {
  * ══════════════════════════════════════════════════════════════════ */
 
 TEST(integ_store_search_by_degree) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     /* Find functions with at least 1 outbound call */
-    cbm_search_params_t params = {0};
+    ctx_search_params_t params = {0};
     params.project = g_project;
     params.label = "Function";
     params.min_degree = 1;
     params.max_degree = -1;
     params.limit = 10;
 
-    cbm_search_output_t out = {0};
-    int rc = cbm_store_search(store, &params, &out);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    ctx_search_output_t out = {0};
+    int rc = ctx_store_search(store, &params, &out);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     /* main, Multiply, Compute, process should all have outbound calls */
     ASSERT_TRUE(out.count >= 1);
 
-    cbm_store_search_free(&out);
-    cbm_store_close(store);
+    ctx_store_search_free(&out);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_store_find_by_file) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int count = 0;
-    int rc = cbm_store_find_nodes_by_file(store, g_project, "main.py", &nodes, &count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    int rc = ctx_store_find_nodes_by_file(store, g_project, "main.py", &nodes, &count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     /* main.py should have: greet, farewell, main functions + Module node */
     ASSERT_TRUE(count >= 3);
 
-    cbm_store_free_nodes(nodes, count);
-    cbm_store_close(store);
+    ctx_store_free_nodes(nodes, count);
+    ctx_store_close(store);
     PASS();
 }
 
 TEST(integ_store_bfs_traversal) {
-    cbm_store_t *store = cbm_store_open_path(g_dbpath);
+    ctx_store_t *store = ctx_store_open_path(g_dbpath);
     ASSERT_NOT_NULL(store);
 
     /* Find a function node to start BFS from */
-    cbm_node_t *results = NULL;
+    ctx_node_t *results = NULL;
     int count = 0;
-    cbm_store_find_nodes_by_name(store, g_project, "Multiply", &results, &count);
+    ctx_store_find_nodes_by_name(store, g_project, "Multiply", &results, &count);
 
     if (count > 0) {
         /* BFS outbound from Multiply */
-        cbm_traverse_result_t trav = {0};
-        int rc = cbm_store_bfs(store, results[0].id, "outbound", NULL, 0, 3, 20, &trav);
-        ASSERT_EQ(rc, CBM_STORE_OK);
+        ctx_traverse_result_t trav = {0};
+        int rc = ctx_store_bfs(store, results[0].id, "outbound", NULL, 0, 3, 20, &trav);
+        ASSERT_EQ(rc, CTX_STORE_OK);
         /* Should visit at least Add */
         ASSERT_TRUE(trav.visited_count >= 0); /* might be 0 if no edges */
-        cbm_store_traverse_free(&trav);
+        ctx_store_traverse_free(&trav);
     }
 
-    cbm_store_free_nodes(results, count);
-    cbm_store_close(store);
+    ctx_store_free_nodes(results, count);
+    ctx_store_close(store);
     PASS();
 }
 

@@ -42,7 +42,7 @@ static bool is_decorator_stopword(const char *w) {
     return false;
 }
 
-int cbm_split_camel_case(const char *s, char **out, int max_out) {
+int ctx_split_camel_case(const char *s, char **out, int max_out) {
     if (!s || !out || max_out <= 0) {
         return 0;
     }
@@ -57,7 +57,7 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
     for (size_t i = SKIP_ONE; i < len; i++) {
         if (s[i] >= 'A' && s[i] <= 'Z' && s[i - SKIP_ONE] >= 'a' && s[i - SKIP_ONE] <= 'z') {
             if (count < max_out) {
-                out[count] = cbm_strndup(s + start, i - start);
+                out[count] = ctx_strndup(s + start, i - start);
                 count++;
             }
             start = i;
@@ -65,7 +65,7 @@ int cbm_split_camel_case(const char *s, char **out, int max_out) {
     }
     /* Emit remaining */
     if (count < max_out) {
-        out[count] = cbm_strndup(s + start, len - start);
+        out[count] = ctx_strndup(s + start, len - start);
         count++;
     }
     return count;
@@ -97,12 +97,12 @@ static char *strip_decorator_syntax(char *buf) {
     return p;
 }
 
-int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
+int ctx_tokenize_decorator(const char *dec, char **out, int max_out) {
     if (!dec || !out || max_out <= 0) {
         return 0;
     }
 
-    char buf[CBM_SZ_256];
+    char buf[CTX_SZ_256];
     size_t len = strlen(dec);
     if (len >= sizeof(buf)) {
         len = sizeof(buf) - SKIP_ONE;
@@ -118,7 +118,7 @@ int cbm_tokenize_decorator(const char *dec, char **out, int max_out) {
 
     while (part && count < max_out) {
         char *camel_parts[ENRICH_MAX_CAMEL];
-        int camel_count = cbm_split_camel_case(part, camel_parts, ENRICH_MAX_CAMEL);
+        int camel_count = ctx_split_camel_case(part, camel_parts, ENRICH_MAX_CAMEL);
 
         for (int i = 0; i < camel_count && count < max_out; i++) {
             for (char *c = camel_parts[i]; *c; c++) {
@@ -210,16 +210,16 @@ static int extract_decorator_words(const char *json, char ***out_words) {
     }
 
     /* Collect unique words from all decorators */
-    char *all_words[CBM_SZ_256];
+    char *all_words[CTX_SZ_256];
     int total = 0;
-    CBMHashTable *seen = cbm_ht_create(CBM_SZ_32);
+    CBMHashTable *seen = ctx_ht_create(CTX_SZ_32);
 
     for (int i = 0; decorators[i]; i++) {
-        char *tokens[CBM_SZ_32];
-        int tc = cbm_tokenize_decorator(decorators[i], tokens, CBM_SZ_32);
+        char *tokens[CTX_SZ_32];
+        int tc = ctx_tokenize_decorator(decorators[i], tokens, CTX_SZ_32);
         for (int j = 0; j < tc; j++) {
-            if (!cbm_ht_get(seen, tokens[j]) && total < CBM_SZ_256) {
-                cbm_ht_set(seen, tokens[j], intptr_to_ptr(SKIP_ONE));
+            if (!ctx_ht_get(seen, tokens[j]) && total < CTX_SZ_256) {
+                ctx_ht_set(seen, tokens[j], intptr_to_ptr(SKIP_ONE));
                 all_words[total++] = tokens[j];
             } else {
                 free(tokens[j]);
@@ -228,7 +228,7 @@ static int extract_decorator_words(const char *json, char ***out_words) {
         free(decorators[i]);
     }
     free(decorators);
-    cbm_ht_free(seen);
+    ctx_ht_free(seen);
 
     if (total == 0) {
         *out_words = NULL;
@@ -290,7 +290,7 @@ static void free_tagged_nodes(tagged_node_t *nodes, int count) {
 }
 
 /* Phase 1: Collect decorated nodes and count word frequency. */
-static int collect_decorated_nodes(cbm_gbuf_t *gbuf, tagged_node_t **out_nodes,
+static int collect_decorated_nodes(ctx_gbuf_t *gbuf, tagged_node_t **out_nodes,
                                    CBMHashTable *word_counts) {
     static const char *labels[] = {"Function", "Method", "Class"};
     static const int nlabels = 3;
@@ -299,9 +299,9 @@ static int collect_decorated_nodes(cbm_gbuf_t *gbuf, tagged_node_t **out_nodes,
     int node_cap = 0;
 
     for (int l = 0; l < nlabels; l++) {
-        const cbm_gbuf_node_t **found = NULL;
+        const ctx_gbuf_node_t **found = NULL;
         int fc = 0;
-        cbm_gbuf_find_by_label(gbuf, labels[l], &found, &fc);
+        ctx_gbuf_find_by_label(gbuf, labels[l], &found, &fc);
         if (!found || fc <= 0) {
             continue;
         }
@@ -313,7 +313,7 @@ static int collect_decorated_nodes(cbm_gbuf_t *gbuf, tagged_node_t **out_nodes,
                 continue;
             }
             if (node_count >= node_cap) {
-                node_cap = node_cap ? node_cap * PAIR_LEN : CBM_SZ_64;
+                node_cap = node_cap ? node_cap * PAIR_LEN : CTX_SZ_64;
                 nodes = safe_realloc(nodes, sizeof(tagged_node_t) * node_cap);
             }
             tagged_node_t *tn = &nodes[node_count++];
@@ -322,8 +322,8 @@ static int collect_decorated_nodes(cbm_gbuf_t *gbuf, tagged_node_t **out_nodes,
             tn->words = words;
             tn->word_count = wc;
             for (int w = 0; w < wc; w++) {
-                intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, words[w]);
-                cbm_ht_set(word_counts, words[w], intptr_to_ptr(cnt + SKIP_ONE));
+                intptr_t cnt = (intptr_t)ctx_ht_get(word_counts, words[w]);
+                ctx_ht_set(word_counts, words[w], intptr_to_ptr(cnt + SKIP_ONE));
             }
         }
     }
@@ -333,14 +333,14 @@ static int collect_decorated_nodes(cbm_gbuf_t *gbuf, tagged_node_t **out_nodes,
 }
 
 /* Phase 3: Apply candidate tags to nodes in the gbuf. */
-static int apply_decorator_tags(cbm_gbuf_t *gbuf, tagged_node_t *nodes, int node_count,
+static int apply_decorator_tags(ctx_gbuf_t *gbuf, tagged_node_t *nodes, int node_count,
                                 CBMHashTable *candidates) {
     int tagged = 0;
     for (int n = 0; n < node_count; n++) {
-        char *tag_words[CBM_SZ_256];
+        char *tag_words[CTX_SZ_256];
         int tag_count = 0;
         for (int w = 0; w < nodes[n].word_count; w++) {
-            if (cbm_ht_get(candidates, nodes[n].words[w]) && tag_count < CBM_SZ_256) {
+            if (ctx_ht_get(candidates, nodes[n].words[w]) && tag_count < CTX_SZ_256) {
                 tag_words[tag_count++] = nodes[n].words[w];
             }
         }
@@ -349,7 +349,7 @@ static int apply_decorator_tags(cbm_gbuf_t *gbuf, tagged_node_t *nodes, int node
         }
         qsort(tag_words, tag_count, sizeof(char *), cmp_str);
 
-        const cbm_gbuf_node_t *gn = cbm_gbuf_find_by_qn(gbuf, nodes[n].qualified_name);
+        const ctx_gbuf_node_t *gn = ctx_gbuf_find_by_qn(gbuf, nodes[n].qualified_name);
         if (!gn) {
             continue;
         }
@@ -357,7 +357,7 @@ static int apply_decorator_tags(cbm_gbuf_t *gbuf, tagged_node_t *nodes, int node
         const char *props = gn->properties_json ? gn->properties_json : "{}";
         char *new_props = inject_decorator_tags(props, tag_words, tag_count);
         if (new_props) {
-            cbm_gbuf_upsert_node(gbuf, gn->label, gn->name, gn->qualified_name, gn->file_path,
+            ctx_gbuf_upsert_node(gbuf, gn->label, gn->name, gn->qualified_name, gn->file_path,
                                  gn->start_line, gn->end_line, new_props);
             free(new_props);
             tagged++;
@@ -366,29 +366,29 @@ static int apply_decorator_tags(cbm_gbuf_t *gbuf, tagged_node_t *nodes, int node
     return tagged;
 }
 
-int cbm_pipeline_pass_decorator_tags(cbm_gbuf_t *gbuf, const char *project) {
+int ctx_pipeline_pass_decorator_tags(ctx_gbuf_t *gbuf, const char *project) {
     if (!gbuf || !project) {
         return 0;
     }
 
-    CBMHashTable *word_counts = cbm_ht_create(CBM_SZ_128);
+    CBMHashTable *word_counts = ctx_ht_create(CTX_SZ_128);
     tagged_node_t *nodes = NULL;
     int node_count = collect_decorated_nodes(gbuf, &nodes, word_counts);
     if (node_count == 0) {
-        cbm_ht_free(word_counts);
+        ctx_ht_free(word_counts);
         free(nodes);
         return 0;
     }
 
     /* Phase 2: Determine candidates (words on 2+ nodes) */
-    CBMHashTable *candidates = cbm_ht_create(CBM_SZ_64);
+    CBMHashTable *candidates = ctx_ht_create(CTX_SZ_64);
     int candidate_count = 0;
     for (int n = 0; n < node_count; n++) {
         for (int w = 0; w < nodes[n].word_count; w++) {
             const char *word = nodes[n].words[w];
-            intptr_t cnt = (intptr_t)cbm_ht_get(word_counts, word);
-            if (cnt >= PAIR_LEN && !cbm_ht_get(candidates, word)) {
-                cbm_ht_set(candidates, word, intptr_to_ptr(SKIP_ONE));
+            intptr_t cnt = (intptr_t)ctx_ht_get(word_counts, word);
+            if (cnt >= PAIR_LEN && !ctx_ht_get(candidates, word)) {
+                ctx_ht_set(candidates, word, intptr_to_ptr(SKIP_ONE));
                 candidate_count++;
             }
         }
@@ -400,10 +400,10 @@ int cbm_pipeline_pass_decorator_tags(cbm_gbuf_t *gbuf, const char *project) {
     }
 
     free_tagged_nodes(nodes, node_count);
-    cbm_ht_free(word_counts);
-    cbm_ht_free(candidates);
+    ctx_ht_free(word_counts);
+    ctx_ht_free(candidates);
 
-    cbm_log_info("pass.decorator_tags", "candidates", candidate_count > 0 ? "yes" : "0", "tagged",
+    ctx_log_info("pass.decorator_tags", "candidates", candidate_count > 0 ? "yes" : "0", "tagged",
                  tagged > 0 ? "yes" : "0");
     return tagged;
 }

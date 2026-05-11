@@ -19,14 +19,14 @@
 // ─── Data structures ───────────────────────────────────────────────────────
 
 // Maximum pattern count for bitmask mode.
-#define CBM_AC_MAX_BITMASK 64
+#define CTX_AC_MAX_BITMASK 64
 
-#define CBM_AC_BYTE_RANGE 256
-#define CBM_AC_NO_STATE (-1)
-#define CBM_AC_ROOT_STATES 1
-#define CBM_AC_ALLOC_ONE 1
-#define CBM_AC_PATTERN_BIT(p) (1ULL << (p))
-#define CBM_AC_CLEAR_LOW_BIT(b) ((b) & ((b) - 1ULL))
+#define CTX_AC_BYTE_RANGE 256
+#define CTX_AC_NO_STATE (-1)
+#define CTX_AC_ROOT_STATES 1
+#define CTX_AC_ALLOC_ONE 1
+#define CTX_AC_PATTERN_BIT(p) (1ULL << (p))
+#define CTX_AC_CLEAR_LOW_BIT(b) ((b) & ((b) - 1ULL))
 
 // Decompression buffer alignment mask (round up to 64KB chunks).
 #define DECOMP_BUF_ALIGN_MASK 0xFFFF
@@ -35,7 +35,7 @@ struct CBMAutomaton {
     int num_states;
     int num_patterns;
     int alpha_size;                       // 256 for raw byte, or smaller for mapped alphabet
-    uint8_t alpha_map[CBM_AC_BYTE_RANGE]; // byte → mapped index (identity if alpha_size==256)
+    uint8_t alpha_map[CTX_AC_BYTE_RANGE]; // byte → mapped index (identity if alpha_size==256)
     int *go_table;                        // [num_states * alpha_size] — pre-computed transitions
     uint64_t *output;                     // [num_states] — bitmask of matching pattern IDs
     int *output_list;                     // [num_states] — linked list: pattern ID or -1
@@ -71,27 +71,27 @@ static void queue_free(Queue *q) {
 // Phase 1: Build trie (goto function) from patterns. Returns state count.
 static int ac_build_trie(CBMAutomaton *ac, const char **patterns, const int *lengths, int count) {
     int alpha_size = ac->alpha_size;
-    int num_states = CBM_AC_ROOT_STATES; // state 0 = root
+    int num_states = CTX_AC_ROOT_STATES; // state 0 = root
 
     for (int p = 0; p < count; p++) {
         int state = 0;
         for (int j = 0; j < lengths[p]; j++) {
             int c = ac->alpha_map[(unsigned char)patterns[p][j]];
             int idx = (state * alpha_size) + c;
-            if (ac->go_table[idx] == CBM_AC_NO_STATE) {
+            if (ac->go_table[idx] == CTX_AC_NO_STATE) {
                 ac->go_table[idx] = num_states++;
             }
             state = ac->go_table[idx];
         }
-        if (p < CBM_AC_MAX_BITMASK) {
-            ac->output[state] |= CBM_AC_PATTERN_BIT(p);
+        if (p < CTX_AC_MAX_BITMASK) {
+            ac->output[state] |= CTX_AC_PATTERN_BIT(p);
         }
         ac->output_list[state] = p;
     }
 
     // Root self-loops for unmatched bytes.
     for (int c = 0; c < alpha_size; c++) {
-        if (ac->go_table[c] == CBM_AC_NO_STATE) {
+        if (ac->go_table[c] == CTX_AC_NO_STATE) {
             ac->go_table[c] = 0;
         }
     }
@@ -119,11 +119,11 @@ static void ac_build_failure(CBMAutomaton *ac, int num_states) {
         for (int c = 0; c < alpha_size; c++) {
             int idx = (r * alpha_size) + c;
             int s = ac->go_table[idx];
-            if (s != CBM_AC_NO_STATE) {
+            if (s != CTX_AC_NO_STATE) {
                 fail[s] = ac->go_table[(fail[r] * alpha_size) + c];
                 ac->output[s] |= ac->output[fail[s]];
-                if (ac->output_next[s] == CBM_AC_NO_STATE &&
-                    ac->output_list[fail[s]] != CBM_AC_NO_STATE) {
+                if (ac->output_next[s] == CTX_AC_NO_STATE &&
+                    ac->output_list[fail[s]] != CTX_AC_NO_STATE) {
                     ac->output_next[s] = fail[s];
                 }
                 queue_push(&q, s);
@@ -162,7 +162,7 @@ static void ac_shrink_tables(CBMAutomaton *ac, int num_states, int max_states) {
     }
 }
 
-// cbm_ac_build constructs an Aho-Corasick automaton from a set of patterns.
+// ctx_ac_build constructs an Aho-Corasick automaton from a set of patterns.
 //
 // Parameters:
 //   patterns    — array of pattern pointers (not necessarily NUL-terminated)
@@ -172,41 +172,41 @@ static void ac_shrink_tables(CBMAutomaton *ac, int num_states, int max_states) {
 //                 map relevant chars to 1..N and everything else to 0.
 //   alpha_size  — alphabet size (256 if alpha_map is NULL)
 //
-// Returns a heap-allocated automaton. Caller must call cbm_ac_free().
-CBMAutomaton *cbm_ac_build(const char **patterns, const int *lengths, int count,
+// Returns a heap-allocated automaton. Caller must call ctx_ac_free().
+CBMAutomaton *ctx_ac_build(const char **patterns, const int *lengths, int count,
                            const uint8_t *alpha_map, int alpha_size) {
     if (count <= 0) {
         return NULL;
     }
     if (alpha_size <= 0) {
-        alpha_size = CBM_AC_BYTE_RANGE;
+        alpha_size = CTX_AC_BYTE_RANGE;
     }
 
-    int max_states = CBM_AC_ROOT_STATES;
+    int max_states = CTX_AC_ROOT_STATES;
     for (int i = 0; i < count; i++) {
         max_states += lengths[i];
     }
 
-    CBMAutomaton *ac = (CBMAutomaton *)calloc(CBM_AC_ALLOC_ONE, sizeof(CBMAutomaton));
+    CBMAutomaton *ac = (CBMAutomaton *)calloc(CTX_AC_ALLOC_ONE, sizeof(CBMAutomaton));
     ac->alpha_size = alpha_size;
     ac->num_patterns = count;
 
     if (alpha_map) {
-        memcpy(ac->alpha_map, alpha_map, CBM_AC_BYTE_RANGE);
+        memcpy(ac->alpha_map, alpha_map, CTX_AC_BYTE_RANGE);
     } else {
-        for (int i = 0; i < CBM_AC_BYTE_RANGE; i++) {
+        for (int i = 0; i < CTX_AC_BYTE_RANGE; i++) {
             ac->alpha_map[i] = (uint8_t)i;
         }
     }
 
     ac->go_table = (int *)malloc((size_t)max_states * alpha_size * sizeof(int));
-    memset(ac->go_table, CBM_AC_NO_STATE, (size_t)max_states * alpha_size * sizeof(int));
+    memset(ac->go_table, CTX_AC_NO_STATE, (size_t)max_states * alpha_size * sizeof(int));
     ac->output = (uint64_t *)calloc(max_states, sizeof(uint64_t));
     ac->output_list = (int *)malloc(max_states * sizeof(int));
     ac->output_next = (int *)malloc(max_states * sizeof(int));
     for (int i = 0; i < max_states; i++) {
-        ac->output_list[i] = CBM_AC_NO_STATE;
-        ac->output_next[i] = CBM_AC_NO_STATE;
+        ac->output_list[i] = CTX_AC_NO_STATE;
+        ac->output_next[i] = CTX_AC_NO_STATE;
     }
 
     int num_states = ac_build_trie(ac, patterns, lengths, count);
@@ -217,8 +217,8 @@ CBMAutomaton *cbm_ac_build(const char **patterns, const int *lengths, int count,
     return ac;
 }
 
-// cbm_ac_free releases all memory for an automaton.
-void cbm_ac_free(CBMAutomaton *ac) {
+// ctx_ac_free releases all memory for an automaton.
+void ctx_ac_free(CBMAutomaton *ac) {
     if (!ac) {
         return;
     }
@@ -231,9 +231,9 @@ void cbm_ac_free(CBMAutomaton *ac) {
 
 // ─── Scan functions ────────────────────────────────────────────────────────
 
-// cbm_ac_scan_bitmask scans text through the automaton and returns a bitmask
+// ctx_ac_scan_bitmask scans text through the automaton and returns a bitmask
 // of all matched pattern IDs (patterns 0..63).
-uint64_t cbm_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_len) {
+uint64_t ctx_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_len) {
     uint64_t result = 0;
     int state = 0;
     const int alpha_size = ac->alpha_size;
@@ -251,9 +251,9 @@ uint64_t cbm_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_
 // ─── Fused LZ4 + AC scan ──────────────────────────────────────────────────
 
 // Thread-local reusable decompression buffer to avoid repeated malloc/free.
-// Each goroutine gets its own OS thread (via CGo), so CBM_TLS is safe.
-static CBM_TLS char *tls_decomp_buf = NULL;
-static CBM_TLS int tls_decomp_cap = 0;
+// Each goroutine gets its own OS thread (via CGo), so CTX_TLS is safe.
+static CTX_TLS char *tls_decomp_buf = NULL;
+static CTX_TLS int tls_decomp_cap = 0;
 
 static char *get_decomp_buf(int needed) {
     if (needed > tls_decomp_cap) {
@@ -266,10 +266,10 @@ static char *get_decomp_buf(int needed) {
     return tls_decomp_buf;
 }
 
-// cbm_ac_scan_lz4_bitmask decompresses LZ4 data into a thread-local buffer
+// ctx_ac_scan_lz4_bitmask decompresses LZ4 data into a thread-local buffer
 // and scans it through the AC automaton. Returns bitmask of matched patterns.
 // Zero Go heap allocation — the decompression buffer lives in C.
-uint64_t cbm_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed, int compressed_len,
+uint64_t ctx_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed, int compressed_len,
                                  int original_len) {
     if (!ac || !compressed || compressed_len <= 0 || original_len <= 0) {
         return 0;
@@ -280,22 +280,22 @@ uint64_t cbm_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed,
         return 0;
     }
 
-    int decompressed = cbm_lz4_decompress(compressed, compressed_len, buf, original_len);
+    int decompressed = ctx_lz4_decompress(compressed, compressed_len, buf, original_len);
     if (decompressed < 0) {
         return 0;
     }
 
-    return cbm_ac_scan_bitmask(ac, buf, decompressed);
+    return ctx_ac_scan_bitmask(ac, buf, decompressed);
 }
 
 // ─── Batch LZ4 + AC scan ───────────────────────────────────────────────────
 
 // CBMLz4Entry and CBMLz4Match defined in ac.h.
 
-// cbm_ac_scan_lz4_batch decompresses and scans multiple files in one call.
+// ctx_ac_scan_lz4_batch decompresses and scans multiple files in one call.
 // Returns the number of matching files written to out_matches.
 // Uses a single reusable decompression buffer across all files.
-int cbm_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, int num_entries,
+int ctx_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, int num_entries,
                           CBMLz4Match *out_matches, int max_matches) {
     if (!ac || !entries || num_entries <= 0) {
         return 0;
@@ -323,7 +323,7 @@ int cbm_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, in
             continue;
         }
 
-        int decompressed = cbm_lz4_decompress(entries[i].data, entries[i].compressed_len, buf,
+        int decompressed = ctx_lz4_decompress(entries[i].data, entries[i].compressed_len, buf,
                                               entries[i].original_len);
         if (decompressed <= 0) {
             continue;
@@ -352,7 +352,7 @@ int cbm_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, in
 
 // CBMMatchResult defined in ac.h.
 
-// cbm_ac_scan_batch scans multiple NUL-separated names through the automaton.
+// ctx_ac_scan_batch scans multiple NUL-separated names through the automaton.
 // For each name, reports all unique matched pattern IDs.
 // Returns total number of matches written to out_matches.
 //
@@ -364,7 +364,7 @@ int cbm_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, in
 //   num_names    — number of names
 //   out_matches  — output buffer for (name_index, pattern_id) pairs
 //   max_matches  — capacity of out_matches
-int cbm_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *name_offsets,
+int ctx_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *name_offsets,
                       const int *name_lengths, int num_names, CBMMatchResult *out_matches,
                       int max_matches) {
     int total = 0;
@@ -393,13 +393,13 @@ int cbm_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *
                     out_matches[total].name_index = n;
                     out_matches[total].pattern_id = pid;
                     total++;
-                    seen |= CBM_AC_PATTERN_BIT(pid);
-                    bits = CBM_AC_CLEAR_LOW_BIT(bits);
+                    seen |= CTX_AC_PATTERN_BIT(pid);
+                    bits = CTX_AC_CLEAR_LOW_BIT(bits);
                 }
 
                 // Follow output_next for patterns beyond bitmask range.
                 int next_state = ac->output_next[s];
-                if (next_state == CBM_AC_NO_STATE || next_state == s) {
+                if (next_state == CTX_AC_NO_STATE || next_state == s) {
                     break;
                 }
                 s = next_state;
@@ -411,16 +411,16 @@ int cbm_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *
 
 // ─── Info ──────────────────────────────────────────────────────────────────
 
-int cbm_ac_num_states(const CBMAutomaton *ac) {
+int ctx_ac_num_states(const CBMAutomaton *ac) {
     return ac ? ac->num_states : 0;
 }
 
-int cbm_ac_num_patterns(const CBMAutomaton *ac) {
+int ctx_ac_num_patterns(const CBMAutomaton *ac) {
     return ac ? ac->num_patterns : 0;
 }
 
-// cbm_ac_table_bytes returns the approximate memory used by the goto table.
-int cbm_ac_table_bytes(const CBMAutomaton *ac) {
+// ctx_ac_table_bytes returns the approximate memory used by the goto table.
+int ctx_ac_table_bytes(const CBMAutomaton *ac) {
     if (!ac) {
         return 0;
     }

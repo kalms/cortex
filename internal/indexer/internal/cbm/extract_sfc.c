@@ -4,7 +4,7 @@
 // functions, imports, calls, and composable usage. Walks <template> elements
 // to detect component references (CALLS) and directive attributes (usages/calls).
 // Follows the extract_k8s.c pattern: domain-specific extractor called from
-// cbm_extract_file().
+// ctx_extract_file().
 
 #include "extract_sfc.h"
 #include "arena.h"
@@ -115,7 +115,7 @@ static const char *extract_leading_ident(CBMArena *a, const char *expr, int len)
     if (is_js_literal(expr + start, ident_len)) {
         return NULL;
     }
-    return cbm_arena_strndup(a, expr + start, (size_t)ident_len);
+    return ctx_arena_strndup(a, expr + start, (size_t)ident_len);
 }
 
 // Extract collection identifier from v-for: "item in items" -> "items"
@@ -143,7 +143,7 @@ static void sfc_extract_template(CBMExtractCtx *ctx, TSNode root);
 // Public entry point
 // ---------------------------------------------------------------------------
 
-void cbm_extract_sfc(CBMExtractCtx *ctx) {
+void ctx_extract_sfc(CBMExtractCtx *ctx) {
     TSNode root = ctx->root;
     sfc_extract_scripts(ctx, root);
     sfc_extract_template(ctx, root);
@@ -229,7 +229,7 @@ static void sfc_extract_scripts(CBMExtractCtx *ctx, TSNode root) {
             is_ts = script_has_lang_ts(start_tag, ctx->source);
         }
 
-        CBMLanguage inner_lang = is_ts ? CBM_LANG_TYPESCRIPT : CBM_LANG_JAVASCRIPT;
+        CBMLanguage inner_lang = is_ts ? CTX_LANG_TYPESCRIPT : CTX_LANG_JAVASCRIPT;
 
         uint32_t rt_start = ts_node_start_byte(raw_text);
         uint32_t rt_end = ts_node_end_byte(raw_text);
@@ -241,7 +241,7 @@ static void sfc_extract_scripts(CBMExtractCtx *ctx, TSNode root) {
             continue;
         }
 
-        TSTree *inner_tree = cbm_parse_string(script_source, script_len, inner_lang);
+        TSTree *inner_tree = ctx_parse_string(script_source, script_len, inner_lang);
         if (!inner_tree) {
             continue;
         }
@@ -262,9 +262,9 @@ static void sfc_extract_scripts(CBMExtractCtx *ctx, TSNode root) {
             .root = inner_root,
         };
 
-        cbm_extract_definitions(&inner_ctx);
-        cbm_extract_imports(&inner_ctx);
-        cbm_extract_unified(&inner_ctx);
+        ctx_extract_definitions(&inner_ctx);
+        ctx_extract_imports(&inner_ctx);
+        ctx_extract_unified(&inner_ctx);
 
         adjust_def_line_offsets(result, defs_before, rt_line);
 
@@ -360,7 +360,7 @@ static void sfc_handle_vue_directive(CBMExtractCtx *ctx, TSNode attr) {
             CBMCall call = {0};
             call.callee_name = ident;
             call.enclosing_func_qn = ctx->module_qn;
-            cbm_calls_push(&result->calls, a, call);
+            ctx_calls_push(&result->calls, a, call);
         }
         return;
     }
@@ -372,7 +372,7 @@ static void sfc_handle_vue_directive(CBMExtractCtx *ctx, TSNode attr) {
             CBMUsage usage = {0};
             usage.ref_name = ident;
             usage.enclosing_func_qn = ctx->module_qn;
-            cbm_usages_push(&result->usages, a, usage);
+            ctx_usages_push(&result->usages, a, usage);
         }
         return;
     }
@@ -386,7 +386,7 @@ static void sfc_handle_vue_directive(CBMExtractCtx *ctx, TSNode attr) {
             CBMUsage usage = {0};
             usage.ref_name = ident;
             usage.enclosing_func_qn = ctx->module_qn;
-            cbm_usages_push(&result->usages, a, usage);
+            ctx_usages_push(&result->usages, a, usage);
         }
     }
 }
@@ -434,7 +434,7 @@ static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue
                 CBMCall call = {0};
                 call.callee_name = ident;
                 call.enclosing_func_qn = ctx->module_qn;
-                cbm_calls_push(&result->calls, a, call);
+                ctx_calls_push(&result->calls, a, call);
             }
             continue;
         }
@@ -447,7 +447,7 @@ static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue
                 CBMUsage usage = {0};
                 usage.ref_name = ident;
                 usage.enclosing_func_qn = ctx->module_qn;
-                cbm_usages_push(&result->usages, a, usage);
+                ctx_usages_push(&result->usages, a, usage);
             }
             continue;
         }
@@ -457,7 +457,7 @@ static void sfc_scan_attributes(CBMExtractCtx *ctx, TSNode tag_node, bool is_vue
 static void walk_template_elements(CBMExtractCtx *ctx, TSNode node);
 
 static void check_element_tag(CBMExtractCtx *ctx, TSNode node) {
-    bool is_vue = (ctx->language == CBM_LANG_VUE);
+    bool is_vue = (ctx->language == CTX_LANG_VUE);
     uint32_t count = ts_node_named_child_count(node);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_named_child(node, i);
@@ -477,12 +477,12 @@ static void check_element_tag(CBMExtractCtx *ctx, TSNode node) {
             const char *name_raw = ctx->source + ns;
 
             if (is_component_tag(name_raw, len)) {
-                char *name = cbm_arena_strndup(ctx->arena, name_raw, (size_t)len);
+                char *name = ctx_arena_strndup(ctx->arena, name_raw, (size_t)len);
                 if (name) {
                     CBMCall call = {0};
                     call.callee_name = name;
                     call.enclosing_func_qn = ctx->module_qn;
-                    cbm_calls_push(&ctx->result->calls, ctx->arena, call);
+                    ctx_calls_push(&ctx->result->calls, ctx->arena, call);
                 }
             }
 
@@ -505,7 +505,7 @@ static void walk_template_elements(CBMExtractCtx *ctx, TSNode node) {
 }
 
 static void sfc_extract_template(CBMExtractCtx *ctx, TSNode root) {
-    bool is_vue = (ctx->language == CBM_LANG_VUE);
+    bool is_vue = (ctx->language == CTX_LANG_VUE);
 
     if (is_vue) {
         // Vue: tree-sitter-vue produces a dedicated "template_element" node

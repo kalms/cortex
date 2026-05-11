@@ -35,7 +35,7 @@
 typedef struct {
     char *project_name;
     char *root_path;
-    char last_head[CBM_SZ_64]; /* git HEAD hash */
+    char last_head[CTX_SZ_64]; /* git HEAD hash */
     bool is_git;               /* false → skip polling */
     bool baseline_done;        /* true after first poll */
     int file_count;            /* approximate, for interval calc */
@@ -45,9 +45,9 @@ typedef struct {
 
 /* ── Watcher struct ─────────────────────────────────────────────── */
 
-struct cbm_watcher {
-    cbm_store_t *store;
-    cbm_index_fn index_fn;
+struct ctx_watcher {
+    ctx_store_t *store;
+    ctx_index_fn index_fn;
     void *user_data;
     CBMHashTable *projects; /* name → project_state_t* */
     atomic_int stopped;
@@ -71,14 +71,14 @@ struct cbm_watcher {
 
 static int64_t now_ns(void) {
     struct timespec ts;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &ts);
+    ctx_clock_gettime(CLOCK_MONOTONIC, &ts);
     return ((int64_t)ts.tv_sec * NS_PER_SEC) + ts.tv_nsec;
 }
 
 /* ── Adaptive interval ──────────────────────────────────────────── */
 
-int cbm_watcher_poll_interval_ms(int file_count) {
-    int ms = POLL_BASE_MS + ((file_count / POLL_FILE_STEP) * CBM_MSEC_PER_SEC);
+int ctx_watcher_poll_interval_ms(int file_count) {
+    int ms = POLL_BASE_MS + ((file_count / POLL_FILE_STEP) * CTX_MSEC_PER_SEC);
     if (ms > POLL_MAX_MS) {
         ms = POLL_MAX_MS;
     }
@@ -88,26 +88,26 @@ int cbm_watcher_poll_interval_ms(int file_count) {
 /* ── Git helpers ────────────────────────────────────────────────── */
 
 static bool is_git_repo(const char *root_path) {
-    char cmd[CBM_SZ_1K];
+    char cmd[CTX_SZ_1K];
     snprintf(cmd, sizeof(cmd), "git -C '%s' rev-parse --git-dir 2>/dev/null", root_path);
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
         return false;
     }
     /* Drain output so pclose gets a clean exit status. */
-    char drain[CBM_SZ_128];
+    char drain[CTX_SZ_128];
     while (fgets(drain, (int)sizeof(drain), fp)) { /* discard */
     }
-    int rc = cbm_pclose(fp);
+    int rc = ctx_pclose(fp);
     return rc == 0;
 }
 
 static int git_head(const char *root_path, char *out, size_t out_size) {
-    char cmd[CBM_SZ_1K];
+    char cmd[CTX_SZ_1K];
     snprintf(cmd, sizeof(cmd), "git -C '%s' rev-parse HEAD 2>/dev/null", root_path);
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     if (fgets(out, (int)out_size, fp)) {
@@ -115,28 +115,28 @@ static int git_head(const char *root_path, char *out, size_t out_size) {
         while (len > 0 && (out[len - SKIP_ONE] == '\n' || out[len - SKIP_ONE] == '\r')) {
             out[--len] = '\0';
         }
-        cbm_pclose(fp);
+        ctx_pclose(fp);
         return 0;
     }
-    cbm_pclose(fp);
-    return CBM_NOT_FOUND;
+    ctx_pclose(fp);
+    return CTX_NOT_FOUND;
 }
 
 /* Returns true if working tree has changes (modified, untracked, etc.).
  * Also checks submodules via `git submodule foreach` to detect uncommitted
  * changes inside submodules that `git status` alone would not report. */
 static bool git_is_dirty(const char *root_path) {
-    char cmd[CBM_SZ_1K];
+    char cmd[CTX_SZ_1K];
     snprintf(cmd, sizeof(cmd),
              "git --no-optional-locks -C '%s' status --porcelain "
              "--untracked-files=normal 2>/dev/null",
              root_path);
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
         return false;
     }
 
-    char line[CBM_SZ_256];
+    char line[CTX_SZ_256];
     bool dirty = false;
     if (fgets(line, sizeof(line), fp)) {
         size_t len = strlen(line);
@@ -147,7 +147,7 @@ static bool git_is_dirty(const char *root_path) {
             dirty = true;
         }
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
 
     if (dirty) {
         return true;
@@ -161,7 +161,7 @@ static bool git_is_dirty(const char *root_path) {
              "'git status --porcelain --untracked-files=normal 2>/dev/null' "
              "2>/dev/null",
              root_path);
-    fp = cbm_popen(cmd, "r");
+    fp = ctx_popen(cmd, "r");
     if (!fp) {
         return false;
     }
@@ -174,32 +174,32 @@ static bool git_is_dirty(const char *root_path) {
             dirty = true;
         }
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
     return dirty;
 }
 
 /* Count tracked files via git ls-files */
 static int git_file_count(const char *root_path) {
-    char cmd[CBM_SZ_1K];
+    char cmd[CTX_SZ_1K];
     snprintf(cmd, sizeof(cmd), "git -C '%s' ls-files 2>/dev/null | wc -l", root_path);
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
         return 0;
     }
 
     int count = 0;
-    char line[CBM_SZ_64];
+    char line[CTX_SZ_64];
     if (fgets(line, sizeof(line), fp)) {
-        count = (int)strtol(line, NULL, CBM_DECIMAL_BASE);
+        count = (int)strtol(line, NULL, CTX_DECIMAL_BASE);
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
     return count;
 }
 
 /* ── Project state lifecycle ────────────────────────────────────── */
 
 static project_state_t *state_new(const char *name, const char *root_path) {
-    project_state_t *s = calloc(CBM_ALLOC_ONE, sizeof(*s));
+    project_state_t *s = calloc(CTX_ALLOC_ONE, sizeof(*s));
     if (!s) {
         return NULL;
     }
@@ -227,82 +227,82 @@ static void free_state_entry(const char *key, void *val, void *ud) {
 
 /* ── Watcher lifecycle ──────────────────────────────────────────── */
 
-cbm_watcher_t *cbm_watcher_new(cbm_store_t *store, cbm_index_fn index_fn, void *user_data) {
-    cbm_watcher_t *w = calloc(CBM_ALLOC_ONE, sizeof(*w));
+ctx_watcher_t *ctx_watcher_new(ctx_store_t *store, ctx_index_fn index_fn, void *user_data) {
+    ctx_watcher_t *w = calloc(CTX_ALLOC_ONE, sizeof(*w));
     if (!w) {
         return NULL;
     }
     w->store = store;
     w->index_fn = index_fn;
     w->user_data = user_data;
-    w->projects = cbm_ht_create(CBM_SZ_32);
+    w->projects = ctx_ht_create(CTX_SZ_32);
     atomic_init(&w->stopped, 0);
     return w;
 }
 
-void cbm_watcher_free(cbm_watcher_t *w) {
+void ctx_watcher_free(ctx_watcher_t *w) {
     if (!w) {
         return;
     }
-    cbm_ht_foreach(w->projects, free_state_entry, NULL);
-    cbm_ht_free(w->projects);
+    ctx_ht_foreach(w->projects, free_state_entry, NULL);
+    ctx_ht_free(w->projects);
     free(w);
 }
 
 /* ── Watch list management ──────────────────────────────────────── */
 
-void cbm_watcher_watch(cbm_watcher_t *w, const char *project_name, const char *root_path) {
+void ctx_watcher_watch(ctx_watcher_t *w, const char *project_name, const char *root_path) {
     if (!w || !project_name || !root_path) {
         return;
     }
 
     /* Reject paths with shell metacharacters — all git helpers use popen/system */
-    if (!cbm_validate_shell_arg(root_path)) {
-        cbm_log_warn("watcher.watch.reject", "project", project_name, "reason",
+    if (!ctx_validate_shell_arg(root_path)) {
+        ctx_log_warn("watcher.watch.reject", "project", project_name, "reason",
                      "path contains shell metacharacters");
         return;
     }
 
     /* Remove old entry first (key points to state's project_name) */
-    project_state_t *old = cbm_ht_get(w->projects, project_name);
+    project_state_t *old = ctx_ht_get(w->projects, project_name);
     if (old) {
-        cbm_ht_delete(w->projects, project_name);
+        ctx_ht_delete(w->projects, project_name);
         state_free(old);
     }
 
     project_state_t *s = state_new(project_name, root_path);
-    cbm_ht_set(w->projects, s->project_name, s);
-    cbm_log_info("watcher.watch", "project", project_name, "path", root_path);
+    ctx_ht_set(w->projects, s->project_name, s);
+    ctx_log_info("watcher.watch", "project", project_name, "path", root_path);
 }
 
-void cbm_watcher_unwatch(cbm_watcher_t *w, const char *project_name) {
+void ctx_watcher_unwatch(ctx_watcher_t *w, const char *project_name) {
     if (!w || !project_name) {
         return;
     }
-    project_state_t *s = cbm_ht_get(w->projects, project_name);
+    project_state_t *s = ctx_ht_get(w->projects, project_name);
     if (s) {
-        cbm_ht_delete(w->projects, project_name);
+        ctx_ht_delete(w->projects, project_name);
         state_free(s);
-        cbm_log_info("watcher.unwatch", "project", project_name);
+        ctx_log_info("watcher.unwatch", "project", project_name);
     }
 }
 
-void cbm_watcher_touch(cbm_watcher_t *w, const char *project_name) {
+void ctx_watcher_touch(ctx_watcher_t *w, const char *project_name) {
     if (!w || !project_name) {
         return;
     }
-    project_state_t *s = cbm_ht_get(w->projects, project_name);
+    project_state_t *s = ctx_ht_get(w->projects, project_name);
     if (s) {
         /* Reset backoff — poll immediately on next cycle */
         s->next_poll_ns = 0;
     }
 }
 
-int cbm_watcher_watch_count(const cbm_watcher_t *w) {
+int ctx_watcher_watch_count(const ctx_watcher_t *w) {
     if (!w) {
         return 0;
     }
-    return (int)cbm_ht_count(w->projects);
+    return (int)ctx_ht_count(w->projects);
 }
 
 /* ── Single poll cycle ──────────────────────────────────────────── */
@@ -311,7 +311,7 @@ int cbm_watcher_watch_count(const cbm_watcher_t *w) {
 static void init_baseline(project_state_t *s) {
     struct stat st;
     if (stat(s->root_path, &st) != 0) {
-        cbm_log_warn("watcher.root_gone", "project", s->project_name, "path", s->root_path);
+        ctx_log_warn("watcher.root_gone", "project", s->project_name, "path", s->root_path);
         s->baseline_done = true;
         s->is_git = false;
         return;
@@ -323,11 +323,11 @@ static void init_baseline(project_state_t *s) {
     if (s->is_git) {
         git_head(s->root_path, s->last_head, sizeof(s->last_head));
         s->file_count = git_file_count(s->root_path);
-        s->interval_ms = cbm_watcher_poll_interval_ms(s->file_count);
-        cbm_log_info("watcher.baseline", "project", s->project_name, "strategy", "git", "files",
+        s->interval_ms = ctx_watcher_poll_interval_ms(s->file_count);
+        ctx_log_info("watcher.baseline", "project", s->project_name, "strategy", "git", "files",
                      s->file_count > 0 ? "yes" : "0");
     } else {
-        cbm_log_info("watcher.baseline", "project", s->project_name, "strategy", "none");
+        ctx_log_info("watcher.baseline", "project", s->project_name, "strategy", "none");
     }
 
     s->next_poll_ns = now_ns() + ((int64_t)s->interval_ms * US_PER_MS);
@@ -340,7 +340,7 @@ static bool check_changes(project_state_t *s) {
     }
 
     /* Check HEAD movement */
-    char head[CBM_SZ_64] = {0};
+    char head[CTX_SZ_64] = {0};
     if (git_head(s->root_path, head, sizeof(head)) == 0) {
         if (s->last_head[0] != '\0' && strcmp(head, s->last_head) != 0) {
             /* HEAD moved — commit, checkout, pull */
@@ -356,7 +356,7 @@ static bool check_changes(project_state_t *s) {
 
 /* Context for poll_once foreach callback */
 typedef struct {
-    cbm_watcher_t *w;
+    ctx_watcher_t *w;
     int64_t now;
     int reindexed;
 } poll_ctx_t;
@@ -393,7 +393,7 @@ static void poll_project(const char *key, void *val, void *ud) {
     }
 
     /* Trigger reindex */
-    cbm_log_info("watcher.changed", "project", s->project_name, "strategy", "git");
+    ctx_log_info("watcher.changed", "project", s->project_name, "strategy", "git");
     if (ctx->w->index_fn) {
         int rc = ctx->w->index_fn(s->project_name, s->root_path, ctx->w->user_data);
         if (rc == 0) {
@@ -402,16 +402,16 @@ static void poll_project(const char *key, void *val, void *ud) {
             git_head(s->root_path, s->last_head, sizeof(s->last_head));
             /* Refresh file count for interval */
             s->file_count = git_file_count(s->root_path);
-            s->interval_ms = cbm_watcher_poll_interval_ms(s->file_count);
+            s->interval_ms = ctx_watcher_poll_interval_ms(s->file_count);
         } else {
-            cbm_log_warn("watcher.index.err", "project", s->project_name);
+            ctx_log_warn("watcher.index.err", "project", s->project_name);
         }
     }
 
     s->next_poll_ns = ctx->now + ((int64_t)s->interval_ms * US_PER_MS);
 }
 
-int cbm_watcher_poll_once(cbm_watcher_t *w) {
+int ctx_watcher_poll_once(ctx_watcher_t *w) {
     if (!w) {
         return 0;
     }
@@ -421,30 +421,30 @@ int cbm_watcher_poll_once(cbm_watcher_t *w) {
         .now = now_ns(),
         .reindexed = 0,
     };
-    cbm_ht_foreach(w->projects, poll_project, &ctx);
+    ctx_ht_foreach(w->projects, poll_project, &ctx);
     return ctx.reindexed;
 }
 
 /* ── Blocking run loop ──────────────────────────────────────────── */
 
-void cbm_watcher_stop(cbm_watcher_t *w) {
+void ctx_watcher_stop(ctx_watcher_t *w) {
     if (w) {
         atomic_store(&w->stopped, 1);
     }
 }
 
-int cbm_watcher_run(cbm_watcher_t *w, int base_interval_ms) {
+int ctx_watcher_run(ctx_watcher_t *w, int base_interval_ms) {
     if (!w) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     if (base_interval_ms <= 0) {
         base_interval_ms = POLL_BASE_MS;
     }
 
-    cbm_log_info("watcher.start", "interval_ms", base_interval_ms > 999 ? "multi-sec" : "fast");
+    ctx_log_info("watcher.start", "interval_ms", base_interval_ms > 999 ? "multi-sec" : "fast");
 
     while (!atomic_load(&w->stopped)) {
-        cbm_watcher_poll_once(w);
+        ctx_watcher_poll_once(w);
 
         /* Sleep in small increments to allow responsive shutdown */
         int slept = 0;
@@ -453,11 +453,11 @@ int cbm_watcher_run(cbm_watcher_t *w, int base_interval_ms) {
             if (chunk > SLEEP_CHUNK_MS) {
                 chunk = SLEEP_CHUNK_MS;
             }
-            cbm_usleep((unsigned)chunk * CBM_MSEC_PER_SEC);
+            ctx_usleep((unsigned)chunk * CTX_MSEC_PER_SEC);
             slept += chunk;
         }
     }
 
-    cbm_log_info("watcher.stop");
+    ctx_log_info("watcher.stop");
     return 0;
 }

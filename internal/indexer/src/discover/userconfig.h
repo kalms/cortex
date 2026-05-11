@@ -14,8 +14,8 @@
  *
  * The language string matching is case-insensitive.
  */
-#ifndef CBM_USERCONFIG_H
-#define CBM_USERCONFIG_H
+#ifndef CTX_USERCONFIG_H
+#define CTX_USERCONFIG_H
 
 #include "cbm.h" /* CBMLanguage */
 
@@ -24,49 +24,49 @@
 typedef struct {
     char *ext;        /* file extension including dot, e.g. ".blade.php" */
     CBMLanguage lang; /* resolved language enum */
-} cbm_userext_t;
+} ctx_userext_t;
 
 typedef struct {
-    cbm_userext_t *entries; /* heap-allocated array */
+    ctx_userext_t *entries; /* heap-allocated array */
     int count;              /* number of entries */
-} cbm_userconfig_t;
+} ctx_userconfig_t;
 
 /* ── API ────────────────────────────────────────────────────────── */
 
 /*
  * Load user config from global + project files, merge (project wins).
  * repo_path: absolute path to the repository root (for project config).
- * Returns a heap-allocated cbm_userconfig_t (caller must free via
- * cbm_userconfig_free). Returns NULL only on allocation failure.
+ * Returns a heap-allocated ctx_userconfig_t (caller must free via
+ * ctx_userconfig_free). Returns NULL only on allocation failure.
  * Missing config files are silently ignored.
  */
-cbm_userconfig_t *cbm_userconfig_load(const char *repo_path);
+ctx_userconfig_t *ctx_userconfig_load(const char *repo_path);
 
 /*
  * Look up a file extension in the user config.
  * ext: extension including dot, e.g. ".blade.php"
- * Returns the mapped CBMLanguage, or CBM_LANG_COUNT if not found.
+ * Returns the mapped CBMLanguage, or CTX_LANG_COUNT if not found.
  */
-CBMLanguage cbm_userconfig_lookup(const cbm_userconfig_t *cfg, const char *ext);
+CBMLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext);
 
-/* Free a cbm_userconfig_t returned by cbm_userconfig_load. NULL-safe. */
-void cbm_userconfig_free(cbm_userconfig_t *cfg);
+/* Free a ctx_userconfig_t returned by ctx_userconfig_load. NULL-safe. */
+void ctx_userconfig_free(ctx_userconfig_t *cfg);
 
 /* ── Integration hook ───────────────────────────────────────────── */
 
 /*
- * Set the process-global user config that cbm_language_for_extension()
+ * Set the process-global user config that ctx_language_for_extension()
  * will consult before the built-in table.
  * cfg may be NULL to clear the override.
  * Not thread-safe — call before spawning worker threads.
  */
-void cbm_set_user_lang_config(const cbm_userconfig_t *cfg);
+void ctx_set_user_lang_config(const ctx_userconfig_t *cfg);
 
 /*
  * Get the currently active process-global user config.
  * Returns NULL if none has been set.
- * Called internally by cbm_language_for_extension().
+ * Called internally by ctx_language_for_extension().
  */
-const cbm_userconfig_t *cbm_get_user_lang_config(void);
+const ctx_userconfig_t *ctx_get_user_lang_config(void);
 
-#endif /* CBM_USERCONFIG_H */
+#endif /* CTX_USERCONFIG_H */

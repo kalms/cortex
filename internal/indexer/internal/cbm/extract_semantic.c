@@ -43,10 +43,10 @@ static char *resolve_exception_name(CBMArena *a, TSNode throw_node, const char *
                 fn = ts_node_named_child(child, 0);
             }
             if (!ts_node_is_null(fn)) {
-                return cbm_node_text(a, fn, source);
+                return ctx_node_text(a, fn, source);
             }
         } else {
-            return cbm_node_text(a, child, source);
+            return ctx_node_text(a, child, source);
         }
         break;
     }
@@ -74,10 +74,10 @@ static void extract_throws_clause(CBMExtractCtx *ctx, TSNode node, const CBMLang
         const char *ck = ts_node_type(child);
         if (strcmp(ck, "type_identifier") == 0 || strcmp(ck, "identifier") == 0 ||
             strcmp(ck, "scoped_type_identifier") == 0) {
-            char *exc = cbm_node_text(ctx->arena, child, ctx->source);
+            char *exc = ctx_node_text(ctx->arena, child, ctx->source);
             if (exc && exc[0]) {
                 CBMThrow thr = {.exception_name = exc, .enclosing_func_qn = func_qn};
-                cbm_throws_push(&ctx->result->throws, ctx->arena, thr);
+                ctx_throws_push(&ctx->result->throws, ctx->arena, thr);
             }
         }
     }
@@ -85,7 +85,7 @@ static void extract_throws_clause(CBMExtractCtx *ctx, TSNode node, const CBMLang
 
 // Process a single node for throw extraction (called from iterative walker).
 static void process_throw_node(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
-    if (cbm_kind_in_set(node, spec->throw_node_types)) {
+    if (ctx_kind_in_set(node, spec->throw_node_types)) {
         char *exc_name = resolve_exception_name(ctx->arena, node, ctx->source);
         if (exc_name && exc_name[0]) {
             if (strlen(exc_name) > MAX_EXCEPTION_NAME_LEN) {
@@ -93,16 +93,16 @@ static void process_throw_node(CBMExtractCtx *ctx, TSNode node, const CBMLangSpe
             }
             CBMThrow thr;
             thr.exception_name = exc_name;
-            thr.enclosing_func_qn = cbm_enclosing_func_qn_cached(ctx, node);
-            cbm_throws_push(&ctx->result->throws, ctx->arena, thr);
+            thr.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
+            ctx_throws_push(&ctx->result->throws, ctx->arena, thr);
         }
     }
 
-    extract_throws_clause(ctx, node, spec, cbm_enclosing_func_qn_cached(ctx, node));
+    extract_throws_clause(ctx, node, spec, ctx_enclosing_func_qn_cached(ctx, node));
 }
 
 // Iterative throw walker
-#define THROWS_STACK_CAP CBM_SZ_512
+#define THROWS_STACK_CAP CTX_SZ_512
 static void walk_throws(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
     TSNode stack[THROWS_STACK_CAP];
     int top = 0;
@@ -134,25 +134,25 @@ static void try_emit_assignment_write(CBMExtractCtx *ctx, TSNode node, const cha
     if (strcmp(lk, "identifier") != 0 && strcmp(lk, "simple_identifier") != 0) {
         return;
     }
-    char *name = cbm_node_text(ctx->arena, left, ctx->source);
-    if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
+    char *name = ctx_node_text(ctx->arena, left, ctx->source);
+    if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
         CBMReadWrite rw;
         rw.var_name = name;
         rw.is_write = true;
         rw.enclosing_func_qn = func_qn;
-        cbm_rw_push(&ctx->result->rw, ctx->arena, rw);
+        ctx_rw_push(&ctx->result->rw, ctx->arena, rw);
     }
 }
 
-#define READWRITE_STACK_CAP CBM_SZ_512
+#define READWRITE_STACK_CAP CTX_SZ_512
 static void walk_readwrites(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
     TSNode stack[READWRITE_STACK_CAP];
     int top = 0;
     stack[top++] = root;
     while (top > 0) {
         TSNode node = stack[--top];
-        if (cbm_kind_in_set(node, spec->assignment_node_types)) {
-            try_emit_assignment_write(ctx, node, cbm_enclosing_func_qn_cached(ctx, node));
+        if (ctx_kind_in_set(node, spec->assignment_node_types)) {
+            try_emit_assignment_write(ctx, node, ctx_enclosing_func_qn_cached(ctx, node));
         }
         uint32_t count = ts_node_child_count(node);
         for (int i = (int)count - LAST_IDX; i >= 0 && top < READWRITE_STACK_CAP; i--) {
@@ -161,8 +161,8 @@ static void walk_readwrites(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *
     }
 }
 
-void cbm_extract_semantic(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+void ctx_extract_semantic(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -188,7 +188,7 @@ void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
         return;
     }
 
-    if (has_throws && cbm_kind_in_set(node, spec->throw_node_types)) {
+    if (has_throws && ctx_kind_in_set(node, spec->throw_node_types)) {
         char *exc_name = resolve_exception_name(ctx->arena, node, ctx->source);
         if (exc_name && exc_name[0]) {
             if (strlen(exc_name) > MAX_EXCEPTION_NAME_LEN) {
@@ -197,7 +197,7 @@ void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
             CBMThrow thr;
             thr.exception_name = exc_name;
             thr.enclosing_func_qn = state->enclosing_func_qn;
-            cbm_throws_push(&ctx->result->throws, ctx->arena, thr);
+            ctx_throws_push(&ctx->result->throws, ctx->arena, thr);
         }
     }
 
@@ -209,7 +209,7 @@ void handle_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
         return;
     }
 
-    if (cbm_kind_in_set(node, spec->assignment_node_types)) {
+    if (ctx_kind_in_set(node, spec->assignment_node_types)) {
         TSNode left = ts_node_child_by_field_name(node, TS_FIELD("left"));
         if (ts_node_is_null(left)) {
             if (ts_node_child_count(node) > 0) {
@@ -220,13 +220,13 @@ void handle_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
         if (!ts_node_is_null(left)) {
             const char *lk = ts_node_type(left);
             if (strcmp(lk, "identifier") == 0 || strcmp(lk, "simple_identifier") == 0) {
-                char *name = cbm_node_text(ctx->arena, left, ctx->source);
-                if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
+                char *name = ctx_node_text(ctx->arena, left, ctx->source);
+                if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
                     CBMReadWrite rw;
                     rw.var_name = name;
                     rw.is_write = true;
                     rw.enclosing_func_qn = state->enclosing_func_qn;
-                    cbm_rw_push(&ctx->result->rw, ctx->arena, rw);
+                    ctx_rw_push(&ctx->result->rw, ctx->arena, rw);
                 }
             }
         }

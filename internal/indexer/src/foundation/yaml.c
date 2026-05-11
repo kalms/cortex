@@ -29,35 +29,35 @@ typedef enum {
     YAML_SCALAR,
 } yaml_type_t;
 
-struct cbm_yaml_node {
+struct ctx_yaml_node {
     yaml_type_t type;
     char *key;   /* NULL for list items and root */
     char *value; /* scalar value (NULL for map/list) */
 
     /* Children (for map and list nodes) */
-    cbm_yaml_node_t **children;
+    ctx_yaml_node_t **children;
     int child_count;
     int child_cap;
 };
 
 /* ── Node lifecycle ───────────────────────────────────────────── */
 
-static cbm_yaml_node_t *node_new(yaml_type_t type) {
-    cbm_yaml_node_t *n = calloc(CBM_ALLOC_ONE, sizeof(*n));
+static ctx_yaml_node_t *node_new(yaml_type_t type) {
+    ctx_yaml_node_t *n = calloc(CTX_ALLOC_ONE, sizeof(*n));
     if (n) {
         n->type = type;
     }
     return n;
 }
 
-static bool node_add_child(cbm_yaml_node_t *parent, cbm_yaml_node_t *child) {
+static bool node_add_child(ctx_yaml_node_t *parent, ctx_yaml_node_t *child) {
     if (!parent || !child) {
         return false;
     }
     if (parent->child_count >= parent->child_cap) {
         int new_cap =
             parent->child_cap < YAML_INIT_CAP ? YAML_INIT_CAP : parent->child_cap * PAIR_LEN;
-        cbm_yaml_node_t **new_arr = realloc(parent->children, (size_t)new_cap * sizeof(*new_arr));
+        ctx_yaml_node_t **new_arr = realloc(parent->children, (size_t)new_cap * sizeof(*new_arr));
         if (!new_arr) {
             return false;
         }
@@ -68,16 +68,16 @@ static bool node_add_child(cbm_yaml_node_t *parent, cbm_yaml_node_t *child) {
     return true;
 }
 
-void cbm_yaml_free(cbm_yaml_node_t *root) {
+void ctx_yaml_free(ctx_yaml_node_t *root) {
     if (!root) {
         return;
     }
     enum { YAML_FREE_STACK = 256 };
-    cbm_yaml_node_t *stack[YAML_FREE_STACK];
+    ctx_yaml_node_t *stack[YAML_FREE_STACK];
     int top = 0;
     stack[top++] = root;
     while (top > 0) {
-        cbm_yaml_node_t *node = stack[--top];
+        ctx_yaml_node_t *node = stack[--top];
         for (int i = 0; i < node->child_count && top < YAML_FREE_STACK; i++) {
             if (node->children[i]) {
                 stack[top++] = node->children[i];
@@ -126,12 +126,12 @@ static int leading_spaces(const char *line) {
 
 /* Stack entry for tracking parent context during parsing. */
 typedef struct {
-    cbm_yaml_node_t *node;
+    ctx_yaml_node_t *node;
     int indent;
 } stack_entry_t;
 
 /* Parse a list item "- value" and add to the correct parent. */
-static void parse_list_item(const char *content, int content_len, cbm_yaml_node_t *parent) {
+static void parse_list_item(const char *content, int content_len, ctx_yaml_node_t *parent) {
     const char *item_start = content + YAML_LIST_PREFIX;
     int item_len = content_len - YAML_LIST_PREFIX;
     while (item_len > 0 && isspace((unsigned char)item_start[0])) {
@@ -140,19 +140,19 @@ static void parse_list_item(const char *content, int content_len, cbm_yaml_node_
     }
 
     /* If parent is a map, the list items belong to the last child */
-    cbm_yaml_node_t *list_parent = parent;
+    ctx_yaml_node_t *list_parent = parent;
     if (parent->type == YAML_MAP && parent->child_count > 0) {
-        cbm_yaml_node_t *last = parent->children[parent->child_count - SKIP_ONE];
+        ctx_yaml_node_t *last = parent->children[parent->child_count - SKIP_ONE];
         if (last->type == YAML_LIST) {
             list_parent = last;
         }
     }
 
-    cbm_yaml_node_t *item = node_new(YAML_SCALAR);
+    ctx_yaml_node_t *item = node_new(YAML_SCALAR);
     if (item) {
         item->value = trim_dup(item_start, item_start + item_len);
         if (!node_add_child(list_parent, item)) {
-            cbm_yaml_free(item);
+            ctx_yaml_free(item);
         }
     }
 }
@@ -199,7 +199,7 @@ static bool peek_is_list(const char *eol, const char *end) {
 
 /* Parse a "key: value" or "key:" line. */
 static void parse_key_line(const char *content, int content_len, int indent,
-                           cbm_yaml_node_t *parent, stack_entry_t *stack, int *stack_depth,
+                           ctx_yaml_node_t *parent, stack_entry_t *stack, int *stack_depth,
                            const char *eol, const char *end) {
     const char *colon = memchr(content, ':', (size_t)content_len);
     if (!colon) {
@@ -223,12 +223,12 @@ static void parse_key_line(const char *content, int content_len, int indent,
 
     if (after_len > 0) {
         /* "key: value" — scalar */
-        cbm_yaml_node_t *child = node_new(YAML_SCALAR);
+        ctx_yaml_node_t *child = node_new(YAML_SCALAR);
         if (child) {
             child->key = key;
             child->value = trim_dup(after, after + after_len);
             if (!node_add_child(parent, child)) {
-                cbm_yaml_free(child);
+                ctx_yaml_free(child);
             }
         } else {
             free(key);
@@ -236,12 +236,12 @@ static void parse_key_line(const char *content, int content_len, int indent,
     } else {
         /* "key:" — could be map or list (determined by next lines) */
         bool is_list = peek_is_list(eol, end);
-        cbm_yaml_node_t *child = node_new(is_list ? YAML_LIST : YAML_MAP);
+        ctx_yaml_node_t *child = node_new(is_list ? YAML_LIST : YAML_MAP);
         if (child) {
             child->key = key;
             if (!node_add_child(parent, child)) {
-                cbm_yaml_free(child);
-            } else if (*stack_depth < CBM_SZ_32) {
+                ctx_yaml_free(child);
+            } else if (*stack_depth < CTX_SZ_32) {
                 stack[(*stack_depth)++] = (stack_entry_t){.node = child, .indent = indent};
             }
         } else {
@@ -250,18 +250,18 @@ static void parse_key_line(const char *content, int content_len, int indent,
     }
 }
 
-cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
+ctx_yaml_node_t *ctx_yaml_parse(const char *text, int len) {
     if (!text || len <= 0) {
         return node_new(YAML_MAP);
     }
 
-    cbm_yaml_node_t *root = node_new(YAML_MAP);
+    ctx_yaml_node_t *root = node_new(YAML_MAP);
     if (!root) {
         return NULL;
     }
 
     /* Stack for tracking parent context */
-    stack_entry_t stack[CBM_SZ_32];
+    stack_entry_t stack[CTX_SZ_32];
     int stack_depth = 0;
     stack[0] = (stack_entry_t){.node = root, .indent = YAML_ROOT_INDENT};
     stack_depth = SKIP_ONE;
@@ -296,7 +296,7 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
         while (stack_depth > SKIP_ONE && stack[stack_depth - SKIP_ONE].indent >= indent) {
             stack_depth--;
         }
-        cbm_yaml_node_t *parent = stack[stack_depth - SKIP_ONE].node;
+        ctx_yaml_node_t *parent = stack[stack_depth - SKIP_ONE].node;
 
         if (content[0] == '-' && content_len >= PAIR_LEN && content[SKIP_ONE] == ' ') {
             parse_list_item(content, content_len, parent);
@@ -313,7 +313,7 @@ cbm_yaml_node_t *cbm_yaml_parse(const char *text, int len) {
 /* ── Query helpers ────────────────────────────────────────────── */
 
 /* Find a child node by key in a map node. */
-static const cbm_yaml_node_t *find_child(const cbm_yaml_node_t *node, const char *key) {
+static const ctx_yaml_node_t *find_child(const ctx_yaml_node_t *node, const char *key) {
     if (!node || !key) {
         return NULL;
     }
@@ -326,13 +326,13 @@ static const cbm_yaml_node_t *find_child(const cbm_yaml_node_t *node, const char
 }
 
 /* Navigate to a node by dot-separated path. */
-static const cbm_yaml_node_t *navigate(const cbm_yaml_node_t *root, const char *path) {
+static const ctx_yaml_node_t *navigate(const ctx_yaml_node_t *root, const char *path) {
     if (!root || !path) {
         return NULL;
     }
 
-    const cbm_yaml_node_t *cur = root;
-    char buf[CBM_SZ_256];
+    const ctx_yaml_node_t *cur = root;
+    char buf[CTX_SZ_256];
     const char *p = path;
 
     while (*p) {
@@ -364,16 +364,16 @@ static const cbm_yaml_node_t *navigate(const cbm_yaml_node_t *root, const char *
     return cur;
 }
 
-const char *cbm_yaml_get_str(const cbm_yaml_node_t *root, const char *path) {
-    const cbm_yaml_node_t *node = navigate(root, path);
+const char *ctx_yaml_get_str(const ctx_yaml_node_t *root, const char *path) {
+    const ctx_yaml_node_t *node = navigate(root, path);
     if (!node || node->type != YAML_SCALAR) {
         return NULL;
     }
     return node->value;
 }
 
-double cbm_yaml_get_float(const cbm_yaml_node_t *root, const char *path, double default_val) {
-    const char *str = cbm_yaml_get_str(root, path);
+double ctx_yaml_get_float(const ctx_yaml_node_t *root, const char *path, double default_val) {
+    const char *str = ctx_yaml_get_str(root, path);
     if (!str) {
         return default_val;
     }
@@ -385,8 +385,8 @@ double cbm_yaml_get_float(const cbm_yaml_node_t *root, const char *path, double 
     return val;
 }
 
-bool cbm_yaml_get_bool(const cbm_yaml_node_t *root, const char *path, bool default_val) {
-    const char *str = cbm_yaml_get_str(root, path);
+bool ctx_yaml_get_bool(const ctx_yaml_node_t *root, const char *path, bool default_val) {
+    const char *str = ctx_yaml_get_str(root, path);
     if (!str) {
         return default_val;
     }
@@ -402,9 +402,9 @@ bool cbm_yaml_get_bool(const cbm_yaml_node_t *root, const char *path, bool defau
     return default_val;
 }
 
-int cbm_yaml_get_str_list(const cbm_yaml_node_t *root, const char *path, const char **out,
+int ctx_yaml_get_str_list(const ctx_yaml_node_t *root, const char *path, const char **out,
                           int max_out) {
-    const cbm_yaml_node_t *node = navigate(root, path);
+    const ctx_yaml_node_t *node = navigate(root, path);
     if (!node || node->type != YAML_LIST) {
         return 0;
     }
@@ -418,6 +418,6 @@ int cbm_yaml_get_str_list(const cbm_yaml_node_t *root, const char *path, const c
     return count;
 }
 
-bool cbm_yaml_has(const cbm_yaml_node_t *root, const char *path) {
+bool ctx_yaml_has(const ctx_yaml_node_t *root, const char *path) {
     return navigate(root, path) != NULL;
 }

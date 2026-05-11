@@ -4,21 +4,21 @@
  * Ports from internal/cbm/sqlite_writer_test.go:
  *   TestWriteDB_MinimalData, TestWriteDB_ScaleAndIndexes, TestWriteDB_Empty
  *
- * The page writer (cbm_write_db) constructs B-tree pages directly,
+ * The page writer (ctx_write_db) constructs B-tree pages directly,
  * bypassing the SQL parser entirely. These tests verify integrity.
  */
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
 /* sqlite_writer.h is at internal/cbm/ — Makefile adds -Iinternal/cbm */
-#include "sqlite_writer.h" /* CBMDumpNode, CBMDumpEdge, cbm_write_db */
+#include "sqlite_writer.h" /* CBMDumpNode, CBMDumpEdge, ctx_write_db */
 #include "sqlite3.h"       /* vendored/sqlite3/ via -Ivendored/sqlite3 */
 #include <unistd.h>
 
 /* ── Helper: create temp file path ─────────────────────────────── */
 
 static int make_temp_db(char *path, size_t pathsz) {
-    snprintf(path, pathsz, "/tmp/cbm_sw_test_XXXXXX");
-    int fd = cbm_mkstemp(path);
+    snprintf(path, pathsz, "/tmp/ctx_sw_test_XXXXXX");
+    int fd = ctx_mkstemp(path);
     if (fd < 0)
         return -1;
     close(fd);
@@ -61,7 +61,7 @@ TEST(sw_minimal_data) {
          .url_path = ""},
     };
 
-    int rc = cbm_write_db(path, "test", "/tmp/test", "2026-03-14T00:00:00Z", nodes, 2, edges, 1, NULL, 0, NULL, 0);
+    int rc = ctx_write_db(path, "test", "/tmp/test", "2026-03-14T00:00:00Z", nodes, 2, edges, 1, NULL, 0, NULL, 0);
     ASSERT_EQ(rc, 0);
 
     /* Verify via SQLite */
@@ -79,26 +79,26 @@ TEST(sw_minimal_data) {
     sqlite3_finalize(stmt);
 
     /* Node count */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 2);
     sqlite3_finalize(stmt);
 
     /* Edge count */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_edges", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 1);
     sqlite3_finalize(stmt);
 
     /* Project row */
-    sqlite3_prepare_v2(db, "SELECT name, root_path FROM cbm_projects", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name, root_path FROM ctx_projects", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "test");
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 1), "/tmp/test");
     sqlite3_finalize(stmt);
 
     /* Node content: check node 2 */
-    sqlite3_prepare_v2(db, "SELECT qualified_name, label FROM cbm_nodes WHERE id=2", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT qualified_name, label FROM ctx_nodes WHERE id=2", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "test.main.hello");
@@ -106,7 +106,7 @@ TEST(sw_minimal_data) {
     sqlite3_finalize(stmt);
 
     /* Edge content: check edge 1 */
-    sqlite3_prepare_v2(db, "SELECT source_id, target_id, type FROM cbm_edges WHERE id=1", -1, &stmt,
+    sqlite3_prepare_v2(db, "SELECT source_id, target_id, type FROM ctx_edges WHERE id=1", -1, &stmt,
                        NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
@@ -196,7 +196,7 @@ TEST(sw_scale_and_indexes) {
     }
 
     int rc =
-        cbm_write_db(path, "proj", "/repo", "2026-03-14T12:00:00Z", nodes, 100, edges, edge_count, NULL, 0, NULL, 0);
+        ctx_write_db(path, "proj", "/repo", "2026-03-14T12:00:00Z", nodes, 100, edges, edge_count, NULL, 0, NULL, 0);
     ASSERT_EQ(rc, 0);
 
     sqlite3 *db = NULL;
@@ -212,13 +212,13 @@ TEST(sw_scale_and_indexes) {
 
     /* Row counts */
     int nc = 0, ec = 0;
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     nc = sqlite3_column_int(stmt, 0);
     sqlite3_finalize(stmt);
     ASSERT_EQ(nc, 100);
 
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_edges", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ec = sqlite3_column_int(stmt, 0);
     sqlite3_finalize(stmt);
@@ -228,7 +228,7 @@ TEST(sw_scale_and_indexes) {
     int cnt = 0;
 
     /* label index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND label='Function'",
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_nodes WHERE project='proj' AND label='Function'",
                        -1, &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -236,7 +236,7 @@ TEST(sw_scale_and_indexes) {
     ASSERT_EQ(cnt, 20);
 
     /* name index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND name='sym_042'", -1,
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_nodes WHERE project='proj' AND name='sym_042'", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -245,7 +245,7 @@ TEST(sw_scale_and_indexes) {
 
     /* file_path index */
     sqlite3_prepare_v2(db,
-                       "SELECT COUNT(*) FROM cbm_nodes WHERE project='proj' AND file_path='alpha.go'",
+                       "SELECT COUNT(*) FROM ctx_nodes WHERE project='proj' AND file_path='alpha.go'",
                        -1, &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -253,7 +253,7 @@ TEST(sw_scale_and_indexes) {
     ASSERT_EQ(cnt, 20);
 
     /* edge type index */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_edges WHERE project='proj' AND type='DEFINES'", -1,
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_edges WHERE project='proj' AND type='DEFINES'", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     cnt = sqlite3_column_int(stmt, 0);
@@ -262,7 +262,7 @@ TEST(sw_scale_and_indexes) {
 
     /* QN unique lookup */
     sqlite3_prepare_v2(
-        db, "SELECT id FROM cbm_nodes WHERE project='proj' AND qualified_name='proj.pkg.sym_050'", -1,
+        db, "SELECT id FROM ctx_nodes WHERE project='proj' AND qualified_name='proj.pkg.sym_050'", -1,
         &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
@@ -278,7 +278,7 @@ TEST(sw_empty) {
     char path[256];
     ASSERT_EQ(make_temp_db(path, sizeof(path)), 0);
 
-    int rc = cbm_write_db(path, "test", "/tmp/test", "2026-03-14T00:00:00Z", NULL, 0, NULL, 0,
+    int rc = ctx_write_db(path, "test", "/tmp/test", "2026-03-14T00:00:00Z", NULL, 0, NULL, 0,
                           NULL, 0, NULL, 0);
     ASSERT_EQ(rc, 0);
 
@@ -326,7 +326,7 @@ TEST(sw_multi_page) {
         };
     }
 
-    int rc = cbm_write_db(path, "p", "/r", "2026-01-01T00:00:00Z", nodes, N, NULL, 0, NULL, 0,
+    int rc = ctx_write_db(path, "p", "/r", "2026-01-01T00:00:00Z", nodes, N, NULL, 0, NULL, 0,
                           NULL, 0);
     ASSERT_EQ(rc, 0);
 
@@ -342,13 +342,13 @@ TEST(sw_multi_page) {
     sqlite3_finalize(stmt);
 
     /* COUNT(*) must be exactly N */
-    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cbm_nodes", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM ctx_nodes", -1, &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), N);
     sqlite3_finalize(stmt);
 
     /* Verify no rowid gaps: min=1, max=N, count=N */
-    sqlite3_prepare_v2(db, "SELECT MIN(rowid), MAX(rowid), COUNT(DISTINCT rowid) FROM cbm_nodes", -1,
+    sqlite3_prepare_v2(db, "SELECT MIN(rowid), MAX(rowid), COUNT(DISTINCT rowid) FROM ctx_nodes", -1,
                        &stmt, NULL);
     sqlite3_step(stmt);
     ASSERT_EQ(sqlite3_column_int(stmt, 0), 1);
@@ -357,13 +357,13 @@ TEST(sw_multi_page) {
     sqlite3_finalize(stmt);
 
     /* Check first and last node by rowid */
-    sqlite3_prepare_v2(db, "SELECT name FROM cbm_nodes WHERE rowid=1", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name FROM ctx_nodes WHERE rowid=1", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "f0000");
     sqlite3_finalize(stmt);
 
-    sqlite3_prepare_v2(db, "SELECT name FROM cbm_nodes WHERE rowid=192", -1, &stmt, NULL);
+    sqlite3_prepare_v2(db, "SELECT name FROM ctx_nodes WHERE rowid=192", -1, &stmt, NULL);
     rc = sqlite3_step(stmt);
     ASSERT_EQ(rc, SQLITE_ROW);
     ASSERT_STR_EQ((const char *)sqlite3_column_text(stmt, 0), "f0191");

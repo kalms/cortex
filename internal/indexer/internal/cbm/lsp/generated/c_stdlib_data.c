@@ -10,31 +10,31 @@
     rf.min_params = -1; \
     rf.qualified_name = (qn); \
     rf.short_name = (short); \
-    rf.signature = cbm_type_func(arena, NULL, NULL, (const CBMType*[]){(ret_type), NULL}); \
-    cbm_registry_add_func(reg, rf); \
+    rf.signature = ctx_type_func(arena, NULL, NULL, (const CBMType*[]){(ret_type), NULL}); \
+    ctx_registry_add_func(reg, rf); \
 } while(0)
 
 #define REG_TYPE(qn, short) do { \
     memset(&rt, 0, sizeof(rt)); \
     rt.qualified_name = (qn); \
     rt.short_name = (short); \
-    cbm_registry_add_type(reg, rt); \
+    ctx_registry_add_type(reg, rt); \
 } while(0)
 
-void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
+void ctx_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     CBMRegisteredFunc rf;
     CBMRegisteredType rt;
 
-    const CBMType* t_int = cbm_type_builtin(arena, "int");
-    const CBMType* t_size_t = cbm_type_builtin(arena, "size_t");
-    const CBMType* t_double = cbm_type_builtin(arena, "double");
-    const CBMType* t_void = cbm_type_builtin(arena, "void");
-    const CBMType* t_char_ptr = cbm_type_pointer(arena, cbm_type_builtin(arena, "char"));
-    const CBMType* t_void_ptr = cbm_type_pointer(arena, t_void);
+    const CBMType* t_int = ctx_type_builtin(arena, "int");
+    const CBMType* t_size_t = ctx_type_builtin(arena, "size_t");
+    const CBMType* t_double = ctx_type_builtin(arena, "double");
+    const CBMType* t_void = ctx_type_builtin(arena, "void");
+    const CBMType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "char"));
+    const CBMType* t_void_ptr = ctx_type_pointer(arena, t_void);
 
     // FILE type
     REG_TYPE("FILE", "FILE");
-    const CBMType* t_file_ptr = cbm_type_pointer(arena, cbm_type_named(arena, "FILE"));
+    const CBMType* t_file_ptr = ctx_type_pointer(arena, ctx_type_named(arena, "FILE"));
 
     // stdio.h
     REG_FUNC("fopen", "fopen", t_file_ptr);
@@ -47,7 +47,7 @@ void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     REG_FUNC("fgets", "fgets", t_char_ptr);
     REG_FUNC("fputs", "fputs", t_int);
     REG_FUNC("fseek", "fseek", t_int);
-    REG_FUNC("ftell", "ftell", cbm_type_builtin(arena, "long"));
+    REG_FUNC("ftell", "ftell", ctx_type_builtin(arena, "long"));
     REG_FUNC("rewind", "rewind", t_void);
     REG_FUNC("feof", "feof", t_int);
     REG_FUNC("ferror", "ferror", t_int);
@@ -66,8 +66,8 @@ void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     REG_FUNC("free", "free", t_void);
     REG_FUNC("atoi", "atoi", t_int);
     REG_FUNC("atof", "atof", t_double);
-    REG_FUNC("atol", "atol", cbm_type_builtin(arena, "long"));
-    REG_FUNC("strtol", "strtol", cbm_type_builtin(arena, "long"));
+    REG_FUNC("atol", "atol", ctx_type_builtin(arena, "long"));
+    REG_FUNC("strtol", "strtol", ctx_type_builtin(arena, "long"));
     REG_FUNC("strtod", "strtod", t_double);
     REG_FUNC("exit", "exit", t_void);
     REG_FUNC("abort", "abort", t_void);
@@ -123,8 +123,8 @@ void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // assert.h / signal.h / time.h basics
     REG_FUNC("assert", "assert", t_void);
     REG_FUNC("signal", "signal", t_void);
-    REG_FUNC("time", "time", cbm_type_builtin(arena, "time_t"));
-    REG_FUNC("clock", "clock", cbm_type_builtin(arena, "clock_t"));
+    REG_FUNC("time", "time", ctx_type_builtin(arena, "time_t"));
+    REG_FUNC("clock", "clock", ctx_type_builtin(arena, "clock_t"));
     REG_FUNC("difftime", "difftime", t_double);
 }
 

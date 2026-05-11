@@ -10,9 +10,9 @@
  * skipped (fail-open). Missing files are silently ignored.
  */
 #include "discover/userconfig.h"
-#include "cbm.h" /* CBMLanguage, CBM_LANG_* */
+#include "cbm.h" /* CBMLanguage, CTX_LANG_* */
 #include "foundation/constants.h"
-#include "foundation/platform.h" /* cbm_safe_getenv */
+#include "foundation/platform.h" /* ctx_safe_getenv */
 
 enum { MAX_CONFIG_SIZE = 65536 };
 #include "foundation/log.h"
@@ -26,13 +26,13 @@ enum { MAX_CONFIG_SIZE = 65536 };
 
 /* ── Process-global user config pointer ──────────────────────────── */
 
-static const cbm_userconfig_t *g_userconfig = NULL;
+static const ctx_userconfig_t *g_userconfig = NULL;
 
-void cbm_set_user_lang_config(const cbm_userconfig_t *cfg) {
+void ctx_set_user_lang_config(const ctx_userconfig_t *cfg) {
     g_userconfig = cfg;
 }
 
-const cbm_userconfig_t *cbm_get_user_lang_config(void) {
+const ctx_userconfig_t *ctx_get_user_lang_config(void) {
     return g_userconfig;
 }
 
@@ -40,7 +40,7 @@ const cbm_userconfig_t *cbm_get_user_lang_config(void) {
 
 /*
  * Reverse-mapping from lowercase language name strings to CBMLanguage.
- * Covers all names exposed by cbm_language_name() plus common aliases.
+ * Covers all names exposed by ctx_language_name() plus common aliases.
  */
 typedef struct {
     const char *name; /* lowercase */
@@ -48,94 +48,94 @@ typedef struct {
 } lang_name_entry_t;
 
 static const lang_name_entry_t LANG_NAME_TABLE[] = {
-    {"go", CBM_LANG_GO},
-    {"python", CBM_LANG_PYTHON},
-    {"javascript", CBM_LANG_JAVASCRIPT},
-    {"typescript", CBM_LANG_TYPESCRIPT},
-    {"tsx", CBM_LANG_TSX},
-    {"rust", CBM_LANG_RUST},
-    {"java", CBM_LANG_JAVA},
-    {"c++", CBM_LANG_CPP},
-    {"cpp", CBM_LANG_CPP},
-    {"c#", CBM_LANG_CSHARP},
-    {"csharp", CBM_LANG_CSHARP},
-    {"php", CBM_LANG_PHP},
-    {"lua", CBM_LANG_LUA},
-    {"scala", CBM_LANG_SCALA},
-    {"kotlin", CBM_LANG_KOTLIN},
-    {"ruby", CBM_LANG_RUBY},
-    {"c", CBM_LANG_C},
-    {"bash", CBM_LANG_BASH},
-    {"sh", CBM_LANG_BASH},
-    {"zig", CBM_LANG_ZIG},
-    {"elixir", CBM_LANG_ELIXIR},
-    {"haskell", CBM_LANG_HASKELL},
-    {"ocaml", CBM_LANG_OCAML},
-    {"objective-c", CBM_LANG_OBJC},
-    {"objc", CBM_LANG_OBJC},
-    {"swift", CBM_LANG_SWIFT},
-    {"dart", CBM_LANG_DART},
-    {"perl", CBM_LANG_PERL},
-    {"groovy", CBM_LANG_GROOVY},
-    {"erlang", CBM_LANG_ERLANG},
-    {"r", CBM_LANG_R},
-    {"html", CBM_LANG_HTML},
-    {"css", CBM_LANG_CSS},
-    {"scss", CBM_LANG_SCSS},
-    {"yaml", CBM_LANG_YAML},
-    {"toml", CBM_LANG_TOML},
-    {"hcl", CBM_LANG_HCL},
-    {"terraform", CBM_LANG_HCL},
-    {"sql", CBM_LANG_SQL},
-    {"dockerfile", CBM_LANG_DOCKERFILE},
-    {"clojure", CBM_LANG_CLOJURE},
-    {"f#", CBM_LANG_FSHARP},
-    {"fsharp", CBM_LANG_FSHARP},
-    {"julia", CBM_LANG_JULIA},
-    {"vimscript", CBM_LANG_VIMSCRIPT},
-    {"nix", CBM_LANG_NIX},
-    {"common lisp", CBM_LANG_COMMONLISP},
-    {"commonlisp", CBM_LANG_COMMONLISP},
-    {"lisp", CBM_LANG_COMMONLISP},
-    {"elm", CBM_LANG_ELM},
-    {"fortran", CBM_LANG_FORTRAN},
-    {"cuda", CBM_LANG_CUDA},
-    {"cobol", CBM_LANG_COBOL},
-    {"verilog", CBM_LANG_VERILOG},
-    {"emacs lisp", CBM_LANG_EMACSLISP},
-    {"emacslisp", CBM_LANG_EMACSLISP},
-    {"json", CBM_LANG_JSON},
-    {"xml", CBM_LANG_XML},
-    {"markdown", CBM_LANG_MARKDOWN},
-    {"makefile", CBM_LANG_MAKEFILE},
-    {"cmake", CBM_LANG_CMAKE},
-    {"protobuf", CBM_LANG_PROTOBUF},
-    {"graphql", CBM_LANG_GRAPHQL},
-    {"vue", CBM_LANG_VUE},
-    {"svelte", CBM_LANG_SVELTE},
-    {"meson", CBM_LANG_MESON},
-    {"glsl", CBM_LANG_GLSL},
-    {"ini", CBM_LANG_INI},
-    {"matlab", CBM_LANG_MATLAB},
-    {"lean", CBM_LANG_LEAN},
-    {"form", CBM_LANG_FORM},
-    {"magma", CBM_LANG_MAGMA},
-    {"wolfram", CBM_LANG_WOLFRAM},
+    {"go", CTX_LANG_GO},
+    {"python", CTX_LANG_PYTHON},
+    {"javascript", CTX_LANG_JAVASCRIPT},
+    {"typescript", CTX_LANG_TYPESCRIPT},
+    {"tsx", CTX_LANG_TSX},
+    {"rust", CTX_LANG_RUST},
+    {"java", CTX_LANG_JAVA},
+    {"c++", CTX_LANG_CPP},
+    {"cpp", CTX_LANG_CPP},
+    {"c#", CTX_LANG_CSHARP},
+    {"csharp", CTX_LANG_CSHARP},
+    {"php", CTX_LANG_PHP},
+    {"lua", CTX_LANG_LUA},
+    {"scala", CTX_LANG_SCALA},
+    {"kotlin", CTX_LANG_KOTLIN},
+    {"ruby", CTX_LANG_RUBY},
+    {"c", CTX_LANG_C},
+    {"bash", CTX_LANG_BASH},
+    {"sh", CTX_LANG_BASH},
+    {"zig", CTX_LANG_ZIG},
+    {"elixir", CTX_LANG_ELIXIR},
+    {"haskell", CTX_LANG_HASKELL},
+    {"ocaml", CTX_LANG_OCAML},
+    {"objective-c", CTX_LANG_OBJC},
+    {"objc", CTX_LANG_OBJC},
+    {"swift", CTX_LANG_SWIFT},
+    {"dart", CTX_LANG_DART},
+    {"perl", CTX_LANG_PERL},
+    {"groovy", CTX_LANG_GROOVY},
+    {"erlang", CTX_LANG_ERLANG},
+    {"r", CTX_LANG_R},
+    {"html", CTX_LANG_HTML},
+    {"css", CTX_LANG_CSS},
+    {"scss", CTX_LANG_SCSS},
+    {"yaml", CTX_LANG_YAML},
+    {"toml", CTX_LANG_TOML},
+    {"hcl", CTX_LANG_HCL},
+    {"terraform", CTX_LANG_HCL},
+    {"sql", CTX_LANG_SQL},
+    {"dockerfile", CTX_LANG_DOCKERFILE},
+    {"clojure", CTX_LANG_CLOJURE},
+    {"f#", CTX_LANG_FSHARP},
+    {"fsharp", CTX_LANG_FSHARP},
+    {"julia", CTX_LANG_JULIA},
+    {"vimscript", CTX_LANG_VIMSCRIPT},
+    {"nix", CTX_LANG_NIX},
+    {"common lisp", CTX_LANG_COMMONLISP},
+    {"commonlisp", CTX_LANG_COMMONLISP},
+    {"lisp", CTX_LANG_COMMONLISP},
+    {"elm", CTX_LANG_ELM},
+    {"fortran", CTX_LANG_FORTRAN},
+    {"cuda", CTX_LANG_CUDA},
+    {"cobol", CTX_LANG_COBOL},
+    {"verilog", CTX_LANG_VERILOG},
+    {"emacs lisp", CTX_LANG_EMACSLISP},
+    {"emacslisp", CTX_LANG_EMACSLISP},
+    {"json", CTX_LANG_JSON},
+    {"xml", CTX_LANG_XML},
+    {"markdown", CTX_LANG_MARKDOWN},
+    {"makefile", CTX_LANG_MAKEFILE},
+    {"cmake", CTX_LANG_CMAKE},
+    {"protobuf", CTX_LANG_PROTOBUF},
+    {"graphql", CTX_LANG_GRAPHQL},
+    {"vue", CTX_LANG_VUE},
+    {"svelte", CTX_LANG_SVELTE},
+    {"meson", CTX_LANG_MESON},
+    {"glsl", CTX_LANG_GLSL},
+    {"ini", CTX_LANG_INI},
+    {"matlab", CTX_LANG_MATLAB},
+    {"lean", CTX_LANG_LEAN},
+    {"form", CTX_LANG_FORM},
+    {"magma", CTX_LANG_MAGMA},
+    {"wolfram", CTX_LANG_WOLFRAM},
 };
 
 #define LANG_NAME_TABLE_SIZE (sizeof(LANG_NAME_TABLE) / sizeof(LANG_NAME_TABLE[0]))
 
 /*
  * Parse a language string (case-insensitive) to a CBMLanguage enum.
- * Returns CBM_LANG_COUNT if the string is not recognized.
+ * Returns CTX_LANG_COUNT if the string is not recognized.
  */
 static CBMLanguage lang_from_string(const char *s) {
     if (!s || !s[0]) {
-        return CBM_LANG_COUNT;
+        return CTX_LANG_COUNT;
     }
 
     /* Build a lowercase copy for comparison */
-    char lower[CBM_SZ_64];
+    char lower[CTX_SZ_64];
     size_t i;
     for (i = 0; i < sizeof(lower) - SKIP_ONE && s[i]; i++) {
         lower[i] = (char)tolower((unsigned char)s[i]);
@@ -147,12 +147,12 @@ static CBMLanguage lang_from_string(const char *s) {
             return LANG_NAME_TABLE[j].lang;
         }
     }
-    return CBM_LANG_COUNT;
+    return CTX_LANG_COUNT;
 }
 
 /* ── Config directory helper ─────────────────────────────────────── */
 
-/* cbm_app_config_dir() is now in platform.c (cross-platform). */
+/* ctx_app_config_dir() is now in platform.c (cross-platform). */
 
 /* ── JSON parsing ────────────────────────────────────────────────── */
 
@@ -164,10 +164,10 @@ static CBMLanguage lang_from_string(const char *s) {
  *
  * Returns 0 on success, -1 on alloc failure.
  */
-static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int *count,
+static int parse_extra_extensions(yyjson_val *root, ctx_userext_t **entries, int *count,
                                   const char *source_label) {
     if (!yyjson_is_obj(root)) {
-        cbm_log_warn("userconfig.bad_root", "file", source_label);
+        ctx_log_warn("userconfig.bad_root", "file", source_label);
         return 0;
     }
 
@@ -176,7 +176,7 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
         return 0; /* key absent — fine */
     }
     if (!yyjson_is_obj(extra)) {
-        cbm_log_warn("userconfig.bad_extra_extensions", "file", source_label);
+        ctx_log_warn("userconfig.bad_extra_extensions", "file", source_label);
         return 0;
     }
 
@@ -190,32 +190,32 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
         const char *lang_str = yyjson_get_str(val);
 
         if (!ext_str || !lang_str) {
-            cbm_log_warn("userconfig.skip_non_string", "file", source_label);
+            ctx_log_warn("userconfig.skip_non_string", "file", source_label);
             continue;
         }
 
         /* Extension must start with '.' */
         if (ext_str[0] != '.') {
-            cbm_log_warn("userconfig.skip_bad_ext", "file", source_label, "ext", ext_str);
+            ctx_log_warn("userconfig.skip_bad_ext", "file", source_label, "ext", ext_str);
             continue;
         }
 
         CBMLanguage lang = lang_from_string(lang_str);
-        if (lang == CBM_LANG_COUNT) {
-            cbm_log_warn("userconfig.unknown_lang", "file", source_label, "lang", lang_str);
+        if (lang == CTX_LANG_COUNT) {
+            ctx_log_warn("userconfig.unknown_lang", "file", source_label, "lang", lang_str);
             continue; /* fail-open: skip unknown languages */
         }
 
         /* Grow the array */
-        cbm_userext_t *tmp = realloc(*entries, (size_t)(*count + SKIP_ONE) * sizeof(cbm_userext_t));
+        ctx_userext_t *tmp = realloc(*entries, (size_t)(*count + SKIP_ONE) * sizeof(ctx_userext_t));
         if (!tmp) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         *entries = tmp;
 
         char *ext_copy = strdup(ext_str);
         if (!ext_copy) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
 
         (*entries)[*count].ext = ext_copy;
@@ -230,7 +230,7 @@ static int parse_extra_extensions(yyjson_val *root, cbm_userext_t **entries, int
  * Silently ignores missing files. Logs warnings for corrupt JSON.
  * Returns 0 on success (or absent file), -1 on alloc failure.
  */
-static int load_config_file(const char *path, cbm_userext_t **entries, int *count) {
+static int load_config_file(const char *path, ctx_userext_t **entries, int *count) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         return 0; /* file absent — silently ignore */
@@ -249,7 +249,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     if (len <= 0 || len > MAX_CONFIG_SIZE) {
         (void)fclose(f);
         if (len > MAX_CONFIG_SIZE) {
-            cbm_log_warn("userconfig.file_too_large", "path", path);
+            ctx_log_warn("userconfig.file_too_large", "path", path);
         }
         return 0;
     }
@@ -257,7 +257,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     char *buf = malloc((size_t)len + SKIP_ONE);
     if (!buf) {
         (void)fclose(f);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     size_t nread = fread(buf, SKIP_ONE, (size_t)len, f);
@@ -271,7 +271,7 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
     free(buf);
 
     if (!doc) {
-        cbm_log_warn("userconfig.corrupt_json", "path", path);
+        ctx_log_warn("userconfig.corrupt_json", "path", path);
         return 0; /* corrupt JSON — silently ignore (fail-open) */
     }
 
@@ -283,18 +283,18 @@ static int load_config_file(const char *path, cbm_userext_t **entries, int *coun
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-cbm_userconfig_t *cbm_userconfig_load(const char *repo_path) {
-    cbm_userconfig_t *cfg = calloc(CBM_ALLOC_ONE, sizeof(cbm_userconfig_t));
+ctx_userconfig_t *ctx_userconfig_load(const char *repo_path) {
+    ctx_userconfig_t *cfg = calloc(CTX_ALLOC_ONE, sizeof(ctx_userconfig_t));
     if (!cfg) {
         return NULL;
     }
 
-    cbm_userext_t *entries = NULL;
+    ctx_userext_t *entries = NULL;
     int count = 0;
 
     /* ── Step 1: Load global config ── */
     enum { PATH_BUF_SZ = 1280 };
-    const char *cfg_base = cbm_app_config_dir();
+    const char *cfg_base = ctx_app_config_dir();
     const char *cfg_fallback = cfg_base ? cfg_base : "/tmp";
     char global_path[PATH_BUF_SZ];
     snprintf(global_path, sizeof(global_path), "%s/codebase-memory-mcp/config.json", cfg_fallback);
@@ -363,19 +363,19 @@ cbm_userconfig_t *cbm_userconfig_load(const char *repo_path) {
     return cfg;
 }
 
-CBMLanguage cbm_userconfig_lookup(const cbm_userconfig_t *cfg, const char *ext) {
+CBMLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext) {
     if (!cfg || !ext || !ext[0]) {
-        return CBM_LANG_COUNT;
+        return CTX_LANG_COUNT;
     }
     for (int i = 0; i < cfg->count; i++) {
         if (cfg->entries[i].ext && strcmp(cfg->entries[i].ext, ext) == 0) {
             return cfg->entries[i].lang;
         }
     }
-    return CBM_LANG_COUNT;
+    return CTX_LANG_COUNT;
 }
 
-void cbm_userconfig_free(cbm_userconfig_t *cfg) {
+void ctx_userconfig_free(ctx_userconfig_t *cfg) {
     if (!cfg) {
         return;
     }

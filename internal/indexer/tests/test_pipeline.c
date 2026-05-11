@@ -25,7 +25,7 @@
 static char g_tmpdir[256];
 
 /* Create:
- *   /tmp/cbm_test_XXXXXX/
+ *   /tmp/ctx_test_XXXXXX/
  *     main.go       (empty)
  *     pkg/
  *       service.go  (empty)
@@ -33,8 +33,8 @@ static char g_tmpdir[256];
  *         helper.go (empty)
  */
 static int setup_test_repo(void) {
-    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_test_XXXXXX");
-    if (!cbm_mkdtemp(g_tmpdir))
+    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/ctx_test_XXXXXX");
+    if (!ctx_mkdtemp(g_tmpdir))
         return -1;
 
     char path[512];
@@ -53,7 +53,7 @@ static int setup_test_repo(void) {
 
     /* pkg/ */
     snprintf(path, sizeof(path), "%s/pkg", g_tmpdir);
-    cbm_mkdir(path);
+    ctx_mkdir(path);
 
     /* pkg/service.go — calls Help() from util */
     snprintf(path, sizeof(path), "%s/pkg/service.go", g_tmpdir);
@@ -69,7 +69,7 @@ static int setup_test_repo(void) {
 
     /* pkg/util/ */
     snprintf(path, sizeof(path), "%s/pkg/util", g_tmpdir);
-    cbm_mkdir(path);
+    ctx_mkdir(path);
 
     /* pkg/util/helper.go */
     snprintf(path, sizeof(path), "%s/pkg/util/helper.go", g_tmpdir);
@@ -96,44 +96,44 @@ static void teardown_test_repo(void) {
 /* ── Lifecycle tests ─────────────────────────────────────────────── */
 
 TEST(pipeline_create_free) {
-    cbm_pipeline_t *p = cbm_pipeline_new("/some/path", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("/some/path", NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_STR_EQ(cbm_pipeline_project_name(p), "some-path");
-    cbm_pipeline_free(p);
+    ASSERT_STR_EQ(ctx_pipeline_project_name(p), "some-path");
+    ctx_pipeline_free(p);
     PASS();
 }
 
 TEST(pipeline_null_repo) {
-    cbm_pipeline_t *p = cbm_pipeline_new(NULL, NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(NULL, NULL, CTX_MODE_FULL);
     ASSERT_NULL(p);
     PASS();
 }
 
 TEST(pipeline_free_null) {
-    cbm_pipeline_free(NULL); /* should not crash */
+    ctx_pipeline_free(NULL); /* should not crash */
     PASS();
 }
 
 TEST(pipeline_cancel) {
-    cbm_pipeline_t *p = cbm_pipeline_new("/some/path", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("/some/path", NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    cbm_pipeline_cancel(p);
+    ctx_pipeline_cancel(p);
     /* Running a cancelled pipeline should return -1 immediately */
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     /* Note: it may fail because /some/path doesn't exist, not because of cancel.
      * This test just verifies cancel doesn't crash. */
     (void)rc;
-    cbm_pipeline_free(p);
+    ctx_pipeline_free(p);
     PASS();
 }
 
 TEST(pipeline_cancel_null) {
-    cbm_pipeline_cancel(NULL); /* should not crash */
+    ctx_pipeline_cancel(NULL); /* should not crash */
     PASS();
 }
 
 TEST(pipeline_run_null) {
-    int rc = cbm_pipeline_run(NULL);
+    int rc = ctx_pipeline_run(NULL);
     ASSERT_EQ(rc, -1);
     PASS();
 }
@@ -148,27 +148,27 @@ TEST(store_file_persistence) {
     snprintf(db_path, sizeof(db_path), "%s/persist_test.db", g_tmpdir);
 
     /* Write data */
-    cbm_store_t *s1 = cbm_store_open_path(db_path);
+    ctx_store_t *s1 = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s1);
-    cbm_store_upsert_project(s1, "proj", "/tmp");
-    cbm_node_t n = {.project = "proj",
+    ctx_store_upsert_project(s1, "proj", "/tmp");
+    ctx_node_t n = {.project = "proj",
                     .label = "Function",
                     .name = "foo",
                     .qualified_name = "proj.foo",
                     .file_path = "f.go"};
-    int64_t id = cbm_store_upsert_node(s1, &n);
+    int64_t id = ctx_store_upsert_node(s1, &n);
     ASSERT_GT(id, 0);
-    int cnt1 = cbm_store_count_nodes(s1, "proj");
+    int cnt1 = ctx_store_count_nodes(s1, "proj");
     ASSERT_EQ(cnt1, 1);
-    cbm_store_checkpoint(s1);
-    cbm_store_close(s1);
+    ctx_store_checkpoint(s1);
+    ctx_store_close(s1);
 
     /* Reopen and verify */
-    cbm_store_t *s2 = cbm_store_open_path(db_path);
+    ctx_store_t *s2 = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s2);
-    int cnt2 = cbm_store_count_nodes(s2, "proj");
+    int cnt2 = ctx_store_count_nodes(s2, "proj");
     ASSERT_EQ(cnt2, 1);
-    cbm_store_close(s2);
+    ctx_store_close(s2);
 
     teardown_test_repo();
     PASS();
@@ -182,29 +182,29 @@ TEST(store_bulk_persistence) {
     snprintf(db_path, sizeof(db_path), "%s/bulk_test.db", g_tmpdir);
 
     /* Verify: begin_bulk + explicit txn + end_bulk persists to file */
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
 
-    cbm_store_upsert_project(s, "proj", "/tmp");
-    cbm_store_begin_bulk(s);
-    cbm_store_begin(s);
-    cbm_node_t n = {.project = "proj",
+    ctx_store_upsert_project(s, "proj", "/tmp");
+    ctx_store_begin_bulk(s);
+    ctx_store_begin(s);
+    ctx_node_t n = {.project = "proj",
                     .label = "Function",
                     .name = "foo",
                     .qualified_name = "proj.foo",
                     .file_path = "f.go"};
-    int64_t id = cbm_store_upsert_node(s, &n);
+    int64_t id = ctx_store_upsert_node(s, &n);
     ASSERT_GT(id, 0);
-    ASSERT_EQ(cbm_store_commit(s), 0);
-    cbm_store_end_bulk(s);
-    cbm_store_checkpoint(s);
-    cbm_store_close(s);
+    ASSERT_EQ(ctx_store_commit(s), 0);
+    ctx_store_end_bulk(s);
+    ctx_store_checkpoint(s);
+    ctx_store_close(s);
 
     /* Reopen and verify data survived */
-    cbm_store_t *s2 = cbm_store_open_path(db_path);
+    ctx_store_t *s2 = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s2);
-    ASSERT_EQ(cbm_store_count_nodes(s2, "proj"), 1);
-    cbm_store_close(s2);
+    ASSERT_EQ(ctx_store_count_nodes(s2, "proj"), 1);
+    ctx_store_close(s2);
 
     teardown_test_repo();
     PASS();
@@ -220,51 +220,51 @@ TEST(pipeline_structure_nodes) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
 
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
     /* Verify results by opening the store */
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
 
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Should have nodes: 1 Project + 2 Folders + 3 Files + N Functions */
-    int node_count = cbm_store_count_nodes(s, project);
+    int node_count = ctx_store_count_nodes(s, project);
     ASSERT_GTE(node_count, 9); /* 6 structure + at least 3 definitions */
 
     /* Verify project node exists */
-    cbm_node_t proj_node = {0};
-    rc = cbm_store_find_node_by_qn(s, project, project, &proj_node);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    ctx_node_t proj_node = {0};
+    rc = ctx_store_find_node_by_qn(s, project, project, &proj_node);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_STR_EQ(proj_node.label, "Project");
-    cbm_node_free_fields(&proj_node);
+    ctx_node_free_fields(&proj_node);
 
     /* Verify folder nodes */
-    cbm_node_t *folders = NULL;
+    ctx_node_t *folders = NULL;
     int folder_count = 0;
-    rc = cbm_store_find_nodes_by_label(s, project, "Folder", &folders, &folder_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    rc = ctx_store_find_nodes_by_label(s, project, "Folder", &folders, &folder_count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_GTE(folder_count, 2); /* pkg, pkg/util */
-    cbm_store_free_nodes(folders, folder_count);
+    ctx_store_free_nodes(folders, folder_count);
 
     /* Verify file nodes */
-    cbm_node_t *file_nodes = NULL;
+    ctx_node_t *file_nodes = NULL;
     int file_count = 0;
-    rc = cbm_store_find_nodes_by_label(s, project, "File", &file_nodes, &file_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    rc = ctx_store_find_nodes_by_label(s, project, "File", &file_nodes, &file_count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_GTE(file_count, 3); /* main.go, service.go, helper.go */
-    cbm_store_free_nodes(file_nodes, file_count);
+    ctx_store_free_nodes(file_nodes, file_count);
 
     /* Verify edges exist */
-    int edge_count = cbm_store_count_edges(s, project);
+    int edge_count = ctx_store_count_edges(s, project);
     ASSERT_GTE(edge_count, 5); /* CONTAINS_FOLDER + CONTAINS_FILE edges */
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -277,23 +277,23 @@ TEST(pipeline_structure_edges) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Check CONTAINS_FILE edges */
-    int cf_count = cbm_store_count_edges_by_type(s, project, "CONTAINS_FILE");
+    int cf_count = ctx_store_count_edges_by_type(s, project, "CONTAINS_FILE");
     /* Check CONTAINS_FOLDER edges */
-    int cd_count = cbm_store_count_edges_by_type(s, project, "CONTAINS_FOLDER");
+    int cd_count = ctx_store_count_edges_by_type(s, project, "CONTAINS_FOLDER");
 
     /* Cleanup before assertions (so failures don't leak) */
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
 
     ASSERT_GTE(cf_count, 3); /* project->main.go, pkg->service.go, util->helper.go */
@@ -306,15 +306,15 @@ TEST(pipeline_project_name_derived) {
         SKIP("failed to create temp dir");
     }
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
 
     /* Project name should be derived from tmpdir path */
-    const char *name = cbm_pipeline_project_name(p);
+    const char *name = ctx_pipeline_project_name(p);
     ASSERT_NOT_NULL(name);
     ASSERT_TRUE(strlen(name) > 0);
 
-    cbm_pipeline_free(p);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -327,21 +327,21 @@ TEST(pipeline_fast_mode) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_fast.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FAST);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FAST);
     ASSERT_NOT_NULL(p);
 
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
     /* Just verify it completes without error in fast mode */
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
-    int node_count = cbm_store_count_nodes(s, project);
+    const char *project = ctx_pipeline_project_name(p);
+    int node_count = ctx_store_count_nodes(s, project);
     ASSERT_GT(node_count, 0);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -356,20 +356,20 @@ TEST(pipeline_definitions_function_nodes) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_defs.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Verify Function nodes extracted from Go source files */
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int func_count = 0;
-    rc = cbm_store_find_nodes_by_label(s, project, "Function", &funcs, &func_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    rc = ctx_store_find_nodes_by_label(s, project, "Function", &funcs, &func_count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_GTE(func_count, 3); /* main, Serve, Help */
 
     /* Verify each expected function exists */
@@ -386,9 +386,9 @@ TEST(pipeline_definitions_function_nodes) {
     ASSERT_TRUE(found_serve);
     ASSERT_TRUE(found_help);
 
-    cbm_store_free_nodes(funcs, func_count);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(funcs, func_count);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -401,25 +401,25 @@ TEST(pipeline_definitions_defines_edges) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_defs_edges.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* DEFINES edges: File → Function (one per extracted definition) */
-    int defines_count = cbm_store_count_edges_by_type(s, project, "DEFINES");
+    int defines_count = ctx_store_count_edges_by_type(s, project, "DEFINES");
     ASSERT_GTE(defines_count, 3); /* main.go→main, service.go→Serve, helper.go→Help */
 
     /* CONTAINS_FILE edges should still exist from structure pass */
-    int cf_count = cbm_store_count_edges_by_type(s, project, "CONTAINS_FILE");
+    int cf_count = ctx_store_count_edges_by_type(s, project, "CONTAINS_FILE");
     ASSERT_GTE(cf_count, 3);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -432,20 +432,20 @@ TEST(pipeline_definitions_properties) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_defs_props.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Verify a function has valid properties (complexity, lines, etc.) */
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int func_count = 0;
-    rc = cbm_store_find_nodes_by_label(s, project, "Function", &funcs, &func_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    rc = ctx_store_find_nodes_by_label(s, project, "Function", &funcs, &func_count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_GT(func_count, 0);
 
     /* Check that Serve (exported) has is_exported:true in properties */
@@ -458,9 +458,9 @@ TEST(pipeline_definitions_properties) {
         ASSERT_NOT_NULL(funcs[i].file_path);
     }
 
-    cbm_store_free_nodes(funcs, func_count);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(funcs, func_count);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -475,21 +475,21 @@ TEST(pipeline_calls_resolution) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_calls.db", g_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* main() calls pkg.Serve(), Serve() calls util.Help() → at least 2 CALLS edges */
-    int calls_count = cbm_store_count_edges_by_type(s, project, "CALLS");
+    int calls_count = ctx_store_count_edges_by_type(s, project, "CALLS");
     ASSERT_GTE(calls_count, 1); /* at least some calls resolved */
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_test_repo();
     PASS();
 }
@@ -498,23 +498,23 @@ TEST(pipeline_calls_resolution) {
 
 TEST(githistory_is_trackable) {
     /* Source files → trackable */
-    ASSERT_TRUE(cbm_is_trackable_file("main.go"));
-    ASSERT_TRUE(cbm_is_trackable_file("src/app.py"));
-    ASSERT_TRUE(cbm_is_trackable_file("README.md"));
+    ASSERT_TRUE(ctx_is_trackable_file("main.go"));
+    ASSERT_TRUE(ctx_is_trackable_file("src/app.py"));
+    ASSERT_TRUE(ctx_is_trackable_file("README.md"));
 
     /* Non-trackable: skip prefixes */
-    ASSERT_FALSE(cbm_is_trackable_file("node_modules/foo/bar.js"));
-    ASSERT_FALSE(cbm_is_trackable_file("vendor/lib/dep.go"));
-    ASSERT_FALSE(cbm_is_trackable_file(".git/config"));
-    ASSERT_FALSE(cbm_is_trackable_file("__pycache__/mod.pyc"));
+    ASSERT_FALSE(ctx_is_trackable_file("node_modules/foo/bar.js"));
+    ASSERT_FALSE(ctx_is_trackable_file("vendor/lib/dep.go"));
+    ASSERT_FALSE(ctx_is_trackable_file(".git/config"));
+    ASSERT_FALSE(ctx_is_trackable_file("__pycache__/mod.pyc"));
 
     /* Non-trackable: lock files */
-    ASSERT_FALSE(cbm_is_trackable_file("package-lock.json"));
-    ASSERT_FALSE(cbm_is_trackable_file("go.sum"));
+    ASSERT_FALSE(ctx_is_trackable_file("package-lock.json"));
+    ASSERT_FALSE(ctx_is_trackable_file("go.sum"));
 
     /* Non-trackable: binary/minified extensions */
-    ASSERT_FALSE(cbm_is_trackable_file("image.png"));
-    ASSERT_FALSE(cbm_is_trackable_file("src/style.min.css"));
+    ASSERT_FALSE(ctx_is_trackable_file("image.png"));
+    ASSERT_FALSE(ctx_is_trackable_file("src/style.min.css"));
 
     PASS();
 }
@@ -527,12 +527,12 @@ TEST(githistory_compute_coupling) {
     char *files_3[] = {"a.go", "c.go"};
     char *files_4[] = {"d.go", "e.go"};
 
-    cbm_commit_files_t commits[] = {
+    ctx_commit_files_t commits[] = {
         {files_0, 3}, {files_1, 2}, {files_2, 2}, {files_3, 2}, {files_4, 2},
     };
 
-    cbm_change_coupling_t results[100];
-    int n = cbm_compute_change_coupling(commits, 5, results, 100);
+    ctx_change_coupling_t results[100];
+    int n = ctx_compute_change_coupling(commits, 5, results, 100);
 
     /* a.go + b.go co-change 3 times → should appear */
     bool found_ab = false;
@@ -564,10 +564,10 @@ TEST(githistory_skip_large_commits) {
         files[i] = bufs[i];
     }
 
-    cbm_commit_files_t commits[] = {{files, 25}};
+    ctx_commit_files_t commits[] = {{files, 25}};
 
-    cbm_change_coupling_t results[100];
-    int n = cbm_compute_change_coupling(commits, 1, results, 100);
+    ctx_change_coupling_t results[100];
+    int n = ctx_compute_change_coupling(commits, 1, results, 100);
     ASSERT_EQ(n, 0);
 
     PASS();
@@ -581,7 +581,7 @@ TEST(githistory_limits_to_max) {
     int npairs = nfiles * (nfiles - 1) / 2;
     int ncommits = npairs * 3;
 
-    cbm_commit_files_t *commits = calloc(ncommits, sizeof(cbm_commit_files_t));
+    ctx_commit_files_t *commits = calloc(ncommits, sizeof(ctx_commit_files_t));
     char **file_strs = calloc(nfiles, sizeof(char *));
     for (int i = 0; i < nfiles; i++) {
         file_strs[i] = malloc(32);
@@ -602,8 +602,8 @@ TEST(githistory_limits_to_max) {
     }
 
     /* max_out = 100 → should cap at 100 */
-    cbm_change_coupling_t results[100];
-    int n = cbm_compute_change_coupling(commits, ncommits, results, 100);
+    ctx_change_coupling_t results[100];
+    int n = ctx_compute_change_coupling(commits, ncommits, results, 100);
     ASSERT_TRUE(n <= 100);
 
     /* Cleanup */
@@ -623,52 +623,52 @@ TEST(githistory_limits_to_max) {
 
 TEST(testdetect_is_test_file) {
     /* Test file patterns (all languages) */
-    ASSERT_TRUE(cbm_is_test_path("foo_test.go"));
-    ASSERT_TRUE(cbm_is_test_path("test_handler.py"));
-    ASSERT_TRUE(cbm_is_test_path("handler.test.js"));
-    ASSERT_TRUE(cbm_is_test_path("handler.spec.ts"));
-    ASSERT_TRUE(cbm_is_test_path("Component.test.tsx"));
-    ASSERT_TRUE(cbm_is_test_path("OrderTest.java"));
-    ASSERT_TRUE(cbm_is_test_path("handler_test.rs"));
-    ASSERT_TRUE(cbm_is_test_path("handler_test.cpp"));
-    ASSERT_TRUE(cbm_is_test_path("OrderTest.cs"));
-    ASSERT_TRUE(cbm_is_test_path("OrderTest.php"));
-    ASSERT_TRUE(cbm_is_test_path("OrderSpec.scala"));
-    ASSERT_TRUE(cbm_is_test_path("OrderTest.kt"));
-    ASSERT_TRUE(cbm_is_test_path("handler_test.lua"));
+    ASSERT_TRUE(ctx_is_test_path("foo_test.go"));
+    ASSERT_TRUE(ctx_is_test_path("test_handler.py"));
+    ASSERT_TRUE(ctx_is_test_path("handler.test.js"));
+    ASSERT_TRUE(ctx_is_test_path("handler.spec.ts"));
+    ASSERT_TRUE(ctx_is_test_path("Component.test.tsx"));
+    ASSERT_TRUE(ctx_is_test_path("OrderTest.java"));
+    ASSERT_TRUE(ctx_is_test_path("handler_test.rs"));
+    ASSERT_TRUE(ctx_is_test_path("handler_test.cpp"));
+    ASSERT_TRUE(ctx_is_test_path("OrderTest.cs"));
+    ASSERT_TRUE(ctx_is_test_path("OrderTest.php"));
+    ASSERT_TRUE(ctx_is_test_path("OrderSpec.scala"));
+    ASSERT_TRUE(ctx_is_test_path("OrderTest.kt"));
+    ASSERT_TRUE(ctx_is_test_path("handler_test.lua"));
 
     /* Non-test file patterns */
-    ASSERT_FALSE(cbm_is_test_path("foo.go"));
-    ASSERT_FALSE(cbm_is_test_path("handler.py"));
-    ASSERT_FALSE(cbm_is_test_path("handler.js"));
-    ASSERT_FALSE(cbm_is_test_path("handler.ts"));
-    ASSERT_FALSE(cbm_is_test_path("Component.tsx"));
-    ASSERT_FALSE(cbm_is_test_path("Order.java"));
-    ASSERT_FALSE(cbm_is_test_path("handler.rs"));
-    ASSERT_FALSE(cbm_is_test_path("handler.cpp"));
-    ASSERT_FALSE(cbm_is_test_path("Order.cs"));
-    ASSERT_FALSE(cbm_is_test_path("Order.php"));
-    ASSERT_FALSE(cbm_is_test_path("Order.scala"));
-    ASSERT_FALSE(cbm_is_test_path("Order.kt"));
-    ASSERT_FALSE(cbm_is_test_path("handler.lua"));
+    ASSERT_FALSE(ctx_is_test_path("foo.go"));
+    ASSERT_FALSE(ctx_is_test_path("handler.py"));
+    ASSERT_FALSE(ctx_is_test_path("handler.js"));
+    ASSERT_FALSE(ctx_is_test_path("handler.ts"));
+    ASSERT_FALSE(ctx_is_test_path("Component.tsx"));
+    ASSERT_FALSE(ctx_is_test_path("Order.java"));
+    ASSERT_FALSE(ctx_is_test_path("handler.rs"));
+    ASSERT_FALSE(ctx_is_test_path("handler.cpp"));
+    ASSERT_FALSE(ctx_is_test_path("Order.cs"));
+    ASSERT_FALSE(ctx_is_test_path("Order.php"));
+    ASSERT_FALSE(ctx_is_test_path("Order.scala"));
+    ASSERT_FALSE(ctx_is_test_path("Order.kt"));
+    ASSERT_FALSE(ctx_is_test_path("handler.lua"));
 
     PASS();
 }
 
 TEST(testdetect_is_test_function) {
     /* Test function patterns */
-    ASSERT_TRUE(cbm_is_test_func_name("TestCreate"));  /* Go */
-    ASSERT_TRUE(cbm_is_test_func_name("test_create")); /* Python/Rust/Lua */
-    ASSERT_TRUE(cbm_is_test_func_name("test"));        /* JS/TS */
-    ASSERT_TRUE(cbm_is_test_func_name("describe"));    /* JS/TS */
-    ASSERT_TRUE(cbm_is_test_func_name("it"));          /* JS/TS */
-    ASSERT_TRUE(cbm_is_test_func_name("testCreate"));  /* Java/PHP/Scala/Kotlin */
-    ASSERT_TRUE(cbm_is_test_func_name("TestCreate"));  /* C++/C# */
+    ASSERT_TRUE(ctx_is_test_func_name("TestCreate"));  /* Go */
+    ASSERT_TRUE(ctx_is_test_func_name("test_create")); /* Python/Rust/Lua */
+    ASSERT_TRUE(ctx_is_test_func_name("test"));        /* JS/TS */
+    ASSERT_TRUE(ctx_is_test_func_name("describe"));    /* JS/TS */
+    ASSERT_TRUE(ctx_is_test_func_name("it"));          /* JS/TS */
+    ASSERT_TRUE(ctx_is_test_func_name("testCreate"));  /* Java/PHP/Scala/Kotlin */
+    ASSERT_TRUE(ctx_is_test_func_name("TestCreate"));  /* C++/C# */
 
     /* Non-test function patterns */
-    ASSERT_FALSE(cbm_is_test_func_name("create"));
-    ASSERT_FALSE(cbm_is_test_func_name("handleRequest"));
-    ASSERT_FALSE(cbm_is_test_func_name("process"));
+    ASSERT_FALSE(ctx_is_test_func_name("create"));
+    ASSERT_FALSE(ctx_is_test_func_name("handleRequest"));
+    ASSERT_FALSE(ctx_is_test_func_name("process"));
 
     PASS();
 }
@@ -678,127 +678,127 @@ TEST(testdetect_is_test_function) {
 TEST(implements_creates_override) {
     /* Port of TestPassImplementsCreatesOverrideEdges.
      * Set up Interface+methods, Class+methods, verify IMPLEMENTS+OVERRIDE. */
-    cbm_gbuf_t *gb = cbm_gbuf_new("test-proj", "/tmp/test");
+    ctx_gbuf_t *gb = ctx_gbuf_new("test-proj", "/tmp/test");
     ASSERT_NOT_NULL(gb);
 
     /* Interface "Reader" with methods "Read" and "Close" */
     int64_t iface_id =
-        cbm_gbuf_upsert_node(gb, "Interface", "Reader", "pkg.Reader", "pkg/reader.go", 1, 5, "{}");
+        ctx_gbuf_upsert_node(gb, "Interface", "Reader", "pkg.Reader", "pkg/reader.go", 1, 5, "{}");
     ASSERT_GT(iface_id, 0);
 
     int64_t read_method_id =
-        cbm_gbuf_upsert_node(gb, "Method", "Read", "pkg.Reader.Read", "pkg/reader.go", 2, 2, "{}");
-    int64_t close_method_id = cbm_gbuf_upsert_node(gb, "Method", "Close", "pkg.Reader.Close",
+        ctx_gbuf_upsert_node(gb, "Method", "Read", "pkg.Reader.Read", "pkg/reader.go", 2, 2, "{}");
+    int64_t close_method_id = ctx_gbuf_upsert_node(gb, "Method", "Close", "pkg.Reader.Close",
                                                    "pkg/reader.go", 3, 3, "{}");
     ASSERT_GT(read_method_id, 0);
     ASSERT_GT(close_method_id, 0);
 
     /* DEFINES_METHOD edges */
-    cbm_gbuf_insert_edge(gb, iface_id, read_method_id, "DEFINES_METHOD", "{}");
-    cbm_gbuf_insert_edge(gb, iface_id, close_method_id, "DEFINES_METHOD", "{}");
+    ctx_gbuf_insert_edge(gb, iface_id, read_method_id, "DEFINES_METHOD", "{}");
+    ctx_gbuf_insert_edge(gb, iface_id, close_method_id, "DEFINES_METHOD", "{}");
 
     /* Class "FileReader" with matching methods */
-    int64_t class_id = cbm_gbuf_upsert_node(gb, "Class", "FileReader", "pkg.FileReader",
+    int64_t class_id = ctx_gbuf_upsert_node(gb, "Class", "FileReader", "pkg.FileReader",
                                             "pkg/filereader.go", 1, 10, "{}");
     ASSERT_GT(class_id, 0);
 
     int64_t fr_read_id =
-        cbm_gbuf_upsert_node(gb, "Method", "Read", "pkg.FileReader.Read", "pkg/filereader.go", 2, 4,
+        ctx_gbuf_upsert_node(gb, "Method", "Read", "pkg.FileReader.Read", "pkg/filereader.go", 2, 4,
                              "{\"receiver\":\"(f *FileReader)\"}");
     int64_t fr_close_id =
-        cbm_gbuf_upsert_node(gb, "Method", "Close", "pkg.FileReader.Close", "pkg/filereader.go", 5,
+        ctx_gbuf_upsert_node(gb, "Method", "Close", "pkg.FileReader.Close", "pkg/filereader.go", 5,
                              7, "{\"receiver\":\"(f *FileReader)\"}");
     ASSERT_GT(fr_read_id, 0);
     ASSERT_GT(fr_close_id, 0);
 
     /* Run Go-style implements detection */
     atomic_int cancelled = 0;
-    cbm_pipeline_ctx_t ctx = {
+    ctx_pipeline_ctx_t ctx = {
         .project_name = "test-proj",
         .repo_path = "/tmp/test",
         .gbuf = gb,
         .registry = NULL,
         .cancelled = &cancelled,
     };
-    int edges_created = cbm_pipeline_implements_go(&ctx);
+    int edges_created = ctx_pipeline_implements_go(&ctx);
     ASSERT_GT(edges_created, 0);
 
     /* Verify IMPLEMENTS edge: FileReader → Reader */
-    const cbm_gbuf_edge_t **impl_edges = NULL;
+    const ctx_gbuf_edge_t **impl_edges = NULL;
     int impl_count = 0;
     int rc =
-        cbm_gbuf_find_edges_by_source_type(gb, class_id, "IMPLEMENTS", &impl_edges, &impl_count);
+        ctx_gbuf_find_edges_by_source_type(gb, class_id, "IMPLEMENTS", &impl_edges, &impl_count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(impl_count, 1);
     ASSERT_EQ(impl_edges[0]->target_id, iface_id);
 
     /* Verify OVERRIDE edges: FileReader.Read → Reader.Read */
-    const cbm_gbuf_edge_t **read_overrides = NULL;
+    const ctx_gbuf_edge_t **read_overrides = NULL;
     int read_override_count = 0;
-    rc = cbm_gbuf_find_edges_by_source_type(gb, fr_read_id, "OVERRIDE", &read_overrides,
+    rc = ctx_gbuf_find_edges_by_source_type(gb, fr_read_id, "OVERRIDE", &read_overrides,
                                             &read_override_count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(read_override_count, 1);
     ASSERT_EQ(read_overrides[0]->target_id, read_method_id);
 
     /* Verify OVERRIDE edge: FileReader.Close → Reader.Close */
-    const cbm_gbuf_edge_t **close_overrides = NULL;
+    const ctx_gbuf_edge_t **close_overrides = NULL;
     int close_override_count = 0;
-    rc = cbm_gbuf_find_edges_by_source_type(gb, fr_close_id, "OVERRIDE", &close_overrides,
+    rc = ctx_gbuf_find_edges_by_source_type(gb, fr_close_id, "OVERRIDE", &close_overrides,
                                             &close_override_count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(close_override_count, 1);
     ASSERT_EQ(close_overrides[0]->target_id, close_method_id);
 
-    cbm_gbuf_free(gb);
+    ctx_gbuf_free(gb);
     PASS();
 }
 
 TEST(implements_no_match) {
     /* Port of TestPassImplementsNoOverrideWithoutMatch.
      * Interface requires Read+Write, struct only has Read → no edges. */
-    cbm_gbuf_t *gb = cbm_gbuf_new("test-proj", "/tmp/test");
+    ctx_gbuf_t *gb = ctx_gbuf_new("test-proj", "/tmp/test");
     ASSERT_NOT_NULL(gb);
 
     /* Interface "ReadWriter" with methods "Read" and "Write" */
-    int64_t iface_id = cbm_gbuf_upsert_node(gb, "Interface", "ReadWriter", "pkg.ReadWriter",
+    int64_t iface_id = ctx_gbuf_upsert_node(gb, "Interface", "ReadWriter", "pkg.ReadWriter",
                                             "pkg/rw.go", 1, 5, "{}");
     int64_t read_id =
-        cbm_gbuf_upsert_node(gb, "Method", "Read", "pkg.ReadWriter.Read", "pkg/rw.go", 2, 2, "{}");
-    int64_t write_id = cbm_gbuf_upsert_node(gb, "Method", "Write", "pkg.ReadWriter.Write",
+        ctx_gbuf_upsert_node(gb, "Method", "Read", "pkg.ReadWriter.Read", "pkg/rw.go", 2, 2, "{}");
+    int64_t write_id = ctx_gbuf_upsert_node(gb, "Method", "Write", "pkg.ReadWriter.Write",
                                             "pkg/rw.go", 3, 3, "{}");
-    cbm_gbuf_insert_edge(gb, iface_id, read_id, "DEFINES_METHOD", "{}");
-    cbm_gbuf_insert_edge(gb, iface_id, write_id, "DEFINES_METHOD", "{}");
+    ctx_gbuf_insert_edge(gb, iface_id, read_id, "DEFINES_METHOD", "{}");
+    ctx_gbuf_insert_edge(gb, iface_id, write_id, "DEFINES_METHOD", "{}");
 
     /* Struct "OnlyReader" with only "Read" (missing "Write") */
-    int64_t class_id = cbm_gbuf_upsert_node(gb, "Class", "OnlyReader", "pkg.OnlyReader",
+    int64_t class_id = ctx_gbuf_upsert_node(gb, "Class", "OnlyReader", "pkg.OnlyReader",
                                             "pkg/onlyreader.go", 1, 10, "{}");
     int64_t or_read_id =
-        cbm_gbuf_upsert_node(gb, "Method", "Read", "pkg.OnlyReader.Read", "pkg/onlyreader.go", 2, 4,
+        ctx_gbuf_upsert_node(gb, "Method", "Read", "pkg.OnlyReader.Read", "pkg/onlyreader.go", 2, 4,
                              "{\"receiver\":\"(o *OnlyReader)\"}");
 
     /* Run Go-style implements detection */
     atomic_int cancelled = 0;
-    cbm_pipeline_ctx_t ctx = {
+    ctx_pipeline_ctx_t ctx = {
         .project_name = "test-proj",
         .repo_path = "/tmp/test",
         .gbuf = gb,
         .registry = NULL,
         .cancelled = &cancelled,
     };
-    int edges_created = cbm_pipeline_implements_go(&ctx);
+    int edges_created = ctx_pipeline_implements_go(&ctx);
     ASSERT_EQ(edges_created, 0);
 
     /* Verify NO IMPLEMENTS edge */
-    const cbm_gbuf_edge_t **impl_edges = NULL;
+    const ctx_gbuf_edge_t **impl_edges = NULL;
     int impl_count = 0;
-    cbm_gbuf_find_edges_by_source_type(gb, class_id, "IMPLEMENTS", &impl_edges, &impl_count);
+    ctx_gbuf_find_edges_by_source_type(gb, class_id, "IMPLEMENTS", &impl_edges, &impl_count);
     ASSERT_EQ(impl_count, 0);
 
     /* Verify NO OVERRIDE edge */
-    const cbm_gbuf_edge_t **override_edges = NULL;
+    const ctx_gbuf_edge_t **override_edges = NULL;
     int override_count = 0;
-    cbm_gbuf_find_edges_by_source_type(gb, or_read_id, "OVERRIDE", &override_edges,
+    ctx_gbuf_find_edges_by_source_type(gb, or_read_id, "OVERRIDE", &override_edges,
                                        &override_count);
     ASSERT_EQ(override_count, 0);
 
@@ -807,7 +807,7 @@ TEST(implements_no_match) {
     (void)read_id;
     (void)write_id;
 
-    cbm_gbuf_free(gb);
+    ctx_gbuf_free(gb);
     PASS();
 }
 
@@ -818,8 +818,8 @@ static char g_usages_tmpdir[256];
 
 static int setup_usages_repo(const char *filename, const char *content, const char *extra_file,
                              const char *extra_content) {
-    snprintf(g_usages_tmpdir, sizeof(g_usages_tmpdir), "/tmp/cbm_usage_XXXXXX");
-    if (!cbm_mkdtemp(g_usages_tmpdir))
+    snprintf(g_usages_tmpdir, sizeof(g_usages_tmpdir), "/tmp/ctx_usage_XXXXXX");
+    if (!ctx_mkdtemp(g_usages_tmpdir))
         return -1;
 
     /* Check if filename has subdirectory */
@@ -878,38 +878,38 @@ TEST(usages_creates_edges) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_usages.db", g_usages_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_usages_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_usages_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Check for USAGE edges */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int edge_count = 0;
-    rc = cbm_store_find_edges_by_type(s, project, "USAGE", &edges, &edge_count);
+    rc = ctx_store_find_edges_by_type(s, project, "USAGE", &edges, &edge_count);
 
     bool found_usage = false;
     for (int i = 0; i < edge_count; i++) {
-        cbm_node_t src = {0}, tgt = {0};
-        if (cbm_store_find_node_by_id(s, edges[i].source_id, &src) == CBM_STORE_OK &&
-            cbm_store_find_node_by_id(s, edges[i].target_id, &tgt) == CBM_STORE_OK) {
+        ctx_node_t src = {0}, tgt = {0};
+        if (ctx_store_find_node_by_id(s, edges[i].source_id, &src) == CTX_STORE_OK &&
+            ctx_store_find_node_by_id(s, edges[i].target_id, &tgt) == CTX_STORE_OK) {
             if (strcmp(src.name, "Register") == 0 && strcmp(tgt.name, "Process") == 0) {
                 found_usage = true;
             }
         }
-        cbm_node_free_fields(&src);
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&src);
+        ctx_node_free_fields(&tgt);
     }
     if (edges)
-        cbm_store_free_edges(edges, edge_count);
+        ctx_store_free_edges(edges, edge_count);
     ASSERT_TRUE(found_usage);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_usages_repo();
     PASS();
 }
@@ -932,55 +932,55 @@ TEST(usages_no_duplicate_calls) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_no_dup.db", g_usages_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_usages_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_usages_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Should have CALLS edge from Main to Helper */
-    cbm_edge_t *call_edges = NULL;
+    ctx_edge_t *call_edges = NULL;
     int call_count = 0;
-    cbm_store_find_edges_by_type(s, project, "CALLS", &call_edges, &call_count);
+    ctx_store_find_edges_by_type(s, project, "CALLS", &call_edges, &call_count);
 
     bool found_call = false;
     for (int i = 0; i < call_count; i++) {
-        cbm_node_t src = {0}, tgt = {0};
-        if (cbm_store_find_node_by_id(s, call_edges[i].source_id, &src) == CBM_STORE_OK &&
-            cbm_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CBM_STORE_OK) {
+        ctx_node_t src = {0}, tgt = {0};
+        if (ctx_store_find_node_by_id(s, call_edges[i].source_id, &src) == CTX_STORE_OK &&
+            ctx_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CTX_STORE_OK) {
             if (strcmp(src.name, "Main") == 0 && strcmp(tgt.name, "Helper") == 0) {
                 found_call = true;
             }
         }
-        cbm_node_free_fields(&src);
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&src);
+        ctx_node_free_fields(&tgt);
     }
     if (call_edges)
-        cbm_store_free_edges(call_edges, call_count);
+        ctx_store_free_edges(call_edges, call_count);
     ASSERT_TRUE(found_call);
 
     /* Should NOT have USAGE edge from Main to Helper */
-    cbm_edge_t *usage_edges = NULL;
+    ctx_edge_t *usage_edges = NULL;
     int usage_count = 0;
-    cbm_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
+    ctx_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
 
     for (int i = 0; i < usage_count; i++) {
-        cbm_node_t src = {0}, tgt = {0};
-        if (cbm_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CBM_STORE_OK &&
-            cbm_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CBM_STORE_OK) {
+        ctx_node_t src = {0}, tgt = {0};
+        if (ctx_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CTX_STORE_OK &&
+            ctx_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CTX_STORE_OK) {
             ASSERT_FALSE(strcmp(src.name, "Main") == 0 && strcmp(tgt.name, "Helper") == 0);
         }
-        cbm_node_free_fields(&src);
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&src);
+        ctx_node_free_fields(&tgt);
     }
     if (usage_edges)
-        cbm_store_free_edges(usage_edges, usage_count);
+        ctx_store_free_edges(usage_edges, usage_count);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_usages_repo();
     PASS();
 }
@@ -1002,27 +1002,27 @@ TEST(usages_kotlin_creates_edges) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_kt_usage.db", g_usages_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_usages_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_usages_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Check USAGE edges exist (Kotlin extraction may or may not produce them
      * depending on extraction support — just verify no crash and valid counts) */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int edge_count = 0;
-    rc = cbm_store_find_edges_by_type(s, project, "USAGE", &edges, &edge_count);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    rc = ctx_store_find_edges_by_type(s, project, "USAGE", &edges, &edge_count);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     /* Note: The Go test just logs, doesn't assert — same behavior here */
     if (edges)
-        cbm_store_free_edges(edges, edge_count);
+        ctx_store_free_edges(edges, edge_count);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_usages_repo();
     PASS();
 }
@@ -1044,55 +1044,55 @@ TEST(usages_kotlin_no_duplicate_calls) {
     char db_path[512];
     snprintf(db_path, sizeof(db_path), "%s/test_kt_nodup.db", g_usages_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_usages_tmpdir, db_path, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_usages_tmpdir, db_path, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, 0);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    const char *project = cbm_pipeline_project_name(p);
+    const char *project = ctx_pipeline_project_name(p);
 
     /* Should have CALLS edge from main to helper */
-    cbm_edge_t *call_edges = NULL;
+    ctx_edge_t *call_edges = NULL;
     int call_count = 0;
-    cbm_store_find_edges_by_type(s, project, "CALLS", &call_edges, &call_count);
+    ctx_store_find_edges_by_type(s, project, "CALLS", &call_edges, &call_count);
 
     bool found_call = false;
     for (int i = 0; i < call_count; i++) {
-        cbm_node_t src = {0}, tgt = {0};
-        if (cbm_store_find_node_by_id(s, call_edges[i].source_id, &src) == CBM_STORE_OK &&
-            cbm_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CBM_STORE_OK) {
+        ctx_node_t src = {0}, tgt = {0};
+        if (ctx_store_find_node_by_id(s, call_edges[i].source_id, &src) == CTX_STORE_OK &&
+            ctx_store_find_node_by_id(s, call_edges[i].target_id, &tgt) == CTX_STORE_OK) {
             if (strcmp(src.name, "main") == 0 && strcmp(tgt.name, "helper") == 0) {
                 found_call = true;
             }
         }
-        cbm_node_free_fields(&src);
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&src);
+        ctx_node_free_fields(&tgt);
     }
     if (call_edges)
-        cbm_store_free_edges(call_edges, call_count);
+        ctx_store_free_edges(call_edges, call_count);
     ASSERT_TRUE(found_call);
 
     /* Should NOT have USAGE edge from main to helper */
-    cbm_edge_t *usage_edges = NULL;
+    ctx_edge_t *usage_edges = NULL;
     int usage_count = 0;
-    cbm_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
+    ctx_store_find_edges_by_type(s, project, "USAGE", &usage_edges, &usage_count);
 
     for (int i = 0; i < usage_count; i++) {
-        cbm_node_t src = {0}, tgt = {0};
-        if (cbm_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CBM_STORE_OK &&
-            cbm_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CBM_STORE_OK) {
+        ctx_node_t src = {0}, tgt = {0};
+        if (ctx_store_find_node_by_id(s, usage_edges[i].source_id, &src) == CTX_STORE_OK &&
+            ctx_store_find_node_by_id(s, usage_edges[i].target_id, &tgt) == CTX_STORE_OK) {
             ASSERT_FALSE(strcmp(src.name, "main") == 0 && strcmp(tgt.name, "helper") == 0);
         }
-        cbm_node_free_fields(&src);
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&src);
+        ctx_node_free_fields(&tgt);
     }
     if (usage_edges)
-        cbm_store_free_edges(usage_edges, usage_count);
+        ctx_store_free_edges(usage_edges, usage_count);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_usages_repo();
     PASS();
 }
@@ -1103,8 +1103,8 @@ TEST(usages_kotlin_no_duplicate_calls) {
 static char g_lang_tmpdir[256];
 
 static int setup_lang_repo(const char **filenames, const char **contents, int count) {
-    snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/cbm_lang_XXXXXX");
-    if (!cbm_mkdtemp(g_lang_tmpdir))
+    snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/ctx_lang_XXXXXX");
+    if (!ctx_mkdtemp(g_lang_tmpdir))
         return -1;
 
     for (int i = 0; i < count; i++) {
@@ -1151,34 +1151,34 @@ TEST(pipeline_python_project) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
+    ctx_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
     ASSERT_GTE(fc, 3); /* greet, process, fetch_data */
-    cbm_store_free_nodes(funcs, fc);
+    ctx_store_free_nodes(funcs, fc);
 
-    cbm_node_t *cls = NULL;
+    ctx_node_t *cls = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
     ASSERT_GTE(cc, 1); /* DataProcessor */
-    cbm_store_free_nodes(cls, cc);
+    ctx_store_free_nodes(cls, cc);
 
-    cbm_node_t *methods = NULL;
+    ctx_node_t *methods = NULL;
     int mc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
+    ctx_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
     ASSERT_GTE(mc, 1); /* transform */
-    cbm_store_free_nodes(methods, mc);
+    ctx_store_free_nodes(methods, mc);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1197,30 +1197,30 @@ TEST(pipeline_go_cross_package_call) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Verify ProcessOrder exists */
-    cbm_node_t *targets = NULL;
+    ctx_node_t *targets = NULL;
     int tc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "ProcessOrder", &targets, &tc);
+    ctx_store_find_nodes_by_name(s, proj, "ProcessOrder", &targets, &tc);
     ASSERT_GT(tc, 0);
 
     /* Verify run() exists */
-    cbm_node_t *callers = NULL;
+    ctx_node_t *callers = NULL;
     int clc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "run", &callers, &clc);
+    ctx_store_find_nodes_by_name(s, proj, "run", &callers, &clc);
     ASSERT_GT(clc, 0);
 
     /* Check CALLS edge from run to ProcessOrder */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int ec = 0;
-    cbm_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
+    ctx_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
     bool found = false;
     for (int i = 0; i < ec; i++) {
         if (edges[i].target_id == targets[0].id)
@@ -1229,11 +1229,11 @@ TEST(pipeline_go_cross_package_call) {
     ASSERT_TRUE(found);
 
     if (edges)
-        cbm_store_free_edges(edges, ec);
-    cbm_store_free_nodes(targets, tc);
-    cbm_store_free_nodes(callers, clc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+        ctx_store_free_edges(edges, ec);
+    ctx_store_free_nodes(targets, tc);
+    ctx_store_free_nodes(callers, clc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1252,27 +1252,27 @@ TEST(pipeline_python_cross_module_call) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *targets = NULL;
+    ctx_node_t *targets = NULL;
     int tc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "fetch_data", &targets, &tc);
+    ctx_store_find_nodes_by_name(s, proj, "fetch_data", &targets, &tc);
     ASSERT_GT(tc, 0);
 
-    cbm_node_t *callers = NULL;
+    ctx_node_t *callers = NULL;
     int clc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "process", &callers, &clc);
+    ctx_store_find_nodes_by_name(s, proj, "process", &callers, &clc);
     ASSERT_GT(clc, 0);
 
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int ec = 0;
-    cbm_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
+    ctx_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
     bool found = false;
     for (int i = 0; i < ec; i++) {
         if (edges[i].target_id == targets[0].id)
@@ -1281,11 +1281,11 @@ TEST(pipeline_python_cross_module_call) {
     ASSERT_TRUE(found);
 
     if (edges)
-        cbm_store_free_edges(edges, ec);
-    cbm_store_free_nodes(targets, tc);
-    cbm_store_free_nodes(callers, clc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+        ctx_store_free_edges(edges, ec);
+    ctx_store_free_nodes(targets, tc);
+    ctx_store_free_nodes(callers, clc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1304,39 +1304,39 @@ TEST(pipeline_go_type_classification) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Should have 2 Interface nodes (Reader, Writer) */
-    cbm_node_t *ifaces = NULL;
+    ctx_node_t *ifaces = NULL;
     int ic = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Interface", &ifaces, &ic);
+    ctx_store_find_nodes_by_label(s, proj, "Interface", &ifaces, &ic);
     ASSERT_EQ(ic, 2);
-    cbm_store_free_nodes(ifaces, ic);
+    ctx_store_free_nodes(ifaces, ic);
 
     /* Should have 1 Class node (Config struct) */
-    cbm_node_t *cls = NULL;
+    ctx_node_t *cls = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
     ASSERT_EQ(cc, 1);
     ASSERT_STR_EQ(cls[0].name, "Config");
-    cbm_store_free_nodes(cls, cc);
+    ctx_store_free_nodes(cls, cc);
 
     /* Should have 1 Type node (ID alias) */
-    cbm_node_t *types = NULL;
+    ctx_node_t *types = NULL;
     int tc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Type", &types, &tc);
+    ctx_store_find_nodes_by_label(s, proj, "Type", &types, &tc);
     ASSERT_EQ(tc, 1);
     ASSERT_STR_EQ(types[0].name, "ID");
-    cbm_store_free_nodes(types, tc);
+    ctx_store_free_nodes(types, tc);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1356,28 +1356,28 @@ TEST(pipeline_go_grouped_types) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *cls = NULL;
+    ctx_node_t *cls = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
     ASSERT_EQ(cc, 2); /* Request, Response */
-    cbm_store_free_nodes(cls, cc);
+    ctx_store_free_nodes(cls, cc);
 
-    cbm_node_t *ifaces = NULL;
+    ctx_node_t *ifaces = NULL;
     int ic = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Interface", &ifaces, &ic);
+    ctx_store_find_nodes_by_label(s, proj, "Interface", &ifaces, &ic);
     ASSERT_EQ(ic, 1); /* Handler */
-    cbm_store_free_nodes(ifaces, ic);
+    ctx_store_free_nodes(ifaces, ic);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1400,37 +1400,37 @@ TEST(pipeline_kotlin_project) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
+    ctx_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
     ASSERT_GTE(fc, 2); /* greet, main */
-    cbm_store_free_nodes(funcs, fc);
+    ctx_store_free_nodes(funcs, fc);
 
-    cbm_node_t *cls = NULL;
+    ctx_node_t *cls = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
     ASSERT_GTE(cc, 1); /* OrderService */
-    cbm_store_free_nodes(cls, cc);
+    ctx_store_free_nodes(cls, cc);
 
-    cbm_node_t *methods = NULL;
+    ctx_node_t *methods = NULL;
     int mc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
+    ctx_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
     ASSERT_GTE(mc, 2); /* processOrder, submitOrder */
-    cbm_store_free_nodes(methods, mc);
+    ctx_store_free_nodes(methods, mc);
 
-    int edge_count = cbm_store_count_edges(s, proj);
+    int edge_count = ctx_store_count_edges(s, proj);
     ASSERT_GT(edge_count, 0);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1454,32 +1454,32 @@ TEST(pipeline_lua_anonymous_functions) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
+    ctx_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
     ASSERT_GTE(fc, 3); /* run_before_filter, validate, named_func */
 
     /* Verify specific functions exist */
     const char *expected[] = {"run_before_filter", "validate", "named_func"};
     for (int e = 0; e < 3; e++) {
-        cbm_node_t *found = NULL;
+        ctx_node_t *found = NULL;
         int fnc = 0;
-        cbm_store_find_nodes_by_name(s, proj, expected[e], &found, &fnc);
+        ctx_store_find_nodes_by_name(s, proj, expected[e], &found, &fnc);
         ASSERT_GT(fnc, 0);
-        cbm_store_free_nodes(found, fnc);
+        ctx_store_free_nodes(found, fnc);
     }
 
-    cbm_store_free_nodes(funcs, fc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(funcs, fc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1505,42 +1505,42 @@ TEST(pipeline_csharp_modern) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *modules = NULL;
+    ctx_node_t *modules = NULL;
     int modc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Module", &modules, &modc);
+    ctx_store_find_nodes_by_label(s, proj, "Module", &modules, &modc);
     ASSERT_GTE(modc, 2);
-    cbm_store_free_nodes(modules, modc);
+    ctx_store_free_nodes(modules, modc);
 
-    cbm_node_t *cls = NULL;
+    ctx_node_t *cls = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &cls, &cc);
     ASSERT_GTE(cc, 2); /* UsersController, User */
-    cbm_store_free_nodes(cls, cc);
+    ctx_store_free_nodes(cls, cc);
 
-    cbm_node_t *methods = NULL;
+    ctx_node_t *methods = NULL;
     int mc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
+    ctx_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
     ASSERT_GTE(mc, 3); /* Get, Create, GetAge */
-    cbm_store_free_nodes(methods, mc);
+    ctx_store_free_nodes(methods, mc);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
 
 TEST(pipeline_bom_stripping) {
     /* Port of TestBOMStripping — UTF-8 BOM prefix should be handled */
-    snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/cbm_bom_XXXXXX");
-    if (!cbm_mkdtemp(g_lang_tmpdir))
+    snprintf(g_lang_tmpdir, sizeof(g_lang_tmpdir), "/tmp/ctx_bom_XXXXXX");
+    if (!ctx_mkdtemp(g_lang_tmpdir))
         SKIP("tmpdir");
 
     char path[512];
@@ -1556,22 +1556,22 @@ TEST(pipeline_bom_stripping) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *found = NULL;
+    ctx_node_t *found = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "BOMFunc", &found, &fc);
+    ctx_store_find_nodes_by_name(s, proj, "BOMFunc", &found, &fc);
     ASSERT_GT(fc, 0); /* BOMFunc should be found despite BOM */
-    cbm_store_free_nodes(found, fc);
+    ctx_store_free_nodes(found, fc);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1591,33 +1591,33 @@ TEST(pipeline_form_call_resolution) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Verify CALLS edge exists to callee */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int ec = 0;
-    cbm_store_find_edges_by_type(s, proj, "CALLS", &edges, &ec);
+    ctx_store_find_edges_by_type(s, proj, "CALLS", &edges, &ec);
     bool found = false;
     for (int i = 0; i < ec; i++) {
-        cbm_node_t tgt = {0};
-        if (cbm_store_find_node_by_id(s, edges[i].target_id, &tgt) == CBM_STORE_OK &&
+        ctx_node_t tgt = {0};
+        if (ctx_store_find_node_by_id(s, edges[i].target_id, &tgt) == CTX_STORE_OK &&
             strcmp(tgt.name, "callee") == 0) {
             found = true;
         }
-        cbm_node_free_fields(&tgt);
+        ctx_node_free_fields(&tgt);
     }
     ASSERT_TRUE(found);
     if (edges)
-        cbm_store_free_edges(edges, ec);
+        ctx_store_free_edges(edges, ec);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1645,30 +1645,30 @@ TEST(pipeline_python_type_inference) {
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
 
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Verify DataProcessor.transform exists as a Method */
-    cbm_node_t *methods = NULL;
+    ctx_node_t *methods = NULL;
     int mc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "transform", &methods, &mc);
+    ctx_store_find_nodes_by_name(s, proj, "transform", &methods, &mc);
     ASSERT_GT(mc, 0);
 
     /* Verify run() exists */
-    cbm_node_t *callers = NULL;
+    ctx_node_t *callers = NULL;
     int clc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "run", &callers, &clc);
+    ctx_store_find_nodes_by_name(s, proj, "run", &callers, &clc);
     ASSERT_GT(clc, 0);
 
     /* Check CALLS edge from run() to DataProcessor.transform */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int ec = 0;
-    cbm_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
+    ctx_store_find_edges_by_source_type(s, callers[0].id, "CALLS", &edges, &ec);
     bool found = false;
     for (int i = 0; i < ec; i++) {
         if (edges[i].target_id == methods[0].id)
@@ -1679,12 +1679,12 @@ TEST(pipeline_python_type_inference) {
         /* At minimum, verify the method exists and run() has some calls */
     }
     if (edges)
-        cbm_store_free_edges(edges, ec);
+        ctx_store_free_edges(edges, ec);
 
-    cbm_store_free_nodes(methods, mc);
-    cbm_store_free_nodes(callers, clc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(methods, mc);
+    ctx_store_free_nodes(callers, clc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1703,17 +1703,17 @@ TEST(pipeline_docstring_go_function) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int nc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "Compute", &nodes, &nc);
+    ctx_store_find_nodes_by_name(s, proj, "Compute", &nodes, &nc);
     ASSERT_GT(nc, 0);
 
     /* Check properties_json contains docstring */
@@ -1727,9 +1727,9 @@ TEST(pipeline_docstring_go_function) {
     }
     ASSERT_TRUE(found_docstring);
 
-    cbm_store_free_nodes(nodes, nc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(nodes, nc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1744,17 +1744,17 @@ TEST(pipeline_docstring_python_function) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int nc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
+    ctx_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
     ASSERT_GT(nc, 0);
 
     bool found_docstring = false;
@@ -1767,9 +1767,9 @@ TEST(pipeline_docstring_python_function) {
     }
     ASSERT_TRUE(found_docstring);
 
-    cbm_store_free_nodes(nodes, nc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(nodes, nc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1785,17 +1785,17 @@ TEST(pipeline_docstring_java_method) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int nc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
+    ctx_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
     ASSERT_GT(nc, 0);
 
     bool found_docstring = false;
@@ -1808,9 +1808,9 @@ TEST(pipeline_docstring_java_method) {
     }
     ASSERT_TRUE(found_docstring);
 
-    cbm_store_free_nodes(nodes, nc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(nodes, nc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1824,17 +1824,17 @@ TEST(pipeline_docstring_kotlin_function) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int nc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
+    ctx_store_find_nodes_by_name(s, proj, "compute", &nodes, &nc);
     ASSERT_GT(nc, 0);
 
     bool found_docstring = false;
@@ -1847,9 +1847,9 @@ TEST(pipeline_docstring_kotlin_function) {
     }
     ASSERT_TRUE(found_docstring);
 
-    cbm_store_free_nodes(nodes, nc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(nodes, nc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1864,17 +1864,17 @@ TEST(pipeline_docstring_go_class) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int nc = 0;
-    cbm_store_find_nodes_by_name(s, proj, "MyStruct", &nodes, &nc);
+    ctx_store_find_nodes_by_name(s, proj, "MyStruct", &nodes, &nc);
     ASSERT_GT(nc, 0);
 
     bool found_docstring = false;
@@ -1887,9 +1887,9 @@ TEST(pipeline_docstring_go_class) {
     }
     ASSERT_TRUE(found_docstring);
 
-    cbm_store_free_nodes(nodes, nc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_free_nodes(nodes, nc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -1907,7 +1907,7 @@ TEST(project_name_from_path) {
     };
 
     for (int i = 0; i < 4; i++) {
-        char *got = cbm_project_name_from_path(cases[i].path);
+        char *got = ctx_project_name_from_path(cases[i].path);
         ASSERT_NOT_NULL(got);
         ASSERT_STR_EQ(got, cases[i].want);
         free(got);
@@ -1917,8 +1917,8 @@ TEST(project_name_from_path) {
 
 TEST(project_name_uniqueness) {
     /* Port of TestProjectNameUniqueness */
-    char *a = cbm_project_name_from_path("/tmp/bench/zig/lib/std");
-    char *b = cbm_project_name_from_path("/tmp/bench/erlang/lib/stdlib/src");
+    char *a = ctx_project_name_from_path("/tmp/bench/zig/lib/std");
+    char *b = ctx_project_name_from_path("/tmp/bench/erlang/lib/stdlib/src");
     ASSERT_NOT_NULL(a);
     ASSERT_NOT_NULL(b);
     ASSERT_TRUE(strcmp(a, b) != 0);
@@ -1931,7 +1931,7 @@ TEST(project_name_uniqueness) {
 
 TEST(gitdiff_parse_range_with_count) {
     int start, count;
-    cbm_parse_range("10,5", &start, &count);
+    ctx_parse_range("10,5", &start, &count);
     ASSERT_EQ(start, 10);
     ASSERT_EQ(count, 5);
     PASS();
@@ -1939,7 +1939,7 @@ TEST(gitdiff_parse_range_with_count) {
 
 TEST(gitdiff_parse_range_no_count) {
     int start, count;
-    cbm_parse_range("10", &start, &count);
+    ctx_parse_range("10", &start, &count);
     ASSERT_EQ(start, 10);
     ASSERT_EQ(count, 1);
     PASS();
@@ -1947,7 +1947,7 @@ TEST(gitdiff_parse_range_no_count) {
 
 TEST(gitdiff_parse_range_zero_count) {
     int start, count;
-    cbm_parse_range("1,0", &start, &count);
+    ctx_parse_range("1,0", &start, &count);
     ASSERT_EQ(start, 1);
     ASSERT_EQ(count, 0);
     PASS();
@@ -1955,7 +1955,7 @@ TEST(gitdiff_parse_range_zero_count) {
 
 TEST(gitdiff_parse_range_large) {
     int start, count;
-    cbm_parse_range("52,2", &start, &count);
+    ctx_parse_range("52,2", &start, &count);
     ASSERT_EQ(start, 52);
     ASSERT_EQ(count, 2);
     PASS();
@@ -1967,8 +1967,8 @@ TEST(gitdiff_parse_name_status) {
                         "D\told_file.go\n"
                         "R100\tsrc/old.go\tsrc/new.go\n";
 
-    cbm_changed_file_t files[16];
-    int n = cbm_parse_name_status(input, files, 16);
+    ctx_changed_file_t files[16];
+    int n = ctx_parse_name_status(input, files, 16);
 
     ASSERT_EQ(n, 4);
     ASSERT_STR_EQ(files[0].status, "M");
@@ -1988,8 +1988,8 @@ TEST(gitdiff_parse_name_status_filters_untrackable) {
                         "M\tsrc/main.go\n"
                         "M\tvendor/lib.go\n";
 
-    cbm_changed_file_t files[16];
-    int n = cbm_parse_name_status(input, files, 16);
+    ctx_changed_file_t files[16];
+    int n = ctx_parse_name_status(input, files, 16);
 
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(files[0].path, "src/main.go");
@@ -2016,8 +2016,8 @@ TEST(gitdiff_parse_hunks) {
                         "-old\n"
                         "+new\n";
 
-    cbm_changed_hunk_t hunks[16];
-    int n = cbm_parse_hunks(input, hunks, 16);
+    ctx_changed_hunk_t hunks[16];
+    int n = ctx_parse_hunks(input, hunks, 16);
 
     ASSERT_EQ(n, 3);
     ASSERT_STR_EQ(hunks[0].path, "main.go");
@@ -2042,8 +2042,8 @@ TEST(gitdiff_parse_hunks_no_newline_marker) {
                         "+\tbar()\n"
                         "\\ No newline at end of file\n";
 
-    cbm_changed_hunk_t hunks[4];
-    int n = cbm_parse_hunks(input, hunks, 4);
+    ctx_changed_hunk_t hunks[4];
+    int n = ctx_parse_hunks(input, hunks, 4);
 
     ASSERT_EQ(n, 1);
     ASSERT_EQ(hunks[0].start_line, 5);
@@ -2056,8 +2056,8 @@ TEST(gitdiff_parse_hunks_mode_change) {
                         "old mode 100644\n"
                         "new mode 100755\n";
 
-    cbm_changed_hunk_t hunks[4];
-    int n = cbm_parse_hunks(input, hunks, 4);
+    ctx_changed_hunk_t hunks[4];
+    int n = ctx_parse_hunks(input, hunks, 4);
     ASSERT_EQ(n, 0);
     PASS();
 }
@@ -2068,8 +2068,8 @@ TEST(gitdiff_parse_hunks_deletion) {
                         "+++ b/file.go\n"
                         "@@ -10,3 +10,0 @@ func foo() {\n";
 
-    cbm_changed_hunk_t hunks[4];
-    int n = cbm_parse_hunks(input, hunks, 4);
+    ctx_changed_hunk_t hunks[4];
+    int n = ctx_parse_hunks(input, hunks, 4);
     ASSERT_EQ(n, 1);
     ASSERT_EQ(hunks[0].start_line, 10);
     PASS();
@@ -2078,15 +2078,15 @@ TEST(gitdiff_parse_hunks_deletion) {
 /* ── Config helpers (pass_configures.c) ───────────────────────── */
 
 TEST(configures_is_env_var_name) {
-    ASSERT(cbm_is_env_var_name("DATABASE_URL"));
-    ASSERT(cbm_is_env_var_name("API_KEY"));
-    ASSERT(cbm_is_env_var_name("PORT"));
-    ASSERT(!cbm_is_env_var_name("A"));      /* too short */
-    ASSERT(!cbm_is_env_var_name("port"));   /* lowercase */
-    ASSERT(!cbm_is_env_var_name("apiKey")); /* camelCase */
-    ASSERT(cbm_is_env_var_name("DB_2"));    /* with digit */
-    ASSERT(!cbm_is_env_var_name("__"));     /* no uppercase */
-    ASSERT(!cbm_is_env_var_name(""));       /* empty */
+    ASSERT(ctx_is_env_var_name("DATABASE_URL"));
+    ASSERT(ctx_is_env_var_name("API_KEY"));
+    ASSERT(ctx_is_env_var_name("PORT"));
+    ASSERT(!ctx_is_env_var_name("A"));      /* too short */
+    ASSERT(!ctx_is_env_var_name("port"));   /* lowercase */
+    ASSERT(!ctx_is_env_var_name("apiKey")); /* camelCase */
+    ASSERT(ctx_is_env_var_name("DB_2"));    /* with digit */
+    ASSERT(!ctx_is_env_var_name("__"));     /* no uppercase */
+    ASSERT(!ctx_is_env_var_name(""));       /* empty */
     PASS();
 }
 
@@ -2094,43 +2094,43 @@ TEST(configures_normalize_config_key) {
     char norm[256];
     int tokens;
 
-    tokens = cbm_normalize_config_key("max_connections", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("max_connections", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "max_connections");
     ASSERT_EQ(tokens, 2);
 
-    tokens = cbm_normalize_config_key("maxConnections", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("maxConnections", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "max_connections");
     ASSERT_EQ(tokens, 2);
 
-    tokens = cbm_normalize_config_key("DATABASE_HOST", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("DATABASE_HOST", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "database_host");
     ASSERT_EQ(tokens, 2);
 
-    tokens = cbm_normalize_config_key("database.host", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("database.host", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "database_host");
     ASSERT_EQ(tokens, 2);
 
-    tokens = cbm_normalize_config_key("port", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("port", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "port");
     ASSERT_EQ(tokens, 1);
 
-    tokens = cbm_normalize_config_key("maxRetryCount", norm, sizeof(norm));
+    tokens = ctx_normalize_config_key("maxRetryCount", norm, sizeof(norm));
     ASSERT_STR_EQ(norm, "max_retry_count");
     ASSERT_EQ(tokens, 3);
     PASS();
 }
 
 TEST(configures_has_config_extension) {
-    ASSERT(cbm_has_config_extension("config.toml"));
-    ASSERT(cbm_has_config_extension("settings.yaml"));
-    ASSERT(cbm_has_config_extension("config.yml"));
-    ASSERT(cbm_has_config_extension(".env"));
-    ASSERT(cbm_has_config_extension("config.ini"));
-    ASSERT(cbm_has_config_extension("data.json"));
-    ASSERT(cbm_has_config_extension("pom.xml"));
-    ASSERT(!cbm_has_config_extension("main.go"));
-    ASSERT(!cbm_has_config_extension("app.py"));
-    ASSERT(!cbm_has_config_extension("data.csv"));
+    ASSERT(ctx_has_config_extension("config.toml"));
+    ASSERT(ctx_has_config_extension("settings.yaml"));
+    ASSERT(ctx_has_config_extension("config.yml"));
+    ASSERT(ctx_has_config_extension(".env"));
+    ASSERT(ctx_has_config_extension("config.ini"));
+    ASSERT(ctx_has_config_extension("data.json"));
+    ASSERT(ctx_has_config_extension("pom.xml"));
+    ASSERT(!ctx_has_config_extension("main.go"));
+    ASSERT(!ctx_has_config_extension("app.py"));
+    ASSERT(!ctx_has_config_extension("data.csv"));
     PASS();
 }
 
@@ -2153,24 +2153,24 @@ TEST(configures_env_var_in_config) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Verify CONFIGURES edges were created */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int ec = 0;
-    cbm_store_find_edges_by_type(s, proj, "CONFIGURES", &edges, &ec);
+    ctx_store_find_edges_by_type(s, proj, "CONFIGURES", &edges, &ec);
     /* At minimum the pipeline should not crash. Edge count depends on
      * extraction matching env var accesses to config variables. */
     if (edges)
-        cbm_store_free_edges(edges, ec);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+        ctx_store_free_edges(edges, ec);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2186,15 +2186,15 @@ TEST(configures_lowercase_key_skipped) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
     /* Pipeline ran successfully — no crash from lowercase config keys */
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2210,15 +2210,15 @@ TEST(configures_non_config_file_skipped) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
     /* No config file → buildEnvIndex should not create config-derived entries */
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2255,40 +2255,40 @@ TEST(configures_full_pipeline_integration) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Should have Class nodes (database, server sections from TOML) */
-    cbm_node_t *classes = NULL;
+    ctx_node_t *classes = NULL;
     int cc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Class", &classes, &cc);
+    ctx_store_find_nodes_by_label(s, proj, "Class", &classes, &cc);
     ASSERT_GT(cc, 0);
     if (classes)
-        cbm_store_free_nodes(classes, cc);
+        ctx_store_free_nodes(classes, cc);
 
     /* Should have Variable nodes from config files */
-    cbm_node_t *vars = NULL;
+    ctx_node_t *vars = NULL;
     int vc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Variable", &vars, &vc);
+    ctx_store_find_nodes_by_label(s, proj, "Variable", &vars, &vc);
     ASSERT_GT(vc, 0);
     if (vars)
-        cbm_store_free_nodes(vars, vc);
+        ctx_store_free_nodes(vars, vc);
 
     /* Should have Function nodes from Go code */
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
+    ctx_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
     ASSERT_GT(fc, 0);
     if (funcs)
-        cbm_store_free_nodes(funcs, fc);
+        ctx_store_free_nodes(funcs, fc);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2296,33 +2296,33 @@ TEST(enrichment_split_camel_case) {
     char *parts[8];
     int n;
 
-    n = cbm_split_camel_case("GetMapping", parts, 8);
+    n = ctx_split_camel_case("GetMapping", parts, 8);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(parts[0], "Get");
     ASSERT_STR_EQ(parts[1], "Mapping");
     for (int i = 0; i < n; i++)
         free(parts[i]);
 
-    n = cbm_split_camel_case("getMessage", parts, 8);
+    n = ctx_split_camel_case("getMessage", parts, 8);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(parts[0], "get");
     ASSERT_STR_EQ(parts[1], "Message");
     for (int i = 0; i < n; i++)
         free(parts[i]);
 
-    n = cbm_split_camel_case("cache", parts, 8);
+    n = ctx_split_camel_case("cache", parts, 8);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(parts[0], "cache");
     for (int i = 0; i < n; i++)
         free(parts[i]);
 
-    n = cbm_split_camel_case("HTMLParser", parts, 8);
+    n = ctx_split_camel_case("HTMLParser", parts, 8);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(parts[0], "HTMLParser");
     for (int i = 0; i < n; i++)
         free(parts[i]);
 
-    n = cbm_split_camel_case("", parts, 8);
+    n = ctx_split_camel_case("", parts, 8);
     ASSERT_EQ(n, 0);
     PASS();
 }
@@ -2331,38 +2331,38 @@ TEST(enrichment_tokenize_decorator) {
     char *tokens[16];
     int n;
 
-    n = cbm_tokenize_decorator("@Override", tokens, 16);
+    n = ctx_tokenize_decorator("@Override", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "override");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@Deprecated", tokens, 16);
+    n = ctx_tokenize_decorator("@Deprecated", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "deprecated");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@Test", tokens, 16);
+    n = ctx_tokenize_decorator("@Test", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "test");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@login_required", tokens, 16);
+    n = ctx_tokenize_decorator("@login_required", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "login");
     ASSERT_STR_EQ(tokens[1], "required");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@cache", tokens, 16);
+    n = ctx_tokenize_decorator("@cache", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "cache");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@pytest.fixture", tokens, 16);
+    n = ctx_tokenize_decorator("@pytest.fixture", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "pytest");
     ASSERT_STR_EQ(tokens[1], "fixture");
@@ -2370,27 +2370,27 @@ TEST(enrichment_tokenize_decorator) {
         free(tokens[i]);
 
     /* "get" is stopword → only "mapping" */
-    n = cbm_tokenize_decorator("@GetMapping(\"/api\")", tokens, 16);
+    n = ctx_tokenize_decorator("@GetMapping(\"/api\")", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "mapping");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
     /* "post" passes, "mapping" passes */
-    n = cbm_tokenize_decorator("@PostMapping(\"/api\")", tokens, 16);
+    n = ctx_tokenize_decorator("@PostMapping(\"/api\")", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "post");
     ASSERT_STR_EQ(tokens[1], "mapping");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@Transactional", tokens, 16);
+    n = ctx_tokenize_decorator("@Transactional", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "transactional");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@MessageMapping(\"/chat\")", tokens, 16);
+    n = ctx_tokenize_decorator("@MessageMapping(\"/chat\")", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "message");
     ASSERT_STR_EQ(tokens[1], "mapping");
@@ -2398,46 +2398,46 @@ TEST(enrichment_tokenize_decorator) {
         free(tokens[i]);
 
     /* Rust-style #[test] */
-    n = cbm_tokenize_decorator("#[test]", tokens, 16);
+    n = ctx_tokenize_decorator("#[test]", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "test");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
     /* #[derive(Debug)] */
-    n = cbm_tokenize_decorator("#[derive(Debug)]", tokens, 16);
+    n = ctx_tokenize_decorator("#[derive(Debug)]", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "derive");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
     /* Both "app" and "get" are stopwords → empty */
-    n = cbm_tokenize_decorator("@app.get(\"/api\")", tokens, 16);
+    n = ctx_tokenize_decorator("@app.get(\"/api\")", tokens, 16);
     ASSERT_EQ(n, 0);
 
     /* "router" is stopword, "post" passes */
-    n = cbm_tokenize_decorator("@router.post(\"/api\")", tokens, 16);
+    n = ctx_tokenize_decorator("@router.post(\"/api\")", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "post");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
     /* Too short after filtering */
-    n = cbm_tokenize_decorator("@x", tokens, 16);
+    n = ctx_tokenize_decorator("@x", tokens, 16);
     ASSERT_EQ(n, 0);
 
     /* Empty */
-    n = cbm_tokenize_decorator("", tokens, 16);
+    n = ctx_tokenize_decorator("", tokens, 16);
     ASSERT_EQ(n, 0);
 
-    n = cbm_tokenize_decorator("@click.command", tokens, 16);
+    n = ctx_tokenize_decorator("@click.command", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "click");
     ASSERT_STR_EQ(tokens[1], "command");
     for (int i = 0; i < n; i++)
         free(tokens[i]);
 
-    n = cbm_tokenize_decorator("@celery.task", tokens, 16);
+    n = ctx_tokenize_decorator("@celery.task", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "celery");
     ASSERT_STR_EQ(tokens[1], "task");
@@ -2500,18 +2500,18 @@ TEST(decorator_tags_python_auto_discovery) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Find functions by name and check decorator_tags */
-    cbm_node_t *funcs = NULL;
+    ctx_node_t *funcs = NULL;
     int fc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
+    ctx_store_find_nodes_by_label(s, proj, "Function", &funcs, &fc);
 
     /* Build name→properties_json map */
     const char *list_orders_props = NULL;
@@ -2547,9 +2547,9 @@ TEST(decorator_tags_python_auto_discovery) {
     ASSERT_FALSE(has_decorator_tag(special_props, "helper"));
 
     if (funcs)
-        cbm_store_free_nodes(funcs, fc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+        ctx_store_free_nodes(funcs, fc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2574,18 +2574,18 @@ TEST(decorator_tags_java_class_methods) {
         SKIP("tmpdir");
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Find methods */
-    cbm_node_t *methods = NULL;
+    ctx_node_t *methods = NULL;
     int mc = 0;
-    cbm_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
+    ctx_store_find_nodes_by_label(s, proj, "Method", &methods, &mc);
 
     /* "mapping" appears on all 4 methods → should be a tag */
     for (int i = 0; i < mc; i++) {
@@ -2613,9 +2613,9 @@ TEST(decorator_tags_java_class_methods) {
     }
 
     if (methods)
-        cbm_store_free_nodes(methods, mc);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+        ctx_store_free_nodes(methods, mc);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -2626,7 +2626,7 @@ TEST(compile_commands_split_command) {
     char *args[16];
     int n;
 
-    n = cbm_split_command("gcc -c main.c", args, 16);
+    n = ctx_split_command("gcc -c main.c", args, 16);
     ASSERT_EQ(n, 3);
     ASSERT_STR_EQ(args[0], "gcc");
     ASSERT_STR_EQ(args[1], "-c");
@@ -2634,12 +2634,12 @@ TEST(compile_commands_split_command) {
     for (int i = 0; i < n; i++)
         free(args[i]);
 
-    n = cbm_split_command("gcc -DFOO=\"bar baz\" -c main.c", args, 16);
+    n = ctx_split_command("gcc -DFOO=\"bar baz\" -c main.c", args, 16);
     ASSERT_EQ(n, 4);
     for (int i = 0; i < n; i++)
         free(args[i]);
 
-    n = cbm_split_command("g++ -I/usr/include -std=c++17 -o out -c in.cpp", args, 16);
+    n = ctx_split_command("g++ -I/usr/include -std=c++17 -o out -c in.cpp", args, 16);
     ASSERT_EQ(n, 7);
     for (int i = 0; i < n; i++)
         free(args[i]);
@@ -2651,12 +2651,12 @@ TEST(compile_commands_extract_flags) {
                           "/sys/include", "-DFOO", "-DBAR=42",     "-std=c++20",     "-O2",
                           "-Wall",        "-c",    "main.cpp"};
 
-    cbm_compile_flags_t *f = cbm_extract_flags(args, 13, "/project");
+    ctx_compile_flags_t *f = ctx_extract_flags(args, 13, "/project");
     ASSERT_NOT_NULL(f);
     ASSERT_EQ(f->include_count, 3);
     ASSERT_EQ(f->define_count, 2);
     ASSERT_STR_EQ(f->standard, "c++20");
-    cbm_compile_flags_free(f);
+    ctx_compile_flags_free(f);
     PASS();
 }
 
@@ -2685,8 +2685,8 @@ TEST(compile_commands_parse_json) {
                        "]";
 
     char **paths = NULL;
-    cbm_compile_flags_t **flags = NULL;
-    int n = cbm_parse_compile_commands(json, "/home/user/project", &paths, &flags);
+    ctx_compile_flags_t **flags = NULL;
+    int n = ctx_parse_compile_commands(json, "/home/user/project", &paths, &flags);
     ASSERT(n >= 2); /* At least main.c and server.cpp, outside file excluded */
 
     /* Find main.c */
@@ -2716,7 +2716,7 @@ TEST(compile_commands_parse_json) {
     /* Cleanup */
     for (int i = 0; i < n; i++) {
         free(paths[i]);
-        cbm_compile_flags_free(flags[i]);
+        ctx_compile_flags_free(flags[i]);
     }
     free(paths);
     free(flags);
@@ -2725,8 +2725,8 @@ TEST(compile_commands_parse_json) {
 
 TEST(compile_commands_parse_empty) {
     char **paths = NULL;
-    cbm_compile_flags_t **flags = NULL;
-    int n = cbm_parse_compile_commands("[]", "/repo", &paths, &flags);
+    ctx_compile_flags_t **flags = NULL;
+    int n = ctx_parse_compile_commands("[]", "/repo", &paths, &flags);
     ASSERT_EQ(n, 0);
     free(paths);
     free(flags);
@@ -2735,8 +2735,8 @@ TEST(compile_commands_parse_empty) {
 
 TEST(compile_commands_parse_invalid) {
     char **paths = NULL;
-    cbm_compile_flags_t **flags = NULL;
-    int n = cbm_parse_compile_commands("not json", "/repo", &paths, &flags);
+    ctx_compile_flags_t **flags = NULL;
+    int n = ctx_parse_compile_commands("not json", "/repo", &paths, &flags);
     ASSERT(n < 0);
     PASS();
 }
@@ -2747,54 +2747,54 @@ TEST(compile_commands_parse_invalid) {
 
 TEST(infra_is_compose_file) {
     /* Port of TestIsComposeFile (8 cases) */
-    ASSERT(cbm_is_compose_file("docker-compose.yml"));
-    ASSERT(cbm_is_compose_file("docker-compose.yaml"));
-    ASSERT(cbm_is_compose_file("docker-compose.prod.yml"));
-    ASSERT(cbm_is_compose_file("compose.yml"));
-    ASSERT(cbm_is_compose_file("compose.yaml"));
-    ASSERT(!cbm_is_compose_file("mycompose.yml"));
-    ASSERT(!cbm_is_compose_file("docker-compose.txt"));
-    ASSERT(!cbm_is_compose_file("Dockerfile"));
+    ASSERT(ctx_is_compose_file("docker-compose.yml"));
+    ASSERT(ctx_is_compose_file("docker-compose.yaml"));
+    ASSERT(ctx_is_compose_file("docker-compose.prod.yml"));
+    ASSERT(ctx_is_compose_file("compose.yml"));
+    ASSERT(ctx_is_compose_file("compose.yaml"));
+    ASSERT(!ctx_is_compose_file("mycompose.yml"));
+    ASSERT(!ctx_is_compose_file("docker-compose.txt"));
+    ASSERT(!ctx_is_compose_file("Dockerfile"));
     PASS();
 }
 
 TEST(infra_is_cloudbuild_file) {
     /* Port of TestIsCloudbuildFile (5 cases) */
-    ASSERT(cbm_is_cloudbuild_file("cloudbuild.yaml"));
-    ASSERT(cbm_is_cloudbuild_file("cloudbuild.yml"));
-    ASSERT(cbm_is_cloudbuild_file("cloudbuild-prod.yaml"));
-    ASSERT(cbm_is_cloudbuild_file("Cloudbuild.yml"));
-    ASSERT(!cbm_is_cloudbuild_file("build.yaml"));
+    ASSERT(ctx_is_cloudbuild_file("cloudbuild.yaml"));
+    ASSERT(ctx_is_cloudbuild_file("cloudbuild.yml"));
+    ASSERT(ctx_is_cloudbuild_file("cloudbuild-prod.yaml"));
+    ASSERT(ctx_is_cloudbuild_file("Cloudbuild.yml"));
+    ASSERT(!ctx_is_cloudbuild_file("build.yaml"));
     PASS();
 }
 
 TEST(infra_is_shell_script) {
     /* Port of TestIsShellScript (5 cases) */
-    ASSERT(cbm_is_shell_script("run.sh", ".sh"));
-    ASSERT(cbm_is_shell_script("deploy.bash", ".bash"));
-    ASSERT(cbm_is_shell_script("init.zsh", ".zsh"));
-    ASSERT(!cbm_is_shell_script("main.py", ".py"));
-    ASSERT(!cbm_is_shell_script("Dockerfile", ""));
+    ASSERT(ctx_is_shell_script("run.sh", ".sh"));
+    ASSERT(ctx_is_shell_script("deploy.bash", ".bash"));
+    ASSERT(ctx_is_shell_script("init.zsh", ".zsh"));
+    ASSERT(!ctx_is_shell_script("main.py", ".py"));
+    ASSERT(!ctx_is_shell_script("Dockerfile", ""));
     PASS();
 }
 
 TEST(infra_is_dockerfile) {
-    ASSERT(cbm_is_dockerfile("Dockerfile"));
-    ASSERT(cbm_is_dockerfile("dockerfile"));
-    ASSERT(cbm_is_dockerfile("Dockerfile.prod"));
-    ASSERT(cbm_is_dockerfile("app.dockerfile"));
-    ASSERT(!cbm_is_dockerfile("docker-compose.yml"));
-    ASSERT(!cbm_is_dockerfile("main.go"));
+    ASSERT(ctx_is_dockerfile("Dockerfile"));
+    ASSERT(ctx_is_dockerfile("dockerfile"));
+    ASSERT(ctx_is_dockerfile("Dockerfile.prod"));
+    ASSERT(ctx_is_dockerfile("app.dockerfile"));
+    ASSERT(!ctx_is_dockerfile("docker-compose.yml"));
+    ASSERT(!ctx_is_dockerfile("main.go"));
     PASS();
 }
 
 TEST(infra_is_kustomize_file) {
-    ASSERT(cbm_is_kustomize_file("kustomization.yaml"));
-    ASSERT(cbm_is_kustomize_file("kustomization.yml"));
-    ASSERT(cbm_is_kustomize_file("KUSTOMIZATION.YAML")); /* case-insensitive */
-    ASSERT(!cbm_is_kustomize_file("deployment.yaml"));
-    ASSERT(!cbm_is_kustomize_file("kustomize.yaml"));
-    ASSERT(!cbm_is_kustomize_file(NULL));
+    ASSERT(ctx_is_kustomize_file("kustomization.yaml"));
+    ASSERT(ctx_is_kustomize_file("kustomization.yml"));
+    ASSERT(ctx_is_kustomize_file("KUSTOMIZATION.YAML")); /* case-insensitive */
+    ASSERT(!ctx_is_kustomize_file("deployment.yaml"));
+    ASSERT(!ctx_is_kustomize_file("kustomize.yaml"));
+    ASSERT(!ctx_is_kustomize_file(NULL));
     PASS();
 }
 
@@ -2803,21 +2803,21 @@ TEST(infra_is_k8s_manifest) {
     const char *plain = "name: foo\nvalue: bar\n";
     const char *kust = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n";
 
-    ASSERT(cbm_is_k8s_manifest("deployment.yaml", deploy));
-    ASSERT(!cbm_is_k8s_manifest("deployment.yaml", plain));
+    ASSERT(ctx_is_k8s_manifest("deployment.yaml", deploy));
+    ASSERT(!ctx_is_k8s_manifest("deployment.yaml", plain));
     /* kustomize file should return false even if it has apiVersion */
-    ASSERT(!cbm_is_k8s_manifest("kustomization.yaml", kust));
-    ASSERT(!cbm_is_k8s_manifest(NULL, deploy));
-    ASSERT(!cbm_is_k8s_manifest("deployment.yaml", NULL));
+    ASSERT(!ctx_is_k8s_manifest("kustomization.yaml", kust));
+    ASSERT(!ctx_is_k8s_manifest(NULL, deploy));
+    ASSERT(!ctx_is_k8s_manifest("deployment.yaml", NULL));
     PASS();
 }
 
 TEST(infra_is_env_file) {
-    ASSERT(cbm_is_env_file(".env"));
-    ASSERT(cbm_is_env_file(".env.local"));
-    ASSERT(cbm_is_env_file("prod.env"));
-    ASSERT(!cbm_is_env_file("main.go"));
-    ASSERT(!cbm_is_env_file("env.txt"));
+    ASSERT(ctx_is_env_file(".env"));
+    ASSERT(ctx_is_env_file(".env.local"));
+    ASSERT(ctx_is_env_file("prod.env"));
+    ASSERT(!ctx_is_env_file("main.go"));
+    ASSERT(!ctx_is_env_file("env.txt"));
     PASS();
 }
 
@@ -2827,16 +2827,16 @@ TEST(infra_clean_json_brackets) {
     /* Port of TestCleanJSONBrackets (4 cases) */
     char out[256];
 
-    cbm_clean_json_brackets("[\"./server\"]", out, sizeof(out));
+    ctx_clean_json_brackets("[\"./server\"]", out, sizeof(out));
     ASSERT_STR_EQ(out, "./server");
 
-    cbm_clean_json_brackets("[\"python\", \"main.py\"]", out, sizeof(out));
+    ctx_clean_json_brackets("[\"python\", \"main.py\"]", out, sizeof(out));
     ASSERT_STR_EQ(out, "python main.py");
 
-    cbm_clean_json_brackets("./server", out, sizeof(out));
+    ctx_clean_json_brackets("./server", out, sizeof(out));
     ASSERT_STR_EQ(out, "./server");
 
-    cbm_clean_json_brackets("[\"./app\", \"--flag\", \"value\"]", out, sizeof(out));
+    ctx_clean_json_brackets("[\"./app\", \"--flag\", \"value\"]", out, sizeof(out));
     ASSERT_STR_EQ(out, "./app --flag value");
 
     PASS();
@@ -2846,22 +2846,22 @@ TEST(infra_clean_json_brackets) {
 
 TEST(infra_secret_detection) {
     /* Key-based detection */
-    ASSERT(cbm_is_secret_binding("JWT_SECRET", "anything"));
-    ASSERT(cbm_is_secret_binding("API_KEY", "anything"));
-    ASSERT(cbm_is_secret_binding("my_password", "anything"));
-    ASSERT(cbm_is_secret_binding("AUTH_TOKEN", "anything"));
-    ASSERT(!cbm_is_secret_binding("DATABASE_URL", "https://db.example.com"));
+    ASSERT(ctx_is_secret_binding("JWT_SECRET", "anything"));
+    ASSERT(ctx_is_secret_binding("API_KEY", "anything"));
+    ASSERT(ctx_is_secret_binding("my_password", "anything"));
+    ASSERT(ctx_is_secret_binding("AUTH_TOKEN", "anything"));
+    ASSERT(!ctx_is_secret_binding("DATABASE_URL", "https://db.example.com"));
 
     /* Value-based detection */
-    ASSERT(cbm_is_secret_value("sk-1234567890abcdef12345"));
-    ASSERT(cbm_is_secret_value("-----BEGIN RSA PRIVATE KEY-----"));
-    ASSERT(!cbm_is_secret_value("https://db.example.com"));
-    ASSERT(!cbm_is_secret_value("hello world"));
-    ASSERT(!cbm_is_secret_value("8080"));
+    ASSERT(ctx_is_secret_value("sk-1234567890abcdef12345"));
+    ASSERT(ctx_is_secret_value("-----BEGIN RSA PRIVATE KEY-----"));
+    ASSERT(!ctx_is_secret_value("https://db.example.com"));
+    ASSERT(!ctx_is_secret_value("hello world"));
+    ASSERT(!ctx_is_secret_value("8080"));
 
     /* isSecretBinding checks both */
-    ASSERT(cbm_is_secret_binding("ANYTHING", "sk-1234567890abcdef12345"));
-    ASSERT(!cbm_is_secret_binding("PORT", "8080"));
+    ASSERT(ctx_is_secret_binding("ANYTHING", "sk-1234567890abcdef12345"));
+    ASSERT(!ctx_is_secret_binding("PORT", "8080"));
 
     PASS();
 }
@@ -2869,7 +2869,7 @@ TEST(infra_secret_detection) {
 /* ── Infrascan: Dockerfile parser ───────────────────────────────── */
 
 /* Helper: find env var by key in result */
-static const char *find_env_var(const cbm_env_kv_t *vars, int count, const char *key) {
+static const char *find_env_var(const ctx_env_kv_t *vars, int count, const char *key) {
     for (int i = 0; i < count; i++) {
         if (strcmp(vars[i].key, key) == 0)
             return vars[i].value;
@@ -2918,8 +2918,8 @@ TEST(infra_parse_dockerfile_multistage) {
                       "CMD [\"./server\"]\n"
                       "HEALTHCHECK CMD wget http://localhost:8080/health\n";
 
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r), 0);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r), 0);
     ASSERT_STR_EQ(r.base_image, "alpine:3.19");
     ASSERT_EQ(r.stage_count, 2);
     ASSERT_STR_EQ(r.stage_images[0], "golang:1.23-alpine");
@@ -2945,8 +2945,8 @@ TEST(infra_parse_dockerfile_entrypoint) {
     const char *src = "FROM python:3.9-slim\n"
                       "ENTRYPOINT [\"python\", \"main.py\"]\n";
 
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r), 0);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r), 0);
     ASSERT_STR_EQ(r.base_image, "python:3.9-slim");
     ASSERT_STR_EQ(r.entrypoint, "python main.py");
     ASSERT_EQ(r.stage_count, 1);
@@ -2960,8 +2960,8 @@ TEST(infra_parse_dockerfile_secret_filtered) {
                       "ENV DATABASE_URL=https://db.example.com\n"
                       "ENV JWT_SECRET=supersecret\n";
 
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r), 0);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r), 0);
 
     /* API_KEY and JWT_SECRET should be filtered */
     ASSERT(find_env_var(r.env_vars, r.env_count, "API_KEY") == NULL);
@@ -2978,8 +2978,8 @@ TEST(infra_parse_dockerfile_expose_protocol) {
     const char *src = "FROM nginx:latest\n"
                       "EXPOSE 80/tcp 443/tcp\n";
 
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r), 0);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r), 0);
     ASSERT(str_array_contains(r.exposed_ports, r.port_count, "80"));
     ASSERT(str_array_contains(r.exposed_ports, r.port_count, "443"));
     PASS();
@@ -2990,8 +2990,8 @@ TEST(infra_parse_dockerfile_env_space) {
     const char *src = "FROM python:3.9\n"
                       "ENV PYTHONPATH /usr/app\n";
 
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r), 0);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r), 0);
     ASSERT_NOT_NULL(find_env_var(r.env_vars, r.env_count, "PYTHONPATH"));
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "PYTHONPATH"), "/usr/app");
     PASS();
@@ -2999,8 +2999,8 @@ TEST(infra_parse_dockerfile_env_space) {
 
 TEST(infra_parse_dockerfile_empty) {
     /* Port of TestParseDockerfileEmpty */
-    cbm_dockerfile_result_t r;
-    ASSERT_EQ(cbm_parse_dockerfile_source("# just a comment\n", &r), -1);
+    ctx_dockerfile_result_t r;
+    ASSERT_EQ(ctx_parse_dockerfile_source("# just a comment\n", &r), -1);
     PASS();
 }
 
@@ -3015,8 +3015,8 @@ TEST(infra_parse_dotenv) {
                       "API_SECRET=should-not-appear\n"
                       "PLAIN_VALUE=hello world\n";
 
-    cbm_dotenv_result_t r;
-    ASSERT_EQ(cbm_parse_dotenv_source(src, &r), 0);
+    ctx_dotenv_result_t r;
+    ASSERT_EQ(ctx_parse_dotenv_source(src, &r), 0);
 
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "DATABASE_HOST"), "localhost");
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "DATABASE_PORT"), "5432");
@@ -3032,8 +3032,8 @@ TEST(infra_parse_dotenv_quoted) {
     const char *src = "KEY1=\"quoted value\"\n"
                       "KEY2='single quoted'\n";
 
-    cbm_dotenv_result_t r;
-    ASSERT_EQ(cbm_parse_dotenv_source(src, &r), 0);
+    ctx_dotenv_result_t r;
+    ASSERT_EQ(ctx_parse_dotenv_source(src, &r), 0);
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "KEY1"), "quoted value");
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "KEY2"), "single quoted");
     PASS();
@@ -3060,8 +3060,8 @@ TEST(infra_parse_shell) {
                       "docker run -d --name \"$YOUR_CONTAINER_NAME\" \"$YOUR_CONTAINER_NAME\"\n"
                       "docker-compose up -d\n";
 
-    cbm_shell_result_t r;
-    ASSERT_EQ(cbm_parse_shell_source(src, &r), 0);
+    ctx_shell_result_t r;
+    ASSERT_EQ(ctx_parse_shell_source(src, &r), 0);
     ASSERT_STR_EQ(r.shebang, "/bin/bash");
 
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "ENVIRONMENT"), "development");
@@ -3081,8 +3081,8 @@ TEST(infra_parse_shell_with_source) {
                       "source ./config.sh\n"
                       ". /etc/profile.d/env.sh\n";
 
-    cbm_shell_result_t r;
-    ASSERT_EQ(cbm_parse_shell_source(src, &r), 0);
+    ctx_shell_result_t r;
+    ASSERT_EQ(ctx_parse_shell_source(src, &r), 0);
     ASSERT_STR_EQ(r.shebang, "/usr/bin/env bash");
     ASSERT(str_array_256_contains(r.sources, r.source_count, "./config.sh"));
     ASSERT(str_array_256_contains(r.sources, r.source_count, "/etc/profile.d/env.sh"));
@@ -3095,8 +3095,8 @@ TEST(infra_parse_shell_secret_filtered) {
                       "export API_SECRET=\"should-not-appear\"\n"
                       "export DATABASE_URL=\"https://db.example.com\"\n";
 
-    cbm_shell_result_t r;
-    ASSERT_EQ(cbm_parse_shell_source(src, &r), 0);
+    ctx_shell_result_t r;
+    ASSERT_EQ(ctx_parse_shell_source(src, &r), 0);
     ASSERT(find_env_var(r.env_vars, r.env_count, "API_SECRET") == NULL);
     ASSERT_STR_EQ(find_env_var(r.env_vars, r.env_count, "DATABASE_URL"), "https://db.example.com");
     PASS();
@@ -3105,16 +3105,16 @@ TEST(infra_parse_shell_secret_filtered) {
 TEST(infra_parse_shell_shebang_only) {
     /* Port of TestParseShellScriptShebanOnly */
     const char *src = "#!/bin/bash\n# just comments\n";
-    cbm_shell_result_t r;
-    ASSERT_EQ(cbm_parse_shell_source(src, &r), 0);
+    ctx_shell_result_t r;
+    ASSERT_EQ(ctx_parse_shell_source(src, &r), 0);
     ASSERT_STR_EQ(r.shebang, "/bin/bash");
     PASS();
 }
 
 TEST(infra_parse_shell_truly_empty) {
     /* Port of TestParseShellScriptTrulyEmpty */
-    cbm_shell_result_t r;
-    ASSERT_EQ(cbm_parse_shell_source("# no shebang, just comments\n", &r), -1);
+    ctx_shell_result_t r;
+    ASSERT_EQ(ctx_parse_shell_source("# no shebang, just comments\n", &r), -1);
     PASS();
 }
 
@@ -3172,8 +3172,8 @@ TEST(infra_parse_terraform_full) {
                       "  env = \"prod\"\n"
                       "}\n";
 
-    cbm_terraform_result_t r;
-    ASSERT_EQ(cbm_parse_terraform_source(src, &r), 0);
+    ctx_terraform_result_t r;
+    ASSERT_EQ(ctx_parse_terraform_source(src, &r), 0);
     ASSERT_STR_EQ(r.backend, "gcs");
 
     /* Resources */
@@ -3235,8 +3235,8 @@ TEST(infra_parse_terraform_variables_only) {
                       "  default     = \"sk-1234567890abcdef12345\"\n"
                       "}\n";
 
-    cbm_terraform_result_t r;
-    ASSERT_EQ(cbm_parse_terraform_source(src, &r), 0);
+    ctx_terraform_result_t r;
+    ASSERT_EQ(ctx_parse_terraform_source(src, &r), 0);
     ASSERT_EQ(r.variable_count, 2);
 
     /* secret_key default should be filtered */
@@ -3250,8 +3250,8 @@ TEST(infra_parse_terraform_variables_only) {
 
 TEST(infra_parse_terraform_empty) {
     /* Port of TestParseTerraformEmpty */
-    cbm_terraform_result_t r;
-    ASSERT_EQ(cbm_parse_terraform_source("# just comments\n", &r), -1);
+    ctx_terraform_result_t r;
+    ASSERT_EQ(ctx_parse_terraform_source("# just comments\n", &r), -1);
     PASS();
 }
 
@@ -3260,301 +3260,301 @@ TEST(infra_parse_terraform_empty) {
 /* ── Function Registry / Resolver tests ─────────────────────────── */
 
 TEST(registry_resolve_single_candidate) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
-    cbm_registry_add(reg, "ValidateOrder", "svcB.validators.ValidateOrder", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
+    ctx_registry_add(reg, "ValidateOrder", "svcB.validators.ValidateOrder", "Function");
 
     /* Normal resolve unique name */
-    cbm_resolution_t r = cbm_registry_resolve(reg, "CreateOrder", "svcC.caller", NULL, NULL, 0);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "CreateOrder", "svcC.caller", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "svcA.handlers.CreateOrder");
 
     /* Fuzzy resolve with unknown prefix */
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknownPkg.CreateOrder", "svcC.caller", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknownPkg.CreateOrder", "svcC.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcA.handlers.CreateOrder");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_nonexistent) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "CreateOrder", "svcA.handlers.CreateOrder", "Function");
 
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "NonExistent", "svcC.caller", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "NonExistent", "svcC.caller", NULL, NULL, 0);
     ASSERT_FALSE(fr.ok);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_multiple_best_by_distance) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Process", "svcA.handlers.Process", "Function");
-    cbm_registry_add(reg, "Process", "svcB.handlers.Process", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Process", "svcA.handlers.Process", "Function");
+    ctx_registry_add(reg, "Process", "svcB.handlers.Process", "Function");
 
     /* Caller in svcA → prefer svcA */
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknown.Process", "svcA.other", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknown.Process", "svcA.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcA.handlers.Process");
 
     /* Caller in svcB → prefer svcB */
-    fr = cbm_registry_fuzzy_resolve(reg, "unknown.Process", "svcB.other", NULL, NULL, 0);
+    fr = ctx_registry_fuzzy_resolve(reg, "unknown.Process", "svcB.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "svcB.handlers.Process");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_simple_name_extraction) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "DoWork", "myproject.utils.DoWork", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "DoWork", "myproject.utils.DoWork", "Function");
 
     /* Deeply qualified name → extract "DoWork" */
-    cbm_fuzzy_result_t fr = cbm_registry_fuzzy_resolve(reg, "some.deep.module.DoWork",
+    ctx_fuzzy_result_t fr = ctx_registry_fuzzy_resolve(reg, "some.deep.module.DoWork",
                                                        "myproject.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT_STR_EQ(fr.result.qualified_name, "myproject.utils.DoWork");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_empty) {
-    cbm_registry_t *reg = cbm_registry_new();
+    ctx_registry_t *reg = ctx_registry_new();
 
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "SomeFunc", "myproject.caller", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "SomeFunc", "myproject.caller", NULL, NULL, 0);
     ASSERT_FALSE(fr.ok);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_exists) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "pkg.module.Foo", "Function");
-    cbm_registry_add(reg, "Bar", "pkg.module.Bar", "Method");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "pkg.module.Foo", "Function");
+    ctx_registry_add(reg, "Bar", "pkg.module.Bar", "Method");
 
-    ASSERT_TRUE(cbm_registry_exists(reg, "pkg.module.Foo"));
-    ASSERT_TRUE(cbm_registry_exists(reg, "pkg.module.Bar"));
-    ASSERT_FALSE(cbm_registry_exists(reg, "pkg.module.Missing"));
-    ASSERT_FALSE(cbm_registry_exists(reg, ""));
+    ASSERT_TRUE(ctx_registry_exists(reg, "pkg.module.Foo"));
+    ASSERT_TRUE(ctx_registry_exists(reg, "pkg.module.Bar"));
+    ASSERT_FALSE(ctx_registry_exists(reg, "pkg.module.Missing"));
+    ASSERT_FALSE(ctx_registry_exists(reg, ""));
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_import_map) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "proj.other.Foo", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "proj.other.Foo", "Function");
 
     const char *keys[] = {"other"};
     const char *vals[] = {"proj.other"};
-    cbm_resolution_t r = cbm_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
     ASSERT_STR_EQ(r.qualified_name, "proj.other.Foo");
     ASSERT(r.confidence > 0.90 && r.confidence <= 1.0);
     ASSERT_STR_EQ(r.strategy, "import_map");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_import_map_suffix) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "proj.other.sub.Foo", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "proj.other.sub.Foo", "Function");
 
     const char *keys[] = {"other"};
     const char *vals[] = {"proj.other"};
-    cbm_resolution_t r = cbm_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
     ASSERT_STR_EQ(r.qualified_name, "proj.other.sub.Foo");
     ASSERT(r.confidence > 0.80 && r.confidence <= 0.90);
     ASSERT_STR_EQ(r.strategy, "import_map_suffix");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_same_module) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
 
-    cbm_resolution_t r = cbm_registry_resolve(reg, "Foo", "proj.pkg", NULL, NULL, 0);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "Foo", "proj.pkg", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "proj.pkg.Foo");
     ASSERT(r.confidence > 0.85 && r.confidence <= 0.95);
     ASSERT_STR_EQ(r.strategy, "same_module");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_unique_name) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
 
-    cbm_resolution_t r = cbm_registry_resolve(reg, "Bar", "proj.unrelated", NULL, NULL, 0);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "Bar", "proj.unrelated", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "proj.pkg.Bar");
     ASSERT(r.confidence > 0.70 && r.confidence <= 0.80);
     ASSERT_STR_EQ(r.strategy, "unique_name");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_suffix_match) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Process", "proj.svcA.Process", "Function");
-    cbm_registry_add(reg, "Process", "proj.svcB.Process", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Process", "proj.svcA.Process", "Function");
+    ctx_registry_add(reg, "Process", "proj.svcB.Process", "Function");
 
-    cbm_resolution_t r = cbm_registry_resolve(reg, "Process", "proj.svcA.caller", NULL, NULL, 0);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "Process", "proj.svcA.caller", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "proj.svcA.Process");
     ASSERT(r.confidence > 0.50 && r.confidence <= 0.60);
     ASSERT_STR_EQ(r.strategy, "suffix_match");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_confidence_single) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Handler", "proj.svc.Handler", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Handler", "proj.svc.Handler", "Function");
 
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknownPkg.Handler", "proj.caller", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknownPkg.Handler", "proj.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT(fr.result.confidence > 0.35 && fr.result.confidence <= 0.45);
     ASSERT_STR_EQ(fr.result.strategy, "fuzzy");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_confidence_distance) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Process", "proj.svcA.Process", "Function");
-    cbm_registry_add(reg, "Process", "proj.svcB.Process", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Process", "proj.svcA.Process", "Function");
+    ctx_registry_add(reg, "Process", "proj.svcB.Process", "Function");
 
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknownPkg.Process", "proj.svcA.other", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknownPkg.Process", "proj.svcA.other", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT(fr.result.confidence > 0.25 && fr.result.confidence <= 0.35);
     ASSERT_STR_EQ(fr.result.strategy, "fuzzy");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_negative_import_rejects) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Process", "proj.billing.Process", "Function");
-    cbm_registry_add(reg, "Process", "proj.handler.Process", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Process", "proj.billing.Process", "Function");
+    ctx_registry_add(reg, "Process", "proj.handler.Process", "Function");
 
     /* Import only handler's module → should prefer handler */
     const char *keys[] = {"handler"};
     const char *vals[] = {"proj.handler"};
-    cbm_resolution_t r = cbm_registry_resolve(reg, "Process", "proj.caller", keys, vals, 1);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "Process", "proj.caller", keys, vals, 1);
     ASSERT_STR_EQ(r.qualified_name, "proj.handler.Process");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_import_penalty) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Handler", "proj.billing.Handler", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Handler", "proj.billing.Handler", "Function");
 
     /* Has imports but billing not imported → confidence halved */
     const char *keys[] = {"other"};
     const char *vals[] = {"proj.other"};
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknown.Handler", "proj.caller", keys, vals, 1);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknown.Handler", "proj.caller", keys, vals, 1);
     ASSERT_TRUE(fr.ok);
     /* 0.40 * 0.5 = 0.20 */
     ASSERT(fr.result.confidence > 0.15 && fr.result.confidence <= 0.25);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_fuzzy_no_import_map_passthrough) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Handler", "proj.billing.Handler", "Function");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Handler", "proj.billing.Handler", "Function");
 
     /* NULL import map → no penalty, full fuzzy confidence */
-    cbm_fuzzy_result_t fr =
-        cbm_registry_fuzzy_resolve(reg, "unknown.Handler", "proj.caller", NULL, NULL, 0);
+    ctx_fuzzy_result_t fr =
+        ctx_registry_fuzzy_resolve(reg, "unknown.Handler", "proj.caller", NULL, NULL, 0);
     ASSERT_TRUE(fr.ok);
     ASSERT(fr.result.confidence > 0.35 && fr.result.confidence <= 0.45);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_find_by_name) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
-    cbm_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
-    cbm_registry_add(reg, "Foo", "proj.other.Foo", "Function");
-    cbm_registry_add(reg, "transform", "proj.utils.DataProcessor.transform", "Method");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
+    ctx_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
+    ctx_registry_add(reg, "Foo", "proj.other.Foo", "Function");
+    ctx_registry_add(reg, "transform", "proj.utils.DataProcessor.transform", "Method");
 
     /* FindByName returns all entries for "Foo" */
     const char **foos = NULL;
     int foos_count = 0;
-    cbm_registry_find_by_name(reg, "Foo", &foos, &foos_count);
+    ctx_registry_find_by_name(reg, "Foo", &foos, &foos_count);
     ASSERT_EQ(foos_count, 2);
 
     /* FindByName for unique "Bar" */
     const char **bars = NULL;
     int bars_count = 0;
-    cbm_registry_find_by_name(reg, "Bar", &bars, &bars_count);
+    ctx_registry_find_by_name(reg, "Bar", &bars, &bars_count);
     ASSERT_EQ(bars_count, 1);
     ASSERT_STR_EQ(bars[0], "proj.pkg.Bar");
 
     /* FindByName for "transform" */
     const char **transforms = NULL;
     int trans_count = 0;
-    cbm_registry_find_by_name(reg, "transform", &transforms, &trans_count);
+    ctx_registry_find_by_name(reg, "transform", &transforms, &trans_count);
     ASSERT_EQ(trans_count, 1);
     ASSERT_STR_EQ(transforms[0], "proj.utils.DataProcessor.transform");
 
     /* label_of */
-    ASSERT_STR_EQ(cbm_registry_label_of(reg, "proj.utils.DataProcessor.transform"), "Method");
-    ASSERT_STR_EQ(cbm_registry_label_of(reg, "proj.pkg.Foo"), "Function");
+    ASSERT_STR_EQ(ctx_registry_label_of(reg, "proj.utils.DataProcessor.transform"), "Method");
+    ASSERT_STR_EQ(ctx_registry_label_of(reg, "proj.pkg.Foo"), "Function");
 
     /* Total size */
-    ASSERT_EQ(cbm_registry_size(reg), 4);
+    ASSERT_EQ(ctx_registry_size(reg), 4);
 
     /* Resolve same-module */
-    cbm_resolution_t r = cbm_registry_resolve(reg, "Foo", "proj.pkg", NULL, NULL, 0);
+    ctx_resolution_t r = ctx_registry_resolve(reg, "Foo", "proj.pkg", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "proj.pkg.Foo");
 
     /* Resolve via import map */
     const char *keys[] = {"other"};
     const char *vals[] = {"proj.other"};
-    r = cbm_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
+    r = ctx_registry_resolve(reg, "other.Foo", "proj.pkg", keys, vals, 1);
     ASSERT_STR_EQ(r.qualified_name, "proj.other.Foo");
 
     /* Resolve unique name */
-    r = cbm_registry_resolve(reg, "Bar", "proj.unrelated", NULL, NULL, 0);
+    r = ctx_registry_resolve(reg, "Bar", "proj.unrelated", NULL, NULL, 0);
     ASSERT_STR_EQ(r.qualified_name, "proj.pkg.Bar");
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
 TEST(registry_confidence_band) {
-    ASSERT_STR_EQ(cbm_confidence_band(0.95), "high");
-    ASSERT_STR_EQ(cbm_confidence_band(0.70), "high");
-    ASSERT_STR_EQ(cbm_confidence_band(0.55), "medium");
-    ASSERT_STR_EQ(cbm_confidence_band(0.45), "medium");
-    ASSERT_STR_EQ(cbm_confidence_band(0.40), "speculative");
-    ASSERT_STR_EQ(cbm_confidence_band(0.25), "speculative");
-    ASSERT_STR_EQ(cbm_confidence_band(0.20), "");
-    ASSERT_STR_EQ(cbm_confidence_band(0.0), "");
+    ASSERT_STR_EQ(ctx_confidence_band(0.95), "high");
+    ASSERT_STR_EQ(ctx_confidence_band(0.70), "high");
+    ASSERT_STR_EQ(ctx_confidence_band(0.55), "medium");
+    ASSERT_STR_EQ(ctx_confidence_band(0.45), "medium");
+    ASSERT_STR_EQ(ctx_confidence_band(0.40), "speculative");
+    ASSERT_STR_EQ(ctx_confidence_band(0.25), "speculative");
+    ASSERT_STR_EQ(ctx_confidence_band(0.20), "");
+    ASSERT_STR_EQ(ctx_confidence_band(0.0), "");
     PASS();
 }
 
@@ -3562,13 +3562,13 @@ TEST(infra_qn_helper) {
     /* Port of TestInfraQN */
 
     /* Regular infra file → __infra__ suffix */
-    char *qn = cbm_infra_qn("myproject", "docker-images/service/Dockerfile", "dockerfile", NULL);
+    char *qn = ctx_infra_qn("myproject", "docker-images/service/Dockerfile", "dockerfile", NULL);
     ASSERT_NOT_NULL(qn);
     ASSERT(strstr(qn, ".__infra__") != NULL);
     free(qn);
 
     /* Compose service → ::service_name suffix */
-    qn = cbm_infra_qn("myproject", "docker-compose.yml", "compose-service", "web");
+    qn = ctx_infra_qn("myproject", "docker-compose.yml", "compose-service", "web");
     ASSERT_NOT_NULL(qn);
     ASSERT(strstr(qn, "::web") != NULL);
     free(qn);
@@ -3584,14 +3584,14 @@ TEST(infra_pipeline_integration) {
      * wired yet — compose YAML also blocked on YAML parser). */
 
     /* Parse Dockerfile */
-    cbm_dockerfile_result_t dr;
-    ASSERT_EQ(cbm_parse_dockerfile_source("FROM alpine:3.19\nEXPOSE 8080\n", &dr), 0);
+    ctx_dockerfile_result_t dr;
+    ASSERT_EQ(ctx_parse_dockerfile_source("FROM alpine:3.19\nEXPOSE 8080\n", &dr), 0);
     ASSERT_STR_EQ(dr.base_image, "alpine:3.19");
     ASSERT_GTE(dr.port_count, 1);
 
     /* Parse .env */
-    cbm_dotenv_result_t er;
-    ASSERT_EQ(cbm_parse_dotenv_source("APP_PORT=8080\nDEBUG=true\n", &er), 0);
+    ctx_dotenv_result_t er;
+    ASSERT_EQ(ctx_parse_dotenv_source("APP_PORT=8080\nDEBUG=true\n", &er), 0);
     ASSERT_GTE(er.env_count, 1);
     /* APP_PORT should be present */
     bool found_port = false;
@@ -3609,9 +3609,9 @@ TEST(infra_pipeline_idempotent) {
     /* Port of TestPassInfraFilesIdempotent:
      * Parsing same source twice should produce identical results. */
     const char *src = "FROM alpine:3.19\nEXPOSE 8080\nENV PORT=8080\n";
-    cbm_dockerfile_result_t r1, r2;
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r1), 0);
-    ASSERT_EQ(cbm_parse_dockerfile_source(src, &r2), 0);
+    ctx_dockerfile_result_t r1, r2;
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r1), 0);
+    ASSERT_EQ(ctx_parse_dockerfile_source(src, &r2), 0);
 
     ASSERT_STR_EQ(r1.base_image, r2.base_image);
     ASSERT_EQ(r1.port_count, r2.port_count);
@@ -3628,7 +3628,7 @@ TEST(k8s_extract_kustomize) {
                       "resources:\n"
                       "  - deployment.yaml\n"
                       "  - service.yaml\n";
-    CBMFileResult *r = cbm_extract_file(src, (int)strlen(src), CBM_LANG_KUSTOMIZE, "myproj",
+    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_KUSTOMIZE, "myproj",
                                         "base/kustomization.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT_GTE(r->imports.count, 2);
@@ -3645,7 +3645,7 @@ TEST(k8s_extract_kustomize) {
     ASSERT_TRUE(found_deploy);
     ASSERT_TRUE(found_svc);
 
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3655,7 +3655,7 @@ TEST(k8s_extract_manifest) {
                       "metadata:\n"
                       "  name: my-app\n"
                       "  namespace: production\n";
-    CBMFileResult *r = cbm_extract_file(src, (int)strlen(src), CBM_LANG_K8S, "myproj",
+    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/deployment.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT_GTE(r->defs.count, 1);
@@ -3668,18 +3668,18 @@ TEST(k8s_extract_manifest) {
     }
     ASSERT_TRUE(found_resource);
 
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
 TEST(k8s_extract_manifest_no_name) {
     const char *src = "apiVersion: apps/v1\nkind: Deployment\n";
-    CBMFileResult *r = cbm_extract_file(src, (int)strlen(src), CBM_LANG_K8S, "myproj",
+    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/deploy.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     /* No crash — defs count may be 0 because metadata.name is absent */
     ASSERT(!r->has_error);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3702,7 +3702,7 @@ TEST(k8s_extract_manifest_multidoc) {
                       "kind: Service\n"
                       "metadata:\n"
                       "  name: my-svc\n";
-    CBMFileResult *r = cbm_extract_file(src, (int)strlen(src), CBM_LANG_K8S, "myproj",
+    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/multi.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT(!r->has_error);
@@ -3717,7 +3717,7 @@ TEST(k8s_extract_manifest_multidoc) {
     ASSERT(found);
     /* At least one def, no more than one (only first document processed) */
     ASSERT(r->defs.count >= 1);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3735,7 +3735,7 @@ static void write_temp_file(const char *dir, const char *name, const char *conte
         memcpy(parent, path, plen);
         parent[plen] = '\0';
         /* mkdir -p (simple version, one level) */
-        cbm_mkdir(parent);
+        ctx_mkdir(parent);
     }
     FILE *f = fopen(path, "w");
     if (f) {
@@ -3745,7 +3745,7 @@ static void write_temp_file(const char *dir, const char *name, const char *conte
 }
 
 /* Helper: find binding by key in results */
-static const cbm_env_binding_t *find_binding_by_key(const cbm_env_binding_t *bindings, int count,
+static const ctx_env_binding_t *find_binding_by_key(const ctx_env_binding_t *bindings, int count,
                                                     const char *key) {
     for (int i = 0; i < count; i++) {
         if (strcmp(bindings[i].key, key) == 0)
@@ -3755,7 +3755,7 @@ static const cbm_env_binding_t *find_binding_by_key(const cbm_env_binding_t *bin
 }
 
 /* Helper: find binding by value in results */
-static int has_binding_value(const cbm_env_binding_t *bindings, int count, const char *value) {
+static int has_binding_value(const ctx_env_binding_t *bindings, int count, const char *value) {
     for (int i = 0; i < count; i++) {
         if (strcmp(bindings[i].value, value) == 0)
             return 1;
@@ -3765,8 +3765,8 @@ static int has_binding_value(const cbm_env_binding_t *bindings, int count, const
 
 TEST(envscan_dockerfile_env_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_dock_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_dock_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",
@@ -3775,8 +3775,8 @@ TEST(envscan_dockerfile_env_urls) {
                     "ENV DB_HOST=localhost\n"
                     "ARG WEBHOOK_URL=https://hooks.example.com/webhook\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_NOT_NULL(find_binding_by_key(bindings, count, "ORDER_URL"));
     ASSERT_STR_EQ(find_binding_by_key(bindings, count, "ORDER_URL")->value,
@@ -3793,8 +3793,8 @@ TEST(envscan_dockerfile_env_urls) {
 
 TEST(envscan_shell_env_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sh_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_sh_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "setup.sh",
@@ -3803,8 +3803,8 @@ TEST(envscan_shell_env_urls) {
                     "APP_NAME=\"my-service\"\n"
                     "CALLBACK_URL=https://hooks.example.com/notify\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_NOT_NULL(find_binding_by_key(bindings, count, "DB_URL"));
     ASSERT_STR_EQ(find_binding_by_key(bindings, count, "DB_URL")->value,
@@ -3819,8 +3819,8 @@ TEST(envscan_shell_env_urls) {
 
 TEST(envscan_env_file_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_env_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_env_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, ".env",
@@ -3828,8 +3828,8 @@ TEST(envscan_env_file_urls) {
                     "DEBUG=true\n"
                     "SERVICE_URL=https://service.example.com/api\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_NOT_NULL(find_binding_by_key(bindings, count, "API_URL"));
     ASSERT_STR_EQ(find_binding_by_key(bindings, count, "API_URL")->value,
@@ -3844,8 +3844,8 @@ TEST(envscan_env_file_urls) {
 
 TEST(envscan_toml_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_toml_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_toml_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "config.toml",
@@ -3854,8 +3854,8 @@ TEST(envscan_toml_urls) {
                     "name = \"my-service\"\n"
                     "callback_url = \"https://hooks.example.com/notify\"\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_NOT_NULL(find_binding_by_key(bindings, count, "base_url"));
     ASSERT_STR_EQ(find_binding_by_key(bindings, count, "base_url")->value,
@@ -3870,8 +3870,8 @@ TEST(envscan_toml_urls) {
 
 TEST(envscan_yaml_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_yaml_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_yaml_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "config.yaml",
@@ -3880,8 +3880,8 @@ TEST(envscan_yaml_urls) {
                     "  timeout: 30\n"
                     "  callback_url: \"https://hooks.internal.com/callback\"\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_NOT_NULL(find_binding_by_key(bindings, count, "service_url"));
     ASSERT_STR_EQ(find_binding_by_key(bindings, count, "service_url")->value,
@@ -3894,8 +3894,8 @@ TEST(envscan_yaml_urls) {
 
 TEST(envscan_terraform_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_tf_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_tf_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "variables.tf",
@@ -3907,8 +3907,8 @@ TEST(envscan_terraform_urls) {
                     "  default = \"us-east-1\"\n"
                     "}\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_GTE(count, 1);
     ASSERT_TRUE(has_binding_value(bindings, count, "https://api.example.com/webhook"));
@@ -3919,8 +3919,8 @@ TEST(envscan_terraform_urls) {
 
 TEST(envscan_properties_urls) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_prop_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_prop_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "app.properties",
@@ -3928,8 +3928,8 @@ TEST(envscan_properties_urls) {
                     "app.name=myapp\n"
                     "service.endpoint=https://service.example.com/api\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_TRUE(has_binding_value(bindings, count, "https://api.example.com/health"));
     ASSERT_TRUE(has_binding_value(bindings, count, "https://service.example.com/api"));
@@ -3940,8 +3940,8 @@ TEST(envscan_properties_urls) {
 
 TEST(envscan_secret_key_exclusion) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_skey_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_skey_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",
@@ -3951,8 +3951,8 @@ TEST(envscan_secret_key_exclusion) {
                     "ENV PASSWORD=https://auth.example.com/login\n"
                     "ENV NORMAL_URL=https://api.example.com/orders\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     /* Secret keys should be excluded */
     ASSERT_TRUE(find_binding_by_key(bindings, count, "SECRET_TOKEN") == NULL);
@@ -3967,8 +3967,8 @@ TEST(envscan_secret_key_exclusion) {
 
 TEST(envscan_secret_value_exclusion) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sval_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_sval_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(
@@ -3977,8 +3977,8 @@ TEST(envscan_secret_value_exclusion) {
         "export GH_URL=\"https://ghp_abcdefghijklmnopqrstuvwxyz1234567890@github.com/repo\"\n"
         "export NORMAL_ENDPOINT=\"https://api.example.com/orders\"\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     /* ghp_ token URL should be excluded */
     ASSERT_TRUE(find_binding_by_key(bindings, count, "GH_URL") == NULL);
@@ -3991,8 +3991,8 @@ TEST(envscan_secret_value_exclusion) {
 
 TEST(envscan_secret_file_exclusion) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_sfile_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_sfile_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     /* Secret file should be skipped */
@@ -4002,8 +4002,8 @@ TEST(envscan_secret_file_exclusion) {
     write_temp_file(tmpdir, "setup.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     /* Should find binding from setup.sh but not credentials.sh */
     int from_credentials = 0;
@@ -4023,24 +4023,24 @@ TEST(envscan_secret_file_exclusion) {
 
 TEST(envscan_skips_ignored_dirs) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_ign_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_ign_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     /* File inside .git should be skipped */
     char gitdir[512];
     snprintf(gitdir, sizeof(gitdir), "%s/.git", tmpdir);
-    cbm_mkdir(gitdir);
+    ctx_mkdir(gitdir);
     write_temp_file(tmpdir, ".git/config.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
     /* File inside node_modules should be skipped */
     char nmdir[512];
     snprintf(nmdir, sizeof(nmdir), "%s/node_modules", tmpdir);
-    cbm_mkdir(nmdir);
+    ctx_mkdir(nmdir);
     char nmpkg[512];
     snprintf(nmpkg, sizeof(nmpkg), "%s/node_modules/pkg", tmpdir);
-    cbm_mkdir(nmpkg);
+    ctx_mkdir(nmpkg);
     write_temp_file(tmpdir, "node_modules/pkg/config.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
@@ -4048,8 +4048,8 @@ TEST(envscan_skips_ignored_dirs) {
     write_temp_file(tmpdir, "deploy.sh",
                     "#!/bin/bash\nexport API_URL=\"https://api.example.com/v1\"\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     int from_git = 0, from_nm = 0, from_root = 0;
     for (int i = 0; i < count; i++) {
@@ -4070,8 +4070,8 @@ TEST(envscan_skips_ignored_dirs) {
 
 TEST(envscan_non_url_values_skipped) {
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_envscan_nurl_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_envscan_nurl_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
         SKIP("tmpdir");
 
     write_temp_file(tmpdir, "Dockerfile",
@@ -4085,8 +4085,8 @@ TEST(envscan_non_url_values_skipped) {
                     "export REGION=\"us-east-1\"\n"
                     "export COUNT=42\n");
 
-    cbm_env_binding_t bindings[32];
-    int count = cbm_scan_project_env_urls(tmpdir, bindings, 32);
+    ctx_env_binding_t bindings[32];
+    int count = ctx_scan_project_env_urls(tmpdir, bindings, 32);
 
     ASSERT_EQ(count, 0);
 
@@ -4099,25 +4099,25 @@ TEST(envscan_non_url_values_skipped) {
 /* Port of Go TestIsTrackableFile from githistory_test.go */
 TEST(githistory_is_trackable_file) {
     /* Source files — trackable */
-    ASSERT_TRUE(cbm_is_trackable_file("main.go"));
-    ASSERT_TRUE(cbm_is_trackable_file("src/app.py"));
-    ASSERT_TRUE(cbm_is_trackable_file("README.md"));
+    ASSERT_TRUE(ctx_is_trackable_file("main.go"));
+    ASSERT_TRUE(ctx_is_trackable_file("src/app.py"));
+    ASSERT_TRUE(ctx_is_trackable_file("README.md"));
 
     /* node_modules — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("node_modules/foo/bar.js"));
+    ASSERT_FALSE(ctx_is_trackable_file("node_modules/foo/bar.js"));
     /* vendor — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("vendor/lib/dep.go"));
+    ASSERT_FALSE(ctx_is_trackable_file("vendor/lib/dep.go"));
     /* Lock files — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("package-lock.json"));
-    ASSERT_FALSE(cbm_is_trackable_file("go.sum"));
+    ASSERT_FALSE(ctx_is_trackable_file("package-lock.json"));
+    ASSERT_FALSE(ctx_is_trackable_file("go.sum"));
     /* Binary/assets — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("image.png"));
+    ASSERT_FALSE(ctx_is_trackable_file("image.png"));
     /* .git directory — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file(".git/config"));
+    ASSERT_FALSE(ctx_is_trackable_file(".git/config"));
     /* __pycache__ — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("__pycache__/mod.pyc"));
+    ASSERT_FALSE(ctx_is_trackable_file("__pycache__/mod.pyc"));
     /* Minified files — not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("src/style.min.css"));
+    ASSERT_FALSE(ctx_is_trackable_file("src/style.min.css"));
     PASS();
 }
 
@@ -4136,12 +4136,12 @@ TEST(githistory_compute_change_coupling) {
     char *files_ddd[] = {"a.go", "c.go"};
     char *files_eee[] = {"d.go", "e.go"};
 
-    cbm_commit_files_t commits[5] = {
+    ctx_commit_files_t commits[5] = {
         {files_aaa, 3}, {files_bbb, 2}, {files_ccc, 2}, {files_ddd, 2}, {files_eee, 2},
     };
 
-    cbm_change_coupling_t out[100];
-    int count = cbm_compute_change_coupling(commits, 5, out, 100);
+    ctx_change_coupling_t out[100];
+    int count = ctx_compute_change_coupling(commits, 5, out, 100);
 
     /* a.go + b.go co-change 3 times → should be in results */
     bool found_ab = false;
@@ -4173,10 +4173,10 @@ TEST(githistory_coupling_skips_large_commits) {
         snprintf(bufs[i], sizeof(bufs[i]), "file%d.go", i);
         files[i] = bufs[i];
     }
-    cbm_commit_files_t commits[1] = {{files, 25}};
+    ctx_commit_files_t commits[1] = {{files, 25}};
 
-    cbm_change_coupling_t out[100];
-    int count = cbm_compute_change_coupling(commits, 1, out, 100);
+    ctx_change_coupling_t out[100];
+    int count = ctx_compute_change_coupling(commits, 1, out, 100);
     ASSERT_EQ(count, 0);
     PASS();
 }
@@ -4188,7 +4188,7 @@ TEST(githistory_coupling_limits_output) {
     int idx = 0;
     char *pair_files[2450][2]; /* 50*49/2 pairs * 3 repetitions = 3675 commits */
     char pair_bufs[2450][2][32];
-    cbm_commit_files_t commits[3675];
+    ctx_commit_files_t commits[3675];
     int ci = 0;
     for (int i = 0; i < 50 && ci < 3675; i++) {
         for (int j = i + 1; j < 50 && ci < 3675; j++) {
@@ -4207,8 +4207,8 @@ TEST(githistory_coupling_limits_output) {
         }
     }
 
-    cbm_change_coupling_t out[200];
-    int count = cbm_compute_change_coupling(commits, ci, out, 100);
+    ctx_change_coupling_t out[200];
+    int count = ctx_compute_change_coupling(commits, ci, out, 100);
     ASSERT(count <= 100);
     PASS();
 }
@@ -4218,36 +4218,36 @@ TEST(registry_is_import_reachable) {
     const char *import_vals[] = {"proj.handler", "proj.shared.utils"};
 
     /* Exact match: proj.handler.Process → true */
-    ASSERT_TRUE(cbm_registry_is_import_reachable("proj.handler.Process", import_vals, 2));
+    ASSERT_TRUE(ctx_registry_is_import_reachable("proj.handler.Process", import_vals, 2));
     /* Sub-package: proj.handler.sub.Process → true (handler contains handler) */
-    ASSERT_TRUE(cbm_registry_is_import_reachable("proj.handler.sub.Process", import_vals, 2));
+    ASSERT_TRUE(ctx_registry_is_import_reachable("proj.handler.sub.Process", import_vals, 2));
     /* Nested match: proj.shared.utils.Helper → true */
-    ASSERT_TRUE(cbm_registry_is_import_reachable("proj.shared.utils.Helper", import_vals, 2));
+    ASSERT_TRUE(ctx_registry_is_import_reachable("proj.shared.utils.Helper", import_vals, 2));
     /* Unrelated: proj.billing.Process → false */
-    ASSERT_FALSE(cbm_registry_is_import_reachable("proj.billing.Process", import_vals, 2));
+    ASSERT_FALSE(ctx_registry_is_import_reachable("proj.billing.Process", import_vals, 2));
     /* Completely unrelated: unrelated.pkg.Func → false */
-    ASSERT_FALSE(cbm_registry_is_import_reachable("unrelated.pkg.Func", import_vals, 2));
+    ASSERT_FALSE(ctx_registry_is_import_reachable("unrelated.pkg.Func", import_vals, 2));
     PASS();
 }
 
 /* Port of FindEndingWith portion from Go TestFunctionRegistry in pipeline_test.go */
 TEST(registry_find_ending_with) {
-    cbm_registry_t *reg = cbm_registry_new();
-    cbm_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
-    cbm_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
-    cbm_registry_add(reg, "Foo", "proj.other.Foo", "Function");
-    cbm_registry_add(reg, "transform", "proj.utils.DataProcessor.transform", "Method");
+    ctx_registry_t *reg = ctx_registry_new();
+    ctx_registry_add(reg, "Foo", "proj.pkg.Foo", "Function");
+    ctx_registry_add(reg, "Bar", "proj.pkg.Bar", "Function");
+    ctx_registry_add(reg, "Foo", "proj.other.Foo", "Function");
+    ctx_registry_add(reg, "transform", "proj.utils.DataProcessor.transform", "Method");
 
     /* FindEndingWith "DataProcessor.transform" → 1 match */
     const char **matches = NULL;
-    int count = cbm_registry_find_ending_with(reg, "DataProcessor.transform", &matches);
+    int count = ctx_registry_find_ending_with(reg, "DataProcessor.transform", &matches);
     ASSERT_EQ(count, 1);
     ASSERT_STR_EQ(matches[0], "proj.utils.DataProcessor.transform");
     free(matches);
 
     /* FindEndingWith "Foo" → 2 matches */
     matches = NULL;
-    count = cbm_registry_find_ending_with(reg, "Foo", &matches);
+    count = ctx_registry_find_ending_with(reg, "Foo", &matches);
     ASSERT_EQ(count, 2);
     /* Both should be present (order may vary) */
     bool found_pkg = false, found_other = false;
@@ -4263,10 +4263,10 @@ TEST(registry_find_ending_with) {
 
     /* FindEndingWith "Nonexistent" → 0 matches */
     matches = NULL;
-    count = cbm_registry_find_ending_with(reg, "Nonexistent", &matches);
+    count = ctx_registry_find_ending_with(reg, "Nonexistent", &matches);
     ASSERT_EQ(count, 0);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     PASS();
 }
 
@@ -4279,8 +4279,8 @@ static char g_incr_tmpdir[256];
 static char g_incr_dbpath[512];
 
 static int setup_incremental_repo(void) {
-    snprintf(g_incr_tmpdir, sizeof(g_incr_tmpdir), "/tmp/cbm_incr_XXXXXX");
-    if (!cbm_mkdtemp(g_incr_tmpdir)) {
+    snprintf(g_incr_tmpdir, sizeof(g_incr_tmpdir), "/tmp/ctx_incr_XXXXXX");
+    if (!ctx_mkdtemp(g_incr_tmpdir)) {
         return -1;
     }
     snprintf(g_incr_dbpath, sizeof(g_incr_dbpath), "%s/test.db", g_incr_tmpdir);
@@ -4334,18 +4334,18 @@ TEST(pipeline_fastapi_depends_edges) {
     }
     char db[512];
     snprintf(db, sizeof(db), "%s/test.db", g_lang_tmpdir);
-    cbm_pipeline_t *p = cbm_pipeline_new(g_lang_tmpdir, db, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_lang_tmpdir, db, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(db);
+    ctx_store_t *s = ctx_store_open_path(db);
     ASSERT_NOT_NULL(s);
-    const char *proj = cbm_pipeline_project_name(p);
+    const char *proj = ctx_pipeline_project_name(p);
 
     /* Check CALLS edges for fastapi_depends strategy */
-    cbm_edge_t *edges = NULL;
+    ctx_edge_t *edges = NULL;
     int edge_count = 0;
-    cbm_store_find_edges_by_type(s, proj, "CALLS", &edges, &edge_count);
+    ctx_store_find_edges_by_type(s, proj, "CALLS", &edges, &edge_count);
 
     bool found_depends_edge = false;
     for (int i = 0; i < edge_count; i++) {
@@ -4355,12 +4355,12 @@ TEST(pipeline_fastapi_depends_edges) {
         }
     }
     if (edges) {
-        cbm_store_free_edges(edges, edge_count);
+        ctx_store_free_edges(edges, edge_count);
     }
     ASSERT_TRUE(found_depends_edge);
 
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     teardown_lang_repo();
     PASS();
 }
@@ -4379,31 +4379,31 @@ TEST(incremental_full_then_noop) {
     }
 
     /* First: full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Verify nodes exist */
-    cbm_store_t *s = cbm_store_open_path(g_incr_dbpath);
+    ctx_store_t *s = ctx_store_open_path(g_incr_dbpath);
     ASSERT_NOT_NULL(s);
-    int nodes_before = cbm_store_count_nodes(s, project);
+    int nodes_before = ctx_store_count_nodes(s, project);
     ASSERT_GT(nodes_before, 0);
-    cbm_store_close(s);
+    ctx_store_close(s);
 
     /* Second: incremental — nothing changed → should be no-op */
-    p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    ctx_pipeline_free(p);
 
-    s = cbm_store_open_path(g_incr_dbpath);
+    s = ctx_store_open_path(g_incr_dbpath);
     ASSERT_NOT_NULL(s);
-    int nodes_after = cbm_store_count_nodes(s, project);
+    int nodes_after = ctx_store_count_nodes(s, project);
     /* Node count should be same (no duplicates, no loss) */
     ASSERT_EQ(nodes_after, nodes_before);
-    cbm_store_close(s);
+    ctx_store_close(s);
     free(project);
 
     cleanup_incremental_repo();
@@ -4417,11 +4417,11 @@ TEST(incremental_detects_changed_file) {
     }
 
     /* First: full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Modify helper.go — add a new function */
     char path[512];
@@ -4434,17 +4434,17 @@ TEST(incremental_detects_changed_file) {
     fclose(f);
 
     /* Second: incremental — should detect change and re-index */
-    p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
     /* Verify node count increased (NewFunc was added) */
-    cbm_store_t *s = cbm_store_open_path(g_incr_dbpath);
+    ctx_store_t *s = ctx_store_open_path(g_incr_dbpath);
     ASSERT_NOT_NULL(s);
-    int nodes_after = cbm_store_count_nodes(s, project);
+    int nodes_after = ctx_store_count_nodes(s, project);
     ASSERT_GT(nodes_after, 0);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     free(project);
 
     cleanup_incremental_repo();
@@ -4458,11 +4458,11 @@ TEST(incremental_detects_deleted_file) {
     }
 
     /* First: full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Delete helper.go */
     char path[512];
@@ -4470,17 +4470,17 @@ TEST(incremental_detects_deleted_file) {
     unlink(path);
 
     /* Second: incremental — should remove Helper nodes */
-    p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
     /* Verify node count decreased (Helper's file was deleted) */
-    cbm_store_t *s = cbm_store_open_path(g_incr_dbpath);
+    ctx_store_t *s = ctx_store_open_path(g_incr_dbpath);
     ASSERT_NOT_NULL(s);
-    int nodes_after = cbm_store_count_nodes(s, project);
+    int nodes_after = ctx_store_count_nodes(s, project);
     ASSERT_GT(nodes_after, 0); /* still has main.go nodes */
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     free(project);
 
     cleanup_incremental_repo();
@@ -4494,11 +4494,11 @@ TEST(incremental_new_file_added) {
     }
 
     /* First: full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Add extra.go */
     char path[512];
@@ -4509,16 +4509,16 @@ TEST(incremental_new_file_added) {
     fclose(f);
 
     /* Second: incremental — should pick up Extra */
-    p = cbm_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(g_incr_tmpdir, g_incr_dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
 
-    cbm_store_t *s = cbm_store_open_path(g_incr_dbpath);
+    ctx_store_t *s = ctx_store_open_path(g_incr_dbpath);
     ASSERT_NOT_NULL(s);
-    int nodes_after = cbm_store_count_nodes(s, project);
+    int nodes_after = ctx_store_count_nodes(s, project);
     ASSERT_GT(nodes_after, 0);
-    cbm_store_close(s);
-    cbm_pipeline_free(p);
+    ctx_store_close(s);
+    ctx_pipeline_free(p);
     free(project);
 
     cleanup_incremental_repo();
@@ -4527,10 +4527,10 @@ TEST(incremental_new_file_added) {
 
 TEST(incremental_k8s_manifest_indexed) {
     /* Full index with a k8s manifest, then add a new manifest via incremental.
-     * Verifies that cbm_pipeline_pass_k8s() runs during incremental re-index. */
+     * Verifies that ctx_pipeline_pass_k8s() runs during incremental re-index. */
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_k8s_incr_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_k8s_incr_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir)) {
         SKIP("tmpdir");
     }
     char dbpath[512];
@@ -4546,21 +4546,21 @@ TEST(incremental_k8s_manifest_indexed) {
     fclose(f);
 
     /* Full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(tmpdir, dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(tmpdir, dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Verify Resource node created by full index */
-    cbm_store_t *s = cbm_store_open_path(dbpath);
+    ctx_store_t *s = ctx_store_open_path(dbpath);
     ASSERT_NOT_NULL(s);
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int count = 0;
-    cbm_store_find_nodes_by_label(s, project, "Resource", &nodes, &count);
+    ctx_store_find_nodes_by_label(s, project, "Resource", &nodes, &count);
     ASSERT_GT(count, 0);
-    cbm_store_free_nodes(nodes, count);
-    cbm_store_close(s);
+    ctx_store_free_nodes(nodes, count);
+    ctx_store_close(s);
 
     /* Add a second manifest — incremental should pick it up */
     snprintf(path, sizeof(path), "%s/svc.yaml", tmpdir);
@@ -4570,20 +4570,20 @@ TEST(incremental_k8s_manifest_indexed) {
     fclose(f);
 
     /* Incremental re-index */
-    p = cbm_pipeline_new(tmpdir, dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(tmpdir, dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    ctx_pipeline_free(p);
 
     /* Verify both Resource nodes now present */
-    s = cbm_store_open_path(dbpath);
+    s = ctx_store_open_path(dbpath);
     ASSERT_NOT_NULL(s);
     nodes = NULL;
     count = 0;
-    cbm_store_find_nodes_by_label(s, project, "Resource", &nodes, &count);
+    ctx_store_find_nodes_by_label(s, project, "Resource", &nodes, &count);
     ASSERT_GTE(count, 2);
-    cbm_store_free_nodes(nodes, count);
-    cbm_store_close(s);
+    ctx_store_free_nodes(nodes, count);
+    ctx_store_close(s);
 
     free(project);
     th_rmtree(tmpdir);
@@ -4594,8 +4594,8 @@ TEST(incremental_kustomize_module_indexed) {
     /* Verifies that a kustomization.yaml added after the initial full index
      * gets a Module node via the incremental k8s pass. */
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "/tmp/cbm_kust_incr_XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_kust_incr_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir)) {
         SKIP("tmpdir");
     }
     char dbpath[512];
@@ -4611,11 +4611,11 @@ TEST(incremental_kustomize_module_indexed) {
     fclose(f);
 
     /* Full index */
-    cbm_pipeline_t *p = cbm_pipeline_new(tmpdir, dbpath, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new(tmpdir, dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    char *project = strdup(cbm_pipeline_project_name(p));
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    char *project = strdup(ctx_pipeline_project_name(p));
+    ctx_pipeline_free(p);
 
     /* Add kustomization.yaml */
     snprintf(path, sizeof(path), "%s/kustomization.yaml", tmpdir);
@@ -4628,17 +4628,17 @@ TEST(incremental_kustomize_module_indexed) {
     fclose(f);
 
     /* Incremental re-index */
-    p = cbm_pipeline_new(tmpdir, dbpath, CBM_MODE_FULL);
+    p = ctx_pipeline_new(tmpdir, dbpath, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    ASSERT_EQ(cbm_pipeline_run(p), 0);
-    cbm_pipeline_free(p);
+    ASSERT_EQ(ctx_pipeline_run(p), 0);
+    ctx_pipeline_free(p);
 
     /* Verify Module node created for the kustomization overlay */
-    cbm_store_t *s = cbm_store_open_path(dbpath);
+    ctx_store_t *s = ctx_store_open_path(dbpath);
     ASSERT_NOT_NULL(s);
-    cbm_node_t *nodes = NULL;
+    ctx_node_t *nodes = NULL;
     int count = 0;
-    cbm_store_find_nodes_by_label(s, project, "Module", &nodes, &count);
+    ctx_store_find_nodes_by_label(s, project, "Module", &nodes, &count);
     bool found_kust = false;
     for (int i = 0; i < count; i++) {
         if (nodes[i].properties_json && strstr(nodes[i].properties_json, "kustomize")) {
@@ -4646,8 +4646,8 @@ TEST(incremental_kustomize_module_indexed) {
             break;
         }
     }
-    cbm_store_free_nodes(nodes, count);
-    cbm_store_close(s);
+    ctx_store_free_nodes(nodes, count);
+    ctx_store_close(s);
     ASSERT_TRUE(found_kust);
 
     free(project);
@@ -4659,23 +4659,23 @@ TEST(incremental_kustomize_module_indexed) {
 
 TEST(pipeline_lock_try_acquire) {
     /* First try-lock should succeed */
-    ASSERT_TRUE(cbm_pipeline_try_lock());
+    ASSERT_TRUE(ctx_pipeline_try_lock());
     /* Second try-lock should fail (already held) */
-    ASSERT_FALSE(cbm_pipeline_try_lock());
+    ASSERT_FALSE(ctx_pipeline_try_lock());
     /* Release, then re-acquire should succeed */
-    cbm_pipeline_unlock();
-    ASSERT_TRUE(cbm_pipeline_try_lock());
-    cbm_pipeline_unlock();
+    ctx_pipeline_unlock();
+    ASSERT_TRUE(ctx_pipeline_try_lock());
+    ctx_pipeline_unlock();
     PASS();
 }
 
 TEST(pipeline_lock_blocking) {
     /* Lock, then unlock — basic sanity */
-    cbm_pipeline_lock();
-    cbm_pipeline_unlock();
+    ctx_pipeline_lock();
+    ctx_pipeline_unlock();
     /* Should be immediately re-acquirable */
-    cbm_pipeline_lock();
-    cbm_pipeline_unlock();
+    ctx_pipeline_lock();
+    ctx_pipeline_unlock();
     PASS();
 }
 
@@ -4685,9 +4685,9 @@ static atomic_int g_thread_done = 0;
 
 static void *try_lock_thread(void *arg) {
     (void)arg;
-    if (cbm_pipeline_try_lock()) {
+    if (ctx_pipeline_try_lock()) {
         atomic_store(&g_thread_acquired, 1);
-        cbm_pipeline_unlock();
+        ctx_pipeline_unlock();
     } else {
         atomic_store(&g_thread_acquired, 0);
     }
@@ -4697,35 +4697,35 @@ static void *try_lock_thread(void *arg) {
 
 TEST(pipeline_lock_contention) {
     /* Main thread holds lock, spawned thread should fail try_lock */
-    cbm_pipeline_lock();
+    ctx_pipeline_lock();
     atomic_store(&g_thread_acquired, -1);
     atomic_store(&g_thread_done, 0);
 
-    cbm_thread_t tid;
-    int rc = cbm_thread_create(&tid, 0, try_lock_thread, NULL);
+    ctx_thread_t tid;
+    int rc = ctx_thread_create(&tid, 0, try_lock_thread, NULL);
     ASSERT_EQ(rc, 0);
 
     /* Wait for thread to finish */
-    cbm_thread_join(&tid);
+    ctx_thread_join(&tid);
 
     /* Thread should NOT have acquired the lock */
     ASSERT_EQ(atomic_load(&g_thread_acquired), 0);
-    cbm_pipeline_unlock();
+    ctx_pipeline_unlock();
     PASS();
 }
 
 TEST(pipeline_lock_release_allows_contender) {
     /* Main thread acquires and releases, then spawned thread should succeed */
-    cbm_pipeline_lock();
-    cbm_pipeline_unlock();
+    ctx_pipeline_lock();
+    ctx_pipeline_unlock();
 
     atomic_store(&g_thread_acquired, -1);
     atomic_store(&g_thread_done, 0);
 
-    cbm_thread_t tid;
-    int rc = cbm_thread_create(&tid, 0, try_lock_thread, NULL);
+    ctx_thread_t tid;
+    int rc = ctx_thread_create(&tid, 0, try_lock_thread, NULL);
     ASSERT_EQ(rc, 0);
-    cbm_thread_join(&tid);
+    ctx_thread_join(&tid);
 
     /* Thread SHOULD have acquired the lock */
     ASSERT_EQ(atomic_load(&g_thread_acquired), 1);
@@ -4736,184 +4736,184 @@ TEST(pipeline_lock_release_allows_contender) {
 
 TEST(pipeline_empty_path) {
     /* Empty string repo path — should handle gracefully */
-    cbm_pipeline_t *p = cbm_pipeline_new("", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("", NULL, CTX_MODE_FULL);
     /* Implementation may return NULL or a valid pipeline with empty project name.
      * Either behavior is acceptable — the key is no crash. */
     if (p) {
-        cbm_pipeline_free(p);
+        ctx_pipeline_free(p);
     }
     PASS();
 }
 
 TEST(pipeline_project_name_content) {
     /* Verify project name is derived from the repo_path */
-    cbm_pipeline_t *p = cbm_pipeline_new("/home/user/my-project", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("/home/user/my-project", NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    const char *name = cbm_pipeline_project_name(p);
+    const char *name = ctx_pipeline_project_name(p);
     ASSERT_NOT_NULL(name);
     ASSERT_TRUE(strlen(name) > 0);
     /* Should contain "my-project" as part of the derived name */
     ASSERT_TRUE(strstr(name, "my-project") != NULL);
-    cbm_pipeline_free(p);
+    ctx_pipeline_free(p);
     PASS();
 }
 
 TEST(pipeline_cancel_sets_flag) {
     /* Verify cancel sets the flag so subsequent run exits early */
-    cbm_pipeline_t *p = cbm_pipeline_new("/tmp/nonexistent", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("/tmp/nonexistent", NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
     /* Cancel before run */
-    cbm_pipeline_cancel(p);
+    ctx_pipeline_cancel(p);
     /* Cancelled pipeline should return quickly (either -1 from cancel or from
      * missing path — both are acceptable; key is no hang) */
-    int rc = cbm_pipeline_run(p);
+    int rc = ctx_pipeline_run(p);
     ASSERT_EQ(rc, -1);
-    cbm_pipeline_free(p);
+    ctx_pipeline_free(p);
     PASS();
 }
 
 TEST(pipeline_double_cancel) {
     /* Calling cancel twice should not crash */
-    cbm_pipeline_t *p = cbm_pipeline_new("/tmp/nonexistent", NULL, CBM_MODE_FULL);
+    ctx_pipeline_t *p = ctx_pipeline_new("/tmp/nonexistent", NULL, CTX_MODE_FULL);
     ASSERT_NOT_NULL(p);
-    cbm_pipeline_cancel(p);
-    cbm_pipeline_cancel(p);
-    cbm_pipeline_free(p);
+    ctx_pipeline_cancel(p);
+    ctx_pipeline_cancel(p);
+    ctx_pipeline_free(p);
     PASS();
 }
 
 TEST(pipeline_double_free_prevention) {
     /* free(NULL) after free should not crash. We can't truly double-free
      * the same pointer, but we verify NULL is safe as documented. */
-    cbm_pipeline_free(NULL);
-    cbm_pipeline_free(NULL);
+    ctx_pipeline_free(NULL);
+    ctx_pipeline_free(NULL);
     PASS();
 }
 
 TEST(trackable_source_files) {
     /* Common source extensions are trackable */
-    ASSERT_TRUE(cbm_is_trackable_file("main.go"));
-    ASSERT_TRUE(cbm_is_trackable_file("src/handler.py"));
-    ASSERT_TRUE(cbm_is_trackable_file("lib/server.js"));
-    ASSERT_TRUE(cbm_is_trackable_file("components/App.tsx"));
-    ASSERT_TRUE(cbm_is_trackable_file("pkg/svc.rs"));
-    ASSERT_TRUE(cbm_is_trackable_file("config.yaml"));
+    ASSERT_TRUE(ctx_is_trackable_file("main.go"));
+    ASSERT_TRUE(ctx_is_trackable_file("src/handler.py"));
+    ASSERT_TRUE(ctx_is_trackable_file("lib/server.js"));
+    ASSERT_TRUE(ctx_is_trackable_file("components/App.tsx"));
+    ASSERT_TRUE(ctx_is_trackable_file("pkg/svc.rs"));
+    ASSERT_TRUE(ctx_is_trackable_file("config.yaml"));
     PASS();
 }
 
 TEST(trackable_rejects_images) {
     /* Image and binary files are not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("logo.png"));
-    ASSERT_FALSE(cbm_is_trackable_file("photo.jpg"));
-    ASSERT_FALSE(cbm_is_trackable_file("icon.gif"));
-    ASSERT_FALSE(cbm_is_trackable_file("diagram.svg"));
+    ASSERT_FALSE(ctx_is_trackable_file("logo.png"));
+    ASSERT_FALSE(ctx_is_trackable_file("photo.jpg"));
+    ASSERT_FALSE(ctx_is_trackable_file("icon.gif"));
+    ASSERT_FALSE(ctx_is_trackable_file("diagram.svg"));
     PASS();
 }
 
 TEST(trackable_rejects_minified) {
     /* Minified files are not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("bundle.min.js"));
-    ASSERT_FALSE(cbm_is_trackable_file("style.min.css"));
+    ASSERT_FALSE(ctx_is_trackable_file("bundle.min.js"));
+    ASSERT_FALSE(ctx_is_trackable_file("style.min.css"));
     PASS();
 }
 
 TEST(trackable_rejects_vendor_dirs) {
     /* Files in vendor/node_modules/__pycache__ are not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("vendor/github.com/lib/dep.go"));
-    ASSERT_FALSE(cbm_is_trackable_file("node_modules/lodash/index.js"));
-    ASSERT_FALSE(cbm_is_trackable_file("__pycache__/module.pyc"));
-    ASSERT_FALSE(cbm_is_trackable_file(".git/objects/pack/data"));
+    ASSERT_FALSE(ctx_is_trackable_file("vendor/github.com/lib/dep.go"));
+    ASSERT_FALSE(ctx_is_trackable_file("node_modules/lodash/index.js"));
+    ASSERT_FALSE(ctx_is_trackable_file("__pycache__/module.pyc"));
+    ASSERT_FALSE(ctx_is_trackable_file(".git/objects/pack/data"));
     PASS();
 }
 
 TEST(trackable_rejects_lock_files) {
     /* Lock files are not trackable */
-    ASSERT_FALSE(cbm_is_trackable_file("package-lock.json"));
-    ASSERT_FALSE(cbm_is_trackable_file("go.sum"));
-    ASSERT_FALSE(cbm_is_trackable_file("yarn.lock"));
+    ASSERT_FALSE(ctx_is_trackable_file("package-lock.json"));
+    ASSERT_FALSE(ctx_is_trackable_file("go.sum"));
+    ASSERT_FALSE(ctx_is_trackable_file("yarn.lock"));
     PASS();
 }
 
 TEST(test_path_directory_patterns) {
     /* Test directory patterns: __tests__, test/, tests/, spec/ */
-    ASSERT_TRUE(cbm_is_test_path("__tests__/Component.js"));
-    ASSERT_TRUE(cbm_is_test_path("tests/test_main.py"));
-    ASSERT_TRUE(cbm_is_test_path("spec/handler_spec.rb"));
+    ASSERT_TRUE(ctx_is_test_path("__tests__/Component.js"));
+    ASSERT_TRUE(ctx_is_test_path("tests/test_main.py"));
+    ASSERT_TRUE(ctx_is_test_path("spec/handler_spec.rb"));
     PASS();
 }
 
 TEST(test_path_suffix_patterns) {
     /* Various language-specific test suffix patterns */
-    ASSERT_TRUE(cbm_is_test_path("handler.spec.ts"));
-    ASSERT_TRUE(cbm_is_test_path("handler.test.tsx"));
-    ASSERT_TRUE(cbm_is_test_path("handler_test.go"));
-    ASSERT_TRUE(cbm_is_test_path("test_handler.py"));
+    ASSERT_TRUE(ctx_is_test_path("handler.spec.ts"));
+    ASSERT_TRUE(ctx_is_test_path("handler.test.tsx"));
+    ASSERT_TRUE(ctx_is_test_path("handler_test.go"));
+    ASSERT_TRUE(ctx_is_test_path("test_handler.py"));
     /* Non-test files */
-    ASSERT_FALSE(cbm_is_test_path("handler.ts"));
-    ASSERT_FALSE(cbm_is_test_path("contest.go"));
-    ASSERT_FALSE(cbm_is_test_path("latest.py"));
+    ASSERT_FALSE(ctx_is_test_path("handler.ts"));
+    ASSERT_FALSE(ctx_is_test_path("contest.go"));
+    ASSERT_FALSE(ctx_is_test_path("latest.py"));
     PASS();
 }
 
 TEST(test_func_name_go_patterns) {
     /* Go test function names: Test + uppercase char */
-    ASSERT_TRUE(cbm_is_test_func_name("TestFoo"));
-    ASSERT_TRUE(cbm_is_test_func_name("TestHTTPHandler"));
+    ASSERT_TRUE(ctx_is_test_func_name("TestFoo"));
+    ASSERT_TRUE(ctx_is_test_func_name("TestHTTPHandler"));
     /* Non-test: "Test" alone or Test + lowercase */
-    ASSERT_FALSE(cbm_is_test_func_name("Testable")); /* lowercase 'a' after Test */
+    ASSERT_FALSE(ctx_is_test_func_name("Testable")); /* lowercase 'a' after Test */
     PASS();
 }
 
 TEST(test_func_name_js_helpers) {
     /* JS/TS test helper function names */
-    ASSERT_TRUE(cbm_is_test_func_name("it"));
-    ASSERT_TRUE(cbm_is_test_func_name("describe"));
-    ASSERT_TRUE(cbm_is_test_func_name("test"));
-    ASSERT_TRUE(cbm_is_test_func_name("beforeEach"));
-    ASSERT_TRUE(cbm_is_test_func_name("afterEach"));
+    ASSERT_TRUE(ctx_is_test_func_name("it"));
+    ASSERT_TRUE(ctx_is_test_func_name("describe"));
+    ASSERT_TRUE(ctx_is_test_func_name("test"));
+    ASSERT_TRUE(ctx_is_test_func_name("beforeEach"));
+    ASSERT_TRUE(ctx_is_test_func_name("afterEach"));
     PASS();
 }
 
 TEST(env_var_name_valid) {
     /* Valid env var names: uppercase + underscores, at least 2 chars with uppercase */
-    ASSERT_TRUE(cbm_is_env_var_name("DATABASE_URL"));
-    ASSERT_TRUE(cbm_is_env_var_name("API_KEY"));
-    ASSERT_TRUE(cbm_is_env_var_name("PORT"));
-    ASSERT_TRUE(cbm_is_env_var_name("DB_2"));
-    ASSERT_TRUE(cbm_is_env_var_name("MY_VAR_123"));
+    ASSERT_TRUE(ctx_is_env_var_name("DATABASE_URL"));
+    ASSERT_TRUE(ctx_is_env_var_name("API_KEY"));
+    ASSERT_TRUE(ctx_is_env_var_name("PORT"));
+    ASSERT_TRUE(ctx_is_env_var_name("DB_2"));
+    ASSERT_TRUE(ctx_is_env_var_name("MY_VAR_123"));
     PASS();
 }
 
 TEST(env_var_name_invalid) {
     /* Invalid: too short, lowercase, mixed case, empty */
-    ASSERT_FALSE(cbm_is_env_var_name("A"));      /* single char */
-    ASSERT_FALSE(cbm_is_env_var_name("port"));   /* lowercase */
-    ASSERT_FALSE(cbm_is_env_var_name("apiKey")); /* camelCase */
-    ASSERT_FALSE(cbm_is_env_var_name("__"));     /* no uppercase */
-    ASSERT_FALSE(cbm_is_env_var_name(""));       /* empty */
-    ASSERT_FALSE(cbm_is_env_var_name("123"));    /* digits only */
+    ASSERT_FALSE(ctx_is_env_var_name("A"));      /* single char */
+    ASSERT_FALSE(ctx_is_env_var_name("port"));   /* lowercase */
+    ASSERT_FALSE(ctx_is_env_var_name("apiKey")); /* camelCase */
+    ASSERT_FALSE(ctx_is_env_var_name("__"));     /* no uppercase */
+    ASSERT_FALSE(ctx_is_env_var_name(""));       /* empty */
+    ASSERT_FALSE(ctx_is_env_var_name("123"));    /* digits only */
     PASS();
 }
 
 TEST(config_ext_positive) {
     /* Config file extensions recognized */
-    ASSERT_TRUE(cbm_has_config_extension(".env"));
-    ASSERT_TRUE(cbm_has_config_extension("config.yaml"));
-    ASSERT_TRUE(cbm_has_config_extension("config.yml"));
-    ASSERT_TRUE(cbm_has_config_extension("settings.toml"));
-    ASSERT_TRUE(cbm_has_config_extension("app.ini"));
-    ASSERT_TRUE(cbm_has_config_extension("data.json"));
-    ASSERT_TRUE(cbm_has_config_extension("app.properties"));
+    ASSERT_TRUE(ctx_has_config_extension(".env"));
+    ASSERT_TRUE(ctx_has_config_extension("config.yaml"));
+    ASSERT_TRUE(ctx_has_config_extension("config.yml"));
+    ASSERT_TRUE(ctx_has_config_extension("settings.toml"));
+    ASSERT_TRUE(ctx_has_config_extension("app.ini"));
+    ASSERT_TRUE(ctx_has_config_extension("data.json"));
+    ASSERT_TRUE(ctx_has_config_extension("app.properties"));
     PASS();
 }
 
 TEST(config_ext_negative) {
     /* Non-config extensions rejected */
-    ASSERT_FALSE(cbm_has_config_extension("main.go"));
-    ASSERT_FALSE(cbm_has_config_extension("app.py"));
-    ASSERT_FALSE(cbm_has_config_extension("handler.rs"));
-    ASSERT_FALSE(cbm_has_config_extension("data.csv"));
-    ASSERT_FALSE(cbm_has_config_extension("README.md"));
+    ASSERT_FALSE(ctx_has_config_extension("main.go"));
+    ASSERT_FALSE(ctx_has_config_extension("app.py"));
+    ASSERT_FALSE(ctx_has_config_extension("handler.rs"));
+    ASSERT_FALSE(ctx_has_config_extension("data.csv"));
+    ASSERT_FALSE(ctx_has_config_extension("README.md"));
     PASS();
 }
 
@@ -4922,7 +4922,7 @@ TEST(split_camel_basic) {
     char *parts[16];
     int n;
 
-    n = cbm_split_camel_case("getCamelCase", parts, 16);
+    n = ctx_split_camel_case("getCamelCase", parts, 16);
     ASSERT_EQ(n, 3);
     ASSERT_STR_EQ(parts[0], "get");
     ASSERT_STR_EQ(parts[1], "Camel");
@@ -4936,7 +4936,7 @@ TEST(split_camel_basic) {
 TEST(split_camel_single_word) {
     /* Single lowercase word — no splits */
     char *parts[16];
-    int n = cbm_split_camel_case("hello", parts, 16);
+    int n = ctx_split_camel_case("hello", parts, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(parts[0], "hello");
     for (int i = 0; i < n; i++)
@@ -4947,7 +4947,7 @@ TEST(split_camel_single_word) {
 TEST(split_camel_empty) {
     /* Empty string — should return 0 or 1 empty part */
     char *parts[16];
-    int n = cbm_split_camel_case("", parts, 16);
+    int n = ctx_split_camel_case("", parts, 16);
     for (int i = 0; i < n; i++)
         free(parts[i]);
     /* Either 0 parts or 1 empty part is acceptable */
@@ -4958,7 +4958,7 @@ TEST(split_camel_empty) {
 TEST(tokenize_decorator_login_required) {
     /* @login_required → ["login", "required"] */
     char *tokens[16];
-    int n = cbm_tokenize_decorator("@login_required", tokens, 16);
+    int n = ctx_tokenize_decorator("@login_required", tokens, 16);
     ASSERT_EQ(n, 2);
     ASSERT_STR_EQ(tokens[0], "login");
     ASSERT_STR_EQ(tokens[1], "required");
@@ -4970,7 +4970,7 @@ TEST(tokenize_decorator_login_required) {
 TEST(tokenize_decorator_single) {
     /* @Override → ["override"] */
     char *tokens[16];
-    int n = cbm_tokenize_decorator("@Override", tokens, 16);
+    int n = ctx_tokenize_decorator("@Override", tokens, 16);
     ASSERT_EQ(n, 1);
     ASSERT_STR_EQ(tokens[0], "override");
     for (int i = 0; i < n; i++)
@@ -4981,7 +4981,7 @@ TEST(tokenize_decorator_single) {
 TEST(split_command_basic) {
     /* Basic command splitting with spaces */
     char *args[16];
-    int n = cbm_split_command("gcc -c main.c -o main.o", args, 16);
+    int n = ctx_split_command("gcc -c main.c -o main.o", args, 16);
     ASSERT_EQ(n, 5);
     ASSERT_STR_EQ(args[0], "gcc");
     ASSERT_STR_EQ(args[1], "-c");
@@ -4996,7 +4996,7 @@ TEST(split_command_basic) {
 TEST(split_command_quoted) {
     /* Command with quoted arguments */
     char *args[16];
-    int n = cbm_split_command("gcc -DFOO=\"bar baz\" main.c", args, 16);
+    int n = ctx_split_command("gcc -DFOO=\"bar baz\" main.c", args, 16);
     ASSERT_GTE(n, 3);
     ASSERT_STR_EQ(args[0], "gcc");
     for (int i = 0; i < n; i++)
@@ -5007,7 +5007,7 @@ TEST(split_command_quoted) {
 TEST(split_command_empty) {
     /* Empty command string */
     char *args[16];
-    int n = cbm_split_command("", args, 16);
+    int n = ctx_split_command("", args, 16);
     ASSERT_EQ(n, 0);
     PASS();
 }
@@ -5015,7 +5015,7 @@ TEST(split_command_empty) {
 TEST(parse_range_with_count) {
     /* "10,5" → start=10, count=5 */
     int start, count;
-    cbm_parse_range("10,5", &start, &count);
+    ctx_parse_range("10,5", &start, &count);
     ASSERT_EQ(start, 10);
     ASSERT_EQ(count, 5);
     PASS();
@@ -5024,7 +5024,7 @@ TEST(parse_range_with_count) {
 TEST(parse_range_single) {
     /* "42" → start=42, count=1 */
     int start, count;
-    cbm_parse_range("42", &start, &count);
+    ctx_parse_range("42", &start, &count);
     ASSERT_EQ(start, 42);
     ASSERT_EQ(count, 1);
     PASS();
@@ -5033,7 +5033,7 @@ TEST(parse_range_single) {
 TEST(parse_range_zero_count) {
     /* "100,0" → start=100, count=0 */
     int start, count;
-    cbm_parse_range("100,0", &start, &count);
+    ctx_parse_range("100,0", &start, &count);
     ASSERT_EQ(start, 100);
     ASSERT_EQ(count, 0);
     PASS();
@@ -5044,9 +5044,9 @@ TEST(parse_name_status_basic) {
     const char *input = "M\tsrc/main.go\n"
                         "A\tsrc/new.go\n"
                         "D\tsrc/old.go\n";
-    cbm_changed_file_t files[16];
-    int n = cbm_parse_name_status(input, files, 16);
-    /* Exact count depends on which files pass cbm_is_trackable_file */
+    ctx_changed_file_t files[16];
+    int n = ctx_parse_name_status(input, files, 16);
+    /* Exact count depends on which files pass ctx_is_trackable_file */
     ASSERT_GTE(n, 0);
     ASSERT_LTE(n, 3);
     PASS();
@@ -5054,24 +5054,24 @@ TEST(parse_name_status_basic) {
 
 TEST(parse_name_status_empty) {
     /* Empty input */
-    cbm_changed_file_t files[16];
-    int n = cbm_parse_name_status("", files, 16);
+    ctx_changed_file_t files[16];
+    int n = ctx_parse_name_status("", files, 16);
     ASSERT_EQ(n, 0);
     PASS();
 }
 
 TEST(parse_hunks_empty) {
     /* Empty input */
-    cbm_changed_hunk_t hunks[16];
-    int n = cbm_parse_hunks("", hunks, 16);
+    ctx_changed_hunk_t hunks[16];
+    int n = ctx_parse_hunks("", hunks, 16);
     ASSERT_EQ(n, 0);
     PASS();
 }
 
 TEST(coupling_empty_commits) {
     /* Zero commits → zero couplings */
-    cbm_change_coupling_t results[16];
-    int n = cbm_compute_change_coupling(NULL, 0, results, 16);
+    ctx_change_coupling_t results[16];
+    int n = ctx_compute_change_coupling(NULL, 0, results, 16);
     ASSERT_EQ(n, 0);
     PASS();
 }
@@ -5080,9 +5080,9 @@ TEST(coupling_single_file_commit) {
     /* Commits with single files → no pairs → zero couplings */
     char *f1[] = {"a.go"};
     char *f2[] = {"b.go"};
-    cbm_commit_files_t commits[] = {{f1, 1}, {f2, 1}};
-    cbm_change_coupling_t results[16];
-    int n = cbm_compute_change_coupling(commits, 2, results, 16);
+    ctx_commit_files_t commits[] = {{f1, 1}, {f2, 1}};
+    ctx_change_coupling_t results[16];
+    int n = ctx_compute_change_coupling(commits, 2, results, 16);
     ASSERT_EQ(n, 0);
     PASS();
 }
@@ -5090,7 +5090,7 @@ TEST(coupling_single_file_commit) {
 TEST(clean_json_brackets_array) {
     /* JSON array → space-joined */
     char out[256];
-    cbm_clean_json_brackets("[\"./app\", \"--flag\"]", out, sizeof(out));
+    ctx_clean_json_brackets("[\"./app\", \"--flag\"]", out, sizeof(out));
     ASSERT_TRUE(strstr(out, "./app") != NULL);
     ASSERT_TRUE(strstr(out, "--flag") != NULL);
     PASS();
@@ -5099,7 +5099,7 @@ TEST(clean_json_brackets_array) {
 TEST(clean_json_brackets_plain) {
     /* Plain string → unchanged */
     char out[256];
-    cbm_clean_json_brackets("./app --flag", out, sizeof(out));
+    ctx_clean_json_brackets("./app --flag", out, sizeof(out));
     ASSERT_STR_EQ(out, "./app --flag");
     PASS();
 }
@@ -5107,14 +5107,14 @@ TEST(clean_json_brackets_plain) {
 TEST(clean_json_brackets_empty) {
     /* Empty string → empty output */
     char out[256];
-    cbm_clean_json_brackets("", out, sizeof(out));
+    ctx_clean_json_brackets("", out, sizeof(out));
     ASSERT_STR_EQ(out, "");
     PASS();
 }
 
 TEST(fqn_compute_basic) {
     /* Basic FQN: project.dir.name */
-    char *fqn = cbm_pipeline_fqn_compute("proj", "pkg/handler.go", "Serve");
+    char *fqn = ctx_pipeline_fqn_compute("proj", "pkg/handler.go", "Serve");
     ASSERT_NOT_NULL(fqn);
     ASSERT_TRUE(strstr(fqn, "proj") != NULL);
     ASSERT_TRUE(strstr(fqn, "Serve") != NULL);
@@ -5124,7 +5124,7 @@ TEST(fqn_compute_basic) {
 
 TEST(fqn_compute_strips_ext) {
     /* FQN should strip file extension */
-    char *fqn = cbm_pipeline_fqn_compute("proj", "main.go", "main");
+    char *fqn = ctx_pipeline_fqn_compute("proj", "main.go", "main");
     ASSERT_NOT_NULL(fqn);
     /* Should not contain ".go" */
     ASSERT_TRUE(strstr(fqn, ".go") == NULL);
@@ -5135,7 +5135,7 @@ TEST(fqn_compute_strips_ext) {
 
 TEST(fqn_module_basic) {
     /* Module QN: project.dir.parts */
-    char *mod = cbm_pipeline_fqn_module("proj", "pkg/util/helper.go");
+    char *mod = ctx_pipeline_fqn_module("proj", "pkg/util/helper.go");
     ASSERT_NOT_NULL(mod);
     ASSERT_TRUE(strstr(mod, "proj") != NULL);
     free(mod);
@@ -5144,7 +5144,7 @@ TEST(fqn_module_basic) {
 
 TEST(fqn_folder_basic) {
     /* Folder QN from directory path */
-    char *folder = cbm_pipeline_fqn_folder("proj", "pkg/util");
+    char *folder = ctx_pipeline_fqn_folder("proj", "pkg/util");
     ASSERT_NOT_NULL(folder);
     ASSERT_TRUE(strstr(folder, "proj") != NULL);
     free(folder);
@@ -5153,7 +5153,7 @@ TEST(fqn_folder_basic) {
 
 TEST(project_name_special_chars) {
     /* Project name with colons, slashes — should be normalized */
-    char *name = cbm_project_name_from_path("/home/user/my:project");
+    char *name = ctx_project_name_from_path("/home/user/my:project");
     ASSERT_NOT_NULL(name);
     /* Colons should be converted to dashes */
     ASSERT_TRUE(strchr(name, ':') == NULL);
@@ -5164,7 +5164,7 @@ TEST(project_name_special_chars) {
 
 TEST(project_name_trailing_slash) {
     /* Trailing slash should not affect result */
-    char *a = cbm_project_name_from_path("/home/user/project");
+    char *a = ctx_project_name_from_path("/home/user/project");
     ASSERT_NOT_NULL(a);
     free(a);
     PASS();

@@ -6,23 +6,23 @@
 #include <unistd.h>
 
 TEST(platform_now_ns) {
-    uint64_t t1 = cbm_now_ns();
+    uint64_t t1 = ctx_now_ns();
     ASSERT_GT(t1, 0);
     /* Busy-wait a tiny bit */
     for (volatile int i = 0; i < 100000; i++) {}
-    uint64_t t2 = cbm_now_ns();
+    uint64_t t2 = ctx_now_ns();
     ASSERT_GT(t2, t1);
     PASS();
 }
 
 TEST(platform_now_ms) {
-    uint64_t t1 = cbm_now_ms();
+    uint64_t t1 = ctx_now_ms();
     ASSERT_GT(t1, 0);
     PASS();
 }
 
 TEST(platform_nprocs) {
-    int n = cbm_nprocs();
+    int n = ctx_nprocs();
     ASSERT_GT(n, 0);
     ASSERT_LT(n, 10000); /* sanity */
     PASS();
@@ -30,40 +30,40 @@ TEST(platform_nprocs) {
 
 TEST(platform_file_exists) {
     /* This test file should exist */
-    ASSERT_TRUE(cbm_file_exists("tests/test_platform.c"));
-    ASSERT_FALSE(cbm_file_exists("nonexistent_file_xyz.txt"));
+    ASSERT_TRUE(ctx_file_exists("tests/test_platform.c"));
+    ASSERT_FALSE(ctx_file_exists("nonexistent_file_xyz.txt"));
     PASS();
 }
 
 TEST(platform_is_dir) {
-    ASSERT_TRUE(cbm_is_dir("tests"));
-    ASSERT_FALSE(cbm_is_dir("tests/test_platform.c"));
-    ASSERT_FALSE(cbm_is_dir("nonexistent_dir"));
+    ASSERT_TRUE(ctx_is_dir("tests"));
+    ASSERT_FALSE(ctx_is_dir("tests/test_platform.c"));
+    ASSERT_FALSE(ctx_is_dir("nonexistent_dir"));
     PASS();
 }
 
 TEST(platform_file_size) {
-    int64_t sz = cbm_file_size("tests/test_platform.c");
+    int64_t sz = ctx_file_size("tests/test_platform.c");
     ASSERT_GT(sz, 0);
-    ASSERT_EQ(cbm_file_size("nonexistent_file_xyz.txt"), -1);
+    ASSERT_EQ(ctx_file_size("nonexistent_file_xyz.txt"), -1);
     PASS();
 }
 
 TEST(platform_mmap) {
     /* mmap this test file and verify first bytes */
     size_t sz = 0;
-    void *data = cbm_mmap_read("tests/test_platform.c", &sz);
+    void *data = ctx_mmap_read("tests/test_platform.c", &sz);
     ASSERT_NOT_NULL(data);
     ASSERT_GT(sz, 0);
     /* First line should be the comment */
     ASSERT(memcmp(data, "/*", 2) == 0);
-    cbm_munmap(data, sz);
+    ctx_munmap(data, sz);
     PASS();
 }
 
 TEST(platform_mmap_nonexistent) {
     size_t sz = 0;
-    void *data = cbm_mmap_read("nonexistent_xyz.txt", &sz);
+    void *data = ctx_mmap_read("nonexistent_xyz.txt", &sz);
     ASSERT_NULL(data);
     PASS();
 }
@@ -71,7 +71,7 @@ TEST(platform_mmap_nonexistent) {
 TEST(resolve_db_path_uses_cortex_db_env) {
     setenv("CORTEX_DB", "/tmp/cortex-test-resolve.db", 1);
     char buf[1024];
-    const char *result = cbm_resolve_db_path("anyproject", buf, sizeof(buf));
+    const char *result = ctx_resolve_db_path("anyproject", buf, sizeof(buf));
     ASSERT_NOT_NULL(result);
     ASSERT_STR_EQ(result, "/tmp/cortex-test-resolve.db");
     unsetenv("CORTEX_DB");
@@ -81,7 +81,7 @@ TEST(resolve_db_path_uses_cortex_db_env) {
 TEST(resolve_db_path_falls_back_to_cache_dir_when_env_unset) {
     unsetenv("CORTEX_DB");
     char buf[1024];
-    const char *result = cbm_resolve_db_path("myproj", buf, sizeof(buf));
+    const char *result = ctx_resolve_db_path("myproj", buf, sizeof(buf));
     ASSERT_NOT_NULL(result);
     /* Should end in "/myproj.db" — exact prefix depends on platform's cache dir */
     size_t n = strlen(result);
@@ -93,7 +93,7 @@ TEST(resolve_db_path_falls_back_to_cache_dir_when_env_unset) {
 TEST(resolve_db_path_handles_null_project_in_env_mode) {
     setenv("CORTEX_DB", "/tmp/cortex-test-null.db", 1);
     char buf[1024];
-    const char *result = cbm_resolve_db_path(NULL, buf, sizeof(buf));
+    const char *result = ctx_resolve_db_path(NULL, buf, sizeof(buf));
     /* When CORTEX_DB is set, project is not consulted — should return env value */
     ASSERT_NOT_NULL(result);
     ASSERT_STR_EQ(result, "/tmp/cortex-test-null.db");
@@ -104,7 +104,7 @@ TEST(resolve_db_path_handles_null_project_in_env_mode) {
 TEST(resolve_db_path_returns_null_with_null_project_and_no_env) {
     unsetenv("CORTEX_DB");
     char buf[1024];
-    const char *result = cbm_resolve_db_path(NULL, buf, sizeof(buf));
+    const char *result = ctx_resolve_db_path(NULL, buf, sizeof(buf));
     ASSERT_NULL(result);
     PASS();
 }

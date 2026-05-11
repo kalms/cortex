@@ -16,35 +16,35 @@ enum { GD_STATUS_IDX = 1, GD_PLUS_PREFIX = 6 };
 #include <stdlib.h>
 #include <string.h>
 
-void cbm_parse_range(const char *s, int *out_start, int *out_count) {
+void ctx_parse_range(const char *s, int *out_start, int *out_count) {
     *out_start = 0;
     *out_count = SKIP_ONE;
 
     const char *comma = strchr(s, ',');
     if (!comma) {
-        *out_start = (int)strtol(s, NULL, CBM_DECIMAL_BASE);
+        *out_start = (int)strtol(s, NULL, CTX_DECIMAL_BASE);
         return;
     }
 
     /* Parse start */
-    char buf[CBM_SZ_32];
+    char buf[CTX_SZ_32];
     size_t len = (size_t)(comma - s);
     if (len >= sizeof(buf)) {
         len = sizeof(buf) - SKIP_ONE;
     }
     memcpy(buf, s, len);
     buf[len] = '\0';
-    *out_start = (int)strtol(buf, NULL, CBM_DECIMAL_BASE);
+    *out_start = (int)strtol(buf, NULL, CTX_DECIMAL_BASE);
 
     /* Parse count */
-    *out_count = (int)strtol(comma + SKIP_ONE, NULL, CBM_DECIMAL_BASE);
+    *out_count = (int)strtol(comma + SKIP_ONE, NULL, CTX_DECIMAL_BASE);
 }
 
 #define HUNK_LINE_BUF 1536
 
-/* Parse a single name-status line into a cbm_changed_file_t.
+/* Parse a single name-status line into a ctx_changed_file_t.
  * Returns true if a valid entry was produced. */
-static bool parse_one_name_status(const char *line, size_t line_len, cbm_changed_file_t *out_f) {
+static bool parse_one_name_status(const char *line, size_t line_len, ctx_changed_file_t *out_f) {
     char tmp[HUNK_LINE_BUF];
     if (line_len >= sizeof(tmp)) {
         line_len = sizeof(tmp) - SKIP_ONE;
@@ -81,10 +81,10 @@ static bool parse_one_name_status(const char *line, size_t line_len, cbm_changed
         out_f->old_path[0] = '\0';
     }
 
-    return cbm_is_trackable_file(out_f->path);
+    return ctx_is_trackable_file(out_f->path);
 }
 
-int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_out) {
+int ctx_parse_name_status(const char *output, ctx_changed_file_t *out, int max_out) {
     if (!output || !out || max_out <= 0) {
         return 0;
     }
@@ -97,7 +97,7 @@ int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_o
         size_t line_len = eol ? (size_t)(eol - line) : strlen(line);
 
         if (line_len > 0) {
-            cbm_changed_file_t f;
+            ctx_changed_file_t f;
             if (parse_one_name_status(line, line_len, &f)) {
                 out[count++] = f;
             }
@@ -111,7 +111,7 @@ int cbm_parse_name_status(const char *output, cbm_changed_file_t *out, int max_o
 /* Parse a single @@ hunk header line and emit a hunk entry if valid.
  * Returns true if a hunk was added. */
 static bool parse_hunk_line(const char *line, size_t line_len, const char *current_file,
-                            cbm_changed_hunk_t *out_h) {
+                            ctx_changed_hunk_t *out_h) {
     const char *plus = memchr(line, '+', line_len);
     if (!plus || plus <= line) {
         return false;
@@ -125,7 +125,7 @@ static bool parse_hunk_line(const char *line, size_t line_len, const char *curre
         range_len = (size_t)(line + line_len - plus - SKIP_ONE);
     }
 
-    char range_str[CBM_SZ_64];
+    char range_str[CTX_SZ_64];
     if (range_len >= sizeof(range_str)) {
         range_len = sizeof(range_str) - SKIP_ONE;
     }
@@ -134,9 +134,9 @@ static bool parse_hunk_line(const char *line, size_t line_len, const char *curre
 
     int start;
     int cnt;
-    cbm_parse_range(range_str, &start, &cnt);
+    ctx_parse_range(range_str, &start, &cnt);
 
-    if (start <= 0 || !cbm_is_trackable_file(current_file)) {
+    if (start <= 0 || !ctx_is_trackable_file(current_file)) {
         return false;
     }
 
@@ -151,13 +151,13 @@ static bool parse_hunk_line(const char *line, size_t line_len, const char *curre
     return true;
 }
 
-int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
+int ctx_parse_hunks(const char *output, ctx_changed_hunk_t *out, int max_out) {
     if (!output || !out || max_out <= 0) {
         return 0;
     }
 
     int count = 0;
-    char current_file[CBM_SZ_512] = {0};
+    char current_file[CTX_SZ_512] = {0};
     const char *line = output;
 
     while (*line && count < max_out) {
@@ -178,7 +178,7 @@ int cbm_parse_hunks(const char *output, cbm_changed_hunk_t *out, int max_out) {
             current_file[flen] = '\0';
         } else if (line_len >= PAIR_LEN && line[0] == '@' && line[GD_STATUS_IDX] == '@' &&
                    current_file[0]) {
-            cbm_changed_hunk_t h;
+            ctx_changed_hunk_t h;
             if (parse_hunk_line(line, line_len, current_file, &h)) {
                 out[count++] = h;
             }

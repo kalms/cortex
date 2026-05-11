@@ -1,5 +1,5 @@
-#ifndef CBM_LANG_SPECS_H
-#define CBM_LANG_SPECS_H
+#ifndef CTX_LANG_SPECS_H
+#define CTX_LANG_SPECS_H
 
 #include "cbm.h"
 
@@ -24,10 +24,10 @@ typedef struct {
 } CBMLangSpec;
 
 // Get the language spec for a given language. Returns NULL for unsupported.
-const CBMLangSpec *cbm_lang_spec(CBMLanguage lang);
+const CBMLangSpec *ctx_lang_spec(CBMLanguage lang);
 
 // Get the TSLanguage* for a given language. Returns NULL for unsupported.
 // These resolve at link time to grammar symbols from Go tree-sitter modules.
-const TSLanguage *cbm_ts_language(CBMLanguage lang);
+const TSLanguage *ctx_ts_language(CBMLanguage lang);
 
-#endif // CBM_LANG_SPECS_H
+#endif // CTX_LANG_SPECS_H

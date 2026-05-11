@@ -13,7 +13,7 @@
 
 extern "C" {
 
-char* cbm_preprocess(
+char* ctx_preprocess(
     const char* source, int source_len,
     const char* filename,
     const char** extra_defines,
@@ -88,7 +88,7 @@ char* cbm_preprocess(
     }
 }
 
-void cbm_preprocess_free(char* expanded) {
+void ctx_preprocess_free(char* expanded) {
     free(expanded);
 }
 

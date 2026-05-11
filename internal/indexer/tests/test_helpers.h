@@ -51,7 +51,7 @@ static inline int th_write_file(const char *path, const char *content) {
 #endif
     if (last_slash) {
         *last_slash = '\0';
-        cbm_mkdir_p(dir, 0755);
+        ctx_mkdir_p(dir, 0755);
     }
 
     FILE *f = fopen(path, "w");
@@ -82,7 +82,7 @@ static inline int th_append_file(const char *path, const char *content) {
 
 /* Create a directory and all parents. Returns 0 on success. */
 static inline int th_mkdir_p(const char *path) {
-    return cbm_mkdir_p(path, 0755) ? 0 : -1;
+    return ctx_mkdir_p(path, 0755) ? 0 : -1;
 }
 
 /* ── Recursive directory removal ──────────────────────────────── */
@@ -95,18 +95,18 @@ static inline int th_rmtree(const char *path) {
     }
 
     if (!S_ISDIR(st.st_mode)) {
-        return cbm_unlink(path);
+        return ctx_unlink(path);
     }
 
     /* Directory — recurse into children */
-    cbm_dir_t *d = cbm_opendir(path);
+    ctx_dir_t *d = ctx_opendir(path);
     if (!d) {
         return -1;
     }
 
-    cbm_dirent_t *entry;
+    ctx_dirent_t *entry;
     int rc = 0;
-    while ((entry = cbm_readdir(d)) != NULL) {
+    while ((entry = ctx_readdir(d)) != NULL) {
         if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) {
             continue;
         }
@@ -117,13 +117,13 @@ static inline int th_rmtree(const char *path) {
                 rc = -1;
             }
         } else {
-            if (cbm_unlink(child) != 0) {
+            if (ctx_unlink(child) != 0) {
                 rc = -1;
             }
         }
     }
-    cbm_closedir(d);
-    cbm_rmdir(path);
+    ctx_closedir(d);
+    ctx_rmdir(path);
     return rc;
 }
 
@@ -141,7 +141,7 @@ static inline char *th_mktempdir(const char *prefix) {
 #else
     snprintf(buf, sizeof(buf), "/tmp/%s_XXXXXX", prefix);
 #endif
-    if (!cbm_mkdtemp(buf)) {
+    if (!ctx_mkdtemp(buf)) {
         return NULL;
     }
     return buf;

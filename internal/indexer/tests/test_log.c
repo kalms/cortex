@@ -17,7 +17,7 @@
 #endif
 
 /* Simple strstr wrapper used by log tests (avoids circular dep on str_util) */
-static inline bool cbm_str_contains_raw(const char *s, const char *sub) {
+static inline bool ctx_str_contains_raw(const char *s, const char *sub) {
     return strstr(s, sub) != NULL;
 }
 
@@ -28,7 +28,7 @@ static int pipe_fds[2];
 static void capture_start(void) {
     fflush(stderr);
     saved_stderr = dup(STDERR_FILENO);
-    cbm_pipe(pipe_fds);
+    ctx_pipe(pipe_fds);
 #ifndef _WIN32
     /* Set read end to non-blocking */
     fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
@@ -51,37 +51,37 @@ static const char *capture_end(void) {
 
 TEST(log_level_default) {
     /* Default level should be INFO */
-    ASSERT_EQ(cbm_log_get_level(), CBM_LOG_INFO);
+    ASSERT_EQ(ctx_log_get_level(), CTX_LOG_INFO);
     PASS();
 }
 
 TEST(log_level_set) {
-    cbm_log_set_level(CBM_LOG_WARN);
-    ASSERT_EQ(cbm_log_get_level(), CBM_LOG_WARN);
-    cbm_log_set_level(CBM_LOG_INFO); /* restore */
+    ctx_log_set_level(CTX_LOG_WARN);
+    ASSERT_EQ(ctx_log_get_level(), CTX_LOG_WARN);
+    ctx_log_set_level(CTX_LOG_INFO); /* restore */
     PASS();
 }
 
 TEST(log_info_output) {
-    cbm_log_set_level(CBM_LOG_DEBUG);
+    ctx_log_set_level(CTX_LOG_DEBUG);
     capture_start();
-    cbm_log_info("test.msg", "key1", "val1", "key2", "val2");
+    ctx_log_info("test.msg", "key1", "val1", "key2", "val2");
     const char *output = capture_end();
-    cbm_log_set_level(CBM_LOG_INFO);
+    ctx_log_set_level(CTX_LOG_INFO);
 
-    ASSERT(cbm_str_contains_raw(output, "level=info"));
-    ASSERT(cbm_str_contains_raw(output, "msg=test.msg"));
-    ASSERT(cbm_str_contains_raw(output, "key1=val1"));
-    ASSERT(cbm_str_contains_raw(output, "key2=val2"));
+    ASSERT(ctx_str_contains_raw(output, "level=info"));
+    ASSERT(ctx_str_contains_raw(output, "msg=test.msg"));
+    ASSERT(ctx_str_contains_raw(output, "key1=val1"));
+    ASSERT(ctx_str_contains_raw(output, "key2=val2"));
     PASS();
 }
 
 TEST(log_filtered_by_level) {
-    cbm_log_set_level(CBM_LOG_WARN);
+    ctx_log_set_level(CTX_LOG_WARN);
     capture_start();
-    cbm_log_info("should.not.appear");
+    ctx_log_info("should.not.appear");
     const char *output = capture_end();
-    cbm_log_set_level(CBM_LOG_INFO);
+    ctx_log_set_level(CTX_LOG_INFO);
 
     /* Should be empty — info is below warn threshold */
     ASSERT_EQ(strlen(output), 0);
@@ -89,26 +89,26 @@ TEST(log_filtered_by_level) {
 }
 
 TEST(log_error_output) {
-    cbm_log_set_level(CBM_LOG_DEBUG);
+    ctx_log_set_level(CTX_LOG_DEBUG);
     capture_start();
-    cbm_log_error("critical.fail", "err", "OOM");
+    ctx_log_error("critical.fail", "err", "OOM");
     const char *output = capture_end();
-    cbm_log_set_level(CBM_LOG_INFO);
+    ctx_log_set_level(CTX_LOG_INFO);
 
-    ASSERT(cbm_str_contains_raw(output, "level=error"));
-    ASSERT(cbm_str_contains_raw(output, "msg=critical.fail"));
-    ASSERT(cbm_str_contains_raw(output, "err=OOM"));
+    ASSERT(ctx_str_contains_raw(output, "level=error"));
+    ASSERT(ctx_str_contains_raw(output, "msg=critical.fail"));
+    ASSERT(ctx_str_contains_raw(output, "err=OOM"));
     PASS();
 }
 
 TEST(log_int_helper) {
-    cbm_log_set_level(CBM_LOG_DEBUG);
+    ctx_log_set_level(CTX_LOG_DEBUG);
     capture_start();
-    cbm_log_int(CBM_LOG_INFO, "pass.timing", "elapsed_ms", 42);
+    ctx_log_int(CTX_LOG_INFO, "pass.timing", "elapsed_ms", 42);
     const char *output = capture_end();
-    cbm_log_set_level(CBM_LOG_INFO);
+    ctx_log_set_level(CTX_LOG_INFO);
 
-    ASSERT(cbm_str_contains_raw(output, "elapsed_ms=42"));
+    ASSERT(ctx_str_contains_raw(output, "elapsed_ms=42"));
     PASS();
 }
 

@@ -46,11 +46,11 @@ static int count_resolved(const CBMFileResult *r, const char *callerSub, const c
 
 /* Wrapper: extract C source, return -1 length to auto-compute strlen */
 static CBMFileResult *extract_c(const char *src) {
-    return cbm_extract_file(src, (int)strlen(src), CBM_LANG_C, "test", "main.c", 0, NULL, NULL);
+    return ctx_extract_file(src, (int)strlen(src), CTX_LANG_C, "test", "main.c", 0, NULL, NULL);
 }
 
 static CBMFileResult *extract_cpp(const char *src) {
-    return cbm_extract_file(src, (int)strlen(src), CBM_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
+    return ctx_extract_file(src, (int)strlen(src), CTX_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
 }
 
 TEST(clsp_simple_var_decl) {
@@ -68,7 +68,7 @@ TEST(clsp_simple_var_decl) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "baz", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -85,7 +85,7 @@ TEST(clsp_pointer_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -103,7 +103,7 @@ TEST(clsp_dot_access) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -129,7 +129,7 @@ TEST(clsp_auto_inference) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -148,7 +148,7 @@ TEST(clsp_namespace_qualified) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "staticMethod"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -167,7 +167,7 @@ TEST(clsp_constructor) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -186,7 +186,7 @@ TEST(clsp_new_delete) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -202,7 +202,7 @@ TEST(clsp_implicit_this) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "doWork", "helper");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -218,7 +218,7 @@ TEST(clsp_explicit_this) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "doWork", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -238,7 +238,7 @@ TEST(clsp_type_alias) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -258,7 +258,7 @@ TEST(clsp_typedef) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -288,7 +288,7 @@ TEST(clsp_scope_chain) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "method1"), 0);
     ASSERT_GTE(find_resolved(r, "test", "method2"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -311,7 +311,7 @@ TEST(clsp_static_cast) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "extra"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -328,7 +328,7 @@ TEST(clsp_using_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "foo"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -354,7 +354,7 @@ TEST(clsp_cmode) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -368,7 +368,7 @@ TEST(clsp_direct_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -382,7 +382,7 @@ TEST(clsp_direct_callcpp) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -397,7 +397,7 @@ TEST(clsp_stdlib_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "strlen");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -424,7 +424,7 @@ TEST(clsp_multiple_calls_same_func) {
     ASSERT_GTE(find_resolved(r, "setup", "info"), 0);
     ASSERT_GTE(find_resolved(r, "setup", "get"), 0);
     ASSERT_GTE(find_resolved(r, "setup", "error"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -444,7 +444,7 @@ TEST(clsp_return_type_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "read"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -465,7 +465,7 @@ TEST(clsp_method_chaining) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "setName"), 0);
     (void)find_resolved(r, "test", "build");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -490,7 +490,7 @@ TEST(clsp_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "derivedMethod"), 0);
     (void)find_resolved(r, "test", "baseMethod");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -503,7 +503,7 @@ TEST(clsp_operator_stream) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -520,7 +520,7 @@ TEST(clsp_cross_file) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -536,7 +536,7 @@ TEST(clsp_nocrash_template_expression) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -548,7 +548,7 @@ TEST(clsp_nocrash_lambda) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -567,14 +567,14 @@ TEST(clsp_nocrash_nested_namespace) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
 TEST(clsp_nocrash_empty_source) {
-    CBMFileResult *r = cbm_extract_file("", 0, CBM_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
+    CBMFileResult *r = ctx_extract_file("", 0, CTX_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -613,7 +613,7 @@ TEST(clsp_nocrash_complex_class) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -631,7 +631,7 @@ TEST(clsp_operator_subscript) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator[]"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -650,7 +650,7 @@ TEST(clsp_operator_binary) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator+"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -671,7 +671,7 @@ TEST(clsp_operator_unary) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator*"), 0);
     ASSERT_GTE(find_resolved(r, "test", "operator++"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -689,7 +689,7 @@ TEST(clsp_functor) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator()"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -709,7 +709,7 @@ TEST(clsp_copy_constructor) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Foo");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -727,7 +727,7 @@ TEST(clsp_delete_destructor) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -746,7 +746,7 @@ TEST(clsp_range_for) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -764,7 +764,7 @@ TEST(clsp_parent_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "helper");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -784,7 +784,7 @@ TEST(clsp_conversion_operator_bool) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "operator bool");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -800,7 +800,7 @@ TEST(clsp_namespace_alias) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -822,7 +822,7 @@ TEST(clsp_template_in_namespace) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -835,7 +835,7 @@ TEST(clsp_nocrash_using_enum) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -864,7 +864,7 @@ TEST(clsp_nocrash_multiple_inheritance) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -877,7 +877,7 @@ TEST(clsp_nocrash_pointer_arithmetic) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -892,7 +892,7 @@ TEST(clsp_function_pointer) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "target_func"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -907,7 +907,7 @@ TEST(clsp_function_pointer_decay) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "target_func"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -929,7 +929,7 @@ TEST(clsp_overload_by_arg_count) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -948,7 +948,7 @@ TEST(clsp_template_default_args) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "process", "method");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -969,7 +969,7 @@ TEST(clsp_spaceship_operator) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator=="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -989,7 +989,7 @@ TEST(clsp_nocrash_concept) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1007,7 +1007,7 @@ TEST(clsp_dependent_member_access) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "draw", "render");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1027,7 +1027,7 @@ TEST(clsp_nocrash_try_catch) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1038,7 +1038,7 @@ TEST(clsp_macro_wrapped_call) {
                                  "void test(void) { CALL(foo); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1049,7 +1049,7 @@ TEST(clsp_macro_with_args) {
                                  "void test(void) { LOG(\"hi\"); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1061,7 +1061,7 @@ TEST(clsp_recursive_macro) {
                                  "void test(void) { A(1); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1077,7 +1077,7 @@ TEST(clsp_conditional_macro) {
                                  "#endif\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1088,7 +1088,7 @@ TEST(clsp_token_paste) {
                                  "void test(void) { HANDLER(order); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1099,7 +1099,7 @@ TEST(clsp_no_macro_no_overhead) {
                                  "void test(void) { foo(); bar(); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1110,7 +1110,7 @@ TEST(clsp_variadic_macro) {
                                  "void test(void) { DBG(\"x=%d\", 42); }\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1129,7 +1129,7 @@ TEST(clsp_cppmacro_method_call) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1142,7 +1142,7 @@ TEST(clsp_struct_field_extraction) {
                                  "};\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1155,7 +1155,7 @@ TEST(clsp_struct_field_defs_tolspdefs) {
                                  "};\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1175,7 +1175,7 @@ TEST(clsp_make_shared_template_arg) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "resize"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1195,7 +1195,7 @@ TEST(clsp_make_unique_template_arg) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1222,7 +1222,7 @@ TEST(clsp_template_class_method_return_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1244,7 +1244,7 @@ TEST(clsp_trailing_return_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1263,7 +1263,7 @@ TEST(clsp_trailing_return_type_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "build"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1279,7 +1279,7 @@ TEST(clsp_cppclass_field_extraction) {
                                    "};\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1295,7 +1295,7 @@ TEST(clsp_std_variant) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "index"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1318,7 +1318,7 @@ TEST(clsp_std_deque) {
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     ASSERT_GTE(find_resolved(r, "test", "front"), 0);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1335,7 +1335,7 @@ TEST(clsp_std_filesystem) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "filename"), 0);
     ASSERT_GTE(find_resolved(r, "test", "exists"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1353,7 +1353,7 @@ TEST(clsp_std_accumulate) {
     ASSERT_GTE(find_resolved(r, "test", "accumulate"), 0);
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "end"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1369,7 +1369,7 @@ TEST(clsp_std_string_stream) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "str"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1405,7 +1405,7 @@ TEST(clsp_abseil_status_or) {
     ASSERT_GTE(find_resolved(r, "test", "ok"), 0);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1431,7 +1431,7 @@ TEST(clsp_spdlog_logger) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "info"), 0);
     ASSERT_GTE(find_resolved(r, "test", "warn"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1453,7 +1453,7 @@ TEST(clsp_qtqstring) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "trimmed"), 0);
     ASSERT_GTE(find_resolved(r, "test", "length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1474,7 +1474,7 @@ TEST(clsp_adl_swap) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "swap"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1495,7 +1495,7 @@ TEST(clsp_adl_operator_free_func) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1511,7 +1511,7 @@ TEST(clsp_adl_std_sort) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1528,7 +1528,7 @@ TEST(clsp_adl_no_false_positive) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1551,7 +1551,7 @@ TEST(clsp_overload_by_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1571,7 +1571,7 @@ TEST(clsp_overload_by_type_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1589,7 +1589,7 @@ TEST(clsp_lambda_trailing_return) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1607,7 +1607,7 @@ TEST(clsp_lambda_body_inference) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1629,7 +1629,7 @@ TEST(clsp_inline_namespace_libc) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1651,7 +1651,7 @@ TEST(clsp_inline_namespace_gcc) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1678,7 +1678,7 @@ TEST(clsp_implicit_string_conversion) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1698,7 +1698,7 @@ TEST(clsp_numeric_promotion) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1722,7 +1722,7 @@ TEST(clsp_virtual_override) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     /* Go test: t.Logf only (not t.Errorf) — strategy check is informational */
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1744,7 +1744,7 @@ TEST(clsp_base_pointer_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "render"), 0);
     /* Go test: t.Logf only (not t.Errorf) — strategy check is informational */
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1766,7 +1766,7 @@ TEST(clsp_crtp_basic) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "base_method", "impl");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1787,7 +1787,7 @@ TEST(clsp_crtp_multi_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "apply", "do_work");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1822,7 +1822,7 @@ TEST(clsp_range_for_map) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1853,7 +1853,7 @@ TEST(clsp_range_for_custom_iterator) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "activate");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1874,7 +1874,7 @@ TEST(clsp_tad_free_function_identity) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1904,7 +1904,7 @@ TEST(clsp_tad_make_pair_like) {
                     "}\n"
                     "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1932,7 +1932,7 @@ TEST(clsp_structured_binding_pair) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1956,7 +1956,7 @@ TEST(clsp_structured_binding_struct) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "start");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -1977,7 +1977,7 @@ TEST(clsp_ternary_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2002,7 +2002,7 @@ TEST(clsp_chained_method_calls) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "render"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2034,7 +2034,7 @@ TEST(clsp_std_vector_push_back) {
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2061,7 +2061,7 @@ TEST(clsp_iterator_deref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2079,7 +2079,7 @@ TEST(clsp_enum_class_usage) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2099,7 +2099,7 @@ TEST(clsp_multiple_return_paths) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2125,7 +2125,7 @@ TEST(clsp_nested_template) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2142,7 +2142,7 @@ TEST(clsp_const_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "process", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2171,7 +2171,7 @@ TEST(clsp_std_function_callback) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2199,7 +2199,7 @@ TEST(clsp_optional_value_access) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2219,7 +2219,7 @@ TEST(clsp_typedef_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2242,7 +2242,7 @@ TEST(clsp_if_init_statement) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "valid"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2268,7 +2268,7 @@ TEST(clsp_dependent_type_member) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "process", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2291,7 +2291,7 @@ TEST(clsp_auto_return_function) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2315,7 +2315,7 @@ TEST(clsp_move_semantics) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2346,7 +2346,7 @@ TEST(clsp_multi_level_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "leaf_op"), 0);
     (void)find_resolved(r, "test", "base_op");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2381,7 +2381,7 @@ TEST(clsp_range_for_structured_binding) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2398,7 +2398,7 @@ TEST(clsp_cross_file_include) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "render", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2421,7 +2421,7 @@ TEST(clsp_function_returning_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2448,7 +2448,7 @@ TEST(clsp_template_method_chain) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2481,7 +2481,7 @@ TEST(clsp_algorithm_with_lambda) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2504,7 +2504,7 @@ TEST(clsp_static_cast_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "derived_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2530,7 +2530,7 @@ TEST(clsp_smart_pointer_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2550,7 +2550,7 @@ TEST(clsp_static_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2576,7 +2576,7 @@ TEST(clsp_subscript_draw) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2601,7 +2601,7 @@ TEST(clsp_auto_from_method_return) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2625,7 +2625,7 @@ TEST(clsp_nested_class_return_type) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2653,7 +2653,7 @@ TEST(clsp_make_shared_chain) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_shared"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2676,7 +2676,7 @@ TEST(clsp_dependent_member_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2697,7 +2697,7 @@ TEST(clsp_default_args) {
                     "}\n"
                     "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2720,7 +2720,7 @@ TEST(clsp_gap_std_forward) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "wrapper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2738,7 +2738,7 @@ TEST(clsp_gap_generic_lambda) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2764,7 +2764,7 @@ TEST(clsp_gap_decltype_return) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2782,7 +2782,7 @@ TEST(clsp_gap_std_move) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2802,7 +2802,7 @@ TEST(clsp_probe_c_struct_callback) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "on_click");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2822,7 +2822,7 @@ TEST(clsp_probe_c_typedef_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "point_length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2840,7 +2840,7 @@ TEST(clsp_probe_c_nested_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_inner_value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2860,7 +2860,7 @@ TEST(clsp_probe_c_array_decay) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2876,7 +2876,7 @@ TEST(clsp_probe_c_compound_literal) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2892,7 +2892,7 @@ TEST(clsp_probe_c_chained_func_calls) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "strdup"), 0);
     ASSERT_GTE(find_resolved(r, "test", "strlen"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2908,7 +2908,7 @@ TEST(clsp_probe_c_enum_param) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_color"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2928,7 +2928,7 @@ TEST(clsp_probe_c_global_var_func_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_logger"), 0);
     ASSERT_GTE(find_resolved(r, "test", "log_msg"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2950,7 +2950,7 @@ TEST(clsp_probe_cpp_dynamic_cast) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2971,7 +2971,7 @@ TEST(clsp_probe_cpp_reinterpret_cast) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -2992,7 +2992,7 @@ TEST(clsp_probe_cpp_const_cast) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3014,7 +3014,7 @@ TEST(clsp_probe_cpp_const_method_overload) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "Container.get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3044,7 +3044,7 @@ TEST(clsp_probe_cpp_using_base_method) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3072,7 +3072,7 @@ TEST(clsp_probe_cpp_pair_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3099,7 +3099,7 @@ TEST(clsp_probe_cpp_builder_pattern) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3127,7 +3127,7 @@ TEST(clsp_probe_cpp_exception_catch_var) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3164,7 +3164,7 @@ TEST(clsp_probe_cpp_for_loop_iterator) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3192,7 +3192,7 @@ TEST(clsp_probe_cpp_nested_class_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3215,7 +3215,7 @@ TEST(clsp_probe_cpp_static_member_var) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3245,7 +3245,7 @@ TEST(clsp_probe_cpp_std_array_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3274,7 +3274,7 @@ TEST(clsp_probe_cpp_unordered_map_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3298,7 +3298,7 @@ TEST(clsp_probe_cpp_lambda_capture) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3323,7 +3323,7 @@ TEST(clsp_probe_cpp_tuple_get) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3342,7 +3342,7 @@ TEST(clsp_probe_cpp_initializer_list) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3367,7 +3367,7 @@ TEST(clsp_probe_cpp_conditional_method) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3387,7 +3387,7 @@ TEST(clsp_gap_multiple_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "method_b"), 0);
     ASSERT_GTE(find_resolved(r, "test", "method_d"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3408,7 +3408,7 @@ TEST(clsp_c_union_member_access) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process_int"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3424,7 +3424,7 @@ TEST(clsp_c_void_pointer_cast) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "widget_draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3443,7 +3443,7 @@ TEST(clsp_c_double_pointer) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "node_init"), 0);
     ASSERT_GTE(find_resolved(r, "test", "node_process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3458,7 +3458,7 @@ TEST(clsp_c_static_local_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3476,7 +3476,7 @@ TEST(clsp_c_array_of_struct_loop) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "read_sensor"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3493,7 +3493,7 @@ TEST(clsp_c_func_ptr_typedef) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "qsort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3511,7 +3511,7 @@ TEST(clsp_c_nested_func_calls) {
     ASSERT_GTE(find_resolved(r, "test", "abs"), 0);
     ASSERT_GTE(find_resolved(r, "test", "max"), 0);
     ASSERT_GTE(find_resolved(r, "test", "min"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3529,7 +3529,7 @@ TEST(clsp_c_struct_return_chain) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_point"), 0);
     ASSERT_GTE(find_resolved(r, "test", "point_distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3551,7 +3551,7 @@ TEST(clsp_c_conditional_call) {
     ASSERT_GTE(find_resolved(r, "test", "validate"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
     ASSERT_GTE(find_resolved(r, "test", "report_error"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3574,7 +3574,7 @@ TEST(clsp_c_switch_case_call) {
     ASSERT_GTE(find_resolved(r, "test", "do_read"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_write"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_exec"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3587,7 +3587,7 @@ TEST(clsp_c_recursive_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "factorial", "factorial"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3612,7 +3612,7 @@ TEST(clsp_c_struct_member_func_ptr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "init"), 0);
     ASSERT_GTE(find_resolved(r, "test", "destroy"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3630,7 +3630,7 @@ TEST(clsp_c_variadic_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "printf"), 0);
     ASSERT_GTE(find_resolved(r, "test", "sprintf"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3646,7 +3646,7 @@ TEST(clsp_c_const_qualified_param) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "config_get_level"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3667,7 +3667,7 @@ TEST(clsp_c_while_loop_call) {
     ASSERT_GTE(find_resolved(r, "test", "has_next"), 0);
     ASSERT_GTE(find_resolved(r, "test", "get_next"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process_item"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3686,7 +3686,7 @@ TEST(clsp_c_do_while_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "read_byte"), 0);
     ASSERT_GTE(find_resolved(r, "test", "is_valid"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3702,7 +3702,7 @@ TEST(clsp_c_ternary_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "fast_path"), 0);
     ASSERT_GTE(find_resolved(r, "test", "slow_path"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3722,7 +3722,7 @@ TEST(clsp_c_multiple_return_calls) {
     ASSERT_GTE(find_resolved(r, "test", "check_a"), 0);
     ASSERT_GTE(find_resolved(r, "test", "check_b"), 0);
     ASSERT_GTE(find_resolved(r, "test", "fallback"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3736,7 +3736,7 @@ TEST(clsp_cpp_ref_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "render", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3750,7 +3750,7 @@ TEST(clsp_cpp_const_ref_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "measure", "width"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3767,7 +3767,7 @@ TEST(clsp_cpp_rvalue_ref_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "sink", "consume"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3784,7 +3784,7 @@ TEST(clsp_cpp_anonymous_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "work"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3801,7 +3801,7 @@ TEST(clsp_cpp_nested_namespace_decl) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3827,7 +3827,7 @@ TEST(clsp_cpp_pure_virtual) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "radius"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3846,7 +3846,7 @@ TEST(clsp_cpp_protected_inheritance) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "do_stuff"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3863,7 +3863,7 @@ TEST(clsp_cpp_constexpr_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "square"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3885,7 +3885,7 @@ TEST(clsp_cpp_default_member_init) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_level"), 0);
     ASSERT_GTE(find_resolved(r, "test", "get_level"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3901,7 +3901,7 @@ TEST(clsp_cpp_multiple_vars_one_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", ""), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3923,7 +3923,7 @@ TEST(clsp_cpp_while_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "has_next"), 0);
     ASSERT_GTE(find_resolved(r, "test", "next"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3948,7 +3948,7 @@ TEST(clsp_cpp_for_range_auto_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3973,7 +3973,7 @@ TEST(clsp_cpp_for_range_const_auto_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "id"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -3992,7 +3992,7 @@ TEST(clsp_cpp_new_expression) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "link"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4015,7 +4015,7 @@ TEST(clsp_cpp_scoped_enum_param) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_color"), 0);
     ASSERT_GTE(find_resolved(r, "test", "render"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4050,7 +4050,7 @@ TEST(clsp_cpp_multiple_smart_ptrs) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "query"), 0);
     ASSERT_GTE(find_resolved(r, "test", "get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4075,7 +4075,7 @@ TEST(clsp_cpp_try_catch_multiple) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "IOError.file"), 0);
     ASSERT_GTE(find_resolved(r, "test", "ParseError.line"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4092,7 +4092,7 @@ TEST(clsp_cpp_lambda_capture_this) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "setup", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4112,7 +4112,7 @@ TEST(clsp_cpp_operator_plus_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4132,7 +4132,7 @@ TEST(clsp_cpp_operator_assign) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "invert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4157,7 +4157,7 @@ TEST(clsp_cpp_explicit_template_instantiation) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "add"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4176,7 +4176,7 @@ TEST(clsp_cpp_nested_method_call_in_arg) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Formatter.format"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Logger.log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4194,7 +4194,7 @@ TEST(clsp_cpp_return_method_call_result) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "parse"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4214,7 +4214,7 @@ TEST(clsp_cpp_static_factory_method) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "send"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4233,7 +4233,7 @@ TEST(clsp_cpp_deep_inheritance_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "base_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4259,7 +4259,7 @@ TEST(clsp_cpp_override_virtual) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "speak"), 0);
     ASSERT_GTE(find_resolved(r, "test", "fetch"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4282,7 +4282,7 @@ TEST(clsp_cpp_scope_resolution_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "connect"), 0);
     ASSERT_GTE(find_resolved(r, "test", "send"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4302,7 +4302,7 @@ TEST(clsp_cpp_init_list_construct) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distanceTo"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4327,7 +4327,7 @@ TEST(clsp_cpp_return_smart_ptr) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4348,7 +4348,7 @@ TEST(clsp_cpp_assign_in_if) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "parse"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4366,7 +4366,7 @@ TEST(clsp_cpp_nullptr_check) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4382,7 +4382,7 @@ TEST(clsp_cpp_explicit_ptr_from_new) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4409,7 +4409,7 @@ TEST(clsp_cpp_multiple_methods_same_obj) {
     ASSERT_GTE(find_resolved(r, "test", "write"), 0);
     ASSERT_GTE(find_resolved(r, "test", "flush"), 0);
     ASSERT_GTE(find_resolved(r, "test", "close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4434,7 +4434,7 @@ TEST(clsp_cpp_nested_class_method) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "commit"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4454,7 +4454,7 @@ TEST(clsp_cpp_diamond_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "left_op"), 0);
     ASSERT_GTE(find_resolved(r, "test", "right_op"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4480,7 +4480,7 @@ TEST(clsp_cpp_switch_method_call) {
     ASSERT_GTE(find_resolved(r, "test", "debug"), 0);
     ASSERT_GTE(find_resolved(r, "test", "info"), 0);
     ASSERT_GTE(find_resolved(r, "test", "error"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4501,7 +4501,7 @@ TEST(clsp_cpp_throw_expression) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "what"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4524,7 +4524,7 @@ TEST(clsp_cpp_for_init_decl) {
     ASSERT_GTE(find_resolved(r, "test", "expired"), 0);
     ASSERT_GTE(find_resolved(r, "test", "tick"), 0);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4546,7 +4546,7 @@ TEST(clsp_heavycpp_const_overload_discrimination) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4562,7 +4562,7 @@ TEST(clsp_heavycpp_pair_field_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Foo.bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4597,7 +4597,7 @@ TEST(clsp_heavycpp_iterator_deref) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4619,7 +4619,7 @@ TEST(clsp_heavycpp_template_func_syntax) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4635,7 +4635,7 @@ TEST(clsp_audit_c_comma_operator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "init"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4650,7 +4650,7 @@ TEST(clsp_audit_c_cast_then_field_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "reset");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4666,7 +4666,7 @@ TEST(clsp_audit_c_nested_struct_field_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "compute");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4681,7 +4681,7 @@ TEST(clsp_audit_c_array_subscript_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "handle");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4697,7 +4697,7 @@ TEST(clsp_audit_c_func_ptr_alias) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4713,7 +4713,7 @@ TEST(clsp_audit_c_generic_selection) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process_int"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4733,7 +4733,7 @@ TEST(clsp_audit_c_for_loop_func_call) {
     ASSERT_GTE(find_resolved(r, "test", "count"), 0);
     ASSERT_GTE(find_resolved(r, "test", "get_item"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4751,7 +4751,7 @@ TEST(clsp_audit_c_assert_macro_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "validate"), 0);
     ASSERT_GTE(find_resolved(r, "test", "transform"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4767,7 +4767,7 @@ TEST(clsp_audit_cpp_auto_from_new) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4783,7 +4783,7 @@ TEST(clsp_audit_cpp_auto_from_factory) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Connection.send"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4812,7 +4812,7 @@ TEST(clsp_audit_cpp_auto_from_smart_ptr_factory) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Service.start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4828,7 +4828,7 @@ TEST(clsp_audit_cpp_decltype_var) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4850,7 +4850,7 @@ TEST(clsp_audit_cpp_auto_from_ternary) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4869,7 +4869,7 @@ TEST(clsp_audit_cpp_if_constexpr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "FastPath.execute"), 0);
     ASSERT_GTE(find_resolved(r, "test", "SlowPath.execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4887,7 +4887,7 @@ TEST(clsp_audit_cpp_structured_binding_from_tuple) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4912,7 +4912,7 @@ TEST(clsp_audit_cpp_ctad) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4930,7 +4930,7 @@ TEST(clsp_audit_cpp_user_defined_literal) {
     ASSERT_NOT_NULL(r);
     /* User-defined literal resolution is informational (Go uses t.Log, not t.Errorf) */
     (void)find_resolved(r, "test", "seconds");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4957,7 +4957,7 @@ TEST(clsp_audit_cpp_aggregate_init) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -4982,7 +4982,7 @@ TEST(clsp_audit_cpp_covariant_return) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "derived_op"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5006,7 +5006,7 @@ TEST(clsp_audit_heavycpp_variadic_template) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5028,7 +5028,7 @@ TEST(clsp_audit_heavycpp_enable_if) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5054,7 +5054,7 @@ TEST(clsp_audit_heavycpp_perfect_forwarding) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5086,7 +5086,7 @@ TEST(clsp_audit_heavycpp_policy_based_design) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5107,7 +5107,7 @@ TEST(clsp_audit_heavycpp_expression_template) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "norm"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5138,7 +5138,7 @@ TEST(clsp_audit_heavycpp_template_template_param) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5156,7 +5156,7 @@ TEST(clsp_audit_heavycpp_concept_constrained) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "serialize"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5177,7 +5177,7 @@ TEST(clsp_audit_heavycpp_coroutine) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "resume"), 0);
     ASSERT_GTE(find_resolved(r, "test", "done"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5194,7 +5194,7 @@ TEST(clsp_expr_gap_sizeof_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reserve"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5212,7 +5212,7 @@ TEST(clsp_expr_gap_sizeof_expr) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reserve"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5229,7 +5229,7 @@ TEST(clsp_expr_gap_alignof_expr) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_alignment"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5251,7 +5251,7 @@ TEST(clsp_expr_gap_binary_comparison_bool) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5275,7 +5275,7 @@ TEST(clsp_expr_gap_logical_and_or) {
     ASSERT_GTE(find_resolved(r, "test", "check_a"), 0);
     ASSERT_GTE(find_resolved(r, "test", "check_b"), 0);
     ASSERT_GTE(find_resolved(r, "test", "on_valid"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5292,7 +5292,7 @@ TEST(clsp_expr_gap_parenthesized_method_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5310,7 +5310,7 @@ TEST(clsp_expr_gap_assignment_type_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "apply"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5329,7 +5329,7 @@ TEST(clsp_expr_gap_update_expr_type_preservation) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5344,7 +5344,7 @@ TEST(clsp_expr_gap_unary_bitwise_not) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5359,7 +5359,7 @@ TEST(clsp_expr_gap_unary_plus) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5379,7 +5379,7 @@ TEST(clsp_expr_gap_address_of_then_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reset"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5398,7 +5398,7 @@ TEST(clsp_expr_gap_double_pointer_deref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5417,7 +5417,7 @@ TEST(clsp_expr_gap_deref_then_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5439,7 +5439,7 @@ TEST(clsp_expr_gap_comma_expr_method_call) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "flush"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5453,7 +5453,7 @@ TEST(clsp_expr_gap_raw_string_literal) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5467,7 +5467,7 @@ TEST(clsp_expr_gap_concatenated_string) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5481,7 +5481,7 @@ TEST(clsp_expr_gap_char_literal_type) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5496,7 +5496,7 @@ TEST(clsp_expr_gap_bool_literal_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "set_flag");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5510,7 +5510,7 @@ TEST(clsp_expr_gap_nullptr_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_ptr"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5526,7 +5526,7 @@ TEST(clsp_expr_gap_number_literal_int) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5541,7 +5541,7 @@ TEST(clsp_expr_gap_number_literal_float) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5557,7 +5557,7 @@ TEST(clsp_stmt_gap_array_param_decl) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "handle", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5573,7 +5573,7 @@ TEST(clsp_stmt_gap_carray_param_bracket) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reset_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5604,7 +5604,7 @@ TEST(clsp_stmt_gap_for_range_over_return_value) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "items"), 0);
     (void)find_resolved(r, "test", "process");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5627,7 +5627,7 @@ TEST(clsp_stmt_gap_multiple_using_decl) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "foo"), 0);
     ASSERT_GTE(find_resolved(r, "test", "bar"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5644,7 +5644,7 @@ TEST(clsp_stmt_gap_typedef_func_ptr) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compare"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5676,7 +5676,7 @@ TEST(clsp_stmt_gap_catch_multiple_types) {
     ASSERT_GTE(find_resolved(r, "test", "might_fail"), 0);
     ASSERT_GTE(find_resolved(r, "test", "what"), 0);
     ASSERT_GTE(find_resolved(r, "test", "code"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5694,7 +5694,7 @@ TEST(clsp_stmt_gap_namespace_alias_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "remove"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5717,7 +5717,7 @@ TEST(clsp_stmt_gap_using_alias_template) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5741,7 +5741,7 @@ TEST(clsp_call_gap_nested_new_expressions) {
     ASSERT_GTE(find_resolved(r, "test", "Foo.Foo"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Bar.Bar"), 0);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5759,7 +5759,7 @@ TEST(clsp_call_gap_chained_operators) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "operator<<"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5777,7 +5777,7 @@ TEST(clsp_call_gap_operator_plus_equals) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator+="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5799,7 +5799,7 @@ TEST(clsp_call_gap_operator_minus_method) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator-"), 0);
     ASSERT_GTE(find_resolved(r, "test", "seconds"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5821,7 +5821,7 @@ TEST(clsp_call_gap_unary_operator_star) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator++"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5843,7 +5843,7 @@ TEST(clsp_call_gap_subscript_operator_emission) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator[]"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5861,7 +5861,7 @@ TEST(clsp_call_gap_delete_destructor_emission) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Resource.Resource"), 0);
     ASSERT_GTE(find_resolved(r, "test", "~Resource"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5880,7 +5880,7 @@ TEST(clsp_call_gap_constructor_from_init_list) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Point.Point"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5899,7 +5899,7 @@ TEST(clsp_call_gap_constructor_from_parens) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Config.Config"), 0);
     ASSERT_GTE(find_resolved(r, "test", "validate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5921,7 +5921,7 @@ TEST(clsp_call_gap_copy_constructor_emission) {
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     /* Copy constructor strategy check is informational (Go uses t.Logf) */
     (void)find_resolved(r, "test", "Widget.Widget");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5947,7 +5947,7 @@ TEST(clsp_call_gap_conversion_operator_in_if) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5964,7 +5964,7 @@ TEST(clsp_call_gap_functor_call_emission) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator()"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5983,7 +5983,7 @@ TEST(clsp_call_gap_adlfree_function) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -5999,7 +5999,7 @@ TEST(clsp_call_gap_implicit_this_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "run", "helper"), 0);
     /* Implicit this strategy check is informational (Go uses t.Logf) */
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6016,7 +6016,7 @@ TEST(clsp_call_gap_template_func_qualified_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "max"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6036,7 +6036,7 @@ TEST(clsp_cgap_struct_init_and_field_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "apply_config"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6053,7 +6053,7 @@ TEST(clsp_cgap_enum_var_as_param) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle_status"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6067,7 +6067,7 @@ TEST(clsp_cgap_static_func_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6084,7 +6084,7 @@ TEST(clsp_cgap_void_func_no_return) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "setup"), 0);
     ASSERT_GTE(find_resolved(r, "test", "teardown"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6103,7 +6103,7 @@ TEST(clsp_cgap_multi_level_struct_access) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6118,7 +6118,7 @@ TEST(clsp_cgap_cast_in_func_arg) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6133,7 +6133,7 @@ TEST(clsp_cgap_ternary_in_arg) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6151,7 +6151,7 @@ TEST(clsp_cgap_nested_func_call_in_condition) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "check"), 0);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6173,7 +6173,7 @@ TEST(clsp_cgap_for_loop_all_parts) {
     ASSERT_GTE(find_resolved(r, "test", "limit"), 0);
     ASSERT_GTE(find_resolved(r, "test", "step"), 0);
     ASSERT_GTE(find_resolved(r, "test", "body"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6194,7 +6194,7 @@ TEST(clsp_cgap_while_condition_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "has_more"), 0);
     ASSERT_GTE(find_resolved(r, "test", "read_next"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6208,7 +6208,7 @@ TEST(clsp_cgap_return_value_func_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6229,7 +6229,7 @@ TEST(clsp_cross_gap_cast_then_method_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "derived_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6252,7 +6252,7 @@ TEST(clsp_cross_gap_new_then_method_chain) {
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
     ASSERT_GTE(find_resolved(r, "test", "stop"), 0);
     ASSERT_GTE(find_resolved(r, "test", "~Service"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6269,7 +6269,7 @@ TEST(clsp_cross_gap_lambda_as_argument) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "for_each"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6288,7 +6288,7 @@ TEST(clsp_cross_gap_auto_from_static_cast) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "derived_op"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6307,7 +6307,7 @@ TEST(clsp_cross_gap_auto_from_conditional) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6332,7 +6332,7 @@ TEST(clsp_cross_gap_method_call_in_switch_case) {
     ASSERT_GTE(find_resolved(r, "test", "info"), 0);
     ASSERT_GTE(find_resolved(r, "test", "warn"), 0);
     ASSERT_GTE(find_resolved(r, "test", "error"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6358,7 +6358,7 @@ TEST(clsp_cross_gap_multiple_objects_same_type) {
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "start"), 0);
     ASSERT_GT(count_resolved(r, "test", "stop"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6384,7 +6384,7 @@ TEST(clsp_cross_gap_method_call_on_return_value) {
     ASSERT_GTE(find_resolved(r, "test", "set_name"), 0);
     ASSERT_GTE(find_resolved(r, "test", "set_value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "build"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6412,7 +6412,7 @@ TEST(clsp_cross_gap_deep_scope_nesting) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "manage"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6438,7 +6438,7 @@ TEST(clsp_cross_gap_variable_shadowing) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "do_a"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_b"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6463,7 +6463,7 @@ TEST(clsp_cross_gap_if_else_method_calls) {
     ASSERT_GTE(find_resolved(r, "test", "is_open"), 0);
     ASSERT_GTE(find_resolved(r, "test", "send"), 0);
     ASSERT_GTE(find_resolved(r, "test", "open"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6486,7 +6486,7 @@ TEST(clsp_cross_gap_method_result_as_arg) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "format"), 0);
     ASSERT_GTE(find_resolved(r, "test", "print"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6510,7 +6510,7 @@ TEST(clsp_cross_gap_nested_template_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6531,7 +6531,7 @@ TEST(clsp_cross_gap_static_method_with_namespace) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6550,7 +6550,7 @@ TEST(clsp_cross_gap_const_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_level"), 0);
     ASSERT_GTE(find_resolved(r, "test", "get_name"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6577,7 +6577,7 @@ TEST(clsp_cross_gap_pointer_to_member_via_arrow) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "query"), 0);
     ASSERT_GTE(find_resolved(r, "test", "close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6602,7 +6602,7 @@ TEST(clsp_cross_gap_auto_from_subscript) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator[]"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6620,7 +6620,7 @@ TEST(clsp_cross_gap_multiple_func_ptr_targets) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "dispatch"), 0);
     ASSERT_GTE(find_resolved(r, "test", "action_b"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6638,7 +6638,7 @@ TEST(clsp_type_gap_const_pointer_to_const) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "write"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6653,7 +6653,7 @@ TEST(clsp_type_gap_volatile_pointer) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "write_register"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6672,7 +6672,7 @@ TEST(clsp_type_gap_enum_class_member) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_color"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6690,7 +6690,7 @@ TEST(clsp_type_gap_reference_to_pointer) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "link"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6708,7 +6708,7 @@ TEST(clsp_type_gap_array_of_pointers) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6723,7 +6723,7 @@ TEST(clsp_call_edge_method_call_on_this) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "run", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6741,7 +6741,7 @@ TEST(clsp_call_edge_base_class_method_via_using) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "own_method", "shared_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6763,7 +6763,7 @@ TEST(clsp_call_edge_template_method_explicit_args) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "convert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6782,7 +6782,7 @@ TEST(clsp_call_edge_recursive_mutual_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "foo", "bar"), 0);
     ASSERT_GTE(find_resolved(r, "bar", "foo"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6801,7 +6801,7 @@ TEST(clsp_call_edge_overloaded_func_diff_arg_count) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6817,7 +6817,7 @@ TEST(clsp_call_edge_global_func_from_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "run", "global_helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6844,7 +6844,7 @@ TEST(clsp_scope_gap_for_loop_var_scope) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
     ASSERT_GTE(find_resolved(r, "test", "validate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6867,7 +6867,7 @@ TEST(clsp_scope_gap_if_init_decl) {
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
     ASSERT_GTE(find_resolved(r, "test", "ok"), 0);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6890,7 +6890,7 @@ TEST(clsp_scope_gap_while_var_decl) {
     ASSERT_GTE(find_resolved(r, "test", "next_token"), 0);
     ASSERT_GTE(find_resolved(r, "test", "valid"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6911,7 +6911,7 @@ TEST(clsp_scope_gap_do_while_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "pop"), 0);
     ASSERT_GTE(find_resolved(r, "test", "empty"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6926,7 +6926,7 @@ TEST(clsp_nocrash_compound_literal_field_access) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6940,7 +6940,7 @@ TEST(clsp_nocrash_deeply_nested_expr) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6956,7 +6956,7 @@ TEST(clsp_nocrash_empty_lambda) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -6978,7 +6978,7 @@ TEST(clsp_nocrash_nested_lambdas) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7002,7 +7002,7 @@ TEST(clsp_nocrash_template_in_template) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7022,7 +7022,7 @@ TEST(clsp_nocrash_very_long_chain) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7040,7 +7040,7 @@ TEST(clsp_nocrash_mixedcand_cpp_cast) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7062,7 +7062,7 @@ TEST(clsp_nocrash_extremely_large_function) {
     CBMFileResult *r = extract_cpp(src);
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", ".m"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7079,7 +7079,7 @@ TEST(clsp_call_gap_operator_times_equals) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator*="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7096,7 +7096,7 @@ TEST(clsp_call_gap_operator_shift_left_equals) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator<<="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7114,7 +7114,7 @@ TEST(clsp_call_gap_operator_and_equals) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator&="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7132,7 +7132,7 @@ TEST(clsp_call_gap_operator_or_equals) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator|="), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7157,7 +7157,7 @@ TEST(clsp_pattern_auto_ref_from_method_return) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_data"), 0);
     ASSERT_GTE(find_resolved(r, "test", "modify"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7177,7 +7177,7 @@ TEST(clsp_pattern_auto_ptr_from_new) {
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Widget.Widget"), 0);
     ASSERT_GTE(find_resolved(r, "test", "~Widget"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7203,7 +7203,7 @@ TEST(clsp_pattern_auto_from_make_shared) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7219,7 +7219,7 @@ TEST(clsp_pattern_multi_declarator_same_line) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7239,7 +7239,7 @@ TEST(clsp_pattern_struct_ptr_arrow_chain) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7254,7 +7254,7 @@ TEST(clsp_pattern_constexpr_variable) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7272,7 +7272,7 @@ TEST(clsp_pattern_inline_variable) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7293,7 +7293,7 @@ TEST(clsp_pattern_string_view_param) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "process", "size"), 0);
     ASSERT_GTE(find_resolved(r, "process", "data"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7315,7 +7315,7 @@ TEST(clsp_pattern_initializer_list_constructor) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7344,7 +7344,7 @@ TEST(clsp_pattern_template_member_access) {
     ASSERT_GTE(find_resolved(r, "test", "has_value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "apply"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7373,7 +7373,7 @@ TEST(clsp_pattern_map_iterator_second) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7393,7 +7393,7 @@ TEST(clsp_pattern_func_returning_pointer) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create_widget"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7427,7 +7427,7 @@ TEST(clsp_pattern_multiple_catch_same_func) {
     ASSERT_GTE(find_resolved(r, "test", "risky"), 0);
     ASSERT_GTE(find_resolved(r, "test", "what"), 0);
     ASSERT_GTE(find_resolved(r, "test", "code"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7452,7 +7452,7 @@ TEST(clsp_pattern_method_call_in_ternary_branch) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
     ASSERT_GT(count_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7470,7 +7470,7 @@ TEST(clsp_pattern_nested_class_from_outer_scope) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "outer_method", "inner_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7490,7 +7490,7 @@ TEST(clsp_pattern_volatile_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "write"), 0);
     ASSERT_GTE(find_resolved(r, "test", "read"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7514,7 +7514,7 @@ TEST(clsp_pattern_enum_switch_call) {
     ASSERT_GTE(find_resolved(r, "handle", "on_init"), 0);
     ASSERT_GTE(find_resolved(r, "handle", "on_run"), 0);
     ASSERT_GTE(find_resolved(r, "handle", "on_done"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7541,7 +7541,7 @@ TEST(clsp_fix1_template_return_type_smart_ptr_factory) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create_service"), 0);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7568,7 +7568,7 @@ TEST(clsp_fix1_template_return_type_vector_factory) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_widgets"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7593,7 +7593,7 @@ TEST(clsp_fix1_template_return_type_map_factory) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "load_config"), 0);
     ASSERT_GTE(find_resolved(r, "test", "size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7618,7 +7618,7 @@ TEST(clsp_fix1_template_return_type_shared_ptr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_logger"), 0);
     ASSERT_GTE(find_resolved(r, "test", "log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7641,7 +7641,7 @@ TEST(clsp_fix2_struct_field_access_simple) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "render"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7668,7 +7668,7 @@ TEST(clsp_fix2_struct_field_access_pair_second) {
      * because CGo doesn't run ASan/UBSan. See c_lsp_process_file's
      * no_sanitize("address") attribute. Tracked as a pre-existing C LSP bug. */
     (void)find_resolved(r, "test", "bar");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7686,7 +7686,7 @@ TEST(clsp_fix2_struct_field_access_cstruct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7704,7 +7704,7 @@ TEST(clsp_fix2_struct_field_access_nested_ptr_field) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7720,7 +7720,7 @@ TEST(clsp_fix3_typedef_func_ptr_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "real_func"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7735,7 +7735,7 @@ TEST(clsp_fix3_direct_func_ptr_assign) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7753,7 +7753,7 @@ TEST(clsp_fix4_forward_decl_return_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7771,7 +7771,7 @@ TEST(clsp_fix4_forward_decl_simple_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "compute"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7790,7 +7790,7 @@ TEST(clsp_fix4_cforward_decl) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7807,7 +7807,7 @@ TEST(clsp_fix5_user_defined_literal) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "seconds"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7824,7 +7824,7 @@ TEST(clsp_fix5_user_defined_literal_string) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7846,7 +7846,7 @@ TEST(clsp_gap_v2_auto_from_ternary) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7865,7 +7865,7 @@ TEST(clsp_gap_v2_auto_from_static_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Logger.info"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7894,7 +7894,7 @@ TEST(clsp_gap_v2_auto_from_subscript) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7914,7 +7914,7 @@ TEST(clsp_gap_v2_auto_from_method_return) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Config.validate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7932,7 +7932,7 @@ TEST(clsp_gap_v2_auto_from_chained_method_return) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "C.run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7948,7 +7948,7 @@ TEST(clsp_gap_v2_reassigned_variable) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7970,7 +7970,7 @@ TEST(clsp_gap_v2_multiple_vars_from_same_type) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Widget.hide"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -7989,7 +7989,7 @@ TEST(clsp_gap_v2_derived_object_calls_base_method) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "base_method"), 0);
     ASSERT_GTE(find_resolved(r, "test", "derived_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8007,7 +8007,7 @@ TEST(clsp_gap_v2_base_pointer_to_derived) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8026,7 +8026,7 @@ TEST(clsp_gap_v2_multiple_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "click"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8060,7 +8060,7 @@ TEST(clsp_gap_v2_vector_push_back_and_iterate) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8087,7 +8087,7 @@ TEST(clsp_gap_v2_map_insert_and_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8113,7 +8113,7 @@ TEST(clsp_gap_v2_shared_ptr_method_call) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Service.start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8147,7 +8147,7 @@ TEST(clsp_gap_v2_optional_value_access) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8161,7 +8161,7 @@ TEST(clsp_gap_v2_method_call_on_parameter) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "process", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8175,7 +8175,7 @@ TEST(clsp_gap_v2_method_call_on_const_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "display", "Widget.show"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8189,7 +8189,7 @@ TEST(clsp_gap_v2_method_call_on_pointer_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "process", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8204,7 +8204,7 @@ TEST(clsp_gap_v2_return_value_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8220,7 +8220,7 @@ TEST(clsp_gap_v2_c_struct_ptr_param) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8244,7 +8244,7 @@ TEST(clsp_gap_v2_c_func_ptr_in_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GT(count_resolved(r, "test", ""), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8262,7 +8262,7 @@ TEST(clsp_gap_v2_c_callback_param) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "foreach"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8276,7 +8276,7 @@ TEST(clsp_gap_v2_c_static_func) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8290,7 +8290,7 @@ TEST(clsp_gap_v2_c_nested_struct_access) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8314,7 +8314,7 @@ TEST(clsp_gap_v2_c_enum_switch) {
     ASSERT_GTE(find_resolved(r, "dispatch", "on_init"), 0);
     ASSERT_GTE(find_resolved(r, "dispatch", "on_run"), 0);
     ASSERT_GTE(find_resolved(r, "dispatch", "on_done"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8343,7 +8343,7 @@ TEST(clsp_gap_v2_simple_template_instantiation) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8378,7 +8378,7 @@ TEST(clsp_gap_v2_template_with_multiple_params) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8409,7 +8409,7 @@ TEST(clsp_gap_v2_nested_template_type) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8433,7 +8433,7 @@ TEST(clsp_gap_v2_namespace_function) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8450,7 +8450,7 @@ TEST(clsp_gap_v2_nested_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8466,7 +8466,7 @@ TEST(clsp_gap_v2_using_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8486,7 +8486,7 @@ TEST(clsp_gap_v2_operator_plus_member_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "length"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8506,7 +8506,7 @@ TEST(clsp_gap_v2_stream_operator) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "operator<<");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8525,7 +8525,7 @@ TEST(clsp_gap_v2_explicit_constructor_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8544,7 +8544,7 @@ TEST(clsp_gap_v2_brace_init_constructor) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8562,7 +8562,7 @@ TEST(clsp_gap_v2_temporary_object_method_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8583,7 +8583,7 @@ TEST(clsp_gap_v2_lambda_capture_method_call) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8603,7 +8603,7 @@ TEST(clsp_gap_v2_lambda_return_type_used) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8634,7 +8634,7 @@ TEST(clsp_gap_v2_catch_exception_method) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8654,7 +8654,7 @@ TEST(clsp_gap_v2_static_member_function) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Factory.produce"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8678,7 +8678,7 @@ TEST(clsp_gap_v2_enum_class_used_in_switch) {
     ASSERT_GTE(find_resolved(r, "paint", "paint_red"), 0);
     ASSERT_GTE(find_resolved(r, "paint", "paint_green"), 0);
     ASSERT_GTE(find_resolved(r, "paint", "paint_blue"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8706,7 +8706,7 @@ TEST(clsp_gap_v2_builder_pattern) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8730,7 +8730,7 @@ TEST(clsp_gap_v2_method_chaining_ref) {
     ASSERT_GTE(find_resolved(r, "test", "orderBy"), 0);
     ASSERT_GTE(find_resolved(r, "test", "limit"), 0);
     ASSERT_GTE(find_resolved(r, "test", "execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8753,7 +8753,7 @@ TEST(clsp_gap_v2_raiilock_guard) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "lock"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8774,7 +8774,7 @@ TEST(clsp_gap_v2_typedef_class) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8795,7 +8795,7 @@ TEST(clsp_gap_v2_using_alias) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8826,7 +8826,7 @@ TEST(clsp_gap_v2_using_template_alias) {
         if (idx >= 0)
             ASSERT_STR_NEQ(r->resolved_calls.items[idx].strategy, "lsp_unresolved");
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8842,7 +8842,7 @@ TEST(clsp_gap_v2_if_null_check) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8869,7 +8869,7 @@ TEST(clsp_gap_v2_try_catch_finally) {
     ASSERT_GTE(find_resolved(r, "test", "connect"), 0);
     ASSERT_GTE(find_resolved(r, "test", "query"), 0);
     ASSERT_GTE(find_resolved(r, "test", "disconnect"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8892,7 +8892,7 @@ TEST(clsp_gap_v2_method_call_in_for_init) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "end"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8910,7 +8910,7 @@ TEST(clsp_gap_v2_nested_method_call_args) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_value"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8931,7 +8931,7 @@ TEST(clsp_gap_v2_conditional_method_call) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.show"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Widget.hide"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8952,7 +8952,7 @@ TEST(clsp_fix_cstruct_func_ptr_chain_call) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "on_event");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8968,7 +8968,7 @@ TEST(clsp_fix_cast_chained_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Derived.bar");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -8985,7 +8985,7 @@ TEST(clsp_fix_catch_by_value) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Error.msg"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9004,7 +9004,7 @@ TEST(clsp_fix_subscript_on_auto_var) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Item.use");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9022,7 +9022,7 @@ TEST(clsp_fix_lambda_capture_this) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "process", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9039,7 +9039,7 @@ TEST(clsp_cpp17_structured_binding_pair) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Foo.bar");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9055,7 +9055,7 @@ TEST(clsp_cpp17_structured_binding_struct) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9070,7 +9070,7 @@ TEST(clsp_cpp17_structured_binding_array) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Foo.run");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9086,7 +9086,7 @@ TEST(clsp_cpp17_structured_binding_const) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Config.load");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9109,7 +9109,7 @@ TEST(clsp_cpp17_structured_binding_map) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Handler.handle");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9127,7 +9127,7 @@ TEST(clsp_cpp17_structured_binding_nested) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Logger.log");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9146,7 +9146,7 @@ TEST(clsp_cpp17_structured_binding_tuple) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.show");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9164,7 +9164,7 @@ TEST(clsp_cpp17_structured_binding_in_if) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "getResult"), 0);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9181,7 +9181,7 @@ TEST(clsp_cpp17_if_init_simple) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "acquire"), 0);
     (void)find_resolved(r, "test", "Lock.locked");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9197,7 +9197,7 @@ TEST(clsp_cpp17_if_init_with_type) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Database.query"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9218,7 +9218,7 @@ TEST(clsp_cpp17_switch_init) {
     ASSERT_GTE(find_resolved(r, "test", "Parser.parse"), 0);
     ASSERT_GTE(find_resolved(r, "test", "handle_a"), 0);
     ASSERT_GTE(find_resolved(r, "test", "handle_b"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9240,7 +9240,7 @@ TEST(clsp_cpp17_if_init_lock) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "SharedState.read"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9256,7 +9256,7 @@ TEST(clsp_cpp17_fold_expr_sum) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sum"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9272,7 +9272,7 @@ TEST(clsp_cpp17_fold_expr_binary) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "multiply"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9290,7 +9290,7 @@ TEST(clsp_cpp17_fold_expr_comma) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "call_all"), 0);
     ASSERT_GTE(find_resolved(r, "call_all", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9306,7 +9306,7 @@ TEST(clsp_cpp17_fold_expr_logical) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "all_true"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9327,7 +9327,7 @@ TEST(clsp_cpp17_ctadvector) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
     (void)find_resolved(r, "test", "Item.use");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9347,7 +9347,7 @@ TEST(clsp_cpp17_ctadpair) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9367,7 +9367,7 @@ TEST(clsp_cpp17_ctadoptional) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Config.load");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9385,7 +9385,7 @@ TEST(clsp_cpp17_ctadtuple) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9405,7 +9405,7 @@ TEST(clsp_cpp17_ctaduser_defined) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9424,7 +9424,7 @@ TEST(clsp_cpp17_ctadlock_guard) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9443,7 +9443,7 @@ TEST(clsp_cpp17_optional_value) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9462,7 +9462,7 @@ TEST(clsp_cpp17_optional_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9480,7 +9480,7 @@ TEST(clsp_cpp17_optional_deref) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9501,7 +9501,7 @@ TEST(clsp_cpp17_optional_has_value) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "has_value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9519,7 +9519,7 @@ TEST(clsp_cpp17_variant_get) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9539,7 +9539,7 @@ TEST(clsp_cpp17_variant_visit) {
                     "}\n"
                     "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9557,7 +9557,7 @@ TEST(clsp_cpp17_any_any_cast) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9575,7 +9575,7 @@ TEST(clsp_cpp17_optional_value_or) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9594,7 +9594,7 @@ TEST(clsp_cpp17_optional_and_then) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9612,7 +9612,7 @@ TEST(clsp_cpp17_optional_transform) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9638,7 +9638,7 @@ TEST(clsp_cpp17_if_constexpr_body) {
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
     ASSERT_GTE(find_resolved(r, "process", "IntHandler.handle_int"), 0);
     ASSERT_GTE(find_resolved(r, "process", "FloatHandler.handle_float"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9656,7 +9656,7 @@ TEST(clsp_cpp17_inline_variable) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Config.apply"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9672,7 +9672,7 @@ TEST(clsp_cpp17_nested_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Widget.draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9692,7 +9692,7 @@ TEST(clsp_cpp17_constexpr_if) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "dispatch"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9715,7 +9715,7 @@ TEST(clsp_cpp17_string_view) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "string_view.size"), 0);
     ASSERT_GTE(find_resolved(r, "test", "string_view.substr"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9738,7 +9738,7 @@ TEST(clsp_cpp17_filesystem_path) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "path.parent_path"), 0);
     ASSERT_GTE(find_resolved(r, "test", "path.filename"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9754,7 +9754,7 @@ TEST(clsp_cpp17_user_defined_literal) {
                     "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Duration.seconds");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9774,7 +9774,7 @@ TEST(clsp_cpp17_class_template_deduction) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9793,7 +9793,7 @@ TEST(clsp_cpp17_apply_tuple) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "apply"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9812,7 +9812,7 @@ TEST(clsp_cpp17_invoke_result) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "invoke"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9832,7 +9832,7 @@ TEST(clsp_cpp20_concept_constrained_func) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "render"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9850,7 +9850,7 @@ TEST(clsp_cpp20_concept_requires_clause) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9867,7 +9867,7 @@ TEST(clsp_cpp20_concept_auto_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9892,7 +9892,7 @@ TEST(clsp_cpp20_concept_nested) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Entity.hash"), 0);
     ASSERT_GTE(find_resolved(r, "test", "Entity.id"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9909,7 +9909,7 @@ TEST(clsp_cpp20_concept_conjunction) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "constrained"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9925,7 +9925,7 @@ TEST(clsp_cpp20_concept_subsumption) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "f"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9943,7 +9943,7 @@ TEST(clsp_cpp20_concept_on_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Calculator.add"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9960,7 +9960,7 @@ TEST(clsp_cpp20_requires_expression) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "can_draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -9981,7 +9981,7 @@ TEST(clsp_cpp20_co_await_expr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_widget"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10000,7 +10000,7 @@ TEST(clsp_cpp20_co_yield_expr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "generate"), 0);
     ASSERT_GTE(find_resolved(r, "generate", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10020,7 +10020,7 @@ TEST(clsp_cpp20_co_return_expr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_widget"), 0);
     ASSERT_GTE(find_resolved(r, "make_widget", "Widget.prepare"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10044,7 +10044,7 @@ TEST(clsp_cpp20_coroutine_handle) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "coroutine_handle.resume"), 0);
     ASSERT_GTE(find_resolved(r, "test", "coroutine_handle.done"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10065,7 +10065,7 @@ TEST(clsp_cpp20_task) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Task.await_ready"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10085,7 +10085,7 @@ TEST(clsp_cpp20_coroutine_body_calls) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "async_work"), 0);
     ASSERT_GTE(find_resolved(r, "async_work", "Logger.log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10114,7 +10114,7 @@ TEST(clsp_cpp20_generator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "all_widgets"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10137,7 +10137,7 @@ TEST(clsp_cpp20_nested_co_await) {
     ASSERT_GTE(find_resolved(r, "test", "main_task"), 0);
     ASSERT_GTE(find_resolved(r, "main_task", "connect"), 0);
     (void)find_resolved(r, "main_task", "Database.query");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10158,7 +10158,7 @@ TEST(clsp_cpp20_ranges_pipeline) {
                     "}\n"
                     "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10176,7 +10176,7 @@ TEST(clsp_cpp20_ranges_for_each) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "for_each"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10192,7 +10192,7 @@ TEST(clsp_cpp20_views_transform) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "transform"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10208,7 +10208,7 @@ TEST(clsp_cpp20_views_filter) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "filter"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10224,7 +10224,7 @@ TEST(clsp_cpp20_ranges_sort) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10239,7 +10239,7 @@ TEST(clsp_cpp20_views_take) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "take"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10258,7 +10258,7 @@ TEST(clsp_cpp20_ranges_iterator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "end"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10276,7 +10276,7 @@ TEST(clsp_cpp20_ranges_projection) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10289,7 +10289,7 @@ TEST(clsp_cpp20_consteval_func) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "square"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10304,7 +10304,7 @@ TEST(clsp_cpp20_constinit_var) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Config.load"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10319,7 +10319,7 @@ TEST(clsp_cpp20_designated_init) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Engine.start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10337,7 +10337,7 @@ TEST(clsp_cpp20_three_way_comparison) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10360,7 +10360,7 @@ TEST(clsp_cpp20_span_access) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "span.size"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10383,7 +10383,7 @@ TEST(clsp_cpp20_jthread) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "jthread.join"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10399,7 +10399,7 @@ TEST(clsp_cpp20_format_string) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "format"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10421,7 +10421,7 @@ TEST(clsp_cpp20_source_location) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "current"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10437,7 +10437,7 @@ TEST(clsp_cpp20_using_enum) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "Processor.process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10454,7 +10454,7 @@ TEST(clsp_cpp20_lambda_template_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "fn");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10470,7 +10470,7 @@ TEST(clsp_cpp20_lambda_init_capture) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10497,7 +10497,7 @@ TEST(clsp_template_enable_if_method) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10521,7 +10521,7 @@ TEST(clsp_template_enable_if_return) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "double_val"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10547,7 +10547,7 @@ TEST(clsp_template_void_t) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10575,7 +10575,7 @@ TEST(clsp_template_is_detected) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10602,7 +10602,7 @@ TEST(clsp_template_if_constexprsfinae) {
     ASSERT_GTE(find_resolved(r, "test", "dispatch"), 0);
     (void)find_resolved(r, "dispatch", "print_val");
     (void)find_resolved(r, "dispatch", "log_val");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10626,7 +10626,7 @@ TEST(clsp_template_conditional_type) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10646,7 +10646,7 @@ TEST(clsp_template_decltype_return) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "get_value");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10664,7 +10664,7 @@ TEST(clsp_template_trailing_return) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10689,7 +10689,7 @@ TEST(clsp_template_partial_spec_pointer) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "store_ptr"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10714,7 +10714,7 @@ TEST(clsp_template_partial_spec_const) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "mutate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10739,7 +10739,7 @@ TEST(clsp_template_full_spec) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "int_op"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10761,7 +10761,7 @@ TEST(clsp_template_member_spec) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "convert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10779,7 +10779,7 @@ TEST(clsp_template_static_member_spec) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "init"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10800,7 +10800,7 @@ TEST(clsp_template_type_trait_spec) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10820,7 +10820,7 @@ TEST(clsp_template_variadic_func) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "call_all"), 0);
     ASSERT_GTE(find_resolved(r, "test", "invoke"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10839,7 +10839,7 @@ TEST(clsp_template_variadic_class) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "clear"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10856,7 +10856,7 @@ TEST(clsp_template_parameter_pack) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "count_args"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10876,7 +10876,7 @@ TEST(clsp_template_fold_over_args) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "fold_call"), 0);
     (void)find_resolved(r, "fold_call", "process");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10899,7 +10899,7 @@ TEST(clsp_template_variadic_inheritance) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
     (void)find_resolved(r, "test", "do_a");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10925,7 +10925,7 @@ TEST(clsp_template_recursive_variadic) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "rec_print"), 0);
     (void)find_resolved(r, "rec_print", "base_print");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10951,7 +10951,7 @@ TEST(clsp_template_make_from_variadic) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_shared"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -10975,7 +10975,7 @@ TEST(clsp_template_tuple_element) {
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "Widget.draw");
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11000,7 +11000,7 @@ TEST(clsp_template_dependent_type) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
     (void)find_resolved(r, "process", "get");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11024,7 +11024,7 @@ TEST(clsp_template_dependent_name) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "iterate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11051,7 +11051,7 @@ TEST(clsp_template_nested_dependent) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "deep"), 0);
     (void)find_resolved(r, "deep", "action");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11071,7 +11071,7 @@ TEST(clsp_template_dependent_return) {
     ASSERT_GTE(find_resolved(r, "test", "make_thing"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11093,7 +11093,7 @@ TEST(clsp_template_dependent_field) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11113,7 +11113,7 @@ TEST(clsp_template_dependent_method_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "invoke"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11139,7 +11139,7 @@ TEST(clsp_template_dependent_base_class) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "interface_method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11163,7 +11163,7 @@ TEST(clsp_template_two_phase) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "two_phase"), 0);
     ASSERT_GTE(find_resolved(r, "two_phase", "non_dependent"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11184,7 +11184,7 @@ TEST(clsp_template_expr_template) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "norm"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11208,7 +11208,7 @@ TEST(clsp_template_policy_based_log) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "log"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11232,7 +11232,7 @@ TEST(clsp_template_policy_based_alloc) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11258,7 +11258,7 @@ TEST(clsp_template_template_template) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "insert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11284,7 +11284,7 @@ TEST(clsp_template_mixin_pattern) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "print"), 0);
     ASSERT_GTE(find_resolved(r, "test", "save"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11307,7 +11307,7 @@ TEST(clsp_template_type_erasure) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11326,7 +11326,7 @@ TEST(clsp_template_static_assert) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "add"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11341,7 +11341,7 @@ TEST(clsp_tad_simple_func) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "identity"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11362,7 +11362,7 @@ TEST(clsp_tad_return_type_deduction) {
     ASSERT_GTE(find_resolved(r, "test", "make_widget"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11377,7 +11377,7 @@ TEST(clsp_tad_multi_param) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "combine"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11392,7 +11392,7 @@ TEST(clsp_tad_explicit_args) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11407,7 +11407,7 @@ TEST(clsp_tad_partial_explicit) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "convert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11426,7 +11426,7 @@ TEST(clsp_tad_default_arg) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "open"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11450,7 +11450,7 @@ TEST(clsp_tad_perfect_forwarding) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "forwarder"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11472,7 +11472,7 @@ TEST(clsp_tad_auto_return) {
     ASSERT_GTE(find_resolved(r, "test", "build_widget"), 0);
     (void)find_resolved(r, "test", "Widget.draw");
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11495,7 +11495,7 @@ TEST(clsp_rw_shared_ptr_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11518,7 +11518,7 @@ TEST(clsp_rw_unique_ptr_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11541,7 +11541,7 @@ TEST(clsp_rw_shared_ptr_get) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11564,7 +11564,7 @@ TEST(clsp_rw_shared_ptr_deref) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11591,7 +11591,7 @@ TEST(clsp_rw_shared_ptr_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11617,7 +11617,7 @@ TEST(clsp_rw_weak_ptr_lock) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11640,7 +11640,7 @@ TEST(clsp_rw_make_shared_method_chain) {
                     "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11667,7 +11667,7 @@ TEST(clsp_rw_shared_ptr_cast) {
         "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "special");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11684,7 +11684,7 @@ TEST(clsp_rw_iterator_for_loop) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11711,7 +11711,7 @@ TEST(clsp_rw_iterator_deref) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11736,7 +11736,7 @@ TEST(clsp_rw_iterator_arrow) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11758,7 +11758,7 @@ TEST(clsp_rw_reverse_iterator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "rbegin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "rend"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11780,7 +11780,7 @@ TEST(clsp_rw_const_iterator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "cbegin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "cend"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11801,7 +11801,7 @@ TEST(clsp_rw_insert_iterator) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "back_inserter"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11819,7 +11819,7 @@ TEST(clsp_rw_iterator_advance) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "advance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11838,7 +11838,7 @@ TEST(clsp_rw_iterator_distance) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11860,7 +11860,7 @@ TEST(clsp_rw_stack_push) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11883,7 +11883,7 @@ TEST(clsp_rw_queue_front) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11906,7 +11906,7 @@ TEST(clsp_rw_priority_queue_top) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push"), 0);
     ASSERT_GTE(find_resolved(r, "test", "top"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11928,7 +11928,7 @@ TEST(clsp_rw_deque_access) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11949,7 +11949,7 @@ TEST(clsp_rw_set_insert) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "insert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11972,7 +11972,7 @@ TEST(clsp_rw_multi_map_range) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "find"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -11996,7 +11996,7 @@ TEST(clsp_rw_lock_guard_scope) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "do_work"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12023,7 +12023,7 @@ TEST(clsp_rw_unique_lock_scope) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "lock_now"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_work"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12048,7 +12048,7 @@ TEST(clsp_rw_scoped_timer) {
     ASSERT_GTE(find_resolved(r, "test", "start"), 0);
     ASSERT_GTE(find_resolved(r, "test", "stop"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_work"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12070,7 +12070,7 @@ TEST(clsp_rw_file_handle) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "read"), 0);
     ASSERT_GTE(find_resolved(r, "test", "close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12096,7 +12096,7 @@ TEST(clsp_rw_transaction_scope) {
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "commit"), 0);
     ASSERT_GTE(find_resolved(r, "test", "do_work"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12120,7 +12120,7 @@ TEST(clsp_rw_connection_pool) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "acquire"), 0);
     (void)find_resolved(r, "test", "query");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12142,7 +12142,7 @@ TEST(clsp_rw_scope_guard) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "cleanup"), 0);
     ASSERT_GTE(find_resolved(r, "test", "dismiss"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12162,7 +12162,7 @@ TEST(clsp_rw_factory_method) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12190,7 +12190,7 @@ TEST(clsp_rw_abstract_factory) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12208,7 +12208,7 @@ TEST(clsp_rw_factory_function) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_widget"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12230,7 +12230,7 @@ TEST(clsp_rw_builder_pattern) {
     ASSERT_GTE(find_resolved(r, "test", "set_x"), 0);
     ASSERT_GTE(find_resolved(r, "test", "set_y"), 0);
     ASSERT_GTE(find_resolved(r, "test", "build"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12250,7 +12250,7 @@ TEST(clsp_rw_singleton) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "instance"), 0);
     ASSERT_GTE(find_resolved(r, "test", "method"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12271,7 +12271,7 @@ TEST(clsp_rw_prototype_clone) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "clone"), 0);
     ASSERT_GTE(find_resolved(r, "test", "use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12293,7 +12293,7 @@ TEST(clsp_rw_factory_registry) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create"), 0);
     (void)find_resolved(r, "test", "draw");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12314,7 +12314,7 @@ TEST(clsp_rw_named_constructor) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "fromFile"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12332,7 +12332,7 @@ TEST(clsp_rw_observer_notify) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "notify"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12353,7 +12353,7 @@ TEST(clsp_rw_observer_subscribe) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "subscribe"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12373,7 +12373,7 @@ TEST(clsp_rw_visitor_accept) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "accept"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12394,7 +12394,7 @@ TEST(clsp_rw_visitor_visit) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "visit"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12418,7 +12418,7 @@ TEST(clsp_rw_strategy_execute) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12442,7 +12442,7 @@ TEST(clsp_rw_strategy_set_algorithm) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "set_strategy"), 0);
     ASSERT_GTE(find_resolved(r, "test", "execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12460,7 +12460,7 @@ TEST(clsp_rw_command_execute) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12481,7 +12481,7 @@ TEST(clsp_rw_command_undo) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "execute"), 0);
     ASSERT_GTE(find_resolved(r, "test", "undo"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12499,7 +12499,7 @@ TEST(clsp_rw_mediator_send) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "send"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12518,7 +12518,7 @@ TEST(clsp_rw_chain_of_responsibility) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12539,7 +12539,7 @@ TEST(clsp_rw_mvccontroller) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12558,7 +12558,7 @@ TEST(clsp_rw_event_loop) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "run"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12577,7 +12577,7 @@ TEST(clsp_rw_plugin_system) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "initialize"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12595,7 +12595,7 @@ TEST(clsp_rw_pipeline_stage) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12614,7 +12614,7 @@ TEST(clsp_rw_middleware_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12633,7 +12633,7 @@ TEST(clsp_rw_state_machine) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "transition"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12652,7 +12652,7 @@ TEST(clsp_rw_actor_model) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "send"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12671,7 +12671,7 @@ TEST(clsp_rw_reactive_stream) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "subscribe"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12690,7 +12690,7 @@ TEST(clsp_stl_vector_push_back) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_back"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12710,7 +12710,7 @@ TEST(clsp_stl_vector_emplace_back) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "emplace_back"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12729,7 +12729,7 @@ TEST(clsp_stl_vector_reserve) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reserve"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12748,7 +12748,7 @@ TEST(clsp_stl_vector_clear) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "clear"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12767,7 +12767,7 @@ TEST(clsp_stl_map_insert) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "insert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12786,7 +12786,7 @@ TEST(clsp_stl_map_find) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "find"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12805,7 +12805,7 @@ TEST(clsp_stl_map_erase) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "erase"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12824,7 +12824,7 @@ TEST(clsp_stl_map_count) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "count"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12843,7 +12843,7 @@ TEST(clsp_stl_unordered_map_insert) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "insert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12862,7 +12862,7 @@ TEST(clsp_stl_unordered_map_find) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "find"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12881,7 +12881,7 @@ TEST(clsp_stl_set_insert) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "insert"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12900,7 +12900,7 @@ TEST(clsp_stl_set_find) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "find"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12919,7 +12919,7 @@ TEST(clsp_stl_set_count) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "count"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12939,7 +12939,7 @@ TEST(clsp_stl_list_push_front) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "push_front"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12958,7 +12958,7 @@ TEST(clsp_stl_list_pop_front) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "pop_front"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12977,7 +12977,7 @@ TEST(clsp_stl_list_sort) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -12996,7 +12996,7 @@ TEST(clsp_stl_array_at) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "at"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13015,7 +13015,7 @@ TEST(clsp_stl_array_fill) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "fill"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13034,7 +13034,7 @@ TEST(clsp_stl_string_append) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "append"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13053,7 +13053,7 @@ TEST(clsp_stl_string_substr) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "substr"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13070,7 +13070,7 @@ TEST(clsp_stl_sort) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13088,7 +13088,7 @@ TEST(clsp_stl_find) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "find"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13106,7 +13106,7 @@ TEST(clsp_stl_for_each) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "for_each"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13126,7 +13126,7 @@ TEST(clsp_stl_transform) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "transform"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13144,7 +13144,7 @@ TEST(clsp_stl_copy) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "copy"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13161,7 +13161,7 @@ TEST(clsp_stl_accumulate) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "accumulate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13178,7 +13178,7 @@ TEST(clsp_stl_count) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "count"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13196,7 +13196,7 @@ TEST(clsp_stl_remove) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "remove"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13213,7 +13213,7 @@ TEST(clsp_stl_unique) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "unique"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13230,7 +13230,7 @@ TEST(clsp_stl_reverse) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "reverse"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13247,7 +13247,7 @@ TEST(clsp_stl_min_element) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "min_element"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13264,7 +13264,7 @@ TEST(clsp_stl_max_element) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "max_element"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13282,7 +13282,7 @@ TEST(clsp_stl_binary_search) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "binary_search"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13300,7 +13300,7 @@ TEST(clsp_stl_lower_bound) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "lower_bound"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13319,7 +13319,7 @@ TEST(clsp_stl_partition) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "partition"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13340,7 +13340,7 @@ TEST(clsp_stl_begin) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "begin"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13361,7 +13361,7 @@ TEST(clsp_stl_end) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "end"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13378,7 +13378,7 @@ TEST(clsp_stl_next) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "next"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13395,7 +13395,7 @@ TEST(clsp_stl_prev) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "prev"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13412,7 +13412,7 @@ TEST(clsp_stl_advance) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "advance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13430,7 +13430,7 @@ TEST(clsp_stl_distance) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "distance"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13450,7 +13450,7 @@ TEST(clsp_stl_back_inserter) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "back_inserter"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13470,7 +13470,7 @@ TEST(clsp_stl_front_inserter) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "front_inserter"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13489,7 +13489,7 @@ TEST(clsp_stl_move_iterator) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_move_iterator"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13511,7 +13511,7 @@ TEST(clsp_stl_reverse_iterator) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "rbegin"), 0);
     ASSERT_GTE(find_resolved(r, "test", "rend"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13529,7 +13529,7 @@ TEST(clsp_stl_make_pair) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_pair"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13547,7 +13547,7 @@ TEST(clsp_stl_make_tuple) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_tuple"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13566,7 +13566,7 @@ TEST(clsp_stl_tie) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "tie"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13585,7 +13585,7 @@ TEST(clsp_stl_get) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13602,7 +13602,7 @@ TEST(clsp_stl_swap) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "swap"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13623,7 +13623,7 @@ TEST(clsp_stl_function_call) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "operator()"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13640,7 +13640,7 @@ TEST(clsp_stl_bind) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "bind"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13662,7 +13662,7 @@ TEST(clsp_stl_ref) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "ref"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13681,7 +13681,7 @@ TEST(clsp_stl_cref) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "cref"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13698,7 +13698,7 @@ TEST(clsp_stl_invoke) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "invoke"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13718,7 +13718,7 @@ TEST(clsp_stl_make_optional) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_optional"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13742,7 +13742,7 @@ TEST(clsp_stl_make_unique) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_unique"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13766,7 +13766,7 @@ TEST(clsp_stl_make_shared) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_shared"), 0);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13786,7 +13786,7 @@ TEST(clsp_stl_forward) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "relay"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13804,7 +13804,7 @@ TEST(clsp_stl_move) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13824,7 +13824,7 @@ TEST(clsp_c_func_ptr_array) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "action_a"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13847,7 +13847,7 @@ TEST(clsp_c_func_ptr_struct_array) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "do_open"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13870,7 +13870,7 @@ TEST(clsp_c_vtable_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "impl_start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13891,7 +13891,7 @@ TEST(clsp_c_func_ptr_return) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "get_handler"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13909,7 +13909,7 @@ TEST(clsp_c_func_ptr_param) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "dispatch"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13929,7 +13929,7 @@ TEST(clsp_c_dispatch_table) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle_event_a"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13945,7 +13945,7 @@ TEST(clsp_c_func_ptr_cast) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "real_func"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13963,7 +13963,7 @@ TEST(clsp_c_callback_registration) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "register_callback"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13981,7 +13981,7 @@ TEST(clsp_c_func_ptr_typedef_usage) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "sort_items"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -13999,7 +13999,7 @@ TEST(clsp_c_qsort) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "qsort"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14017,7 +14017,7 @@ TEST(clsp_c_opaque_handle) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "handle_use"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14036,7 +14036,7 @@ TEST(clsp_c_opaque_void_ptr) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14055,7 +14055,7 @@ TEST(clsp_c_opaque_forward_decl) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "create_opaque"), 0);
     ASSERT_GTE(find_resolved(r, "test", "destroy_opaque"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14077,7 +14077,7 @@ TEST(clsp_c_opaque_pimpl) {
     ASSERT_GTE(find_resolved(r, "test", "widget_create"), 0);
     ASSERT_GTE(find_resolved(r, "test", "widget_draw"), 0);
     ASSERT_GTE(find_resolved(r, "test", "widget_destroy"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14097,7 +14097,7 @@ TEST(clsp_c_opaque_typedef_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14117,7 +14117,7 @@ TEST(clsp_c_opaque_enum_flags) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "apply_flags"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14137,7 +14137,7 @@ TEST(clsp_c_flex_array_member) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process_msg"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14157,7 +14157,7 @@ TEST(clsp_c_flex_array_access) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "read_buffer"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14179,7 +14179,7 @@ TEST(clsp_c_flex_array_nested) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "send_packet"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14199,7 +14199,7 @@ TEST(clsp_c_flex_array_malloc) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "malloc"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14215,7 +14215,7 @@ TEST(clsp_c_compound_literal_arg) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14232,7 +14232,7 @@ TEST(clsp_c_compound_literal_assign) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14246,7 +14246,7 @@ TEST(clsp_c_compound_literal_array) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process_ints"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14264,7 +14264,7 @@ TEST(clsp_c_compound_literal_nested) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_outer"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14282,7 +14282,7 @@ TEST(clsp_c_compound_literal_return) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "make_point"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14298,7 +14298,7 @@ TEST(clsp_c_generic_basic) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "f_int");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14313,7 +14313,7 @@ TEST(clsp_c_generic_macro) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "type_name_int");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14329,7 +14329,7 @@ TEST(clsp_c_generic_default) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "handle_default");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14346,7 +14346,7 @@ TEST(clsp_c_generic_nested) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "inner_int"), 0);
     ASSERT_GTE(find_resolved(r, "test", "inner_float"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14367,7 +14367,7 @@ TEST(clsp_c_bitfield_access) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "check_flags"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14388,7 +14388,7 @@ TEST(clsp_c_union_access) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_union"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14413,7 +14413,7 @@ TEST(clsp_c_enum_switch) {
     ASSERT_GTE(find_resolved(r, "test", "handle_red"), 0);
     ASSERT_GTE(find_resolved(r, "test", "handle_green"), 0);
     ASSERT_GTE(find_resolved(r, "test", "handle_blue"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14430,7 +14430,7 @@ TEST(clsp_c_goto_label) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14444,7 +14444,7 @@ TEST(clsp_c_var_args_func) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "log_msg"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14458,7 +14458,7 @@ TEST(clsp_c_inline_func) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "square"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14472,7 +14472,7 @@ TEST(clsp_c_static_func) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14486,7 +14486,7 @@ TEST(clsp_c_extern_func) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "external_func"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14507,7 +14507,7 @@ TEST(clsp_c_nested_struct) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_inner"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14525,7 +14525,7 @@ TEST(clsp_c_typedef_chain) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "use_int"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14539,7 +14539,7 @@ TEST(clsp_c_macro_expansion) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "real_alloc"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14561,7 +14561,7 @@ TEST(clsp_c_designated_init) {
                   "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "apply_config"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14576,7 +14576,7 @@ TEST(clsp_c_compound_assign) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "accumulate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14592,7 +14592,7 @@ TEST(clsp_c_comma_expr) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "first_op"), 0);
     ASSERT_GTE(find_resolved(r, "test", "second_op"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14609,7 +14609,7 @@ TEST(clsp_c_ternary_call_branches) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "path_a"), 0);
     ASSERT_GTE(find_resolved(r, "test", "path_b"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14625,7 +14625,7 @@ TEST(clsp_c_sizeof_expr) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "alloc"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14648,7 +14648,7 @@ TEST(clsp_easy_win_placement_new) {
                     "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14665,7 +14665,7 @@ TEST(clsp_easy_win_placement_new_array) {
                     "}\n"
                     "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14682,7 +14682,7 @@ TEST(clsp_easy_win_throw_constructor) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "MyError");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14699,7 +14699,7 @@ TEST(clsp_easy_win_throw_rethrow) {
                                    "}\n"
                                    "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14721,7 +14721,7 @@ TEST(clsp_easy_win_std_move_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "transfer"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14748,7 +14748,7 @@ TEST(clsp_easy_win_std_forward_method) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "relay"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14771,7 +14771,7 @@ TEST(clsp_easy_win_move_assign_chain) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14789,7 +14789,7 @@ TEST(clsp_easy_win_conversion_operator_explicit) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "operator bool");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14810,7 +14810,7 @@ TEST(clsp_easy_win_conversion_operator_implicit) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "operator Widget");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14828,7 +14828,7 @@ TEST(clsp_easy_win_adlfrom_arg_namespace) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "serialize");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14846,7 +14846,7 @@ TEST(clsp_easy_win_adlswap) {
                                    "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "swap");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14864,7 +14864,7 @@ TEST(clsp_easy_win_overload_lvalue_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14886,7 +14886,7 @@ TEST(clsp_easy_win_overload_rvalue_ref) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14909,7 +14909,7 @@ TEST(clsp_easy_win_sfinaeenable_if) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "square"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14928,7 +14928,7 @@ TEST(clsp_easy_win_sfinaevoid_t) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "draw"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14947,7 +14947,7 @@ TEST(clsp_dll_custom_resolver) {
                                  "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "external.ProcessData"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14964,7 +14964,7 @@ TEST(clsp_dll_cpp_static_cast) {
         "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "external.RenderFrame"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14982,7 +14982,7 @@ TEST(clsp_dll_reinterpret_cast) {
                                    "");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "external.Shutdown"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -14996,7 +14996,7 @@ TEST(clsp_dll_no_false_positive_nonfp) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "external.some_key");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -15010,7 +15010,7 @@ TEST(clsp_dll_no_false_positive_no_cast) {
                                  "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "external.SomeFunc");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -15030,7 +15030,7 @@ TEST(clsp_dll_multiple_functions) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", "external.Alpha"), 0);
     ASSERT_GTE(find_resolved(r, "test", "external.Beta"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -15045,7 +15045,7 @@ TEST(clsp_dll_func_ptr_typedef) {
                                  "}\n"
                                  "");
     ASSERT_NOT_NULL(r);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -15069,7 +15069,7 @@ TEST(clsp_easy_win_sfinaeconditional_return) {
         "");
     ASSERT_NOT_NULL(r);
     (void)find_resolved(r, "test", "act");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 

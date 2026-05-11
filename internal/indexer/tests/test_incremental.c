@@ -32,7 +32,7 @@
 static char g_tmpdir[256];
 static char g_repodir[512];
 static char g_dbpath[512];
-static cbm_mcp_server_t *g_srv = NULL;
+static ctx_mcp_server_t *g_srv = NULL;
 static char *g_project = NULL;
 
 /* Baseline counts after full index */
@@ -49,7 +49,7 @@ static double g_full_index_ms = 0;
 
 static double now_ms(void) {
     struct timespec ts;
-    cbm_clock_gettime(CLOCK_MONOTONIC, &ts);
+    ctx_clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 }
 
@@ -61,7 +61,7 @@ static void write_file_at(const char *rel_path, const char *content) {
     char *slash = strrchr(dir, '/');
     if (slash) {
         *slash = '\0';
-        cbm_mkdir(dir);
+        ctx_mkdir(dir);
     }
     FILE *f = fopen(path, "w");
     if (f) {
@@ -80,13 +80,13 @@ static void delete_file_at(const char *rel_path) {
 static int reformat_files(const char *subdir, int max_files) {
     char dir[512];
     snprintf(dir, sizeof(dir), "%s/%s", g_repodir, subdir);
-    cbm_dir_t *d = cbm_opendir(dir);
+    ctx_dir_t *d = ctx_opendir(dir);
     if (!d) {
         return -1;
     }
-    cbm_dirent_t *entry;
+    ctx_dirent_t *entry;
     int count = 0;
-    while ((entry = cbm_readdir(d)) != NULL && count < max_files) {
+    while ((entry = ctx_readdir(d)) != NULL && count < max_files) {
         size_t nlen = strlen(entry->name);
         if (nlen < 4 || strcmp(entry->name + nlen - 3, ".py") != 0) {
             continue;
@@ -99,14 +99,14 @@ static int reformat_files(const char *subdir, int max_files) {
         th_append_file(path, "# reformatted\n");
         count++;
     }
-    cbm_closedir(d);
+    ctx_closedir(d);
     return 0;
 }
 
 static char *index_repo(void) {
     char args[512];
     snprintf(args, sizeof(args), "{\"repo_path\":\"%s\"}", g_repodir);
-    return cbm_mcp_handle_tool(g_srv, "index_repository", args);
+    return ctx_mcp_handle_tool(g_srv, "index_repository", args);
 }
 
 /* Timed index: returns response, sets *elapsed_ms and *peak_rss_mb */
@@ -114,7 +114,7 @@ static char *index_repo_timed(double *elapsed_ms, size_t *peak_rss_mb) {
     double t0 = now_ms();
     char *resp = index_repo();
     *elapsed_ms = now_ms() - t0;
-    *peak_rss_mb = cbm_mem_peak_rss() / (1024 * 1024);
+    *peak_rss_mb = ctx_mem_peak_rss() / (1024 * 1024);
     return resp;
 }
 
@@ -124,7 +124,7 @@ static char *call_tool(const char *tool, const char *args_fmt, ...) {
     va_start(ap, args_fmt);
     vsnprintf(args, sizeof(args), args_fmt, ap);
     va_end(ap);
-    return cbm_mcp_handle_tool(g_srv, tool, args);
+    return ctx_mcp_handle_tool(g_srv, tool, args);
 }
 
 /* Parse integer from JSON response (handles nested MCP envelope) */
@@ -145,34 +145,34 @@ static int count_in_response(const char *resp, const char *key) {
 
 /* ── Direct store queries (more reliable than MCP for tests) ────── */
 
-static cbm_store_t *open_store(void) {
-    return cbm_store_open_path(g_dbpath);
+static ctx_store_t *open_store(void) {
+    return ctx_store_open_path(g_dbpath);
 }
 
 static int get_node_count(void) {
-    cbm_store_t *s = open_store();
+    ctx_store_t *s = open_store();
     if (!s)
         return -1;
-    int c = cbm_store_count_nodes(s, g_project);
-    cbm_store_close(s);
+    int c = ctx_store_count_nodes(s, g_project);
+    ctx_store_close(s);
     return c;
 }
 
 static int get_edge_count(void) {
-    cbm_store_t *s = open_store();
+    ctx_store_t *s = open_store();
     if (!s)
         return -1;
-    int c = cbm_store_count_edges(s, g_project);
-    cbm_store_close(s);
+    int c = ctx_store_count_edges(s, g_project);
+    ctx_store_close(s);
     return c;
 }
 
 static int get_edge_count_by_type(const char *type) {
-    cbm_store_t *s = open_store();
+    ctx_store_t *s = open_store();
     if (!s)
         return -1;
-    int c = cbm_store_count_edges_by_type(s, g_project, type);
-    cbm_store_close(s);
+    int c = ctx_store_count_edges_by_type(s, g_project, type);
+    ctx_store_close(s);
     return c;
 }
 
@@ -196,8 +196,8 @@ static int count_by_label(const char *label) {
 /* ── Setup / Teardown ─────────────────────────────────────────────── */
 
 static int incremental_setup(void) {
-    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/cbm_incr_XXXXXX");
-    if (!cbm_mkdtemp(g_tmpdir))
+    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/ctx_incr_XXXXXX");
+    if (!ctx_mkdtemp(g_tmpdir))
         return -1;
 
     snprintf(g_repodir, sizeof(g_repodir), "%s/fastapi", g_tmpdir);
@@ -223,7 +223,7 @@ static int incremental_setup(void) {
         return -1;
     }
 
-    g_project = cbm_project_name_from_path(g_repodir);
+    g_project = ctx_project_name_from_path(g_repodir);
     if (!g_project)
         return -1;
 
@@ -234,22 +234,22 @@ static int incremental_setup(void) {
 
     char cache_dir[512];
     snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
-    cbm_mkdir(cache_dir);
+    ctx_mkdir(cache_dir);
 
     unlink(g_dbpath);
 
-    g_srv = cbm_mcp_server_new(NULL);
+    g_srv = ctx_mcp_server_new(NULL);
     if (!g_srv)
         return -1;
 
-    g_rss_before_full = cbm_mem_rss();
+    g_rss_before_full = ctx_mem_rss();
 
     return 0;
 }
 
 static void incremental_teardown(void) {
     if (g_srv) {
-        cbm_mcp_server_free(g_srv);
+        ctx_mcp_server_free(g_srv);
         g_srv = NULL;
     }
     if (g_project) {
@@ -850,7 +850,7 @@ static char *call_tool_timed(const char *tool, double *ms, const char *args_fmt,
     vsnprintf(args, sizeof(args), args_fmt, ap);
     va_end(ap);
     double t0 = now_ms();
-    char *resp = cbm_mcp_handle_tool(g_srv, tool, args);
+    char *resp = ctx_mcp_handle_tool(g_srv, tool, args);
     *ms = now_ms() - t0;
     return resp;
 }
@@ -2776,7 +2776,7 @@ TEST(tool_delete_and_verify) {
     /* Create a throwaway project to delete */
     char tmpdir2[256];
     snprintf(tmpdir2, sizeof(tmpdir2), "%s/throwaway", g_tmpdir);
-    cbm_mkdir(tmpdir2);
+    ctx_mkdir(tmpdir2);
     char pypath[512];
     snprintf(pypath, sizeof(pypath), "%s/dummy.py", tmpdir2);
     FILE *f = fopen(pypath, "w");
@@ -2790,7 +2790,7 @@ TEST(tool_delete_and_verify) {
     TOOL_OK(r, ms);
     free(r);
 
-    char *throwaway_project = cbm_project_name_from_path(tmpdir2);
+    char *throwaway_project = ctx_project_name_from_path(tmpdir2);
     ASSERT(throwaway_project != NULL);
 
     /* Verify it exists */
@@ -2824,9 +2824,9 @@ SUITE(incremental) {
         return;
     }
 
-    int skip_perf = (getenv("CBM_SKIP_PERF") != NULL &&
-                     getenv("CBM_SKIP_PERF")[0] != '0' &&
-                     getenv("CBM_SKIP_PERF")[0] != '\0');
+    int skip_perf = (getenv("CTX_SKIP_PERF") != NULL &&
+                     getenv("CTX_SKIP_PERF")[0] != '0' &&
+                     getenv("CTX_SKIP_PERF")[0] != '\0');
 
     /* Phase 1: Full index baseline (needed for tool tests below) */
     RUN_TEST(incr_full_index);
@@ -2886,7 +2886,7 @@ SUITE(incremental) {
         /* Phase 7: Performance regression */
         RUN_TEST(incr_perf_single_file_fast);
     } else {
-        printf("  [phases 2-7 SKIPPED — CBM_SKIP_PERF=1]\n");
+        printf("  [phases 2-7 SKIPPED — CTX_SKIP_PERF=1]\n");
     }
 
     /* Phase 8: list_projects + index_status + schema */

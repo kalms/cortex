@@ -1,10 +1,10 @@
 // extract_k8s.c — K8s manifest and Kustomize file extractor.
 //
-// For CBM_LANG_KUSTOMIZE: walks top-level block_mapping_pair nodes whose key
+// For CTX_LANG_KUSTOMIZE: walks top-level block_mapping_pair nodes whose key
 // matches "resources", "bases", "patches", "components", or
 // "patchesStrategicMerge", then emits one CBMImport per block_sequence item.
 //
-// For CBM_LANG_K8S: finds apiVersion, kind, and metadata.name scalars in the
+// For CTX_LANG_K8S: finds apiVersion, kind, and metadata.name scalars in the
 // first document's block_mapping and emits one CBMDefinition with label
 // "Resource" and name "Kind/metadata-name".
 
@@ -45,16 +45,16 @@ static const char *get_scalar_text(CBMArena *a, TSNode node, const char *source)
             continue;
         }
         if (strcmp(type, "plain_scalar") == 0) {
-            return cbm_node_text(a, node, source);
+            return ctx_node_text(a, node, source);
         }
         if (strcmp(type, "double_quote_scalar") == 0 || strcmp(type, "single_quote_scalar") == 0) {
-            const char *raw = cbm_node_text(a, node, source);
+            const char *raw = ctx_node_text(a, node, source);
             if (!raw) {
                 return NULL;
             }
             size_t len = strlen(raw);
             if (len >= PAIR_LEN) {
-                return cbm_arena_strndup(a, raw + SKIP_ONE, len - PAIR_LEN);
+                return ctx_arena_strndup(a, raw + SKIP_ONE, len - PAIR_LEN);
             }
             return raw;
         }
@@ -94,10 +94,10 @@ static void emit_kustomize_sequence(CBMExtractCtx *ctx, TSNode seq_node, const c
                 continue;
             }
             CBMImport imp = {
-                .local_name = cbm_arena_strdup(a, key_name),
-                .module_path = cbm_arena_strdup(a, scalar),
+                .local_name = ctx_arena_strdup(a, key_name),
+                .module_path = ctx_arena_strdup(a, scalar),
             };
-            cbm_imports_push(&ctx->result->imports, a, imp);
+            ctx_imports_push(&ctx->result->imports, a, imp);
         }
     }
 }
@@ -288,13 +288,13 @@ static void extract_k8s_manifest(CBMExtractCtx *ctx) {
         snprintf(def_name, sizeof(def_name), "%s/%s", kind_buf, meta_name_buf);
 
         CBMDefinition def = {0};
-        def.name = cbm_arena_strdup(a, def_name);
-        def.qualified_name = cbm_arena_sprintf(a, "%s.%s", ctx->module_qn, def_name);
-        def.label = cbm_arena_strdup(a, "Resource");
+        def.name = ctx_arena_strdup(a, def_name);
+        def.qualified_name = ctx_arena_sprintf(a, "%s.%s", ctx->module_qn, def_name);
+        def.label = ctx_arena_strdup(a, "Resource");
         def.file_path = ctx->rel_path;
         def.start_line = ts_node_start_point(mapping).row + TS_LINE_OFFSET;
         def.end_line = ts_node_end_point(mapping).row + TS_LINE_OFFSET;
-        cbm_defs_push(&ctx->result->defs, a, def);
+        ctx_defs_push(&ctx->result->defs, a, def);
 
         break; // Only the first document per file
     }
@@ -304,10 +304,10 @@ static void extract_k8s_manifest(CBMExtractCtx *ctx) {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-void cbm_extract_k8s(CBMExtractCtx *ctx) {
-    if (ctx->language == CBM_LANG_KUSTOMIZE) {
+void ctx_extract_k8s(CBMExtractCtx *ctx) {
+    if (ctx->language == CTX_LANG_KUSTOMIZE) {
         extract_kustomize(ctx);
-    } else if (ctx->language == CBM_LANG_K8S) {
+    } else if (ctx->language == CTX_LANG_K8S) {
         extract_k8s_manifest(ctx);
     }
 }

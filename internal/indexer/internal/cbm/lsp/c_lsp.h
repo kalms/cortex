@@ -1,5 +1,5 @@
-#ifndef CBM_LSP_C_LSP_H
-#define CBM_LSP_C_LSP_H
+#ifndef CTX_LSP_C_LSP_H
+#define CTX_LSP_C_LSP_H
 
 #include "type_rep.h"
 #include "scope.h"
@@ -100,11 +100,11 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
 // --- Entry points ---
 
 // Single-file LSP: build registry from file defs + stdlib, run resolution.
-void cbm_run_c_lsp(CBMArena* arena, CBMFileResult* result,
+void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
     const char* source, int source_len, TSNode root, bool cpp_mode);
 
 // Cross-file LSP: build registry from defs + stdlib, re-parse and resolve.
-void cbm_run_c_lsp_cross(
+void ctx_run_c_lsp_cross(
     CBMArena* arena,
     const char* source, int source_len,
     const char* module_qn,
@@ -115,10 +115,10 @@ void cbm_run_c_lsp_cross(
     CBMResolvedCallArray* out);
 
 // Register C stdlib types and functions into a registry.
-void cbm_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
+void ctx_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
 
 // Register C++ stdlib types and functions into a registry.
-void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
+void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
 
 // --- Batch cross-file LSP ---
 
@@ -138,9 +138,9 @@ typedef struct {
 
 // Process multiple C/C++ files' cross-file LSP in one CGo call.
 // out must point to file_count pre-zeroed CBMResolvedCallArray structs.
-void cbm_batch_c_lsp_cross(
+void ctx_batch_c_lsp_cross(
     CBMArena* arena,
     CBMBatchCLSPFile* files, int file_count,
     CBMResolvedCallArray* out);
 
-#endif // CBM_LSP_C_LSP_H
+#endif // CTX_LSP_C_LSP_H

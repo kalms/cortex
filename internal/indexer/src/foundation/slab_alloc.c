@@ -54,7 +54,7 @@ typedef struct {
     bool installed;
 } slab_state_t;
 
-static CBM_TLS slab_state_t tls_slab;
+static CTX_TLS slab_state_t tls_slab;
 
 /* ── Tier 1 helpers ────────────────────────────────────────────────── */
 
@@ -199,11 +199,11 @@ static void slab_free(void *ptr) {
 extern void ts_set_allocator(void *(*new_malloc)(size_t), void *(*new_calloc)(size_t, size_t),
                              void *(*new_realloc)(void *, size_t), void (*new_free)(void *));
 
-void cbm_slab_install(void) {
+void ctx_slab_install(void) {
     ts_set_allocator(slab_malloc, slab_calloc, slab_realloc, slab_free);
 }
 
-void cbm_slab_reset_thread(void) {
+void ctx_slab_reset_thread(void) {
     slab_state_t *s = &tls_slab;
     if (!s->pages) {
         return;
@@ -211,7 +211,7 @@ void cbm_slab_reset_thread(void) {
     slab_rebuild_freelist(s);
 }
 
-void cbm_slab_destroy_thread(void) {
+void ctx_slab_destroy_thread(void) {
     slab_state_t *s = &tls_slab;
     slab_page_t *p = s->pages;
     while (p) {
@@ -229,7 +229,7 @@ void cbm_slab_destroy_thread(void) {
  * Call ONLY when no live allocations remain — i.e., after ts_tree_delete()
  * AND ts_parser_delete() have freed everything back to the free lists.
  * This keeps peak memory bounded per-file (not cumulative across files). */
-void cbm_slab_reclaim(void) {
+void ctx_slab_reclaim(void) {
     slab_state_t *s = &tls_slab;
     slab_page_t *p = s->pages;
     while (p) {
@@ -245,15 +245,15 @@ void cbm_slab_reclaim(void) {
 
 /* ── Test API (thin wrappers for unit testing) ──────────────────── */
 
-void *cbm_slab_test_malloc(size_t size) {
+void *ctx_slab_test_malloc(size_t size) {
     return slab_malloc(size);
 }
-void cbm_slab_test_free(void *ptr) {
+void ctx_slab_test_free(void *ptr) {
     slab_free(ptr);
 }
-void *cbm_slab_test_realloc(void *ptr, size_t size) {
+void *ctx_slab_test_realloc(void *ptr, size_t size) {
     return slab_realloc(ptr, size);
 }
-void *cbm_slab_test_calloc(size_t count, size_t size) {
+void *ctx_slab_test_calloc(size_t count, size_t size) {
     return slab_calloc(count, size);
 }

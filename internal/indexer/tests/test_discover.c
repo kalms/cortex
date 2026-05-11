@@ -10,303 +10,303 @@
 /* ── Directory skip (always skipped) ───────────────────────────── */
 
 TEST(skip_git) {
-    ASSERT_TRUE(cbm_should_skip_dir(".git", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir(".git", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_node_modules) {
-    ASSERT_TRUE(cbm_should_skip_dir("node_modules", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("node_modules", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_pycache) {
-    ASSERT_TRUE(cbm_should_skip_dir("__pycache__", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("__pycache__", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_venv) {
-    ASSERT_TRUE(cbm_should_skip_dir("venv", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("venv", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_dist) {
-    ASSERT_TRUE(cbm_should_skip_dir("dist", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("dist", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_target) {
-    ASSERT_TRUE(cbm_should_skip_dir("target", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("target", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_vendor) {
-    ASSERT_TRUE(cbm_should_skip_dir("vendor", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("vendor", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_terraform) {
-    ASSERT_TRUE(cbm_should_skip_dir(".terraform", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir(".terraform", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_coverage) {
-    ASSERT_TRUE(cbm_should_skip_dir("coverage", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir("coverage", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_idea) {
-    ASSERT_TRUE(cbm_should_skip_dir(".idea", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir(".idea", CTX_MODE_FULL));
     PASS();
 }
 TEST(skip_claude) {
-    ASSERT_TRUE(cbm_should_skip_dir(".claude", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_should_skip_dir(".claude", CTX_MODE_FULL));
     PASS();
 }
 
 /* Not skipped in full mode */
 TEST(no_skip_src) {
-    ASSERT_FALSE(cbm_should_skip_dir("src", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_should_skip_dir("src", CTX_MODE_FULL));
     PASS();
 }
 TEST(no_skip_lib) {
-    ASSERT_FALSE(cbm_should_skip_dir("lib", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_should_skip_dir("lib", CTX_MODE_FULL));
     PASS();
 }
 TEST(no_skip_docs_full) {
-    ASSERT_FALSE(cbm_should_skip_dir("docs", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_should_skip_dir("docs", CTX_MODE_FULL));
     PASS();
 }
 TEST(no_skip_test_full) {
-    ASSERT_FALSE(cbm_should_skip_dir("__tests__", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_should_skip_dir("__tests__", CTX_MODE_FULL));
     PASS();
 }
 
 /* Fast mode additional skips */
 TEST(skip_fast_docs) {
-    ASSERT_TRUE(cbm_should_skip_dir("docs", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("docs", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_examples) {
-    ASSERT_TRUE(cbm_should_skip_dir("examples", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("examples", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_tests) {
-    ASSERT_TRUE(cbm_should_skip_dir("__tests__", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("__tests__", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_fixtures) {
-    ASSERT_TRUE(cbm_should_skip_dir("fixtures", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("fixtures", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_testdata) {
-    ASSERT_TRUE(cbm_should_skip_dir("testdata", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("testdata", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_generated) {
-    ASSERT_TRUE(cbm_should_skip_dir("generated", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("generated", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_assets) {
-    ASSERT_TRUE(cbm_should_skip_dir("assets", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("assets", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_3rdparty) {
-    ASSERT_TRUE(cbm_should_skip_dir("third_party", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("third_party", CTX_MODE_FAST));
     PASS();
 }
 TEST(skip_fast_e2e) {
-    ASSERT_TRUE(cbm_should_skip_dir("e2e", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_dir("e2e", CTX_MODE_FAST));
     PASS();
 }
 
 /* ── Suffix filters ────────────────────────────────────────────── */
 
 TEST(suffix_pyc) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("module.pyc", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("module.pyc", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_o) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("main.o", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("main.o", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_so) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("lib.so", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("lib.so", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_png) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("icon.png", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("icon.png", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_jpg) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("photo.jpg", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("photo.jpg", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_wasm) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("app.wasm", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("app.wasm", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_db) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("data.db", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("data.db", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_sqlite) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("store.sqlite3", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("store.sqlite3", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_tmp) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("file.tmp", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("file.tmp", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_tilde) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("file~", CBM_MODE_FULL));
+    ASSERT_TRUE(ctx_has_ignored_suffix("file~", CTX_MODE_FULL));
     PASS();
 }
 
 /* Not ignored */
 TEST(suffix_go) {
-    ASSERT_FALSE(cbm_has_ignored_suffix("main.go", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_has_ignored_suffix("main.go", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_py) {
-    ASSERT_FALSE(cbm_has_ignored_suffix("app.py", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_has_ignored_suffix("app.py", CTX_MODE_FULL));
     PASS();
 }
 TEST(suffix_c) {
-    ASSERT_FALSE(cbm_has_ignored_suffix("lib.c", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_has_ignored_suffix("lib.c", CTX_MODE_FULL));
     PASS();
 }
 
 /* Fast mode additional suffixes */
 TEST(suffix_fast_zip) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("archive.zip", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_has_ignored_suffix("archive.zip", CTX_MODE_FAST));
     PASS();
 }
 TEST(suffix_fast_pdf) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("manual.pdf", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_has_ignored_suffix("manual.pdf", CTX_MODE_FAST));
     PASS();
 }
 TEST(suffix_fast_mp3) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("sound.mp3", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_has_ignored_suffix("sound.mp3", CTX_MODE_FAST));
     PASS();
 }
 TEST(suffix_fast_pem) {
-    ASSERT_TRUE(cbm_has_ignored_suffix("cert.pem", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_has_ignored_suffix("cert.pem", CTX_MODE_FAST));
     PASS();
 }
 
 /* ── Filename skip (fast mode) ─────────────────────────────────── */
 
 TEST(fn_skip_license) {
-    ASSERT_TRUE(cbm_should_skip_filename("LICENSE", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_filename("LICENSE", CTX_MODE_FAST));
     PASS();
 }
 TEST(fn_skip_changelog) {
-    ASSERT_TRUE(cbm_should_skip_filename("CHANGELOG.md", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_filename("CHANGELOG.md", CTX_MODE_FAST));
     PASS();
 }
 TEST(fn_skip_gosum) {
-    ASSERT_TRUE(cbm_should_skip_filename("go.sum", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_filename("go.sum", CTX_MODE_FAST));
     PASS();
 }
 TEST(fn_skip_yarnlock) {
-    ASSERT_TRUE(cbm_should_skip_filename("yarn.lock", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_filename("yarn.lock", CTX_MODE_FAST));
     PASS();
 }
 TEST(fn_skip_pkglock) {
-    ASSERT_TRUE(cbm_should_skip_filename("package-lock.json", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_should_skip_filename("package-lock.json", CTX_MODE_FAST));
     PASS();
 }
 
 /* Not skipped in full mode */
 TEST(fn_no_skip_license_full) {
-    ASSERT_FALSE(cbm_should_skip_filename("LICENSE", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_should_skip_filename("LICENSE", CTX_MODE_FULL));
     PASS();
 }
 
 /* ── Fast mode patterns ────────────────────────────────────────── */
 
 TEST(pattern_dts) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("types.d.ts", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("types.d.ts", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_pbgo) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("service.pb.go", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("service.pb.go", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_pb2py) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("api_pb2.py", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("api_pb2.py", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_mock) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("mock_service.go", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("mock_service.go", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_test_dot) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("App.test.js", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("App.test.js", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_spec) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("App.spec.ts", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("App.spec.ts", CTX_MODE_FAST));
     PASS();
 }
 TEST(pattern_stories) {
-    ASSERT_TRUE(cbm_matches_fast_pattern("Button.stories.tsx", CBM_MODE_FAST));
+    ASSERT_TRUE(ctx_matches_fast_pattern("Button.stories.tsx", CTX_MODE_FAST));
     PASS();
 }
 
 /* Not matched in full mode */
 TEST(pattern_dts_full) {
-    ASSERT_FALSE(cbm_matches_fast_pattern("types.d.ts", CBM_MODE_FULL));
+    ASSERT_FALSE(ctx_matches_fast_pattern("types.d.ts", CTX_MODE_FULL));
     PASS();
 }
 
 /* ── File discovery (integration) — cross-platform via test_helpers.h ── */
 
 TEST(discover_simple) {
-    char *base = th_mktempdir("cbm_disc_simple");
+    char *base = th_mktempdir("ctx_disc_simple");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "src/main.go"), "package main\n");
     th_write_file(TH_PATH(base, "src/app.py"), "print(1)\n");
     th_write_file(TH_PATH(base, "src/icon.png"), "binary\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 2); /* main.go + app.py, not icon.png */
 
     bool found_go = false, found_py = false;
     for (int i = 0; i < count; i++) {
-        if (files[i].language == CBM_LANG_GO)
+        if (files[i].language == CTX_LANG_GO)
             found_go = true;
-        if (files[i].language == CBM_LANG_PYTHON)
+        if (files[i].language == CTX_LANG_PYTHON)
             found_py = true;
     }
     ASSERT_TRUE(found_go);
     ASSERT_TRUE(found_py);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_skips_git_dir) {
-    char *base = th_mktempdir("cbm_disc_git");
+    char *base = th_mktempdir("ctx_disc_git");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
     th_write_file(TH_PATH(base, ".git/config"), "x\n");
     th_write_file(TH_PATH(base, "src/main.go"), "package main\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_with_gitignore) {
-    char *base = th_mktempdir("cbm_disc_gi");
+    char *base = th_mktempdir("ctx_disc_gi");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
@@ -314,22 +314,22 @@ TEST(discover_with_gitignore) {
     th_write_file(TH_PATH(base, "src/main.go"), "package main\n");
     th_write_file(TH_PATH(base, "src/debug.log"), "error\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
-    ASSERT_EQ(files[0].language, CBM_LANG_GO);
+    ASSERT_EQ(files[0].language, CTX_LANG_GO);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_max_file_size) {
-    char *base = th_mktempdir("cbm_disc_size");
+    char *base = th_mktempdir("ctx_disc_size");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "small.go"), "small\n");
@@ -343,57 +343,57 @@ TEST(discover_max_file_size) {
     }
     fclose(f);
 
-    cbm_discover_opts_t opts = {0};
+    ctx_discover_opts_t opts = {0};
     opts.max_file_size = 1024;
-    cbm_file_info_t *files = NULL;
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_null_path) {
-    cbm_file_info_t *files = NULL;
+    ctx_file_info_t *files = NULL;
     int count = 0;
-    int rc = cbm_discover(NULL, NULL, &files, &count);
+    int rc = ctx_discover(NULL, NULL, &files, &count);
     ASSERT_EQ(rc, -1);
     PASS();
 }
 
 TEST(discover_nonexistent_path) {
-    char *base = th_mktempdir("cbm_disc_noexist");
+    char *base = th_mktempdir("ctx_disc_noexist");
     char fake[512];
     snprintf(fake, sizeof(fake), "%s/nonexistent_12345", base ? base : "/tmp");
-    cbm_file_info_t *files = NULL;
+    ctx_file_info_t *files = NULL;
     int count = 0;
-    int rc = cbm_discover(fake, NULL, &files, &count);
+    int rc = ctx_discover(fake, NULL, &files, &count);
     ASSERT_EQ(rc, -1);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_free_null) {
-    cbm_discover_free(NULL, 0);
+    ctx_discover_free(NULL, 0);
     PASS();
 }
 
 TEST(discover_skips_worktrees) {
-    char *base = th_mktempdir("cbm_disc_wt");
+    char *base = th_mktempdir("ctx_disc_wt");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "src/main.go"), "package main\n");
     th_write_file(TH_PATH(base, ".worktrees/feature/src/app.go"), "package app\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
 
@@ -405,13 +405,13 @@ TEST(discover_skips_worktrees) {
     }
     ASSERT_TRUE(found_main);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_cbmignore) {
-    char *base = th_mktempdir("cbm_disc_cbmi");
+    char *base = th_mktempdir("ctx_disc_cbmi");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
@@ -420,22 +420,22 @@ TEST(discover_cbmignore) {
     th_write_file(TH_PATH(base, "generated/types.go"), "package gen\n");
     th_write_file(TH_PATH(base, "api.pb.go"), "package api\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
     ASSERT_TRUE(strstr(files[0].rel_path, "main.go") != NULL);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_cbmignore_stacks) {
-    char *base = th_mktempdir("cbm_disc_stack");
+    char *base = th_mktempdir("ctx_disc_stack");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
@@ -444,11 +444,11 @@ TEST(discover_cbmignore_stacks) {
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
     th_write_file(TH_PATH(base, "docs/api.go"), "package docs\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
 
@@ -459,7 +459,7 @@ TEST(discover_cbmignore_stacks) {
     }
     ASSERT_FALSE(found_docs);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
@@ -470,7 +470,7 @@ TEST(discover_symlink_skipped) {
      * Guard the entire body: symlink() doesn't exist on Windows. */
     SKIP("symlinks need admin on Windows");
 #else
-    char *base = th_mktempdir("cbm_disc_sym");
+    char *base = th_mktempdir("ctx_disc_sym");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "real.go"), "package main\n");
@@ -479,11 +479,11 @@ TEST(discover_symlink_skipped) {
     snprintf(link_path, sizeof(link_path), "%s/link.go", base);
     symlink(real_path, link_path);
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
 
@@ -497,14 +497,14 @@ TEST(discover_symlink_skipped) {
     ASSERT_TRUE(found_real);
     ASSERT_FALSE(found_link);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 #endif
 }
 
 TEST(discover_new_ignore_patterns) {
-    char *base = th_mktempdir("cbm_disc_newign");
+    char *base = th_mktempdir("ctx_disc_newign");
     ASSERT(base != NULL);
 
     const char *dirs[] = {".next", ".terraform", "zig-cache", ".cargo", "elm-stuff", "bazel-out"};
@@ -515,80 +515,80 @@ TEST(discover_new_ignore_patterns) {
     }
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
     ASSERT_TRUE(strstr(files[0].rel_path, "main.go") != NULL);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_generic_dirs_full_mode) {
-    char *base = th_mktempdir("cbm_disc_genfull");
+    char *base = th_mktempdir("ctx_disc_genfull");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "bin/main.go"), "package bin\n");
     th_write_file(TH_PATH(base, "build/main.go"), "package build\n");
     th_write_file(TH_PATH(base, "out/main.go"), "package out\n");
 
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FULL};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {.mode = CTX_MODE_FULL};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 3);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_generic_dirs_fast_mode) {
-    char *base = th_mktempdir("cbm_disc_genfast");
+    char *base = th_mktempdir("ctx_disc_genfast");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, "bin/main.go"), "package bin\n");
     th_write_file(TH_PATH(base, "build/main.go"), "package build\n");
     th_write_file(TH_PATH(base, "out/main.go"), "package out\n");
 
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FAST};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {.mode = CTX_MODE_FAST};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 0);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_cbmignore_no_git) {
-    char *base = th_mktempdir("cbm_disc_nogit");
+    char *base = th_mktempdir("ctx_disc_nogit");
     ASSERT(base != NULL);
 
     th_write_file(TH_PATH(base, ".cbmignore"), "scratch/\n");
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
     th_write_file(TH_PATH(base, "scratch/tmp.go"), "package scratch\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
 
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(count, 1);
     ASSERT_TRUE(strstr(files[0].rel_path, "main.go") != NULL);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
@@ -596,7 +596,7 @@ TEST(discover_cbmignore_no_git) {
 /* ── Nested .gitignore tests (issue #178) ──────────────────────── */
 
 TEST(discover_nested_gitignore) {
-    char *base = th_mktempdir("cbm_disc_ngi");
+    char *base = th_mktempdir("ctx_disc_ngi");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
@@ -605,10 +605,10 @@ TEST(discover_nested_gitignore) {
     th_write_file(TH_PATH(base, "webapp/src/routes.js"), "export default []\n");
     th_write_file(TH_PATH(base, "webapp/generated/types.js"), "export {}\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
 
     bool found_generated = false;
@@ -622,13 +622,13 @@ TEST(discover_nested_gitignore) {
     ASSERT_FALSE(found_generated);
     ASSERT_TRUE(found_routes);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }
 
 TEST(discover_nested_gitignore_stacks_with_root) {
-    char *base = th_mktempdir("cbm_disc_ngi_stack");
+    char *base = th_mktempdir("ctx_disc_ngi_stack");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
@@ -639,10 +639,10 @@ TEST(discover_nested_gitignore_stacks_with_root) {
     th_write_file(TH_PATH(base, "webapp/src/app.js"), "const x = 1\n");
     th_write_file(TH_PATH(base, "webapp/.output/data.js"), "output data\n");
 
-    cbm_discover_opts_t opts = {0};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {0};
+    ctx_file_info_t *files = NULL;
     int count = 0;
-    int rc = cbm_discover(base, &opts, &files, &count);
+    int rc = ctx_discover(base, &opts, &files, &count);
     ASSERT_EQ(rc, 0);
 
     bool found_log = false;
@@ -664,7 +664,7 @@ TEST(discover_nested_gitignore_stacks_with_root) {
     ASSERT_TRUE(found_main);
     ASSERT_TRUE(found_app);
 
-    cbm_discover_free(files, count);
+    ctx_discover_free(files, count);
     th_cleanup(base);
     PASS();
 }

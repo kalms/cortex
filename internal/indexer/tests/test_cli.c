@@ -51,11 +51,11 @@ static int test_mkdirp(const char *path) {
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            cbm_mkdir(tmp);
+            ctx_mkdir(tmp);
             *p = '/';
         }
     }
-    return cbm_mkdir(tmp) == 0 || errno == EEXIST ? 0 : -1;
+    return ctx_mkdir(tmp) == 0 || errno == EEXIST ? 0 : -1;
 }
 
 /* Helper: recursive remove */
@@ -140,19 +140,19 @@ static unsigned char *create_test_targz(const char *filename, const unsigned cha
 
 TEST(cli_compare_versions) {
     /* Port of TestCompareVersions — 13 cases */
-    ASSERT(cbm_compare_versions("0.2.1", "0.2.0") > 0);
-    ASSERT_EQ(cbm_compare_versions("0.2.0", "0.2.0"), 0);
-    ASSERT(cbm_compare_versions("0.1.9", "0.2.0") < 0);
-    ASSERT(cbm_compare_versions("0.10.0", "0.2.0") > 0);
-    ASSERT(cbm_compare_versions("1.0.0", "0.99.99") > 0);
-    ASSERT(cbm_compare_versions("0.0.1", "0.0.2") < 0);
-    ASSERT_EQ(cbm_compare_versions("v0.2.1", "0.2.1"), 0);
-    ASSERT_EQ(cbm_compare_versions("0.2.1", "v0.2.1"), 0);
-    ASSERT(cbm_compare_versions("0.2.1-dev", "0.2.1") < 0);
-    ASSERT(cbm_compare_versions("0.2.1", "0.2.1-dev") > 0);
-    ASSERT_EQ(cbm_compare_versions("0.2.1-dev", "0.2.1-dev"), 0);
-    ASSERT(cbm_compare_versions("0.3.0", "0.2.1-dev") > 0);
-    ASSERT(cbm_compare_versions("0.2.0", "0.2.1-dev") < 0);
+    ASSERT(ctx_compare_versions("0.2.1", "0.2.0") > 0);
+    ASSERT_EQ(ctx_compare_versions("0.2.0", "0.2.0"), 0);
+    ASSERT(ctx_compare_versions("0.1.9", "0.2.0") < 0);
+    ASSERT(ctx_compare_versions("0.10.0", "0.2.0") > 0);
+    ASSERT(ctx_compare_versions("1.0.0", "0.99.99") > 0);
+    ASSERT(ctx_compare_versions("0.0.1", "0.0.2") < 0);
+    ASSERT_EQ(ctx_compare_versions("v0.2.1", "0.2.1"), 0);
+    ASSERT_EQ(ctx_compare_versions("0.2.1", "v0.2.1"), 0);
+    ASSERT(ctx_compare_versions("0.2.1-dev", "0.2.1") < 0);
+    ASSERT(ctx_compare_versions("0.2.1", "0.2.1-dev") > 0);
+    ASSERT_EQ(ctx_compare_versions("0.2.1-dev", "0.2.1-dev"), 0);
+    ASSERT(ctx_compare_versions("0.3.0", "0.2.1-dev") > 0);
+    ASSERT(ctx_compare_versions("0.2.0", "0.2.1-dev") < 0);
     PASS();
 }
 
@@ -161,10 +161,10 @@ TEST(cli_compare_versions) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(cli_version_get_set) {
-    cbm_cli_set_version("1.2.3");
-    ASSERT_STR_EQ(cbm_cli_get_version(), "1.2.3");
-    cbm_cli_set_version("dev");
-    ASSERT_STR_EQ(cbm_cli_get_version(), "dev");
+    ctx_cli_set_version("1.2.3");
+    ASSERT_STR_EQ(ctx_cli_get_version(), "1.2.3");
+    ctx_cli_set_version("dev");
+    ASSERT_STR_EQ(ctx_cli_get_version(), "dev");
     PASS();
 }
 
@@ -175,23 +175,23 @@ TEST(cli_version_get_set) {
 TEST(cli_detect_shell_rc_zsh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     /* Save and override SHELL — must strdup because setenv may realloc env block */
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    cbm_setenv("SHELL", "/bin/zsh", 1);
+    ctx_setenv("SHELL", "/bin/zsh", 1);
 
-    const char *rc = cbm_detect_shell_rc(tmpdir);
+    const char *rc = ctx_detect_shell_rc(tmpdir);
     ASSERT_NOT_NULL(rc);
     ASSERT(strstr(rc, ".zshrc") != NULL);
 
     if (old_shell) {
-        cbm_setenv("SHELL", old_shell, 1);
+        ctx_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        cbm_unsetenv("SHELL");
+        ctx_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -199,23 +199,23 @@ TEST(cli_detect_shell_rc_zsh) {
 TEST(cli_detect_shell_rc_bash) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    cbm_setenv("SHELL", "/bin/bash", 1);
+    ctx_setenv("SHELL", "/bin/bash", 1);
 
     /* No .bashrc → falls back to .bash_profile */
-    const char *rc = cbm_detect_shell_rc(tmpdir);
+    const char *rc = ctx_detect_shell_rc(tmpdir);
     ASSERT_NOT_NULL(rc);
     ASSERT(strstr(rc, ".bash_profile") != NULL);
 
     if (old_shell) {
-        cbm_setenv("SHELL", old_shell, 1);
+        ctx_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        cbm_unsetenv("SHELL");
+        ctx_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -224,27 +224,27 @@ TEST(cli_detect_shell_rc_bash_with_bashrc) {
     /* Port of TestDetectShellRC_BashWithBashrc */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    cbm_setenv("SHELL", "/bin/bash", 1);
+    ctx_setenv("SHELL", "/bin/bash", 1);
 
     /* Create .bashrc */
     char bashrc[512];
     snprintf(bashrc, sizeof(bashrc), "%s/.bashrc", tmpdir);
     write_test_file(bashrc, "# test\n");
 
-    const char *rc = cbm_detect_shell_rc(tmpdir);
+    const char *rc = ctx_detect_shell_rc(tmpdir);
     ASSERT_STR_EQ(rc, bashrc);
 
     unlink(bashrc);
     if (old_shell) {
-        cbm_setenv("SHELL", old_shell, 1);
+        ctx_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        cbm_unsetenv("SHELL");
+        ctx_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -252,21 +252,21 @@ TEST(cli_detect_shell_rc_bash_with_bashrc) {
 TEST(cli_detect_shell_rc_fish) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    cbm_setenv("SHELL", "/usr/bin/fish", 1);
+    ctx_setenv("SHELL", "/usr/bin/fish", 1);
 
-    const char *rc = cbm_detect_shell_rc(tmpdir);
+    const char *rc = ctx_detect_shell_rc(tmpdir);
     ASSERT(strstr(rc, ".config/fish/config.fish") != NULL);
 
     if (old_shell) {
-        cbm_setenv("SHELL", old_shell, 1);
+        ctx_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        cbm_unsetenv("SHELL");
+        ctx_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -274,21 +274,21 @@ TEST(cli_detect_shell_rc_fish) {
 TEST(cli_detect_shell_rc_default) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-rc-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     const char *raw = getenv("SHELL");
     char *old_shell = raw ? strdup(raw) : NULL;
-    cbm_setenv("SHELL", "/bin/sh", 1);
+    ctx_setenv("SHELL", "/bin/sh", 1);
 
-    const char *rc = cbm_detect_shell_rc(tmpdir);
+    const char *rc = ctx_detect_shell_rc(tmpdir);
     ASSERT(strstr(rc, ".profile") != NULL);
 
     if (old_shell) {
-        cbm_setenv("SHELL", old_shell, 1);
+        ctx_setenv("SHELL", old_shell, 1);
         free(old_shell);
     } else
-        cbm_unsetenv("SHELL");
+        ctx_unsetenv("SHELL");
     rmdir(tmpdir);
     PASS();
 }
@@ -301,18 +301,18 @@ TEST(cli_find_cli_not_found) {
     /* Port of TestFindCLI_NotFound */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    cbm_setenv("PATH", tmpdir, 1);
+    ctx_setenv("PATH", tmpdir, 1);
 
-    const char *result = cbm_find_cli("nonexistent-binary-xyz", tmpdir);
+    const char *result = ctx_find_cli("nonexistent-binary-xyz", tmpdir);
     ASSERT_STR_EQ(result, "");
 
     if (old_path) {
-        cbm_setenv("PATH", old_path, 1);
+        ctx_setenv("PATH", old_path, 1);
         free(old_path);
     }
     rmdir(tmpdir);
@@ -323,8 +323,8 @@ TEST(cli_find_cli_on_path) {
     /* Port of TestFindCLI_FoundOnPATH */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char fakecli[512];
     snprintf(fakecli, sizeof(fakecli), "%s/fakecli", tmpdir);
@@ -337,14 +337,14 @@ TEST(cli_find_cli_on_path) {
 #endif
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    cbm_setenv("PATH", tmpdir, 1);
+    ctx_setenv("PATH", tmpdir, 1);
 
-    const char *result = cbm_find_cli("fakecli", tmpdir);
+    const char *result = ctx_find_cli("fakecli", tmpdir);
     ASSERT(result[0] != '\0');
     ASSERT(strstr(result, "fakecli") != NULL);
 
     if (old_path) {
-        cbm_setenv("PATH", old_path, 1);
+        ctx_setenv("PATH", old_path, 1);
         free(old_path);
     }
     unlink(fakecli);
@@ -356,8 +356,8 @@ TEST(cli_find_cli_fallback_paths) {
     /* Port of TestFindCLI_FallbackPaths */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-find-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
 #ifdef _WIN32
     rmdir(tmpdir);
@@ -374,13 +374,13 @@ TEST(cli_find_cli_fallback_paths) {
 
     const char *raw = getenv("PATH");
     char *old_path = raw ? strdup(raw) : NULL;
-    cbm_setenv("PATH", "/nonexistent", 1);
+    ctx_setenv("PATH", "/nonexistent", 1);
 
-    const char *result = cbm_find_cli("testcli", tmpdir);
+    const char *result = ctx_find_cli("testcli", tmpdir);
     ASSERT_STR_EQ(result, fakecli);
 
     if (old_path) {
-        cbm_setenv("PATH", old_path, 1);
+        ctx_setenv("PATH", old_path, 1);
         free(old_path);
     }
     test_rmdir_r(tmpdir);
@@ -414,18 +414,18 @@ TEST(cli_skill_creation) {
     /* Port of TestInstallSkillCreation */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
-    int written = cbm_install_skills(skills_dir, false, false);
-    ASSERT_EQ(written, CBM_SKILL_COUNT);
+    int written = ctx_install_skills(skills_dir, false, false);
+    ASSERT_EQ(written, CTX_SKILL_COUNT);
 
     /* Verify all 4 skills exist and have content */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s/SKILL.md", skills_dir, sk[i].name);
         const char *data = read_test_file(path);
@@ -445,22 +445,22 @@ TEST(cli_skill_idempotent) {
     /* Port of TestInstallIdempotent */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
     /* Install twice */
-    cbm_install_skills(skills_dir, false, false);
-    int second = cbm_install_skills(skills_dir, false, false);
+    ctx_install_skills(skills_dir, false, false);
+    int second = ctx_install_skills(skills_dir, false, false);
 
     /* Second install should write 0 (skills exist, no force) */
     ASSERT_EQ(second, 0);
 
     /* All skills should still exist */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s/SKILL.md", skills_dir, sk[i].name);
         struct stat st;
@@ -475,17 +475,17 @@ TEST(cli_skill_force_overwrite) {
     /* Port of TestCLI_InstallForceOverwrites */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
-    cbm_install_skills(skills_dir, false, false);
-    int force_count = cbm_install_skills(skills_dir, true, false);
+    ctx_install_skills(skills_dir, false, false);
+    int force_count = ctx_install_skills(skills_dir, true, false);
 
     /* Force should overwrite all */
-    ASSERT_EQ(force_count, CBM_SKILL_COUNT);
+    ASSERT_EQ(force_count, CTX_SKILL_COUNT);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -495,19 +495,19 @@ TEST(cli_uninstall_removes_skills) {
     /* Port of TestUninstallRemovesSkills */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
-    cbm_install_skills(skills_dir, false, false);
-    int removed = cbm_remove_skills(skills_dir, false);
-    ASSERT_EQ(removed, CBM_SKILL_COUNT);
+    ctx_install_skills(skills_dir, false, false);
+    int removed = ctx_remove_skills(skills_dir, false);
+    ASSERT_EQ(removed, CTX_SKILL_COUNT);
 
     /* Verify all removed */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s", skills_dir, sk[i].name);
         struct stat st;
@@ -522,8 +522,8 @@ TEST(cli_remove_old_monolithic_skill) {
     /* Port of TestRemoveOldMonolithicSkill */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-skill-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
@@ -536,7 +536,7 @@ TEST(cli_remove_old_monolithic_skill) {
     snprintf(old_file, sizeof(old_file), "%s/SKILL.md", old_dir);
     write_test_file(old_file, "old skill");
 
-    bool removed = cbm_remove_old_monolithic_skill(skills_dir, false);
+    bool removed = ctx_remove_old_monolithic_skill(skills_dir, false);
     ASSERT_TRUE(removed);
 
     struct stat st;
@@ -548,8 +548,8 @@ TEST(cli_remove_old_monolithic_skill) {
 
 TEST(cli_skill_files_content) {
     /* Consolidated skill: all 4 former skills merged into one. */
-    const cbm_skill_t *sk = cbm_get_skills();
-    ASSERT_EQ(CBM_SKILL_COUNT, 1);
+    const ctx_skill_t *sk = ctx_get_skills();
+    ASSERT_EQ(CTX_SKILL_COUNT, 1);
     ASSERT(strcmp(sk[0].name, "codebase-memory") == 0);
 
     /* Exploring capabilities */
@@ -578,7 +578,7 @@ TEST(cli_skill_files_content) {
 
 TEST(cli_codex_instructions) {
     /* Port of TestCodexInstructionsCreation */
-    const char *instr = cbm_get_codex_instructions();
+    const char *instr = ctx_get_codex_instructions();
     ASSERT_NOT_NULL(instr);
     ASSERT(strstr(instr, "Codebase Knowledge Graph") != NULL);
     ASSERT(strstr(instr, "trace_path") != NULL);
@@ -593,13 +593,13 @@ TEST(cli_editor_mcp_install) {
     /* Port of TestEditorMCPInstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    int rc = cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -616,14 +616,14 @@ TEST(cli_editor_mcp_idempotent) {
     /* Port of TestEditorMCPInstallIdempotent */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
-    int rc = cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     /* Should still parse as valid JSON with only 1 server */
@@ -647,8 +647,8 @@ TEST(cli_editor_mcp_preserves_others) {
     /* Port of TestEditorMCPPreservesOtherServers */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
@@ -661,7 +661,7 @@ TEST(cli_editor_mcp_preserves_others) {
     write_test_file(configpath,
                     "{\"mcpServers\": {\"other-server\": {\"command\": \"/usr/bin/other\"}}}");
 
-    cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
@@ -676,14 +676,14 @@ TEST(cli_editor_mcp_uninstall) {
     /* Port of TestEditorMCPUninstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
-    int rc = cbm_remove_editor_mcp(configpath);
+    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_remove_editor_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -699,14 +699,14 @@ TEST(cli_gemini_mcp_install) {
     /* Port of TestGeminiMCPInstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.gemini/settings.json", tmpdir);
 
     /* Gemini uses same mcpServers format as Cursor */
-    int rc = cbm_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -726,13 +726,13 @@ TEST(cli_vscode_mcp_install) {
     /* Port of TestVSCodeMCPInstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
 
-    int rc = cbm_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -751,14 +751,14 @@ TEST(cli_vscode_mcp_uninstall) {
     /* Port of TestVSCodeMCPUninstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
 
-    cbm_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
-    int rc = cbm_remove_vscode_mcp(configpath);
+    ctx_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_remove_vscode_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -777,13 +777,13 @@ TEST(cli_zed_mcp_install) {
     /* Port of TestZedMCPInstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
 
-    int rc = cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -802,8 +802,8 @@ TEST(cli_zed_mcp_preserves_settings) {
     /* Port of TestZedMCPPreservesSettings */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
@@ -814,7 +814,7 @@ TEST(cli_zed_mcp_preserves_settings) {
     /* Pre-existing Zed settings */
     write_test_file(configpath, "{\"theme\": \"One Dark\", \"vim_mode\": true}");
 
-    cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
@@ -833,14 +833,14 @@ TEST(cli_zed_mcp_uninstall) {
     /* Port of TestZedMCPUninstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
 
-    cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
-    int rc = cbm_remove_zed_mcp(configpath);
+    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_remove_zed_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -855,8 +855,8 @@ TEST(cli_zed_mcp_jsonc_comments) {
     /* Issue #24: Zed settings.json uses JSONC (comments + trailing commas) */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-mcp-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
@@ -873,7 +873,7 @@ TEST(cli_zed_mcp_jsonc_comments) {
                                 "  \"vim_mode\": true,\n" /* trailing comma */
                                 "}\n");
 
-    int rc = cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -897,14 +897,14 @@ TEST(cli_ensure_path_append) {
     /* Port of TestCLI_InstallPATHAppend */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
     write_test_file(rcfile, "# existing content\n");
 
-    int rc = cbm_ensure_path("/usr/local/bin", rcfile, false);
+    int rc = ctx_ensure_path("/usr/local/bin", rcfile, false);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(rcfile);
@@ -917,14 +917,14 @@ TEST(cli_ensure_path_append) {
 TEST(cli_ensure_path_already_present) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
     write_test_file(rcfile, "export PATH=\"/usr/local/bin:$PATH\"\n");
 
-    int rc = cbm_ensure_path("/usr/local/bin", rcfile, false);
+    int rc = ctx_ensure_path("/usr/local/bin", rcfile, false);
     ASSERT_EQ(rc, 1); /* 1 = already present */
 
     test_rmdir_r(tmpdir);
@@ -934,14 +934,14 @@ TEST(cli_ensure_path_already_present) {
 TEST(cli_ensure_path_dry_run) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-path-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char rcfile[512];
     snprintf(rcfile, sizeof(rcfile), "%s/.zshrc", tmpdir);
     write_test_file(rcfile, "# clean\n");
 
-    int rc = cbm_ensure_path("/usr/local/bin", rcfile, true);
+    int rc = ctx_ensure_path("/usr/local/bin", rcfile, true);
     ASSERT_EQ(rc, 0);
 
     /* File should NOT be modified */
@@ -960,8 +960,8 @@ TEST(cli_copy_file) {
     /* Port of TestCopyFile */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-copy-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char src[512], dst[512];
     snprintf(src, sizeof(src), "%s/source", tmpdir);
@@ -969,7 +969,7 @@ TEST(cli_copy_file) {
 
     write_test_file(src, "test content for copy");
 
-    int rc = cbm_copy_file(src, dst);
+    int rc = ctx_copy_file(src, dst);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(dst);
@@ -983,14 +983,14 @@ TEST(cli_copy_file_source_not_found) {
     /* Port of TestCopyFile_SourceNotFound */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-copy-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char src[512], dst[512];
     snprintf(src, sizeof(src), "%s/nonexistent", tmpdir);
     snprintf(dst, sizeof(dst), "%s/dest", tmpdir);
 
-    int rc = cbm_copy_file(src, dst);
+    int rc = ctx_copy_file(src, dst);
     ASSERT(rc != 0);
 
     rmdir(tmpdir);
@@ -1011,7 +1011,7 @@ TEST(cli_extract_binary_from_targz) {
     ASSERT_NOT_NULL(gz);
 
     int out_len;
-    unsigned char *extracted = cbm_extract_binary_from_targz(gz, gz_len, &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_targz(gz, gz_len, &out_len);
     ASSERT_NOT_NULL(extracted);
     ASSERT_EQ(out_len, (int)strlen(content));
     ASSERT_MEM_EQ(extracted, content, out_len);
@@ -1030,7 +1030,7 @@ TEST(cli_extract_binary_from_targz_not_found) {
     ASSERT_NOT_NULL(gz);
 
     int out_len;
-    unsigned char *extracted = cbm_extract_binary_from_targz(gz, gz_len, &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_targz(gz, gz_len, &out_len);
     ASSERT_NULL(extracted);
 
     free(gz);
@@ -1041,7 +1041,7 @@ TEST(cli_extract_binary_from_targz_invalid_data) {
     /* Port of TestExtractBinaryFromTarGz_InvalidData */
     const unsigned char bad_data[] = "not a valid tar.gz";
     int out_len;
-    unsigned char *extracted = cbm_extract_binary_from_targz(bad_data, sizeof(bad_data), &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_targz(bad_data, sizeof(bad_data), &out_len);
     ASSERT_NULL(extracted);
     PASS();
 }
@@ -1133,7 +1133,7 @@ TEST(cli_extract_binary_from_zip) {
     ASSERT_NOT_NULL(zip);
 
     int out_len = 0;
-    unsigned char *extracted = cbm_extract_binary_from_zip(zip, zip_len, &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_zip(zip, zip_len, &out_len);
     ASSERT_NOT_NULL(extracted);
     ASSERT_EQ(out_len, (int)strlen(content));
     ASSERT_MEM_EQ(extracted, content, (size_t)out_len);
@@ -1150,7 +1150,7 @@ TEST(cli_extract_binary_from_zip_not_found) {
     ASSERT_NOT_NULL(zip);
 
     int out_len = 0;
-    unsigned char *extracted = cbm_extract_binary_from_zip(zip, zip_len, &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_zip(zip, zip_len, &out_len);
     ASSERT_NULL(extracted);
     free(zip);
     PASS();
@@ -1165,7 +1165,7 @@ TEST(cli_extract_binary_from_zip_path_traversal) {
     ASSERT_NOT_NULL(zip);
 
     int out_len = 0;
-    unsigned char *extracted = cbm_extract_binary_from_zip(zip, zip_len, &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_zip(zip, zip_len, &out_len);
     ASSERT_NULL(extracted);
     free(zip);
     PASS();
@@ -1174,7 +1174,7 @@ TEST(cli_extract_binary_from_zip_path_traversal) {
 TEST(cli_extract_binary_from_zip_invalid) {
     const unsigned char bad_data[] = "not a zip file";
     int out_len = 0;
-    unsigned char *extracted = cbm_extract_binary_from_zip(bad_data, sizeof(bad_data), &out_len);
+    unsigned char *extracted = ctx_extract_binary_from_zip(bad_data, sizeof(bad_data), &out_len);
     ASSERT_NULL(extracted);
     PASS();
 }
@@ -1187,18 +1187,18 @@ TEST(cli_install_dry_run) {
     /* Port of TestCLI_InstallDryRun */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-dry-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
-    int count = cbm_install_skills(skills_dir, false, true);
-    ASSERT_EQ(count, CBM_SKILL_COUNT);
+    int count = ctx_install_skills(skills_dir, false, true);
+    ASSERT_EQ(count, CTX_SKILL_COUNT);
 
     /* Skills should NOT be created */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s/SKILL.md", skills_dir, sk[i].name);
         struct stat st;
@@ -1213,19 +1213,19 @@ TEST(cli_uninstall_dry_run) {
     /* Port of TestCLI_UninstallDryRun */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-dry-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
-    cbm_install_skills(skills_dir, false, false);
-    int removed = cbm_remove_skills(skills_dir, true);
-    ASSERT_EQ(removed, CBM_SKILL_COUNT);
+    ctx_install_skills(skills_dir, false, false);
+    int removed = ctx_remove_skills(skills_dir, true);
+    ASSERT_EQ(removed, CTX_SKILL_COUNT);
 
     /* Skills should still exist */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s/SKILL.md", skills_dir, sk[i].name);
         struct stat st;
@@ -1244,19 +1244,19 @@ TEST(cli_install_and_uninstall) {
     /* Port of TestCLI_InstallAndUninstall */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-full-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char skills_dir[512];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", tmpdir);
 
     /* Install */
-    int written = cbm_install_skills(skills_dir, false, false);
-    ASSERT_EQ(written, CBM_SKILL_COUNT);
+    int written = ctx_install_skills(skills_dir, false, false);
+    ASSERT_EQ(written, CTX_SKILL_COUNT);
 
     /* Verify */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s/SKILL.md", skills_dir, sk[i].name);
         struct stat st;
@@ -1264,11 +1264,11 @@ TEST(cli_install_and_uninstall) {
     }
 
     /* Uninstall */
-    int removed = cbm_remove_skills(skills_dir, false);
-    ASSERT_EQ(removed, CBM_SKILL_COUNT);
+    int removed = ctx_remove_skills(skills_dir, false);
+    ASSERT_EQ(removed, CTX_SKILL_COUNT);
 
     /* Verify removed */
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s", skills_dir, sk[i].name);
         struct stat st;
@@ -1286,11 +1286,11 @@ TEST(cli_install_and_uninstall) {
 TEST(cli_yaml_parse_simple) {
     /* Basic key-value parsing */
     const char *yaml = "name: test\nversion: 1.0\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "test");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "version"), "1.0");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "test");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "version"), "1.0");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -1299,11 +1299,11 @@ TEST(cli_yaml_parse_nested) {
     const char *yaml = "parent:\n"
                        "  child: value\n"
                        "  number: 42\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "parent.child"), "value");
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "parent.number", 0), 42.0, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "parent.child"), "value");
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "parent.number", 0), 42.0, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -1313,15 +1313,15 @@ TEST(cli_yaml_parse_list) {
                        "  - alpha\n"
                        "  - beta\n"
                        "  - gamma\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[8];
-    int count = cbm_yaml_get_str_list(root, "items", items, 8);
+    int count = ctx_yaml_get_str_list(root, "items", items, 8);
     ASSERT_EQ(count, 3);
     ASSERT_STR_EQ(items[0], "alpha");
     ASSERT_STR_EQ(items[1], "beta");
     ASSERT_STR_EQ(items[2], "gamma");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -1330,13 +1330,13 @@ TEST(cli_yaml_parse_bool) {
                        "disabled: false\n"
                        "on_flag: yes\n"
                        "off_flag: no\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "enabled", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "disabled", true));
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "on_flag", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "off_flag", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "enabled", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "disabled", true));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "on_flag", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "off_flag", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -1346,31 +1346,31 @@ TEST(cli_yaml_parse_comments) {
                        "\n"
                        "# Another comment\n"
                        "other: data\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "value");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "other"), "data");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "value");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "other"), "data");
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(cli_yaml_parse_empty) {
-    cbm_yaml_node_t *root = cbm_yaml_parse("", 0);
+    ctx_yaml_node_t *root = ctx_yaml_parse("", 0);
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, "anything"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "anything"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(cli_yaml_has) {
     const char *yaml = "a:\n  b: c\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_has(root, "a"));
-    ASSERT_TRUE(cbm_yaml_has(root, "a.b"));
-    ASSERT_FALSE(cbm_yaml_has(root, "a.c"));
-    ASSERT_FALSE(cbm_yaml_has(root, "x"));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_has(root, "a"));
+    ASSERT_TRUE(ctx_yaml_has(root, "a.b"));
+    ASSERT_FALSE(ctx_yaml_has(root, "a.c"));
+    ASSERT_FALSE(ctx_yaml_has(root, "x"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -1381,14 +1381,14 @@ TEST(cli_yaml_has) {
 TEST(cli_detect_agents_finds_claude) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
     snprintf(dir, sizeof(dir), "%s/.claude", tmpdir);
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.claude_code);
 
     test_rmdir_r(tmpdir);
@@ -1398,14 +1398,14 @@ TEST(cli_detect_agents_finds_claude) {
 TEST(cli_detect_agents_finds_codex) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
     snprintf(dir, sizeof(dir), "%s/.codex", tmpdir);
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.codex);
 
     test_rmdir_r(tmpdir);
@@ -1415,14 +1415,14 @@ TEST(cli_detect_agents_finds_codex) {
 TEST(cli_detect_agents_finds_gemini) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
     snprintf(dir, sizeof(dir), "%s/.gemini", tmpdir);
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.gemini);
 
     test_rmdir_r(tmpdir);
@@ -1432,8 +1432,8 @@ TEST(cli_detect_agents_finds_gemini) {
 TEST(cli_detect_agents_finds_zed) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
 #ifdef __APPLE__
@@ -1445,7 +1445,7 @@ TEST(cli_detect_agents_finds_zed) {
 #endif
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.zed);
 
     test_rmdir_r(tmpdir);
@@ -1455,14 +1455,14 @@ TEST(cli_detect_agents_finds_zed) {
 TEST(cli_detect_agents_finds_antigravity) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
     snprintf(dir, sizeof(dir), "%s/.gemini/antigravity", tmpdir);
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.antigravity);
     ASSERT_TRUE(agents.gemini); /* parent dir implies gemini too */
 
@@ -1473,8 +1473,8 @@ TEST(cli_detect_agents_finds_antigravity) {
 TEST(cli_detect_agents_finds_kilocode) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char dir[512];
 #ifdef __APPLE__
@@ -1488,7 +1488,7 @@ TEST(cli_detect_agents_finds_kilocode) {
 #endif
     test_mkdirp(dir);
 
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_TRUE(agents.kilocode);
 
     test_rmdir_r(tmpdir);
@@ -1498,13 +1498,13 @@ TEST(cli_detect_agents_finds_kilocode) {
 TEST(cli_detect_agents_none_found) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-detect-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     /* Empty home dir → no config dirs → no directory-based agents detected.
      * Note: opencode/aider may still be detected via system fallback paths
      * (e.g. /usr/local/bin) so we only assert on directory-based agents. */
-    cbm_detected_agents_t agents = cbm_detect_agents(tmpdir);
+    ctx_detected_agents_t agents = ctx_detect_agents(tmpdir);
     ASSERT_FALSE(agents.claude_code);
     ASSERT_FALSE(agents.codex);
     ASSERT_FALSE(agents.gemini);
@@ -1523,13 +1523,13 @@ TEST(cli_detect_agents_none_found) {
 TEST(cli_upsert_codex_mcp_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
 
-    int rc = cbm_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1544,14 +1544,14 @@ TEST(cli_upsert_codex_mcp_fresh) {
 TEST(cli_upsert_codex_mcp_existing) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
     write_test_file(configpath, "model = \"gpt-4\"\n\n[other_setting]\nfoo = \"bar\"\n");
 
-    int rc = cbm_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1569,8 +1569,8 @@ TEST(cli_upsert_codex_mcp_existing) {
 TEST(cli_upsert_codex_mcp_replace) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-codex-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
@@ -1579,7 +1579,7 @@ TEST(cli_upsert_codex_mcp_replace) {
                                 "\n"
                                 "[other_setting]\nfoo = \"bar\"\n");
 
-    int rc = cbm_upsert_codex_mcp("/new/path/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/new/path/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1602,13 +1602,13 @@ TEST(cli_zed_mcp_uses_args_format) {
     /* Verify Zed uses args:[""] NOT source:"custom" */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-zed-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/settings.json", tmpdir);
 
-    cbm_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
@@ -1627,13 +1627,13 @@ TEST(cli_zed_mcp_uses_args_format) {
 TEST(cli_upsert_opencode_mcp_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ocode-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
 
-    int rc = cbm_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1654,14 +1654,14 @@ TEST(cli_upsert_opencode_mcp_fresh) {
 TEST(cli_upsert_opencode_mcp_existing) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ocode-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
     write_test_file(configpath, "{\"mcp\":{\"other-server\":{\"command\":\"/usr/bin/other\"}}}");
 
-    int rc = cbm_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1680,13 +1680,13 @@ TEST(cli_upsert_opencode_mcp_existing) {
 TEST(cli_upsert_antigravity_mcp_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-anti-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
 
-    int rc = cbm_upsert_antigravity_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_antigravity_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1700,15 +1700,15 @@ TEST(cli_upsert_antigravity_mcp_fresh) {
 TEST(cli_upsert_antigravity_mcp_replace) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-anti-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
     write_test_file(configpath,
                     "{\"mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"/old/path\"}}}");
 
-    int rc = cbm_upsert_antigravity_mcp("/new/path/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_antigravity_mcp("/new/path/codebase-memory-mcp", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1727,13 +1727,13 @@ TEST(cli_upsert_antigravity_mcp_replace) {
 TEST(cli_upsert_instructions_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
 
-    int rc = cbm_upsert_instructions(filepath, "# Test content\nHello world\n");
+    int rc = ctx_upsert_instructions(filepath, "# Test content\nHello world\n");
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(filepath);
@@ -1749,14 +1749,14 @@ TEST(cli_upsert_instructions_fresh) {
 TEST(cli_upsert_instructions_existing) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
     write_test_file(filepath, "# My Project Rules\n\nDo the thing.\n");
 
-    int rc = cbm_upsert_instructions(filepath, "# CMM\nUse search_graph\n");
+    int rc = ctx_upsert_instructions(filepath, "# CMM\nUse search_graph\n");
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(filepath);
@@ -1775,8 +1775,8 @@ TEST(cli_upsert_instructions_existing) {
 TEST(cli_upsert_instructions_replace) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
@@ -1786,7 +1786,7 @@ TEST(cli_upsert_instructions_replace) {
                               "<!-- codebase-memory-mcp:end -->\n"
                               "# Other stuff\n");
 
-    int rc = cbm_upsert_instructions(filepath, "NEW CONTENT\n");
+    int rc = ctx_upsert_instructions(filepath, "NEW CONTENT\n");
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(filepath);
@@ -1805,15 +1805,15 @@ TEST(cli_upsert_instructions_replace) {
 TEST(cli_upsert_instructions_no_duplicate) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
 
     /* Install twice */
-    cbm_upsert_instructions(filepath, "Content v1\n");
-    cbm_upsert_instructions(filepath, "Content v2\n");
+    ctx_upsert_instructions(filepath, "Content v1\n");
+    ctx_upsert_instructions(filepath, "Content v2\n");
 
     const char *data = read_test_file(filepath);
     ASSERT_NOT_NULL(data);
@@ -1836,8 +1836,8 @@ TEST(cli_upsert_instructions_no_duplicate) {
 TEST(cli_remove_instructions) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-instr-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
@@ -1847,7 +1847,7 @@ TEST(cli_remove_instructions) {
                               "<!-- codebase-memory-mcp:end -->\n"
                               "# Other\n");
 
-    int rc = cbm_remove_instructions(filepath);
+    int rc = ctx_remove_instructions(filepath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(filepath);
@@ -1862,7 +1862,7 @@ TEST(cli_remove_instructions) {
 }
 
 TEST(cli_agent_instructions_content) {
-    const char *instr = cbm_get_agent_instructions();
+    const char *instr = ctx_get_agent_instructions();
     ASSERT_NOT_NULL(instr);
     ASSERT(strstr(instr, "search_graph") != NULL);
     ASSERT(strstr(instr, "trace_path") != NULL);
@@ -1877,13 +1877,13 @@ TEST(cli_agent_instructions_content) {
 TEST(cli_upsert_claude_hook_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
 
-    int rc = cbm_upsert_claude_hooks(settingspath);
+    int rc = ctx_upsert_claude_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -1899,8 +1899,8 @@ TEST(cli_upsert_claude_hook_fresh) {
 TEST(cli_upsert_claude_hook_existing) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
@@ -1909,7 +1909,7 @@ TEST(cli_upsert_claude_hook_existing) {
                     "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\","
                     "\"hooks\":[{\"type\":\"command\",\"command\":\"echo firewall\"}]}]}}");
 
-    int rc = cbm_upsert_claude_hooks(settingspath);
+    int rc = ctx_upsert_claude_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -1927,8 +1927,8 @@ TEST(cli_upsert_claude_hook_existing) {
 TEST(cli_upsert_claude_hook_replace) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
@@ -1937,7 +1937,7 @@ TEST(cli_upsert_claude_hook_replace) {
                     "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Grep|Glob|Read\","
                     "\"hooks\":[{\"type\":\"command\",\"command\":\"echo old-cmm-message\"}]}]}}");
 
-    int rc = cbm_upsert_claude_hooks(settingspath);
+    int rc = ctx_upsert_claude_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -1953,8 +1953,8 @@ TEST(cli_upsert_claude_hook_replace) {
 TEST(cli_upsert_claude_hook_preserves_others) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
@@ -1963,7 +1963,7 @@ TEST(cli_upsert_claude_hook_preserves_others) {
                     "\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\","
                     "\"hooks\":[{\"type\":\"command\",\"command\":\"echo guard\"}]}]}}");
 
-    cbm_upsert_claude_hooks(settingspath);
+    ctx_upsert_claude_hooks(settingspath);
 
     const char *data = read_test_file(settingspath);
     ASSERT_NOT_NULL(data);
@@ -1981,15 +1981,15 @@ TEST(cli_upsert_claude_hook_preserves_others) {
 TEST(cli_remove_claude_hooks) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-hook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
 
     /* Install then remove */
-    cbm_upsert_claude_hooks(settingspath);
-    int rc = cbm_remove_claude_hooks(settingspath);
+    ctx_upsert_claude_hooks(settingspath);
+    int rc = ctx_remove_claude_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -2007,13 +2007,13 @@ TEST(cli_remove_claude_hooks) {
 TEST(cli_upsert_gemini_hook_fresh) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
 
-    int rc = cbm_upsert_gemini_hooks(settingspath);
+    int rc = ctx_upsert_gemini_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -2028,8 +2028,8 @@ TEST(cli_upsert_gemini_hook_fresh) {
 TEST(cli_upsert_gemini_hook_existing) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
@@ -2037,7 +2037,7 @@ TEST(cli_upsert_gemini_hook_existing) {
                     "{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"shell\","
                     "\"hooks\":[{\"type\":\"command\",\"command\":\"echo guard\"}]}]}}");
 
-    int rc = cbm_upsert_gemini_hooks(settingspath);
+    int rc = ctx_upsert_gemini_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -2054,8 +2054,8 @@ TEST(cli_upsert_gemini_hook_existing) {
 TEST(cli_upsert_gemini_hook_replace) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
@@ -2064,7 +2064,7 @@ TEST(cli_upsert_gemini_hook_replace) {
         "{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"google_search|read_file|grep_search\","
         "\"hooks\":[{\"type\":\"command\",\"command\":\"echo old-cmm\"}]}]}}");
 
-    int rc = cbm_upsert_gemini_hooks(settingspath);
+    int rc = ctx_upsert_gemini_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -2079,14 +2079,14 @@ TEST(cli_upsert_gemini_hook_replace) {
 TEST(cli_remove_gemini_hooks) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-ghook-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
     char settingspath[512];
     snprintf(settingspath, sizeof(settingspath), "%s/settings.json", tmpdir);
 
-    cbm_upsert_gemini_hooks(settingspath);
-    int rc = cbm_remove_gemini_hooks(settingspath);
+    ctx_upsert_gemini_hooks(settingspath);
+    int rc = ctx_remove_gemini_hooks(settingspath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(settingspath);
@@ -2103,8 +2103,8 @@ TEST(cli_remove_gemini_hooks) {
 
 TEST(cli_skill_descriptions_directive) {
     /* Verify skill description has trigger phrases for agent matching */
-    const cbm_skill_t *sk = cbm_get_skills();
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    const ctx_skill_t *sk = ctx_get_skills();
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         ASSERT(strstr(sk[i].content, "Triggers on:") != NULL);
         ASSERT(strstr(sk[i].content, "search_graph") != NULL);
     }
@@ -2118,12 +2118,12 @@ TEST(cli_skill_descriptions_directive) {
 TEST(cli_config_open_close) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
 
     /* DB file should exist */
     char dbpath[512];
@@ -2138,24 +2138,24 @@ TEST(cli_config_open_close) {
 TEST(cli_config_get_set) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
 
     /* Default when key doesn't exist */
-    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "default");
+    ASSERT_STR_EQ(ctx_config_get(cfg, "foo", "default"), "default");
 
     /* Set and get */
-    ASSERT_EQ(cbm_config_set(cfg, "foo", "bar"), 0);
-    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "bar");
+    ASSERT_EQ(ctx_config_set(cfg, "foo", "bar"), 0);
+    ASSERT_STR_EQ(ctx_config_get(cfg, "foo", "default"), "bar");
 
     /* Overwrite */
-    ASSERT_EQ(cbm_config_set(cfg, "foo", "baz"), 0);
-    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "default"), "baz");
+    ASSERT_EQ(ctx_config_set(cfg, "foo", "baz"), 0);
+    ASSERT_STR_EQ(ctx_config_get(cfg, "foo", "default"), "baz");
 
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
     test_rmdir_r(tmpdir);
     PASS();
 }
@@ -2163,31 +2163,31 @@ TEST(cli_config_get_set) {
 TEST(cli_config_get_bool) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
 
     /* Default */
-    ASSERT_FALSE(cbm_config_get_bool(cfg, "auto_index", false));
-    ASSERT_TRUE(cbm_config_get_bool(cfg, "auto_index", true));
+    ASSERT_FALSE(ctx_config_get_bool(cfg, "auto_index", false));
+    ASSERT_TRUE(ctx_config_get_bool(cfg, "auto_index", true));
 
     /* true variants */
-    cbm_config_set(cfg, "k1", "true");
-    ASSERT_TRUE(cbm_config_get_bool(cfg, "k1", false));
-    cbm_config_set(cfg, "k2", "1");
-    ASSERT_TRUE(cbm_config_get_bool(cfg, "k2", false));
-    cbm_config_set(cfg, "k3", "on");
-    ASSERT_TRUE(cbm_config_get_bool(cfg, "k3", false));
+    ctx_config_set(cfg, "k1", "true");
+    ASSERT_TRUE(ctx_config_get_bool(cfg, "k1", false));
+    ctx_config_set(cfg, "k2", "1");
+    ASSERT_TRUE(ctx_config_get_bool(cfg, "k2", false));
+    ctx_config_set(cfg, "k3", "on");
+    ASSERT_TRUE(ctx_config_get_bool(cfg, "k3", false));
 
     /* false variants */
-    cbm_config_set(cfg, "k4", "false");
-    ASSERT_FALSE(cbm_config_get_bool(cfg, "k4", true));
-    cbm_config_set(cfg, "k5", "0");
-    ASSERT_FALSE(cbm_config_get_bool(cfg, "k5", true));
+    ctx_config_set(cfg, "k4", "false");
+    ASSERT_FALSE(ctx_config_get_bool(cfg, "k4", true));
+    ctx_config_set(cfg, "k5", "0");
+    ASSERT_FALSE(ctx_config_get_bool(cfg, "k5", true));
 
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
     test_rmdir_r(tmpdir);
     PASS();
 }
@@ -2195,22 +2195,22 @@ TEST(cli_config_get_bool) {
 TEST(cli_config_get_int) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
 
-    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 50000);
+    ASSERT_EQ(ctx_config_get_int(cfg, "limit", 50000), 50000);
 
-    cbm_config_set(cfg, "limit", "20000");
-    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 20000);
+    ctx_config_set(cfg, "limit", "20000");
+    ASSERT_EQ(ctx_config_get_int(cfg, "limit", 50000), 20000);
 
     /* Non-numeric → default */
-    cbm_config_set(cfg, "limit", "abc");
-    ASSERT_EQ(cbm_config_get_int(cfg, "limit", 50000), 50000);
+    ctx_config_set(cfg, "limit", "abc");
+    ASSERT_EQ(ctx_config_get_int(cfg, "limit", 50000), 50000);
 
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
     test_rmdir_r(tmpdir);
     PASS();
 }
@@ -2218,19 +2218,19 @@ TEST(cli_config_get_int) {
 TEST(cli_config_delete) {
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
 
-    cbm_config_set(cfg, "foo", "bar");
-    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", ""), "bar");
+    ctx_config_set(cfg, "foo", "bar");
+    ASSERT_STR_EQ(ctx_config_get(cfg, "foo", ""), "bar");
 
-    cbm_config_delete(cfg, "foo");
-    ASSERT_STR_EQ(cbm_config_get(cfg, "foo", "gone"), "gone");
+    ctx_config_delete(cfg, "foo");
+    ASSERT_STR_EQ(ctx_config_get(cfg, "foo", "gone"), "gone");
 
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
     test_rmdir_r(tmpdir);
     PASS();
 }
@@ -2239,37 +2239,37 @@ TEST(cli_config_persists) {
     /* Values survive close + reopen */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-cfg-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir))
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("ctx_mkdtemp failed");
 
-    cbm_config_t *cfg = cbm_config_open(tmpdir);
+    ctx_config_t *cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
-    cbm_config_set(cfg, "auto_index", "true");
-    cbm_config_close(cfg);
+    ctx_config_set(cfg, "auto_index", "true");
+    ctx_config_close(cfg);
 
     /* Reopen */
-    cfg = cbm_config_open(tmpdir);
+    cfg = ctx_config_open(tmpdir);
     ASSERT_NOT_NULL(cfg);
-    ASSERT_TRUE(cbm_config_get_bool(cfg, "auto_index", false));
-    cbm_config_close(cfg);
+    ASSERT_TRUE(ctx_config_get_bool(cfg, "auto_index", false));
+    ctx_config_close(cfg);
 
     test_rmdir_r(tmpdir);
     PASS();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- *  Group H: cbm_replace_binary (update command helper)
+ *  Group H: ctx_replace_binary (update command helper)
  * ═══════════════════════════════════════════════════════════════════ */
 
 #ifndef _WIN32
 
 TEST(replace_binary_overwrites_readonly) {
     /* Simulate #114: existing binary has mode 0500 (no write permission).
-     * cbm_replace_binary must unlink first, then create with 0755. */
+     * ctx_replace_binary must unlink first, then create with 0755. */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-replace-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir)) {
+        SKIP("ctx_mkdtemp failed");
     }
 
     char path[512];
@@ -2284,7 +2284,7 @@ TEST(replace_binary_overwrites_readonly) {
 
     /* Replace it with new content */
     const unsigned char new_data[] = "new-content-replaced";
-    int rc = cbm_replace_binary(path, new_data, (int)sizeof(new_data) - 1, 0755);
+    int rc = ctx_replace_binary(path, new_data, (int)sizeof(new_data) - 1, 0755);
     ASSERT_EQ(rc, 0);
 
     /* Verify new content was written */
@@ -2306,18 +2306,18 @@ TEST(replace_binary_overwrites_readonly) {
 }
 
 TEST(replace_binary_creates_new_file) {
-    /* If no existing file, cbm_replace_binary should create it. */
+    /* If no existing file, ctx_replace_binary should create it. */
     char tmpdir[256];
     snprintf(tmpdir, sizeof(tmpdir), "/tmp/cli-replace2-XXXXXX");
-    if (!cbm_mkdtemp(tmpdir)) {
-        SKIP("cbm_mkdtemp failed");
+    if (!ctx_mkdtemp(tmpdir)) {
+        SKIP("ctx_mkdtemp failed");
     }
 
     char path[512];
     snprintf(path, sizeof(path), "%s/new-binary", tmpdir);
 
     const unsigned char data[] = "brand-new";
-    int rc = cbm_replace_binary(path, data, (int)sizeof(data) - 1, 0755);
+    int rc = ctx_replace_binary(path, data, (int)sizeof(data) - 1, 0755);
     ASSERT_EQ(rc, 0);
 
     FILE *check = fopen(path, "r");

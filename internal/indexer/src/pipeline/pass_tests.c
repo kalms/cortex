@@ -35,7 +35,7 @@ enum {
 #include <string.h>
 
 static const char *itoa_log(int val) {
-    static char bufs[PT_RING][CBM_SZ_32];
+    static char bufs[PT_RING][CTX_SZ_32];
     static int idx = 0;
     int i = idx;
     idx = (idx + SKIP_ONE) & PT_RING_MASK;
@@ -44,7 +44,7 @@ static const char *itoa_log(int val) {
 }
 
 /* Check if a node has is_test:true in its properties JSON. */
-static bool node_is_test(const cbm_gbuf_node_t *n) {
+static bool node_is_test(const ctx_gbuf_node_t *n) {
     if (!n || !n->properties_json) {
         return false;
     }
@@ -58,7 +58,7 @@ static bool str_ends_with(const char *s, size_t slen, const char *suffix) {
 }
 
 /* Check if a file path looks like a test file (language-agnostic). */
-bool cbm_is_test_path(const char *path) {
+bool ctx_is_test_path(const char *path) {
     if (!path) {
         return false;
     }
@@ -112,7 +112,7 @@ bool cbm_is_test_path(const char *path) {
 }
 
 /* Check if a function name looks like a test function (language-agnostic). */
-bool cbm_is_test_func_name(const char *name) {
+bool ctx_is_test_func_name(const char *name) {
     if (!name) {
         return false;
     }
@@ -209,58 +209,58 @@ static char *test_to_prod_path(const char *test_path) {
 }
 
 /* Create TESTS edges from test functions to production functions via CALLS edges. */
-static int create_tests_edges(cbm_pipeline_ctx_t *ctx) {
+static int create_tests_edges(ctx_pipeline_ctx_t *ctx) {
     int count = 0;
-    const cbm_gbuf_edge_t **call_edges = NULL;
+    const ctx_gbuf_edge_t **call_edges = NULL;
     int call_count = 0;
-    int rc = cbm_gbuf_find_edges_by_type(ctx->gbuf, "CALLS", &call_edges, &call_count);
+    int rc = ctx_gbuf_find_edges_by_type(ctx->gbuf, "CALLS", &call_edges, &call_count);
     if (rc != 0 || call_count == 0) {
         return 0;
     }
 
     for (int i = 0; i < call_count; i++) {
-        const cbm_gbuf_edge_t *e = call_edges[i];
-        const cbm_gbuf_node_t *src = cbm_gbuf_find_by_id(ctx->gbuf, e->source_id);
-        const cbm_gbuf_node_t *tgt = cbm_gbuf_find_by_id(ctx->gbuf, e->target_id);
+        const ctx_gbuf_edge_t *e = call_edges[i];
+        const ctx_gbuf_node_t *src = ctx_gbuf_find_by_id(ctx->gbuf, e->source_id);
+        const ctx_gbuf_node_t *tgt = ctx_gbuf_find_by_id(ctx->gbuf, e->target_id);
         if (!src || !tgt) {
             continue;
         }
 
         bool src_is_test =
-            node_is_test(src) || (src->file_path && cbm_is_test_path(src->file_path));
+            node_is_test(src) || (src->file_path && ctx_is_test_path(src->file_path));
         if (!src_is_test) {
             continue;
         }
 
         bool tgt_is_test =
-            node_is_test(tgt) || (tgt->file_path && cbm_is_test_path(tgt->file_path));
+            node_is_test(tgt) || (tgt->file_path && ctx_is_test_path(tgt->file_path));
         if (tgt_is_test) {
             continue;
         }
 
-        if (!cbm_is_test_func_name(src->name)) {
+        if (!ctx_is_test_func_name(src->name)) {
             continue;
         }
 
-        cbm_gbuf_insert_edge(ctx->gbuf, src->id, tgt->id, "TESTS", "{}");
+        ctx_gbuf_insert_edge(ctx->gbuf, src->id, tgt->id, "TESTS", "{}");
         count++;
     }
     return count;
 }
 
 /* Create TESTS_FILE edges from test File nodes to production File nodes. */
-static int create_tests_file_edges(cbm_pipeline_ctx_t *ctx) {
+static int create_tests_file_edges(ctx_pipeline_ctx_t *ctx) {
     int count = 0;
-    const cbm_gbuf_node_t **file_nodes = NULL;
+    const ctx_gbuf_node_t **file_nodes = NULL;
     int file_node_count = 0;
-    int rc = cbm_gbuf_find_by_label(ctx->gbuf, "File", &file_nodes, &file_node_count);
+    int rc = ctx_gbuf_find_by_label(ctx->gbuf, "File", &file_nodes, &file_node_count);
     if (rc != 0) {
         return 0;
     }
 
     for (int i = 0; i < file_node_count; i++) {
-        const cbm_gbuf_node_t *fnode = file_nodes[i];
-        if (!fnode->file_path || !cbm_is_test_path(fnode->file_path)) {
+        const ctx_gbuf_node_t *fnode = file_nodes[i];
+        if (!fnode->file_path || !ctx_is_test_path(fnode->file_path)) {
             continue;
         }
 
@@ -269,28 +269,28 @@ static int create_tests_file_edges(cbm_pipeline_ctx_t *ctx) {
             continue;
         }
 
-        char *prod_qn = cbm_pipeline_fqn_compute(ctx->project_name, prod_path, "__file__");
-        const cbm_gbuf_node_t *prod_node = cbm_gbuf_find_by_qn(ctx->gbuf, prod_qn);
+        char *prod_qn = ctx_pipeline_fqn_compute(ctx->project_name, prod_path, "__file__");
+        const ctx_gbuf_node_t *prod_node = ctx_gbuf_find_by_qn(ctx->gbuf, prod_qn);
         free(prod_qn);
         free(prod_path);
 
         if (prod_node && fnode->id != prod_node->id) {
-            cbm_gbuf_insert_edge(ctx->gbuf, fnode->id, prod_node->id, "TESTS_FILE", "{}");
+            ctx_gbuf_insert_edge(ctx->gbuf, fnode->id, prod_node->id, "TESTS_FILE", "{}");
             count++;
         }
     }
     return count;
 }
 
-int cbm_pipeline_pass_tests(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *files, int file_count) {
-    cbm_log_info("pass.start", "pass", "tests");
+int ctx_pipeline_pass_tests(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, int file_count) {
+    ctx_log_info("pass.start", "pass", "tests");
     (void)files;
     (void)file_count;
 
     int tests_count = create_tests_edges(ctx);
     int tests_file_count = create_tests_file_edges(ctx);
 
-    cbm_log_info("pass.done", "pass", "tests", "tests", itoa_log(tests_count), "tests_file",
+    ctx_log_info("pass.done", "pass", "tests", "tests", itoa_log(tests_count), "tests_file",
                  itoa_log(tests_file_count));
     return 0;
 }

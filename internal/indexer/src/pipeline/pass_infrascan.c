@@ -136,11 +136,11 @@ static void rtrim(char *s) {
 
 /* ── File identification ────────────────────────────────────────── */
 
-bool cbm_is_dockerfile(const char *name) {
+bool ctx_is_dockerfile(const char *name) {
     if (!name) {
         return false;
     }
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     to_lower(name, lower, sizeof(lower));
 
     if (strcmp(lower, "dockerfile") == 0) {
@@ -156,11 +156,11 @@ bool cbm_is_dockerfile(const char *name) {
     return false;
 }
 
-bool cbm_is_compose_file(const char *name) {
+bool ctx_is_compose_file(const char *name) {
     if (!name) {
         return false;
     }
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     to_lower(name, lower, sizeof(lower));
 
     bool prefix_match = (strncmp(lower, "docker-compose", LEN_DOCKER_COMPOSE) == 0) ||
@@ -176,11 +176,11 @@ bool cbm_is_compose_file(const char *name) {
     return (strcmp(ext, ".yml") == 0 || strcmp(ext, ".yaml") == 0);
 }
 
-bool cbm_is_cloudbuild_file(const char *name) {
+bool ctx_is_cloudbuild_file(const char *name) {
     if (!name) {
         return false;
     }
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     to_lower(name, lower, sizeof(lower));
 
     if (strncmp(lower, "cloudbuild", SLEN("cloudbuild")) != 0) {
@@ -193,11 +193,11 @@ bool cbm_is_cloudbuild_file(const char *name) {
     return (strcmp(ext, ".yml") == 0 || strcmp(ext, ".yaml") == 0);
 }
 
-bool cbm_is_env_file(const char *name) {
+bool ctx_is_env_file(const char *name) {
     if (!name) {
         return false;
     }
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     to_lower(name, lower, sizeof(lower));
 
     if (strcmp(lower, ".env") == 0) {
@@ -213,11 +213,11 @@ bool cbm_is_env_file(const char *name) {
     return false;
 }
 
-bool cbm_is_kustomize_file(const char *name) {
+bool ctx_is_kustomize_file(const char *name) {
     if (!name) {
         return false;
     }
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     to_lower(name, lower, sizeof(lower));
     if (strcmp(lower, "kustomization.yaml") == 0) {
         return true;
@@ -225,8 +225,8 @@ bool cbm_is_kustomize_file(const char *name) {
     return strcmp(lower, "kustomization.yml") == 0;
 }
 
-bool cbm_is_k8s_manifest(const char *name, const char *content) {
-    if (!name || !content || cbm_is_kustomize_file(name)) {
+bool ctx_is_k8s_manifest(const char *name, const char *content) {
+    if (!name || !content || ctx_is_kustomize_file(name)) {
         return false;
     }
     enum { K8S_PEEK_SZ = 4097 };
@@ -237,7 +237,7 @@ bool cbm_is_k8s_manifest(const char *name, const char *content) {
     return ci_strstr(buf, "apiVersion:") != NULL;
 }
 
-bool cbm_is_shell_script(const char *name, const char *ext) {
+bool ctx_is_shell_script(const char *name, const char *ext) {
     (void)name;
     if (!ext) {
         return false;
@@ -261,7 +261,7 @@ static bool key_is_secret(const char *key) {
     return false;
 }
 
-bool cbm_is_secret_value(const char *value) {
+bool ctx_is_secret_value(const char *value) {
     if (!value || !*value) {
         return false;
     }
@@ -311,11 +311,11 @@ bool cbm_is_secret_value(const char *value) {
     return false;
 }
 
-bool cbm_is_secret_binding(const char *key, const char *value) {
+bool ctx_is_secret_binding(const char *key, const char *value) {
     if (key && key_is_secret(key)) {
         return true;
     }
-    if (value && cbm_is_secret_value(value)) {
+    if (value && ctx_is_secret_value(value)) {
         return true;
     }
     return false;
@@ -351,7 +351,7 @@ static void clean_json_array_inner(const char *s, size_t len, char *out, size_t 
     out[pos] = '\0';
 }
 
-void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
+void ctx_clean_json_brackets(const char *s, char *out, size_t out_sz) {
     if (!s || !out || out_sz == 0) {
         return;
     }
@@ -366,7 +366,7 @@ void cbm_clean_json_brackets(const char *s, char *out, size_t out_sz) {
 
 /* ── Dockerfile parser ──────────────────────────────────────────── */
 
-static void df_parse_from(const char *line, cbm_dockerfile_result_t *r) {
+static void df_parse_from(const char *line, ctx_dockerfile_result_t *r) {
     if (strncasecmp(line, "FROM", SLEN("FROM")) != 0) {
         return;
     }
@@ -398,7 +398,7 @@ static void df_parse_from(const char *line, cbm_dockerfile_result_t *r) {
     r->stage_count++;
 }
 
-static void df_parse_expose(const char *line, cbm_dockerfile_result_t *r) {
+static void df_parse_expose(const char *line, ctx_dockerfile_result_t *r) {
     if (strncasecmp(line, "EXPOSE", SLEN("EXPOSE")) != 0) {
         return;
     }
@@ -410,7 +410,7 @@ static void df_parse_expose(const char *line, cbm_dockerfile_result_t *r) {
 
     /* Parse space-separated ports */
     while (*p && r->port_count < IS_MAX_PORTS) {
-        char port[CBM_SZ_32];
+        char port[CTX_SZ_32];
         int n = extract_token(p, port, sizeof(port));
         if (n == 0) {
             break;
@@ -430,7 +430,7 @@ static void df_parse_expose(const char *line, cbm_dockerfile_result_t *r) {
     }
 }
 
-static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
+static void df_parse_env(const char *line, ctx_dockerfile_result_t *r) {
     if (strncasecmp(line, "ENV", SLEN("ENV")) != 0) {
         return;
     }
@@ -440,12 +440,12 @@ static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
     }
     p = skip_ws(p);
 
-    if (r->env_count >= CBM_SZ_64) {
+    if (r->env_count >= CTX_SZ_64) {
         return;
     }
 
     /* Extract key */
-    char key[CBM_SZ_128];
+    char key[CTX_SZ_128];
     int klen = extract_word(p, key, sizeof(key));
     if (klen == 0) {
         return;
@@ -463,12 +463,12 @@ static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
     }
 
     /* Value is rest of line (trimmed) */
-    char value[CBM_SZ_512];
+    char value[CTX_SZ_512];
     snprintf(value, sizeof(value), "%s", p);
     rtrim(value);
 
     /* Filter secrets */
-    if (cbm_is_secret_binding(key, value)) {
+    if (ctx_is_secret_binding(key, value)) {
         return;
     }
 
@@ -477,7 +477,7 @@ static void df_parse_env(const char *line, cbm_dockerfile_result_t *r) {
     r->env_count++;
 }
 
-static void df_parse_arg(const char *line, cbm_dockerfile_result_t *r) {
+static void df_parse_arg(const char *line, ctx_dockerfile_result_t *r) {
     if (strncasecmp(line, "ARG", SLEN("ARG")) != 0) {
         return;
     }
@@ -487,7 +487,7 @@ static void df_parse_arg(const char *line, cbm_dockerfile_result_t *r) {
     }
     p = skip_ws(p);
 
-    if (r->build_arg_count >= CBM_SZ_32) {
+    if (r->build_arg_count >= CTX_SZ_32) {
         return;
     }
     extract_word(p, r->build_args[r->build_arg_count], sizeof(r->build_args[0]));
@@ -499,13 +499,13 @@ static void df_parse_arg(const char *line, cbm_dockerfile_result_t *r) {
 /* Parse a Dockerfile CMD/ENTRYPOINT value: strip brackets, trim. */
 static void df_parse_json_cmd(const char *line, int prefix_len, char *out, size_t out_sz) {
     const char *p = skip_ws(line + prefix_len);
-    char raw[CBM_SZ_512];
+    char raw[CTX_SZ_512];
     snprintf(raw, sizeof(raw), "%s", p);
     rtrim(raw);
-    cbm_clean_json_brackets(raw, out, out_sz);
+    ctx_clean_json_brackets(raw, out, out_sz);
 }
 
-static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
+static void df_parse_directives(const char *line, ctx_dockerfile_result_t *r) {
     if (strncasecmp(line, "WORKDIR", SLEN("WORKDIR")) == 0 &&
         (line[IS_EXPORT_SKIP] == ' ' || line[IS_EXPORT_SKIP] == '\t')) {
         const char *p = skip_ws(line + IS_WORKDIR_SKIP);
@@ -540,15 +540,15 @@ static void df_parse_directives(const char *line, cbm_dockerfile_result_t *r) {
     }
 }
 
-int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out) {
+int ctx_parse_dockerfile_source(const char *source, ctx_dockerfile_result_t *out) {
     if (!source || !out) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     memset(out, 0, sizeof(*out));
 
     /* Process line by line */
     const char *p = source;
-    char line[CBM_SZ_4K];
+    char line[CTX_SZ_4K];
 
     while (*p) {
         /* Extract one line */
@@ -582,7 +582,7 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
 
     /* No stages = empty/invalid Dockerfile */
     if (out->stage_count == 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     /* base_image = last stage's image (use intermediate copy to avoid restrict overlap) */
@@ -600,16 +600,16 @@ int cbm_parse_dockerfile_source(const char *source, cbm_dockerfile_result_t *out
 /* Strip matching surrounding quotes from a value string in-place. */
 static void strip_surrounding_quotes(char *value) {
     size_t vlen = strlen(value);
-    if (vlen >= CBM_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
+    if (vlen >= CTX_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
                                    (value[0] == '\'' && value[vlen - SKIP_ONE] == '\''))) {
-        memmove(value, value + CBM_QUOTE_OFFSET, vlen - CBM_QUOTE_PAIR);
+        memmove(value, value + CTX_QUOTE_OFFSET, vlen - CTX_QUOTE_PAIR);
         value[vlen - IS_QUOTE_TRIM] = '\0';
     }
 }
 
 /* Parse a single dotenv line: KEY=VALUE. Returns 1 if env var added. */
-static int parse_dotenv_line(const char *trimmed, cbm_dotenv_result_t *out) {
-    char key[CBM_SZ_128];
+static int parse_dotenv_line(const char *trimmed, ctx_dotenv_result_t *out) {
+    char key[CTX_SZ_128];
     int klen = 0;
     if (isalpha((unsigned char)trimmed[0]) || trimmed[0] == '_') {
         klen = extract_word(trimmed, key, sizeof(key));
@@ -618,12 +618,12 @@ static int parse_dotenv_line(const char *trimmed, cbm_dotenv_result_t *out) {
         return 0;
     }
 
-    char value[CBM_SZ_512];
+    char value[CTX_SZ_512];
     snprintf(value, sizeof(value), "%s", trimmed + klen + SKIP_ONE);
     rtrim(value);
     strip_surrounding_quotes(value);
 
-    if (cbm_is_secret_binding(key, value) || out->env_count >= CBM_SZ_64) {
+    if (ctx_is_secret_binding(key, value) || out->env_count >= CTX_SZ_64) {
         return 0;
     }
     snprintf(out->env_vars[out->env_count].key, sizeof(out->env_vars[0].key), "%s", key);
@@ -632,14 +632,14 @@ static int parse_dotenv_line(const char *trimmed, cbm_dotenv_result_t *out) {
     return SKIP_ONE;
 }
 
-int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
+int ctx_parse_dotenv_source(const char *source, ctx_dotenv_result_t *out) {
     if (!source || !out) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
-    char line[CBM_SZ_4K];
+    char line[CTX_SZ_4K];
 
     while (*p) {
         const char *eol = strchr(p, '\n');
@@ -669,7 +669,7 @@ int cbm_parse_dotenv_source(const char *source, cbm_dotenv_result_t *out) {
 
 /* ── Shell script parser ────────────────────────────────────────── */
 
-static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
+static void shell_parse_export(const char *line, ctx_shell_result_t *r) {
     /* export VAR=VALUE */
     if (strncmp(line, "export", SLEN("export")) != 0 ||
         (line[IS_EXPOSE_SKIP] != ' ' && line[IS_EXPOSE_SKIP] != '\t')) {
@@ -677,29 +677,29 @@ static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
     }
     const char *p = skip_ws(line + IS_EXPORT_SKIP);
 
-    char key[CBM_SZ_128];
+    char key[CTX_SZ_128];
     int klen = extract_word(p, key, sizeof(key));
     if (klen == 0 || p[klen] != '=') {
         return;
     }
 
     const char *val_start = p + klen + SKIP_ONE;
-    char value[CBM_SZ_512];
+    char value[CTX_SZ_512];
     snprintf(value, sizeof(value), "%s", val_start);
     rtrim(value);
 
     /* Strip surrounding quotes */
     size_t vlen = strlen(value);
-    if (vlen >= CBM_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
+    if (vlen >= CTX_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
                                    (value[0] == '\'' && value[vlen - SKIP_ONE] == '\''))) {
-        memmove(value, value + CBM_QUOTE_OFFSET, vlen - CBM_QUOTE_PAIR);
+        memmove(value, value + CTX_QUOTE_OFFSET, vlen - CTX_QUOTE_PAIR);
         value[vlen - IS_QUOTE_TRIM] = '\0';
     }
 
-    if (cbm_is_secret_binding(key, value)) {
+    if (ctx_is_secret_binding(key, value)) {
         return;
     }
-    if (r->env_count >= CBM_SZ_64) {
+    if (r->env_count >= CTX_SZ_64) {
         return;
     }
     snprintf(r->env_vars[r->env_count].key, sizeof(r->env_vars[0].key), "%s", key);
@@ -707,35 +707,35 @@ static void shell_parse_export(const char *line, cbm_shell_result_t *r) {
     r->env_count++;
 }
 
-static void shell_parse_plain_var(const char *line, cbm_shell_result_t *r) {
+static void shell_parse_plain_var(const char *line, ctx_shell_result_t *r) {
     /* VAR=VALUE (only if no spaces in line — avoids matching commands) */
     if (strchr(line, ' ') || strchr(line, '\t')) {
         return;
     }
 
-    char key[CBM_SZ_128];
+    char key[CTX_SZ_128];
     int klen = extract_word(line, key, sizeof(key));
     if (klen == 0 || line[klen] != '=') {
         return;
     }
 
     const char *val_start = line + klen + SKIP_ONE;
-    char value[CBM_SZ_512];
+    char value[CTX_SZ_512];
     snprintf(value, sizeof(value), "%s", val_start);
     rtrim(value);
 
     /* Strip surrounding quotes */
     size_t vlen = strlen(value);
-    if (vlen >= CBM_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
+    if (vlen >= CTX_QUOTE_PAIR && ((value[0] == '"' && value[vlen - SKIP_ONE] == '"') ||
                                    (value[0] == '\'' && value[vlen - SKIP_ONE] == '\''))) {
-        memmove(value, value + CBM_QUOTE_OFFSET, vlen - CBM_QUOTE_PAIR);
+        memmove(value, value + CTX_QUOTE_OFFSET, vlen - CTX_QUOTE_PAIR);
         value[vlen - IS_QUOTE_TRIM] = '\0';
     }
 
-    if (cbm_is_secret_binding(key, value)) {
+    if (ctx_is_secret_binding(key, value)) {
         return;
     }
-    if (r->env_count >= CBM_SZ_64) {
+    if (r->env_count >= CTX_SZ_64) {
         return;
     }
     snprintf(r->env_vars[r->env_count].key, sizeof(r->env_vars[0].key), "%s", key);
@@ -743,7 +743,7 @@ static void shell_parse_plain_var(const char *line, cbm_shell_result_t *r) {
     r->env_count++;
 }
 
-static void shell_parse_source(const char *line, cbm_shell_result_t *r) {
+static void shell_parse_source(const char *line, ctx_shell_result_t *r) {
     /* source <file> or . <file> */
     const char *p = NULL;
     if (strncmp(line, "source", SLEN("source")) == 0 &&
@@ -761,13 +761,13 @@ static void shell_parse_source(const char *line, cbm_shell_result_t *r) {
     }
 
     /* Strip surrounding quotes */
-    char path[CBM_SZ_256];
+    char path[CTX_SZ_256];
     snprintf(path, sizeof(path), "%s", p);
     rtrim(path);
     size_t plen = strlen(path);
-    if (plen >= CBM_QUOTE_PAIR && ((path[0] == '"' && path[plen - SKIP_ONE] == '"') ||
+    if (plen >= CTX_QUOTE_PAIR && ((path[0] == '"' && path[plen - SKIP_ONE] == '"') ||
                                    (path[0] == '\'' && path[plen - SKIP_ONE] == '\''))) {
-        memmove(path, path + CBM_QUOTE_OFFSET, plen - CBM_QUOTE_PAIR);
+        memmove(path, path + CTX_QUOTE_OFFSET, plen - CTX_QUOTE_PAIR);
         path[plen - IS_QUOTE_TRIM] = '\0';
     }
 
@@ -781,7 +781,7 @@ static void shell_parse_source(const char *line, cbm_shell_result_t *r) {
     r->source_count++;
 }
 
-static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
+static void shell_parse_docker(const char *line, ctx_shell_result_t *r) {
     /* docker <subcmd> or docker-compose <subcmd> */
     const char *p = NULL;
     const char *tool = NULL;
@@ -803,7 +803,7 @@ static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
         return;
     }
 
-    char subcmd[CBM_SZ_64];
+    char subcmd[CTX_SZ_64];
     extract_word(p, subcmd, sizeof(subcmd));
     if (subcmd[0]) {
         snprintf(r->docker_cmds[r->docker_cmd_count], sizeof(r->docker_cmds[0]), "%s %s", tool,
@@ -813,7 +813,7 @@ static void shell_parse_docker(const char *line, cbm_shell_result_t *r) {
 }
 
 /* Check for shebang on first non-empty line. Returns true if line was consumed. */
-static bool shell_try_shebang(const char *trimmed, cbm_shell_result_t *out, bool *shebang_checked) {
+static bool shell_try_shebang(const char *trimmed, ctx_shell_result_t *out, bool *shebang_checked) {
     if (*shebang_checked) {
         return false;
     }
@@ -832,7 +832,7 @@ static bool shell_try_shebang(const char *trimmed, cbm_shell_result_t *out, bool
 }
 
 /* Dispatch a single trimmed shell line to the appropriate parser. */
-static void shell_dispatch_line(const char *trimmed, cbm_shell_result_t *out) {
+static void shell_dispatch_line(const char *trimmed, ctx_shell_result_t *out) {
     if (strncmp(trimmed, "export", SLEN("export")) == 0) {
         shell_parse_export(trimmed, out);
         return;
@@ -848,14 +848,14 @@ static void shell_dispatch_line(const char *trimmed, cbm_shell_result_t *out) {
     shell_parse_plain_var(trimmed, out);
 }
 
-int cbm_parse_shell_source(const char *source, cbm_shell_result_t *out) {
+int ctx_parse_shell_source(const char *source, ctx_shell_result_t *out) {
     if (!source || !out) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
-    char line[CBM_SZ_4K];
+    char line[CTX_SZ_4K];
     bool shebang_checked = false;
 
     while (*p) {
@@ -990,7 +990,7 @@ static void tf_extract_second_quoted(const char *trimmed, int consumed, char *ou
 /* Try to parse a simple "keyword ident" block (variable, output, provider). */
 static bool tf_try_simple_block(const char *trimmed, const char *keyword, char *names, int name_sz,
                                 int *count, int max_count) {
-    char ident[CBM_SZ_128];
+    char ident[CTX_SZ_128];
     int consumed = tf_extract_ident(trimmed, keyword, ident, sizeof(ident));
     if (consumed <= 0 || *count >= max_count) {
         return false;
@@ -1002,7 +1002,7 @@ static bool tf_try_simple_block(const char *trimmed, const char *keyword, char *
 
 /* Try to match terraform/locals keyword blocks. */
 static bool tf_try_keyword_block(const char *trimmed, tf_block_kind_t *cur_block,
-                                 cbm_terraform_result_t *out) {
+                                 ctx_terraform_result_t *out) {
     if (strncmp(trimmed, "terraform", SLEN("terraform")) == 0 && strstr(trimmed, "{")) {
         *cur_block = TF_BLOCK_TERRAFORM;
         return true;
@@ -1015,15 +1015,15 @@ static bool tf_try_keyword_block(const char *trimmed, tf_block_kind_t *cur_block
 }
 
 /* Detect a top-level block header. Returns true if line was consumed as a header. */
-static bool tf_detect_block_header(const char *trimmed, cbm_terraform_result_t *out,
+static bool tf_detect_block_header(const char *trimmed, ctx_terraform_result_t *out,
                                    tf_block_kind_t *cur_block, int *cur_var_idx, int *cur_mod_idx) {
-    char ident1[CBM_SZ_128];
+    char ident1[CTX_SZ_128];
 
     /* resource "type" "name" */
     {
         int rc = tf_extract_ident(trimmed, "resource", ident1, sizeof(ident1));
-        if (rc > 0 && out->resource_count < CBM_SZ_32) {
-            char ident2[CBM_SZ_128];
+        if (rc > 0 && out->resource_count < CTX_SZ_32) {
+            char ident2[CTX_SZ_128];
             tf_extract_second_quoted(trimmed, rc, ident2, sizeof(ident2));
             snprintf(out->resources[out->resource_count].type, sizeof(out->resources[0].type), "%s",
                      ident1);
@@ -1036,7 +1036,7 @@ static bool tf_detect_block_header(const char *trimmed, cbm_terraform_result_t *
 
     /* variable "name" */
     int consumed = tf_extract_ident(trimmed, "variable", ident1, sizeof(ident1));
-    if (consumed > 0 && out->variable_count < CBM_SZ_32) {
+    if (consumed > 0 && out->variable_count < CTX_SZ_32) {
         *cur_block = TF_BLOCK_VARIABLE;
         *cur_var_idx = out->variable_count;
         snprintf(out->variables[*cur_var_idx].name, sizeof(out->variables[0].name), "%s", ident1);
@@ -1046,7 +1046,7 @@ static bool tf_detect_block_header(const char *trimmed, cbm_terraform_result_t *
 
     /* output "name" */
     if (tf_try_simple_block(trimmed, "output", out->outputs[0], (int)sizeof(out->outputs[0]),
-                            &out->output_count, CBM_SZ_32)) {
+                            &out->output_count, CTX_SZ_32)) {
         return true;
     }
 
@@ -1070,7 +1070,7 @@ static bool tf_detect_block_header(const char *trimmed, cbm_terraform_result_t *
     {
         int dc = tf_extract_ident(trimmed, "data", ident1, sizeof(ident1));
         if (dc > 0 && out->data_source_count < IS_MAX_STAGES) {
-            char ident2[CBM_SZ_128];
+            char ident2[CTX_SZ_128];
             tf_extract_second_quoted(trimmed, dc, ident2, sizeof(ident2));
             snprintf(out->data_sources[out->data_source_count].type,
                      sizeof(out->data_sources[0].type), "%s", ident1);
@@ -1085,18 +1085,18 @@ static bool tf_detect_block_header(const char *trimmed, cbm_terraform_result_t *
 }
 
 /* Extract attributes from a line inside a variable block. */
-static void tf_parse_variable_attrs(const char *trimmed, cbm_tf_variable_t *v) {
-    char def_val[CBM_SZ_256] = {0};
+static void tf_parse_variable_attrs(const char *trimmed, ctx_tf_variable_t *v) {
+    char def_val[CTX_SZ_256] = {0};
     tf_extract_quoted(trimmed, "default", def_val, sizeof(def_val));
-    if (def_val[0] && !cbm_is_secret_binding(v->name, def_val)) {
+    if (def_val[0] && !ctx_is_secret_binding(v->name, def_val)) {
         snprintf(v->default_val, sizeof(v->default_val), "%s", def_val);
     }
-    char type_val[CBM_SZ_64] = {0};
+    char type_val[CTX_SZ_64] = {0};
     tf_extract_quoted(trimmed, "type", type_val, sizeof(type_val));
     if (type_val[0]) {
         snprintf(v->type, sizeof(v->type), "%s", type_val);
     }
-    char desc_val[CBM_SZ_256] = {0};
+    char desc_val[CTX_SZ_256] = {0};
     tf_extract_quoted(trimmed, "description", desc_val, sizeof(desc_val));
     if (desc_val[0]) {
         snprintf(v->description, sizeof(v->description), "%s", desc_val);
@@ -1104,7 +1104,7 @@ static void tf_parse_variable_attrs(const char *trimmed, cbm_tf_variable_t *v) {
 }
 
 /* Extract attributes inside a block (variable/module/terraform). */
-static void tf_parse_block_attrs(const char *trimmed, cbm_terraform_result_t *out,
+static void tf_parse_block_attrs(const char *trimmed, ctx_terraform_result_t *out,
                                  tf_block_kind_t cur_block, int cur_var_idx, int cur_mod_idx) {
     switch (cur_block) {
     case TF_BLOCK_VARIABLE:
@@ -1114,7 +1114,7 @@ static void tf_parse_block_attrs(const char *trimmed, cbm_terraform_result_t *ou
         break;
     case TF_BLOCK_MODULE:
         if (cur_mod_idx >= 0) {
-            char src_val[CBM_SZ_256] = {0};
+            char src_val[CTX_SZ_256] = {0};
             tf_extract_quoted(trimmed, "source", src_val, sizeof(src_val));
             if (src_val[0]) {
                 snprintf(out->modules[cur_mod_idx].source, sizeof(out->modules[0].source), "%s",
@@ -1124,7 +1124,7 @@ static void tf_parse_block_attrs(const char *trimmed, cbm_terraform_result_t *ou
         break;
     case TF_BLOCK_TERRAFORM: {
         const char *bp = skip_ws(trimmed);
-        char backend_name[CBM_SZ_128] = {0};
+        char backend_name[CTX_SZ_128] = {0};
         tf_extract_ident(bp, "backend", backend_name, sizeof(backend_name));
         if (backend_name[0]) {
             snprintf(out->backend, sizeof(out->backend), "%s", backend_name);
@@ -1137,7 +1137,7 @@ static void tf_parse_block_attrs(const char *trimmed, cbm_terraform_result_t *ou
 }
 
 /* Check if any terraform content was parsed. */
-static bool tf_result_has_content(const cbm_terraform_result_t *out) {
+static bool tf_result_has_content(const ctx_terraform_result_t *out) {
     return out->resource_count > 0 || out->variable_count > 0 || out->output_count > 0 ||
            out->provider_count > 0 || out->module_count > 0 || out->data_source_count > 0 ||
            out->backend[0] != '\0' || out->has_locals;
@@ -1166,14 +1166,14 @@ static char *tf_next_line(const char **pp, char *line, size_t line_sz) {
     return trimmed;
 }
 
-int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) {
+int ctx_parse_terraform_source(const char *source, ctx_terraform_result_t *out) {
     if (!source || !out) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     memset(out, 0, sizeof(*out));
 
     const char *p = source;
-    char line[CBM_SZ_4K];
+    char line[CTX_SZ_4K];
     int brace_depth = 0;
     tf_block_kind_t cur_block = TF_BLOCK_NONE;
     int cur_var_idx = IS_NOT_FOUND;
@@ -1209,14 +1209,14 @@ int cbm_parse_terraform_source(const char *source, cbm_terraform_result_t *out) 
 
 /* ── Infra QN helper ────────────────────────────────────────────── */
 
-char *cbm_infra_qn(const char *project_name, const char *rel_path, const char *infra_type,
+char *ctx_infra_qn(const char *project_name, const char *rel_path, const char *infra_type,
                    const char *service_name) {
-    char *base = cbm_pipeline_fqn_compute(project_name, rel_path, "");
+    char *base = ctx_pipeline_fqn_compute(project_name, rel_path, "");
     if (!base) {
         return NULL;
     }
 
-    char result[CBM_SZ_1K];
+    char result[CTX_SZ_1K];
     if (service_name && service_name[0] && infra_type &&
         strcmp(infra_type, "compose-service") == 0) {
         snprintf(result, sizeof(result), "%s::%s", base, service_name);

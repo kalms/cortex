@@ -37,57 +37,57 @@ enum {
     RI_SEED_BASE = 0x52494E44, /* "RIND" */
 };
 
-/* Default signal weights for cbm_sem_combined_score.  Must sum to ~1.0;
+/* Default signal weights for ctx_sem_combined_score.  Must sum to ~1.0;
  * proximity is a multiplier applied on top. */
-#define CBM_SEM_W_TFIDF 0.20F
-#define CBM_SEM_W_RI 0.25F
-#define CBM_SEM_W_MINHASH 0.10F
-#define CBM_SEM_W_API 0.15F
-#define CBM_SEM_W_TYPE 0.10F
-#define CBM_SEM_W_DECORATOR 0.05F
-#define CBM_SEM_W_STRUCT_PROFILE 0.10F
-#define CBM_SEM_W_DATAFLOW 0.05F
+#define CTX_SEM_W_TFIDF 0.20F
+#define CTX_SEM_W_RI 0.25F
+#define CTX_SEM_W_MINHASH 0.10F
+#define CTX_SEM_W_API 0.15F
+#define CTX_SEM_W_TYPE 0.10F
+#define CTX_SEM_W_DECORATOR 0.05F
+#define CTX_SEM_W_STRUCT_PROFILE 0.10F
+#define CTX_SEM_W_DATAFLOW 0.05F
 
-/* Threshold bounds for CBM_SEMANTIC_THRESHOLD env override. */
-#define CBM_SEM_THRESHOLD_MIN 0.0F
-#define CBM_SEM_THRESHOLD_MAX 1.0F
+/* Threshold bounds for CTX_SEMANTIC_THRESHOLD env override. */
+#define CTX_SEM_THRESHOLD_MIN 0.0F
+#define CTX_SEM_THRESHOLD_MAX 1.0F
 
 /* Epsilon for denominator guards in cosine math. */
-#define CBM_SEM_DENOM_EPS 1e-10F
+#define CTX_SEM_DENOM_EPS 1e-10F
 
 /* Int8 quantization bounds for vector storage (maps [-1.0, 1.0] to [-127, 127]). */
-#define CBM_SEM_INT8_MAX 127.0F
-#define CBM_SEM_INT8_MIN (-127.0F)
+#define CTX_SEM_INT8_MAX 127.0F
+#define CTX_SEM_INT8_MIN (-127.0F)
 
 /* Unit vector bounds (normalized similarity / cosine value limits). */
-#define CBM_SEM_UNIT_POS 1.0F
-#define CBM_SEM_UNIT_NEG (-1.0F)
+#define CTX_SEM_UNIT_POS 1.0F
+#define CTX_SEM_UNIT_NEG (-1.0F)
 
-/* Proximity boost: same-file gets 1.0 + CBM_SEM_PROX_MAX_BOOST, distant gets 1.0. */
-#define CBM_SEM_PROX_MAX_BOOST 0.10F
+/* Proximity boost: same-file gets 1.0 + CTX_SEM_PROX_MAX_BOOST, distant gets 1.0. */
+#define CTX_SEM_PROX_MAX_BOOST 0.10F
 
 /* Reflective Random Indexing blend factors for pass2 (context mixing). */
-#define CBM_SEM_RRI_ALPHA 0.3F
-#define CBM_SEM_RRI_BETA 0.7F
+#define CTX_SEM_RRI_ALPHA 0.3F
+#define CTX_SEM_RRI_BETA 0.7F
 
 /* IDF smoothing constant (log base): log2(1 + docs / doc_freq). */
-#define CBM_SEM_IDF_BASE 0.5F
+#define CTX_SEM_IDF_BASE 0.5F
 
 /* Strings of exactly two parts / dimensions used for co-occurrence window math. */
-#define CBM_SEM_COOCCUR_STRIDE 2
+#define CTX_SEM_COOCCUR_STRIDE 2
 
 /* Worker tile/chunk sizes for parallel cooccurrence passes. */
 enum {
-    CBM_SEM_WORKER_STACK_CAP = 256,
-    CBM_SEM_TILE_SIZE = 40,
-    CBM_SEM_SEEN_INIT_CAP = 256,
-    CBM_SEM_RESOLVE_CHUNK = 64,
-    CBM_SEM_COOCCUR_CHUNK = 32,
-    CBM_SEM_RRI_TILE = 128,
-    CBM_SEM_INT8_I_LO = -128,
-    CBM_SEM_INT8_I_HI = 127,
-    CBM_SEM_ATOMIC_INC = 1,
-    CBM_SEM_RI_NONZERO_COUNT = 8,
+    CTX_SEM_WORKER_STACK_CAP = 256,
+    CTX_SEM_TILE_SIZE = 40,
+    CTX_SEM_SEEN_INIT_CAP = 256,
+    CTX_SEM_RESOLVE_CHUNK = 64,
+    CTX_SEM_COOCCUR_CHUNK = 32,
+    CTX_SEM_RRI_TILE = 128,
+    CTX_SEM_INT8_I_LO = -128,
+    CTX_SEM_INT8_I_HI = 127,
+    CTX_SEM_ATOMIC_INC = 1,
+    CTX_SEM_RI_NONZERO_COUNT = 8,
 };
 
 /* Mutex-init state machine for the lazy-initialized pretrained token map.
@@ -106,33 +106,33 @@ enum { BASE_DECIMAL = 10 };
 
 /* ── Configuration ───────────────────────────────────────────────── */
 
-cbm_sem_config_t cbm_sem_get_config(void) {
-    cbm_sem_config_t cfg = {
-        .w_tfidf = CBM_SEM_W_TFIDF,
-        .w_ri = CBM_SEM_W_RI,
-        .w_minhash = CBM_SEM_W_MINHASH,
-        .w_api = CBM_SEM_W_API,
-        .w_type = CBM_SEM_W_TYPE,
-        .w_decorator = CBM_SEM_W_DECORATOR,
-        .w_struct_profile = CBM_SEM_W_STRUCT_PROFILE,
-        .w_dataflow = CBM_SEM_W_DATAFLOW,
-        .threshold = (float)CBM_SEM_EDGE_THRESHOLD,
-        .max_edges = CBM_SEM_MAX_EDGES,
+ctx_sem_config_t ctx_sem_get_config(void) {
+    ctx_sem_config_t cfg = {
+        .w_tfidf = CTX_SEM_W_TFIDF,
+        .w_ri = CTX_SEM_W_RI,
+        .w_minhash = CTX_SEM_W_MINHASH,
+        .w_api = CTX_SEM_W_API,
+        .w_type = CTX_SEM_W_TYPE,
+        .w_decorator = CTX_SEM_W_DECORATOR,
+        .w_struct_profile = CTX_SEM_W_STRUCT_PROFILE,
+        .w_dataflow = CTX_SEM_W_DATAFLOW,
+        .threshold = (float)CTX_SEM_EDGE_THRESHOLD,
+        .max_edges = CTX_SEM_MAX_EDGES,
     };
-    const char *thresh = getenv("CBM_SEMANTIC_THRESHOLD");
+    const char *thresh = getenv("CTX_SEMANTIC_THRESHOLD");
     if (thresh) {
         /* strtod reports errors via endptr; reject non-numeric input silently. */
         char *end = NULL;
         double parsed = strtod(thresh, &end);
-        if (end != thresh && parsed > CBM_SEM_THRESHOLD_MIN && parsed <= CBM_SEM_THRESHOLD_MAX) {
+        if (end != thresh && parsed > CTX_SEM_THRESHOLD_MIN && parsed <= CTX_SEM_THRESHOLD_MAX) {
             cfg.threshold = (float)parsed;
         }
     }
     return cfg;
 }
 
-bool cbm_sem_is_enabled(void) {
-    const char *val = getenv("CBM_SEMANTIC_ENABLED");
+bool ctx_sem_is_enabled(void) {
+    const char *val = getenv("CTX_SEMANTIC_ENABLED");
     return val && val[0] == '1';
 }
 
@@ -163,7 +163,7 @@ static void flush_token(char *buf, int *blen, char **out, int *count, int max_ou
     *blen = 0;
 }
 
-int cbm_sem_tokenize(const char *name, char **out, int max_out) {
+int ctx_sem_tokenize(const char *name, char **out, int max_out) {
     if (!name || !out || max_out <= 0) {
         return 0;
     }
@@ -369,20 +369,20 @@ int cbm_sem_tokenize(const char *name, char **out, int max_out) {
 
 /* ── Dense vector operations ─────────────────────────────────────── */
 
-float cbm_sem_cosine(const cbm_sem_vec_t *a, const cbm_sem_vec_t *b) {
+float ctx_sem_cosine(const ctx_sem_vec_t *a, const ctx_sem_vec_t *b) {
     if (!a || !b) {
         return 0.0F;
     }
     float dot = 0.0F;
     float mag_a = 0.0F;
     float mag_b = 0.0F;
-    for (int i = 0; i < CBM_SEM_DIM; i++) {
+    for (int i = 0; i < CTX_SEM_DIM; i++) {
         dot += a->v[i] * b->v[i];
         mag_a += a->v[i] * a->v[i];
         mag_b += b->v[i] * b->v[i];
     }
     float denom = sqrtf(mag_a) * sqrtf(mag_b);
-    if (denom < CBM_SEM_DENOM_EPS) {
+    if (denom < CTX_SEM_DENOM_EPS) {
         return 0.0F;
     }
     return dot / denom;
@@ -391,7 +391,7 @@ float cbm_sem_cosine(const cbm_sem_vec_t *a, const cbm_sem_vec_t *b) {
 /* Pretrained token lookup table — built lazily on first use. */
 static CBMHashTable *g_pretrained_map = NULL;
 static _Atomic int g_pretrained_ready = 0;
-static cbm_mutex_t g_pretrained_mtx;
+static ctx_mutex_t g_pretrained_mtx;
 static _Atomic int g_pretrained_mtx_init = 0;
 
 /* Thread-safe lazy init of the pretrained token lookup map.
@@ -405,7 +405,7 @@ static void ensure_pretrained_map(void) {
     if (atomic_compare_exchange_strong_explicit(&g_pretrained_mtx_init, &expected,
                                                 MTX_STATE_INITIALIZING, memory_order_acq_rel,
                                                 memory_order_acquire)) {
-        cbm_mutex_init(&g_pretrained_mtx);
+        ctx_mutex_init(&g_pretrained_mtx);
         atomic_store_explicit(&g_pretrained_mtx_init, MTX_STATE_READY, memory_order_release);
     } else {
         /* Spin until another thread finishes initializing the mutex */
@@ -414,27 +414,27 @@ static void ensure_pretrained_map(void) {
             /* brief spin */
         }
     }
-    cbm_mutex_lock(&g_pretrained_mtx);
+    ctx_mutex_lock(&g_pretrained_mtx);
     if (!atomic_load_explicit(&g_pretrained_ready, memory_order_acquire)) {
-        g_pretrained_map = cbm_ht_create(PRETRAINED_TOKEN_COUNT);
-        char idx_buf[CBM_SZ_16];
+        g_pretrained_map = ctx_ht_create(PRETRAINED_TOKEN_COUNT);
+        char idx_buf[CTX_SZ_16];
         for (int i = 0; i < PRETRAINED_TOKEN_COUNT; i++) {
             const char *tok = PRETRAINED_TOKENS[i];
             if (tok && tok[0]) {
                 snprintf(idx_buf, sizeof(idx_buf), "%d", i);
-                cbm_ht_set(g_pretrained_map, strdup(tok), strdup(idx_buf));
+                ctx_ht_set(g_pretrained_map, strdup(tok), strdup(idx_buf));
             }
         }
         atomic_store_explicit(&g_pretrained_ready, MAP_READY, memory_order_release);
     }
-    cbm_mutex_unlock(&g_pretrained_mtx);
+    ctx_mutex_unlock(&g_pretrained_mtx);
 }
 
-void cbm_sem_ensure_ready(void) {
+void ctx_sem_ensure_ready(void) {
     ensure_pretrained_map();
 }
 
-void cbm_sem_random_index(const char *token, cbm_sem_vec_t *out) {
+void ctx_sem_random_index(const char *token, ctx_sem_vec_t *out) {
     memset(out, 0, sizeof(*out));
     if (!token) {
         return;
@@ -442,14 +442,14 @@ void cbm_sem_random_index(const char *token, cbm_sem_vec_t *out) {
 
     /* Try pretrained nomic-embed-code vector first (768d, distilled from 7B). */
     ensure_pretrained_map();
-    const char *idx_str = cbm_ht_get(g_pretrained_map, token);
+    const char *idx_str = ctx_ht_get(g_pretrained_map, token);
     if (idx_str) {
         char *end = NULL;
         long idx = strtol(idx_str, &end, BASE_DECIMAL);
         if (end != idx_str && idx >= 0 && idx < PRETRAINED_TOKEN_COUNT) {
             const int8_t *pvec = pretrained_vec_at((int)idx);
-            for (int d = 0; d < CBM_SEM_DIM && d < PRETRAINED_DIM; d++) {
-                out->v[d] = (float)pvec[d] / CBM_SEM_INT8_MAX;
+            for (int d = 0; d < CTX_SEM_DIM && d < PRETRAINED_DIM; d++) {
+                out->v[d] = (float)pvec[d] / CTX_SEM_INT8_MAX;
             }
             return;
         }
@@ -457,37 +457,37 @@ void cbm_sem_random_index(const char *token, cbm_sem_vec_t *out) {
 
     /* Fallback: sparse random vector for tokens not in pretrained vocab. */
     uint64_t seed = XXH3_64bits(token, strlen(token));
-    for (int i = 0; i < CBM_SEM_SPARSE_NNZE; i++) {
+    for (int i = 0; i < CTX_SEM_SPARSE_NNZE; i++) {
         uint64_t h = XXH3_64bits_withSeed(&i, sizeof(i), seed + RI_SEED_BASE);
-        int pos = (int)(h % CBM_SEM_DIM);
-        float sign = (h & SKIP_ONE) ? CBM_SEM_UNIT_POS : -CBM_SEM_UNIT_POS;
+        int pos = (int)(h % CTX_SEM_DIM);
+        float sign = (h & SKIP_ONE) ? CTX_SEM_UNIT_POS : -CTX_SEM_UNIT_POS;
         out->v[pos] += sign;
     }
 }
 
-void cbm_sem_normalize(cbm_sem_vec_t *v) {
+void ctx_sem_normalize(ctx_sem_vec_t *v) {
     if (!v) {
         return;
     }
     float mag = 0.0F;
-    for (int i = 0; i < CBM_SEM_DIM; i++) {
+    for (int i = 0; i < CTX_SEM_DIM; i++) {
         mag += v->v[i] * v->v[i];
     }
     mag = sqrtf(mag);
-    if (mag < CBM_SEM_DENOM_EPS) {
+    if (mag < CTX_SEM_DENOM_EPS) {
         return;
     }
-    float inv = CBM_SEM_UNIT_POS / mag;
-    for (int i = 0; i < CBM_SEM_DIM; i++) {
+    float inv = CTX_SEM_UNIT_POS / mag;
+    for (int i = 0; i < CTX_SEM_DIM; i++) {
         v->v[i] *= inv;
     }
 }
 
-void cbm_sem_vec_add_scaled(cbm_sem_vec_t *dst, const cbm_sem_vec_t *src, float scale) {
+void ctx_sem_vec_add_scaled(ctx_sem_vec_t *dst, const ctx_sem_vec_t *src, float scale) {
     if (!dst || !src) {
         return;
     }
-    for (int i = 0; i < CBM_SEM_DIM; i++) {
+    for (int i = 0; i < CTX_SEM_DIM; i++) {
         dst->v[i] += scale * src->v[i];
     }
 }
@@ -497,10 +497,10 @@ void cbm_sem_vec_add_scaled(cbm_sem_vec_t *dst, const cbm_sem_vec_t *src, float 
 typedef struct {
     char *token;
     int doc_freq;
-    cbm_sem_vec_t enriched_vec; /* context-enriched via co-occurrence */
+    ctx_sem_vec_t enriched_vec; /* context-enriched via co-occurrence */
 } corpus_entry_t;
 
-struct cbm_sem_corpus {
+struct ctx_sem_corpus {
     CBMHashTable *token_map; /* token → index into entries[] */
     corpus_entry_t *entries;
     int entry_count;
@@ -514,19 +514,19 @@ struct cbm_sem_corpus {
     int doc_cap;
 };
 
-static int corpus_get_or_add(cbm_sem_corpus_t *c, const char *token) {
-    char idx_buf[CBM_SZ_16];
-    const char *existing = cbm_ht_get(c->token_map, token);
+static int corpus_get_or_add(ctx_sem_corpus_t *c, const char *token) {
+    char idx_buf[CTX_SZ_16];
+    const char *existing = ctx_ht_get(c->token_map, token);
     if (existing) {
         char *end = NULL;
         long parsed = strtol(existing, &end, BASE_DECIMAL);
-        return (end != existing) ? (int)parsed : CBM_NOT_FOUND;
+        return (end != existing) ? (int)parsed : CTX_NOT_FOUND;
     }
     if (c->entry_count >= c->entry_cap) {
         int new_cap = c->entry_cap < CORPUS_INIT_CAP ? CORPUS_INIT_CAP : c->entry_cap * PAIR_LEN;
         corpus_entry_t *grown = realloc(c->entries, (size_t)new_cap * sizeof(corpus_entry_t));
         if (!grown) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         c->entries = grown;
         c->entry_cap = new_cap;
@@ -534,21 +534,21 @@ static int corpus_get_or_add(cbm_sem_corpus_t *c, const char *token) {
     int idx = c->entry_count++;
     c->entries[idx].token = strdup(token);
     c->entries[idx].doc_freq = 0;
-    memset(&c->entries[idx].enriched_vec, 0, sizeof(cbm_sem_vec_t));
+    memset(&c->entries[idx].enriched_vec, 0, sizeof(ctx_sem_vec_t));
     snprintf(idx_buf, sizeof(idx_buf), "%d", idx);
-    cbm_ht_set(c->token_map, strdup(token), strdup(idx_buf));
+    ctx_ht_set(c->token_map, strdup(token), strdup(idx_buf));
     return idx;
 }
 
-cbm_sem_corpus_t *cbm_sem_corpus_new(void) {
-    cbm_sem_corpus_t *c = calloc(SKIP_ONE, sizeof(cbm_sem_corpus_t));
+ctx_sem_corpus_t *ctx_sem_corpus_new(void) {
+    ctx_sem_corpus_t *c = calloc(SKIP_ONE, sizeof(ctx_sem_corpus_t));
     if (c) {
-        c->token_map = cbm_ht_create(CORPUS_INIT_CAP);
+        c->token_map = ctx_ht_create(CORPUS_INIT_CAP);
     }
     return c;
 }
 
-void cbm_sem_corpus_add_doc(cbm_sem_corpus_t *corpus, const char **tokens, int count) {
+void ctx_sem_corpus_add_doc(ctx_sem_corpus_t *corpus, const char **tokens, int count) {
     if (!corpus || !tokens || count <= 0) {
         return;
     }
@@ -610,7 +610,7 @@ void cbm_sem_corpus_add_doc(cbm_sem_corpus_t *corpus, const char **tokens, int c
  */
 
 typedef struct {
-    cbm_sem_corpus_t *corpus;
+    ctx_sem_corpus_t *corpus;
     char **all_tokens;
     const int *token_counts;
     int max_tokens;
@@ -637,8 +637,8 @@ static void batch_resolve_one_doc(batch_resolve_ctx_t *bc, int doc_index, int *s
     int seen_count = 0;
     char **tokens = &bc->all_tokens[(ptrdiff_t)doc_index * bc->max_tokens];
     for (int i = 0; i < count; i++) {
-        const char *idx_str = cbm_ht_get(bc->corpus->token_map, tokens[i]);
-        int tid = CBM_NOT_FOUND;
+        const char *idx_str = ctx_ht_get(bc->corpus->token_map, tokens[i]);
+        int tid = CTX_NOT_FOUND;
         if (idx_str) {
             char *end = NULL;
             long parsed = strtol(idx_str, &end, BASE_DECIMAL);
@@ -660,7 +660,7 @@ static void batch_resolve_one_doc(batch_resolve_ctx_t *bc, int doc_index, int *s
         }
         if (is_new) {
             seen[seen_count++] = tid;
-            atomic_fetch_add_explicit(&bc->doc_freq_atomic[tid], CBM_SEM_ATOMIC_INC,
+            atomic_fetch_add_explicit(&bc->doc_freq_atomic[tid], CTX_SEM_ATOMIC_INC,
                                       memory_order_relaxed);
         }
     }
@@ -670,7 +670,7 @@ static void batch_resolve_worker(int worker_id, void *ctx_ptr) {
     (void)worker_id;
     batch_resolve_ctx_t *bc = ctx_ptr;
     /* Per-worker scratch for unique-per-doc tracking */
-    int local_seen_cap = CBM_SEM_SEEN_INIT_CAP;
+    int local_seen_cap = CTX_SEM_SEEN_INIT_CAP;
     int *seen = malloc((size_t)local_seen_cap * sizeof(int));
     if (!seen) {
         return;
@@ -678,11 +678,11 @@ static void batch_resolve_worker(int worker_id, void *ctx_ptr) {
 
     while (true) {
         int start =
-            atomic_fetch_add_explicit(&bc->next_idx, CBM_SEM_RESOLVE_CHUNK, memory_order_relaxed);
+            atomic_fetch_add_explicit(&bc->next_idx, CTX_SEM_RESOLVE_CHUNK, memory_order_relaxed);
         if (start >= bc->doc_count) {
             break;
         }
-        int end = start + CBM_SEM_RESOLVE_CHUNK;
+        int end = start + CTX_SEM_RESOLVE_CHUNK;
         if (end > bc->doc_count) {
             end = bc->doc_count;
         }
@@ -702,7 +702,7 @@ static void batch_resolve_worker(int worker_id, void *ctx_ptr) {
     free(seen);
 }
 
-void cbm_sem_corpus_add_docs_batch(cbm_sem_corpus_t *corpus, char **all_tokens,
+void ctx_sem_corpus_add_docs_batch(ctx_sem_corpus_t *corpus, char **all_tokens,
                                    const int *token_counts, int doc_count, int max_tokens_per_doc) {
     if (!corpus || !all_tokens || !token_counts || doc_count <= 0) {
         return;
@@ -747,12 +747,12 @@ void cbm_sem_corpus_add_docs_batch(cbm_sem_corpus_t *corpus, char **all_tokens,
         for (int d = 0; d < doc_count; d++) {
             int count = token_counts[d];
             char **tokens = &all_tokens[(ptrdiff_t)d * max_tokens_per_doc];
-            cbm_sem_corpus_add_doc(corpus, (const char **)tokens, count);
+            ctx_sem_corpus_add_doc(corpus, (const char **)tokens, count);
         }
         return;
     }
 
-    int worker_count = cbm_default_worker_count(false);
+    int worker_count = ctx_default_worker_count(false);
     batch_resolve_ctx_t bc = {
         .corpus = corpus,
         .all_tokens = all_tokens,
@@ -765,8 +765,8 @@ void cbm_sem_corpus_add_docs_batch(cbm_sem_corpus_t *corpus, char **all_tokens,
     /* Temporarily re-base doc arrays so workers write to base_doc..base_doc+doc_count */
     corpus->doc_token_ids += base_doc;
     corpus->doc_token_counts += base_doc;
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-    cbm_parallel_for(worker_count, batch_resolve_worker, &bc, opts);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    ctx_parallel_for(worker_count, batch_resolve_worker, &bc, opts);
     corpus->doc_token_ids -= base_doc;
     corpus->doc_token_counts -= base_doc;
 
@@ -781,7 +781,7 @@ void cbm_sem_corpus_add_docs_batch(cbm_sem_corpus_t *corpus, char **all_tokens,
 /* ── Parallel corpus_finalize ─────────────────────────────────────── */
 /* Strategy:
  *   1. Precompute base RI vectors into a shared array (eliminates ~333M
- *      redundant cbm_sem_random_index calls on kernel-scale corpora).
+ *      redundant ctx_sem_random_index calls on kernel-scale corpora).
  *   2. Co-occurrence passes: partition TARGET tokens across workers so each
  *      worker writes to a disjoint range of enriched_vec (zero contention).
  *      Each worker still scans all documents but only accumulates for targets
@@ -812,13 +812,13 @@ typedef struct {
     uint8_t is_sparse; /* 1 = sparse path, 0 = dense int8 reference */
     uint8_t nnz;       /* number of nonzeros used in sparse path */
     uint16_t _pad;
-    uint16_t indices[CBM_SEM_SPARSE_NNZE]; /* 8 * 2 = 16 bytes */
-    float values[CBM_SEM_SPARSE_NNZE];     /* 8 * 4 = 32 bytes */
+    uint16_t indices[CTX_SEM_SPARSE_NNZE]; /* 8 * 2 = 16 bytes */
+    float values[CTX_SEM_SPARSE_NNZE];     /* 8 * 4 = 32 bytes */
     const int8_t *dense_int8;              /* points into PRETRAINED_VECTOR_BLOB */
-} cbm_sem_src_entry_t;
+} ctx_sem_src_entry_t;
 
 /* Inline helper: initialize a target vector from a sparse/dense source. */
-static inline void sem_target_init_from_src(cbm_sem_vec_t *dst, const cbm_sem_src_entry_t *src) {
+static inline void sem_target_init_from_src(ctx_sem_vec_t *dst, const ctx_sem_src_entry_t *src) {
     memset(dst, 0, sizeof(*dst));
     if (src->is_sparse) {
         for (int k = 0; k < src->nnz; k++) {
@@ -826,8 +826,8 @@ static inline void sem_target_init_from_src(cbm_sem_vec_t *dst, const cbm_sem_sr
         }
     } else {
         const int8_t *s = src->dense_int8;
-        const float inv127 = CBM_SEM_UNIT_POS / CBM_SEM_INT8_MAX;
-        for (int d = 0; d < CBM_SEM_DIM; d++) {
+        const float inv127 = CTX_SEM_UNIT_POS / CTX_SEM_INT8_MAX;
+        for (int d = 0; d < CTX_SEM_DIM; d++) {
             dst->v[d] = inv127 * (float)s[d];
         }
     }
@@ -836,7 +836,7 @@ static inline void sem_target_init_from_src(cbm_sem_vec_t *dst, const cbm_sem_sr
 /* Inline helper: add weighted source into target.
  * Sparse path: ~8 operations, ~48 bytes source memory traffic.
  * Dense path: 768 mul-adds with int8→float conversion, ~768 bytes traffic. */
-static inline void sem_vec_add_src_scaled(cbm_sem_vec_t *dst, const cbm_sem_src_entry_t *src,
+static inline void sem_vec_add_src_scaled(ctx_sem_vec_t *dst, const ctx_sem_src_entry_t *src,
                                           float scale) {
     if (src->is_sparse) {
         for (int k = 0; k < src->nnz; k++) {
@@ -844,8 +844,8 @@ static inline void sem_vec_add_src_scaled(cbm_sem_vec_t *dst, const cbm_sem_src_
         }
     } else {
         const int8_t *s = src->dense_int8;
-        const float mul = scale * (CBM_SEM_UNIT_POS / CBM_SEM_INT8_MAX);
-        for (int d = 0; d < CBM_SEM_DIM; d++) {
+        const float mul = scale * (CTX_SEM_UNIT_POS / CTX_SEM_INT8_MAX);
+        for (int d = 0; d < CTX_SEM_DIM; d++) {
             dst->v[d] += mul * (float)s[d];
         }
     }
@@ -854,7 +854,7 @@ static inline void sem_vec_add_src_scaled(cbm_sem_vec_t *dst, const cbm_sem_src_
 /* Pass 1 context: uses sparse/int8 tagged sources (most memory-efficient). */
 typedef struct {
     corpus_entry_t *entries;
-    const cbm_sem_src_entry_t *src_entries; /* sparse or int8-dense per token */
+    const ctx_sem_src_entry_t *src_entries; /* sparse or int8-dense per token */
     int **doc_token_ids;
     const int *doc_token_counts;
     const reverse_index_t *rev;
@@ -869,9 +869,9 @@ typedef struct {
 } cooccur_sparse_ctx_t;
 
 /* Accumulate co-occurrence context for a single target token into `target`.
- * Reads neighbors within ±CBM_SEM_WINDOW positions across all documents that
+ * Reads neighbors within ±CTX_SEM_WINDOW positions across all documents that
  * reference this token id via the reverse index. */
-static void cooccur_sparse_one_target(cooccur_sparse_ctx_t *cc, int tid, cbm_sem_vec_t *target) {
+static void cooccur_sparse_one_target(cooccur_sparse_ctx_t *cc, int tid, ctx_sem_vec_t *target) {
     int occ_start = cc->rev->offsets[tid];
     int occ_end = cc->rev->offsets[tid + SKIP_ONE];
     for (int p = occ_start; p < occ_end; p++) {
@@ -879,7 +879,7 @@ static void cooccur_sparse_one_target(cooccur_sparse_ctx_t *cc, int tid, cbm_sem
         int i = cc->rev->flat[p].pos;
         int *ids = cc->doc_token_ids[d];
         int len = cc->doc_token_counts[d];
-        for (int w = -CBM_SEM_WINDOW; w <= CBM_SEM_WINDOW; w++) {
+        for (int w = -CTX_SEM_WINDOW; w <= CTX_SEM_WINDOW; w++) {
             if (w == 0) {
                 continue;
             }
@@ -891,7 +891,7 @@ static void cooccur_sparse_one_target(cooccur_sparse_ctx_t *cc, int tid, cbm_sem
             if (nid < 0) {
                 continue;
             }
-            float weight = CBM_SEM_UNIT_POS / (float)abs(w);
+            float weight = CTX_SEM_UNIT_POS / (float)abs(w);
             sem_vec_add_src_scaled(target, &cc->src_entries[nid], weight);
         }
     }
@@ -902,7 +902,7 @@ static void cooccur_worker_sparse(int worker_id, void *ctx_ptr) {
     cooccur_sparse_ctx_t *cc = ctx_ptr;
     while (true) {
         int ci =
-            atomic_fetch_add_explicit(&cc->next_chunk, CBM_SEM_ATOMIC_INC, memory_order_relaxed);
+            atomic_fetch_add_explicit(&cc->next_chunk, CTX_SEM_ATOMIC_INC, memory_order_relaxed);
         if (ci >= cc->num_chunks) {
             break;
         }
@@ -932,7 +932,7 @@ static void cooccur_worker_sparse(int worker_id, void *ctx_ptr) {
  * We quantize to int8 once (×127) to cut source memory traffic 4x. */
 typedef struct {
     corpus_entry_t *entries;
-    const int8_t *pass1_q; /* [entry_count × CBM_SEM_DIM] int8 quantized pass1 */
+    const int8_t *pass1_q; /* [entry_count × CTX_SEM_DIM] int8 quantized pass1 */
     int **doc_token_ids;
     const int *doc_token_counts;
     const reverse_index_t *rev;
@@ -944,16 +944,16 @@ typedef struct {
     int tile_size;
 } cooccur_int8_ctx_t;
 
-static inline void sem_vec_add_int8_scaled(cbm_sem_vec_t *dst, const int8_t *src, float scale) {
-    const float mul = scale * (CBM_SEM_UNIT_POS / CBM_SEM_INT8_MAX);
-    for (int d = 0; d < CBM_SEM_DIM; d++) {
+static inline void sem_vec_add_int8_scaled(ctx_sem_vec_t *dst, const int8_t *src, float scale) {
+    const float mul = scale * (CTX_SEM_UNIT_POS / CTX_SEM_INT8_MAX);
+    for (int d = 0; d < CTX_SEM_DIM; d++) {
         dst->v[d] += mul * (float)src[d];
     }
 }
 
 /* RRI pass 2 accumulator for a single target token, reading int8-quantized
  * pass1 vectors as the source. */
-static void cooccur_int8_one_target(cooccur_int8_ctx_t *cc, int tid, cbm_sem_vec_t *target) {
+static void cooccur_int8_one_target(cooccur_int8_ctx_t *cc, int tid, ctx_sem_vec_t *target) {
     int occ_start = cc->rev->offsets[tid];
     int occ_end = cc->rev->offsets[tid + SKIP_ONE];
     for (int p = occ_start; p < occ_end; p++) {
@@ -961,7 +961,7 @@ static void cooccur_int8_one_target(cooccur_int8_ctx_t *cc, int tid, cbm_sem_vec
         int i = cc->rev->flat[p].pos;
         int *ids = cc->doc_token_ids[d];
         int len = cc->doc_token_counts[d];
-        for (int w = -CBM_SEM_WINDOW; w <= CBM_SEM_WINDOW; w++) {
+        for (int w = -CTX_SEM_WINDOW; w <= CTX_SEM_WINDOW; w++) {
             if (w == 0) {
                 continue;
             }
@@ -973,8 +973,8 @@ static void cooccur_int8_one_target(cooccur_int8_ctx_t *cc, int tid, cbm_sem_vec
             if (nid < 0) {
                 continue;
             }
-            float weight = CBM_SEM_UNIT_POS / (float)abs(w);
-            sem_vec_add_int8_scaled(target, &cc->pass1_q[(size_t)nid * CBM_SEM_DIM], weight);
+            float weight = CTX_SEM_UNIT_POS / (float)abs(w);
+            sem_vec_add_int8_scaled(target, &cc->pass1_q[(size_t)nid * CTX_SEM_DIM], weight);
         }
     }
 }
@@ -984,7 +984,7 @@ static void cooccur_worker_int8(int worker_id, void *ctx_ptr) {
     cooccur_int8_ctx_t *cc = ctx_ptr;
     while (true) {
         int ci =
-            atomic_fetch_add_explicit(&cc->next_chunk, CBM_SEM_ATOMIC_INC, memory_order_relaxed);
+            atomic_fetch_add_explicit(&cc->next_chunk, CTX_SEM_ATOMIC_INC, memory_order_relaxed);
         if (ci >= cc->num_chunks) {
             break;
         }
@@ -1001,7 +1001,7 @@ static void cooccur_worker_int8(int worker_id, void *ctx_ptr) {
             }
             for (int tid = tile_start; tid < tile_end; tid++) {
                 /* RRI pass 2 starts from zero (no self-init) */
-                memset(&cc->entries[tid].enriched_vec, 0, sizeof(cbm_sem_vec_t));
+                memset(&cc->entries[tid].enriched_vec, 0, sizeof(ctx_sem_vec_t));
                 cooccur_int8_one_target(cc, tid, &cc->entries[tid].enriched_vec);
             }
         }
@@ -1018,24 +1018,24 @@ static void normalize_worker(int worker_id, void *ctx_ptr) {
     (void)worker_id;
     norm_ctx_t *nc = ctx_ptr;
     while (true) {
-        int start = atomic_fetch_add_explicit(&nc->next_idx, CBM_SEM_WORKER_STACK_CAP,
+        int start = atomic_fetch_add_explicit(&nc->next_idx, CTX_SEM_WORKER_STACK_CAP,
                                               memory_order_relaxed);
         if (start >= nc->entry_count) {
             break;
         }
-        int end = start + CBM_SEM_WORKER_STACK_CAP;
+        int end = start + CTX_SEM_WORKER_STACK_CAP;
         if (end > nc->entry_count) {
             end = nc->entry_count;
         }
         for (int i = start; i < end; i++) {
-            cbm_sem_normalize(&nc->entries[i].enriched_vec);
+            ctx_sem_normalize(&nc->entries[i].enriched_vec);
         }
     }
 }
 
 typedef struct {
     corpus_entry_t *entries;
-    const cbm_sem_vec_t *pass1;
+    const ctx_sem_vec_t *pass1;
     int entry_count;
     _Atomic int next_idx;
 } blend_ctx_t;
@@ -1044,21 +1044,21 @@ static void blend_worker(int worker_id, void *ctx_ptr) {
     (void)worker_id;
     blend_ctx_t *bc = ctx_ptr;
     while (true) {
-        int start = atomic_fetch_add_explicit(&bc->next_idx, CBM_SEM_WORKER_STACK_CAP,
+        int start = atomic_fetch_add_explicit(&bc->next_idx, CTX_SEM_WORKER_STACK_CAP,
                                               memory_order_relaxed);
         if (start >= bc->entry_count) {
             break;
         }
-        int end = start + CBM_SEM_WORKER_STACK_CAP;
+        int end = start + CTX_SEM_WORKER_STACK_CAP;
         if (end > bc->entry_count) {
             end = bc->entry_count;
         }
         for (int i = start; i < end; i++) {
-            cbm_sem_normalize(&bc->entries[i].enriched_vec);
-            for (int d = 0; d < CBM_SEM_DIM; d++) {
+            ctx_sem_normalize(&bc->entries[i].enriched_vec);
+            for (int d = 0; d < CTX_SEM_DIM; d++) {
                 bc->entries[i].enriched_vec.v[d] =
-                    (CBM_SEM_RRI_BETA * bc->pass1[i].v[d]) +
-                    (CBM_SEM_RRI_ALPHA * bc->entries[i].enriched_vec.v[d]);
+                    (CTX_SEM_RRI_BETA * bc->pass1[i].v[d]) +
+                    (CTX_SEM_RRI_ALPHA * bc->entries[i].enriched_vec.v[d]);
             }
         }
     }
@@ -1066,7 +1066,7 @@ static void blend_worker(int worker_id, void *ctx_ptr) {
 
 typedef struct {
     corpus_entry_t *entries;
-    cbm_sem_src_entry_t *src_entries;
+    ctx_sem_src_entry_t *src_entries;
     int entry_count;
     _Atomic int next_idx;
 } src_build_ctx_t;
@@ -1075,7 +1075,7 @@ typedef struct {
  * sparse inline representation otherwise. Collisions in the sparse hash are
  * merged and zeros filtered so the final representation is exactly the same
  * mathematical vector that the old dense path produced. */
-static void build_src_entry(const char *token, cbm_sem_src_entry_t *out) {
+static void build_src_entry(const char *token, ctx_sem_src_entry_t *out) {
     memset(out, 0, sizeof(*out));
     if (!token) {
         out->is_sparse = SKIP_ONE;
@@ -1083,7 +1083,7 @@ static void build_src_entry(const char *token, cbm_sem_src_entry_t *out) {
         return;
     }
     /* Dense path: direct int8 pointer into pretrained blob (zero-copy). */
-    const char *idx_str = cbm_ht_get(g_pretrained_map, token);
+    const char *idx_str = ctx_ht_get(g_pretrained_map, token);
     if (idx_str) {
         char *end = NULL;
         long idx = strtol(idx_str, &end, BASE_DECIMAL);
@@ -1095,16 +1095,16 @@ static void build_src_entry(const char *token, cbm_sem_src_entry_t *out) {
     }
     /* Sparse path: compute 8 hash positions with collision merging. */
     out->is_sparse = SKIP_ONE;
-    uint16_t tmp_idx[CBM_SEM_SPARSE_NNZE];
-    float tmp_val[CBM_SEM_SPARSE_NNZE];
+    uint16_t tmp_idx[CTX_SEM_SPARSE_NNZE];
+    float tmp_val[CTX_SEM_SPARSE_NNZE];
     int count = 0;
     uint64_t seed = XXH3_64bits(token, strlen(token));
-    for (int i = 0; i < CBM_SEM_SPARSE_NNZE; i++) {
+    for (int i = 0; i < CTX_SEM_SPARSE_NNZE; i++) {
         uint64_t h = XXH3_64bits_withSeed(&i, sizeof(i), seed + RI_SEED_BASE);
-        int pos = (int)(h % CBM_SEM_DIM);
-        float sign = (h & SKIP_ONE) ? CBM_SEM_UNIT_POS : -CBM_SEM_UNIT_POS;
+        int pos = (int)(h % CTX_SEM_DIM);
+        float sign = (h & SKIP_ONE) ? CTX_SEM_UNIT_POS : -CTX_SEM_UNIT_POS;
         /* Merge collisions */
-        int found = CBM_NOT_FOUND;
+        int found = CTX_NOT_FOUND;
         for (int j = 0; j < count; j++) {
             if (tmp_idx[j] == (uint16_t)pos) {
                 found = j;
@@ -1135,12 +1135,12 @@ static void src_build_worker(int worker_id, void *ctx_ptr) {
     (void)worker_id;
     src_build_ctx_t *sc = ctx_ptr;
     while (true) {
-        int start = atomic_fetch_add_explicit(&sc->next_idx, CBM_SEM_WORKER_STACK_CAP,
+        int start = atomic_fetch_add_explicit(&sc->next_idx, CTX_SEM_WORKER_STACK_CAP,
                                               memory_order_relaxed);
         if (start >= sc->entry_count) {
             break;
         }
-        int end = start + CBM_SEM_WORKER_STACK_CAP;
+        int end = start + CTX_SEM_WORKER_STACK_CAP;
         if (end > sc->entry_count) {
             end = sc->entry_count;
         }
@@ -1165,26 +1165,26 @@ static void pass1_quantize_worker(int worker_id, void *ctx_ptr) {
     pass1_quant_ctx_t *qc = ctx_ptr;
     while (true) {
         int start =
-            atomic_fetch_add_explicit(&qc->next_idx, CBM_SEM_RRI_TILE, memory_order_relaxed);
+            atomic_fetch_add_explicit(&qc->next_idx, CTX_SEM_RRI_TILE, memory_order_relaxed);
         if (start >= qc->entry_count) {
             break;
         }
-        int end = start + CBM_SEM_RRI_TILE;
+        int end = start + CTX_SEM_RRI_TILE;
         if (end > qc->entry_count) {
             end = qc->entry_count;
         }
         for (int i = start; i < end; i++) {
-            const cbm_sem_vec_t *src = &qc->entries[i].enriched_vec;
-            int8_t *dst = &qc->pass1_q[(size_t)i * CBM_SEM_DIM];
-            for (int d = 0; d < CBM_SEM_DIM; d++) {
-                float v = src->v[d] * CBM_SEM_INT8_MAX;
-                if (v > CBM_SEM_INT8_MAX) {
-                    v = CBM_SEM_INT8_MAX;
+            const ctx_sem_vec_t *src = &qc->entries[i].enriched_vec;
+            int8_t *dst = &qc->pass1_q[(size_t)i * CTX_SEM_DIM];
+            for (int d = 0; d < CTX_SEM_DIM; d++) {
+                float v = src->v[d] * CTX_SEM_INT8_MAX;
+                if (v > CTX_SEM_INT8_MAX) {
+                    v = CTX_SEM_INT8_MAX;
                 }
-                if (v < -CBM_SEM_INT8_MAX) {
-                    v = -CBM_SEM_INT8_MAX;
+                if (v < -CTX_SEM_INT8_MAX) {
+                    v = -CTX_SEM_INT8_MAX;
                 }
-                dst[d] = (int8_t)(v >= 0 ? v + CBM_SEM_IDF_BASE : v - CBM_SEM_IDF_BASE);
+                dst[d] = (int8_t)(v >= 0 ? v + CTX_SEM_IDF_BASE : v - CTX_SEM_IDF_BASE);
             }
         }
     }
@@ -1192,7 +1192,7 @@ static void pass1_quantize_worker(int worker_id, void *ctx_ptr) {
 
 /* Build reverse index: token_id → list of (doc_id, position) pairs.
  * SEQUENTIAL (fast: just pointer arithmetic + flat array fill). */
-static reverse_index_t *build_reverse_index(cbm_sem_corpus_t *corpus) {
+static reverse_index_t *build_reverse_index(ctx_sem_corpus_t *corpus) {
     reverse_index_t *rev = calloc(SKIP_ONE, sizeof(reverse_index_t));
     if (!rev) {
         return NULL;
@@ -1266,14 +1266,14 @@ static void free_reverse_index(reverse_index_t *rev) {
 
 /* Bundle of parameters shared by the finalize sub-phases. */
 typedef struct {
-    cbm_sem_corpus_t *corpus;
+    ctx_sem_corpus_t *corpus;
     reverse_index_t *rev;
-    cbm_sem_src_entry_t *src_entries;
+    ctx_sem_src_entry_t *src_entries;
     int worker_count;
     int num_chunks;
     int chunk_size;
     int tile_size;
-    cbm_parallel_for_opts_t opts;
+    ctx_parallel_for_opts_t opts;
 } finalize_params_t;
 
 /* Sub-phase 1: build tagged source vectors (sparse or dense-int8) in parallel. */
@@ -1284,7 +1284,7 @@ static void finalize_build_sources(finalize_params_t *p) {
         .entry_count = p->corpus->entry_count,
     };
     atomic_init(&sc.next_idx, 0);
-    cbm_parallel_for(p->worker_count, src_build_worker, &sc, p->opts);
+    ctx_parallel_for(p->worker_count, src_build_worker, &sc, p->opts);
 }
 
 /* Sub-phases 2+3: co-occurrence pass 1 + normalize. */
@@ -1302,16 +1302,16 @@ static void finalize_pass1(finalize_params_t *p) {
         .tile_size = p->tile_size,
     };
     atomic_init(&cc.next_chunk, 0);
-    cbm_parallel_for(p->worker_count, cooccur_worker_sparse, &cc, p->opts);
+    ctx_parallel_for(p->worker_count, cooccur_worker_sparse, &cc, p->opts);
 
     norm_ctx_t nc = {.entries = p->corpus->entries, .entry_count = p->corpus->entry_count};
     atomic_init(&nc.next_idx, 0);
-    cbm_parallel_for(p->worker_count, normalize_worker, &nc, p->opts);
+    ctx_parallel_for(p->worker_count, normalize_worker, &nc, p->opts);
 }
 
 /* Sub-phases 4+5: quantize pass1 to int8, run RRI pass 2, blend + normalize. */
 static void finalize_pass2(finalize_params_t *p) {
-    int8_t *pass1_q = malloc((size_t)p->corpus->entry_count * CBM_SEM_DIM * sizeof(int8_t));
+    int8_t *pass1_q = malloc((size_t)p->corpus->entry_count * CTX_SEM_DIM * sizeof(int8_t));
     if (pass1_q) {
         pass1_quant_ctx_t qc = {
             .entries = p->corpus->entries,
@@ -1319,10 +1319,10 @@ static void finalize_pass2(finalize_params_t *p) {
             .entry_count = p->corpus->entry_count,
         };
         atomic_init(&qc.next_idx, 0);
-        cbm_parallel_for(p->worker_count, pass1_quantize_worker, &qc, p->opts);
+        ctx_parallel_for(p->worker_count, pass1_quantize_worker, &qc, p->opts);
     }
 
-    cbm_sem_vec_t *pass1 = malloc((size_t)p->corpus->entry_count * sizeof(cbm_sem_vec_t));
+    ctx_sem_vec_t *pass1 = malloc((size_t)p->corpus->entry_count * sizeof(ctx_sem_vec_t));
     if (pass1) {
         for (int i = 0; i < p->corpus->entry_count; i++) {
             pass1[i] = p->corpus->entries[i].enriched_vec;
@@ -1343,7 +1343,7 @@ static void finalize_pass2(finalize_params_t *p) {
             .tile_size = p->tile_size,
         };
         atomic_init(&cc.next_chunk, 0);
-        cbm_parallel_for(p->worker_count, cooccur_worker_int8, &cc, p->opts);
+        ctx_parallel_for(p->worker_count, cooccur_worker_int8, &cc, p->opts);
     }
 
     if (pass1) {
@@ -1353,17 +1353,17 @@ static void finalize_pass2(finalize_params_t *p) {
             .entry_count = p->corpus->entry_count,
         };
         atomic_init(&bc.next_idx, 0);
-        cbm_parallel_for(p->worker_count, blend_worker, &bc, p->opts);
+        ctx_parallel_for(p->worker_count, blend_worker, &bc, p->opts);
         free(pass1);
     }
     free(pass1_q);
 
     norm_ctx_t nc = {.entries = p->corpus->entries, .entry_count = p->corpus->entry_count};
     atomic_init(&nc.next_idx, 0);
-    cbm_parallel_for(p->worker_count, normalize_worker, &nc, p->opts);
+    ctx_parallel_for(p->worker_count, normalize_worker, &nc, p->opts);
 }
 
-void cbm_sem_corpus_finalize(cbm_sem_corpus_t *corpus) {
+void ctx_sem_corpus_finalize(ctx_sem_corpus_t *corpus) {
     if (!corpus || corpus->finalized) {
         return;
     }
@@ -1371,11 +1371,11 @@ void cbm_sem_corpus_finalize(cbm_sem_corpus_t *corpus) {
     /* Eager init before parallel dispatch to avoid lazy-init races */
     ensure_pretrained_map();
 
-    int worker_count = cbm_default_worker_count(false);
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    int worker_count = ctx_default_worker_count(false);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
 
     /* Finer chunks = better load balancing for skewed token distributions. */
-    int num_chunks = worker_count * CBM_SEM_COOCCUR_CHUNK;
+    int num_chunks = worker_count * CTX_SEM_COOCCUR_CHUNK;
     if (num_chunks > corpus->entry_count) {
         num_chunks = corpus->entry_count;
     }
@@ -1389,8 +1389,8 @@ void cbm_sem_corpus_finalize(cbm_sem_corpus_t *corpus) {
         corpus->finalized = true;
         return;
     }
-    cbm_sem_src_entry_t *src_entries =
-        calloc((size_t)corpus->entry_count, sizeof(cbm_sem_src_entry_t));
+    ctx_sem_src_entry_t *src_entries =
+        calloc((size_t)corpus->entry_count, sizeof(ctx_sem_src_entry_t));
     if (!src_entries) {
         free_reverse_index(rev);
         corpus->finalized = true;
@@ -1404,7 +1404,7 @@ void cbm_sem_corpus_finalize(cbm_sem_corpus_t *corpus) {
         .worker_count = worker_count,
         .num_chunks = num_chunks,
         .chunk_size = chunk_size,
-        .tile_size = CBM_SEM_TILE_SIZE,
+        .tile_size = CTX_SEM_TILE_SIZE,
         .opts = opts,
     };
     finalize_build_sources(&params);
@@ -1416,22 +1416,22 @@ void cbm_sem_corpus_finalize(cbm_sem_corpus_t *corpus) {
     corpus->finalized = true;
 }
 
-/* Parse a decimal index string via strtol, returning CBM_NOT_FOUND on parse
+/* Parse a decimal index string via strtol, returning CTX_NOT_FOUND on parse
  * failure.  Centralizes the atoi-replacement pattern for token_map lookups. */
 static int parse_token_index(const char *idx_str) {
     if (!idx_str) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     char *end = NULL;
     long parsed = strtol(idx_str, &end, BASE_DECIMAL);
-    return (end != idx_str) ? (int)parsed : CBM_NOT_FOUND;
+    return (end != idx_str) ? (int)parsed : CTX_NOT_FOUND;
 }
 
-float cbm_sem_corpus_idf(const cbm_sem_corpus_t *corpus, const char *token) {
+float ctx_sem_corpus_idf(const ctx_sem_corpus_t *corpus, const char *token) {
     if (!corpus || !token || corpus->doc_count == 0) {
         return 0.0F;
     }
-    int idx = parse_token_index(cbm_ht_get(corpus->token_map, token));
+    int idx = parse_token_index(ctx_ht_get(corpus->token_map, token));
     if (idx < 0 || idx >= corpus->entry_count) {
         return 0.0F;
     }
@@ -1442,27 +1442,27 @@ float cbm_sem_corpus_idf(const cbm_sem_corpus_t *corpus, const char *token) {
     return logf((float)corpus->doc_count / (float)df);
 }
 
-const cbm_sem_vec_t *cbm_sem_corpus_ri_vec(const cbm_sem_corpus_t *corpus, const char *token) {
+const ctx_sem_vec_t *ctx_sem_corpus_ri_vec(const ctx_sem_corpus_t *corpus, const char *token) {
     if (!corpus || !token) {
         return NULL;
     }
-    int idx = parse_token_index(cbm_ht_get(corpus->token_map, token));
+    int idx = parse_token_index(ctx_ht_get(corpus->token_map, token));
     if (idx < 0 || idx >= corpus->entry_count) {
         return NULL;
     }
     return &corpus->entries[idx].enriched_vec;
 }
 
-int cbm_sem_corpus_doc_count(const cbm_sem_corpus_t *corpus) {
+int ctx_sem_corpus_doc_count(const ctx_sem_corpus_t *corpus) {
     return corpus ? corpus->doc_count : 0;
 }
 
-int cbm_sem_corpus_token_count(const cbm_sem_corpus_t *corpus) {
+int ctx_sem_corpus_token_count(const ctx_sem_corpus_t *corpus) {
     return corpus ? corpus->entry_count : 0;
 }
 
-const char *cbm_sem_corpus_token_at(const cbm_sem_corpus_t *corpus, int index,
-                                    const cbm_sem_vec_t **out_vec, float *out_idf) {
+const char *ctx_sem_corpus_token_at(const ctx_sem_corpus_t *corpus, int index,
+                                    const ctx_sem_vec_t **out_vec, float *out_idf) {
     if (!corpus || index < 0 || index >= corpus->entry_count) {
         return NULL;
     }
@@ -1482,7 +1482,7 @@ static void free_ht_kv(const char *key, void *value, void *userdata) {
     free(value);
 }
 
-void cbm_sem_corpus_free(cbm_sem_corpus_t *corpus) {
+void ctx_sem_corpus_free(ctx_sem_corpus_t *corpus) {
     if (!corpus) {
         return;
     }
@@ -1496,17 +1496,17 @@ void cbm_sem_corpus_free(cbm_sem_corpus_t *corpus) {
     free(corpus->doc_token_ids);
     free(corpus->doc_token_counts);
     if (corpus->token_map) {
-        cbm_ht_foreach(corpus->token_map, free_ht_kv, NULL);
-        cbm_ht_free(corpus->token_map);
+        ctx_ht_foreach(corpus->token_map, free_ht_kv, NULL);
+        ctx_ht_free(corpus->token_map);
     }
     free(corpus);
 }
 
 /* ── Combined scoring ────────────────────────────────────────────── */
 
-float cbm_sem_proximity(const char *path_a, const char *path_b) {
+float ctx_sem_proximity(const char *path_a, const char *path_b) {
     if (!path_a || !path_b) {
-        return CBM_SEM_UNIT_POS;
+        return CTX_SEM_UNIT_POS;
     }
     /* Count shared directory components */
     int shared = 0;
@@ -1533,11 +1533,11 @@ float cbm_sem_proximity(const char *path_a, const char *path_b) {
     }
     int max_total = total_a > total_b ? total_a : total_b;
     if (max_total == 0) {
-        return CBM_SEM_UNIT_POS;
+        return CTX_SEM_UNIT_POS;
     }
     float ratio = (float)shared / (float)max_total;
     /* Same file = 1.10, same dir = 1.05, distant = 1.00 */
-    return CBM_SEM_UNIT_POS + (ratio * CBM_SEM_PROX_MAX_BOOST);
+    return CTX_SEM_UNIT_POS + (ratio * CTX_SEM_PROX_MAX_BOOST);
 }
 
 /* Cosine similarity for small float arrays (AST profile). */
@@ -1551,12 +1551,12 @@ static float small_cosine(const float *a, const float *b, int dims) {
         mb += b[i] * b[i];
     }
     float denom = sqrtf(ma) * sqrtf(mb);
-    return denom < CBM_SEM_DENOM_EPS ? 0.0F : dot / denom;
+    return denom < CTX_SEM_DENOM_EPS ? 0.0F : dot / denom;
 }
 
 /* Sparse cosine over two pre-sorted (index, weight) vectors.  Returns 0 when
  * either side is empty or the magnitude product is below the epsilon guard. */
-static float sparse_tfidf_cosine(const cbm_sem_func_t *a, const cbm_sem_func_t *b) {
+static float sparse_tfidf_cosine(const ctx_sem_func_t *a, const ctx_sem_func_t *b) {
     if (a->tfidf_len <= 0 || b->tfidf_len <= 0) {
         return 0.0F;
     }
@@ -1583,11 +1583,11 @@ static float sparse_tfidf_cosine(const cbm_sem_func_t *a, const cbm_sem_func_t *
         mb += b->tfidf_weights[i] * b->tfidf_weights[i];
     }
     float denom = sqrtf(ma) * sqrtf(mb);
-    return denom > CBM_SEM_DENOM_EPS ? (dot / denom) : 0.0F;
+    return denom > CTX_SEM_DENOM_EPS ? (dot / denom) : 0.0F;
 }
 
-float cbm_sem_combined_score(const cbm_sem_func_t *a, const cbm_sem_func_t *b,
-                             const cbm_sem_config_t *cfg) {
+float ctx_sem_combined_score(const ctx_sem_func_t *a, const ctx_sem_func_t *b,
+                             const ctx_sem_config_t *cfg) {
     if (!a || !b || !cfg) {
         return 0.0F;
     }
@@ -1598,9 +1598,9 @@ float cbm_sem_combined_score(const cbm_sem_func_t *a, const cbm_sem_func_t *b,
      * (logging_middleware, shared push/pull handlers) that SIMILAR_TO already covers,
      * freeing the edge budget for true semantic leaps (vocabulary-bridged relations). */
     if (a->has_minhash && b->has_minhash) {
-        double early_j = cbm_minhash_jaccard((const cbm_minhash_t *)a->minhash,
-                                             (const cbm_minhash_t *)b->minhash);
-        if (early_j >= CBM_MINHASH_JACCARD_THRESHOLD) {
+        double early_j = ctx_minhash_jaccard((const ctx_minhash_t *)a->minhash,
+                                             (const ctx_minhash_t *)b->minhash);
+        if (early_j >= CTX_MINHASH_JACCARD_THRESHOLD) {
             return 0.0F;
         }
     }
@@ -1608,26 +1608,26 @@ float cbm_sem_combined_score(const cbm_sem_func_t *a, const cbm_sem_func_t *b,
     float score = cfg->w_tfidf * sparse_tfidf_cosine(a, b);
 
     /* Signal 2: Random Indexing */
-    score += cfg->w_ri * cbm_sem_cosine(&a->ri_vec, &b->ri_vec);
+    score += cfg->w_ri * ctx_sem_cosine(&a->ri_vec, &b->ri_vec);
 
     /* Signal 3: MinHash Jaccard */
     if (a->has_minhash && b->has_minhash) {
-        double j = cbm_minhash_jaccard((const cbm_minhash_t *)a->minhash,
-                                       (const cbm_minhash_t *)b->minhash);
+        double j = ctx_minhash_jaccard((const ctx_minhash_t *)a->minhash,
+                                       (const ctx_minhash_t *)b->minhash);
         score += cfg->w_minhash * (float)j;
     }
 
     /* Signal 4: API Signatures */
-    score += cfg->w_api * cbm_sem_cosine(&a->api_vec, &b->api_vec);
+    score += cfg->w_api * ctx_sem_cosine(&a->api_vec, &b->api_vec);
 
     /* Signal 5: Type Signatures */
-    score += cfg->w_type * cbm_sem_cosine(&a->type_vec, &b->type_vec);
+    score += cfg->w_type * ctx_sem_cosine(&a->type_vec, &b->type_vec);
 
     /* Signal 7: Decorator Pattern */
-    score += cfg->w_decorator * cbm_sem_cosine(&a->deco_vec, &b->deco_vec);
+    score += cfg->w_decorator * ctx_sem_cosine(&a->deco_vec, &b->deco_vec);
 
     /* Signal 8+9+11: Structural profile + data flow + Halstead */
-    float sp_score = small_cosine(a->struct_profile, b->struct_profile, CBM_SEM_AST_PROFILE_DIMS);
+    float sp_score = small_cosine(a->struct_profile, b->struct_profile, CTX_SEM_AST_PROFILE_DIMS);
     score += cfg->w_struct_profile * sp_score;
 
     /* Signal 6: Module proximity (multiplier, not additive).
@@ -1636,9 +1636,9 @@ float cbm_sem_combined_score(const cbm_sem_func_t *a, const cbm_sem_func_t *b,
      * cosine-similarity range.  Without the clamp, a 0.95 base × 1.10 proximity
      * would emit a 1.045 score which violates the semantic of "similarity" and
      * breaks downstream consumers that expect a normalized value. */
-    score *= cbm_sem_proximity(a->file_path, b->file_path);
-    if (score > CBM_SEM_UNIT_POS) {
-        score = CBM_SEM_UNIT_POS;
+    score *= ctx_sem_proximity(a->file_path, b->file_path);
+    if (score > CTX_SEM_UNIT_POS) {
+        score = CTX_SEM_UNIT_POS;
     }
     if (score < 0.0F) {
         score = 0.0F;
@@ -1649,23 +1649,23 @@ float cbm_sem_combined_score(const cbm_sem_func_t *a, const cbm_sem_func_t *b,
 
 /* ── Graph diffusion ─────────────────────────────────────────────── */
 
-void cbm_sem_diffuse(cbm_sem_vec_t *combined, const cbm_sem_vec_t *neighbors, int neighbor_count,
+void ctx_sem_diffuse(ctx_sem_vec_t *combined, const ctx_sem_vec_t *neighbors, int neighbor_count,
                      float alpha) {
     if (!combined || !neighbors || neighbor_count <= 0) {
         return;
     }
     /* Blend: combined = (1-α) × combined + α × mean(neighbors) */
-    cbm_sem_vec_t mean;
+    ctx_sem_vec_t mean;
     memset(&mean, 0, sizeof(mean));
     for (int n = 0; n < neighbor_count; n++) {
-        for (int i = 0; i < CBM_SEM_DIM; i++) {
+        for (int i = 0; i < CTX_SEM_DIM; i++) {
             mean.v[i] += neighbors[n].v[i];
         }
     }
-    float inv_n = CBM_SEM_UNIT_POS / (float)neighbor_count;
-    float one_minus_alpha = CBM_SEM_UNIT_POS - alpha;
-    for (int i = 0; i < CBM_SEM_DIM; i++) {
+    float inv_n = CTX_SEM_UNIT_POS / (float)neighbor_count;
+    float one_minus_alpha = CTX_SEM_UNIT_POS - alpha;
+    for (int i = 0; i < CTX_SEM_DIM; i++) {
         combined->v[i] = (one_minus_alpha * combined->v[i]) + (alpha * mean.v[i] * inv_n);
     }
-    cbm_sem_normalize(combined);
+    ctx_sem_normalize(combined);
 }

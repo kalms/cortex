@@ -45,20 +45,20 @@ static const char *extract_kv(const char *line, const char *key, char *buf, int 
     return NULL;
 }
 
-void cbm_progress_sink_init(FILE *out) {
+void ctx_progress_sink_init(FILE *out) {
     s_out = out ? out : stderr;
     atomic_store(&s_needs_newline, 0);
     s_gbuf_nodes = NOT_SET;
     s_gbuf_edges = NOT_SET;
-    cbm_log_set_sink(cbm_progress_sink_fn);
+    ctx_log_set_sink(ctx_progress_sink_fn);
 }
 
-void cbm_progress_sink_fini(void) {
+void ctx_progress_sink_fini(void) {
     if (atomic_load(&s_needs_newline) && s_out) {
         (void)fprintf(s_out, "\n");
         (void)fflush(s_out);
     }
-    cbm_log_set_sink(NULL);
+    ctx_log_set_sink(NULL);
     s_out = NULL;
 }
 
@@ -91,7 +91,7 @@ static void flush_carriage(void) {
 
 /* Handle pipeline.discover event. */
 static void on_discover(const char *line) {
-    char files[CBM_SZ_32] = {0};
+    char files[CTX_SZ_32] = {0};
     if (extract_kv(line, "files", files, (int)sizeof(files))) {
         (void)fprintf(s_out, "  Discovering files (%s found)\n", files);
     } else {
@@ -102,7 +102,7 @@ static void on_discover(const char *line) {
 
 /* Handle pipeline.route event. */
 static void on_route(const char *line) {
-    char val[CBM_SZ_32] = {0};
+    char val[CTX_SZ_32] = {0};
     const char *path = extract_kv(line, "path", val, (int)sizeof(val));
     if (path && strcmp(path, "incremental") == 0) {
         (void)fprintf(s_out, "  Starting incremental index\n");
@@ -114,7 +114,7 @@ static void on_route(const char *line) {
 
 /* Handle pass.start event. */
 static void on_pass_start(const char *line) {
-    char val[CBM_SZ_64] = {0};
+    char val[CTX_SZ_64] = {0};
     const char *pass = extract_kv(line, "pass", val, (int)sizeof(val));
     if (pass && strcmp(pass, "structure") == 0) {
         (void)fprintf(s_out, "[1/9] Building file structure\n");
@@ -124,7 +124,7 @@ static void on_pass_start(const char *line) {
 
 /* Handle pass.timing event. */
 static void on_pass_timing(const char *line) {
-    char val[CBM_SZ_64] = {0};
+    char val[CTX_SZ_64] = {0};
     const char *pass = extract_kv(line, "pass", val, (int)sizeof(val));
     if (!pass) {
         return;
@@ -141,20 +141,20 @@ static void on_pass_timing(const char *line) {
 
 /* Handle gbuf.dump event — capture node/edge counts. */
 static void on_gbuf_dump(const char *line) {
-    char n[CBM_SZ_32] = {0};
-    char e[CBM_SZ_32] = {0};
+    char n[CTX_SZ_32] = {0};
+    char e[CTX_SZ_32] = {0};
     if (extract_kv(line, "nodes", n, (int)sizeof(n))) {
-        s_gbuf_nodes = (int)strtol(n, NULL, CBM_DECIMAL_BASE);
+        s_gbuf_nodes = (int)strtol(n, NULL, CTX_DECIMAL_BASE);
     }
     if (extract_kv(line, "edges", e, (int)sizeof(e))) {
-        s_gbuf_edges = (int)strtol(e, NULL, CBM_DECIMAL_BASE);
+        s_gbuf_edges = (int)strtol(e, NULL, CTX_DECIMAL_BASE);
     }
 }
 
 /* Handle pipeline.done event. */
 static void on_done(const char *line) {
     flush_carriage();
-    char ms[CBM_SZ_32] = {0};
+    char ms[CTX_SZ_32] = {0};
     const char *elapsed = extract_kv(line, "elapsed_ms", ms, (int)sizeof(ms));
     if (s_gbuf_nodes >= 0 && s_gbuf_edges >= 0 && elapsed) {
         (void)fprintf(s_out, "Done: %d nodes, %d edges (%s ms)\n", s_gbuf_nodes, s_gbuf_edges,
@@ -169,12 +169,12 @@ static void on_done(const char *line) {
 
 /* Handle parallel.extract.progress event — in-place counter. */
 static void on_extract_progress(const char *line) {
-    char done[CBM_SZ_32] = {0};
-    char total[CBM_SZ_32] = {0};
+    char done[CTX_SZ_32] = {0};
+    char total[CTX_SZ_32] = {0};
     if (extract_kv(line, "done", done, (int)sizeof(done)) &&
         extract_kv(line, "total", total, (int)sizeof(total))) {
-        long d = strtol(done, NULL, CBM_DECIMAL_BASE);
-        long t = strtol(total, NULL, CBM_DECIMAL_BASE);
+        long d = strtol(done, NULL, CTX_DECIMAL_BASE);
+        long t = strtol(total, NULL, CTX_DECIMAL_BASE);
         int pct = (t > 0) ? (int)((d * PERCENT) / t) : 0;
         (void)fprintf(s_out, "\r  Extracting: %ld/%ld files (%d%%)", d, t, pct);
         (void)fflush(s_out);
@@ -200,11 +200,11 @@ static const event_handler_t handlers[] = {
 
 enum { HANDLER_COUNT = sizeof(handlers) / sizeof(handlers[0]) };
 
-void cbm_progress_sink_fn(const char *line) {
+void ctx_progress_sink_fn(const char *line) {
     if (!line || !s_out) {
         return;
     }
-    char msg[CBM_SZ_64] = {0};
+    char msg[CTX_SZ_64] = {0};
     if (!extract_kv(line, "msg", msg, (int)sizeof(msg))) {
         return;
     }

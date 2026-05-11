@@ -4,8 +4,8 @@
  * Provides: thread create/join, mutex, aligned allocation.
  * All have zero overhead on POSIX (thin inlines or macros).
  */
-#ifndef CBM_COMPAT_THREAD_H
-#define CBM_COMPAT_THREAD_H
+#ifndef CTX_COMPAT_THREAD_H
+#define CTX_COMPAT_THREAD_H
 
 #include <stddef.h>
 
@@ -20,7 +20,7 @@
 
 typedef struct {
     HANDLE handle;
-} cbm_thread_t;
+} ctx_thread_t;
 
 #else /* POSIX */
 
@@ -28,16 +28,16 @@ typedef struct {
 
 typedef struct {
     pthread_t handle;
-} cbm_thread_t;
+} ctx_thread_t;
 
 #endif
 
 /* Create a thread with the given stack size (0 = OS default).
  * fn receives arg. Returns 0 on success. */
-int cbm_thread_create(cbm_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg);
+int ctx_thread_create(ctx_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg);
 
 /* Wait for thread to finish. Returns 0 on success. */
-int cbm_thread_join(cbm_thread_t *t);
+int ctx_thread_join(ctx_thread_t *t);
 
 /* ── Mutex ────────────────────────────────────────────────────── */
 
@@ -45,28 +45,28 @@ int cbm_thread_join(cbm_thread_t *t);
 
 typedef struct {
     CRITICAL_SECTION cs;
-} cbm_mutex_t;
+} ctx_mutex_t;
 
 #else
 
 typedef struct {
     pthread_mutex_t mtx;
-} cbm_mutex_t;
+} ctx_mutex_t;
 
 #endif
 
-void cbm_mutex_init(cbm_mutex_t *m);
-void cbm_mutex_lock(cbm_mutex_t *m);
-void cbm_mutex_unlock(cbm_mutex_t *m);
-void cbm_mutex_destroy(cbm_mutex_t *m);
+void ctx_mutex_init(ctx_mutex_t *m);
+void ctx_mutex_lock(ctx_mutex_t *m);
+void ctx_mutex_unlock(ctx_mutex_t *m);
+void ctx_mutex_destroy(ctx_mutex_t *m);
 
 /* ── Aligned allocation ───────────────────────────────────────── */
 
 /* Allocate size bytes aligned to alignment boundary.
  * Returns 0 on success, non-zero on failure. *ptr receives the allocation. */
-int cbm_aligned_alloc(void **ptr, size_t alignment, size_t size);
+int ctx_aligned_alloc(void **ptr, size_t alignment, size_t size);
 
-/* Free memory from cbm_aligned_alloc. */
-void cbm_aligned_free(void *ptr);
+/* Free memory from ctx_aligned_alloc. */
+void ctx_aligned_free(void *ptr);
 
-#endif /* CBM_COMPAT_THREAD_H */
+#endif /* CTX_COMPAT_THREAD_H */

@@ -1,7 +1,7 @@
 /*
  * cypher.c — Cypher query engine: lexer, parser, planner, executor.
  *
- * Translates a subset of Cypher into SQL queries against cbm_store.
+ * Translates a subset of Cypher into SQL queries against ctx_store.
  * Supports MATCH patterns with relationships, WHERE filters,
  * RETURN with COUNT/ORDER BY/LIMIT/DISTINCT.
  */
@@ -67,30 +67,30 @@ static char *heap_strndup(const char *s, size_t n) {
  *  LEXER
  * ══════════════════════════════════════════════════════════════════ */
 
-static void lex_push(cbm_lex_result_t *r, cbm_token_type_t type, const char *text, int pos) {
+static void lex_push(ctx_lex_result_t *r, ctx_token_type_t type, const char *text, int pos) {
     if (r->count >= r->capacity) {
-        r->capacity = r->capacity ? r->capacity * PAIR_LEN : CBM_SZ_32;
-        r->tokens = safe_realloc(r->tokens, r->capacity * sizeof(cbm_token_t));
+        r->capacity = r->capacity ? r->capacity * PAIR_LEN : CTX_SZ_32;
+        r->tokens = safe_realloc(r->tokens, r->capacity * sizeof(ctx_token_t));
     }
-    r->tokens[r->count++] = (cbm_token_t){.type = type, .text = heap_strdup(text), .pos = pos};
+    r->tokens[r->count++] = (ctx_token_t){.type = type, .text = heap_strdup(text), .pos = pos};
 }
 
-static void lex_push_n(cbm_lex_result_t *r, cbm_token_type_t type, const char *start, size_t len,
+static void lex_push_n(ctx_lex_result_t *r, ctx_token_type_t type, const char *start, size_t len,
                        int pos) {
     if (r->count >= r->capacity) {
-        r->capacity = r->capacity ? r->capacity * PAIR_LEN : CBM_SZ_32;
-        r->tokens = safe_realloc(r->tokens, r->capacity * sizeof(cbm_token_t));
+        r->capacity = r->capacity ? r->capacity * PAIR_LEN : CTX_SZ_32;
+        r->tokens = safe_realloc(r->tokens, r->capacity * sizeof(ctx_token_t));
     }
     r->tokens[r->count++] =
-        (cbm_token_t){.type = type, .text = heap_strndup(start, len), .pos = pos};
+        (ctx_token_t){.type = type, .text = heap_strndup(start, len), .pos = pos};
 }
 
 /* Parse a string literal (with escape handling) into the token list.
  * *pos points at the character after the opening quote; updated past closing quote. */
 static void lex_string_literal(const char *input, int len, int *pos, char quote,
-                               cbm_lex_result_t *out) {
+                               ctx_lex_result_t *out) {
     int start = *pos;
-    char buf[CBM_SZ_4K];
+    char buf[CTX_SZ_4K];
     int blen = 0;
     while (*pos < len && input[*pos] != quote) {
         if (input[*pos] == '\\' && *pos + SKIP_ONE < len) {
@@ -124,7 +124,7 @@ static void lex_string_literal(const char *input, int len, int *pos, char quote,
 /* Keyword table (case-insensitive lookup) */
 typedef struct {
     const char *name;
-    cbm_token_type_t type;
+    ctx_token_type_t type;
 } kw_entry_t;
 static const kw_entry_t keywords[] = {
     /* Core query */
@@ -203,7 +203,7 @@ static const kw_entry_t keywords[] = {
     {"UNIQUE", TOK_UNIQUE},
     {NULL, 0}};
 
-static cbm_token_type_t keyword_lookup(const char *word) {
+static ctx_token_type_t keyword_lookup(const char *word) {
     /* Case-insensitive compare */
     for (const kw_entry_t *kw = keywords; kw->name; kw++) {
         if (strcasecmp(word, kw->name) == 0) {
@@ -214,10 +214,10 @@ static cbm_token_type_t keyword_lookup(const char *word) {
 }
 
 /* Try to match a two-character token at position i. Returns true and advances i if matched. */
-static bool lex_try_two_char(const char *input, int len, int *i, cbm_lex_result_t *out) {
+static bool lex_try_two_char(const char *input, int len, int *i, ctx_lex_result_t *out) {
     static const struct {
         char c1, c2;
-        cbm_token_type_t type;
+        ctx_token_type_t type;
         const char *text;
     } pairs[] = {
         {'!', '=', TOK_NEQ, "!="}, {'<', '>', TOK_NEQ, "<>"}, {'=', '~', TOK_EQTILDE, "=~"},
@@ -239,7 +239,7 @@ static bool lex_try_two_char(const char *input, int len, int *i, cbm_lex_result_
 }
 
 /* Try to match a single-character token. Returns TOK_EOF if not matched. */
-static cbm_token_type_t lex_single_char(char c) {
+static ctx_token_type_t lex_single_char(char c) {
     switch (c) {
     case '(':
         return TOK_LPAREN;
@@ -277,7 +277,7 @@ static cbm_token_type_t lex_single_char(char c) {
 }
 
 /* Try to lex an identifier or keyword starting at position i. Returns true if matched. */
-static bool lex_try_ident(const char *input, int len, int *i, cbm_lex_result_t *out) {
+static bool lex_try_ident(const char *input, int len, int *i, ctx_lex_result_t *out) {
     char c = input[*i];
     if (!isalpha((unsigned char)c) && c != '_') {
         return false;
@@ -286,20 +286,20 @@ static bool lex_try_ident(const char *input, int len, int *i, cbm_lex_result_t *
     while (*i < len && (isalnum((unsigned char)input[*i]) || input[*i] == '_')) {
         (*i)++;
     }
-    char word[CBM_SZ_256];
+    char word[CTX_SZ_256];
     int wlen = *i - start;
     if (wlen >= (int)sizeof(word)) {
         wlen = (int)sizeof(word) - SKIP_ONE;
     }
     memcpy(word, input + start, wlen);
     word[wlen] = '\0';
-    cbm_token_type_t type = keyword_lookup(word);
+    ctx_token_type_t type = keyword_lookup(word);
     lex_push_n(out, type, input + start, *i - start, start);
     return true;
 }
 
 /* Try to lex a number starting at position i. Returns true if matched. */
-static bool lex_try_number(const char *input, int len, int *i, cbm_lex_result_t *out) {
+static bool lex_try_number(const char *input, int len, int *i, ctx_lex_result_t *out) {
     char c = input[*i];
     if (!isdigit((unsigned char)c) &&
         !(c == '.' && *i + SKIP_ONE < len && isdigit((unsigned char)input[*i + SKIP_ONE]))) {
@@ -339,10 +339,10 @@ static bool lex_skip_whitespace_comments(const char *input, int len, int *i) {
     return false;
 }
 
-int cbm_lex(const char *input, cbm_lex_result_t *out) {
+int ctx_lex(const char *input, ctx_lex_result_t *out) {
     memset(out, 0, sizeof(*out));
     if (!input) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     int len = (int)strlen(input);
@@ -382,7 +382,7 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
         }
 
         /* Single-character tokens */
-        cbm_token_type_t stype = lex_single_char(c);
+        ctx_token_type_t stype = lex_single_char(c);
 
         if (stype != TOK_EOF) {
             char buf[PAIR_LEN] = {c, '\0'};
@@ -400,7 +400,7 @@ int cbm_lex(const char *input, cbm_lex_result_t *out) {
     return 0;
 }
 
-void cbm_lex_free(cbm_lex_result_t *r) {
+void ctx_lex_free(ctx_lex_result_t *r) {
     if (!r) {
         return;
     }
@@ -417,31 +417,31 @@ void cbm_lex_free(cbm_lex_result_t *r) {
  * ══════════════════════════════════════════════════════════════════ */
 
 typedef struct {
-    const cbm_token_t *tokens;
+    const ctx_token_t *tokens;
     int count;
     int pos;
-    char error[CBM_SZ_512];
+    char error[CTX_SZ_512];
 } parser_t;
 
-static const cbm_token_t *peek(parser_t *p) {
+static const ctx_token_t *peek(parser_t *p) {
     if (p->pos >= p->count) {
         return &p->tokens[p->count - SKIP_ONE]; /* EOF */
     }
     return &p->tokens[p->pos];
 }
 
-static const cbm_token_t *advance(parser_t *p) {
+static const ctx_token_t *advance(parser_t *p) {
     if (p->pos >= p->count) {
         return &p->tokens[p->count - SKIP_ONE];
     }
     return &p->tokens[p->pos++];
 }
 
-static bool check(parser_t *p, cbm_token_type_t type) {
+static bool check(parser_t *p, ctx_token_type_t type) {
     return peek(p)->type == type;
 }
 
-static bool match(parser_t *p, cbm_token_type_t type) {
+static bool match(parser_t *p, ctx_token_type_t type) {
     if (check(p, type)) {
         advance(p);
         return true;
@@ -449,7 +449,7 @@ static bool match(parser_t *p, cbm_token_type_t type) {
     return false;
 }
 
-static const cbm_token_t *expect(parser_t *p, cbm_token_type_t type) {
+static const ctx_token_t *expect(parser_t *p, ctx_token_type_t type) {
     if (check(p, type)) {
         return advance(p);
     }
@@ -459,7 +459,7 @@ static const cbm_token_t *expect(parser_t *p, cbm_token_type_t type) {
 }
 
 /* Parse inline properties: {key: "value", ...} */
-static int parse_props(parser_t *p, cbm_prop_filter_t **out, int *count) {
+static int parse_props(parser_t *p, ctx_prop_filter_t **out, int *count) {
     *out = NULL;
     *count = 0;
     if (!match(p, TOK_LBRACE)) {
@@ -468,27 +468,27 @@ static int parse_props(parser_t *p, cbm_prop_filter_t **out, int *count) {
 
     int cap = CYP_INIT_CAP4;
     int n = 0;
-    cbm_prop_filter_t *arr = malloc(cap * sizeof(cbm_prop_filter_t));
+    ctx_prop_filter_t *arr = malloc(cap * sizeof(ctx_prop_filter_t));
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-        const cbm_token_t *key = expect(p, TOK_IDENT);
+        const ctx_token_t *key = expect(p, TOK_IDENT);
         if (!key) {
             free(arr);
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         if (!expect(p, TOK_COLON)) {
             free(arr);
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
-        const cbm_token_t *val = expect(p, TOK_STRING);
+        const ctx_token_t *val = expect(p, TOK_STRING);
         if (!val) {
             free(arr);
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
 
         if (n >= cap) {
             cap *= PAIR_LEN;
-            arr = safe_realloc(arr, cap * sizeof(cbm_prop_filter_t));
+            arr = safe_realloc(arr, cap * sizeof(ctx_prop_filter_t));
         }
         arr[n].key = heap_strdup(key->text);
         arr[n].value = heap_strdup(val->text);
@@ -504,10 +504,10 @@ static int parse_props(parser_t *p, cbm_prop_filter_t **out, int *count) {
 }
 
 /* Parse node: (variable:Label {props}) */
-static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
+static int parse_node(parser_t *p, ctx_node_pattern_t *out) {
     memset(out, 0, sizeof(*out));
     if (!expect(p, TOK_LPAREN)) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     /* Optional variable */
@@ -519,9 +519,9 @@ static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
 
     /* Optional :Label */
     if (match(p, TOK_COLON)) {
-        const cbm_token_t *label = expect(p, TOK_IDENT);
+        const ctx_token_t *label = expect(p, TOK_IDENT);
         if (!label) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         out->label = heap_strdup(label->text);
     }
@@ -529,12 +529,12 @@ static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
     /* Optional {props} */
     if (check(p, TOK_LBRACE)) {
         if (parse_props(p, &out->props, &out->prop_count) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
     }
 
     if (!expect(p, TOK_RPAREN)) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     return 0;
 }
@@ -542,12 +542,12 @@ static int parse_node(parser_t *p, cbm_node_pattern_t *out) {
 /* Parse *min..max hop range after the star token has been consumed */
 static void parse_hop_range(parser_t *p, int *min_hops, int *max_hops) {
     if (check(p, TOK_NUMBER)) {
-        int val = (int)strtol(peek(p)->text, NULL, CBM_DECIMAL_BASE);
+        int val = (int)strtol(peek(p)->text, NULL, CTX_DECIMAL_BASE);
         advance(p);
         if (match(p, TOK_DOTDOT)) {
             *min_hops = val;
             *max_hops =
-                check(p, TOK_NUMBER) ? (int)strtol(advance(p)->text, NULL, CBM_DECIMAL_BASE) : 0;
+                check(p, TOK_NUMBER) ? (int)strtol(advance(p)->text, NULL, CTX_DECIMAL_BASE) : 0;
         } else {
             /* *N means 1..N */
             *min_hops = SKIP_ONE;
@@ -556,7 +556,7 @@ static void parse_hop_range(parser_t *p, int *min_hops, int *max_hops) {
     } else if (match(p, TOK_DOTDOT)) {
         *min_hops = SKIP_ONE;
         *max_hops =
-            check(p, TOK_NUMBER) ? (int)strtol(advance(p)->text, NULL, CBM_DECIMAL_BASE) : 0;
+            check(p, TOK_NUMBER) ? (int)strtol(advance(p)->text, NULL, CTX_DECIMAL_BASE) : 0;
     } else {
         /* * alone = unbounded */
         *min_hops = SKIP_ONE;
@@ -565,15 +565,15 @@ static void parse_hop_range(parser_t *p, int *min_hops, int *max_hops) {
 }
 
 /* Parse relationship type list after ':' inside brackets. Returns -1 on error. */
-static int parse_rel_types(parser_t *p, cbm_rel_pattern_t *out) {
+static int parse_rel_types(parser_t *p, ctx_rel_pattern_t *out) {
     int cap = CYP_INIT_CAP4;
     int n = 0;
     const char **types = malloc(cap * sizeof(const char *));
 
-    const cbm_token_t *t = expect(p, TOK_IDENT);
+    const ctx_token_t *t = expect(p, TOK_IDENT);
     if (!t) {
         free(types);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     types[n++] = heap_strdup(t->text);
 
@@ -584,7 +584,7 @@ static int parse_rel_types(parser_t *p, cbm_rel_pattern_t *out) {
                 free((void *)types[i]);
             }
             free(types);
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         if (n >= cap) {
             cap *= PAIR_LEN;
@@ -599,7 +599,7 @@ static int parse_rel_types(parser_t *p, cbm_rel_pattern_t *out) {
 }
 
 /* Parse bracket content of a relationship: [var:TYPE*hops] */
-static int parse_rel_bracket(parser_t *p, cbm_rel_pattern_t *out) {
+static int parse_rel_bracket(parser_t *p, ctx_rel_pattern_t *out) {
     /* Optional variable */
     if (check(p, TOK_IDENT) && !check(p, TOK_COLON)) {
         out->variable = heap_strdup(advance(p)->text);
@@ -607,7 +607,7 @@ static int parse_rel_bracket(parser_t *p, cbm_rel_pattern_t *out) {
     /* Optional :Types */
     if (match(p, TOK_COLON)) {
         if (parse_rel_types(p, out) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
     }
     /* Optional *hop_range */
@@ -615,13 +615,13 @@ static int parse_rel_bracket(parser_t *p, cbm_rel_pattern_t *out) {
         parse_hop_range(p, &out->min_hops, &out->max_hops);
     }
     if (!expect(p, TOK_RBRACKET)) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     return 0;
 }
 
 /* Parse relationship: -[:TYPE|TYPE2*min..max]-> or <-[...]-  */
-static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
+static int parse_rel(parser_t *p, ctx_rel_pattern_t *out) {
     memset(out, 0, sizeof(*out));
     out->min_hops = SKIP_ONE;
     out->max_hops = SKIP_ONE;
@@ -629,18 +629,18 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
     /* Check for leading < (inbound) */
     bool leading_lt = match(p, TOK_LT);
     if (!expect(p, TOK_DASH)) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     /* Optional bracket content */
     if (match(p, TOK_LBRACKET)) {
         if (parse_rel_bracket(p, out) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
     }
 
     if (!expect(p, TOK_DASH)) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     /* Check for trailing > (outbound) */
@@ -660,15 +660,15 @@ static int parse_rel(parser_t *p, cbm_rel_pattern_t *out) {
 
 /* ── Expression tree helpers ────────────────────────────────────── */
 
-static void expr_free(cbm_expr_t *e) {
+static void expr_free(ctx_expr_t *e) {
     enum { EXPR_FREE_STACK = 128 };
-    cbm_expr_t *stack[EXPR_FREE_STACK];
+    ctx_expr_t *stack[EXPR_FREE_STACK];
     int top = 0;
     if (e) {
         stack[top++] = e;
     }
     while (top > 0) {
-        cbm_expr_t *cur = stack[--top];
+        ctx_expr_t *cur = stack[--top];
         if (cur->type == EXPR_CONDITION) {
             free((void *)cur->cond.variable);
             free((void *)cur->cond.property);
@@ -689,23 +689,23 @@ static void expr_free(cbm_expr_t *e) {
     }
 }
 
-static cbm_expr_t *expr_leaf(cbm_condition_t c) {
-    cbm_expr_t *e = calloc(CBM_ALLOC_ONE, sizeof(cbm_expr_t));
+static ctx_expr_t *expr_leaf(ctx_condition_t c) {
+    ctx_expr_t *e = calloc(CTX_ALLOC_ONE, sizeof(ctx_expr_t));
     e->type = EXPR_CONDITION;
     e->cond = c;
     return e;
 }
 
-static cbm_expr_t *expr_binary(cbm_expr_type_t type, cbm_expr_t *left, cbm_expr_t *right) {
-    cbm_expr_t *e = calloc(CBM_ALLOC_ONE, sizeof(cbm_expr_t));
+static ctx_expr_t *expr_binary(ctx_expr_type_t type, ctx_expr_t *left, ctx_expr_t *right) {
+    ctx_expr_t *e = calloc(CTX_ALLOC_ONE, sizeof(ctx_expr_t));
     e->type = type;
     e->left = left;
     e->right = right;
     return e;
 }
 
-static cbm_expr_t *expr_not(cbm_expr_t *child) {
-    cbm_expr_t *e = calloc(CBM_ALLOC_ONE, sizeof(cbm_expr_t));
+static ctx_expr_t *expr_not(ctx_expr_t *child) {
+    ctx_expr_t *e = calloc(CTX_ALLOC_ONE, sizeof(ctx_expr_t));
     e->type = EXPR_NOT;
     e->left = child;
     return e;
@@ -713,7 +713,7 @@ static cbm_expr_t *expr_not(cbm_expr_t *child) {
 
 /* ── Unsupported keyword detection ─────────────────────────────── */
 
-static const char *unsupported_clause_error(cbm_token_type_t type) {
+static const char *unsupported_clause_error(ctx_token_type_t type) {
     switch (type) {
     case TOK_CREATE:
         return "unsupported Cypher feature: CREATE clause (write operations not supported)";
@@ -747,10 +747,10 @@ static const char *unsupported_clause_error(cbm_token_type_t type) {
 /* ── Recursive descent WHERE parser (Phase 2) ──────────────────── */
 
 /* Forward declarations for recursive descent */
-static cbm_expr_t *parse_or_expr(parser_t *p);
+static ctx_expr_t *parse_or_expr(parser_t *p);
 
 /* Parse IN [val, val, ...] list. Returns expr_leaf or NULL on error. */
-static cbm_expr_t *parse_in_list(parser_t *p, cbm_condition_t *c) {
+static ctx_expr_t *parse_in_list(parser_t *p, ctx_condition_t *c) {
     advance(p);
     c->op = heap_strdup("IN");
     if (!expect(p, TOK_LBRACKET)) {
@@ -823,20 +823,20 @@ static char *parse_comparison_op(parser_t *p) {
 }
 
 /* Parse a single condition: var.prop OP value | var.prop IS [NOT] NULL | var.prop IN [...] */
-static cbm_expr_t *parse_condition_expr(parser_t *p) {
+static ctx_expr_t *parse_condition_expr(parser_t *p) {
     /* Check for NOT prefix at condition level (e.g. NOT n.name CONTAINS "x") */
     bool negated = match(p, TOK_NOT);
 
-    const cbm_token_t *var = expect(p, TOK_IDENT);
+    const ctx_token_t *var = expect(p, TOK_IDENT);
     if (!var) {
         return NULL;
     }
 
-    cbm_condition_t c = {0};
+    ctx_condition_t c = {0};
     c.negated = negated;
 
     if (match(p, TOK_DOT)) {
-        const cbm_token_t *prop = expect(p, TOK_IDENT);
+        const ctx_token_t *prop = expect(p, TOK_IDENT);
         if (!prop) {
             return NULL;
         }
@@ -896,9 +896,9 @@ static cbm_expr_t *parse_condition_expr(parser_t *p) {
 }
 
 /* Atom: ( expr ) | condition */
-static cbm_expr_t *parse_atom_expr(parser_t *p) { // NOLINT(misc-no-recursion)
+static ctx_expr_t *parse_atom_expr(parser_t *p) { // NOLINT(misc-no-recursion)
     if (match(p, TOK_LPAREN)) {
-        cbm_expr_t *e = parse_or_expr(p);
+        ctx_expr_t *e = parse_or_expr(p);
         expect(p, TOK_RPAREN);
         return e;
     }
@@ -906,23 +906,23 @@ static cbm_expr_t *parse_atom_expr(parser_t *p) { // NOLINT(misc-no-recursion)
 }
 
 /* NOT: NOT atom | atom */
-static cbm_expr_t *parse_not_expr(parser_t *p) { // NOLINT(misc-no-recursion)
+static ctx_expr_t *parse_not_expr(parser_t *p) { // NOLINT(misc-no-recursion)
     if (match(p, TOK_NOT)) {
-        cbm_expr_t *child = parse_not_expr(p);
+        ctx_expr_t *child = parse_not_expr(p);
         return child ? expr_not(child) : NULL;
     }
     return parse_atom_expr(p);
 }
 
 /* AND: not (AND not)* */
-static cbm_expr_t *parse_and_expr(parser_t *p) { // NOLINT(misc-no-recursion)
-    cbm_expr_t *left = parse_not_expr(p);
+static ctx_expr_t *parse_and_expr(parser_t *p) { // NOLINT(misc-no-recursion)
+    ctx_expr_t *left = parse_not_expr(p);
     if (!left) {
         return NULL;
     }
     while (check(p, TOK_AND)) {
         advance(p);
-        cbm_expr_t *right = parse_not_expr(p);
+        ctx_expr_t *right = parse_not_expr(p);
         if (!right) {
             expr_free(left);
             return NULL;
@@ -933,14 +933,14 @@ static cbm_expr_t *parse_and_expr(parser_t *p) { // NOLINT(misc-no-recursion)
 }
 
 /* XOR: and (XOR and)* */
-static cbm_expr_t *parse_xor_expr(parser_t *p) { // NOLINT(misc-no-recursion)
-    cbm_expr_t *left = parse_and_expr(p);
+static ctx_expr_t *parse_xor_expr(parser_t *p) { // NOLINT(misc-no-recursion)
+    ctx_expr_t *left = parse_and_expr(p);
     if (!left) {
         return NULL;
     }
     while (check(p, TOK_XOR)) {
         advance(p);
-        cbm_expr_t *right = parse_and_expr(p);
+        ctx_expr_t *right = parse_and_expr(p);
         if (!right) {
             expr_free(left);
             return NULL;
@@ -951,14 +951,14 @@ static cbm_expr_t *parse_xor_expr(parser_t *p) { // NOLINT(misc-no-recursion)
 }
 
 /* OR: xor (OR xor)* */
-static cbm_expr_t *parse_or_expr(parser_t *p) { // NOLINT(misc-no-recursion)
-    cbm_expr_t *left = parse_xor_expr(p);
+static ctx_expr_t *parse_or_expr(parser_t *p) { // NOLINT(misc-no-recursion)
+    ctx_expr_t *left = parse_xor_expr(p);
     if (!left) {
         return NULL;
     }
     while (check(p, TOK_OR)) {
         advance(p);
-        cbm_expr_t *right = parse_xor_expr(p);
+        ctx_expr_t *right = parse_xor_expr(p);
         if (!right) {
             expr_free(left);
             return NULL;
@@ -969,17 +969,17 @@ static cbm_expr_t *parse_or_expr(parser_t *p) { // NOLINT(misc-no-recursion)
 }
 
 /* Parse WHERE clause — builds expression tree */
-static int parse_where(parser_t *p, cbm_where_clause_t **out) {
+static int parse_where(parser_t *p, ctx_where_clause_t **out) {
     if (!match(p, TOK_WHERE)) {
         *out = NULL;
         return 0;
     }
 
-    cbm_where_clause_t *w = calloc(CBM_ALLOC_ONE, sizeof(cbm_where_clause_t));
+    ctx_where_clause_t *w = calloc(CTX_ALLOC_ONE, sizeof(ctx_where_clause_t));
     w->root = parse_or_expr(p);
     if (!w->root && p->error[0]) {
         free(w);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     *out = w;
@@ -987,18 +987,18 @@ static int parse_where(parser_t *p, cbm_where_clause_t **out) {
 }
 
 /* Helper: is token an aggregate function? */
-static bool is_aggregate_tok(cbm_token_type_t t) {
+static bool is_aggregate_tok(ctx_token_type_t t) {
     return (t == TOK_COUNT || t == TOK_SUM || t == TOK_AVG || t == TOK_MIN_KW || t == TOK_MAX_KW ||
             t == TOK_COLLECT) != 0;
 }
 
 /* Helper: is token a string function? */
-static bool is_string_func_tok(cbm_token_type_t t) {
+static bool is_string_func_tok(ctx_token_type_t t) {
     return (t == TOK_TOLOWER || t == TOK_TOUPPER || t == TOK_TOSTRING) != 0;
 }
 
 /* Token type to function name */
-static const char *agg_func_name(cbm_token_type_t t) {
+static const char *agg_func_name(ctx_token_type_t t) {
     switch (t) {
     case TOK_COUNT:
         return "COUNT";
@@ -1017,7 +1017,7 @@ static const char *agg_func_name(cbm_token_type_t t) {
     }
 }
 
-static const char *str_func_name(cbm_token_type_t t) {
+static const char *str_func_name(ctx_token_type_t t) {
     switch (t) {
     case TOK_TOLOWER:
         return "toLower";
@@ -1036,10 +1036,10 @@ static const char *parse_value_literal(parser_t *p) {
         return heap_strdup(advance(p)->text);
     }
     if (check(p, TOK_IDENT)) {
-        char buf[CBM_SZ_256];
-        const cbm_token_t *v = advance(p);
+        char buf[CTX_SZ_256];
+        const ctx_token_t *v = advance(p);
         if (match(p, TOK_DOT)) {
-            const cbm_token_t *pr = expect(p, TOK_IDENT);
+            const ctx_token_t *pr = expect(p, TOK_IDENT);
             snprintf(buf, sizeof(buf), "%s.%s", v->text, pr ? pr->text : "");
         } else {
             snprintf(buf, sizeof(buf), "%s", v->text);
@@ -1058,15 +1058,15 @@ static const char *parse_value_literal(parser_t *p) {
 }
 
 /* Parse CASE WHEN ... THEN ... [ELSE ...] END */
-static cbm_case_expr_t *parse_case_expr(parser_t *p) {
+static ctx_case_expr_t *parse_case_expr(parser_t *p) {
     /* CASE already consumed */
-    cbm_case_expr_t *kase = calloc(CBM_ALLOC_ONE, sizeof(cbm_case_expr_t));
+    ctx_case_expr_t *kase = calloc(CTX_ALLOC_ONE, sizeof(ctx_case_expr_t));
     int bcap = CYP_INIT_CAP4;
-    kase->branches = malloc(bcap * sizeof(cbm_case_branch_t));
+    kase->branches = malloc(bcap * sizeof(ctx_case_branch_t));
 
     while (check(p, TOK_WHEN)) {
         advance(p);
-        cbm_expr_t *when = parse_or_expr(p);
+        ctx_expr_t *when = parse_or_expr(p);
         if (!expect(p, TOK_THEN)) {
             expr_free(when);
             break;
@@ -1074,10 +1074,10 @@ static cbm_case_expr_t *parse_case_expr(parser_t *p) {
         const char *then_val = parse_value_literal(p);
         if (kase->branch_count >= bcap) {
             bcap *= PAIR_LEN;
-            kase->branches = safe_realloc(kase->branches, bcap * sizeof(cbm_case_branch_t));
+            kase->branches = safe_realloc(kase->branches, bcap * sizeof(ctx_case_branch_t));
         }
         kase->branches[kase->branch_count++] =
-            (cbm_case_branch_t){.when_expr = when, .then_val = then_val};
+            (ctx_case_branch_t){.when_expr = when, .then_val = then_val};
     }
 
     if (match(p, TOK_ELSE)) {
@@ -1090,14 +1090,14 @@ static cbm_case_expr_t *parse_case_expr(parser_t *p) {
 /* Parse a single RETURN/WITH item (aggregate, string func, CASE, or plain var.prop).
  * Returns 0 on success, -1 on error. */
 /* Parse var[.prop] into item->variable and item->property. Returns -1 on error. */
-static int parse_var_dot_prop(parser_t *p, cbm_return_item_t *item) {
-    const cbm_token_t *var = expect(p, TOK_IDENT);
+static int parse_var_dot_prop(parser_t *p, ctx_return_item_t *item) {
+    const ctx_token_t *var = expect(p, TOK_IDENT);
     if (!var) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     item->variable = heap_strdup(var->text);
     if (match(p, TOK_DOT)) {
-        const cbm_token_t *prop = expect(p, TOK_IDENT);
+        const ctx_token_t *prop = expect(p, TOK_IDENT);
         if (prop) {
             item->property = heap_strdup(prop->text);
         }
@@ -1106,15 +1106,15 @@ static int parse_var_dot_prop(parser_t *p, cbm_return_item_t *item) {
 }
 
 /* Parse aggregate function call: COUNT(var.prop) */
-static int parse_aggregate_item(parser_t *p, cbm_return_item_t *item) {
-    cbm_token_type_t ft = peek(p)->type;
+static int parse_aggregate_item(parser_t *p, ctx_return_item_t *item) {
+    ctx_token_type_t ft = peek(p)->type;
     advance(p);
     expect(p, TOK_LPAREN);
     if (match(p, TOK_STAR)) {
         item->variable = heap_strdup("*");
     } else {
         if (parse_var_dot_prop(p, item) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
     }
     expect(p, TOK_RPAREN);
@@ -1123,19 +1123,19 @@ static int parse_aggregate_item(parser_t *p, cbm_return_item_t *item) {
 }
 
 /* Parse string function call: toLower(var.prop) */
-static int parse_string_func_item(parser_t *p, cbm_return_item_t *item) {
-    cbm_token_type_t ft = peek(p)->type;
+static int parse_string_func_item(parser_t *p, ctx_return_item_t *item) {
+    ctx_token_type_t ft = peek(p)->type;
     advance(p);
     expect(p, TOK_LPAREN);
     if (parse_var_dot_prop(p, item) < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     expect(p, TOK_RPAREN);
     item->func = heap_strdup(str_func_name(ft));
     return 0;
 }
 
-static int parse_return_item(parser_t *p, cbm_return_item_t *item) {
+static int parse_return_item(parser_t *p, ctx_return_item_t *item) {
     memset(item, 0, sizeof(*item));
     int rc = 0;
     if (check(p, TOK_CASE)) {
@@ -1150,11 +1150,11 @@ static int parse_return_item(parser_t *p, cbm_return_item_t *item) {
         rc = parse_var_dot_prop(p, item);
     }
     if (rc < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     /* Optional AS alias */
     if (match(p, TOK_AS)) {
-        const cbm_token_t *alias = expect(p, TOK_IDENT);
+        const ctx_token_t *alias = expect(p, TOK_IDENT);
         if (alias) {
             item->alias = heap_strdup(alias->text);
         }
@@ -1171,7 +1171,7 @@ static void parse_order_by_agg(parser_t *p, char *buf, size_t buf_sz) {
     if (match(p, TOK_STAR)) {
         snprintf(buf, buf_sz, "%s(*)", fn);
     } else {
-        const cbm_token_t *var = expect(p, TOK_IDENT);
+        const ctx_token_t *var = expect(p, TOK_IDENT);
         snprintf(buf, buf_sz, "%s(%s)", fn, var ? var->text : "");
     }
     expect(p, TOK_RPAREN);
@@ -1179,13 +1179,13 @@ static void parse_order_by_agg(parser_t *p, char *buf, size_t buf_sz) {
 
 /* Parse var[.prop] for ORDER BY */
 static void parse_order_by_var(parser_t *p, char *buf, size_t buf_sz) {
-    const cbm_token_t *var = expect(p, TOK_IDENT);
+    const ctx_token_t *var = expect(p, TOK_IDENT);
     if (!var) {
         return;
     }
     snprintf(buf, buf_sz, "%s", var->text);
     if (match(p, TOK_DOT)) {
-        const cbm_token_t *prop = expect(p, TOK_IDENT);
+        const ctx_token_t *prop = expect(p, TOK_IDENT);
         if (prop) {
             snprintf(buf, buf_sz, "%s.%s", var->text, prop->text);
         }
@@ -1203,9 +1203,9 @@ static char *parse_order_by_expr(parser_t *p, char *buf, size_t buf_sz) {
     return buf;
 }
 
-static void parse_order_by_clause(parser_t *p, cbm_return_clause_t *r) {
+static void parse_order_by_clause(parser_t *p, ctx_return_clause_t *r) {
     expect(p, TOK_BY);
-    char order_buf[CBM_SZ_256];
+    char order_buf[CTX_SZ_256];
     parse_order_by_expr(p, order_buf, sizeof(order_buf));
     r->order_by = heap_strdup(order_buf);
     if (match(p, TOK_ASC)) {
@@ -1216,17 +1216,17 @@ static void parse_order_by_clause(parser_t *p, cbm_return_clause_t *r) {
 }
 
 /* Parse RETURN/WITH clause (shared logic) */
-static int parse_return_or_with(parser_t *p, cbm_return_clause_t **out, bool is_with) {
-    cbm_token_type_t tok = (int)is_with ? TOK_WITH : TOK_RETURN;
+static int parse_return_or_with(parser_t *p, ctx_return_clause_t **out, bool is_with) {
+    ctx_token_type_t tok = (int)is_with ? TOK_WITH : TOK_RETURN;
     /* For WITH, we need to check it's standalone (not preceded by STARTS) */
     if (!match(p, tok)) {
         *out = NULL;
         return 0;
     }
 
-    cbm_return_clause_t *r = calloc(CBM_ALLOC_ONE, sizeof(cbm_return_clause_t));
+    ctx_return_clause_t *r = calloc(CTX_ALLOC_ONE, sizeof(ctx_return_clause_t));
     int cap = CYP_INIT_CAP8;
-    r->items = malloc(cap * sizeof(cbm_return_item_t));
+    r->items = malloc(cap * sizeof(ctx_return_item_t));
 
     r->distinct = match(p, TOK_DISTINCT);
 
@@ -1242,16 +1242,16 @@ static int parse_return_or_with(parser_t *p, cbm_return_clause_t **out, bool is_
             break;
         }
 
-        cbm_return_item_t item = {0};
+        ctx_return_item_t item = {0};
         if (parse_return_item(p, &item) < 0) {
             free(r->items);
             free(r);
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
 
         if (r->count >= cap) {
             cap *= PAIR_LEN;
-            r->items = safe_realloc(r->items, cap * sizeof(cbm_return_item_t));
+            r->items = safe_realloc(r->items, cap * sizeof(ctx_return_item_t));
         }
         r->items[r->count++] = item;
 
@@ -1265,17 +1265,17 @@ tail:
 
     /* Optional SKIP */
     if (match(p, TOK_SKIP)) {
-        const cbm_token_t *num = expect(p, TOK_NUMBER);
+        const ctx_token_t *num = expect(p, TOK_NUMBER);
         if (num) {
-            r->skip = (int)strtol(num->text, NULL, CBM_DECIMAL_BASE);
+            r->skip = (int)strtol(num->text, NULL, CTX_DECIMAL_BASE);
         }
     }
 
     /* Optional LIMIT */
     if (match(p, TOK_LIMIT)) {
-        const cbm_token_t *num = expect(p, TOK_NUMBER);
+        const ctx_token_t *num = expect(p, TOK_NUMBER);
         if (num) {
-            r->limit = (int)strtol(num->text, NULL, CBM_DECIMAL_BASE);
+            r->limit = (int)strtol(num->text, NULL, CTX_DECIMAL_BASE);
         }
     }
 
@@ -1284,39 +1284,39 @@ tail:
 }
 
 /* Parse RETURN clause */
-static int parse_return(parser_t *p, cbm_return_clause_t **out) {
+static int parse_return(parser_t *p, ctx_return_clause_t **out) {
     return parse_return_or_with(p, out, false);
 }
 
 /* Parse a single MATCH pattern into pat */
-static int parse_match_pattern(parser_t *p, cbm_pattern_t *pat) {
+static int parse_match_pattern(parser_t *p, ctx_pattern_t *pat) {
     memset(pat, 0, sizeof(*pat));
     int node_cap = CYP_INIT_CAP4;
     int rel_cap = CYP_INIT_CAP4;
-    pat->nodes = malloc(node_cap * sizeof(cbm_node_pattern_t));
-    pat->rels = calloc(rel_cap, sizeof(cbm_rel_pattern_t));
+    pat->nodes = malloc(node_cap * sizeof(ctx_node_pattern_t));
+    pat->rels = calloc(rel_cap, sizeof(ctx_rel_pattern_t));
 
     if (parse_node(p, &pat->nodes[0]) < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     pat->node_count = SKIP_ONE;
 
     while (check(p, TOK_DASH) || check(p, TOK_LT)) {
         if (pat->rel_count >= rel_cap) {
             rel_cap *= PAIR_LEN;
-            pat->rels = safe_realloc(pat->rels, rel_cap * sizeof(cbm_rel_pattern_t));
+            pat->rels = safe_realloc(pat->rels, rel_cap * sizeof(ctx_rel_pattern_t));
         }
         if (parse_rel(p, &pat->rels[pat->rel_count]) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         pat->rel_count++;
 
         if (pat->node_count >= node_cap) {
             node_cap *= PAIR_LEN;
-            pat->nodes = safe_realloc(pat->nodes, node_cap * sizeof(cbm_node_pattern_t));
+            pat->nodes = safe_realloc(pat->nodes, node_cap * sizeof(ctx_node_pattern_t));
         }
         if (parse_node(p, &pat->nodes[pat->node_count]) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         pat->node_count++;
     }
@@ -1324,12 +1324,12 @@ static int parse_match_pattern(parser_t *p, cbm_pattern_t *pat) {
 }
 
 /* Parse UNWIND [...] AS var clause into query */
-static void parse_unwind_clause(parser_t *p, cbm_query_t *q) {
+static void parse_unwind_clause(parser_t *p, ctx_query_t *q) {
     advance(p);
     if (check(p, TOK_LBRACKET)) {
         /* Literal list: [1, 2, 3] — collect as JSON array string */
         advance(p);
-        char buf[CBM_SZ_2K] = "[";
+        char buf[CTX_SZ_2K] = "[";
         int blen = SKIP_ONE;
         while (!check(p, TOK_RBRACKET) && !check(p, TOK_EOF)) {
             if (blen > SKIP_ONE) {
@@ -1354,7 +1354,7 @@ static void parse_unwind_clause(parser_t *p, cbm_query_t *q) {
         q->unwind_expr = heap_strdup(advance(p)->text);
     }
     expect(p, TOK_AS);
-    const cbm_token_t *alias = expect(p, TOK_IDENT);
+    const ctx_token_t *alias = expect(p, TOK_IDENT);
     if (alias) {
         q->unwind_alias = heap_strdup(alias->text);
     }
@@ -1362,7 +1362,7 @@ static void parse_unwind_clause(parser_t *p, cbm_query_t *q) {
 
 /* Parse a chain of MATCH / OPTIONAL MATCH patterns into query.
  * Returns -1 on error (fills p->error). */
-static int parse_match_chain(parser_t *p, cbm_query_t *q, int *pat_cap) {
+static int parse_match_chain(parser_t *p, ctx_query_t *q, int *pat_cap) {
     while (check(p, TOK_MATCH) || check(p, TOK_OPTIONAL)) {
         bool opt = false;
         if (check(p, TOK_OPTIONAL)) {
@@ -1374,11 +1374,11 @@ static int parse_match_chain(parser_t *p, cbm_query_t *q, int *pat_cap) {
         }
         if (q->pattern_count >= *pat_cap) {
             *pat_cap *= PAIR_LEN;
-            q->patterns = safe_realloc(q->patterns, *pat_cap * sizeof(cbm_pattern_t));
+            q->patterns = safe_realloc(q->patterns, *pat_cap * sizeof(ctx_pattern_t));
             q->pattern_optional = safe_realloc(q->pattern_optional, *pat_cap * sizeof(bool));
         }
         if (parse_match_pattern(p, &q->patterns[q->pattern_count]) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         q->pattern_optional[q->pattern_count] = opt;
         q->pattern_count++;
@@ -1387,53 +1387,53 @@ static int parse_match_chain(parser_t *p, cbm_query_t *q, int *pat_cap) {
 }
 
 /* Parse post-WHERE clauses: additional MATCH, WITH, RETURN, UNION */
-static int parse_post_where(parser_t *p, cbm_query_t *q, // NOLINT(misc-no-recursion)
+static int parse_post_where(parser_t *p, ctx_query_t *q, // NOLINT(misc-no-recursion)
                             int *pat_cap) {
     /* More MATCH / OPTIONAL MATCH after WHERE */
     if (parse_match_chain(p, q, pat_cap) < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     /* Check for unsupported keywords */
     const char *unsup = unsupported_clause_error(peek(p)->type);
     if (unsup) {
         snprintf(p->error, sizeof(p->error), "%s", unsup);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     /* Optional WITH clause (standalone, not STARTS WITH) */
     if (check(p, TOK_WITH) &&
         (p->pos < PAIR_LEN || p->tokens[p->pos - SKIP_ONE].type != TOK_STARTS)) {
         if (parse_return_or_with(p, &q->with_clause, true) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         if (parse_where(p, &q->post_with_where) < 0) {
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
     }
     /* Optional RETURN */
     if (parse_return(p, &q->ret) < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     /* UNION [ALL] */
     if (check(p, TOK_UNION)) {
         advance(p);
         q->union_all = match(p, TOK_ALL);
-        cbm_parse_result_t sub = {0};
-        if (cbm_parse(&p->tokens[p->pos], p->count - p->pos, &sub) < 0) {
+        ctx_parse_result_t sub = {0};
+        if (ctx_parse(&p->tokens[p->pos], p->count - p->pos, &sub) < 0) {
             if (sub.error) {
                 snprintf(p->error, sizeof(p->error), "%s", sub.error);
             }
-            cbm_parse_free(&sub);
-            return CBM_NOT_FOUND;
+            ctx_parse_free(&sub);
+            return CTX_NOT_FOUND;
         }
         q->union_next = sub.query;
         sub.query = NULL;
-        cbm_parse_free(&sub);
+        ctx_parse_free(&sub);
     }
     return 0;
 }
 
-int cbm_parse(const cbm_token_t *tokens, int token_count, // NOLINT(misc-no-recursion)
-              cbm_parse_result_t *out) {
+int ctx_parse(const ctx_token_t *tokens, int token_count, // NOLINT(misc-no-recursion)
+              ctx_parse_result_t *out) {
     memset(out, 0, sizeof(*out));
     parser_t p = {.tokens = tokens, .count = token_count, .pos = 0};
 
@@ -1441,10 +1441,10 @@ int cbm_parse(const cbm_token_t *tokens, int token_count, // NOLINT(misc-no-recu
     const char *unsup = unsupported_clause_error(peek(&p)->type);
     if (unsup) {
         out->error = heap_strdup(unsup);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
-    cbm_query_t *q = calloc(CBM_ALLOC_ONE, sizeof(cbm_query_t));
+    ctx_query_t *q = calloc(CTX_ALLOC_ONE, sizeof(ctx_query_t));
 
     if (check(&p, TOK_UNWIND)) {
         parse_unwind_clause(&p, q);
@@ -1457,58 +1457,58 @@ int cbm_parse(const cbm_token_t *tokens, int token_count, // NOLINT(misc-no-recu
     }
     if (!expect(&p, TOK_MATCH)) {
         out->error = heap_strdup(p.error[0] ? p.error : "expected MATCH");
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
 
     int pat_cap = CYP_INIT_CAP4;
-    q->patterns = malloc(pat_cap * sizeof(cbm_pattern_t));
+    q->patterns = malloc(pat_cap * sizeof(ctx_pattern_t));
     q->pattern_optional = malloc(pat_cap * sizeof(bool));
 
     if (parse_match_pattern(&p, &q->patterns[0]) < 0) {
         out->error = heap_strdup(p.error[0] ? p.error : "failed to parse pattern");
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
     q->pattern_optional[0] = first_optional;
     q->pattern_count = SKIP_ONE;
 
     if (parse_match_chain(&p, q, &pat_cap) < 0) {
         out->error = heap_strdup(p.error[0] ? p.error : "failed to parse additional pattern");
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
 
     if (parse_where(&p, &q->where) < 0) {
         out->error = heap_strdup(p.error[0] ? p.error : "failed to parse WHERE");
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
 
     if (parse_post_where(&p, q, &pat_cap) < 0) {
         out->error = heap_strdup(p.error[0] ? p.error : "failed to parse query");
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
 
     out->query = q;
     return 0;
 }
 
-void cbm_parse_free(cbm_parse_result_t *r) {
+void ctx_parse_free(ctx_parse_result_t *r) {
     if (!r) {
         return;
     }
-    cbm_query_free(r->query);
+    ctx_query_free(r->query);
     free(r->error);
     memset(r, 0, sizeof(*r));
 }
 
 /* ── Query free ─────────────────────────────────────────────────── */
 
-static void free_pattern(cbm_pattern_t *pat) {
+static void free_pattern(ctx_pattern_t *pat) {
     for (int i = 0; i < pat->node_count; i++) {
-        cbm_node_pattern_t *n = &pat->nodes[i];
+        ctx_node_pattern_t *n = &pat->nodes[i];
         free((void *)n->variable);
         free((void *)n->label);
         for (int j = 0; j < n->prop_count; j++) {
@@ -1519,7 +1519,7 @@ static void free_pattern(cbm_pattern_t *pat) {
     }
     free(pat->nodes);
     for (int i = 0; i < pat->rel_count; i++) {
-        cbm_rel_pattern_t *r = &pat->rels[i];
+        ctx_rel_pattern_t *r = &pat->rels[i];
         free((void *)r->variable);
         for (int j = 0; j < r->type_count; j++) {
             free((void *)r->types[j]);
@@ -1530,7 +1530,7 @@ static void free_pattern(cbm_pattern_t *pat) {
     free(pat->rels);
 }
 
-static void free_where(cbm_where_clause_t *w) {
+static void free_where(ctx_where_clause_t *w) {
     if (!w) {
         return;
     }
@@ -1550,7 +1550,7 @@ static void free_where(cbm_where_clause_t *w) {
     free(w);
 }
 
-static void free_case_expr(cbm_case_expr_t *k) {
+static void free_case_expr(ctx_case_expr_t *k) {
     if (!k) {
         return;
     }
@@ -1563,7 +1563,7 @@ static void free_case_expr(cbm_case_expr_t *k) {
     free(k);
 }
 
-static void free_return_clause(cbm_return_clause_t *r) {
+static void free_return_clause(ctx_return_clause_t *r) {
     if (!r) {
         return;
     }
@@ -1580,9 +1580,9 @@ static void free_return_clause(cbm_return_clause_t *r) {
     free(r);
 }
 
-void cbm_query_free(cbm_query_t *q) {
+void ctx_query_free(ctx_query_t *q) {
     while (q) {
-        cbm_query_t *next = q->union_next;
+        ctx_query_t *next = q->union_next;
         for (int i = 0; i < q->pattern_count; i++) {
             free_pattern(&q->patterns[i]);
         }
@@ -1601,29 +1601,29 @@ void cbm_query_free(cbm_query_t *q) {
 
 /* ── Convenience: lex + parse ───────────────────────────────────── */
 
-int cbm_cypher_parse(const char *query, cbm_query_t **out, char **error) {
+int ctx_cypher_parse(const char *query, ctx_query_t **out, char **error) {
     *out = NULL;
     *error = NULL;
 
-    cbm_lex_result_t lr = {0};
-    if (cbm_lex(query, &lr) < 0 || lr.error) {
+    ctx_lex_result_t lr = {0};
+    if (ctx_lex(query, &lr) < 0 || lr.error) {
         *error = heap_strdup(lr.error ? lr.error : "lex error");
-        cbm_lex_free(&lr);
-        return CBM_NOT_FOUND;
+        ctx_lex_free(&lr);
+        return CTX_NOT_FOUND;
     }
 
-    cbm_parse_result_t pr = {0};
-    if (cbm_parse(lr.tokens, lr.count, &pr) < 0) {
+    ctx_parse_result_t pr = {0};
+    if (ctx_parse(lr.tokens, lr.count, &pr) < 0) {
         *error = heap_strdup(pr.error ? pr.error : "parse error");
-        cbm_parse_free(&pr);
-        cbm_lex_free(&lr);
-        return CBM_NOT_FOUND;
+        ctx_parse_free(&pr);
+        ctx_lex_free(&lr);
+        return CTX_NOT_FOUND;
     }
 
     *out = pr.query;
     pr.query = NULL;
-    cbm_parse_free(&pr);
-    cbm_lex_free(&lr);
+    ctx_parse_free(&pr);
+    ctx_lex_free(&lr);
     return 0;
 }
 
@@ -1634,15 +1634,15 @@ int cbm_cypher_parse(const char *query, cbm_query_t **out, char **error) {
 /* A binding: maps variable names to nodes and/or edges */
 typedef struct {
     const char *var_names[CYP_MAX_VARS]; /* variable names (nodes) */
-    cbm_node_t var_nodes[CYP_MAX_VARS];  /* node data */
+    ctx_node_t var_nodes[CYP_MAX_VARS];  /* node data */
     int var_count;
     const char *edge_var_names[CYP_MAX_EDGE_VARS]; /* variable names (edges) */
-    cbm_edge_t edge_vars[CYP_MAX_EDGE_VARS];       /* edge data */
+    ctx_edge_t edge_vars[CYP_MAX_EDGE_VARS];       /* edge data */
     int edge_var_count;
 } binding_t;
 
 /* Get node property by name */
-static const char *node_prop(const cbm_node_t *n, const char *prop) {
+static const char *node_prop(const ctx_node_t *n, const char *prop) {
     if (!n || !prop) {
         return "";
     }
@@ -1660,12 +1660,12 @@ static const char *node_prop(const cbm_node_t *n, const char *prop) {
     }
     if (strcmp(prop, "start_line") == 0) {
         /* Return as string */
-        static char buf[CBM_SZ_32];
+        static char buf[CTX_SZ_32];
         snprintf(buf, sizeof(buf), "%d", n->start_line);
         return buf;
     }
     if (strcmp(prop, "end_line") == 0) {
-        static char buf[CBM_SZ_32];
+        static char buf[CTX_SZ_32];
         snprintf(buf, sizeof(buf), "%d", n->end_line);
         return buf;
     }
@@ -1681,7 +1681,7 @@ static const char *json_extract_prop(const char *json, const char *key, char *bu
         return buf;
     }
     /* Build search pattern: "key": */
-    char pattern[CBM_SZ_256];
+    char pattern[CTX_SZ_256];
     snprintf(pattern, sizeof(pattern), "\"%s\":", key);
     const char *p = strstr(json, pattern);
     if (!p) {
@@ -1715,7 +1715,7 @@ static const char *json_extract_prop(const char *json, const char *key, char *bu
 /* Get edge property by name. Uses rotating static buffers to allow
  * multiple concurrent calls (e.g. projecting r.url_path, r.confidence
  * in the same row). */
-static const char *edge_prop(const cbm_edge_t *e, const char *prop) {
+static const char *edge_prop(const ctx_edge_t *e, const char *prop) {
     if (!e || !prop) {
         return "";
     }
@@ -1723,15 +1723,15 @@ static const char *edge_prop(const cbm_edge_t *e, const char *prop) {
         return e->type ? e->type : "";
     }
     /* Rotate through 8 static buffers so multiple props can be accessed per row */
-    static char ebufs[CYP_BUF_8][CBM_SZ_512];
+    static char ebufs[CYP_BUF_8][CTX_SZ_512];
     static int ebuf_idx = 0;
     char *buf = ebufs[ebuf_idx++ & CYP_EBUF_MASK];
-    json_extract_prop(e->properties_json, prop, buf, CBM_SZ_512);
+    json_extract_prop(e->properties_json, prop, buf, CTX_SZ_512);
     return buf;
 }
 
 /* Find an edge variable in a binding */
-static cbm_edge_t *binding_get_edge(binding_t *b, const char *var) {
+static ctx_edge_t *binding_get_edge(binding_t *b, const char *var) {
     for (int i = 0; i < b->edge_var_count; i++) {
         if (strcmp(b->edge_var_names[i], var) == 0) {
             return &b->edge_vars[i];
@@ -1741,7 +1741,7 @@ static cbm_edge_t *binding_get_edge(binding_t *b, const char *var) {
 }
 
 /* Find a variable's node in a binding */
-static cbm_node_t *binding_get(binding_t *b, const char *var) {
+static ctx_node_t *binding_get(binding_t *b, const char *var) {
     for (int i = 0; i < b->var_count; i++) {
         if (strcmp(b->var_names[i], var) == 0) {
             return &b->var_nodes[i];
@@ -1751,7 +1751,7 @@ static cbm_node_t *binding_get(binding_t *b, const char *var) {
 }
 
 /* Deep copy a node: heap-dup all string fields so the binding owns them */
-static void node_deep_copy(cbm_node_t *dst, const cbm_node_t *src) {
+static void node_deep_copy(ctx_node_t *dst, const ctx_node_t *src) {
     *dst = *src;
     dst->project = heap_strdup(src->project);
     dst->label = heap_strdup(src->label);
@@ -1761,7 +1761,7 @@ static void node_deep_copy(cbm_node_t *dst, const cbm_node_t *src) {
     dst->properties_json = heap_strdup(src->properties_json);
 }
 
-static void node_fields_free(cbm_node_t *n) {
+static void node_fields_free(ctx_node_t *n) {
     if (!n) {
         return;
     }
@@ -1774,21 +1774,21 @@ static void node_fields_free(cbm_node_t *n) {
 }
 
 /* Deep copy an edge (binding owns the strings) */
-static void edge_deep_copy(cbm_edge_t *dst, const cbm_edge_t *src) {
+static void edge_deep_copy(ctx_edge_t *dst, const ctx_edge_t *src) {
     *dst = *src;
     dst->project = heap_strdup(src->project);
     dst->type = heap_strdup(src->type);
     dst->properties_json = heap_strdup(src->properties_json);
 }
 
-static void edge_fields_free(cbm_edge_t *e) {
+static void edge_fields_free(ctx_edge_t *e) {
     free((void *)e->project);
     free((void *)e->type);
     free((void *)e->properties_json);
 }
 
 /* Set an edge variable in a binding */
-static void binding_set_edge(binding_t *b, const char *var, const cbm_edge_t *edge) {
+static void binding_set_edge(binding_t *b, const char *var, const ctx_edge_t *edge) {
     /* Check existing — free old fields first */
     for (int i = 0; i < b->edge_var_count; i++) {
         if (strcmp(b->edge_var_names[i], var) == 0) {
@@ -1830,7 +1830,7 @@ static void binding_copy(binding_t *dst, const binding_t *src) {
 }
 
 /* Deep-copy a node into a binding (binding owns the strings) */
-static void binding_set(binding_t *b, const char *var, const cbm_node_t *node) {
+static void binding_set(binding_t *b, const char *var, const ctx_node_t *node) {
     /* Check existing — free old fields first */
     for (int i = 0; i < b->var_count; i++) {
         if (strcmp(b->var_names[i], var) == 0) {
@@ -1848,12 +1848,12 @@ static void binding_set(binding_t *b, const char *var, const cbm_node_t *node) {
 }
 
 /* Resolve the actual property value for a condition from a binding */
-static const char *resolve_condition_value(const cbm_condition_t *c, binding_t *b) {
-    cbm_edge_t *e = binding_get_edge(b, c->variable);
+static const char *resolve_condition_value(const ctx_condition_t *c, binding_t *b) {
+    ctx_edge_t *e = binding_get_edge(b, c->variable);
     if (e) {
         return edge_prop(e, c->property);
     }
-    cbm_node_t *n = binding_get(b, c->variable);
+    ctx_node_t *n = binding_get(b, c->variable);
     if (!n) {
         return NULL; /* unbound variable */
     }
@@ -1873,12 +1873,12 @@ static bool eval_comparison_op(const char *op, const char *actual, const char *e
         return strcmp(actual, expected) != 0;
     }
     if (strcmp(op, "=~") == 0) {
-        cbm_regex_t re;
-        if (cbm_regcomp(&re, expected, CBM_REG_EXTENDED | CBM_REG_NOSUB) != 0) {
+        ctx_regex_t re;
+        if (ctx_regcomp(&re, expected, CTX_REG_EXTENDED | CTX_REG_NOSUB) != 0) {
             return false;
         }
-        int rc = cbm_regexec(&re, actual, 0, NULL, 0);
-        cbm_regfree(&re);
+        int rc = ctx_regexec(&re, actual, 0, NULL, 0);
+        ctx_regfree(&re);
         return rc == 0;
     }
     if (strcmp(op, "CONTAINS") == 0) {
@@ -1911,7 +1911,7 @@ static bool eval_comparison_op(const char *op, const char *actual, const char *e
 }
 
 /* Evaluate a WHERE condition against a binding */
-static bool eval_condition(const cbm_condition_t *c, binding_t *b) {
+static bool eval_condition(const ctx_condition_t *c, binding_t *b) {
     const char *actual = resolve_condition_value(c, b);
     if (!actual) {
         return true;
@@ -1946,7 +1946,7 @@ static bool eval_condition(const cbm_condition_t *c, binding_t *b) {
 }
 
 /* Recursive expression tree evaluator */
-static bool eval_expr(const cbm_expr_t *e, binding_t *b) { // NOLINT(misc-no-recursion)
+static bool eval_expr(const ctx_expr_t *e, binding_t *b) { // NOLINT(misc-no-recursion)
     if (!e) {
         return true;
     }
@@ -1966,7 +1966,7 @@ static bool eval_expr(const cbm_expr_t *e, binding_t *b) { // NOLINT(misc-no-rec
 }
 
 /* Evaluate WHERE clause — uses expression tree if available, falls back to legacy */
-static bool eval_where(const cbm_where_clause_t *w, binding_t *b) {
+static bool eval_where(const ctx_where_clause_t *w, binding_t *b) {
     if (!w) {
         return true;
     }
@@ -1992,7 +1992,7 @@ static bool eval_where(const cbm_where_clause_t *w, binding_t *b) {
 }
 
 /* Check inline property filters */
-static bool check_inline_props(const cbm_node_t *n, const cbm_prop_filter_t *props, int count) {
+static bool check_inline_props(const ctx_node_t *n, const ctx_prop_filter_t *props, int count) {
     for (int i = 0; i < count; i++) {
         const char *actual = node_prop(n, props[i].key);
         if (strcmp(actual, props[i].value) != 0) {
@@ -2014,7 +2014,7 @@ typedef struct {
 
 static void rb_init(result_builder_t *rb) {
     memset(rb, 0, sizeof(*rb));
-    rb->row_cap = CBM_SZ_32;
+    rb->row_cap = CTX_SZ_32;
     rb->rows = malloc(rb->row_cap * sizeof(const char **));
 }
 
@@ -2049,7 +2049,7 @@ static void rb_add_row(result_builder_t *rb, const char **values) {
 
 static const char *binding_get_virtual(binding_t *b, const char *var, const char *prop) {
     /* Check virtual vars first (from WITH projection) */
-    char full[CBM_SZ_256];
+    char full[CTX_SZ_256];
     if (prop) {
         snprintf(full, sizeof(full), "%s.%s", var, prop);
     } else {
@@ -2061,11 +2061,11 @@ static const char *binding_get_virtual(binding_t *b, const char *var, const char
         }
     }
     /* Fall through to normal lookup */
-    cbm_edge_t *e = binding_get_edge(b, var);
+    ctx_edge_t *e = binding_get_edge(b, var);
     if (e) {
         return prop ? edge_prop(e, prop) : "";
     }
-    cbm_node_t *n = binding_get(b, var);
+    ctx_node_t *n = binding_get(b, var);
     if (n) {
         if (prop) {
             return node_prop(n, prop);
@@ -2105,7 +2105,7 @@ static const char *apply_string_func(const char *func, const char *val, char *bu
 
 /* ── CASE expression evaluation ───────────────────────────────── */
 
-static const char *eval_case_expr(const cbm_case_expr_t *k, binding_t *b) {
+static const char *eval_case_expr(const ctx_case_expr_t *k, binding_t *b) {
     if (!k) {
         return "";
     }
@@ -2119,19 +2119,19 @@ static const char *eval_case_expr(const cbm_case_expr_t *k, binding_t *b) {
 
 /* ── Scan nodes for a pattern ─────────────────────────────────── */
 
-static void scan_pattern_nodes(cbm_store_t *store, const char *project, int max_rows,
-                               cbm_node_pattern_t *first, cbm_node_t **out_nodes, int *out_count) {
+static void scan_pattern_nodes(ctx_store_t *store, const char *project, int max_rows,
+                               ctx_node_pattern_t *first, ctx_node_t **out_nodes, int *out_count) {
     if (first->label) {
-        cbm_store_find_nodes_by_label(store, project, first->label, out_nodes, out_count);
+        ctx_store_find_nodes_by_label(store, project, first->label, out_nodes, out_count);
     } else {
-        cbm_search_params_t params = {.project = project,
+        ctx_search_params_t params = {.project = project,
                                       .min_degree = CYP_FOUND_NONE,
                                       .max_degree = CYP_FOUND_NONE,
                                       .limit = max_rows * CYP_GROWTH_10};
-        cbm_search_output_t sout = {0};
-        cbm_store_search(store, &params, &sout);
+        ctx_search_output_t sout = {0};
+        ctx_store_search(store, &params, &sout);
         *out_count = sout.count;
-        *out_nodes = malloc(sout.count * sizeof(cbm_node_t));
+        *out_nodes = malloc(sout.count * sizeof(ctx_node_t));
         for (int i = 0; i < sout.count; i++) {
             (*out_nodes)[i] = sout.results[i].node;
             sout.results[i].node.name = NULL;
@@ -2141,7 +2141,7 @@ static void scan_pattern_nodes(cbm_store_t *store, const char *project, int max_
             sout.results[i].node.file_path = NULL;
             sout.results[i].node.properties_json = NULL;
         }
-        cbm_store_search_free(&sout);
+        ctx_store_search_free(&sout);
     }
     /* Apply inline property filters — free rejected nodes' strings */
     if (first->prop_count > 0) {
@@ -2164,14 +2164,14 @@ static void scan_pattern_nodes(cbm_store_t *store, const char *project, int max_
 
 /* Process edges: look up target node, filter by label/props, add binding.
  * `inbound` controls which end of the edge is the target id. */
-static void process_edges(cbm_store_t *store, cbm_edge_t *edges, int edge_count, bool inbound,
-                          const cbm_node_pattern_t *target_node, binding_t *b, const char *to_var,
+static void process_edges(ctx_store_t *store, ctx_edge_t *edges, int edge_count, bool inbound,
+                          const ctx_node_pattern_t *target_node, binding_t *b, const char *to_var,
                           const char *rel_var, binding_t *new_bindings, int *new_count, int max_new,
                           int *match_count) {
     for (int ei = 0; ei < edge_count && *new_count < max_new; ei++) {
         int64_t tid = inbound ? edges[ei].source_id : edges[ei].target_id;
-        cbm_node_t found = {0};
-        if (cbm_store_find_node_by_id(store, tid, &found) != CBM_STORE_OK) {
+        ctx_node_t found = {0};
+        if (ctx_store_find_node_by_id(store, tid, &found) != CTX_STORE_OK) {
             continue;
         }
         if (target_node->label && strcmp(found.label, target_node->label) != 0) {
@@ -2195,16 +2195,16 @@ static void process_edges(cbm_store_t *store, cbm_edge_t *edges, int edge_count,
 }
 
 /* Expand variable-length relationship via BFS */
-static void expand_var_length(cbm_store_t *store, cbm_rel_pattern_t *rel,
-                              cbm_node_pattern_t *target_node, binding_t *b, cbm_node_t *src,
+static void expand_var_length(ctx_store_t *store, ctx_rel_pattern_t *rel,
+                              ctx_node_pattern_t *target_node, binding_t *b, ctx_node_t *src,
                               const char *to_var, binding_t *new_bindings, int *new_count,
                               int max_new, int *match_count) {
     int max_depth = rel->max_hops > 0 ? rel->max_hops : CYP_MAX_DEPTH;
-    cbm_traverse_result_t tr = {0};
+    ctx_traverse_result_t tr = {0};
     const char *dir = rel->direction ? rel->direction : "outbound";
-    cbm_store_bfs(store, src->id, dir, rel->types, rel->type_count, max_depth, CBM_PERCENT, &tr);
+    ctx_store_bfs(store, src->id, dir, rel->types, rel->type_count, max_depth, CTX_PERCENT, &tr);
     for (int v = 0; v < tr.visited_count && *new_count < max_new; v++) {
-        cbm_node_hop_t *hop = &tr.visited[v];
+        ctx_node_hop_t *hop = &tr.visited[v];
         if (hop->hop < rel->min_hops) {
             continue;
         }
@@ -2220,12 +2220,12 @@ static void expand_var_length(cbm_store_t *store, cbm_rel_pattern_t *rel,
         new_bindings[(*new_count)++] = nb;
         (*match_count)++;
     }
-    cbm_store_traverse_free(&tr);
+    ctx_store_traverse_free(&tr);
 }
 
 /* Expand fixed-length (1-hop) relationship edges */
-static void expand_fixed_length(cbm_store_t *store, cbm_rel_pattern_t *rel,
-                                cbm_node_pattern_t *target_node, binding_t *b, cbm_node_t *src,
+static void expand_fixed_length(ctx_store_t *store, ctx_rel_pattern_t *rel,
+                                ctx_node_pattern_t *target_node, binding_t *b, ctx_node_t *src,
                                 const char *to_var, binding_t *new_bindings, int *new_count,
                                 int max_new, int *match_count) {
     bool is_inbound = rel->direction && strcmp(rel->direction, "inbound") == 0;
@@ -2234,58 +2234,58 @@ static void expand_fixed_length(cbm_store_t *store, cbm_rel_pattern_t *rel,
 
     if (rel->type_count > 0) {
         for (int ti = 0; ti < rel->type_count; ti++) {
-            cbm_edge_t *edges = NULL;
+            ctx_edge_t *edges = NULL;
             int edge_count = 0;
             if (is_inbound) {
-                cbm_store_find_edges_by_target_type(store, src->id, rel->types[ti], &edges,
+                ctx_store_find_edges_by_target_type(store, src->id, rel->types[ti], &edges,
                                                     &edge_count);
             } else {
-                cbm_store_find_edges_by_source_type(store, src->id, rel->types[ti], &edges,
+                ctx_store_find_edges_by_source_type(store, src->id, rel->types[ti], &edges,
                                                     &edge_count);
             }
             process_edges(store, edges, edge_count, is_inbound, target_node, b, to_var, rel_var,
                           new_bindings, new_count, max_new, match_count);
-            cbm_store_free_edges(edges, edge_count);
+            ctx_store_free_edges(edges, edge_count);
         }
         if (is_any) {
             for (int ti = 0; ti < rel->type_count; ti++) {
-                cbm_edge_t *edges = NULL;
+                ctx_edge_t *edges = NULL;
                 int edge_count = 0;
-                cbm_store_find_edges_by_target_type(store, src->id, rel->types[ti], &edges,
+                ctx_store_find_edges_by_target_type(store, src->id, rel->types[ti], &edges,
                                                     &edge_count);
                 process_edges(store, edges, edge_count, true, target_node, b, to_var, rel_var,
                               new_bindings, new_count, max_new, match_count);
-                cbm_store_free_edges(edges, edge_count);
+                ctx_store_free_edges(edges, edge_count);
             }
         }
     } else {
-        cbm_edge_t *edges = NULL;
+        ctx_edge_t *edges = NULL;
         int edge_count = 0;
         if (is_inbound) {
-            cbm_store_find_edges_by_target(store, src->id, &edges, &edge_count);
+            ctx_store_find_edges_by_target(store, src->id, &edges, &edge_count);
         } else {
-            cbm_store_find_edges_by_source(store, src->id, &edges, &edge_count);
+            ctx_store_find_edges_by_source(store, src->id, &edges, &edge_count);
         }
         process_edges(store, edges, edge_count, is_inbound, target_node, b, to_var, rel_var,
                       new_bindings, new_count, max_new, match_count);
-        cbm_store_free_edges(edges, edge_count);
+        ctx_store_free_edges(edges, edge_count);
         if (is_any) {
             edges = NULL;
             edge_count = 0;
-            cbm_store_find_edges_by_target(store, src->id, &edges, &edge_count);
+            ctx_store_find_edges_by_target(store, src->id, &edges, &edge_count);
             process_edges(store, edges, edge_count, true, target_node, b, to_var, rel_var,
                           new_bindings, new_count, max_new, match_count);
-            cbm_store_free_edges(edges, edge_count);
+            ctx_store_free_edges(edges, edge_count);
         }
     }
 }
 
-static void expand_pattern_rels(cbm_store_t *store, cbm_pattern_t *pat, binding_t **bindings,
+static void expand_pattern_rels(ctx_store_t *store, ctx_pattern_t *pat, binding_t **bindings,
                                 int *bind_count, const int *bind_cap, const char **var_name,
                                 bool is_optional) {
     for (int ri = 0; ri < pat->rel_count; ri++) {
-        cbm_rel_pattern_t *rel = &pat->rels[ri];
-        cbm_node_pattern_t *target_node = &pat->nodes[ri + SKIP_ONE];
+        ctx_rel_pattern_t *rel = &pat->rels[ri];
+        ctx_node_pattern_t *target_node = &pat->nodes[ri + SKIP_ONE];
         const char *to_var = target_node->variable ? target_node->variable : "_n_t";
 
         bool is_variable_length = (rel->min_hops != SKIP_ONE || rel->max_hops != SKIP_ONE);
@@ -2296,7 +2296,7 @@ static void expand_pattern_rels(cbm_store_t *store, cbm_pattern_t *pat, binding_
 
         for (int bi = 0; bi < *bind_count; bi++) {
             binding_t *b = &(*bindings)[bi];
-            cbm_node_t *src = binding_get(b, *var_name);
+            ctx_node_t *src = binding_get(b, *var_name);
             if (!src) {
                 continue;
             }
@@ -2335,7 +2335,7 @@ static void expand_pattern_rels(cbm_store_t *store, cbm_pattern_t *pat, binding_
 
 /* Find the column index for ORDER BY, checking both column names and aliases.
  * Returns -1 if not found. */
-static int rb_find_order_column(const result_builder_t *rb, const cbm_return_clause_t *ret) {
+static int rb_find_order_column(const result_builder_t *rb, const ctx_return_clause_t *ret) {
     for (int ci = 0; ci < rb->col_count; ci++) {
         if (strcmp(rb->columns[ci], ret->order_by) == 0) {
             return ci;
@@ -2346,7 +2346,7 @@ static int rb_find_order_column(const result_builder_t *rb, const cbm_return_cla
             return ci;
         }
     }
-    return CBM_NOT_FOUND;
+    return CTX_NOT_FOUND;
 }
 
 /* Check whether a column contains numeric data by examining the first non-empty value */
@@ -2369,7 +2369,7 @@ static bool rb_is_numeric_column(const result_builder_t *rb, int col) {
     return false;
 }
 
-static void rb_apply_order_by(result_builder_t *rb, const cbm_return_clause_t *ret) {
+static void rb_apply_order_by(result_builder_t *rb, const ctx_return_clause_t *ret) {
     if (!ret->order_by) {
         return;
     }
@@ -2384,8 +2384,8 @@ static void rb_apply_order_by(result_builder_t *rb, const cbm_return_clause_t *r
         for (int j = 0; j < rb->row_count - i - SKIP_ONE; j++) {
             int cmp;
             if (numeric) {
-                cmp = (int)strtol(rb->rows[j][order_col], NULL, CBM_DECIMAL_BASE) -
-                      (int)strtol(rb->rows[j + SKIP_ONE][order_col], NULL, CBM_DECIMAL_BASE);
+                cmp = (int)strtol(rb->rows[j][order_col], NULL, CTX_DECIMAL_BASE) -
+                      (int)strtol(rb->rows[j + SKIP_ONE][order_col], NULL, CTX_DECIMAL_BASE);
             } else {
                 cmp = strcmp(rb->rows[j][order_col], rb->rows[j + SKIP_ONE][order_col]);
             }
@@ -2479,7 +2479,7 @@ static void rb_free(result_builder_t *rb) {
 
 /* ── Get projection value for a binding + return item ─────────── */
 
-static const char *project_item(binding_t *b, cbm_return_item_t *item, char *func_buf,
+static const char *project_item(binding_t *b, ctx_return_item_t *item, char *func_buf,
                                 size_t buf_sz) {
     if (item->kase) {
         return eval_case_expr(item->kase, b);
@@ -2542,7 +2542,7 @@ static void bindings_skip_limit(binding_t *vbindings, int *count, int skip, int 
 }
 
 /* Sort, skip, and limit binding array in-place */
-static void with_sort_skip_limit(const cbm_return_clause_t *wc, binding_t *vbindings, int *vcount) {
+static void with_sort_skip_limit(const ctx_return_clause_t *wc, binding_t *vbindings, int *vcount) {
     if (wc->order_by) {
         bool wdesc = wc->order_dir && strcmp(wc->order_dir, "DESC") == 0;
         sort_bindings(vbindings, *vcount, wc->order_by, wdesc);
@@ -2551,7 +2551,7 @@ static void with_sort_skip_limit(const cbm_return_clause_t *wc, binding_t *vbind
 }
 
 /* Resolve the alias or compute a default name for a WITH/RETURN item */
-static const char *resolve_item_alias(const cbm_return_item_t *item, char *name_buf,
+static const char *resolve_item_alias(const ctx_return_item_t *item, char *name_buf,
                                       size_t buf_sz) {
     if (item->alias) {
         return item->alias;
@@ -2568,7 +2568,7 @@ static const char *resolve_item_alias(const cbm_return_item_t *item, char *name_
 
 /* WITH aggregation group entry */
 typedef struct {
-    char group_key[CBM_SZ_1K];
+    char group_key[CTX_SZ_1K];
     const char **group_vals;
     double *sums;
     int *counts;
@@ -2576,7 +2576,7 @@ typedef struct {
 } with_agg_t;
 
 /* Build a group key from non-aggregate WITH items */
-static int with_agg_build_key(cbm_return_clause_t *wc, binding_t *b, char *key, size_t key_sz) {
+static int with_agg_build_key(ctx_return_clause_t *wc, binding_t *b, char *key, size_t key_sz) {
     int kl = 0;
     for (int ci = 0; ci < wc->count; ci++) {
         if (wc->items[ci].func) {
@@ -2593,7 +2593,7 @@ static int with_agg_build_key(cbm_return_clause_t *wc, binding_t *b, char *key, 
 
 /* Find or create an aggregation group. Returns index. */
 static int with_agg_find_or_create(with_agg_t **aggs, int *agg_cnt, int *agg_cap,
-                                   cbm_return_clause_t *wc, binding_t *b, const char *key) {
+                                   ctx_return_clause_t *wc, binding_t *b, const char *key) {
     for (int a = 0; a < *agg_cnt; a++) {
         if (strcmp((*aggs)[a].group_key, key) == 0) {
             return a;
@@ -2626,7 +2626,7 @@ static int with_agg_find_or_create(with_agg_t **aggs, int *agg_cnt, int *agg_cap
 }
 
 /* Accumulate aggregation values for a binding */
-static void with_agg_accumulate(with_agg_t *agg, cbm_return_clause_t *wc, binding_t *b) {
+static void with_agg_accumulate(with_agg_t *agg, ctx_return_clause_t *wc, binding_t *b) {
     for (int ci = 0; ci < wc->count; ci++) {
         if (!wc->items[ci].func) {
             continue;
@@ -2661,7 +2661,7 @@ static void with_agg_format(const char *func, with_agg_t *agg, int ci, char *buf
 
 /* Add a virtual variable binding for one WITH item */
 static void with_add_vbinding_var(binding_t *vb, const char *alias, const char *val) {
-    cbm_node_t vn = {.name = heap_strdup(val), .qualified_name = heap_strdup(alias)};
+    ctx_node_t vn = {.name = heap_strdup(val), .qualified_name = heap_strdup(alias)};
     if (vb->var_count < CYP_BUF_16) {
         vb->var_names[vb->var_count] = vn.qualified_name;
         vb->var_nodes[vb->var_count] = vn;
@@ -2685,14 +2685,14 @@ static void with_agg_free(with_agg_t *aggs, int agg_cnt, int item_count) {
 }
 
 /* Execute WITH aggregation path */
-static void execute_with_aggregate(cbm_return_clause_t *wc, binding_t *bindings, int bind_count,
+static void execute_with_aggregate(ctx_return_clause_t *wc, binding_t *bindings, int bind_count,
                                    binding_t **vbindings, int *vcount) {
-    int agg_cap = CBM_SZ_256;
+    int agg_cap = CTX_SZ_256;
     with_agg_t *aggs = calloc(agg_cap, sizeof(with_agg_t));
     int agg_cnt = 0;
 
     for (int bi = 0; bi < bind_count; bi++) {
-        char key[CBM_SZ_1K] = "";
+        char key[CTX_SZ_1K] = "";
         with_agg_build_key(wc, &bindings[bi], key, sizeof(key));
         int found = with_agg_find_or_create(&aggs, &agg_cnt, &agg_cap, wc, &bindings[bi], key);
         with_agg_accumulate(&aggs[found], wc, &bindings[bi]);
@@ -2706,10 +2706,10 @@ static void execute_with_aggregate(cbm_return_clause_t *wc, binding_t *bindings,
     for (int a = 0; a < agg_cnt; a++) {
         binding_t vb = {0};
         for (int ci = 0; ci < wc->count; ci++) {
-            char name_buf[CBM_SZ_256];
+            char name_buf[CTX_SZ_256];
             const char *alias = resolve_item_alias(&wc->items[ci], name_buf, sizeof(name_buf));
             if (wc->items[ci].func) {
-                char vbuf[CBM_SZ_64];
+                char vbuf[CTX_SZ_64];
                 with_agg_format(wc->items[ci].func, &aggs[a], ci, vbuf, sizeof(vbuf));
                 with_add_vbinding_var(&vb, alias, vbuf);
             } else {
@@ -2722,14 +2722,14 @@ static void execute_with_aggregate(cbm_return_clause_t *wc, binding_t *bindings,
 }
 
 /* Execute WITH simple (non-aggregate) projection */
-static void execute_with_simple(cbm_return_clause_t *wc, binding_t *bindings, int bind_count,
+static void execute_with_simple(ctx_return_clause_t *wc, binding_t *bindings, int bind_count,
                                 binding_t *vbindings, int *vcount) {
     for (int bi = 0; bi < bind_count; bi++) {
         binding_t vb = {0};
         for (int ci = 0; ci < wc->count; ci++) {
-            char name_buf[CBM_SZ_256];
+            char name_buf[CTX_SZ_256];
             const char *alias = resolve_item_alias(&wc->items[ci], name_buf, sizeof(name_buf));
-            char func_buf[CBM_SZ_512];
+            char func_buf[CTX_SZ_512];
             const char *val =
                 project_item(&bindings[bi], &wc->items[ci], func_buf, sizeof(func_buf));
             with_add_vbinding_var(&vb, alias, val);
@@ -2739,7 +2739,7 @@ static void execute_with_simple(cbm_return_clause_t *wc, binding_t *bindings, in
 }
 
 /* Apply post-WITH WHERE filter */
-static void filter_bindings_where(const cbm_where_clause_t *where, binding_t *vbindings,
+static void filter_bindings_where(const ctx_where_clause_t *where, binding_t *vbindings,
                                   int *vcount) {
     int kept = 0;
     for (int i = 0; i < *vcount; i++) {
@@ -2755,8 +2755,8 @@ static void filter_bindings_where(const cbm_where_clause_t *where, binding_t *vb
     *vcount = kept;
 }
 
-static void execute_with_clause(cbm_query_t *q, binding_t **bindings_ptr, int *bind_count_ptr) {
-    cbm_return_clause_t *wc = q->with_clause;
+static void execute_with_clause(ctx_query_t *q, binding_t **bindings_ptr, int *bind_count_ptr) {
+    ctx_return_clause_t *wc = q->with_clause;
     if (!wc) {
         return;
     }
@@ -2799,7 +2799,7 @@ static void execute_with_clause(cbm_query_t *q, binding_t **bindings_ptr, int *b
 
 /* Project RETURN * — all bound variable properties */
 /* Collect all variable names from query patterns */
-static int collect_pattern_vars(cbm_query_t *q, const char **vars, int max_vars) {
+static int collect_pattern_vars(ctx_query_t *q, const char **vars, int max_vars) {
     int vc = 0;
     for (int pi = 0; pi < q->pattern_count; pi++) {
         for (int ni = 0; ni < q->patterns[pi].node_count && vc < max_vars; ni++) {
@@ -2819,9 +2819,9 @@ static int collect_pattern_vars(cbm_query_t *q, const char **vars, int max_vars)
 /* Build star-projection columns: var.name, var.qualified_name, var.label, var.file_path */
 static void build_star_columns(result_builder_t *rb, const char **vars, int vc) {
     int col_n = vc * CYP_NODE_COLS;
-    const char *col_names[CBM_SZ_128];
+    const char *col_names[CTX_SZ_128];
     for (int v = 0; v < vc; v++) {
-        char buf[CBM_SZ_128];
+        char buf[CTX_SZ_128];
         snprintf(buf, sizeof(buf), "%s.name", vars[v]);
         col_names[(size_t)v * CYP_NODE_COLS] = heap_strdup(buf);
         snprintf(buf, sizeof(buf), "%s.qualified_name", vars[v]);
@@ -2839,7 +2839,7 @@ static void build_star_columns(result_builder_t *rb, const char **vars, int vc) 
 
 /* Project one variable's 4 columns for RETURN * */
 static void project_star_var(binding_t *b, const char *var, const char **vals) {
-    cbm_edge_t *edge = binding_get_edge(b, var);
+    ctx_edge_t *edge = binding_get_edge(b, var);
     if (edge) {
         vals[0] = edge_prop(edge, "type");
         vals[SKIP_ONE] = "";
@@ -2847,7 +2847,7 @@ static void project_star_var(binding_t *b, const char *var, const char **vals) {
         vals[CYP_TRIPLE] = "";
         return;
     }
-    cbm_node_t *n = binding_get(b, var);
+    ctx_node_t *n = binding_get(b, var);
     vals[0] = n && n->name ? n->name : "";
     vals[SKIP_ONE] = n && n->qualified_name ? n->qualified_name : "";
     vals[PAIR_LEN] = n && n->label ? n->label : "";
@@ -2861,13 +2861,13 @@ static void project_star_row(binding_t *b, const char **vars, int vc, const char
     }
 }
 
-static void execute_return_star(cbm_query_t *q, binding_t *bindings, int bind_count, int max_rows,
+static void execute_return_star(ctx_query_t *q, binding_t *bindings, int bind_count, int max_rows,
                                 result_builder_t *rb) {
-    const char *vars[CBM_SZ_32];
-    int vc = collect_pattern_vars(q, vars, CBM_SZ_32);
+    const char *vars[CTX_SZ_32];
+    int vc = collect_pattern_vars(q, vars, CTX_SZ_32);
     build_star_columns(rb, vars, vc);
     for (int bi = 0; bi < bind_count && rb->row_count < max_rows; bi++) {
-        const char *vals[CBM_SZ_128];
+        const char *vals[CTX_SZ_128];
         project_star_row(&bindings[bi], vars, vc, vals);
         rb_add_row(rb, vals);
     }
@@ -2876,7 +2876,7 @@ static void execute_return_star(cbm_query_t *q, binding_t *bindings, int bind_co
 /* Format an aggregate value into buf based on function name */
 /* Format a COLLECT list as JSON array string */
 static void format_collect_list(char **items, int item_count, char *buf, size_t buf_sz) {
-    char cbuf[CBM_SZ_2K] = "[";
+    char cbuf[CTX_SZ_2K] = "[";
     int bl = SKIP_ONE;
     for (int i = 0; i < item_count; i++) {
         if (i > 0) {
@@ -2914,7 +2914,7 @@ static void format_agg_value(const char *func, int count, double sum, double min
 
 /* RETURN aggregation entry */
 typedef struct {
-    char group_key[CBM_SZ_1K];
+    char group_key[CTX_SZ_1K];
     const char **group_vals;
     double *sums;
     int *counts;
@@ -2942,7 +2942,7 @@ static void ret_agg_init_group(ret_agg_entry_t *entry, const char *key, int item
 }
 
 /* Accumulate a binding into RETURN aggregation */
-static void ret_agg_accumulate(ret_agg_entry_t *entry, cbm_return_clause_t *ret, binding_t *b) {
+static void ret_agg_accumulate(ret_agg_entry_t *entry, ctx_return_clause_t *ret, binding_t *b) {
     for (int ci = 0; ci < ret->count; ci++) {
         if (!ret->items[ci].func) {
             continue;
@@ -2989,7 +2989,7 @@ static void ret_agg_free(ret_agg_entry_t *aggs, int agg_count, int item_count) {
 
 /* Execute RETURN with aggregation */
 /* Build group key and projected values for one binding */
-static void ret_agg_build_key(cbm_return_clause_t *ret, binding_t *b, char *key, size_t key_sz,
+static void ret_agg_build_key(ctx_return_clause_t *ret, binding_t *b, char *key, size_t key_sz,
                               const char **vals) {
     int klen = 0;
     for (int ci = 0; ci < ret->count; ci++) {
@@ -2997,7 +2997,7 @@ static void ret_agg_build_key(cbm_return_clause_t *ret, binding_t *b, char *key,
             vals[ci] = "0";
             continue;
         }
-        char func_buf[CBM_SZ_512];
+        char func_buf[CTX_SZ_512];
         vals[ci] = project_item(b, &ret->items[ci], func_buf, sizeof(func_buf));
         klen += snprintf(key + klen, key_sz - (size_t)klen, "%s|", vals[ci]);
         if (klen >= (int)key_sz) {
@@ -3007,9 +3007,9 @@ static void ret_agg_build_key(cbm_return_clause_t *ret, binding_t *b, char *key,
 }
 
 /* Emit one aggregated row into the result builder */
-static void ret_agg_emit_row(cbm_return_clause_t *ret, ret_agg_entry_t *agg, result_builder_t *rb) {
-    const char *row[CBM_SZ_32];
-    char bufs[CBM_SZ_32][CBM_SZ_64];
+static void ret_agg_emit_row(ctx_return_clause_t *ret, ret_agg_entry_t *agg, result_builder_t *rb) {
+    const char *row[CTX_SZ_32];
+    char bufs[CTX_SZ_32][CTX_SZ_64];
     for (int ci = 0; ci < ret->count; ci++) {
         if (!ret->items[ci].func) {
             row[ci] = agg->group_vals[ci];
@@ -3023,15 +3023,15 @@ static void ret_agg_emit_row(cbm_return_clause_t *ret, ret_agg_entry_t *agg, res
     rb_add_row(rb, row);
 }
 
-static void execute_return_agg(cbm_return_clause_t *ret, binding_t *bindings, int bind_count,
+static void execute_return_agg(ctx_return_clause_t *ret, binding_t *bindings, int bind_count,
                                result_builder_t *rb) {
-    int agg_cap = CBM_SZ_256;
+    int agg_cap = CTX_SZ_256;
     ret_agg_entry_t *aggs = calloc(agg_cap, sizeof(ret_agg_entry_t));
     int agg_count = 0;
 
     for (int bi = 0; bi < bind_count; bi++) {
-        char key[CBM_SZ_1K] = "";
-        const char *vals[CBM_SZ_32];
+        char key[CTX_SZ_1K] = "";
+        const char *vals[CTX_SZ_32];
         ret_agg_build_key(ret, &bindings[bi], key, sizeof(key), vals);
 
         int found = CYP_FOUND_NONE;
@@ -3059,20 +3059,20 @@ static void execute_return_agg(cbm_return_clause_t *ret, binding_t *bindings, in
 }
 
 /* Build RETURN column names from items */
-static void build_return_columns(result_builder_t *rb, cbm_return_clause_t *ret) {
-    const char *col_names[CBM_SZ_32];
-    for (int i = 0; i < ret->count && i < CBM_SZ_32; i++) {
-        cbm_return_item_t *item = &ret->items[i];
+static void build_return_columns(result_builder_t *rb, ctx_return_clause_t *ret) {
+    const char *col_names[CTX_SZ_32];
+    for (int i = 0; i < ret->count && i < CTX_SZ_32; i++) {
+        ctx_return_item_t *item = &ret->items[i];
         if (item->alias) {
             col_names[i] = item->alias;
         } else if (item->func) {
-            char buf[CBM_SZ_128];
+            char buf[CTX_SZ_128];
             snprintf(buf, sizeof(buf), "%s(%s)", item->func, item->variable);
             col_names[i] = heap_strdup(buf);
         } else if (item->kase) {
             col_names[i] = "CASE";
         } else if (item->property) {
-            char buf[CBM_SZ_128];
+            char buf[CTX_SZ_128];
             snprintf(buf, sizeof(buf), "%s.%s", item->variable, item->property);
             col_names[i] = heap_strdup(buf);
         } else {
@@ -3080,8 +3080,8 @@ static void build_return_columns(result_builder_t *rb, cbm_return_clause_t *ret)
         }
     }
     rb_set_columns(rb, col_names, ret->count);
-    for (int i = 0; i < ret->count && i < CBM_SZ_32; i++) {
-        cbm_return_item_t *item = &ret->items[i];
+    for (int i = 0; i < ret->count && i < CTX_SZ_32; i++) {
+        ctx_return_item_t *item = &ret->items[i];
         if (!item->alias && (item->func || (!item->kase && item->property))) {
             free((void *)col_names[i]);
         }
@@ -3089,15 +3089,15 @@ static void build_return_columns(result_builder_t *rb, cbm_return_clause_t *ret)
 }
 
 /* Execute simple (non-aggregate) RETURN projection */
-static void execute_return_simple(cbm_return_clause_t *ret, binding_t *bindings, int bind_count,
+static void execute_return_simple(ctx_return_clause_t *ret, binding_t *bindings, int bind_count,
                                   int max_rows, result_builder_t *rb) {
     int proj_cap = max_rows;
     if (ret->limit > 0 && !ret->order_by && ret->skip <= 0) {
         proj_cap = ret->limit;
     }
     for (int bi = 0; bi < bind_count && rb->row_count < proj_cap; bi++) {
-        const char *vals[CBM_SZ_32];
-        char func_bufs[CBM_SZ_32][CBM_SZ_512];
+        const char *vals[CTX_SZ_32];
+        char func_bufs[CTX_SZ_32][CTX_SZ_512];
         for (int ci = 0; ci < ret->count; ci++) {
             vals[ci] =
                 project_item(&bindings[bi], &ret->items[ci], func_bufs[ci], sizeof(func_bufs[ci]));
@@ -3111,7 +3111,7 @@ static void build_default_columns(result_builder_t *rb, const char **vars, int v
     int col_n = vc * CYP_EDGE_COLS;
     const char *col_names[CYP_COL_BUF];
     for (int v = 0; v < vc; v++) {
-        char buf[CBM_SZ_128];
+        char buf[CTX_SZ_128];
         snprintf(buf, sizeof(buf), "%s.name", vars[v]);
         col_names[(size_t)v * CYP_EDGE_COLS] = heap_strdup(buf);
         snprintf(buf, sizeof(buf), "%s.qualified_name", vars[v]);
@@ -3126,7 +3126,7 @@ static void build_default_columns(result_builder_t *rb, const char **vars, int v
 }
 
 /* Default projection when no RETURN clause */
-static void execute_default_projection(cbm_pattern_t *pat0, binding_t *bindings, int bind_count,
+static void execute_default_projection(ctx_pattern_t *pat0, binding_t *bindings, int bind_count,
                                        int max_rows, result_builder_t *rb) {
     const char *vars[CYP_MAX_VARS];
     int vc = 0;
@@ -3139,7 +3139,7 @@ static void execute_default_projection(cbm_pattern_t *pat0, binding_t *bindings,
     for (int bi = 0; bi < bind_count && rb->row_count < max_rows; bi++) {
         const char *vals[CYP_COL_BUF];
         for (int v = 0; v < vc; v++) {
-            cbm_node_t *n = binding_get(&bindings[bi], vars[v]);
+            ctx_node_t *n = binding_get(&bindings[bi], vars[v]);
             vals[(size_t)v * CYP_EDGE_COLS] = n && n->name ? n->name : "";
             vals[((size_t)v * CYP_EDGE_COLS) + SKIP_ONE] =
                 n && n->qualified_name ? n->qualified_name : "";
@@ -3150,7 +3150,7 @@ static void execute_default_projection(cbm_pattern_t *pat0, binding_t *bindings,
 }
 
 /* Cross-join node-only pattern into existing bindings */
-static void cross_join_nodes(binding_t **bindings, int *bind_count, cbm_node_t *extra_nodes,
+static void cross_join_nodes(binding_t **bindings, int *bind_count, ctx_node_t *extra_nodes,
                              int extra_count, const char *nvar, bool opt) {
     binding_t *new_bindings = malloc(((*bind_count * extra_count) + SKIP_ONE) * sizeof(binding_t));
     int new_count = 0;
@@ -3176,8 +3176,8 @@ static void cross_join_nodes(binding_t **bindings, int *bind_count, cbm_node_t *
 }
 
 /* Cross-join pattern-with-rels into existing bindings */
-static void cross_join_with_rels(cbm_store_t *store, cbm_pattern_t *patn, binding_t **bindings,
-                                 int *bind_count, cbm_node_t *extra_nodes, int extra_count,
+static void cross_join_with_rels(ctx_store_t *store, ctx_pattern_t *patn, binding_t **bindings,
+                                 int *bind_count, ctx_node_t *extra_nodes, int extra_count,
                                  const char *nvar, bool opt) {
     binding_t *new_bindings =
         malloc(((*bind_count * extra_count * CYP_GROWTH_10) + SKIP_ONE) * sizeof(binding_t));
@@ -3213,11 +3213,11 @@ static void cross_join_with_rels(cbm_store_t *store, cbm_pattern_t *patn, bindin
 }
 
 /* Expand additional MATCH patterns (pi >= 1) */
-static void expand_additional_patterns(cbm_store_t *store, cbm_query_t *q, const char *project,
+static void expand_additional_patterns(ctx_store_t *store, ctx_query_t *q, const char *project,
                                        int max_rows, binding_t **bindings, int *bind_count,
                                        int *bind_cap) {
     for (int pi = SKIP_ONE; pi < q->pattern_count; pi++) {
-        cbm_pattern_t *patn = &q->patterns[pi];
+        ctx_pattern_t *patn = &q->patterns[pi];
         bool opt = q->pattern_optional[pi];
         const char *nvar = patn->nodes[0].variable ? patn->nodes[0].variable : "_n_extra";
         bool start_bound = *bind_count > 0 && binding_get(&(*bindings)[0], nvar) != NULL;
@@ -3226,7 +3226,7 @@ static void expand_additional_patterns(cbm_store_t *store, cbm_query_t *q, const
             const char *tv = nvar;
             expand_pattern_rels(store, patn, bindings, bind_count, bind_cap, &tv, opt);
         } else {
-            cbm_node_t *extra_nodes = NULL;
+            ctx_node_t *extra_nodes = NULL;
             int extra_count = 0;
             scan_pattern_nodes(store, project, max_rows, &patn->nodes[0], &extra_nodes,
                                &extra_count);
@@ -3236,13 +3236,13 @@ static void expand_additional_patterns(cbm_store_t *store, cbm_query_t *q, const
                 cross_join_with_rels(store, patn, bindings, bind_count, extra_nodes, extra_count,
                                      nvar, opt);
             }
-            cbm_store_free_nodes(extra_nodes, extra_count);
+            ctx_store_free_nodes(extra_nodes, extra_count);
         }
     }
 }
 
 /* Project RETURN clause results */
-static void execute_return_clause(cbm_query_t *q, cbm_return_clause_t *ret, binding_t *bindings,
+static void execute_return_clause(ctx_query_t *q, ctx_return_clause_t *ret, binding_t *bindings,
                                   int bind_count, int max_rows, result_builder_t *rb) {
     bool has_agg = false;
     for (int i = 0; i < ret->count; i++) {
@@ -3270,12 +3270,12 @@ static void execute_return_clause(cbm_query_t *q, cbm_return_clause_t *ret, bind
     }
 }
 
-static int execute_single(cbm_store_t *store, cbm_query_t *q, const char *project, int max_rows,
+static int execute_single(ctx_store_t *store, ctx_query_t *q, const char *project, int max_rows,
                           result_builder_t *rb) {
-    cbm_pattern_t *pat0 = &q->patterns[0];
+    ctx_pattern_t *pat0 = &q->patterns[0];
 
     /* Step 1: Scan initial nodes */
-    cbm_node_t *scanned = NULL;
+    ctx_node_t *scanned = NULL;
     int scan_count = 0;
     scan_pattern_nodes(store, project, max_rows, &pat0->nodes[0], &scanned, &scan_count);
 
@@ -3323,43 +3323,43 @@ static int execute_single(cbm_store_t *store, cbm_query_t *q, const char *projec
         binding_free(&bindings[bi]);
     }
     free(bindings);
-    cbm_store_free_nodes(scanned, scan_count);
+    ctx_store_free_nodes(scanned, scan_count);
     return 0;
 }
 
 /* ── Main entry point ─────────────────────────────────────────── */
 
-int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *project, int max_rows,
-                       cbm_cypher_result_t *out) {
+int ctx_cypher_execute(ctx_store_t *store, const char *query, const char *project, int max_rows,
+                       ctx_cypher_result_t *out) {
     memset(out, 0, sizeof(*out));
     if (max_rows <= 0) {
         max_rows = CYPHER_RESULT_CEILING;
     }
 
-    cbm_query_t *q = NULL;
+    ctx_query_t *q = NULL;
     char *err = NULL;
-    if (cbm_cypher_parse(query, &q, &err) < 0) {
+    if (ctx_cypher_parse(query, &q, &err) < 0) {
         out->error = err;
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     result_builder_t rb = {0};
     // cppcheck-suppress knownConditionTrueFalse
     if (execute_single(store, q, project, max_rows, &rb) < 0) {
-        cbm_query_free(q);
-        return CBM_NOT_FOUND;
+        ctx_query_free(q);
+        return CTX_NOT_FOUND;
     }
 
     /* UNION chain */
-    cbm_query_t *uq = q->union_next;
+    ctx_query_t *uq = q->union_next;
     while (uq) {
         result_builder_t rb2 = {0};
         // cppcheck-suppress knownConditionTrueFalse
         if (execute_single(store, uq, project, max_rows, &rb2) < 0) {
             rb_free(&rb);
             rb_free(&rb2);
-            cbm_query_free(q);
-            return CBM_NOT_FOUND;
+            ctx_query_free(q);
+            return CTX_NOT_FOUND;
         }
         /* Concatenate rows from rb2 into rb */
         for (int i = 0; i < rb2.row_count; i++) {
@@ -3378,9 +3378,9 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
     /* Check ceiling */
     if (rb.row_count >= CYPHER_RESULT_CEILING) {
         rb_free(&rb);
-        cbm_query_free(q);
+        ctx_query_free(q);
         out->error = heap_strdup("result exceeded 100k rows — use narrower filters or add LIMIT");
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     out->columns = rb.columns;
@@ -3388,11 +3388,11 @@ int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *projec
     out->rows = rb.rows;
     out->row_count = rb.row_count;
 
-    cbm_query_free(q);
+    ctx_query_free(q);
     return 0;
 }
 
-void cbm_cypher_result_free(cbm_cypher_result_t *r) {
+void ctx_cypher_result_free(ctx_cypher_result_t *r) {
     if (!r) {
         return;
     }

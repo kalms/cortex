@@ -84,7 +84,7 @@ static void deferred_buf_init(deferred_edge_buf_t *buf) {
 static void deferred_buf_push(deferred_edge_buf_t *buf, int64_t src, int64_t tgt, float score,
                               bool same_file) {
     if (buf->count >= buf->cap) {
-        int nc = buf->cap < CBM_SZ_256 ? CBM_SZ_256 : buf->cap * GROW;
+        int nc = buf->cap < CTX_SZ_256 ? CTX_SZ_256 : buf->cap * GROW;
         deferred_edge_t *grown = realloc(buf->edges, (size_t)nc * sizeof(deferred_edge_t));
         if (!grown) {
             return;
@@ -178,18 +178,18 @@ static int inject_callee_tokens(const char *name, char **tokens, int count, int 
 }
 
 /* Walk the outbound CALLS edges of n and inject tokens for each target. */
-static int inject_calls_pattern_tokens(const cbm_gbuf_node_t *n, const cbm_gbuf_t *gbuf,
+static int inject_calls_pattern_tokens(const ctx_gbuf_node_t *n, const ctx_gbuf_t *gbuf,
                                        char **tokens, int count, int max_tokens) {
     if (!gbuf) {
         return count;
     }
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ctx_gbuf_edge_t **edges = NULL;
     int ec = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, n->id, "CALLS", &edges, &ec) != 0) {
+    if (ctx_gbuf_find_edges_by_source_type(gbuf, n->id, "CALLS", &edges, &ec) != 0) {
         return count;
     }
     for (int e = 0; e < ec && count < max_tokens; e++) {
-        const cbm_gbuf_node_t *t = cbm_gbuf_find_by_id(gbuf, edges[e]->target_id);
+        const ctx_gbuf_node_t *t = ctx_gbuf_find_by_id(gbuf, edges[e]->target_id);
         if (!t || !t->name) {
             continue;
         }
@@ -246,17 +246,17 @@ static int inject_name_pattern_tokens(const char *name, char **tokens, int count
     return count;
 }
 
-static int inject_pattern_tokens(const cbm_gbuf_node_t *n, const cbm_gbuf_t *gbuf, char **tokens,
+static int inject_pattern_tokens(const ctx_gbuf_node_t *n, const ctx_gbuf_t *gbuf, char **tokens,
                                  int count, int max_tokens) {
     if (!n || count >= max_tokens) {
         return count;
     }
 
-    char bt_buf[CBM_SZ_512];
+    char bt_buf[CTX_SZ_512];
     const char *bt = n->properties_json
                          ? json_str_value(n->properties_json, "bt", bt_buf, sizeof(bt_buf))
                          : NULL;
-    char dec_buf[CBM_SZ_256];
+    char dec_buf[CTX_SZ_256];
     const char *decs = n->properties_json ? json_str_value(n->properties_json, "decorators",
                                                            dec_buf, sizeof(dec_buf))
                                           : NULL;
@@ -282,8 +282,8 @@ enum {
 
 static const char *itoa_log(int val) {
     enum { RING = 4, MASK = 3 };
-    static CBM_TLS char bufs[RING][CBM_SZ_32];
-    static CBM_TLS int idx = 0;
+    static CTX_TLS char bufs[RING][CTX_SZ_32];
+    static CTX_TLS int idx = 0;
     int i = idx;
     idx = (idx + SKIP_ONE) & MASK;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -303,7 +303,7 @@ static const char *json_str_value(const char *json, const char *key, char *buf, 
     if (!json || !key) {
         return NULL;
     }
-    char search[CBM_SZ_64];
+    char search[CTX_SZ_64];
     snprintf(search, sizeof(search), "\"%s\":\"", key);
     const char *start = strstr(json, search);
     if (!start) {
@@ -328,7 +328,7 @@ static int json_str_array(const char *json, const char *key, char **out, int max
     if (!json || !key) {
         return 0;
     }
-    char search[CBM_SZ_64];
+    char search[CTX_SZ_64];
     snprintf(search, sizeof(search), "\"%s\":[", key);
     const char *start = strstr(json, search);
     if (!start) {
@@ -365,11 +365,11 @@ static int tokenize_json_string_field(const char *json, const char *key, char **
     if (count >= max_tokens) {
         return count;
     }
-    char buf[CBM_SZ_512];
+    char buf[CTX_SZ_512];
     if (!json_str_value(json, key, buf, sizeof(buf))) {
         return count;
     }
-    count += cbm_sem_tokenize(buf, tokens + count, max_tokens - count);
+    count += ctx_sem_tokenize(buf, tokens + count, max_tokens - count);
     return count;
 }
 
@@ -379,11 +379,11 @@ static int tokenize_json_array_field(const char *json, const char *key, char **t
     if (count >= max_tokens) {
         return count;
     }
-    char *arr[CBM_SZ_16];
-    int n = json_str_array(json, key, arr, CBM_SZ_16);
+    char *arr[CTX_SZ_16];
+    int n = json_str_array(json, key, arr, CTX_SZ_16);
     for (int p = 0; p < n; p++) {
         if (count < max_tokens) {
-            count += cbm_sem_tokenize(arr[p], tokens + count, max_tokens - count);
+            count += ctx_sem_tokenize(arr[p], tokens + count, max_tokens - count);
         }
         free(arr[p]);
     }
@@ -393,37 +393,37 @@ static int tokenize_json_array_field(const char *json, const char *key, char **t
 /* Walk the CALLS edges rooted at n (either outbound or inbound depending on
  * `outbound`) and tokenize the names of the target/source nodes.  Caller-side
  * caps via max_tokens and MAX_CALLEES. */
-static int tokenize_call_neighbors(const cbm_gbuf_node_t *n, const cbm_gbuf_t *gbuf, bool outbound,
+static int tokenize_call_neighbors(const ctx_gbuf_node_t *n, const ctx_gbuf_t *gbuf, bool outbound,
                                    char **tokens, int count, int max_tokens) {
     if (!gbuf || count >= max_tokens) {
         return count;
     }
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ctx_gbuf_edge_t **edges = NULL;
     int ec = 0;
-    int rc = outbound ? cbm_gbuf_find_edges_by_source_type(gbuf, n->id, "CALLS", &edges, &ec)
-                      : cbm_gbuf_find_edges_by_target_type(gbuf, n->id, "CALLS", &edges, &ec);
+    int rc = outbound ? ctx_gbuf_find_edges_by_source_type(gbuf, n->id, "CALLS", &edges, &ec)
+                      : ctx_gbuf_find_edges_by_target_type(gbuf, n->id, "CALLS", &edges, &ec);
     if (rc != 0) {
         return count;
     }
     for (int e = 0; e < ec && e < MAX_CALLEES && count < max_tokens; e++) {
         int64_t id = outbound ? edges[e]->target_id : edges[e]->source_id;
-        const cbm_gbuf_node_t *neighbor = cbm_gbuf_find_by_id(gbuf, id);
+        const ctx_gbuf_node_t *neighbor = ctx_gbuf_find_by_id(gbuf, id);
         if (neighbor && neighbor->name) {
-            count += cbm_sem_tokenize(neighbor->name, tokens + count, max_tokens - count);
+            count += ctx_sem_tokenize(neighbor->name, tokens + count, max_tokens - count);
         }
     }
     return count;
 }
 
-static int tokenize_node(const cbm_gbuf_node_t *n, const cbm_gbuf_t *gbuf, char **tokens,
+static int tokenize_node(const ctx_gbuf_node_t *n, const ctx_gbuf_t *gbuf, char **tokens,
                          int max_tokens) {
     int count = 0;
-    count += cbm_sem_tokenize(n->name, tokens + count, max_tokens - count);
+    count += ctx_sem_tokenize(n->name, tokens + count, max_tokens - count);
     if (n->qualified_name && count < max_tokens) {
-        count += cbm_sem_tokenize(n->qualified_name, tokens + count, max_tokens - count);
+        count += ctx_sem_tokenize(n->qualified_name, tokens + count, max_tokens - count);
     }
     if (n->file_path && count < max_tokens) {
-        count += cbm_sem_tokenize(n->file_path, tokens + count, max_tokens - count);
+        count += ctx_sem_tokenize(n->file_path, tokens + count, max_tokens - count);
     }
     if (n->properties_json) {
         count =
@@ -450,80 +450,80 @@ static int tokenize_node(const cbm_gbuf_node_t *n, const cbm_gbuf_t *gbuf, char 
 
 /* ── Build per-function semantic data ────────────────────────────── */
 
-static void build_api_vec(const cbm_gbuf_t *gbuf, int64_t node_id, cbm_sem_vec_t *out) {
+static void build_api_vec(const ctx_gbuf_t *gbuf, int64_t node_id, ctx_sem_vec_t *out) {
     memset(out, 0, sizeof(*out));
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ctx_gbuf_edge_t **edges = NULL;
     int edge_count = 0;
-    if (cbm_gbuf_find_edges_by_source_type(gbuf, node_id, "CALLS", &edges, &edge_count) != 0) {
+    if (ctx_gbuf_find_edges_by_source_type(gbuf, node_id, "CALLS", &edges, &edge_count) != 0) {
         return;
     }
     int added = 0;
     for (int i = 0; i < edge_count && added < MAX_CALLEES; i++) {
-        const cbm_gbuf_node_t *target = cbm_gbuf_find_by_id(gbuf, edges[i]->target_id);
+        const ctx_gbuf_node_t *target = ctx_gbuf_find_by_id(gbuf, edges[i]->target_id);
         if (target && target->name) {
-            cbm_sem_vec_t callee_ri;
-            cbm_sem_random_index(target->name, &callee_ri);
-            cbm_sem_vec_add_scaled(out, &callee_ri, PSE_UNIT_POS);
+            ctx_sem_vec_t callee_ri;
+            ctx_sem_random_index(target->name, &callee_ri);
+            ctx_sem_vec_add_scaled(out, &callee_ri, PSE_UNIT_POS);
             added++;
         }
     }
-    cbm_sem_normalize(out);
+    ctx_sem_normalize(out);
 }
 
-static void build_type_vec(const char *props_json, cbm_sem_vec_t *out) {
+static void build_type_vec(const char *props_json, ctx_sem_vec_t *out) {
     memset(out, 0, sizeof(*out));
     if (!props_json) {
         return;
     }
     /* Extract param_types and return_type */
-    char rt_buf[CBM_SZ_128];
+    char rt_buf[CTX_SZ_128];
     if (json_str_value(props_json, "return_type", rt_buf, sizeof(rt_buf))) {
-        cbm_sem_vec_t ri;
-        cbm_sem_random_index(rt_buf, &ri);
-        cbm_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
+        ctx_sem_vec_t ri;
+        ctx_sem_random_index(rt_buf, &ri);
+        ctx_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
     }
-    char *ptypes[CBM_SZ_16];
-    int pt_count = json_str_array(props_json, "param_types", ptypes, CBM_SZ_16);
+    char *ptypes[CTX_SZ_16];
+    int pt_count = json_str_array(props_json, "param_types", ptypes, CTX_SZ_16);
     for (int i = 0; i < pt_count; i++) {
-        cbm_sem_vec_t ri;
-        cbm_sem_random_index(ptypes[i], &ri);
-        cbm_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
+        ctx_sem_vec_t ri;
+        ctx_sem_random_index(ptypes[i], &ri);
+        ctx_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
         free(ptypes[i]);
     }
-    cbm_sem_normalize(out);
+    ctx_sem_normalize(out);
 }
 
-static void build_deco_vec(const char *props_json, cbm_sem_vec_t *out) {
+static void build_deco_vec(const char *props_json, ctx_sem_vec_t *out) {
     memset(out, 0, sizeof(*out));
     if (!props_json) {
         return;
     }
-    char *decos[CBM_SZ_16];
-    int dc = json_str_array(props_json, "decorators", decos, CBM_SZ_16);
+    char *decos[CTX_SZ_16];
+    int dc = json_str_array(props_json, "decorators", decos, CTX_SZ_16);
     for (int i = 0; i < dc; i++) {
-        cbm_sem_vec_t ri;
-        cbm_sem_random_index(decos[i], &ri);
-        cbm_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
+        ctx_sem_vec_t ri;
+        ctx_sem_random_index(decos[i], &ri);
+        ctx_sem_vec_add_scaled(out, &ri, PSE_UNIT_POS);
         free(decos[i]);
     }
-    cbm_sem_normalize(out);
+    ctx_sem_normalize(out);
 }
 
 static void decode_struct_profile(const char *props_json, float *out) {
-    memset(out, 0, sizeof(float) * CBM_AST_PROFILE_DIMS);
+    memset(out, 0, sizeof(float) * CTX_AST_PROFILE_DIMS);
     if (!props_json) {
         return;
     }
-    char sp_buf[CBM_AST_PROFILE_BUF];
+    char sp_buf[CTX_AST_PROFILE_BUF];
     if (json_str_value(props_json, "sp", sp_buf, sizeof(sp_buf))) {
-        cbm_ast_profile_t profile;
-        if (cbm_ast_profile_from_str(sp_buf, &profile)) {
-            cbm_ast_profile_to_vector(&profile, out);
+        ctx_ast_profile_t profile;
+        if (ctx_ast_profile_from_str(sp_buf, &profile)) {
+            ctx_ast_profile_to_vector(&profile, out);
         }
     }
 }
 
-static void decode_minhash(const char *props_json, cbm_sem_func_t *func) {
+static void decode_minhash(const char *props_json, ctx_sem_func_t *func) {
     func->has_minhash = false;
     if (!props_json) {
         return;
@@ -534,14 +534,14 @@ static void decode_minhash(const char *props_json, cbm_sem_func_t *func) {
     }
     const char *hex = fp_key + PSE_FP_PREFIX_LEN; /* strlen("\"fp\":\"") */
     const char *end = strchr(hex, '"');
-    if (!end || (int)(end - hex) != CBM_MINHASH_HEX_LEN) {
+    if (!end || (int)(end - hex) != CTX_MINHASH_HEX_LEN) {
         return;
     }
-    char hex_buf[CBM_MINHASH_HEX_BUF];
-    memcpy(hex_buf, hex, CBM_MINHASH_HEX_LEN);
-    hex_buf[CBM_MINHASH_HEX_LEN] = '\0';
-    cbm_minhash_t mh;
-    if (cbm_minhash_from_hex(hex_buf, &mh)) {
+    char hex_buf[CTX_MINHASH_HEX_BUF];
+    memcpy(hex_buf, hex, CTX_MINHASH_HEX_LEN);
+    hex_buf[CTX_MINHASH_HEX_LEN] = '\0';
+    ctx_minhash_t mh;
+    if (ctx_minhash_from_hex(hex_buf, &mh)) {
         memcpy(func->minhash, mh.values, sizeof(func->minhash));
         func->has_minhash = true;
     }
@@ -550,8 +550,8 @@ static void decode_minhash(const char *props_json, cbm_sem_func_t *func) {
 /* ── Parallel Phase 2: Tokenize nodes ────────────────────────────── */
 
 typedef struct {
-    const cbm_gbuf_node_t **node_ptrs; /* node pointer per function index */
-    cbm_gbuf_t *gbuf;                  /* read-only during tokenization */
+    const ctx_gbuf_node_t **node_ptrs; /* node pointer per function index */
+    ctx_gbuf_t *gbuf;                  /* read-only during tokenization */
     char **all_tokens;                 /* output: all_tokens[f * MAX + t] */
     int *token_counts;                 /* output: token count per function */
     int func_count;
@@ -567,14 +567,14 @@ static void tokenize_worker(int worker_id, void *ctx_ptr) {
             break;
         }
 
-        const cbm_gbuf_node_t *n = tc->node_ptrs[f];
+        const ctx_gbuf_node_t *n = tc->node_ptrs[f];
         /* Write directly into the shared buffer slice for this function — the
          * strdup'd tokens are owned by all_tokens[] from the moment they land
          * in this slot, which avoids a spurious analyzer "leak" diagnostic on
          * the previous stack-local relay pattern. */
-        char **dst = &tc->all_tokens[(ptrdiff_t)f * CBM_SEM_MAX_TOKENS];
-        int count = tokenize_node(n, tc->gbuf, dst, CBM_SEM_MAX_TOKENS);
-        count = inject_pattern_tokens(n, tc->gbuf, dst, count, CBM_SEM_MAX_TOKENS);
+        char **dst = &tc->all_tokens[(ptrdiff_t)f * CTX_SEM_MAX_TOKENS];
+        int count = tokenize_node(n, tc->gbuf, dst, CTX_SEM_MAX_TOKENS);
+        count = inject_pattern_tokens(n, tc->gbuf, dst, count, CTX_SEM_MAX_TOKENS);
         tc->token_counts[f] = count;
     }
 }
@@ -582,11 +582,11 @@ static void tokenize_worker(int worker_id, void *ctx_ptr) {
 /* ── Parallel Phase 4: Build per-function vectors ────────────────── */
 
 typedef struct {
-    cbm_sem_func_t *funcs;
+    ctx_sem_func_t *funcs;
     char **all_tokens;
     int *token_counts;
-    cbm_sem_corpus_t *corpus;
-    uint8_t *qvecs; /* output: pre-quantized int8 vectors [func_count * CBM_SEM_DIM] */
+    ctx_sem_corpus_t *corpus;
+    uint8_t *qvecs; /* output: pre-quantized int8 vectors [func_count * CTX_SEM_DIM] */
     int func_count;
     _Atomic int next_idx;
 } vec_build_ctx_t;
@@ -601,14 +601,14 @@ static void vec_build_worker(int worker_id, void *ctx_ptr) {
         }
 
         int tc = vc->token_counts[f];
-        char **tokens = &vc->all_tokens[(ptrdiff_t)f * CBM_SEM_MAX_TOKENS];
+        char **tokens = &vc->all_tokens[(ptrdiff_t)f * CTX_SEM_MAX_TOKENS];
 
         /* TF-IDF weights */
         int *indices = malloc((size_t)tc * sizeof(int));
         float *weights = malloc((size_t)tc * sizeof(float));
         int tfidf_len = 0;
         for (int t = 0; t < tc; t++) {
-            float idf = cbm_sem_corpus_idf(vc->corpus, tokens[t]);
+            float idf = ctx_sem_corpus_idf(vc->corpus, tokens[t]);
             if (idf > 0.0F) {
                 indices[tfidf_len] = t;
                 weights[tfidf_len] = idf;
@@ -620,19 +620,19 @@ static void vec_build_worker(int worker_id, void *ctx_ptr) {
         vc->funcs[f].tfidf_len = tfidf_len;
 
         /* RI vector: sum of enriched token vectors weighted by IDF */
-        memset(&vc->funcs[f].ri_vec, 0, sizeof(cbm_sem_vec_t));
+        memset(&vc->funcs[f].ri_vec, 0, sizeof(ctx_sem_vec_t));
         for (int t = 0; t < tc; t++) {
-            const cbm_sem_vec_t *ri = cbm_sem_corpus_ri_vec(vc->corpus, tokens[t]);
+            const ctx_sem_vec_t *ri = ctx_sem_corpus_ri_vec(vc->corpus, tokens[t]);
             if (ri) {
-                float idf = cbm_sem_corpus_idf(vc->corpus, tokens[t]);
-                cbm_sem_vec_add_scaled(&vc->funcs[f].ri_vec, ri, idf);
+                float idf = ctx_sem_corpus_idf(vc->corpus, tokens[t]);
+                ctx_sem_vec_add_scaled(&vc->funcs[f].ri_vec, ri, idf);
             }
         }
-        cbm_sem_normalize(&vc->funcs[f].ri_vec);
+        ctx_sem_normalize(&vc->funcs[f].ri_vec);
 
         /* Int8 quantize into pre-allocated output array (parallel-safe) */
-        uint8_t *qv = &vc->qvecs[(ptrdiff_t)f * CBM_SEM_DIM];
-        for (int d = 0; d < CBM_SEM_DIM; d++) {
+        uint8_t *qv = &vc->qvecs[(ptrdiff_t)f * CTX_SEM_DIM];
+        for (int d = 0; d < CTX_SEM_DIM; d++) {
             float v = vc->funcs[f].ri_vec.v[d];
             if (v > PSE_UNIT_POS) {
                 v = PSE_UNIT_POS;
@@ -657,11 +657,11 @@ enum {
     SEM_MAX_CANDIDATES = 200,
 };
 
-/* Row of a hyperplane matrix: float[CBM_SEM_DIM]. */
-typedef float hyperplane_row_t[CBM_SEM_DIM];
+/* Row of a hyperplane matrix: float[CTX_SEM_DIM]. */
+typedef float hyperplane_row_t[CTX_SEM_DIM];
 
 typedef struct {
-    cbm_sem_func_t *funcs;
+    ctx_sem_func_t *funcs;
     uint64_t *signatures;
     hyperplane_row_t *hyperplanes;
     int func_count;
@@ -680,7 +680,7 @@ static void sig_build_worker(int worker_id, void *ctx_ptr) {
         uint64_t sig = 0;
         for (int h = 0; h < NUM_HYPERPLANES; h++) {
             float dot = 0.0F;
-            for (int d = 0; d < CBM_SEM_DIM; d++) {
+            for (int d = 0; d < CTX_SEM_DIM; d++) {
                 dot += sc->funcs[f].ri_vec.v[d] * sc->hyperplanes[h][d];
             }
             if (dot > 0.0F) {
@@ -694,10 +694,10 @@ static void sig_build_worker(int worker_id, void *ctx_ptr) {
 /* ── Parallel Phase 6: Score candidates + collect edges ──────────── */
 
 typedef struct {
-    cbm_sem_func_t *funcs;
+    ctx_sem_func_t *funcs;
     uint64_t *signatures;
     int *edge_counts; /* shared, atomically updated */
-    cbm_sem_config_t cfg;
+    ctx_sem_config_t cfg;
     int func_count;
 
     /* LSH buckets (read-only during scoring) */
@@ -778,7 +778,7 @@ static void score_try_emit(score_ctx_t *sc, int i, int j, deferred_edge_buf_t *m
     if (strcmp(sc->funcs[i].file_ext, sc->funcs[j].file_ext) != 0) {
         return;
     }
-    float score = cbm_sem_combined_score(&sc->funcs[i], &sc->funcs[j], &sc->cfg);
+    float score = ctx_sem_combined_score(&sc->funcs[i], &sc->funcs[j], &sc->cfg);
     if (score < sc->cfg.threshold) {
         return;
     }
@@ -818,9 +818,9 @@ static void score_worker(int worker_id, void *ctx_ptr) {
 /* ── Parallel Phase 1b: decode minhash/profile + build per-func vectors ── */
 
 typedef struct {
-    cbm_sem_func_t *funcs;
-    const cbm_gbuf_node_t **node_ptrs;
-    const cbm_gbuf_t *gbuf;
+    ctx_sem_func_t *funcs;
+    const ctx_gbuf_node_t **node_ptrs;
+    const ctx_gbuf_t *gbuf;
     int func_count;
     _Atomic int next_idx;
 } collect_ctx_t;
@@ -838,7 +838,7 @@ static void collect_worker(int worker_id, void *ctx_ptr) {
             end = cc->func_count;
         }
         for (int i = f; i < end; i++) {
-            const cbm_gbuf_node_t *n = cc->node_ptrs[i];
+            const ctx_gbuf_node_t *n = cc->node_ptrs[i];
             decode_minhash(n->properties_json, &cc->funcs[i]);
             decode_struct_profile(n->properties_json, cc->funcs[i].struct_profile);
             build_api_vec(cc->gbuf, n->id, &cc->funcs[i].api_vec);
@@ -848,7 +848,7 @@ static void collect_worker(int worker_id, void *ctx_ptr) {
     }
 }
 
-/* ── Phase helpers (keep cbm_pipeline_pass_semantic_edges complexity low) ── */
+/* ── Phase helpers (keep ctx_pipeline_pass_semantic_edges complexity low) ── */
 
 typedef struct {
     int *items;
@@ -859,38 +859,38 @@ typedef struct {
 /* Phase 1a: seed the funcs[] / node_ptrs[] arrays from all Function and
  * Method nodes in the graph buffer.  Returns the number of functions collected
  * (0 on OOM), and fills *out_funcs / *out_nodes with newly malloc'd arrays. */
-static int phase1_scan_functions(cbm_gbuf_t *gbuf, cbm_sem_func_t **out_funcs,
-                                 const cbm_gbuf_node_t ***out_nodes) {
+static int phase1_scan_functions(ctx_gbuf_t *gbuf, ctx_sem_func_t **out_funcs,
+                                 const ctx_gbuf_node_t ***out_nodes) {
     *out_funcs = NULL;
     *out_nodes = NULL;
-    cbm_sem_func_t *funcs = NULL;
-    const cbm_gbuf_node_t **node_ptrs = NULL;
+    ctx_sem_func_t *funcs = NULL;
+    const ctx_gbuf_node_t **node_ptrs = NULL;
     int func_count = 0;
     int func_cap = 0;
     const char *labels[] = {"Function", "Method", NULL};
     for (int li = 0; labels[li]; li++) {
-        const cbm_gbuf_node_t **nodes = NULL;
+        const ctx_gbuf_node_t **nodes = NULL;
         int node_count = 0;
-        if (cbm_gbuf_find_by_label(gbuf, labels[li], &nodes, &node_count) != 0) {
+        if (ctx_gbuf_find_by_label(gbuf, labels[li], &nodes, &node_count) != 0) {
             continue;
         }
         for (int i = 0; i < node_count; i++) {
             if (func_count >= func_cap) {
                 int new_cap = func_cap < MAX_FUNCS_INIT ? MAX_FUNCS_INIT : func_cap * GROW;
-                cbm_sem_func_t *grown = realloc(funcs, (size_t)new_cap * sizeof(cbm_sem_func_t));
+                ctx_sem_func_t *grown = realloc(funcs, (size_t)new_cap * sizeof(ctx_sem_func_t));
                 if (!grown) {
                     break;
                 }
                 funcs = grown;
-                const cbm_gbuf_node_t **np_grown =
-                    realloc(node_ptrs, (size_t)new_cap * sizeof(cbm_gbuf_node_t *));
+                const ctx_gbuf_node_t **np_grown =
+                    realloc(node_ptrs, (size_t)new_cap * sizeof(ctx_gbuf_node_t *));
                 if (!np_grown) {
                     break;
                 }
                 node_ptrs = np_grown;
                 func_cap = new_cap;
             }
-            memset(&funcs[func_count], 0, sizeof(cbm_sem_func_t));
+            memset(&funcs[func_count], 0, sizeof(ctx_sem_func_t));
             funcs[func_count].node_id = nodes[i]->id;
             funcs[func_count].file_path = nodes[i]->file_path;
             funcs[func_count].file_ext = file_ext(nodes[i]->file_path);
@@ -932,7 +932,7 @@ static void phase5c_build_lsh_buckets(const uint64_t *signatures, int func_count
 
 /* Phase 6b: serialize deferred edges from all worker buffers into the graph
  * buffer (sequential because gbuf isn't thread-safe). */
-static int phase6b_merge_edges(cbm_gbuf_t *gbuf, deferred_edge_buf_t *worker_bufs,
+static int phase6b_merge_edges(ctx_gbuf_t *gbuf, deferred_edge_buf_t *worker_bufs,
                                int worker_count) {
     int total_edges = 0;
     for (int w = 0; w < worker_count; w++) {
@@ -941,7 +941,7 @@ static int phase6b_merge_edges(cbm_gbuf_t *gbuf, deferred_edge_buf_t *worker_buf
             char props[PROPS_BUF];
             snprintf(props, sizeof(props), "{\"score\":%.3f,\"same_file\":%s}", de->score,
                      de->same_file ? "true" : "false");
-            cbm_gbuf_insert_edge(gbuf, de->source_id, de->target_id, "SEMANTICALLY_RELATED", props);
+            ctx_gbuf_insert_edge(gbuf, de->source_id, de->target_id, "SEMANTICALLY_RELATED", props);
             total_edges++;
         }
         deferred_buf_free(&worker_bufs[w]);
@@ -951,17 +951,17 @@ static int phase6b_merge_edges(cbm_gbuf_t *gbuf, deferred_edge_buf_t *worker_buf
 
 /* Phase 3c: export co-occurrence-enriched token vectors into the graph buffer
  * so query-time lookups can use them without re-running the finalize step. */
-static void phase3c_export_token_vectors(cbm_gbuf_t *gbuf, cbm_sem_corpus_t *corpus) {
-    int tv_count = cbm_sem_corpus_token_count(corpus);
+static void phase3c_export_token_vectors(ctx_gbuf_t *gbuf, ctx_sem_corpus_t *corpus) {
+    int tv_count = ctx_sem_corpus_token_count(corpus);
     for (int t = 0; t < tv_count; t++) {
-        const cbm_sem_vec_t *vec = NULL;
+        const ctx_sem_vec_t *vec = NULL;
         float idf = 0.0F;
-        const char *tok = cbm_sem_corpus_token_at(corpus, t, &vec, &idf);
+        const char *tok = ctx_sem_corpus_token_at(corpus, t, &vec, &idf);
         if (!tok || !vec || idf <= PSE_FLOW_WEIGHT) {
             continue;
         }
-        uint8_t qvec[CBM_SEM_DIM];
-        for (int d = 0; d < CBM_SEM_DIM; d++) {
+        uint8_t qvec[CTX_SEM_DIM];
+        for (int d = 0; d < CTX_SEM_DIM; d++) {
             float clamped = vec->v[d];
             if (clamped > PSE_UNIT_POS) {
                 clamped = PSE_UNIT_POS;
@@ -971,12 +971,12 @@ static void phase3c_export_token_vectors(cbm_gbuf_t *gbuf, cbm_sem_corpus_t *cor
             }
             qvec[d] = (uint8_t)(int8_t)(clamped * PSE_INT8_MAX);
         }
-        cbm_gbuf_store_token_vector(gbuf, tok, qvec, CBM_SEM_DIM, idf);
+        ctx_gbuf_store_token_vector(gbuf, tok, qvec, CTX_SEM_DIM, idf);
     }
-    cbm_log_info("pass.semantic.token_vectors", "count", itoa_log(tv_count));
+    ctx_log_info("pass.semantic.token_vectors", "count", itoa_log(tv_count));
 }
 
-/* Phase 5a: generate NUM_HYPERPLANES × CBM_SEM_DIM deterministic random
+/* Phase 5a: generate NUM_HYPERPLANES × CTX_SEM_DIM deterministic random
  * float hyperplanes seeded from XXH3 so signatures are reproducible. */
 static hyperplane_row_t *phase5a_build_hyperplanes(void) {
     hyperplane_row_t *hyperplanes = malloc(sizeof(hyperplane_row_t) * NUM_HYPERPLANES);
@@ -984,8 +984,8 @@ static hyperplane_row_t *phase5a_build_hyperplanes(void) {
         return NULL;
     }
     for (int h = 0; h < NUM_HYPERPLANES; h++) {
-        for (int d = 0; d < CBM_SEM_DIM; d++) {
-            uint64_t seed = XXH3_64bits_withSeed(&d, sizeof(d), (uint64_t)h * CBM_SEM_DIM);
+        for (int d = 0; d < CTX_SEM_DIM; d++) {
+            uint64_t seed = XXH3_64bits_withSeed(&d, sizeof(d), (uint64_t)h * CTX_SEM_DIM);
             hyperplanes[h][d] = ((float)(seed & UINT32_MAX) / (float)UINT32_MAX) - PSE_ROUND_BIAS;
         }
     }
@@ -993,10 +993,10 @@ static hyperplane_row_t *phase5a_build_hyperplanes(void) {
 }
 
 /* Phase 1b: decode per-function minhash/profile/API/type/deco vectors in
- * parallel.  Must be called after cbm_sem_ensure_ready() so the pretrained
+ * parallel.  Must be called after ctx_sem_ensure_ready() so the pretrained
  * token map is initialized. */
-static void phase1b_decode_and_build(cbm_sem_func_t *funcs, const cbm_gbuf_node_t **node_ptrs,
-                                     const cbm_gbuf_t *gbuf, int func_count, int worker_count) {
+static void phase1b_decode_and_build(ctx_sem_func_t *funcs, const ctx_gbuf_node_t **node_ptrs,
+                                     const ctx_gbuf_t *gbuf, int func_count, int worker_count) {
     if (func_count <= 0) {
         return;
     }
@@ -1007,13 +1007,13 @@ static void phase1b_decode_and_build(cbm_sem_func_t *funcs, const cbm_gbuf_node_
         .func_count = func_count,
     };
     atomic_init(&cc.next_idx, 0);
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-    cbm_parallel_for(worker_count, collect_worker, &cc, opts);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    ctx_parallel_for(worker_count, collect_worker, &cc, opts);
 }
 
 /* Phase 2: tokenize each function's metadata in parallel, filling
  * all_tokens[] and token_counts[].  Caller allocates the arrays. */
-static void phase2_tokenize(const cbm_gbuf_node_t **node_ptrs, cbm_gbuf_t *gbuf, char **all_tokens,
+static void phase2_tokenize(const ctx_gbuf_node_t **node_ptrs, ctx_gbuf_t *gbuf, char **all_tokens,
                             int *token_counts, int func_count, int worker_count) {
     tokenize_ctx_t tc = {
         .node_ptrs = node_ptrs,
@@ -1023,18 +1023,18 @@ static void phase2_tokenize(const cbm_gbuf_node_t **node_ptrs, cbm_gbuf_t *gbuf,
         .func_count = func_count,
     };
     atomic_init(&tc.next_idx, 0);
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-    cbm_parallel_for(worker_count, tokenize_worker, &tc, opts);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    ctx_parallel_for(worker_count, tokenize_worker, &tc, opts);
 }
 
 /* Phase 4a: build per-function TF-IDF + RI vectors in parallel, producing
  * int8-quantized qvecs for subsequent storage.  Phase 4b runs sequentially
  * to store them in gbuf because gbuf is not thread-safe. */
-static void phase4_build_and_store_vectors(cbm_gbuf_t *gbuf, cbm_sem_func_t *funcs,
+static void phase4_build_and_store_vectors(ctx_gbuf_t *gbuf, ctx_sem_func_t *funcs,
                                            char **all_tokens, int *token_counts,
-                                           cbm_sem_corpus_t *corpus, int func_count,
+                                           ctx_sem_corpus_t *corpus, int func_count,
                                            int worker_count) {
-    uint8_t *qvecs = malloc((size_t)func_count * CBM_SEM_DIM);
+    uint8_t *qvecs = malloc((size_t)func_count * CTX_SEM_DIM);
     if (!qvecs) {
         return;
     }
@@ -1047,11 +1047,11 @@ static void phase4_build_and_store_vectors(cbm_gbuf_t *gbuf, cbm_sem_func_t *fun
         .func_count = func_count,
     };
     atomic_init(&vc.next_idx, 0);
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-    cbm_parallel_for(worker_count, vec_build_worker, &vc, opts);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    ctx_parallel_for(worker_count, vec_build_worker, &vc, opts);
     for (int f = 0; f < func_count; f++) {
-        cbm_gbuf_store_vector(gbuf, funcs[f].node_id, &qvecs[(ptrdiff_t)f * CBM_SEM_DIM],
-                              CBM_SEM_DIM);
+        ctx_gbuf_store_vector(gbuf, funcs[f].node_id, &qvecs[(ptrdiff_t)f * CTX_SEM_DIM],
+                              CTX_SEM_DIM);
     }
     free(qvecs);
 }
@@ -1059,7 +1059,7 @@ static void phase4_build_and_store_vectors(cbm_gbuf_t *gbuf, cbm_sem_func_t *fun
 /* Phase 5: hyperplane generation → signatures → LSH bucket population.
  * Returns the malloc'd signatures array and band_buckets[] via out-params;
  * caller frees both. */
-static void phase5_lsh_build(cbm_sem_func_t *funcs, int func_count, int worker_count,
+static void phase5_lsh_build(ctx_sem_func_t *funcs, int func_count, int worker_count,
                              uint64_t **out_signatures, sem_bucket_t ***out_buckets) {
     hyperplane_row_t *hyperplanes = phase5a_build_hyperplanes();
     uint64_t *signatures = calloc((size_t)func_count, sizeof(uint64_t));
@@ -1071,8 +1071,8 @@ static void phase5_lsh_build(cbm_sem_func_t *funcs, int func_count, int worker_c
             .func_count = func_count,
         };
         atomic_init(&sc.next_idx, 0);
-        cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-        cbm_parallel_for(worker_count, sig_build_worker, &sc, opts);
+        ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+        ctx_parallel_for(worker_count, sig_build_worker, &sc, opts);
     }
     free(hyperplanes);
 
@@ -1088,8 +1088,8 @@ static void phase5_lsh_build(cbm_sem_func_t *funcs, int func_count, int worker_c
 }
 
 /* Phase 6a: score candidate pairs in parallel and collect deferred edges. */
-static void phase6a_score_candidates(cbm_sem_func_t *funcs, uint64_t *signatures, int *edge_counts,
-                                     sem_bucket_t **band_buckets, cbm_sem_config_t cfg,
+static void phase6a_score_candidates(ctx_sem_func_t *funcs, uint64_t *signatures, int *edge_counts,
+                                     sem_bucket_t **band_buckets, ctx_sem_config_t cfg,
                                      deferred_edge_buf_t *worker_bufs, int func_count,
                                      int worker_count) {
     score_ctx_t sc = {
@@ -1103,8 +1103,8 @@ static void phase6a_score_candidates(cbm_sem_func_t *funcs, uint64_t *signatures
         .max_workers = worker_count,
     };
     atomic_init(&sc.next_idx, 0);
-    cbm_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
-    cbm_parallel_for(worker_count, score_worker, &sc, opts);
+    ctx_parallel_for_opts_t opts = {.max_workers = worker_count, .force_pthreads = false};
+    ctx_parallel_for(worker_count, score_worker, &sc, opts);
 }
 
 /* Phase 7: free LSH bucket storage (items arrays and the per-band arrays). */
@@ -1126,30 +1126,30 @@ static void free_lsh_buckets(sem_bucket_t **band_buckets) {
 
 /* Phases 3a/3b/3c bundled: create corpus, batch-add docs, finalize, export
  * enriched token vectors to the graph buffer.  Returns the new corpus, which
- * the caller must cbm_sem_corpus_free() later. */
-static cbm_sem_corpus_t *run_corpus_phase(cbm_gbuf_t *gbuf, char **all_tokens, int *token_counts,
+ * the caller must ctx_sem_corpus_free() later. */
+static ctx_sem_corpus_t *run_corpus_phase(ctx_gbuf_t *gbuf, char **all_tokens, int *token_counts,
                                           int func_count) {
-    CBM_PROF_START(t_phase3a);
-    cbm_sem_corpus_t *corpus = cbm_sem_corpus_new();
-    cbm_sem_corpus_add_docs_batch(corpus, all_tokens, token_counts, func_count, CBM_SEM_MAX_TOKENS);
-    CBM_PROF_END_N("semantic_edges", "3a_corpus_batch", t_phase3a, func_count);
+    CTX_PROF_START(t_phase3a);
+    ctx_sem_corpus_t *corpus = ctx_sem_corpus_new();
+    ctx_sem_corpus_add_docs_batch(corpus, all_tokens, token_counts, func_count, CTX_SEM_MAX_TOKENS);
+    CTX_PROF_END_N("semantic_edges", "3a_corpus_batch", t_phase3a, func_count);
 
-    CBM_PROF_START(t_phase3b);
-    cbm_sem_corpus_finalize(corpus);
-    CBM_PROF_END_N("semantic_edges", "3b_corpus_finalize_seq", t_phase3b,
-                   cbm_sem_corpus_token_count(corpus));
+    CTX_PROF_START(t_phase3b);
+    ctx_sem_corpus_finalize(corpus);
+    CTX_PROF_END_N("semantic_edges", "3b_corpus_finalize_seq", t_phase3b,
+                   ctx_sem_corpus_token_count(corpus));
 
-    CBM_PROF_START(t_phase3c);
+    CTX_PROF_START(t_phase3c);
     phase3c_export_token_vectors(gbuf, corpus);
-    CBM_PROF_END_N("semantic_edges", "3c_token_vec_export_seq", t_phase3c,
-                   cbm_sem_corpus_token_count(corpus));
+    CTX_PROF_END_N("semantic_edges", "3c_token_vec_export_seq", t_phase3c,
+                   ctx_sem_corpus_token_count(corpus));
     return corpus;
 }
 
 /* Phases 6a/6b bundled: parallel scoring + sequential merge of deferred
  * edges.  Returns the number of emitted edges. */
-static int run_scoring_phase(cbm_gbuf_t *gbuf, cbm_sem_func_t *funcs, uint64_t *signatures,
-                             sem_bucket_t **band_buckets, cbm_sem_config_t cfg, int func_count,
+static int run_scoring_phase(ctx_gbuf_t *gbuf, ctx_sem_func_t *funcs, uint64_t *signatures,
+                             sem_bucket_t **band_buckets, ctx_sem_config_t cfg, int func_count,
                              int worker_count) {
     int *edge_counts = calloc((size_t)func_count, sizeof(int));
     deferred_edge_buf_t *worker_bufs = calloc((size_t)worker_count, sizeof(deferred_edge_buf_t));
@@ -1162,14 +1162,14 @@ static int run_scoring_phase(cbm_gbuf_t *gbuf, cbm_sem_func_t *funcs, uint64_t *
         deferred_buf_init(&worker_bufs[w]);
     }
 
-    CBM_PROF_START(t_phase6a);
+    CTX_PROF_START(t_phase6a);
     phase6a_score_candidates(funcs, signatures, edge_counts, band_buckets, cfg, worker_bufs,
                              func_count, worker_count);
-    CBM_PROF_END_N("semantic_edges", "6a_score_parallel", t_phase6a, func_count);
+    CTX_PROF_END_N("semantic_edges", "6a_score_parallel", t_phase6a, func_count);
 
-    CBM_PROF_START(t_phase6b);
+    CTX_PROF_START(t_phase6b);
     int total = phase6b_merge_edges(gbuf, worker_bufs, worker_count);
-    CBM_PROF_END_N("semantic_edges", "6b_edge_merge_seq", t_phase6b, total);
+    CTX_PROF_END_N("semantic_edges", "6b_edge_merge_seq", t_phase6b, total);
 
     free(worker_bufs);
     free(edge_counts);
@@ -1177,14 +1177,14 @@ static int run_scoring_phase(cbm_gbuf_t *gbuf, cbm_sem_func_t *funcs, uint64_t *
 }
 
 /* Free the per-function arrays malloc'd during phases 1b and 4a. */
-static void free_funcs_and_tokens(cbm_sem_func_t *funcs, int func_count, char **all_tokens,
+static void free_funcs_and_tokens(ctx_sem_func_t *funcs, int func_count, char **all_tokens,
                                   const int *token_counts) {
     for (int f = 0; f < func_count; f++) {
         free(funcs[f].tfidf_indices);
         free(funcs[f].tfidf_weights);
         int tc = token_counts[f];
         for (int t = 0; t < tc; t++) {
-            free(all_tokens[((ptrdiff_t)f * CBM_SEM_MAX_TOKENS) + t]);
+            free(all_tokens[((ptrdiff_t)f * CTX_SEM_MAX_TOKENS) + t]);
         }
     }
     free(all_tokens);
@@ -1193,62 +1193,62 @@ static void free_funcs_and_tokens(cbm_sem_func_t *funcs, int func_count, char **
 
 /* ── Pass entry point ────────────────────────────────────────────── */
 
-int cbm_pipeline_pass_semantic_edges(cbm_pipeline_ctx_t *ctx) {
+int ctx_pipeline_pass_semantic_edges(ctx_pipeline_ctx_t *ctx) {
     /* Controlled by pipeline mode (moderate/full), not env var */
-    cbm_log_info("pass.start", "pass", "semantic_edges");
+    ctx_log_info("pass.start", "pass", "semantic_edges");
 
-    cbm_gbuf_t *gbuf = ctx->gbuf;
-    cbm_sem_config_t cfg = cbm_sem_get_config();
+    ctx_gbuf_t *gbuf = ctx->gbuf;
+    ctx_sem_config_t cfg = ctx_sem_get_config();
 
-    CBM_PROF_START(t_phase1a);
-    cbm_sem_func_t *funcs = NULL;
-    const cbm_gbuf_node_t **node_ptrs = NULL;
+    CTX_PROF_START(t_phase1a);
+    ctx_sem_func_t *funcs = NULL;
+    const ctx_gbuf_node_t **node_ptrs = NULL;
     int func_count = phase1_scan_functions(gbuf, &funcs, &node_ptrs);
-    CBM_PROF_END_N("semantic_edges", "1a_scan_seq", t_phase1a, func_count);
+    CTX_PROF_END_N("semantic_edges", "1a_scan_seq", t_phase1a, func_count);
 
     /* Phase 1b: Decode minhash + profile + build api/type/deco vectors (PARALLEL). */
-    cbm_sem_ensure_ready();
-    CBM_PROF_START(t_phase1b);
-    phase1b_decode_and_build(funcs, node_ptrs, gbuf, func_count, cbm_default_worker_count(false));
-    CBM_PROF_END_N("semantic_edges", "1b_decode_build_parallel", t_phase1b, func_count);
-    cbm_log_info("pass.semantic.collected", "functions", itoa_log(func_count));
+    ctx_sem_ensure_ready();
+    CTX_PROF_START(t_phase1b);
+    phase1b_decode_and_build(funcs, node_ptrs, gbuf, func_count, ctx_default_worker_count(false));
+    CTX_PROF_END_N("semantic_edges", "1b_decode_build_parallel", t_phase1b, func_count);
+    ctx_log_info("pass.semantic.collected", "functions", itoa_log(func_count));
 
     if (func_count < PSE_MIN_FUNCS_FOR_PAIR) {
         free(funcs);
         free(node_ptrs);
-        cbm_log_info("pass.done", "pass", "semantic_edges", "edges", "0");
+        ctx_log_info("pass.done", "pass", "semantic_edges", "edges", "0");
         return 0;
     }
 
     /* Phase 2: Tokenize all nodes (PARALLEL) */
-    int worker_count = cbm_default_worker_count(false);
-    char **all_tokens = malloc((size_t)func_count * sizeof(char *) * CBM_SEM_MAX_TOKENS);
+    int worker_count = ctx_default_worker_count(false);
+    char **all_tokens = malloc((size_t)func_count * sizeof(char *) * CTX_SEM_MAX_TOKENS);
     int *token_counts = calloc((size_t)func_count, sizeof(int));
 
-    CBM_PROF_START(t_phase2);
+    CTX_PROF_START(t_phase2);
     phase2_tokenize(node_ptrs, gbuf, all_tokens, token_counts, func_count, worker_count);
-    CBM_PROF_END_N("semantic_edges", "2_tokenize_parallel", t_phase2, func_count);
+    CTX_PROF_END_N("semantic_edges", "2_tokenize_parallel", t_phase2, func_count);
     free(node_ptrs);
 
     /* Phase 3: Build corpus (batch add), finalize, export enriched token vectors. */
-    cbm_sem_corpus_t *corpus = run_corpus_phase(gbuf, all_tokens, token_counts, func_count);
+    ctx_sem_corpus_t *corpus = run_corpus_phase(gbuf, all_tokens, token_counts, func_count);
 
     /* Phase 4: Build per-function TF-IDF + RI vectors (PARALLEL) and store them. */
-    CBM_PROF_START(t_phase4);
+    CTX_PROF_START(t_phase4);
     phase4_build_and_store_vectors(gbuf, funcs, all_tokens, token_counts, corpus, func_count,
                                    worker_count);
-    CBM_PROF_END_N("semantic_edges", "4_build_and_store_vec", t_phase4, func_count);
+    CTX_PROF_END_N("semantic_edges", "4_build_and_store_vec", t_phase4, func_count);
 
-    cbm_log_info("pass.semantic.vectors_stored", "count", itoa_log(func_count));
+    ctx_log_info("pass.semantic.vectors_stored", "count", itoa_log(func_count));
 
     /* Phase 5: LSH hyperplanes → signatures → buckets. */
-    CBM_PROF_START(t_phase5);
+    CTX_PROF_START(t_phase5);
     uint64_t *signatures = NULL;
     sem_bucket_t **band_buckets = NULL;
     phase5_lsh_build(funcs, func_count, worker_count, &signatures, &band_buckets);
-    CBM_PROF_END_N("semantic_edges", "5_lsh_build", t_phase5, func_count);
+    CTX_PROF_END_N("semantic_edges", "5_lsh_build", t_phase5, func_count);
 
-    cbm_log_info("pass.semantic.lsh_built", "functions", itoa_log(func_count), "bands",
+    ctx_log_info("pass.semantic.lsh_built", "functions", itoa_log(func_count), "bands",
                  itoa_log(SEM_LSH_BANDS));
 
     /* Phase 6: Parallel scoring + sequential edge merge. */
@@ -1256,14 +1256,14 @@ int cbm_pipeline_pass_semantic_edges(cbm_pipeline_ctx_t *ctx) {
         run_scoring_phase(gbuf, funcs, signatures, band_buckets, cfg, func_count, worker_count);
 
     /* Phase 7: Cleanup */
-    CBM_PROF_START(t_phase7);
+    CTX_PROF_START(t_phase7);
     free_lsh_buckets(band_buckets);
     free(signatures);
-    cbm_log_info("pass.done", "pass", "semantic_edges", "edges", itoa_log(total_edges));
+    ctx_log_info("pass.done", "pass", "semantic_edges", "edges", itoa_log(total_edges));
     free_funcs_and_tokens(funcs, func_count, all_tokens, token_counts);
     free(token_counts);
-    cbm_sem_corpus_free(corpus);
-    CBM_PROF_END("semantic_edges", "7_cleanup", t_phase7);
+    ctx_sem_corpus_free(corpus);
+    CTX_PROF_END("semantic_edges", "7_cleanup", t_phase7);
 
     return 0;
 }

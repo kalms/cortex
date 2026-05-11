@@ -12,7 +12,7 @@
 
 /* Default 8MB stack for all threads. macOS ARM64 default is only 512KB,
  * which is too small for deep pipeline passes (configlink, etc.). */
-#define CBM_DEFAULT_STACK_SIZE ((size_t)8 * CBM_SZ_1K * CBM_SZ_1K)
+#define CTX_DEFAULT_STACK_SIZE ((size_t)8 * CTX_SZ_1K * CTX_SZ_1K)
 #include <string.h>
 
 /* ── Thread ───────────────────────────────────────────────────── */
@@ -33,27 +33,27 @@ static DWORD WINAPI win_thread_wrapper(LPVOID lpParam) {
     return 0;
 }
 
-int cbm_thread_create(cbm_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg) {
+int ctx_thread_create(ctx_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg) {
     if (stack_size == 0) {
-        stack_size = CBM_DEFAULT_STACK_SIZE;
+        stack_size = CTX_DEFAULT_STACK_SIZE;
     }
     win_thread_arg_t *a = (win_thread_arg_t *)malloc(sizeof(win_thread_arg_t));
     if (!a) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     a->fn = fn;
     a->arg = arg;
     t->handle = CreateThread(NULL, stack_size, win_thread_wrapper, a, 0, NULL);
     if (!t->handle) {
         free(a);
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     return 0;
 }
 
-int cbm_thread_join(cbm_thread_t *t) {
+int ctx_thread_join(ctx_thread_t *t) {
     if (WaitForSingleObject(t->handle, INFINITE) != WAIT_OBJECT_0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     CloseHandle(t->handle);
     return 0;
@@ -61,9 +61,9 @@ int cbm_thread_join(cbm_thread_t *t) {
 
 #else /* POSIX */
 
-int cbm_thread_create(cbm_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg) {
+int ctx_thread_create(ctx_thread_t *t, size_t stack_size, void *(*fn)(void *), void *arg) {
     if (stack_size == 0) {
-        stack_size = CBM_DEFAULT_STACK_SIZE;
+        stack_size = CTX_DEFAULT_STACK_SIZE;
     }
     pthread_attr_t attr;
     pthread_attr_init(&attr);
@@ -73,7 +73,7 @@ int cbm_thread_create(cbm_thread_t *t, size_t stack_size, void *(*fn)(void *), v
     return rc;
 }
 
-int cbm_thread_join(cbm_thread_t *t) {
+int ctx_thread_join(ctx_thread_t *t) {
     return pthread_join(t->handle, NULL);
 }
 
@@ -83,37 +83,37 @@ int cbm_thread_join(cbm_thread_t *t) {
 
 #ifdef _WIN32
 
-void cbm_mutex_init(cbm_mutex_t *m) {
+void ctx_mutex_init(ctx_mutex_t *m) {
     InitializeCriticalSection(&m->cs);
 }
 
-void cbm_mutex_lock(cbm_mutex_t *m) {
+void ctx_mutex_lock(ctx_mutex_t *m) {
     EnterCriticalSection(&m->cs);
 }
 
-void cbm_mutex_unlock(cbm_mutex_t *m) {
+void ctx_mutex_unlock(ctx_mutex_t *m) {
     LeaveCriticalSection(&m->cs);
 }
 
-void cbm_mutex_destroy(cbm_mutex_t *m) {
+void ctx_mutex_destroy(ctx_mutex_t *m) {
     DeleteCriticalSection(&m->cs);
 }
 
 #else /* POSIX */
 
-void cbm_mutex_init(cbm_mutex_t *m) {
+void ctx_mutex_init(ctx_mutex_t *m) {
     pthread_mutex_init(&m->mtx, NULL);
 }
 
-void cbm_mutex_lock(cbm_mutex_t *m) {
+void ctx_mutex_lock(ctx_mutex_t *m) {
     pthread_mutex_lock(&m->mtx);
 }
 
-void cbm_mutex_unlock(cbm_mutex_t *m) {
+void ctx_mutex_unlock(ctx_mutex_t *m) {
     pthread_mutex_unlock(&m->mtx);
 }
 
-void cbm_mutex_destroy(cbm_mutex_t *m) {
+void ctx_mutex_destroy(ctx_mutex_t *m) {
     pthread_mutex_destroy(&m->mtx);
 }
 
@@ -123,22 +123,22 @@ void cbm_mutex_destroy(cbm_mutex_t *m) {
 
 #ifdef _WIN32
 
-int cbm_aligned_alloc(void **ptr, size_t alignment, size_t size) {
+int ctx_aligned_alloc(void **ptr, size_t alignment, size_t size) {
     *ptr = _aligned_malloc(size, alignment);
     return *ptr ? 0 : -1;
 }
 
-void cbm_aligned_free(void *ptr) {
+void ctx_aligned_free(void *ptr) {
     _aligned_free(ptr);
 }
 
 #else /* POSIX */
 
-int cbm_aligned_alloc(void **ptr, size_t alignment, size_t size) {
+int ctx_aligned_alloc(void **ptr, size_t alignment, size_t size) {
     return posix_memalign(ptr, alignment, size);
 }
 
-void cbm_aligned_free(void *ptr) {
+void ctx_aligned_free(void *ptr) {
     free(ptr);
 }
 

@@ -54,8 +54,8 @@ static uint32_t next_pow2(uint32_t v) {
     return v + SKIP_ONE;
 }
 
-CBMHashTable *cbm_ht_create(uint32_t initial_capacity) {
-    CBMHashTable *ht = (CBMHashTable *)calloc(CBM_ALLOC_ONE, sizeof(CBMHashTable));
+CBMHashTable *ctx_ht_create(uint32_t initial_capacity) {
+    CBMHashTable *ht = (CBMHashTable *)calloc(CTX_ALLOC_ONE, sizeof(CBMHashTable));
     if (!ht) {
         return NULL;
     }
@@ -69,7 +69,7 @@ CBMHashTable *cbm_ht_create(uint32_t initial_capacity) {
     return ht;
 }
 
-void cbm_ht_free(CBMHashTable *ht) {
+void ctx_ht_free(CBMHashTable *ht) {
     if (!ht) {
         return;
     }
@@ -117,7 +117,7 @@ static void ht_resize(CBMHashTable *ht) {
     ht->mask = new_mask;
 }
 
-void *cbm_ht_set(CBMHashTable *ht, const char *key, void *value) {
+void *ctx_ht_set(CBMHashTable *ht, const char *key, void *value) {
     /* Resize at 75% load */
     if (ht->count * HT_LOAD_DEN >= ht->capacity * HT_LOAD_NUM) {
         ht_resize(ht);
@@ -158,7 +158,7 @@ void *cbm_ht_set(CBMHashTable *ht, const char *key, void *value) {
     }
 }
 
-void *cbm_ht_get(const CBMHashTable *ht, const char *key) {
+void *ctx_ht_get(const CBMHashTable *ht, const char *key) {
     uint32_t h = fnv1a(key);
     uint32_t idx = h & ht->mask;
     uint32_t psl = SKIP_ONE;
@@ -179,11 +179,11 @@ void *cbm_ht_get(const CBMHashTable *ht, const char *key) {
     }
 }
 
-bool cbm_ht_has(const CBMHashTable *ht, const char *key) {
-    return cbm_ht_get(ht, key) != NULL;
+bool ctx_ht_has(const CBMHashTable *ht, const char *key) {
+    return ctx_ht_get(ht, key) != NULL;
 }
 
-const char *cbm_ht_get_key(const CBMHashTable *ht, const char *key) {
+const char *ctx_ht_get_key(const CBMHashTable *ht, const char *key) {
     if (!ht || !key) {
         return NULL;
     }
@@ -206,7 +206,7 @@ const char *cbm_ht_get_key(const CBMHashTable *ht, const char *key) {
     }
 }
 
-void *cbm_ht_delete(CBMHashTable *ht, const char *key) {
+void *ctx_ht_delete(CBMHashTable *ht, const char *key) {
     uint32_t h = fnv1a(key);
     uint32_t idx = h & ht->mask;
     uint32_t psl = SKIP_ONE;
@@ -245,11 +245,11 @@ void *cbm_ht_delete(CBMHashTable *ht, const char *key) {
     }
 }
 
-uint32_t cbm_ht_count(const CBMHashTable *ht) {
+uint32_t ctx_ht_count(const CBMHashTable *ht) {
     return ht ? ht->count : 0;
 }
 
-void cbm_ht_foreach(const CBMHashTable *ht, cbm_ht_iter_fn fn, void *userdata) {
+void ctx_ht_foreach(const CBMHashTable *ht, ctx_ht_iter_fn fn, void *userdata) {
     if (!ht || !fn) {
         return;
     }
@@ -260,7 +260,7 @@ void cbm_ht_foreach(const CBMHashTable *ht, cbm_ht_iter_fn fn, void *userdata) {
     }
 }
 
-void cbm_ht_clear(CBMHashTable *ht) {
+void ctx_ht_clear(CBMHashTable *ht) {
     if (!ht) {
         return;
     }

@@ -34,14 +34,14 @@ enum {
 
 /* ── Regex patterns (compiled lazily) ──────────────────────────── */
 
-static cbm_regex_t dockerfile_re;  /* ENV|ARG KEY=VALUE or KEY VALUE */
-static cbm_regex_t yaml_kv_re;     /* key: "https://..." */
-static cbm_regex_t yaml_setenv_re; /* --set-env-vars KEY=VALUE */
-static cbm_regex_t terraform_re;   /* default|value = "https://..." */
-static cbm_regex_t shell_re;       /* [export] KEY=https://... */
-static cbm_regex_t envfile_re;     /* KEY=https://... */
-static cbm_regex_t toml_re;        /* key = "https://..." */
-static cbm_regex_t properties_re;  /* key=https://... */
+static ctx_regex_t dockerfile_re;  /* ENV|ARG KEY=VALUE or KEY VALUE */
+static ctx_regex_t yaml_kv_re;     /* key: "https://..." */
+static ctx_regex_t yaml_setenv_re; /* --set-env-vars KEY=VALUE */
+static ctx_regex_t terraform_re;   /* default|value = "https://..." */
+static ctx_regex_t shell_re;       /* [export] KEY=https://... */
+static ctx_regex_t envfile_re;     /* KEY=https://... */
+static ctx_regex_t toml_re;        /* key = "https://..." */
+static ctx_regex_t properties_re;  /* key=https://... */
 static int patterns_compiled = 0;
 
 /* POSIX ERE doesn't support \w or \S — use bracket expressions */
@@ -53,18 +53,18 @@ static void compile_patterns(void) {
         return;
     }
 
-    cbm_regcomp(&dockerfile_re, "^(ENV|ARG)[[:space:]]+(" W "+)[= ](.*)", CBM_REG_EXTENDED);
-    cbm_regcomp(&yaml_kv_re, "(" W "+):[[:space:]]*[\"']?(https?://" NW "+)", CBM_REG_EXTENDED);
-    cbm_regcomp(&yaml_setenv_re, "--set-env-vars[[:space:]]+(" W "+)=([^ \t]+)", CBM_REG_EXTENDED);
-    cbm_regcomp(&terraform_re, "(default|value)[[:space:]]*=[[:space:]]*\"(https?://[^\"]+)\"",
-                CBM_REG_EXTENDED);
-    cbm_regcomp(&shell_re, "(export[[:space:]]+)?(" W "+)=[\"']?(https?://" NW "+)",
-                CBM_REG_EXTENDED);
-    cbm_regcomp(&envfile_re, "^(" W "+)=(https?://[^ \t]+)", CBM_REG_EXTENDED);
-    cbm_regcomp(&toml_re, "(" W "+)[[:space:]]*=[[:space:]]*\"(https?://[^\"]+)\"",
-                CBM_REG_EXTENDED);
-    cbm_regcomp(&properties_re, "(" W "+)[[:space:]]*=[[:space:]]*(https?://[^ \t]+)",
-                CBM_REG_EXTENDED);
+    ctx_regcomp(&dockerfile_re, "^(ENV|ARG)[[:space:]]+(" W "+)[= ](.*)", CTX_REG_EXTENDED);
+    ctx_regcomp(&yaml_kv_re, "(" W "+):[[:space:]]*[\"']?(https?://" NW "+)", CTX_REG_EXTENDED);
+    ctx_regcomp(&yaml_setenv_re, "--set-env-vars[[:space:]]+(" W "+)=([^ \t]+)", CTX_REG_EXTENDED);
+    ctx_regcomp(&terraform_re, "(default|value)[[:space:]]*=[[:space:]]*\"(https?://[^\"]+)\"",
+                CTX_REG_EXTENDED);
+    ctx_regcomp(&shell_re, "(export[[:space:]]+)?(" W "+)=[\"']?(https?://" NW "+)",
+                CTX_REG_EXTENDED);
+    ctx_regcomp(&envfile_re, "^(" W "+)=(https?://[^ \t]+)", CTX_REG_EXTENDED);
+    ctx_regcomp(&toml_re, "(" W "+)[[:space:]]*=[[:space:]]*\"(https?://[^\"]+)\"",
+                CTX_REG_EXTENDED);
+    ctx_regcomp(&properties_re, "(" W "+)[[:space:]]*=[[:space:]]*(https?://[^ \t]+)",
+                CTX_REG_EXTENDED);
 
     patterns_compiled = SKIP_ONE;
 }
@@ -76,7 +76,7 @@ static void compile_patterns(void) {
 
 static int is_dockerfile_name(const char *name) {
     /* Case-insensitive check */
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     size_t len = strlen(name);
     if (len >= sizeof(lower)) {
         return 0;
@@ -100,7 +100,7 @@ static int is_dockerfile_name(const char *name) {
 }
 
 static int is_env_file_name(const char *name) {
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     size_t len = strlen(name);
     if (len >= sizeof(lower)) {
         return 0;
@@ -122,7 +122,7 @@ static int is_env_file_name(const char *name) {
 }
 
 static int is_secret_file(const char *name) {
-    char lower[CBM_SZ_256];
+    char lower[CTX_SZ_256];
     size_t len = strlen(name);
     if (len >= sizeof(lower)) {
         return 0;
@@ -205,7 +205,7 @@ static file_type_t detect_file_type(const char *name) {
 
 /* Extract key/value from a regex match with two capture groups.
  * Returns 1 on success, 0 if groups are empty or too large. */
-static int extract_kv_groups(const char *trimmed, const cbm_regmatch_t *m, int key_grp, int val_grp,
+static int extract_kv_groups(const char *trimmed, const ctx_regmatch_t *m, int key_grp, int val_grp,
                              char *key_out, size_t key_sz, char *val_out, size_t val_sz) {
     int klen = (m[key_grp].rm_eo - m[key_grp].rm_so);
     int vlen = (m[val_grp].rm_eo - m[val_grp].rm_so);
@@ -221,8 +221,8 @@ static int extract_kv_groups(const char *trimmed, const cbm_regmatch_t *m, int k
 
 /* Try to scan a Dockerfile line. */
 static int scan_dockerfile_line(const char *line, char *key, size_t ksz, char *val, size_t vsz) {
-    cbm_regmatch_t m[ENV_REGEX_MAX];
-    if (cbm_regexec(&dockerfile_re, line, ENV_GRP_4, m, 0) != 0) {
+    ctx_regmatch_t m[ENV_REGEX_MAX];
+    if (ctx_regexec(&dockerfile_re, line, ENV_GRP_4, m, 0) != 0) {
         return 0;
     }
     if (!extract_kv_groups(line, m, ENV_GRP_2, ENV_GRP_3, key, ksz, val, vsz)) {
@@ -237,12 +237,12 @@ static int scan_dockerfile_line(const char *line, char *key, size_t ksz, char *v
 
 /* Try to scan a YAML line. */
 static int scan_yaml_line(const char *line, char *key, size_t ksz, char *val, size_t vsz) {
-    cbm_regmatch_t m[ENV_REGEX_MAX];
-    if (cbm_regexec(&yaml_kv_re, line, ENV_GRP_3, m, 0) == 0 &&
+    ctx_regmatch_t m[ENV_REGEX_MAX];
+    if (ctx_regexec(&yaml_kv_re, line, ENV_GRP_3, m, 0) == 0 &&
         extract_kv_groups(line, m, ENV_GRP_1, ENV_GRP_2, key, ksz, val, vsz)) {
         return SKIP_ONE;
     }
-    if (cbm_regexec(&yaml_setenv_re, line, ENV_GRP_3, m, 0) == 0 &&
+    if (ctx_regexec(&yaml_setenv_re, line, ENV_GRP_3, m, 0) == 0 &&
         extract_kv_groups(line, m, ENV_GRP_1, ENV_GRP_2, key, ksz, val, vsz)) {
         return SKIP_ONE;
     }
@@ -251,8 +251,8 @@ static int scan_yaml_line(const char *line, char *key, size_t ksz, char *val, si
 
 /* Try to scan a Terraform line. */
 static int scan_terraform_line(const char *line, char *key, size_t ksz, char *val, size_t vsz) {
-    cbm_regmatch_t m[ENV_REGEX_MAX];
-    if (cbm_regexec(&terraform_re, line, ENV_GRP_3, m, 0) != 0) {
+    ctx_regmatch_t m[ENV_REGEX_MAX];
+    if (ctx_regexec(&terraform_re, line, ENV_GRP_3, m, 0) != 0) {
         return 0;
     }
     int vlen = (m[ENV_GRP_2].rm_eo - m[ENV_GRP_2].rm_so);
@@ -267,10 +267,10 @@ static int scan_terraform_line(const char *line, char *key, size_t ksz, char *va
 }
 
 /* Try single-regex scan (shell, envfile, toml, properties). */
-static int scan_regex_line(cbm_regex_t *re, const char *line, int kg, int vg, char *key, size_t ksz,
+static int scan_regex_line(ctx_regex_t *re, const char *line, int kg, int vg, char *key, size_t ksz,
                            char *val, size_t vsz) {
-    cbm_regmatch_t m[ENV_REGEX_MAX];
-    if (cbm_regexec(re, line, ENV_GRP_5, m, 0) == 0 &&
+    ctx_regmatch_t m[ENV_REGEX_MAX];
+    if (ctx_regexec(re, line, ENV_GRP_5, m, 0) == 0 &&
         extract_kv_groups(line, m, kg, vg, key, ksz, val, vsz)) {
         return SKIP_ONE;
     }
@@ -315,28 +315,28 @@ static int scan_line(const char *line, file_type_t ft, char *key_out, size_t key
 
 /* Scan a single file for env URL bindings. Returns number of bindings added. */
 static int scan_env_file(const char *full_path, const char *rel, file_type_t ft,
-                         cbm_env_binding_t *out, int max_out) {
+                         ctx_env_binding_t *out, int max_out) {
     FILE *f = fopen(full_path, "r");
     if (!f) {
         return 0;
     }
 
     struct stat fst;
-    if (fstat(fileno(f), &fst) != 0 || fst.st_size > (long)CBM_SZ_1K * CBM_SZ_1K) {
+    if (fstat(fileno(f), &fst) != 0 || fst.st_size > (long)CTX_SZ_1K * CTX_SZ_1K) {
         (void)fclose(f);
         return 0;
     }
 
     int count = 0;
-    char line[CBM_SZ_2K];
+    char line[CTX_SZ_2K];
     while (fgets(line, sizeof(line), f) && count < max_out) {
         size_t ll = strlen(line);
         while (ll > 0 && (line[ll - SKIP_ONE] == '\n' || line[ll - SKIP_ONE] == '\r')) {
             line[--ll] = '\0';
         }
 
-        char key[CBM_SZ_128];
-        char value[CBM_SZ_512];
+        char key[CTX_SZ_128];
+        char value[CTX_SZ_512];
         if (!scan_line(line, ft, key, sizeof(key), value, sizeof(value))) {
             continue;
         }
@@ -344,7 +344,7 @@ static int scan_env_file(const char *full_path, const char *rel, file_type_t ft,
             strncmp(value, "https://", SLEN("https://")) != 0) {
             continue;
         }
-        if (cbm_is_secret_binding(key, value) || cbm_is_secret_value(value)) {
+        if (ctx_is_secret_binding(key, value) || ctx_is_secret_value(value)) {
             continue;
         }
 
@@ -361,10 +361,10 @@ static int scan_env_file(const char *full_path, const char *rel, file_type_t ft,
 }
 
 /* Process a single directory entry for env scanning. Returns bindings added. */
-static int process_env_entry(cbm_dirent_t *ent, const char *dir_path, const char *root_path,
-                             cbm_env_binding_t *out, int max_out, char path_stack[][CBM_SZ_512],
+static int process_env_entry(ctx_dirent_t *ent, const char *dir_path, const char *root_path,
+                             ctx_env_binding_t *out, int max_out, char path_stack[][CTX_SZ_512],
                              int *stack_top) {
-    char full_path[CBM_SZ_512];
+    char full_path[CTX_SZ_512];
     snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, ent->name);
 
     struct stat st;
@@ -372,7 +372,7 @@ static int process_env_entry(cbm_dirent_t *ent, const char *dir_path, const char
         return 0;
     }
     if (S_ISDIR(st.st_mode)) {
-        if (!is_ignored_dir(ent->name) && *stack_top < CBM_SZ_256) {
+        if (!is_ignored_dir(ent->name) && *stack_top < CTX_SZ_256) {
             strncpy(path_stack[*stack_top], full_path, sizeof(path_stack[0]) - 1);
             path_stack[*stack_top][sizeof(path_stack[0]) - SKIP_ONE] = '\0';
             (*stack_top)++;
@@ -393,34 +393,34 @@ static int process_env_entry(cbm_dirent_t *ent, const char *dir_path, const char
     return scan_env_file(full_path, rel, ft, out, max_out);
 }
 
-int cbm_scan_project_env_urls(const char *root_path, cbm_env_binding_t *out, int max_out) {
+int ctx_scan_project_env_urls(const char *root_path, ctx_env_binding_t *out, int max_out) {
     if (!root_path || !out || max_out <= 0) {
         return 0;
     }
     compile_patterns();
 
     int count = 0;
-    char path_stack[CBM_SZ_256][CBM_SZ_512];
+    char path_stack[CTX_SZ_256][CTX_SZ_512];
     int stack_top = SKIP_ONE;
     strncpy(path_stack[0], root_path, sizeof(path_stack[0]) - 1);
     path_stack[0][sizeof(path_stack[0]) - SKIP_ONE] = '\0';
 
     while (stack_top > 0 && count < max_out) {
         stack_top--;
-        char dir_path[CBM_SZ_512];
+        char dir_path[CTX_SZ_512];
         strncpy(dir_path, path_stack[stack_top], sizeof(dir_path) - SKIP_ONE);
         dir_path[sizeof(dir_path) - SKIP_ONE] = '\0';
 
-        cbm_dir_t *d = cbm_opendir(dir_path);
+        ctx_dir_t *d = ctx_opendir(dir_path);
         if (!d) {
             continue;
         }
-        cbm_dirent_t *ent;
-        while ((ent = cbm_readdir(d)) && count < max_out) {
+        ctx_dirent_t *ent;
+        while ((ent = ctx_readdir(d)) && count < max_out) {
             count += process_env_entry(ent, dir_path, root_path, out + count, max_out - count,
                                        path_stack, &stack_top);
         }
-        cbm_closedir(d);
+        ctx_closedir(d);
     }
     return count;
 }

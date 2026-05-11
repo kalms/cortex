@@ -61,7 +61,7 @@ CXXFLAGS_COMMON = -std=c++14 -Wall -Wextra -Werror \
                   -Wno-unused-parameter \
                   -I$(CBM_DIR) -I$(TS_INCLUDE)
 
-# Production flags (CFLAGS_EXTRA allows CI to inject -DCBM_VERSION)
+# Production flags (CFLAGS_EXTRA allows CI to inject -DCTX_VERSION)
 CFLAGS_PROD = $(CFLAGS_COMMON) -O2 $(CFLAGS_EXTRA)
 CXXFLAGS_PROD = $(CXXFLAGS_COMMON) -O2
 

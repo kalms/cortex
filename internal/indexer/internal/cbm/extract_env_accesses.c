@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, cbm_arena_strndup
+#include "arena.h" // CBMArena, ctx_arena_strndup
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -22,12 +22,12 @@ static const char *unquote(CBMArena *a, const char *s) {
         s++;
     }
     size_t len = strlen(s);
-    if (len >= CBM_QUOTE_PAIR) {
+    if (len >= CTX_QUOTE_PAIR) {
         char first = s[0];
-        char last = s[len - CBM_QUOTE_OFFSET];
+        char last = s[len - CTX_QUOTE_OFFSET];
         if ((first == '"' && last == '"') || (first == '\'' && last == '\'') ||
             (first == '`' && last == '`')) {
-            return cbm_arena_strndup(a, s + CBM_QUOTE_OFFSET, len - CBM_QUOTE_PAIR);
+            return ctx_arena_strndup(a, s + CTX_QUOTE_OFFSET, len - CTX_QUOTE_PAIR);
         }
     }
     return s;
@@ -44,7 +44,7 @@ static const char *extract_env_key_from_call(CBMExtractCtx *ctx, TSNode node,
     if (ts_node_is_null(func_node)) {
         return NULL;
     }
-    char *callee = cbm_node_text(ctx->arena, func_node, ctx->source);
+    char *callee = ctx_node_text(ctx->arena, func_node, ctx->source);
     if (!callee) {
         return NULL;
     }
@@ -73,7 +73,7 @@ static const char *extract_env_key_from_call(CBMExtractCtx *ctx, TSNode node,
         if (strcmp(ck, "(") == 0 || strcmp(ck, ")") == 0 || strcmp(ck, ",") == 0) {
             continue;
         }
-        char *arg_text = cbm_node_text(ctx->arena, child, ctx->source);
+        char *arg_text = ctx_node_text(ctx->arena, child, ctx->source);
         return unquote(ctx->arena, arg_text);
     }
     return NULL;
@@ -86,7 +86,7 @@ static const char *extract_env_key_from_member(CBMExtractCtx *ctx, TSNode node,
         return NULL;
     }
 
-    char *text = cbm_node_text(ctx->arena, node, ctx->source);
+    char *text = ctx_node_text(ctx->arena, node, ctx->source);
     if (!text || !text[0]) {
         return NULL;
     }
@@ -96,7 +96,7 @@ static const char *extract_env_key_from_member(CBMExtractCtx *ctx, TSNode node,
 
         // Dot access: pattern.KEY
         if (strncmp(text, *pat, plen) == 0 && text[plen] == '.') {
-            const char *key = text + plen + CBM_QUOTE_OFFSET;
+            const char *key = text + plen + CTX_QUOTE_OFFSET;
             // Validate: no further dots/brackets
             if (key[0] && !strchr(key, '.') && !strchr(key, '[')) {
                 return key;
@@ -105,11 +105,11 @@ static const char *extract_env_key_from_member(CBMExtractCtx *ctx, TSNode node,
 
         // Subscript: pattern["KEY"]
         if (strncmp(text, *pat, plen) == 0 && text[plen] == '[') {
-            const char *inner = text + plen + CBM_QUOTE_OFFSET;
+            const char *inner = text + plen + CTX_QUOTE_OFFSET;
             size_t ilen = strlen(inner);
-            if (ilen > 0 && inner[ilen - CBM_QUOTE_OFFSET] == ']') {
+            if (ilen > 0 && inner[ilen - CTX_QUOTE_OFFSET] == ']') {
                 char *bracket_content =
-                    cbm_arena_strndup(ctx->arena, inner, ilen - CBM_QUOTE_OFFSET);
+                    ctx_arena_strndup(ctx->arena, inner, ilen - CTX_QUOTE_OFFSET);
                 return unquote(ctx->arena, bracket_content);
             }
         }
@@ -148,7 +148,7 @@ static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
         const char *kind = ts_node_type(node);
         const char *env_key = NULL;
 
-        if (cbm_kind_in_set(node, spec->call_node_types)) {
+        if (ctx_kind_in_set(node, spec->call_node_types)) {
             env_key = extract_env_key_from_call(ctx, node, spec);
         } else if (strcmp(kind, "member_expression") == 0 || strcmp(kind, "subscript") == 0 ||
                    strcmp(kind, "attribute") == 0) {
@@ -158,8 +158,8 @@ static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
         if (env_key && env_key[0] && is_env_var_name(env_key)) {
             CBMEnvAccess ea;
             ea.env_key = env_key;
-            ea.enclosing_func_qn = cbm_enclosing_func_qn_cached(ctx, node);
-            cbm_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);
+            ea.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
+            ctx_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);
             continue; // don't push children (avoid double-counting)
         }
 
@@ -171,8 +171,8 @@ static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
     }
 }
 
-void cbm_extract_env_accesses(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+void ctx_extract_env_accesses(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -199,7 +199,7 @@ void handle_env_accesses(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
     const char *kind = ts_node_type(node);
     const char *env_key = NULL;
 
-    if (has_funcs && spec->call_node_types && cbm_kind_in_set(node, spec->call_node_types)) {
+    if (has_funcs && spec->call_node_types && ctx_kind_in_set(node, spec->call_node_types)) {
         env_key = extract_env_key_from_call(ctx, node, spec);
     } else if (has_members && (strcmp(kind, "member_expression") == 0 ||
                                strcmp(kind, "subscript") == 0 || strcmp(kind, "attribute") == 0)) {
@@ -210,6 +210,6 @@ void handle_env_accesses(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
         CBMEnvAccess ea;
         ea.env_key = env_key;
         ea.enclosing_func_qn = state->enclosing_func_qn;
-        cbm_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);
+        ctx_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);
     }
 }

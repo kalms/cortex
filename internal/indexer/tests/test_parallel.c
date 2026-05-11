@@ -28,8 +28,8 @@
 static char g_par_tmpdir[256];
 
 static int setup_parallel_repo(void) {
-    snprintf(g_par_tmpdir, sizeof(g_par_tmpdir), "/tmp/cbm_par_XXXXXX");
-    if (!cbm_mkdtemp(g_par_tmpdir))
+    snprintf(g_par_tmpdir, sizeof(g_par_tmpdir), "/tmp/ctx_par_XXXXXX");
+    if (!ctx_mkdtemp(g_par_tmpdir))
         return -1;
 
     char path[512];
@@ -45,7 +45,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/ */
     snprintf(path, sizeof(path), "%s/pkg", g_par_tmpdir);
-    cbm_mkdir(path);
+    ctx_mkdir(path);
 
     /* pkg/service.go */
     snprintf(path, sizeof(path), "%s/pkg/service.go", g_par_tmpdir);
@@ -58,7 +58,7 @@ static int setup_parallel_repo(void) {
 
     /* pkg/util/ */
     snprintf(path, sizeof(path), "%s/pkg/util", g_par_tmpdir);
-    cbm_mkdir(path);
+    ctx_mkdir(path);
 
     /* pkg/util/helper.go */
     snprintf(path, sizeof(path), "%s/pkg/util/helper.go", g_par_tmpdir);
@@ -83,14 +83,14 @@ static void teardown_parallel_repo(void) {
 
 /* ── Run sequential pipeline on files, returning gbuf ─────────────── */
 
-static cbm_gbuf_t *run_sequential(const char *project, const char *repo_path,
-                                  cbm_file_info_t *files, int file_count) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
+static ctx_gbuf_t *run_sequential(const char *project, const char *repo_path,
+                                  ctx_file_info_t *files, int file_count) {
+    ctx_gbuf_t *gbuf = ctx_gbuf_new(project, repo_path);
+    ctx_registry_t *reg = ctx_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ctx_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -98,26 +98,26 @@ static cbm_gbuf_t *run_sequential(const char *project, const char *repo_path,
         .cancelled = &cancelled,
     };
 
-    cbm_init();
-    cbm_pipeline_pass_definitions(&ctx, files, file_count);
-    cbm_pipeline_pass_calls(&ctx, files, file_count);
-    cbm_pipeline_pass_usages(&ctx, files, file_count);
-    cbm_pipeline_pass_semantic(&ctx, files, file_count);
+    ctx_init();
+    ctx_pipeline_pass_definitions(&ctx, files, file_count);
+    ctx_pipeline_pass_calls(&ctx, files, file_count);
+    ctx_pipeline_pass_usages(&ctx, files, file_count);
+    ctx_pipeline_pass_semantic(&ctx, files, file_count);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     return gbuf;
 }
 
 /* ── Run parallel pipeline on files, returning gbuf ───────────────── */
 
-static cbm_gbuf_t *run_parallel(const char *project, const char *repo_path, cbm_file_info_t *files,
+static ctx_gbuf_t *run_parallel(const char *project, const char *repo_path, ctx_file_info_t *files,
                                 int file_count, int worker_count) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new(project, repo_path);
-    cbm_registry_t *reg = cbm_registry_new();
+    ctx_gbuf_t *gbuf = ctx_gbuf_new(project, repo_path);
+    ctx_registry_t *reg = ctx_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ctx_pipeline_ctx_t ctx = {
         .project_name = project,
         .repo_path = repo_path,
         .gbuf = gbuf,
@@ -126,33 +126,33 @@ static cbm_gbuf_t *run_parallel(const char *project, const char *repo_path, cbm_
     };
 
     _Atomic int64_t shared_ids;
-    int64_t gbuf_next = cbm_gbuf_next_id(gbuf);
+    int64_t gbuf_next = ctx_gbuf_next_id(gbuf);
     atomic_init(&shared_ids, gbuf_next);
 
     CBMFileResult **result_cache = calloc(file_count, sizeof(CBMFileResult *));
 
-    cbm_init();
-    cbm_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
-    cbm_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
+    ctx_init();
+    ctx_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
+    ctx_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
 
-    cbm_build_registry_from_cache(&ctx, files, file_count, result_cache);
+    ctx_build_registry_from_cache(&ctx, files, file_count, result_cache);
 
-    cbm_parallel_resolve(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
-    cbm_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
+    ctx_parallel_resolve(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
+    ctx_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
 
     for (int i = 0; i < file_count; i++)
         if (result_cache[i])
-            cbm_free_result(result_cache[i]);
+            ctx_free_result(result_cache[i]);
     free(result_cache);
 
-    cbm_registry_free(reg);
+    ctx_registry_free(reg);
     return gbuf;
 }
 
 /* ── Parity Tests ─────────────────────────────────────────────────── */
 
-static cbm_gbuf_t *g_seq_gbuf = NULL;
-static cbm_gbuf_t *g_par_gbuf = NULL;
+static ctx_gbuf_t *g_seq_gbuf = NULL;
+static ctx_gbuf_t *g_par_gbuf = NULL;
 static int g_parity_setup_done = 0;
 
 static int ensure_parity_setup(void) {
@@ -163,10 +163,10 @@ static int ensure_parity_setup(void) {
         return -1;
 
     /* Discover files */
-    cbm_discover_opts_t opts = {.mode = CBM_MODE_FULL};
-    cbm_file_info_t *files = NULL;
+    ctx_discover_opts_t opts = {.mode = CTX_MODE_FULL};
+    ctx_file_info_t *files = NULL;
     int file_count = 0;
-    if (cbm_discover(g_par_tmpdir, &opts, &files, &file_count) != 0)
+    if (ctx_discover(g_par_tmpdir, &opts, &files, &file_count) != 0)
         return -1;
 
     const char *project = "par-test";
@@ -179,18 +179,18 @@ static int ensure_parity_setup(void) {
     g_seq_gbuf = run_sequential(project, g_par_tmpdir, files, file_count);
     g_par_gbuf = run_parallel(project, g_par_tmpdir, files, file_count, 2);
 
-    cbm_discover_free(files, file_count);
+    ctx_discover_free(files, file_count);
     g_parity_setup_done = 1;
     return 0;
 }
 
 static void parity_teardown(void) {
     if (g_seq_gbuf) {
-        cbm_gbuf_free(g_seq_gbuf);
+        ctx_gbuf_free(g_seq_gbuf);
         g_seq_gbuf = NULL;
     }
     if (g_par_gbuf) {
-        cbm_gbuf_free(g_par_gbuf);
+        ctx_gbuf_free(g_par_gbuf);
         g_par_gbuf = NULL;
     }
     teardown_parallel_repo();
@@ -201,8 +201,8 @@ static void parity_teardown(void) {
 TEST(parallel_node_count) {
     if (ensure_parity_setup() != 0)
         SKIP("setup failed");
-    int seq = cbm_gbuf_node_count(g_seq_gbuf);
-    int par = cbm_gbuf_node_count(g_par_gbuf);
+    int seq = ctx_gbuf_node_count(g_seq_gbuf);
+    int par = ctx_gbuf_node_count(g_par_gbuf);
     ASSERT_GT(seq, 0);
     ASSERT_EQ(seq, par);
     PASS();
@@ -212,8 +212,8 @@ TEST(parallel_node_count) {
 static int assert_edge_type_parity(const char *type) {
     if (ensure_parity_setup() != 0)
         return -1;
-    int seq = cbm_gbuf_edge_count_by_type(g_seq_gbuf, type);
-    int par = cbm_gbuf_edge_count_by_type(g_par_gbuf, type);
+    int seq = ctx_gbuf_edge_count_by_type(g_seq_gbuf, type);
+    int par = ctx_gbuf_edge_count_by_type(g_par_gbuf, type);
     if (seq != par) {
         printf("  FAIL: %s edges: seq=%d par=%d\n", type, seq, par);
         return 1;
@@ -280,8 +280,8 @@ TEST(parallel_implements_parity) {
 TEST(parallel_total_edges) {
     if (ensure_parity_setup() != 0)
         SKIP("setup failed");
-    int seq = cbm_gbuf_edge_count(g_seq_gbuf);
-    int par = cbm_gbuf_edge_count(g_par_gbuf);
+    int seq = ctx_gbuf_edge_count(g_seq_gbuf);
+    int par = ctx_gbuf_edge_count(g_par_gbuf);
     ASSERT_GT(seq, 0);
     ASSERT_EQ(seq, par);
     PASS();
@@ -290,12 +290,12 @@ TEST(parallel_total_edges) {
 /* ── Empty file list ──────────────────────────────────────────────── */
 
 TEST(parallel_empty_files) {
-    cbm_gbuf_t *gbuf = cbm_gbuf_new("empty-proj", "/tmp");
-    cbm_registry_t *reg = cbm_registry_new();
+    ctx_gbuf_t *gbuf = ctx_gbuf_new("empty-proj", "/tmp");
+    ctx_registry_t *reg = ctx_registry_new();
     atomic_int cancelled;
     atomic_init(&cancelled, 0);
 
-    cbm_pipeline_ctx_t ctx = {
+    ctx_pipeline_ctx_t ctx = {
         .project_name = "empty-proj",
         .repo_path = "/tmp",
         .gbuf = gbuf,
@@ -307,12 +307,12 @@ TEST(parallel_empty_files) {
     atomic_init(&shared_ids, 1);
 
     CBMFileResult **cache = NULL;
-    int rc = cbm_parallel_extract(&ctx, NULL, 0, cache, &shared_ids, 2);
+    int rc = ctx_parallel_extract(&ctx, NULL, 0, cache, &shared_ids, 2);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(cbm_gbuf_node_count(gbuf), 0);
+    ASSERT_EQ(ctx_gbuf_node_count(gbuf), 0);
 
-    cbm_registry_free(reg);
-    cbm_gbuf_free(gbuf);
+    ctx_registry_free(reg);
+    ctx_gbuf_free(gbuf);
     PASS();
 }
 
@@ -320,111 +320,111 @@ TEST(parallel_empty_files) {
 
 TEST(gbuf_shared_ids_unique) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *ga = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *gb = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *ga = ctx_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *gb = ctx_gbuf_new_shared_ids("proj", "/", &shared);
 
-    int64_t id1 = cbm_gbuf_upsert_node(ga, "Function", "foo", "proj.foo", "a.go", 1, 5, "{}");
-    int64_t id2 = cbm_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "b.go", 1, 3, "{}");
+    int64_t id1 = ctx_gbuf_upsert_node(ga, "Function", "foo", "proj.foo", "a.go", 1, 5, "{}");
+    int64_t id2 = ctx_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "b.go", 1, 3, "{}");
     ASSERT_GT(id1, 0);
     ASSERT_GT(id2, 0);
     ASSERT_NEQ(id1, id2);
 
-    cbm_gbuf_free(ga);
-    cbm_gbuf_free(gb);
+    ctx_gbuf_free(ga);
+    ctx_gbuf_free(gb);
     PASS();
 }
 
 TEST(gbuf_merge_nodes) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *dst = ctx_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *src = ctx_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    cbm_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
-    cbm_gbuf_upsert_node(src, "Function", "c", "proj.c", "b.go", 1, 5, "{}");
-    cbm_gbuf_upsert_node(src, "Function", "d", "proj.d", "b.go", 6, 10, "{}");
+    ctx_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    ctx_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
+    ctx_gbuf_upsert_node(src, "Function", "c", "proj.c", "b.go", 1, 5, "{}");
+    ctx_gbuf_upsert_node(src, "Function", "d", "proj.d", "b.go", 6, 10, "{}");
 
-    ASSERT_EQ(cbm_gbuf_node_count(dst), 2);
-    cbm_gbuf_merge(dst, src);
-    ASSERT_EQ(cbm_gbuf_node_count(dst), 4);
+    ASSERT_EQ(ctx_gbuf_node_count(dst), 2);
+    ctx_gbuf_merge(dst, src);
+    ASSERT_EQ(ctx_gbuf_node_count(dst), 4);
 
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.c"));
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.d"));
+    ASSERT_NOT_NULL(ctx_gbuf_find_by_qn(dst, "proj.c"));
+    ASSERT_NOT_NULL(ctx_gbuf_find_by_qn(dst, "proj.d"));
     /* dst originals still there */
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.a"));
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.b"));
+    ASSERT_NOT_NULL(ctx_gbuf_find_by_qn(dst, "proj.a"));
+    ASSERT_NOT_NULL(ctx_gbuf_find_by_qn(dst, "proj.b"));
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ctx_gbuf_free(src);
+    ctx_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_edges) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *dst = ctx_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *src = ctx_gbuf_new_shared_ids("proj", "/", &shared);
 
-    int64_t a = cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    int64_t b = cbm_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
+    int64_t a = ctx_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    int64_t b = ctx_gbuf_upsert_node(dst, "Function", "b", "proj.b", "a.go", 6, 10, "{}");
     /* Put an edge in src that references dst nodes (by ID) */
-    cbm_gbuf_insert_edge(src, a, b, "CALLS", "{}");
+    ctx_gbuf_insert_edge(src, a, b, "CALLS", "{}");
 
-    cbm_gbuf_merge(dst, src);
-    ASSERT_GT(cbm_gbuf_edge_count(dst), 0);
+    ctx_gbuf_merge(dst, src);
+    ASSERT_GT(ctx_gbuf_edge_count(dst), 0);
 
-    const cbm_gbuf_edge_t **edges = NULL;
+    const ctx_gbuf_edge_t **edges = NULL;
     int count = 0;
-    cbm_gbuf_find_edges_by_source_type(dst, a, "CALLS", &edges, &count);
+    ctx_gbuf_find_edges_by_source_type(dst, a, "CALLS", &edges, &count);
     ASSERT_EQ(count, 1);
     ASSERT_EQ(edges[0]->target_id, b);
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ctx_gbuf_free(src);
+    ctx_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_empty_src) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *dst = ctx_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *src = ctx_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
-    int before = cbm_gbuf_node_count(dst);
-    cbm_gbuf_merge(dst, src);
-    ASSERT_EQ(cbm_gbuf_node_count(dst), before);
+    ctx_gbuf_upsert_node(dst, "Function", "a", "proj.a", "a.go", 1, 5, "{}");
+    int before = ctx_gbuf_node_count(dst);
+    ctx_gbuf_merge(dst, src);
+    ASSERT_EQ(ctx_gbuf_node_count(dst), before);
 
-    cbm_gbuf_free(src);
-    cbm_gbuf_free(dst);
+    ctx_gbuf_free(src);
+    ctx_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_merge_src_free_safe) {
     _Atomic int64_t shared = 1;
-    cbm_gbuf_t *dst = cbm_gbuf_new_shared_ids("proj", "/", &shared);
-    cbm_gbuf_t *src = cbm_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *dst = ctx_gbuf_new_shared_ids("proj", "/", &shared);
+    ctx_gbuf_t *src = ctx_gbuf_new_shared_ids("proj", "/", &shared);
 
-    cbm_gbuf_upsert_node(src, "Function", "x", "proj.x", "x.go", 1, 5, "{}");
-    cbm_gbuf_merge(dst, src);
-    cbm_gbuf_free(src); /* must not crash */
+    ctx_gbuf_upsert_node(src, "Function", "x", "proj.x", "x.go", 1, 5, "{}");
+    ctx_gbuf_merge(dst, src);
+    ctx_gbuf_free(src); /* must not crash */
 
     /* dst node still accessible */
-    ASSERT_NOT_NULL(cbm_gbuf_find_by_qn(dst, "proj.x"));
-    cbm_gbuf_free(dst);
+    ASSERT_NOT_NULL(ctx_gbuf_find_by_qn(dst, "proj.x"));
+    ctx_gbuf_free(dst);
     PASS();
 }
 
 TEST(gbuf_next_id_accessors) {
-    cbm_gbuf_t *gb = cbm_gbuf_new("proj", "/");
-    ASSERT_EQ(cbm_gbuf_next_id(gb), 1);
+    ctx_gbuf_t *gb = ctx_gbuf_new("proj", "/");
+    ASSERT_EQ(ctx_gbuf_next_id(gb), 1);
 
-    cbm_gbuf_upsert_node(gb, "Function", "foo", "proj.foo", "f.go", 1, 5, "{}");
-    ASSERT_GT(cbm_gbuf_next_id(gb), 1);
+    ctx_gbuf_upsert_node(gb, "Function", "foo", "proj.foo", "f.go", 1, 5, "{}");
+    ASSERT_GT(ctx_gbuf_next_id(gb), 1);
 
-    cbm_gbuf_set_next_id(gb, 100);
-    int64_t id = cbm_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "f.go", 6, 10, "{}");
+    ctx_gbuf_set_next_id(gb, 100);
+    int64_t id = ctx_gbuf_upsert_node(gb, "Function", "bar", "proj.bar", "f.go", 6, 10, "{}");
     ASSERT_GTE(id, 100);
 
-    cbm_gbuf_free(gb);
+    ctx_gbuf_free(gb);
     PASS();
 }
 

@@ -16,12 +16,12 @@ static const char *extract_new_expr_type(CBMArena *a, TSNode rhs, const char *so
         const char *tk = ts_node_type(type_node);
         if (strcmp(tk, "type_identifier") == 0 || strcmp(tk, "identifier") == 0 ||
             strcmp(tk, "simple_identifier") == 0) {
-            return cbm_node_text(a, type_node, source);
+            return ctx_node_text(a, type_node, source);
         }
         if (strcmp(tk, "generic_type") == 0 && ts_node_child_count(type_node) > 0) {
-            return cbm_node_text(a, ts_node_child(type_node, 0), source);
+            return ctx_node_text(a, ts_node_child(type_node, 0), source);
         }
-        return cbm_node_text(a, type_node, source);
+        return ctx_node_text(a, type_node, source);
     }
     // Fallback: first identifier child
     for (uint32_t i = 0; i < ts_node_child_count(rhs); i++) {
@@ -29,7 +29,7 @@ static const char *extract_new_expr_type(CBMArena *a, TSNode rhs, const char *so
         const char *ck = ts_node_type(child);
         if (strcmp(ck, "identifier") == 0 || strcmp(ck, "type_identifier") == 0 ||
             strcmp(ck, "simple_identifier") == 0) {
-            return cbm_node_text(a, child, source);
+            return ctx_node_text(a, child, source);
         }
     }
     return NULL;
@@ -51,7 +51,7 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
             func = ts_node_child(rhs, 0);
         }
         if (!ts_node_is_null(func)) {
-            char *fname = cbm_node_text(a, func, source);
+            char *fname = ctx_node_text(a, func, source);
             if (fname && fname[0] >= 'A' && fname[0] <= 'Z') {
                 return fname;
             }
@@ -61,14 +61,14 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
     if (strcmp(kind, "composite_literal") == 0) {
         TSNode type_node = ts_node_child_by_field_name(rhs, TS_FIELD("type"));
         if (!ts_node_is_null(type_node)) {
-            return cbm_node_text(a, type_node, source);
+            return ctx_node_text(a, type_node, source);
         }
     }
 
-    if (lang == CBM_LANG_RUST && strcmp(kind, "struct_expression") == 0) {
+    if (lang == CTX_LANG_RUST && strcmp(kind, "struct_expression") == 0) {
         TSNode name = ts_node_child_by_field_name(rhs, TS_FIELD("name"));
         if (!ts_node_is_null(name)) {
-            return cbm_node_text(a, name, source);
+            return ctx_node_text(a, name, source);
         }
     }
 
@@ -78,7 +78,7 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
 // Emit a type assignment if var_name and constructor type are valid.
 static void try_emit_type_assign(CBMExtractCtx *ctx, TSNode var_node, TSNode rhs_node,
                                  const char *func_qn) {
-    char *var_name = cbm_node_text(ctx->arena, var_node, ctx->source);
+    char *var_name = ctx_node_text(ctx->arena, var_node, ctx->source);
     const char *type_name =
         extract_constructor_type(ctx->arena, rhs_node, ctx->source, ctx->language);
     if (var_name && var_name[0] && type_name && type_name[0]) {
@@ -86,7 +86,7 @@ static void try_emit_type_assign(CBMExtractCtx *ctx, TSNode var_node, TSNode rhs
         ta.var_name = var_name;
         ta.type_name = type_name;
         ta.enclosing_func_qn = func_qn;
-        cbm_typeassign_push(&ctx->result->type_assigns, ctx->arena, ta);
+        ctx_typeassign_push(&ctx->result->type_assigns, ctx->arena, ta);
     }
 }
 
@@ -149,7 +149,7 @@ static void process_type_assign_node(CBMExtractCtx *ctx, TSNode node, const CBML
                                      const char *func_qn) {
     const char *kind = ts_node_type(node);
 
-    if (cbm_kind_in_set(node, spec->assignment_node_types)) {
+    if (ctx_kind_in_set(node, spec->assignment_node_types)) {
         process_assignment_type_assign(ctx, node, func_qn);
     }
     if (strcmp(kind, "short_var_declaration") == 0 || strcmp(kind, "var_spec") == 0) {
@@ -158,7 +158,7 @@ static void process_type_assign_node(CBMExtractCtx *ctx, TSNode node, const CBML
     if (strcmp(kind, "variable_declarator") == 0) {
         process_declarator_type_assign(ctx, node, func_qn);
     }
-    if (strcmp(kind, "let_declaration") == 0 && ctx->language == CBM_LANG_RUST) {
+    if (strcmp(kind, "let_declaration") == 0 && ctx->language == CTX_LANG_RUST) {
         process_rust_let_type_assign(ctx, node, func_qn);
     }
 }
@@ -171,7 +171,7 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
     stack[top++] = root;
     while (top > 0) {
         TSNode node = stack[--top];
-        process_type_assign_node(ctx, node, spec, cbm_enclosing_func_qn_cached(ctx, node));
+        process_type_assign_node(ctx, node, spec, ctx_enclosing_func_qn_cached(ctx, node));
         enum { LAST_IDX = 1 };
         uint32_t count = ts_node_child_count(node);
         for (int i = (int)count - LAST_IDX; i >= 0 && top < TYPE_ASSIGN_STACK_CAP; i--) {
@@ -180,8 +180,8 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
     }
 }
 
-void cbm_extract_type_assigns(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+void ctx_extract_type_assigns(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }

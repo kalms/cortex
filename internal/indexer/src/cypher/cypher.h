@@ -2,15 +2,15 @@
  * cypher.h — Public API for the Cypher query engine.
  *
  * Provides lexing, parsing, planning, and execution of a subset of
- * Cypher queries against the cbm_store graph database.
+ * Cypher queries against the ctx_store graph database.
  *
  * Supported syntax:
  *   MATCH (n:Label)-[:TYPE*1..3]->(m:Label {prop: "val"})
  *   WHERE n.name =~ ".*pattern.*" AND m.label = "Function"
  *   RETURN n.name, COUNT(m) AS cnt ORDER BY cnt DESC LIMIT 10
  */
-#ifndef CBM_CYPHER_H
-#define CBM_CYPHER_H
+#ifndef CTX_CYPHER_H
+#define CTX_CYPHER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -125,26 +125,26 @@ typedef enum {
     TOK_EOF,
 
     TOK_COUNT_TYPES /* sentinel for array sizing */
-} cbm_token_type_t;
+} ctx_token_type_t;
 
 typedef struct {
-    cbm_token_type_t type;
+    ctx_token_type_t type;
     const char *text; /* owned pointer to token text */
     int pos;          /* byte offset in source */
-} cbm_token_t;
+} ctx_token_t;
 
 /* ── Lexer ──────────────────────────────────────────────────────── */
 
 typedef struct {
-    cbm_token_t *tokens;
+    ctx_token_t *tokens;
     int count;
     int capacity;
     char *error; /* NULL if no error */
-} cbm_lex_result_t;
+} ctx_lex_result_t;
 
-/* Tokenize a Cypher query string. Caller must call cbm_lex_free(). */
-int cbm_lex(const char *input, cbm_lex_result_t *out);
-void cbm_lex_free(cbm_lex_result_t *r);
+/* Tokenize a Cypher query string. Caller must call ctx_lex_free(). */
+int ctx_lex(const char *input, ctx_lex_result_t *out);
+void ctx_lex_free(ctx_lex_result_t *r);
 
 /* ── AST ────────────────────────────────────────────────────────── */
 
@@ -152,15 +152,15 @@ void cbm_lex_free(cbm_lex_result_t *r);
 typedef struct {
     const char *key;
     const char *value;
-} cbm_prop_filter_t;
+} ctx_prop_filter_t;
 
 /* Node pattern: (variable:Label {props}) */
 typedef struct {
     const char *variable; /* NULL if anonymous */
     const char *label;    /* NULL if unlabeled */
-    cbm_prop_filter_t *props;
+    ctx_prop_filter_t *props;
     int prop_count;
-} cbm_node_pattern_t;
+} ctx_node_pattern_t;
 
 /* Relationship pattern: -[:TYPE|TYPE2*min..max]-> */
 typedef struct {
@@ -170,16 +170,16 @@ typedef struct {
     const char *direction; /* "outbound", "inbound", "any" */
     int min_hops;          /* default 1 */
     int max_hops;          /* 0 = unbounded */
-} cbm_rel_pattern_t;
+} ctx_rel_pattern_t;
 
 /* A pattern is alternating nodes and relationships:
  * node0 rel0 node1 rel1 node2 ... */
 typedef struct {
-    cbm_node_pattern_t *nodes;
+    ctx_node_pattern_t *nodes;
     int node_count;
-    cbm_rel_pattern_t *rels;
+    ctx_rel_pattern_t *rels;
     int rel_count;
-} cbm_pattern_t;
+} ctx_pattern_t;
 
 /* WHERE condition */
 typedef struct {
@@ -191,7 +191,7 @@ typedef struct {
     bool negated;           /* NOT prefix */
     const char **in_values; /* IN [...] list */
     int in_value_count;
-} cbm_condition_t;
+} ctx_condition_t;
 
 /* Expression tree for WHERE clause */
 typedef enum {
@@ -200,35 +200,35 @@ typedef enum {
     EXPR_OR,
     EXPR_NOT,
     EXPR_XOR
-} cbm_expr_type_t;
+} ctx_expr_type_t;
 
-typedef struct cbm_expr cbm_expr_t;
-struct cbm_expr {
-    cbm_expr_type_t type;
-    cbm_condition_t cond; /* leaf (EXPR_CONDITION only) */
-    cbm_expr_t *left;     /* AND/OR/XOR left; NOT child */
-    cbm_expr_t *right;    /* AND/OR/XOR right; NULL for NOT */
+typedef struct ctx_expr ctx_expr_t;
+struct ctx_expr {
+    ctx_expr_type_t type;
+    ctx_condition_t cond; /* leaf (EXPR_CONDITION only) */
+    ctx_expr_t *left;     /* AND/OR/XOR left; NOT child */
+    ctx_expr_t *right;    /* AND/OR/XOR right; NULL for NOT */
 };
 
 typedef struct {
-    cbm_expr_t *root; /* expression tree (NULL = use legacy conditions) */
+    ctx_expr_t *root; /* expression tree (NULL = use legacy conditions) */
     /* Legacy flat model — kept during migration, removed after Phase 2 */
-    cbm_condition_t *conditions;
+    ctx_condition_t *conditions;
     int count;
     const char *op; /* "AND" or "OR" */
-} cbm_where_clause_t;
+} ctx_where_clause_t;
 
 /* CASE expression: CASE WHEN expr THEN val [ELSE val] END */
 typedef struct {
-    cbm_expr_t *when_expr; /* condition */
+    ctx_expr_t *when_expr; /* condition */
     const char *then_val;  /* result if true */
-} cbm_case_branch_t;
+} ctx_case_branch_t;
 
 typedef struct {
-    cbm_case_branch_t *branches;
+    ctx_case_branch_t *branches;
     int branch_count;
     const char *else_val; /* NULL if no ELSE */
-} cbm_case_expr_t;
+} ctx_case_expr_t;
 
 /* RETURN item */
 typedef struct {
@@ -237,11 +237,11 @@ typedef struct {
     const char *alias;     /* NULL if no alias */
     const char *func;      /* "COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT",
                               "toLower", "toUpper", "toString" or NULL */
-    cbm_case_expr_t *kase; /* CASE expression (NULL if not CASE) */
-} cbm_return_item_t;
+    ctx_case_expr_t *kase; /* CASE expression (NULL if not CASE) */
+} ctx_return_item_t;
 
 typedef struct {
-    cbm_return_item_t *items;
+    ctx_return_item_t *items;
     int count;
     bool distinct;
     bool star;             /* RETURN * */
@@ -249,19 +249,19 @@ typedef struct {
     const char *order_dir; /* "ASC" or "DESC", NULL = default */
     int skip;              /* SKIP N, 0 = none */
     int limit;             /* 0 = default */
-} cbm_return_clause_t;
+} ctx_return_clause_t;
 
 /* Full query AST */
-typedef struct cbm_query cbm_query_t;
-struct cbm_query {
-    cbm_pattern_t *patterns; /* array of patterns (first = main MATCH) */
+typedef struct ctx_query ctx_query_t;
+struct ctx_query {
+    ctx_pattern_t *patterns; /* array of patterns (first = main MATCH) */
     int pattern_count;
     bool *pattern_optional;              /* pattern_optional[i] = true → OPTIONAL MATCH */
-    cbm_where_clause_t *where;           /* NULL if no WHERE */
-    cbm_return_clause_t *with_clause;    /* WITH clause (NULL if none) */
-    cbm_where_clause_t *post_with_where; /* WHERE after WITH */
-    cbm_return_clause_t *ret;            /* NULL if no RETURN */
-    cbm_query_t *union_next;             /* next query in UNION chain (NULL if none) */
+    ctx_where_clause_t *where;           /* NULL if no WHERE */
+    ctx_return_clause_t *with_clause;    /* WITH clause (NULL if none) */
+    ctx_where_clause_t *post_with_where; /* WHERE after WITH */
+    ctx_return_clause_t *ret;            /* NULL if no RETURN */
+    ctx_query_t *union_next;             /* next query in UNION chain (NULL if none) */
     bool union_all;                      /* true = UNION ALL, false = UNION */
     /* UNWIND expr AS var */
     const char *unwind_expr;  /* expression (literal list or var ref) */
@@ -269,18 +269,18 @@ struct cbm_query {
 };
 
 /* Convenience: access first pattern (backwards compat) */
-#define cbm_query_pattern(q) ((q)->patterns[0])
+#define ctx_query_pattern(q) ((q)->patterns[0])
 
 /* ── Parser ─────────────────────────────────────────────────────── */
 
 typedef struct {
-    cbm_query_t *query;
+    ctx_query_t *query;
     char *error; /* NULL if no error */
-} cbm_parse_result_t;
+} ctx_parse_result_t;
 
-/* Parse tokens into AST. Caller must call cbm_parse_free(). */
-int cbm_parse(const cbm_token_t *tokens, int token_count, cbm_parse_result_t *out);
-void cbm_parse_free(cbm_parse_result_t *r);
+/* Parse tokens into AST. Caller must call ctx_parse_free(). */
+int ctx_parse(const ctx_token_t *tokens, int token_count, ctx_parse_result_t *out);
+void ctx_parse_free(ctx_parse_result_t *r);
 
 /* ── Executor ───────────────────────────────────────────────────── */
 
@@ -293,22 +293,22 @@ typedef struct {
     int row_count;
     /* Non-NULL when the query was rejected (e.g. result too large) */
     char *error;
-} cbm_cypher_result_t;
+} ctx_cypher_result_t;
 
 /* Execute a Cypher query against a store.
  * max_rows: limit on output rows (0 = use virtual ceiling of 100k).
  * project: project name filter (NULL = all projects).
  * Returns -1 on error (check out->error for message). */
-int cbm_cypher_execute(cbm_store_t *store, const char *query, const char *project, int max_rows,
-                       cbm_cypher_result_t *out);
+int ctx_cypher_execute(ctx_store_t *store, const char *query, const char *project, int max_rows,
+                       ctx_cypher_result_t *out);
 
 /* Free a query result. */
-void cbm_cypher_result_free(cbm_cypher_result_t *r);
+void ctx_cypher_result_free(ctx_cypher_result_t *r);
 
 /* Convenience: lex + parse in one step. */
-int cbm_cypher_parse(const char *query, cbm_query_t **out, char **error);
+int ctx_cypher_parse(const char *query, ctx_query_t **out, char **error);
 
 /* Free a query AST. */
-void cbm_query_free(cbm_query_t *q);
+void ctx_query_free(ctx_query_t *q);
 
-#endif /* CBM_CYPHER_H */
+#endif /* CTX_CYPHER_H */

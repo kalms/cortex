@@ -46,7 +46,7 @@ static size_t sysctl_size(const char *name, size_t fallback) {
     if (sysctlbyname(name, &val, &len, NULL, 0) == 0 && val > 0) {
         return val;
     }
-    /* Try CBM_SZ_64-bit variant */
+    /* Try CTX_SZ_64-bit variant */
     uint64_t val64 = 0;
     len = sizeof(val64);
     if (sysctlbyname(name, &val64, &len, NULL, 0) == 0 && val64 > 0) {
@@ -55,8 +55,8 @@ static size_t sysctl_size(const char *name, size_t fallback) {
     return fallback;
 }
 
-static cbm_system_info_t detect_system_macos(void) {
-    cbm_system_info_t info;
+static ctx_system_info_t detect_system_macos(void) {
+    ctx_system_info_t info;
     memset(&info, 0, sizeof(info));
 
     info.total_cores = sysctl_int("hw.ncpu", DEFAULT_CORES);
@@ -74,8 +74,8 @@ static cbm_system_info_t detect_system_macos(void) {
 
 #elif !defined(_WIN32) /* Linux */
 
-static cbm_system_info_t detect_system_linux(void) {
-    cbm_system_info_t info;
+static ctx_system_info_t detect_system_linux(void) {
+    ctx_system_info_t info;
     memset(&info, 0, sizeof(info));
 
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
@@ -95,8 +95,8 @@ static cbm_system_info_t detect_system_linux(void) {
 /* ── Windows detection ───────────────────────────────────────────── */
 
 #ifdef _WIN32
-static cbm_system_info_t detect_system_windows(void) {
-    cbm_system_info_t info;
+static ctx_system_info_t detect_system_windows(void) {
+    ctx_system_info_t info;
     memset(&info, 0, sizeof(info));
 
     SYSTEM_INFO si;
@@ -120,9 +120,9 @@ static cbm_system_info_t detect_system_windows(void) {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 static int info_cached = 0;
-static cbm_system_info_t cached_info;
+static ctx_system_info_t cached_info;
 
-cbm_system_info_t cbm_system_info(void) {
+ctx_system_info_t ctx_system_info(void) {
     if (!info_cached) {
 #ifdef _WIN32
         cached_info = detect_system_windows();
@@ -136,8 +136,8 @@ cbm_system_info_t cbm_system_info(void) {
     return cached_info;
 }
 
-int cbm_default_worker_count(bool initial) {
-    cbm_system_info_t info = cbm_system_info();
+int ctx_default_worker_count(bool initial) {
+    ctx_system_info_t info = ctx_system_info();
     if (initial) {
         /* Use all cores for initial indexing — user is waiting */
         return info.total_cores;

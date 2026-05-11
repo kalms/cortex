@@ -205,8 +205,8 @@ static bool uniq_trig_insert(uniq_trig_set_t *s, uint64_t trig_hash) {
 }
 
 /* Apply weighted MinHash for one trigram: hash w times per seed. */
-static void weighted_minhash_update(cbm_minhash_t *out, const char *trigram, int len, int w) {
-    for (int k = 0; k < CBM_MINHASH_K; k++) {
+static void weighted_minhash_update(ctx_minhash_t *out, const char *trigram, int len, int w) {
+    for (int k = 0; k < CTX_MINHASH_K; k++) {
         for (int rep = 0; rep < w; rep++) {
             uint64_t seed = ((uint64_t)k * MAX_STRUCTURAL_WEIGHT) + (uint64_t)rep;
             uint64_t h = XXH3_64bits_withSeed(trigram, (size_t)len, seed);
@@ -218,8 +218,8 @@ static void weighted_minhash_update(cbm_minhash_t *out, const char *trigram, int
     }
 }
 
-static int hash_trigrams(const char **tokens, int token_count, cbm_minhash_t *out) {
-    for (int k = 0; k < CBM_MINHASH_K; k++) {
+static int hash_trigrams(const char **tokens, int token_count, ctx_minhash_t *out) {
+    for (int k = 0; k < CTX_MINHASH_K; k++) {
         out->values[k] = UINT32_MAX;
     }
 
@@ -246,7 +246,7 @@ static int hash_trigrams(const char **tokens, int token_count, cbm_minhash_t *ou
     return uniq.count;
 }
 
-bool cbm_minhash_compute(TSNode func_body, const char *source, int language, cbm_minhash_t *out) {
+bool ctx_minhash_compute(TSNode func_body, const char *source, int language, ctx_minhash_t *out) {
     (void)source;
     (void)language;
 
@@ -256,7 +256,7 @@ bool cbm_minhash_compute(TSNode func_body, const char *source, int language, cbm
 
     const char *tokens[MAX_TOKENS];
     int token_count = collect_ast_tokens(func_body, tokens, MAX_TOKENS);
-    if (token_count < CBM_MINHASH_MIN_NODES) {
+    if (token_count < CTX_MINHASH_MIN_NODES) {
         return false;
     }
 
@@ -266,43 +266,43 @@ bool cbm_minhash_compute(TSNode func_body, const char *source, int language, cbm
 
 /* ── Jaccard similarity ──────────────────────────────────────────── */
 
-double cbm_minhash_jaccard(const cbm_minhash_t *a, const cbm_minhash_t *b) {
+double ctx_minhash_jaccard(const ctx_minhash_t *a, const ctx_minhash_t *b) {
     if (!a || !b) {
         return 0.0;
     }
     int matching = 0;
-    for (int i = 0; i < CBM_MINHASH_K; i++) {
+    for (int i = 0; i < CTX_MINHASH_K; i++) {
         if (a->values[i] == b->values[i]) {
             matching++;
         }
     }
-    return (double)matching / (double)CBM_MINHASH_K;
+    return (double)matching / (double)CTX_MINHASH_K;
 }
 
 /* ── Hex encoding/decoding ───────────────────────────────────────── */
 
-void cbm_minhash_to_hex(const cbm_minhash_t *fp, char *buf, int bufsize) {
-    if (!fp || !buf || bufsize < CBM_MINHASH_HEX_BUF) {
+void ctx_minhash_to_hex(const ctx_minhash_t *fp, char *buf, int bufsize) {
+    if (!fp || !buf || bufsize < CTX_MINHASH_HEX_BUF) {
         if (buf && bufsize > 0) {
             buf[0] = '\0';
         }
         return;
     }
     int pos = 0;
-    for (int i = 0; i < CBM_MINHASH_K; i++) {
+    for (int i = 0; i < CTX_MINHASH_K; i++) {
         pos += snprintf(buf + pos, (size_t)(bufsize - pos), "%08x", fp->values[i]);
     }
 }
 
-bool cbm_minhash_from_hex(const char *hex, cbm_minhash_t *out) {
+bool ctx_minhash_from_hex(const char *hex, ctx_minhash_t *out) {
     if (!hex || !out) {
         return false;
     }
     size_t len = strlen(hex);
-    if ((int)len != CBM_MINHASH_HEX_LEN) {
+    if ((int)len != CTX_MINHASH_HEX_LEN) {
         return false;
     }
-    for (int i = 0; i < CBM_MINHASH_K; i++) {
+    for (int i = 0; i < CTX_MINHASH_K; i++) {
         char chunk[HEX_CHARS_PER_U32 + SKIP_ONE];
         ptrdiff_t offset = (ptrdiff_t)i * HEX_CHARS_PER_U32;
         memcpy(chunk, hex + offset, HEX_CHARS_PER_U32);
@@ -326,26 +326,26 @@ typedef struct {
 /* Band hash table: 65536 buckets per band (16-bit hash of r=2 values). */
 enum { LSH_BUCKET_COUNT = 65536, LSH_BUCKET_MASK = 65535 };
 
-struct cbm_lsh_index {
+struct ctx_lsh_index {
     /* b=32 bands, each with LSH_BUCKET_COUNT buckets */
-    lsh_bucket_t bands[CBM_LSH_BANDS][LSH_BUCKET_COUNT];
+    lsh_bucket_t bands[CTX_LSH_BANDS][LSH_BUCKET_COUNT];
     /* All entries stored for lifetime management */
-    cbm_lsh_entry_t *entries;
+    ctx_lsh_entry_t *entries;
     int entry_count;
     int entry_cap;
     /* Candidate result buffer (reused across queries) */
-    const cbm_lsh_entry_t **result_buf;
+    const ctx_lsh_entry_t **result_buf;
     int result_count;
     int result_cap;
 };
 
 /* Compute band hash for band `b` from a MinHash signature.
  * Uses r=2 consecutive values starting at position b*r. */
-static uint32_t band_hash(const cbm_minhash_t *fp, int band) {
-    int base = band * CBM_LSH_ROWS;
+static uint32_t band_hash(const ctx_minhash_t *fp, int band) {
+    int base = band * CTX_LSH_ROWS;
     /* Combine r=2 values into a single hash */
-    uint32_t combined[CBM_LSH_ROWS];
-    for (int r = 0; r < CBM_LSH_ROWS; r++) {
+    uint32_t combined[CTX_LSH_ROWS];
+    for (int r = 0; r < CTX_LSH_ROWS; r++) {
         combined[r] = fp->values[base + r];
     }
     uint64_t h = XXH3_64bits(combined, sizeof(combined));
@@ -365,12 +365,12 @@ static void bucket_push(lsh_bucket_t *bucket, int entry_index) {
     bucket->items[bucket->count++] = entry_index;
 }
 
-cbm_lsh_index_t *cbm_lsh_new(void) {
-    cbm_lsh_index_t *idx = calloc(SKIP_ONE, sizeof(cbm_lsh_index_t));
+ctx_lsh_index_t *ctx_lsh_new(void) {
+    ctx_lsh_index_t *idx = calloc(SKIP_ONE, sizeof(ctx_lsh_index_t));
     return idx;
 }
 
-void cbm_lsh_insert(cbm_lsh_index_t *idx, const cbm_lsh_entry_t *entry) {
+void ctx_lsh_insert(ctx_lsh_index_t *idx, const ctx_lsh_entry_t *entry) {
     if (!idx || !entry || !entry->fingerprint) {
         return;
     }
@@ -379,8 +379,8 @@ void cbm_lsh_insert(cbm_lsh_index_t *idx, const cbm_lsh_entry_t *entry) {
     if (idx->entry_count >= idx->entry_cap) {
         int new_cap =
             idx->entry_cap < ENTRY_INIT_CAP ? ENTRY_INIT_CAP : idx->entry_cap * GROW_FACTOR;
-        cbm_lsh_entry_t *new_entries =
-            realloc(idx->entries, (size_t)new_cap * sizeof(cbm_lsh_entry_t));
+        ctx_lsh_entry_t *new_entries =
+            realloc(idx->entries, (size_t)new_cap * sizeof(ctx_lsh_entry_t));
         if (!new_entries) {
             return;
         }
@@ -392,7 +392,7 @@ void cbm_lsh_insert(cbm_lsh_index_t *idx, const cbm_lsh_entry_t *entry) {
     idx->entry_count++;
 
     /* Insert index into each band's bucket */
-    for (int b = 0; b < CBM_LSH_BANDS; b++) {
+    for (int b = 0; b < CTX_LSH_BANDS; b++) {
         uint32_t h = band_hash(entry->fingerprint, b);
         bucket_push(&idx->bands[b][h], entry_idx);
     }
@@ -434,12 +434,12 @@ static void seen_set_free(seen_set_t *s) {
 }
 
 /* Append a candidate to the result buffer, growing if needed. */
-static bool result_push(cbm_lsh_index_t *idx, const cbm_lsh_entry_t *candidate) {
+static bool result_push(ctx_lsh_index_t *idx, const ctx_lsh_entry_t *candidate) {
     if (idx->result_count >= idx->result_cap) {
         int new_cap =
             idx->result_cap < RESULT_INIT_CAP ? RESULT_INIT_CAP : idx->result_cap * GROW_FACTOR;
-        const cbm_lsh_entry_t **new_buf =
-            realloc(idx->result_buf, (size_t)new_cap * sizeof(const cbm_lsh_entry_t *));
+        const ctx_lsh_entry_t **new_buf =
+            realloc(idx->result_buf, (size_t)new_cap * sizeof(const ctx_lsh_entry_t *));
         if (!new_buf) {
             return false;
         }
@@ -450,8 +450,8 @@ static bool result_push(cbm_lsh_index_t *idx, const cbm_lsh_entry_t *candidate) 
     return true;
 }
 
-void cbm_lsh_query(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
-                   const cbm_lsh_entry_t ***out, int *count) {
+void ctx_lsh_query(const ctx_lsh_index_t *idx, const ctx_minhash_t *fp,
+                   const ctx_lsh_entry_t ***out, int *count) {
     *out = NULL;
     *count = 0;
 
@@ -459,14 +459,14 @@ void cbm_lsh_query(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
         return;
     }
 
-    cbm_lsh_index_t *mut_idx = (cbm_lsh_index_t *)idx;
+    ctx_lsh_index_t *mut_idx = (ctx_lsh_index_t *)idx;
     mut_idx->result_count = 0;
 
     /* O(1) dedup via open-addressing hash set */
     seen_set_t seen;
     seen_set_init(&seen);
 
-    for (int b = 0; b < CBM_LSH_BANDS; b++) {
+    for (int b = 0; b < CTX_LSH_BANDS; b++) {
         uint32_t h = band_hash(fp, b);
         const lsh_bucket_t *bucket = &idx->bands[b][h];
         /* Skip oversized buckets — noise from trivially similar utility functions */
@@ -474,7 +474,7 @@ void cbm_lsh_query(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
             continue;
         }
         for (int i = 0; i < bucket->count; i++) {
-            const cbm_lsh_entry_t *candidate = &idx->entries[bucket->items[i]];
+            const ctx_lsh_entry_t *candidate = &idx->entries[bucket->items[i]];
             if (!seen_set_insert(&seen, candidate->node_id)) {
                 continue; /* already seen */
             }
@@ -489,8 +489,8 @@ void cbm_lsh_query(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
     *count = mut_idx->result_count;
 }
 
-int cbm_lsh_query_into(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
-                       const cbm_lsh_entry_t **out_buf, int out_cap) {
+int ctx_lsh_query_into(const ctx_lsh_index_t *idx, const ctx_minhash_t *fp,
+                       const ctx_lsh_entry_t **out_buf, int out_cap) {
     if (!idx || !fp || !out_buf || out_cap <= 0) {
         return 0;
     }
@@ -500,14 +500,14 @@ int cbm_lsh_query_into(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
     seen_set_init(&seen);
 
     int count = 0;
-    for (int b = 0; b < CBM_LSH_BANDS; b++) {
+    for (int b = 0; b < CTX_LSH_BANDS; b++) {
         uint32_t h = band_hash(fp, b);
         const lsh_bucket_t *bucket = &idx->bands[b][h];
         if (bucket->count > MAX_BUCKET_SIZE) {
             continue;
         }
         for (int i = 0; i < bucket->count && count < out_cap; i++) {
-            const cbm_lsh_entry_t *candidate = &idx->entries[bucket->items[i]];
+            const ctx_lsh_entry_t *candidate = &idx->entries[bucket->items[i]];
             if (!seen_set_insert(&seen, candidate->node_id)) {
                 continue;
             }
@@ -522,12 +522,12 @@ int cbm_lsh_query_into(const cbm_lsh_index_t *idx, const cbm_minhash_t *fp,
     return count;
 }
 
-void cbm_lsh_free(cbm_lsh_index_t *idx) {
+void ctx_lsh_free(ctx_lsh_index_t *idx) {
     if (!idx) {
         return;
     }
     /* Free bucket arrays */
-    for (int b = 0; b < CBM_LSH_BANDS; b++) {
+    for (int b = 0; b < CTX_LSH_BANDS; b++) {
         for (int h = 0; h < LSH_BUCKET_COUNT; h++) {
             free(idx->bands[b][h].items);
         }

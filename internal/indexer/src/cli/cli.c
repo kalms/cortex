@@ -74,8 +74,8 @@ enum {
 #endif
 #include "foundation/compat_fs.h"
 
-#ifndef CBM_VERSION
-#define CBM_VERSION "dev"
+#ifndef CTX_VERSION
+#define CTX_VERSION "dev"
 #endif
 #include <errno.h>  // EEXIST
 #include <fcntl.h>  // open, O_WRONLY, O_CREAT, O_TRUNC
@@ -92,13 +92,13 @@ enum {
 /* SQLITE_TRANSIENT equivalent as a typed function pointer (avoids int-to-ptr cast).
  * sqlite3.h defines SQLITE_TRANSIENT as ((sqlite3_destructor_type)-1).
  * We replicate the same bit pattern via memcpy to satisfy performance-no-int-to-ptr. */
-static void (*cbm_sqlite_transient_fn(void))(void *) {
+static void (*ctx_sqlite_transient_fn(void))(void *) {
     uintptr_t bits = (uintptr_t)CLI_ERR;
     void (*fp)(void *) = NULL;
     memcpy(&fp, &bits, sizeof(fp));
     return fp;
 }
-#define cbm_sqlite_transient (cbm_sqlite_transient_fn())
+#define ctx_sqlite_transient (ctx_sqlite_transient_fn())
 
 /* ── Constants ────────────────────────────────────────────────── */
 
@@ -106,7 +106,7 @@ static void (*cbm_sqlite_transient_fn(void))(void *) {
 #define DIR_PERMS 0750
 
 /* Decompression buffer cap (500 MB) */
-#define DECOMPRESS_MAX_BYTES ((size_t)500 * CLI_BUF_1K * CBM_SZ_1K)
+#define DECOMPRESS_MAX_BYTES ((size_t)500 * CLI_BUF_1K * CTX_SZ_1K)
 
 /* Tar header field offsets */
 #define TAR_NAME_LEN 101    /* filename field: bytes 0-99 + NUL */
@@ -115,20 +115,20 @@ static void (*cbm_sqlite_transient_fn(void))(void *) {
 #define TAR_TYPE_OFFSET 156 /* type flag byte */
 #define TAR_BINARY_NAME "codebase-memory-mcp"
 #define TAR_BINARY_NAME_LEN 19
-#define TAR_BLOCK_SIZE CBM_SZ_512 /* tar record alignment */
+#define TAR_BLOCK_SIZE CTX_SZ_512 /* tar record alignment */
 #define TAR_BLOCK_MASK 511        /* TAR_BLOCK_SIZE - 1 */
 
 /* ── Version ──────────────────────────────────────────────────── */
 
 static const char *cli_version = "dev";
 
-void cbm_cli_set_version(const char *ver) {
+void ctx_cli_set_version(const char *ver) {
     if (ver) {
         cli_version = ver;
     }
 }
 
-const char *cbm_cli_get_version(void) {
+const char *ctx_cli_get_version(void) {
     return cli_version;
 }
 
@@ -166,7 +166,7 @@ static bool has_prerelease(const char *v) {
     return strchr(v, '-') != NULL;
 }
 
-int cbm_compare_versions(const char *a, const char *b) {
+int ctx_compare_versions(const char *a, const char *b) {
     int pa[SEMVER_PARTS];
     int pb[SEMVER_PARTS];
     parse_semver(a, pa);
@@ -192,14 +192,14 @@ int cbm_compare_versions(const char *a, const char *b) {
 
 /* ── Shell RC detection ───────────────────────────────────────── */
 
-const char *cbm_detect_shell_rc(const char *home_dir) {
+const char *ctx_detect_shell_rc(const char *home_dir) {
     static char buf[CLI_BUF_512];
     if (!home_dir || !home_dir[0]) {
         return "";
     }
 
     char shell_buf[CLI_BUF_256];
-    const char *shell = cbm_safe_getenv("SHELL", shell_buf, sizeof(shell_buf), "");
+    const char *shell = ctx_safe_getenv("SHELL", shell_buf, sizeof(shell_buf), "");
     if (!shell) {
         shell = "";
     }
@@ -252,7 +252,7 @@ static bool is_executable(const char *path) {
  * Returns the full path in `out` (max out_sz) if found, else empty string. */
 static bool find_in_path(const char *name, char *out, size_t out_sz) {
     char path_copy[CLI_BUF_4K];
-    if (!cbm_safe_getenv("PATH", path_copy, sizeof(path_copy), NULL)) {
+    if (!ctx_safe_getenv("PATH", path_copy, sizeof(path_copy), NULL)) {
         return false;
     }
     char *saveptr;
@@ -267,7 +267,7 @@ static bool find_in_path(const char *name, char *out, size_t out_sz) {
     return false;
 }
 
-const char *cbm_find_cli(const char *name, const char *home_dir) {
+const char *ctx_find_cli(const char *name, const char *home_dir) {
     static char buf[CLI_BUF_512];
     if (!name || !name[0]) {
         return "";
@@ -300,7 +300,7 @@ const char *cbm_find_cli(const char *name, const char *home_dir) {
 
 /* ── File utilities ───────────────────────────────────────────── */
 
-int cbm_copy_file(const char *src, const char *dst) {
+int ctx_copy_file(const char *src, const char *dst) {
     FILE *in = fopen(src, "rb");
     if (!in) {
         return CLI_ERR;
@@ -339,7 +339,7 @@ int cbm_copy_file(const char *src, const char *dst) {
 /* Replace a binary file. Unlinks the old file first (handles read-only and
  * running binaries on Unix where unlink succeeds on open files). On all
  * platforms, the caller should tell the user to restart after update. */
-int cbm_replace_binary(const char *path, const unsigned char *data, int len, int mode) {
+int ctx_replace_binary(const char *path, const unsigned char *data, int len, int mode) {
     if (!path || !data || len <= 0) {
         return CLI_ERR;
     }
@@ -350,12 +350,12 @@ int cbm_replace_binary(const char *path, const unsigned char *data, int len, int
     struct stat st_check;
     if (stat(path, &st_check) == 0) {
         /* File exists — remove or rename it */
-        if (cbm_unlink(path) != 0) {
+        if (ctx_unlink(path) != 0) {
 #ifdef _WIN32
             /* Windows: can't unlink running .exe — rename aside */
             char old_path[CLI_BUF_1K];
             snprintf(old_path, sizeof(old_path), "%s.old", path);
-            (void)cbm_unlink(old_path);
+            (void)ctx_unlink(old_path);
             if (rename(path, old_path) != 0) {
                 return CLI_ERR;
             }
@@ -492,36 +492,36 @@ static const char *old_skill_names[] = {
 };
 enum { OLD_SKILL_COUNT = 4 };
 
-static const cbm_skill_t skills[CBM_SKILL_COUNT] = {
+static const ctx_skill_t skills[CTX_SKILL_COUNT] = {
     {"codebase-memory", skill_content},
 };
 
-const cbm_skill_t *cbm_get_skills(void) {
+const ctx_skill_t *ctx_get_skills(void) {
     return skills;
 }
 
-const char *cbm_get_codex_instructions(void) {
+const char *ctx_get_codex_instructions(void) {
     return codex_instructions_content;
 }
 
 /* ── Recursive mkdir (via compat_fs) ──────────────────────────── */
 
 static int mkdirp(const char *path, int mode) {
-    return (int)cbm_mkdir_p(path, mode) ? 0 : CLI_ERR;
+    return (int)ctx_mkdir_p(path, mode) ? 0 : CLI_ERR;
 }
 
 /* ── Recursive rmdir ──────────────────────────────────────────── */
 
-enum { RMDIR_STACK_CAP = CBM_SZ_256 };
+enum { RMDIR_STACK_CAP = CTX_SZ_256 };
 
 /* Scan one directory: push subdirs onto stack, unlink files. */
 static void rmdir_scan_dir(const char *cur, char stack[][CLI_BUF_1K], int *top) {
-    cbm_dir_t *d = cbm_opendir(cur);
+    ctx_dir_t *d = ctx_opendir(cur);
     if (!d) {
         return;
     }
-    cbm_dirent_t *ent;
-    while ((ent = cbm_readdir(d)) != NULL) {
+    ctx_dirent_t *ent;
+    while ((ent = ctx_readdir(d)) != NULL) {
         char child[CLI_BUF_1K];
         snprintf(child, sizeof(child), "%s/%s", cur, ent->name);
         struct stat st;
@@ -530,10 +530,10 @@ static void rmdir_scan_dir(const char *cur, char stack[][CLI_BUF_1K], int *top) 
                 snprintf(stack[(*top)++], CLI_BUF_1K, "%s", child);
             }
         } else {
-            cbm_unlink(child);
+            ctx_unlink(child);
         }
     }
-    cbm_closedir(d);
+    ctx_closedir(d);
 }
 
 static int rmdir_recursive(const char *path) {
@@ -555,8 +555,8 @@ static int rmdir_recursive(const char *path) {
     /* Remove dirs in reverse (deepest first). */
     int rc = 0;
     for (int i = dir_count - CLI_SKIP_ONE; i >= 0; i--) {
-        if (cbm_rmdir(dirs[i]) != 0) {
-            rc = CBM_NOT_FOUND;
+        if (ctx_rmdir(dirs[i]) != 0) {
+            rc = CTX_NOT_FOUND;
         }
     }
     return rc;
@@ -564,7 +564,7 @@ static int rmdir_recursive(const char *path) {
 
 /* ── Skill management ─────────────────────────────────────────── */
 
-int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
+int ctx_install_skills(const char *skills_dir, bool force, bool dry_run) {
     if (!skills_dir) {
         return 0;
     }
@@ -580,7 +580,7 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
         }
     }
 
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char skill_path[CLI_BUF_1K];
         snprintf(skill_path, sizeof(skill_path), "%s/%s", skills_dir, skills[i].name);
         char file_path[CLI_BUF_1K];
@@ -614,13 +614,13 @@ int cbm_install_skills(const char *skills_dir, bool force, bool dry_run) {
     return count;
 }
 
-int cbm_remove_skills(const char *skills_dir, bool dry_run) {
+int ctx_remove_skills(const char *skills_dir, bool dry_run) {
     if (!skills_dir) {
         return 0;
     }
     int count = 0;
 
-    for (int i = 0; i < CBM_SKILL_COUNT; i++) {
+    for (int i = 0; i < CTX_SKILL_COUNT; i++) {
         char skill_path[CLI_BUF_1K];
         snprintf(skill_path, sizeof(skill_path), "%s/%s", skills_dir, skills[i].name);
         struct stat st;
@@ -640,7 +640,7 @@ int cbm_remove_skills(const char *skills_dir, bool dry_run) {
     return count;
 }
 
-bool cbm_remove_old_monolithic_skill(const char *skills_dir, bool dry_run) {
+bool ctx_remove_old_monolithic_skill(const char *skills_dir, bool dry_run) {
     if (!skills_dir) {
         return false;
     }
@@ -731,7 +731,7 @@ static int write_json_file(const char *path, yyjson_mut_doc *doc) {
 
 /* ── Editor MCP: Cursor/Windsurf/Gemini (mcpServers key) ──────── */
 
-int cbm_install_editor_mcp(const char *binary_path, const char *config_path) {
+int ctx_install_editor_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
         return CLI_ERR;
     }
@@ -776,7 +776,7 @@ int cbm_install_editor_mcp(const char *binary_path, const char *config_path) {
     return rc;
 }
 
-int cbm_remove_editor_mcp(const char *config_path) {
+int ctx_remove_editor_mcp(const char *config_path) {
     if (!config_path) {
         return CLI_ERR;
     }
@@ -810,7 +810,7 @@ int cbm_remove_editor_mcp(const char *config_path) {
 
 /* ── VS Code MCP (servers key with type:stdio) ────────────────── */
 
-int cbm_install_vscode_mcp(const char *binary_path, const char *config_path) {
+int ctx_install_vscode_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
         return CLI_ERR;
     }
@@ -852,7 +852,7 @@ int cbm_install_vscode_mcp(const char *binary_path, const char *config_path) {
     return rc;
 }
 
-int cbm_remove_vscode_mcp(const char *config_path) {
+int ctx_remove_vscode_mcp(const char *config_path) {
     if (!config_path) {
         return CLI_ERR;
     }
@@ -886,7 +886,7 @@ int cbm_remove_vscode_mcp(const char *config_path) {
 
 /* ── Zed MCP (context_servers with command + args) ────────────── */
 
-int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
+int ctx_install_zed_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
         return CLI_ERR;
     }
@@ -930,7 +930,7 @@ int cbm_install_zed_mcp(const char *binary_path, const char *config_path) {
     return rc;
 }
 
-int cbm_remove_zed_mcp(const char *config_path) {
+int ctx_remove_zed_mcp(const char *config_path) {
     if (!config_path) {
         return CLI_ERR;
     }
@@ -969,8 +969,8 @@ static bool dir_exists(const char *path) {
     return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
-    cbm_detected_agents_t agents;
+ctx_detected_agents_t ctx_detect_agents(const char *home_dir) {
+    ctx_detected_agents_t agents;
     memset(&agents, 0, sizeof(agents));
     if (!home_dir || !home_dir[0]) {
         return agents;
@@ -996,7 +996,7 @@ cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
 #endif
     agents.zed = dir_exists(path);
 
-    agents.opencode = cbm_find_cli("opencode", home_dir)[0] != '\0';
+    agents.opencode = ctx_find_cli("opencode", home_dir)[0] != '\0';
 
     snprintf(path, sizeof(path), "%s/.gemini/antigravity", home_dir);
     if (dir_exists(path)) {
@@ -1004,7 +1004,7 @@ cbm_detected_agents_t cbm_detect_agents(const char *home_dir) {
         agents.gemini = true;
     }
 
-    agents.aider = cbm_find_cli("aider", home_dir)[0] != '\0';
+    agents.aider = ctx_find_cli("aider", home_dir)[0] != '\0';
 
 #ifdef __APPLE__
     snprintf(path, sizeof(path),
@@ -1057,7 +1057,7 @@ static const char agent_instructions_content[] =
     "- Who calls it: `trace_path(function_name=\"OrderHandler\", direction=\"inbound\")`\n"
     "- Read source: `get_code_snippet(qualified_name=\"pkg/orders.OrderHandler\")`\n";
 
-const char *cbm_get_agent_instructions(void) {
+const char *ctx_get_agent_instructions(void) {
     return agent_instructions_content;
 }
 
@@ -1121,7 +1121,7 @@ static int write_file_str(const char *path, const char *content) {
     return written == len ? 0 : CLI_ERR;
 }
 
-int cbm_upsert_instructions(const char *path, const char *content) {
+int ctx_upsert_instructions(const char *path, const char *content) {
     if (!path || !content) {
         return CLI_ERR;
     }
@@ -1200,7 +1200,7 @@ int cbm_upsert_instructions(const char *path, const char *content) {
     return rc;
 }
 
-int cbm_remove_instructions(const char *path) {
+int ctx_remove_instructions(const char *path) {
     if (!path) {
         return CLI_ERR;
     }
@@ -1251,7 +1251,7 @@ int cbm_remove_instructions(const char *path) {
 
 #define CODEX_CMM_SECTION "[mcp_servers.codebase-memory-mcp]"
 
-int cbm_upsert_codex_mcp(const char *binary_path, const char *config_path) {
+int ctx_upsert_codex_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
         return CLI_ERR;
     }
@@ -1318,7 +1318,7 @@ int cbm_upsert_codex_mcp(const char *binary_path, const char *config_path) {
     return rc;
 }
 
-int cbm_remove_codex_mcp(const char *config_path) {
+int ctx_remove_codex_mcp(const char *config_path) {
     if (!config_path) {
         return CLI_ERR;
     }
@@ -1367,7 +1367,7 @@ int cbm_remove_codex_mcp(const char *config_path) {
 
 /* ── OpenCode MCP config (JSON with "mcp" key) ───────────────── */
 
-int cbm_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
+int ctx_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
         return CLI_ERR;
     }
@@ -1413,7 +1413,7 @@ int cbm_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
     return rc;
 }
 
-int cbm_remove_opencode_mcp(const char *config_path) {
+int ctx_remove_opencode_mcp(const char *config_path) {
     if (!config_path) {
         return CLI_ERR;
     }
@@ -1447,13 +1447,13 @@ int cbm_remove_opencode_mcp(const char *config_path) {
 
 /* ── Antigravity MCP config (JSON, same mcpServers format) ────── */
 
-int cbm_upsert_antigravity_mcp(const char *binary_path, const char *config_path) {
+int ctx_upsert_antigravity_mcp(const char *binary_path, const char *config_path) {
     /* Antigravity uses same mcpServers format as Cursor/Gemini */
-    return cbm_install_editor_mcp(binary_path, config_path);
+    return ctx_install_editor_mcp(binary_path, config_path);
 }
 
-int cbm_remove_antigravity_mcp(const char *config_path) {
-    return cbm_remove_editor_mcp(config_path);
+int ctx_remove_antigravity_mcp(const char *config_path) {
+    return ctx_remove_editor_mcp(config_path);
 }
 
 /* ── Claude Code pre-tool hooks ───────────────────────────────── */
@@ -1625,12 +1625,12 @@ static int remove_hooks_json(hooks_remove_args_t args) {
     return rc;
 }
 
-int cbm_upsert_claude_hooks(const char *settings_path) {
+int ctx_upsert_claude_hooks(const char *settings_path) {
     return upsert_hooks_json(
         (hooks_upsert_args_t){settings_path, "PreToolUse", CMM_HOOK_MATCHER, CMM_HOOK_COMMAND});
 }
 
-int cbm_remove_claude_hooks(const char *settings_path) {
+int ctx_remove_claude_hooks(const char *settings_path) {
     return remove_hooks_json((hooks_remove_args_t){settings_path, "PreToolUse", CMM_HOOK_MATCHER});
 }
 
@@ -1638,13 +1638,13 @@ int cbm_remove_claude_hooks(const char *settings_path) {
  * Blocks the first Grep/Glob/Read/Search call per session (exit 2 + stderr),
  * nudging Claude toward codebase-memory-mcp. All subsequent calls in the same
  * session pass through (gate file keyed on PPID). */
-static void cbm_install_hook_gate_script(const char *home) {
+static void ctx_install_hook_gate_script(const char *home) {
     if (!home) {
         return;
     }
     char hooks_dir[CLI_BUF_1K];
     snprintf(hooks_dir, sizeof(hooks_dir), "%s/.claude/hooks", home);
-    cbm_mkdir_p(hooks_dir, CLI_OCTAL_PERM);
+    ctx_mkdir_p(hooks_dir, CLI_OCTAL_PERM);
 
     char script_path[CLI_BUF_1K];
     snprintf(script_path, sizeof(script_path), "%s/cbm-code-discovery-gate", hooks_dir);
@@ -1682,13 +1682,13 @@ static void cbm_install_hook_gate_script(const char *home) {
 /* SessionStart hook: remind agent to use MCP tools on every context reset. */
 #define CMM_SESSION_COMMAND "~/.claude/hooks/cbm-session-reminder"
 
-static void cbm_install_session_reminder_script(const char *home) {
+static void ctx_install_session_reminder_script(const char *home) {
     if (!home) {
         return;
     }
     char hooks_dir[CLI_BUF_1K];
     snprintf(hooks_dir, sizeof(hooks_dir), "%s/.claude/hooks", home);
-    cbm_mkdir_p(hooks_dir, CLI_OCTAL_PERM);
+    ctx_mkdir_p(hooks_dir, CLI_OCTAL_PERM);
 
     char script_path[CLI_BUF_1K];
     snprintf(script_path, sizeof(script_path), "%s/cbm-session-reminder", hooks_dir);
@@ -1722,7 +1722,7 @@ static void cbm_install_session_reminder_script(const char *home) {
 #endif
 }
 
-static int cbm_upsert_session_hooks(const char *settings_path) {
+static int ctx_upsert_session_hooks(const char *settings_path) {
     static const char *matchers[] = {"startup", "resume", "clear", "compact"};
     int rc = 0;
     for (int i = 0; i < NUM_DIRS; i++) {
@@ -1734,7 +1734,7 @@ static int cbm_upsert_session_hooks(const char *settings_path) {
     return rc;
 }
 
-static int cbm_remove_session_hooks(const char *settings_path) {
+static int ctx_remove_session_hooks(const char *settings_path) {
     static const char *matchers[] = {"startup", "resume", "clear", "compact"};
     int rc = 0;
     for (int i = 0; i < NUM_DIRS; i++) {
@@ -1751,19 +1751,19 @@ static int cbm_remove_session_hooks(const char *settings_path) {
     "echo 'Reminder: prefer codebase-memory-mcp search_graph/trace_path/" \
     "get_code_snippet over grep/file search for code discovery.' >&2"
 
-int cbm_upsert_gemini_hooks(const char *settings_path) {
+int ctx_upsert_gemini_hooks(const char *settings_path) {
     return upsert_hooks_json((hooks_upsert_args_t){settings_path, "BeforeTool", GEMINI_HOOK_MATCHER,
                                                    GEMINI_HOOK_COMMAND});
 }
 
-int cbm_remove_gemini_hooks(const char *settings_path) {
+int ctx_remove_gemini_hooks(const char *settings_path) {
     return remove_hooks_json(
         (hooks_remove_args_t){settings_path, "BeforeTool", GEMINI_HOOK_MATCHER});
 }
 
 /* ── PATH management ──────────────────────────────────────────── */
 
-int cbm_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
+int ctx_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
     if (!bin_dir || !rc_file) {
         return CLI_ERR;
     }
@@ -1897,7 +1897,7 @@ static unsigned char *tar_try_extract_binary(const unsigned char *hdr, char type
     return result;
 }
 
-unsigned char *cbm_extract_binary_from_targz(const unsigned char *data, int data_len,
+unsigned char *ctx_extract_binary_from_targz(const unsigned char *data, int data_len,
                                              int *out_len) {
     if (!data || data_len <= 0 || !out_len) {
         return NULL;
@@ -2005,7 +2005,7 @@ static unsigned char *zip_extract_entry(const unsigned char *file_data, uint16_t
     return NULL; /* unknown method */
 }
 
-unsigned char *cbm_extract_binary_from_zip(const unsigned char *data, int data_len, int *out_len) {
+unsigned char *ctx_extract_binary_from_zip(const unsigned char *data, int data_len, int *out_len) {
     if (!data || data_len <= 0 || !out_len) {
         return NULL;
     }
@@ -2074,53 +2074,53 @@ unsigned char *cbm_extract_binary_from_zip(const unsigned char *data, int data_l
 static const char *get_cache_dir(const char *home_dir) {
     static char buf[CLI_BUF_1K];
     if (!home_dir) {
-        home_dir = cbm_get_home_dir();
+        home_dir = ctx_get_home_dir();
     }
     if (!home_dir) {
         return NULL;
     }
-    snprintf(buf, sizeof(buf), "%s", cbm_resolve_cache_dir());
+    snprintf(buf, sizeof(buf), "%s", ctx_resolve_cache_dir());
     return buf;
 }
 
-int cbm_list_indexes(const char *home_dir) {
+int ctx_list_indexes(const char *home_dir) {
     const char *cache_dir = get_cache_dir(home_dir);
     if (!cache_dir) {
         return 0;
     }
 
-    cbm_dir_t *d = cbm_opendir(cache_dir);
+    ctx_dir_t *d = ctx_opendir(cache_dir);
     if (!d) {
         return 0;
     }
 
     int count = 0;
-    cbm_dirent_t *ent;
-    while ((ent = cbm_readdir(d)) != NULL) {
+    ctx_dirent_t *ent;
+    while ((ent = ctx_readdir(d)) != NULL) {
         size_t len = strlen(ent->name);
         if (len > DB_EXT_LEN && strcmp(ent->name + len - DB_EXT_LEN, ".db") == 0) {
             printf("  %s/%s\n", cache_dir, ent->name);
             count++;
         }
     }
-    cbm_closedir(d);
+    ctx_closedir(d);
     return count;
 }
 
-int cbm_remove_indexes(const char *home_dir) {
+int ctx_remove_indexes(const char *home_dir) {
     const char *cache_dir = get_cache_dir(home_dir);
     if (!cache_dir) {
         return 0;
     }
 
-    cbm_dir_t *d = cbm_opendir(cache_dir);
+    ctx_dir_t *d = ctx_opendir(cache_dir);
     if (!d) {
         return 0;
     }
 
     int count = 0;
-    cbm_dirent_t *ent;
-    while ((ent = cbm_readdir(d)) != NULL) {
+    ctx_dirent_t *ent;
+    while ((ent = ctx_readdir(d)) != NULL) {
         size_t len = strlen(ent->name);
         if (len > DB_EXT_LEN && strcmp(ent->name + len - DB_EXT_LEN, ".db") == 0) {
             char path[CLI_BUF_1K];
@@ -2128,13 +2128,13 @@ int cbm_remove_indexes(const char *home_dir) {
             /* Also remove .db.tmp if present */
             char tmp_path[CLI_FIELD_1040];
             snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
-            cbm_unlink(tmp_path);
-            if (cbm_unlink(path) == 0) {
+            ctx_unlink(tmp_path);
+            if (ctx_unlink(path) == 0) {
                 count++;
             }
         }
     }
-    cbm_closedir(d);
+    ctx_closedir(d);
     return count;
 }
 
@@ -2142,12 +2142,12 @@ int cbm_remove_indexes(const char *home_dir) {
 
 #include <sqlite3.h>
 
-struct cbm_config {
+struct ctx_config {
     sqlite3 *db;
-    char get_buf[CLI_BUF_4K]; /* static buffer for cbm_config_get return values */
+    char get_buf[CLI_BUF_4K]; /* static buffer for ctx_config_get return values */
 };
 
-cbm_config_t *cbm_config_open(const char *cache_dir) {
+ctx_config_t *ctx_config_open(const char *cache_dir) {
     if (!cache_dir) {
         return NULL;
     }
@@ -2175,7 +2175,7 @@ cbm_config_t *cbm_config_open(const char *cache_dir) {
         return NULL;
     }
 
-    cbm_config_t *cfg = calloc(CBM_ALLOC_ONE, sizeof(*cfg));
+    ctx_config_t *cfg = calloc(CTX_ALLOC_ONE, sizeof(*cfg));
     if (!cfg) {
         sqlite3_close(db);
         return NULL;
@@ -2184,7 +2184,7 @@ cbm_config_t *cbm_config_open(const char *cache_dir) {
     return cfg;
 }
 
-void cbm_config_close(cbm_config_t *cfg) {
+void ctx_config_close(ctx_config_t *cfg) {
     if (!cfg) {
         return;
     }
@@ -2194,7 +2194,7 @@ void cbm_config_close(cbm_config_t *cfg) {
     free(cfg);
 }
 
-const char *cbm_config_get(cbm_config_t *cfg, const char *key, const char *default_val) {
+const char *ctx_config_get(ctx_config_t *cfg, const char *key, const char *default_val) {
     if (!cfg || !key) {
         return default_val;
     }
@@ -2204,7 +2204,7 @@ const char *cbm_config_get(cbm_config_t *cfg, const char *key, const char *defau
                            NULL) != SQLITE_OK) {
         return default_val;
     }
-    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, cbm_sqlite_transient);
+    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, ctx_sqlite_transient);
 
     const char *result = default_val;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -2218,8 +2218,8 @@ const char *cbm_config_get(cbm_config_t *cfg, const char *key, const char *defau
     return result;
 }
 
-bool cbm_config_get_bool(cbm_config_t *cfg, const char *key, bool default_val) {
-    const char *val = cbm_config_get(cfg, key, NULL);
+bool ctx_config_get_bool(ctx_config_t *cfg, const char *key, bool default_val) {
+    const char *val = ctx_config_get(cfg, key, NULL);
     if (!val) {
         return default_val;
     }
@@ -2232,8 +2232,8 @@ bool cbm_config_get_bool(cbm_config_t *cfg, const char *key, bool default_val) {
     return default_val;
 }
 
-int cbm_config_get_int(cbm_config_t *cfg, const char *key, int default_val) {
-    const char *val = cbm_config_get(cfg, key, NULL);
+int ctx_config_get_int(ctx_config_t *cfg, const char *key, int default_val) {
+    const char *val = ctx_config_get(cfg, key, NULL);
     if (!val) {
         return default_val;
     }
@@ -2245,7 +2245,7 @@ int cbm_config_get_int(cbm_config_t *cfg, const char *key, int default_val) {
     return (int)v;
 }
 
-int cbm_config_set(cbm_config_t *cfg, const char *key, const char *value) {
+int ctx_config_set(ctx_config_t *cfg, const char *key, const char *value) {
     if (!cfg || !key || !value) {
         return CLI_ERR;
     }
@@ -2255,15 +2255,15 @@ int cbm_config_set(cbm_config_t *cfg, const char *key, const char *value) {
                            SQL_NUL_TERM, &stmt, NULL) != SQLITE_OK) {
         return CLI_ERR;
     }
-    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, cbm_sqlite_transient);
-    sqlite3_bind_text(stmt, SQL_PARAM_2, value, SQL_NUL_TERM, cbm_sqlite_transient);
+    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, ctx_sqlite_transient);
+    sqlite3_bind_text(stmt, SQL_PARAM_2, value, SQL_NUL_TERM, ctx_sqlite_transient);
 
     int rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : CLI_ERR;
     sqlite3_finalize(stmt);
     return rc;
 }
 
-int cbm_config_delete(cbm_config_t *cfg, const char *key) {
+int ctx_config_delete(ctx_config_t *cfg, const char *key) {
     if (!cfg || !key) {
         return CLI_ERR;
     }
@@ -2273,7 +2273,7 @@ int cbm_config_delete(cbm_config_t *cfg, const char *key) {
                            NULL) != SQLITE_OK) {
         return CLI_ERR;
     }
-    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, cbm_sqlite_transient);
+    sqlite3_bind_text(stmt, SQL_PARAM_1, key, SQL_NUL_TERM, ctx_sqlite_transient);
 
     int rc = sqlite3_step(stmt) == SQLITE_DONE ? 0 : CLI_ERR;
     sqlite3_finalize(stmt);
@@ -2282,7 +2282,7 @@ int cbm_config_delete(cbm_config_t *cfg, const char *key) {
 
 /* ── Config CLI subcommand ────────────────────────────────────── */
 
-int cbm_cmd_config(int argc, char **argv) {
+int ctx_cmd_config(int argc, char **argv) {
     if (argc == 0) {
         printf("Usage: codebase-memory-mcp config <command> [args]\n\n");
         printf("Commands:\n");
@@ -2291,23 +2291,23 @@ int cbm_cmd_config(int argc, char **argv) {
         printf("  set <key> <val>  Set a config value\n");
         printf("  reset <key>      Reset a key to default\n\n");
         printf("Config keys:\n");
-        printf("  %-25s  default=%-10s  %s\n", CBM_CONFIG_AUTO_INDEX, "false",
+        printf("  %-25s  default=%-10s  %s\n", CTX_CONFIG_AUTO_INDEX, "false",
                "Enable auto-indexing on MCP session start");
-        printf("  %-25s  default=%-10s  %s\n", CBM_CONFIG_AUTO_INDEX_LIMIT, "50000",
+        printf("  %-25s  default=%-10s  %s\n", CTX_CONFIG_AUTO_INDEX_LIMIT, "50000",
                "Max files for auto-indexing new projects");
         return 0;
     }
 
-    const char *home = cbm_get_home_dir();
+    const char *home = ctx_get_home_dir();
     if (!home) {
         (void)fprintf(stderr, "error: HOME not set (use USERPROFILE on Windows)\n");
         return CLI_TRUE;
     }
 
     char cache_dir[CLI_BUF_1K];
-    snprintf(cache_dir, sizeof(cache_dir), "%s", cbm_resolve_cache_dir());
+    snprintf(cache_dir, sizeof(cache_dir), "%s", ctx_resolve_cache_dir());
 
-    cbm_config_t *cfg = cbm_config_open(cache_dir);
+    ctx_config_t *cfg = ctx_config_open(cache_dir);
     if (!cfg) {
         (void)fprintf(stderr, "error: cannot open config database\n");
         return CLI_TRUE;
@@ -2316,23 +2316,23 @@ int cbm_cmd_config(int argc, char **argv) {
     int rc = 0;
     if (strcmp(argv[0], "list") == 0 || strcmp(argv[0], "ls") == 0) {
         printf("Configuration:\n");
-        printf("  %-25s = %-10s\n", CBM_CONFIG_AUTO_INDEX,
-               cbm_config_get(cfg, CBM_CONFIG_AUTO_INDEX, "false"));
-        printf("  %-25s = %-10s\n", CBM_CONFIG_AUTO_INDEX_LIMIT,
-               cbm_config_get(cfg, CBM_CONFIG_AUTO_INDEX_LIMIT, "50000"));
+        printf("  %-25s = %-10s\n", CTX_CONFIG_AUTO_INDEX,
+               ctx_config_get(cfg, CTX_CONFIG_AUTO_INDEX, "false"));
+        printf("  %-25s = %-10s\n", CTX_CONFIG_AUTO_INDEX_LIMIT,
+               ctx_config_get(cfg, CTX_CONFIG_AUTO_INDEX_LIMIT, "50000"));
     } else if (strcmp(argv[0], "get") == 0) {
         if (argc < MIN_ARGC_GET) {
             (void)fprintf(stderr, "Usage: config get <key>\n");
             rc = CLI_TRUE;
         } else {
-            printf("%s\n", cbm_config_get(cfg, argv[CLI_SKIP_ONE], ""));
+            printf("%s\n", ctx_config_get(cfg, argv[CLI_SKIP_ONE], ""));
         }
     } else if (strcmp(argv[0], "set") == 0) {
         if (argc < MIN_ARGC_CMD) {
             (void)fprintf(stderr, "Usage: config set <key> <value>\n");
             rc = CLI_TRUE;
         } else {
-            if (cbm_config_set(cfg, argv[CLI_SKIP_ONE], argv[CLI_PAIR_LEN]) == 0) {
+            if (ctx_config_set(cfg, argv[CLI_SKIP_ONE], argv[CLI_PAIR_LEN]) == 0) {
                 printf("%s = %s\n", argv[CLI_SKIP_ONE], argv[CLI_PAIR_LEN]);
             } else {
                 (void)fprintf(stderr, "error: failed to set %s\n", argv[CLI_SKIP_ONE]);
@@ -2344,7 +2344,7 @@ int cbm_cmd_config(int argc, char **argv) {
             (void)fprintf(stderr, "Usage: config reset <key>\n");
             rc = CLI_TRUE;
         } else {
-            cbm_config_delete(cfg, argv[CLI_SKIP_ONE]);
+            ctx_config_delete(cfg, argv[CLI_SKIP_ONE]);
             printf("%s reset to default\n", argv[CLI_SKIP_ONE]);
         }
     } else {
@@ -2352,7 +2352,7 @@ int cbm_cmd_config(int argc, char **argv) {
         rc = CLI_TRUE;
     }
 
-    cbm_config_close(cfg);
+    ctx_config_close(cfg);
     return rc;
 }
 
@@ -2401,87 +2401,87 @@ static bool prompt_yn(const char *question) {
     return (buf[0] == 'y' || buf[0] == 'Y') ? true : false;
 }
 
-/* ── SHA-CBM_SZ_256 checksum verification ─────────────────────────────── */
+/* ── SHA-CTX_SZ_256 checksum verification ─────────────────────────────── */
 
-/* SHA-CBM_SZ_256 hex digest: CBM_SZ_64 hex chars + NUL */
-#define SHA256_HEX_LEN CBM_SZ_64
+/* SHA-CTX_SZ_256 hex digest: CTX_SZ_64 hex chars + NUL */
+#define SHA256_HEX_LEN CTX_SZ_64
 #define SHA256_BUF_SIZE (SHA256_HEX_LEN + CLI_SKIP_ONE)
-/* Minimum line length in checksums.txt: CBM_SZ_64 hex + 2 spaces + 1 char filename */
+/* Minimum line length in checksums.txt: CTX_SZ_64 hex + 2 spaces + 1 char filename */
 #define CHECKSUM_LINE_MIN (SHA256_HEX_LEN + 2)
 
-/* Compute SHA-CBM_SZ_256 of a file using platform tools (sha256sum/shasum).
- * Writes CBM_SZ_64-char hex digest + NUL to out. Returns 0 on success. */
+/* Compute SHA-CTX_SZ_256 of a file using platform tools (sha256sum/shasum).
+ * Writes CTX_SZ_64-char hex digest + NUL to out. Returns 0 on success. */
 static int sha256_file(const char *path, char *out, size_t out_size) {
     if (out_size < SHA256_BUF_SIZE) {
         return CLI_ERR;
     }
     char cmd[CLI_BUF_1K];
 #ifdef __APPLE__
-    snprintf(cmd, sizeof(cmd), "shasum -a CBM_SZ_256 '%s' 2>/dev/null", path);
+    snprintf(cmd, sizeof(cmd), "shasum -a CTX_SZ_256 '%s' 2>/dev/null", path);
 #else
     snprintf(cmd, sizeof(cmd), "sha256sum '%s' 2>/dev/null", path);
 #endif
-    FILE *fp = cbm_popen(cmd, "r");
+    FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
         return CLI_ERR;
     }
     char line[CLI_BUF_256];
     if (fgets(line, sizeof(line), fp)) {
-        /* Output format: <CBM_SZ_64-char hash>  <filename> */
+        /* Output format: <CTX_SZ_64-char hash>  <filename> */
         char *space = strchr(line, ' ');
         if (space && space - line == SHA256_HEX_LEN) {
             memcpy(out, line, SHA256_HEX_LEN);
             out[SHA256_HEX_LEN] = '\0';
-            cbm_pclose(fp);
+            ctx_pclose(fp);
             return 0;
         }
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
     return CLI_ERR;
 }
 
 /* ── Download helper (shell-free curl via exec) ───────────────── */
 
-static int cbm_download_to_file(const char *url, const char *dest) {
+static int ctx_download_to_file(const char *url, const char *dest) {
     const char *argv[] = {"curl", "-fSL", "--progress-bar", "-o", dest, url, NULL};
-    return cbm_exec_no_shell(argv);
+    return ctx_exec_no_shell(argv);
 }
 
-static int cbm_download_to_file_quiet(const char *url, const char *dest) {
+static int ctx_download_to_file_quiet(const char *url, const char *dest) {
     const char *argv[] = {"curl", "-fsSL", "-o", dest, url, NULL};
-    return cbm_exec_no_shell(argv);
+    return ctx_exec_no_shell(argv);
 }
 
 /* ── macOS ad-hoc signing ─────────────────────────────────────── */
 
 #ifdef __APPLE__
-static int cbm_macos_adhoc_sign(const char *binary_path) {
+static int ctx_macos_adhoc_sign(const char *binary_path) {
     /* Remove quarantine xattr (best effort — may not exist) */
     const char *xattr_argv[] = {"xattr", "-d", "com.apple.quarantine", binary_path, NULL};
-    (void)cbm_exec_no_shell(xattr_argv);
+    (void)ctx_exec_no_shell(xattr_argv);
 
     /* Ad-hoc sign (required for arm64, harmless for x86_64) */
     const char *sign_argv[] = {"codesign", "--sign", "-", "--force", binary_path, NULL};
-    return cbm_exec_no_shell(sign_argv);
+    return ctx_exec_no_shell(sign_argv);
 }
 #endif
 
 /* ── Kill other MCP server instances ──────────────────────────── */
 
-static int cbm_kill_other_instances(void) {
+static int ctx_kill_other_instances(void) {
 #ifdef _WIN32
     /* taskkill /IM kills ALL matching processes INCLUDING self.
      * Use /FI filter to exclude our own PID. */
-    char pid_filter[CBM_SZ_64];
+    char pid_filter[CTX_SZ_64];
     snprintf(pid_filter, sizeof(pid_filter), "PID ne %lu", (unsigned long)GetCurrentProcessId());
     const char *argv[] = {"taskkill", "/F",       "/FI", "IMAGENAME eq codebase-memory-mcp.exe",
                           "/FI",      pid_filter, NULL};
-    (void)cbm_exec_no_shell(argv);
+    (void)ctx_exec_no_shell(argv);
     return 0;
 #else
     int killed = 0;
     pid_t self = getpid();
-    FILE *fp = cbm_popen("pgrep -x codebase-memory-mcp", "r");
+    FILE *fp = ctx_popen("pgrep -x codebase-memory-mcp", "r");
     if (!fp) {
         return 0;
     }
@@ -2494,7 +2494,7 @@ static int cbm_kill_other_instances(void) {
             }
         }
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
     return killed;
 #endif
 }
@@ -2503,11 +2503,11 @@ static int cbm_kill_other_instances(void) {
  * Returns: 0 = verified OK, 1 = mismatch (FAIL), -1 = could not verify (warning). */
 static int verify_download_checksum(const char *archive_path, const char *archive_name) {
     char checksum_file[CLI_BUF_256];
-    snprintf(checksum_file, sizeof(checksum_file), "%s/cbm-checksums.txt", cbm_tmpdir());
+    snprintf(checksum_file, sizeof(checksum_file), "%s/cbm-checksums.txt", ctx_tmpdir());
 
     char dl_base_buf[CLI_BUF_512];
     const char *dl_base =
-        cbm_safe_getenv("CBM_DOWNLOAD_URL", dl_base_buf, sizeof(dl_base_buf), NULL);
+        ctx_safe_getenv("CTX_DOWNLOAD_URL", dl_base_buf, sizeof(dl_base_buf), NULL);
     char checksum_url[CLI_BUF_512];
     if (dl_base && dl_base[0]) {
         snprintf(checksum_url, sizeof(checksum_url), "%s/checksums.txt", dl_base);
@@ -2516,16 +2516,16 @@ static int verify_download_checksum(const char *archive_path, const char *archiv
                  "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/"
                  "checksums.txt");
     }
-    int rc = cbm_download_to_file_quiet(checksum_url, checksum_file);
+    int rc = ctx_download_to_file_quiet(checksum_url, checksum_file);
     if (rc != 0) {
         (void)fprintf(stderr,
                       "warning: could not download checksums.txt — skipping verification\n");
-        cbm_unlink(checksum_file);
+        ctx_unlink(checksum_file);
         return CLI_ERR;
     }
 
     FILE *fp = fopen(checksum_file, "r");
-    cbm_unlink(checksum_file);
+    ctx_unlink(checksum_file);
     if (!fp) {
         return CLI_ERR;
     }
@@ -2533,7 +2533,7 @@ static int verify_download_checksum(const char *archive_path, const char *archiv
     char expected[SHA256_BUF_SIZE] = {0};
     char line[CLI_BUF_512];
     while (fgets(line, sizeof(line), fp)) {
-        /* Format: <CBM_SZ_64-char sha256>  <filename>\n */
+        /* Format: <CTX_SZ_64-char sha256>  <filename>\n */
         if (strlen(line) > CHECKSUM_LINE_MIN && strstr(line, archive_name)) {
             memcpy(expected, line, SHA256_HEX_LEN);
             expected[SHA256_HEX_LEN] = '\0';
@@ -2587,7 +2587,7 @@ static const char *detect_arch(void) {
 /* ── Agent config install/refresh (shared by install + update) ── */
 
 /* Print detected agent names on a single line. */
-static void print_detected_agents(const cbm_detected_agents_t *a) {
+static void print_detected_agents(const ctx_detected_agents_t *a) {
     struct {
         bool flag;
         const char *name;
@@ -2624,34 +2624,34 @@ static void install_claude_code_config(const char *home, const char *binary_path
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", home);
     printf("Claude Code:\n");
 
-    int skill_count = cbm_install_skills(skills_dir, force, dry_run);
+    int skill_count = ctx_install_skills(skills_dir, force, dry_run);
     printf("  skills: %d installed\n", skill_count);
 
-    if (cbm_remove_old_monolithic_skill(skills_dir, dry_run)) {
+    if (ctx_remove_old_monolithic_skill(skills_dir, dry_run)) {
         printf("  removed old monolithic skill\n");
     }
 
     char mcp_path[CLI_BUF_1K];
     snprintf(mcp_path, sizeof(mcp_path), "%s/.claude/.mcp.json", home);
     if (!dry_run) {
-        cbm_install_editor_mcp(binary_path, mcp_path);
+        ctx_install_editor_mcp(binary_path, mcp_path);
     }
     printf("  mcp: %s\n", mcp_path);
 
     char mcp_path2[CLI_BUF_1K];
     snprintf(mcp_path2, sizeof(mcp_path2), "%s/.claude.json", home);
     if (!dry_run) {
-        cbm_install_editor_mcp(binary_path, mcp_path2);
+        ctx_install_editor_mcp(binary_path, mcp_path2);
     }
     printf("  mcp: %s\n", mcp_path2);
 
     char settings_path[CLI_BUF_1K];
     snprintf(settings_path, sizeof(settings_path), "%s/.claude/settings.json", home);
     if (!dry_run) {
-        cbm_upsert_claude_hooks(settings_path);
-        cbm_install_hook_gate_script(home);
-        cbm_install_session_reminder_script(home);
-        cbm_upsert_session_hooks(settings_path);
+        ctx_upsert_claude_hooks(settings_path);
+        ctx_install_hook_gate_script(home);
+        ctx_install_session_reminder_script(home);
+        ctx_upsert_session_hooks(settings_path);
     }
     printf("  hooks: PreToolUse (code discovery gate)\n");
     printf("  hooks: SessionStart (MCP usage reminder on startup/resume/clear/compact)\n");
@@ -2669,7 +2669,7 @@ static void install_generic_agent_config(const char *label, const char *binary_p
     printf("  mcp: %s\n", config_path);
     if (instr_path) {
         if (!dry_run) {
-            cbm_upsert_instructions(instr_path, agent_instructions_content);
+            ctx_upsert_instructions(instr_path, agent_instructions_content);
         }
         printf("  instructions: %s\n", instr_path);
     }
@@ -2683,14 +2683,14 @@ static void install_gemini_config(const char *home, const char *binary_path, boo
     snprintf(cp, sizeof(cp), "%s/.gemini/settings.json", home);
     snprintf(ip, sizeof(ip), "%s/.gemini/GEMINI.md", home);
     install_generic_agent_config("Gemini CLI", binary_path, cp, ip, dry_run,
-                                 cbm_install_editor_mcp);
+                                 ctx_install_editor_mcp);
     if (!dry_run) {
-        cbm_upsert_gemini_hooks(cp);
+        ctx_upsert_gemini_hooks(cp);
     }
     printf("  hooks: BeforeTool (grep/file search reminder)\n");
 }
 
-static void install_cli_agent_configs(const cbm_detected_agents_t *agents, const char *home,
+static void install_cli_agent_configs(const ctx_detected_agents_t *agents, const char *home,
                                       const char *binary_path, bool dry_run) {
     if (agents->codex) {
         char cp[CLI_BUF_1K];
@@ -2698,7 +2698,7 @@ static void install_cli_agent_configs(const cbm_detected_agents_t *agents, const
         snprintf(cp, sizeof(cp), "%s/.codex/config.toml", home);
         snprintf(ip, sizeof(ip), "%s/.codex/AGENTS.md", home);
         install_generic_agent_config("Codex CLI", binary_path, cp, ip, dry_run,
-                                     cbm_upsert_codex_mcp);
+                                     ctx_upsert_codex_mcp);
     }
     if (agents->gemini) {
         install_gemini_config(home, binary_path, dry_run);
@@ -2709,7 +2709,7 @@ static void install_cli_agent_configs(const cbm_detected_agents_t *agents, const
         snprintf(cp, sizeof(cp), "%s/.config/opencode/opencode.json", home);
         snprintf(ip, sizeof(ip), "%s/.config/opencode/AGENTS.md", home);
         install_generic_agent_config("OpenCode", binary_path, cp, ip, dry_run,
-                                     cbm_upsert_opencode_mcp);
+                                     ctx_upsert_opencode_mcp);
     }
     if (agents->antigravity) {
         char cp[CLI_BUF_1K];
@@ -2717,32 +2717,32 @@ static void install_cli_agent_configs(const cbm_detected_agents_t *agents, const
         snprintf(cp, sizeof(cp), "%s/.gemini/antigravity/mcp_config.json", home);
         snprintf(ip, sizeof(ip), "%s/.gemini/antigravity/AGENTS.md", home);
         install_generic_agent_config("Antigravity", binary_path, cp, ip, dry_run,
-                                     cbm_upsert_antigravity_mcp);
+                                     ctx_upsert_antigravity_mcp);
     }
     if (agents->aider) {
         char ip[CLI_BUF_1K];
         snprintf(ip, sizeof(ip), "%s/CONVENTIONS.md", home);
         printf("Aider:\n");
         if (!dry_run) {
-            cbm_upsert_instructions(ip, agent_instructions_content);
+            ctx_upsert_instructions(ip, agent_instructions_content);
         }
         printf("  instructions: %s\n", ip);
     }
 }
 
 /* Install MCP configs for editor-based agents (Zed, KiloCode, VS Code, OpenClaw). */
-static void install_editor_agent_configs(const cbm_detected_agents_t *agents, const char *home,
+static void install_editor_agent_configs(const ctx_detected_agents_t *agents, const char *home,
                                          const char *binary_path, bool dry_run) {
     if (agents->zed) {
         char cp[CLI_BUF_1K];
 #ifdef __APPLE__
         snprintf(cp, sizeof(cp), "%s/Library/Application Support/Zed/settings.json", home);
 #elif defined(_WIN32)
-        snprintf(cp, sizeof(cp), "%s/Zed/settings.json", cbm_app_local_dir());
+        snprintf(cp, sizeof(cp), "%s/Zed/settings.json", ctx_app_local_dir());
 #else
-        snprintf(cp, sizeof(cp), "%s/zed/settings.json", cbm_app_config_dir());
+        snprintf(cp, sizeof(cp), "%s/zed/settings.json", ctx_app_config_dir());
 #endif
-        install_generic_agent_config("Zed", binary_path, cp, NULL, dry_run, cbm_install_zed_mcp);
+        install_generic_agent_config("Zed", binary_path, cp, NULL, dry_run, ctx_install_zed_mcp);
     }
     if (agents->kilocode) {
         char cp[CLI_BUF_1K];
@@ -2755,33 +2755,33 @@ static void install_editor_agent_configs(const cbm_detected_agents_t *agents, co
 #else
         snprintf(cp, sizeof(cp),
                  "%s/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
-                 cbm_app_config_dir());
+                 ctx_app_config_dir());
 #endif
         snprintf(ip, sizeof(ip), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
         install_generic_agent_config("KiloCode", binary_path, cp, ip, dry_run,
-                                     cbm_install_editor_mcp);
+                                     ctx_install_editor_mcp);
     }
     if (agents->vscode) {
         char cp[CLI_BUF_1K];
 #ifdef __APPLE__
         snprintf(cp, sizeof(cp), "%s/Library/Application Support/Code/User/mcp.json", home);
 #else
-        snprintf(cp, sizeof(cp), "%s/Code/User/mcp.json", cbm_app_config_dir());
+        snprintf(cp, sizeof(cp), "%s/Code/User/mcp.json", ctx_app_config_dir());
 #endif
         install_generic_agent_config("VS Code", binary_path, cp, NULL, dry_run,
-                                     cbm_install_vscode_mcp);
+                                     ctx_install_vscode_mcp);
     }
     if (agents->openclaw) {
         char cp[CLI_BUF_1K];
         snprintf(cp, sizeof(cp), "%s/.openclaw/openclaw.json", home);
         install_generic_agent_config("OpenClaw", binary_path, cp, NULL, dry_run,
-                                     cbm_install_editor_mcp);
+                                     ctx_install_editor_mcp);
     }
 }
 
-static void cbm_install_agent_configs(const char *home, const char *binary_path, bool force,
+static void ctx_install_agent_configs(const char *home, const char *binary_path, bool force,
                                       bool dry_run) {
-    cbm_detected_agents_t agents = cbm_detect_agents(home);
+    ctx_detected_agents_t agents = ctx_detect_agents(home);
     print_detected_agents(&agents);
 
     if (agents.claude_code) {
@@ -2797,30 +2797,30 @@ static int count_db_indexes(const char *home) {
     if (!cache_dir) {
         return 0;
     }
-    cbm_dir_t *d = cbm_opendir(cache_dir);
+    ctx_dir_t *d = ctx_opendir(cache_dir);
     if (!d) {
         return 0;
     }
     int count = 0;
-    cbm_dirent_t *ent;
-    while ((ent = cbm_readdir(d)) != NULL) {
+    ctx_dirent_t *ent;
+    while ((ent = ctx_readdir(d)) != NULL) {
         size_t len = strlen(ent->name);
         if (len > DB_EXT_LEN && strcmp(ent->name + len - DB_EXT_LEN, ".db") == 0) {
             count++;
         }
     }
-    cbm_closedir(d);
+    ctx_closedir(d);
     return count;
 }
 
 /* ── Subcommand: install ──────────────────────────────────────── */
 
 /* Detect the running binary's path at runtime. Falls back to ~/.local/bin/. */
-static void cbm_detect_self_path(char *buf, size_t buf_sz, const char *home) {
+static void ctx_detect_self_path(char *buf, size_t buf_sz, const char *home) {
     buf[0] = '\0';
 #ifdef _WIN32
     GetModuleFileNameA(NULL, buf, (DWORD)buf_sz);
-    cbm_normalize_path_sep(buf);
+    ctx_normalize_path_sep(buf);
 #elif defined(__APPLE__)
     uint32_t sp_sz = (uint32_t)buf_sz;
     if (_NSGetExecutablePath(buf, &sp_sz) != 0) {
@@ -2841,7 +2841,7 @@ static void cbm_detect_self_path(char *buf, size_t buf_sz, const char *home) {
     }
 }
 
-int cbm_cmd_install(int argc, char **argv) {
+int ctx_cmd_install(int argc, char **argv) {
     parse_auto_answer(argc, argv);
     bool dry_run = false;
     bool force = false;
@@ -2854,32 +2854,32 @@ int cbm_cmd_install(int argc, char **argv) {
         }
     }
 
-    const char *home = cbm_get_home_dir();
+    const char *home = ctx_get_home_dir();
     if (!home) {
         (void)fprintf(stderr, "error: HOME not set (use USERPROFILE on Windows)\n");
         return CLI_TRUE;
     }
 
-    printf("codebase-memory-mcp install %s\n\n", CBM_VERSION);
+    printf("codebase-memory-mcp install %s\n\n", CTX_VERSION);
 
     int index_count = count_db_indexes(home);
     if (index_count > 0) {
         printf("Found %d existing index(es) that must be rebuilt:\n", index_count);
-        cbm_list_indexes(home);
+        ctx_list_indexes(home);
         printf("\n");
         if (!prompt_yn("Delete these indexes and continue with install?")) {
             printf("Install cancelled.\n");
             return CLI_TRUE;
         }
         if (!dry_run) {
-            int removed = cbm_remove_indexes(home);
+            int removed = ctx_remove_indexes(home);
             printf("Removed %d index(es).\n\n", removed);
         }
     }
 
     /* Step 1b: Kill running MCP server instances so agents pick up new config */
     if (!dry_run) {
-        int killed = cbm_kill_other_instances();
+        int killed = ctx_kill_other_instances();
         if (killed > 0) {
             printf("Stopped %d running MCP server instance(s).\n\n", killed);
         }
@@ -2892,24 +2892,24 @@ int cbm_cmd_install(int argc, char **argv) {
         snprintf(sign_path, sizeof(sign_path), "%s/.local/bin/codebase-memory-mcp", home);
         struct stat sign_st;
         if (stat(sign_path, &sign_st) == 0) {
-            (void)cbm_macos_adhoc_sign(sign_path);
+            (void)ctx_macos_adhoc_sign(sign_path);
         }
     }
 #endif
 
     /* Step 2: Binary path — detect actual location at runtime. */
     char self_path[CLI_BUF_1K] = {0};
-    cbm_detect_self_path(self_path, sizeof(self_path), home);
+    ctx_detect_self_path(self_path, sizeof(self_path), home);
 
     /* Step 3: Install/refresh all agent configs */
-    cbm_install_agent_configs(home, self_path, force, dry_run);
+    ctx_install_agent_configs(home, self_path, force, dry_run);
 
     /* Step 4: Ensure PATH */
     char bin_dir[CLI_BUF_1K];
     snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);
-    const char *rc = cbm_detect_shell_rc(home);
+    const char *rc = ctx_detect_shell_rc(home);
     if (rc[0]) {
-        int path_rc = cbm_ensure_path(bin_dir, rc, dry_run);
+        int path_rc = ctx_ensure_path(bin_dir, rc, dry_run);
         if (path_rc == 0) {
             printf("\nAdded %s to PATH in %s\n", bin_dir, rc);
         } else if (path_rc == CLI_TRUE) {
@@ -2931,27 +2931,27 @@ int cbm_cmd_install(int argc, char **argv) {
 static void uninstall_claude_code(const char *home, bool dry_run) {
     char skills_dir[CLI_BUF_1K];
     snprintf(skills_dir, sizeof(skills_dir), "%s/.claude/skills", home);
-    int removed = cbm_remove_skills(skills_dir, dry_run);
+    int removed = ctx_remove_skills(skills_dir, dry_run);
     printf("Claude Code: removed %d skill(s)\n", removed);
 
     char mcp_path[CLI_BUF_1K];
     snprintf(mcp_path, sizeof(mcp_path), "%s/.claude/.mcp.json", home);
     if (!dry_run) {
-        cbm_remove_editor_mcp(mcp_path);
+        ctx_remove_editor_mcp(mcp_path);
     }
     printf("  removed MCP config entry\n");
 
     char mcp_path2[CLI_BUF_1K];
     snprintf(mcp_path2, sizeof(mcp_path2), "%s/.claude.json", home);
     if (!dry_run) {
-        cbm_remove_editor_mcp(mcp_path2);
+        ctx_remove_editor_mcp(mcp_path2);
     }
 
     char settings_path[CLI_BUF_1K];
     snprintf(settings_path, sizeof(settings_path), "%s/.claude/settings.json", home);
     if (!dry_run) {
-        cbm_remove_claude_hooks(settings_path);
-        cbm_remove_session_hooks(settings_path);
+        ctx_remove_claude_hooks(settings_path);
+        ctx_remove_session_hooks(settings_path);
     }
     printf("  removed PreToolUse + SessionStart hooks\n");
 }
@@ -2973,7 +2973,7 @@ static void uninstall_agent_mcp_instr(mcp_uninstall_args_t paths, bool dry_run,
     printf("%s: removed MCP config entry\n", name);
     if (instr_path) {
         if (!dry_run) {
-            cbm_remove_instructions(instr_path);
+            ctx_remove_instructions(instr_path);
         }
         printf("  removed instructions\n");
     }
@@ -2987,14 +2987,14 @@ static void uninstall_gemini_config(const char *home, bool dry_run) {
     snprintf(cp, sizeof(cp), "%s/.gemini/settings.json", home);
     snprintf(ip, sizeof(ip), "%s/.gemini/GEMINI.md", home);
     if (!dry_run) {
-        cbm_remove_editor_mcp(cp);
-        cbm_remove_gemini_hooks(cp);
-        cbm_remove_instructions(ip);
+        ctx_remove_editor_mcp(cp);
+        ctx_remove_gemini_hooks(cp);
+        ctx_remove_instructions(ip);
     }
     printf("Gemini CLI: removed MCP config + hooks + instructions\n");
 }
 
-static void uninstall_cli_agents(const cbm_detected_agents_t *agents, const char *home,
+static void uninstall_cli_agents(const ctx_detected_agents_t *agents, const char *home,
                                  bool dry_run) {
     if (agents->codex) {
         char cp[CLI_BUF_1K];
@@ -3002,7 +3002,7 @@ static void uninstall_cli_agents(const cbm_detected_agents_t *agents, const char
         snprintf(cp, sizeof(cp), "%s/.codex/config.toml", home);
         snprintf(ip, sizeof(ip), "%s/.codex/AGENTS.md", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"Codex CLI", cp, ip}, dry_run,
-                                  cbm_remove_codex_mcp);
+                                  ctx_remove_codex_mcp);
     }
     if (agents->gemini) {
         uninstall_gemini_config(home, dry_run);
@@ -3013,7 +3013,7 @@ static void uninstall_cli_agents(const cbm_detected_agents_t *agents, const char
         snprintf(cp, sizeof(cp), "%s/.config/opencode/opencode.json", home);
         snprintf(ip, sizeof(ip), "%s/.config/opencode/AGENTS.md", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"OpenCode", cp, ip}, dry_run,
-                                  cbm_remove_opencode_mcp);
+                                  ctx_remove_opencode_mcp);
     }
     if (agents->antigravity) {
         char cp[CLI_BUF_1K];
@@ -3021,32 +3021,32 @@ static void uninstall_cli_agents(const cbm_detected_agents_t *agents, const char
         snprintf(cp, sizeof(cp), "%s/.gemini/antigravity/mcp_config.json", home);
         snprintf(ip, sizeof(ip), "%s/.gemini/antigravity/AGENTS.md", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"Antigravity", cp, ip}, dry_run,
-                                  cbm_remove_antigravity_mcp);
+                                  ctx_remove_antigravity_mcp);
     }
     if (agents->aider) {
         char ip[CLI_BUF_1K];
         snprintf(ip, sizeof(ip), "%s/CONVENTIONS.md", home);
         if (!dry_run) {
-            cbm_remove_instructions(ip);
+            ctx_remove_instructions(ip);
         }
         printf("Aider: removed instructions\n");
     }
 }
 
 /* Remove editor agent configs (Zed, KiloCode, VS Code, OpenClaw). */
-static void uninstall_editor_agents(const cbm_detected_agents_t *agents, const char *home,
+static void uninstall_editor_agents(const ctx_detected_agents_t *agents, const char *home,
                                     bool dry_run) {
     if (agents->zed) {
         char cp[CLI_BUF_1K];
 #ifdef __APPLE__
         snprintf(cp, sizeof(cp), "%s/Library/Application Support/Zed/settings.json", home);
 #elif defined(_WIN32)
-        snprintf(cp, sizeof(cp), "%s/Zed/settings.json", cbm_app_local_dir());
+        snprintf(cp, sizeof(cp), "%s/Zed/settings.json", ctx_app_local_dir());
 #else
-        snprintf(cp, sizeof(cp), "%s/zed/settings.json", cbm_app_config_dir());
+        snprintf(cp, sizeof(cp), "%s/zed/settings.json", ctx_app_config_dir());
 #endif
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"Zed", cp, NULL}, dry_run,
-                                  cbm_remove_zed_mcp);
+                                  ctx_remove_zed_mcp);
     }
     if (agents->kilocode) {
         char cp[CLI_BUF_1K];
@@ -3059,31 +3059,31 @@ static void uninstall_editor_agents(const cbm_detected_agents_t *agents, const c
 #else
         snprintf(cp, sizeof(cp),
                  "%s/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
-                 cbm_app_config_dir());
+                 ctx_app_config_dir());
 #endif
         snprintf(ip, sizeof(ip), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"KiloCode", cp, ip}, dry_run,
-                                  cbm_remove_editor_mcp);
+                                  ctx_remove_editor_mcp);
     }
     if (agents->vscode) {
         char cp[CLI_BUF_1K];
 #ifdef __APPLE__
         snprintf(cp, sizeof(cp), "%s/Library/Application Support/Code/User/mcp.json", home);
 #else
-        snprintf(cp, sizeof(cp), "%s/Code/User/mcp.json", cbm_app_config_dir());
+        snprintf(cp, sizeof(cp), "%s/Code/User/mcp.json", ctx_app_config_dir());
 #endif
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"VS Code", cp, NULL}, dry_run,
-                                  cbm_remove_vscode_mcp);
+                                  ctx_remove_vscode_mcp);
     }
     if (agents->openclaw) {
         char cp[CLI_BUF_1K];
         snprintf(cp, sizeof(cp), "%s/.openclaw/openclaw.json", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"OpenClaw", cp, NULL}, dry_run,
-                                  cbm_remove_editor_mcp);
+                                  ctx_remove_editor_mcp);
     }
 }
 
-int cbm_cmd_uninstall(int argc, char **argv) {
+int ctx_cmd_uninstall(int argc, char **argv) {
     parse_auto_answer(argc, argv);
     bool dry_run = false;
     for (int i = 0; i < argc; i++) {
@@ -3092,7 +3092,7 @@ int cbm_cmd_uninstall(int argc, char **argv) {
         }
     }
 
-    const char *home = cbm_get_home_dir();
+    const char *home = ctx_get_home_dir();
     if (!home) {
         (void)fprintf(stderr, "error: HOME not set (use USERPROFILE on Windows)\n");
         return CLI_TRUE;
@@ -3100,7 +3100,7 @@ int cbm_cmd_uninstall(int argc, char **argv) {
 
     printf("codebase-memory-mcp uninstall\n\n");
 
-    cbm_detected_agents_t agents = cbm_detect_agents(home);
+    ctx_detected_agents_t agents = ctx_detect_agents(home);
     if (agents.claude_code) {
         uninstall_claude_code(home, dry_run);
     }
@@ -3111,9 +3111,9 @@ int cbm_cmd_uninstall(int argc, char **argv) {
     int index_count = count_db_indexes(home);
     if (index_count > 0) {
         printf("\nFound %d index(es):\n", index_count);
-        cbm_list_indexes(home);
+        ctx_list_indexes(home);
         if (prompt_yn("Delete these indexes?")) {
-            int idx_removed = cbm_remove_indexes(home);
+            int idx_removed = ctx_remove_indexes(home);
             printf("Removed %d index(es).\n", idx_removed);
         } else {
             printf("Indexes kept.\n");
@@ -3130,7 +3130,7 @@ int cbm_cmd_uninstall(int argc, char **argv) {
     struct stat st;
     if (stat(bin_path, &st) == 0) {
         if (!dry_run) {
-            cbm_unlink(bin_path);
+            ctx_unlink(bin_path);
         }
         printf("Removed %s\n", bin_path);
     }
@@ -3168,7 +3168,7 @@ static int extract_and_install_binary(extract_install_args_t args) {
     unsigned char *data = malloc((size_t)fsize);
     if (!data) {
         (void)fclose(f);
-        cbm_unlink(tmp_archive);
+        ctx_unlink(tmp_archive);
         return CLI_TRUE;
     }
     (void)fread(data, CLI_ELEM_SIZE, (size_t)fsize, f);
@@ -3177,12 +3177,12 @@ static int extract_and_install_binary(extract_install_args_t args) {
     int bin_len = 0;
     unsigned char *bin_data = NULL;
     if (strcmp(ext, "tar.gz") == 0) {
-        bin_data = cbm_extract_binary_from_targz(data, (int)fsize, &bin_len);
+        bin_data = ctx_extract_binary_from_targz(data, (int)fsize, &bin_len);
     } else {
-        bin_data = cbm_extract_binary_from_zip(data, (int)fsize, &bin_len);
+        bin_data = ctx_extract_binary_from_zip(data, (int)fsize, &bin_len);
     }
     free(data);
-    cbm_unlink(tmp_archive);
+    ctx_unlink(tmp_archive);
 
     if (!bin_data || bin_len <= 0) {
         (void)fprintf(stderr, "error: binary not found in archive\n");
@@ -3190,7 +3190,7 @@ static int extract_and_install_binary(extract_install_args_t args) {
         return CLI_TRUE;
     }
 
-    if (cbm_replace_binary(bin_dest, bin_data, bin_len, CLI_OCTAL_PERM) != 0) {
+    if (ctx_replace_binary(bin_dest, bin_data, bin_len, CLI_OCTAL_PERM) != 0) {
         (void)fprintf(stderr, "error: cannot write to %s\n", bin_dest);
         free(bin_data);
         return CLI_TRUE;
@@ -3204,7 +3204,7 @@ static void build_update_url(char *url, int url_sz, const char *os, const char *
                              const char *ext, bool want_ui) {
     char base_url_buf[CLI_BUF_512];
     const char *base_url =
-        cbm_safe_getenv("CBM_DOWNLOAD_URL", base_url_buf, sizeof(base_url_buf), NULL);
+        ctx_safe_getenv("CTX_DOWNLOAD_URL", base_url_buf, sizeof(base_url_buf), NULL);
     if (!base_url || !base_url[0]) {
         base_url = "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download";
     }
@@ -3219,7 +3219,7 @@ static int update_clear_indexes(const char *home, bool dry_run) {
         return 0;
     }
     printf("Found %d existing index(es) that must be rebuilt after update:\n", index_count);
-    cbm_list_indexes(home);
+    ctx_list_indexes(home);
     printf("\n");
     if (dry_run) {
         printf("(dry-run — indexes would be deleted)\n\n");
@@ -3229,7 +3229,7 @@ static int update_clear_indexes(const char *home, bool dry_run) {
         printf("Update cancelled.\n");
         return CLI_TRUE;
     }
-    int removed = cbm_remove_indexes(home);
+    int removed = ctx_remove_indexes(home);
     printf("Removed %d index(es).\n\n", removed);
     return 0;
 }
@@ -3238,12 +3238,12 @@ static int update_clear_indexes(const char *home, bool dry_run) {
 static int download_verify_install(const char *url, const char *ext, const char *os,
                                    const char *arch, bool want_ui, const char *bin_dest) {
     char tmp_archive[CLI_BUF_256];
-    snprintf(tmp_archive, sizeof(tmp_archive), "%s/cbm-update.%s", cbm_tmpdir(), ext);
+    snprintf(tmp_archive, sizeof(tmp_archive), "%s/cbm-update.%s", ctx_tmpdir(), ext);
 
-    int rc = cbm_download_to_file(url, tmp_archive);
+    int rc = ctx_download_to_file(url, tmp_archive);
     if (rc != 0) {
         (void)fprintf(stderr, "error: download failed (exit %d)\n", rc);
-        cbm_unlink(tmp_archive);
+        ctx_unlink(tmp_archive);
         return CLI_TRUE;
     }
 
@@ -3252,11 +3252,11 @@ static int download_verify_install(const char *url, const char *ext, const char 
              want_ui ? "ui-" : "", os, arch, ext);
     int crc = verify_download_checksum(tmp_archive, archive_name);
     if (crc == CLI_TRUE) {
-        cbm_unlink(tmp_archive);
+        ctx_unlink(tmp_archive);
         return CLI_TRUE;
     }
 
-    int killed = cbm_kill_other_instances();
+    int killed = ctx_kill_other_instances();
     if (killed > 0) {
         printf("Stopped %d running MCP server instance(s).\n", killed);
     }
@@ -3310,13 +3310,13 @@ static bool prefix_icase(const char *s, const char *prefix) {
 /* Fetch latest release tag from GitHub via redirect header.
  * Returns heap-allocated tag (e.g. "v0.5.7") or NULL on failure. */
 static char *fetch_latest_tag(void) {
-    FILE *fp = cbm_popen(
+    FILE *fp = ctx_popen(
         "curl -sfI https://github.com/DeusData/codebase-memory-mcp/releases/latest 2>/dev/null",
         "r");
     if (!fp) {
         return NULL;
     }
-    char line[CBM_SZ_512];
+    char line[CTX_SZ_512];
     char *tag = NULL;
     while (fgets(line, sizeof(line), fp)) {
         if (!prefix_icase(line, "location:")) {
@@ -3337,14 +3337,14 @@ static char *fetch_latest_tag(void) {
         }
         break;
     }
-    cbm_pclose(fp);
+    ctx_pclose(fp);
     return tag;
 }
 
 /* Check if current version is already latest. Returns true to skip update. */
 static bool check_already_latest(void) {
-    char dl_env[CBM_SZ_256] = "";
-    cbm_safe_getenv("CBM_DOWNLOAD_URL", dl_env, sizeof(dl_env), NULL);
+    char dl_env[CTX_SZ_256] = "";
+    ctx_safe_getenv("CTX_DOWNLOAD_URL", dl_env, sizeof(dl_env), NULL);
     if (dl_env[0]) {
         return false; /* testing override — always update */
     }
@@ -3354,22 +3354,22 @@ static bool check_already_latest(void) {
                               "Proceeding with update.\n");
         return false;
     }
-    int cmp = cbm_compare_versions(latest, CBM_VERSION);
+    int cmp = ctx_compare_versions(latest, CTX_VERSION);
     if (cmp <= 0) {
         if (cmp < 0) {
-            printf("Already up to date (%s, ahead of latest %s).\n", CBM_VERSION, latest);
+            printf("Already up to date (%s, ahead of latest %s).\n", CTX_VERSION, latest);
         } else {
-            printf("Already up to date (%s).\n", CBM_VERSION);
+            printf("Already up to date (%s).\n", CTX_VERSION);
         }
         free(latest);
         return true;
     }
-    printf("Update available: %s -> %s\n", CBM_VERSION, latest);
+    printf("Update available: %s -> %s\n", CTX_VERSION, latest);
     free(latest);
     return false;
 }
 
-int cbm_cmd_update(int argc, char **argv) {
+int ctx_cmd_update(int argc, char **argv) {
     parse_auto_answer(argc, argv);
 
     bool dry_run = false;
@@ -3387,13 +3387,13 @@ int cbm_cmd_update(int argc, char **argv) {
         }
     }
 
-    const char *home = cbm_get_home_dir();
+    const char *home = ctx_get_home_dir();
     if (!home) {
         (void)fprintf(stderr, "error: HOME not set (use USERPROFILE on Windows)\n");
         return CLI_TRUE;
     }
 
-    printf("codebase-memory-mcp update (current: %s)\n\n", CBM_VERSION);
+    printf("codebase-memory-mcp update (current: %s)\n\n", CTX_VERSION);
 
     /* Version check — skip download if already on latest (not in dry-run). */
     if (!force && !dry_run && check_already_latest()) {
@@ -3447,7 +3447,7 @@ int cbm_cmd_update(int argc, char **argv) {
 #endif
     char bin_dir[CLI_BUF_1K];
     snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);
-    cbm_mkdir_p(bin_dir, CLI_OCTAL_PERM);
+    ctx_mkdir_p(bin_dir, CLI_OCTAL_PERM);
 
     int rc = download_verify_install(url, ext, os, arch, want_ui, bin_dest);
     if (rc != 0) {
@@ -3456,7 +3456,7 @@ int cbm_cmd_update(int argc, char **argv) {
 
     /* Step 5b: macOS ad-hoc signing (required for arm64, harmless for x86_64) */
 #ifdef __APPLE__
-    if (cbm_macos_adhoc_sign(bin_dest) != 0) {
+    if (ctx_macos_adhoc_sign(bin_dest) != 0) {
         (void)fprintf(stderr,
                       "warning: ad-hoc signing failed — binary may not run on macOS arm64\n");
     }
@@ -3464,13 +3464,13 @@ int cbm_cmd_update(int argc, char **argv) {
 
     /* Step 6: Refresh all agent configs (skills, MCP entries, hooks) */
     printf("Refreshing agent configurations...\n");
-    cbm_install_agent_configs(home, bin_dest, true, false);
+    ctx_install_agent_configs(home, bin_dest, true, false);
 
     /* Step 7: Verify new version (exec directly, no shell interpretation) */
     printf("\nUpdate complete. Verifying:\n");
     {
         const char *ver_argv[] = {bin_dest, "--version", NULL};
-        (void)cbm_exec_no_shell(ver_argv);
+        (void)ctx_exec_no_shell(ver_argv);
     }
 
     printf("\nAll project indexes were cleared. They will be rebuilt\n");

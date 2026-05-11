@@ -22,15 +22,15 @@
 #include <direct.h> /* _mkdir */
 #include <io.h>     /* _unlink */
 
-struct cbm_dir {
+struct ctx_dir {
     HANDLE find_handle;
     WIN32_FIND_DATAA find_data;
-    cbm_dirent_t entry;
+    ctx_dirent_t entry;
     bool first;
     bool done;
 };
 
-cbm_dir_t *cbm_opendir(const char *path) {
+ctx_dir_t *ctx_opendir(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -47,7 +47,7 @@ cbm_dir_t *cbm_opendir(const char *path) {
     pattern[len++] = '*';
     pattern[len] = '\0';
 
-    cbm_dir_t *d = (cbm_dir_t *)calloc(CBM_ALLOC_ONE, sizeof(cbm_dir_t));
+    ctx_dir_t *d = (ctx_dir_t *)calloc(CTX_ALLOC_ONE, sizeof(ctx_dir_t));
     if (!d) {
         free(pattern);
         return NULL;
@@ -64,7 +64,7 @@ cbm_dir_t *cbm_opendir(const char *path) {
     return d;
 }
 
-cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
+ctx_dirent_t *ctx_readdir(ctx_dir_t *d) {
     if (!d || d->done) {
         return NULL;
     }
@@ -87,8 +87,8 @@ cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
     }
 
     size_t nlen = strlen(d->find_data.cFileName);
-    if (nlen >= CBM_DIRENT_NAME_MAX) {
-        nlen = CBM_DIRENT_NAME_MAX - SKIP_ONE;
+    if (nlen >= CTX_DIRENT_NAME_MAX) {
+        nlen = CTX_DIRENT_NAME_MAX - SKIP_ONE;
     }
     memcpy(d->entry.name, d->find_data.cFileName, nlen);
     d->entry.name[nlen] = '\0';
@@ -97,7 +97,7 @@ cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
     return &d->entry;
 }
 
-void cbm_closedir(cbm_dir_t *d) {
+void ctx_closedir(ctx_dir_t *d) {
     if (d) {
         if (d->find_handle != INVALID_HANDLE_VALUE) {
             FindClose(d->find_handle);
@@ -106,15 +106,15 @@ void cbm_closedir(cbm_dir_t *d) {
     }
 }
 
-FILE *cbm_popen(const char *cmd, const char *mode) {
+FILE *ctx_popen(const char *cmd, const char *mode) {
     return _popen(cmd, mode);
 }
 
-int cbm_pclose(FILE *f) {
+int ctx_pclose(FILE *f) {
     return _pclose(f);
 }
 
-bool cbm_mkdir_p(const char *path, int mode) {
+bool ctx_mkdir_p(const char *path, int mode) {
     (void)mode; /* Windows ignores POSIX permissions */
     /* Simple recursive mkdir: try creating, if fail walk parents */
     if (_mkdir(path) == 0) {
@@ -137,17 +137,17 @@ bool cbm_mkdir_p(const char *path, int mode) {
     return ok;
 }
 
-int cbm_unlink(const char *path) {
+int ctx_unlink(const char *path) {
     return _unlink(path);
 }
 
-int cbm_rmdir(const char *path) {
+int ctx_rmdir(const char *path) {
     return _rmdir(path);
 }
 
-int cbm_exec_no_shell(const char *const *argv) {
+int ctx_exec_no_shell(const char *const *argv) {
     if (!argv || !argv[0]) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     return (int)_spawnvp(_P_WAIT, argv[0], argv);
 }
@@ -162,12 +162,12 @@ int cbm_exec_no_shell(const char *const *argv) {
 #include <sys/wait.h>
 #include <unistd.h>
 
-struct cbm_dir {
+struct ctx_dir {
     DIR *dir;
-    cbm_dirent_t entry;
+    ctx_dirent_t entry;
 };
 
-cbm_dir_t *cbm_opendir(const char *path) {
+ctx_dir_t *ctx_opendir(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -175,7 +175,7 @@ cbm_dir_t *cbm_opendir(const char *path) {
     if (!dir) {
         return NULL;
     }
-    cbm_dir_t *d = (cbm_dir_t *)calloc(CBM_ALLOC_ONE, sizeof(cbm_dir_t));
+    ctx_dir_t *d = (ctx_dir_t *)calloc(CTX_ALLOC_ONE, sizeof(ctx_dir_t));
     if (!d) {
         closedir(dir);
         return NULL;
@@ -184,7 +184,7 @@ cbm_dir_t *cbm_opendir(const char *path) {
     return d;
 }
 
-cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
+ctx_dirent_t *ctx_readdir(ctx_dir_t *d) {
     if (!d || !d->dir) {
         return NULL;
     }
@@ -197,8 +197,8 @@ cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
             continue;
         }
         size_t nlen = strlen(de->d_name);
-        if (nlen >= CBM_DIRENT_NAME_MAX) {
-            nlen = CBM_DIRENT_NAME_MAX - SKIP_ONE;
+        if (nlen >= CTX_DIRENT_NAME_MAX) {
+            nlen = CTX_DIRENT_NAME_MAX - SKIP_ONE;
         }
         memcpy(d->entry.name, de->d_name, nlen);
         d->entry.name[nlen] = '\0';
@@ -209,7 +209,7 @@ cbm_dirent_t *cbm_readdir(cbm_dir_t *d) {
     return NULL;
 }
 
-void cbm_closedir(cbm_dir_t *d) {
+void ctx_closedir(ctx_dir_t *d) {
     if (d) {
         if (d->dir) {
             closedir(d->dir);
@@ -218,15 +218,15 @@ void cbm_closedir(cbm_dir_t *d) {
     }
 }
 
-FILE *cbm_popen(const char *cmd, const char *mode) {
+FILE *ctx_popen(const char *cmd, const char *mode) {
     return popen(cmd, mode);
 }
 
-int cbm_pclose(FILE *f) {
+int ctx_pclose(FILE *f) {
     return pclose(f);
 }
 
-bool cbm_mkdir_p(const char *path, int mode) {
+bool ctx_mkdir_p(const char *path, int mode) {
     /* Try direct mkdir first */
     if (mkdir(path, (mode_t)mode) == 0) {
         return true;
@@ -248,21 +248,21 @@ bool cbm_mkdir_p(const char *path, int mode) {
     return ok;
 }
 
-int cbm_unlink(const char *path) {
+int ctx_unlink(const char *path) {
     return unlink(path);
 }
 
-int cbm_rmdir(const char *path) {
+int ctx_rmdir(const char *path) {
     return rmdir(path);
 }
 
-int cbm_exec_no_shell(const char *const *argv) {
+int ctx_exec_no_shell(const char *const *argv) {
     if (!argv || !argv[0]) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     pid_t pid = fork();
     if (pid < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     if (pid == 0) {
         /* Child: exec directly — no shell interpretation */
@@ -274,12 +274,12 @@ int cbm_exec_no_shell(const char *const *argv) {
     /* Parent: wait for child */
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
     }
-    return CBM_NOT_FOUND; /* killed by signal */
+    return CTX_NOT_FOUND; /* killed by signal */
 }
 
 #endif /* _WIN32 */

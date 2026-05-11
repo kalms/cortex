@@ -25,8 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef CBM_VERSION
-#define CBM_VERSION "dev"
+#ifndef CTX_VERSION
+#define CTX_VERSION "dev"
 #endif
 
 enum {
@@ -67,27 +67,27 @@ static int run_cli(int argc, char **argv) {
     const char *args_json = argc >= MAIN_CLI_ARGC ? argv[SKIP_ONE] : "{}";
 
     if (progress) {
-        cbm_progress_sink_init(stderr);
+        ctx_progress_sink_init(stderr);
     }
 
-    cbm_mcp_server_t *srv = cbm_mcp_server_new(NULL);
+    ctx_mcp_server_t *srv = ctx_mcp_server_new(NULL);
     if (!srv) {
         (void)fprintf(stderr, "Failed to create server\n");
         if (progress) {
-            cbm_progress_sink_fini();
+            ctx_progress_sink_fini();
         }
         return SKIP_ONE;
     }
 
-    char *result = cbm_mcp_handle_tool(srv, tool_name, args_json);
+    char *result = ctx_mcp_handle_tool(srv, tool_name, args_json);
     if (result) {
         printf("%s\n", result);
         free(result);
     }
 
-    cbm_mcp_server_free(srv);
+    ctx_mcp_server_free(srv);
     if (progress) {
-        cbm_progress_sink_fini();
+        ctx_progress_sink_fini();
     }
     return 0;
 }
@@ -95,7 +95,7 @@ static int run_cli(int argc, char **argv) {
 /* ── Help ───────────────────────────────────────────────────────── */
 
 static void print_help(void) {
-    printf("codebase-memory-mcp %s\n\n", CBM_VERSION);
+    printf("codebase-memory-mcp %s\n\n", CTX_VERSION);
     printf("Usage:\n");
     printf("  codebase-memory-mcp cli <tool> [json]  Run a single tool\n");
     printf("  codebase-memory-mcp install [-y|-n] [--force] [--dry-run]\n");
@@ -126,12 +126,12 @@ static int handle_subcommand(int argc, char **argv) {
     /* First scan: global flags */
     for (int i = SKIP_ONE; i < argc; i++) {
         if (strcmp(argv[i], "--profile") == 0) {
-            cbm_profile_enable();
+            ctx_profile_enable();
         }
     }
     for (int i = SKIP_ONE; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
-            printf("codebase-memory-mcp %s\n", CBM_VERSION);
+            printf("codebase-memory-mcp %s\n", CTX_VERSION);
             return 0;
         }
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -139,27 +139,27 @@ static int handle_subcommand(int argc, char **argv) {
             return 0;
         }
         if (strcmp(argv[i], "cli") == 0) {
-            cbm_mem_init(MAIN_RAM_FRACTION);
+            ctx_mem_init(MAIN_RAM_FRACTION);
             return run_cli(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "install") == 0) {
-            return cbm_cmd_install(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ctx_cmd_install(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "uninstall") == 0) {
-            return cbm_cmd_uninstall(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ctx_cmd_uninstall(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "update") == 0) {
-            return cbm_cmd_update(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ctx_cmd_update(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
         if (strcmp(argv[i], "config") == 0) {
-            return cbm_cmd_config(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
+            return ctx_cmd_config(argc - i - SKIP_ONE, argv + i + SKIP_ONE);
         }
     }
-    return CBM_NOT_FOUND;
+    return CTX_NOT_FOUND;
 }
 
 int main(int argc, char **argv) {
-    cbm_profile_init(); /* reads CBM_PROFILE env var, gates all prof macros */
+    ctx_profile_init(); /* reads CTX_PROFILE env var, gates all prof macros */
     int subcmd = handle_subcommand(argc, argv);
     if (subcmd >= 0) {
         return subcmd;

@@ -1,6 +1,6 @@
 #include "helpers.h"
-#include "arena.h" // CBMArena, cbm_arena_alloc/strdup/strndup/sprintf
-#include "cbm.h"   // CBMExtractCtx, CBMLanguage, CBM_LANG_*, EFCEntry, EFC_SIZE
+#include "arena.h" // CBMArena, ctx_arena_alloc/strdup/strndup/sprintf
+#include "cbm.h"   // CBMExtractCtx, CBMLanguage, CTX_LANG_*, EFCEntry, EFC_SIZE
 #include "lang_specs.h"
 #include "tree_sitter/api.h" // TSNode, ts_node_*
 #include "foundation/constants.h"
@@ -26,13 +26,13 @@ enum {
 
 // --- Node text extraction ---
 
-char *cbm_node_text(CBMArena *a, TSNode node, const char *source) {
+char *ctx_node_text(CBMArena *a, TSNode node, const char *source) {
     uint32_t start = ts_node_start_byte(node);
     uint32_t end = ts_node_end_byte(node);
     if (end <= start) {
-        return cbm_arena_strdup(a, "");
+        return ctx_arena_strdup(a, "");
     }
-    return cbm_arena_strndup(a, source + start, end - start);
+    return ctx_arena_strndup(a, source + start, end - start);
 }
 
 // --- Keyword sets per language ---
@@ -110,30 +110,30 @@ static const char *generic_keywords[] = {
     "def",      "fn",        "func",      "fun",    "proc",   "sub",       "method",  "async",
     "await",    "yield",     NULL};
 
-bool cbm_is_keyword(const char *name, CBMLanguage lang) {
+bool ctx_is_keyword(const char *name, CBMLanguage lang) {
     if (!name || !name[0]) {
         return true;
     }
 
     const char **keywords;
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         keywords = go_keywords;
         break;
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         keywords = python_keywords;
         break;
-    case CBM_LANG_JAVASCRIPT:
-    case CBM_LANG_TYPESCRIPT:
-    case CBM_LANG_TSX:
+    case CTX_LANG_JAVASCRIPT:
+    case CTX_LANG_TYPESCRIPT:
+    case CTX_LANG_TSX:
         keywords = js_keywords;
         break;
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         keywords = rust_keywords;
         break;
-    case CBM_LANG_JAVA:
-    case CBM_LANG_KOTLIN:
-    case CBM_LANG_SCALA:
+    case CTX_LANG_JAVA:
+    case CTX_LANG_KOTLIN:
+    case CTX_LANG_SCALA:
         keywords = java_keywords;
         break;
     default:
@@ -151,18 +151,18 @@ bool cbm_is_keyword(const char *name, CBMLanguage lang) {
 
 // --- Export detection ---
 
-bool cbm_is_exported(const char *name, CBMLanguage lang) {
+bool ctx_is_exported(const char *name, CBMLanguage lang) {
     if (!name || !name[0]) {
         return false;
     }
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         return (name[0] >= 'A' && name[0] <= 'Z');
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         return (name[0] != '_');
-    case CBM_LANG_JAVA:
-    case CBM_LANG_CSHARP:
-    case CBM_LANG_KOTLIN:
+    case CTX_LANG_JAVA:
+    case CTX_LANG_CSHARP:
+    case CTX_LANG_KOTLIN:
         return (name[0] >= 'A' && name[0] <= 'Z');
     default:
         return true;
@@ -205,48 +205,48 @@ static void strip_ext(const char *base, char *buf, size_t buflen) {
     }
 }
 
-bool cbm_is_test_file(const char *rel_path, CBMLanguage lang) {
+bool ctx_is_test_file(const char *rel_path, CBMLanguage lang) {
     if (!rel_path) {
         return false;
     }
     const char *base = path_basename(rel_path);
 
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         return has_suffix(base, "_test.go");
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         return has_prefix(base, "test_") || has_suffix(base, "_test.py");
-    case CBM_LANG_JAVASCRIPT:
-    case CBM_LANG_TYPESCRIPT:
-    case CBM_LANG_TSX: {
+    case CTX_LANG_JAVASCRIPT:
+    case CTX_LANG_TYPESCRIPT:
+    case CTX_LANG_TSX: {
         char noext[NOEXT_BUF];
         strip_ext(base, noext, sizeof(noext));
         return has_suffix(noext, ".test") || has_suffix(noext, ".spec") ||
                has_suffix(noext, "_test") || has_suffix(noext, "_spec") ||
                has_prefix(base, "test_");
     }
-    case CBM_LANG_JAVA:
-    case CBM_LANG_KOTLIN:
-    case CBM_LANG_SCALA:
+    case CTX_LANG_JAVA:
+    case CTX_LANG_KOTLIN:
+    case CTX_LANG_SCALA:
         return has_suffix(base, "Test.java") || has_suffix(base, "Tests.java") ||
                has_suffix(base, "Spec.java") || has_suffix(base, "Test.kt") ||
                has_suffix(base, "Spec.kt") || has_suffix(base, "Test.scala") ||
                has_suffix(base, "Spec.scala");
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         // Rust tests are typically mod tests inside the file, but test files too
         return has_suffix(base, "_test.rs") || has_prefix(base, "test_");
-    case CBM_LANG_RUBY:
+    case CTX_LANG_RUBY:
         return has_suffix(base, "_test.rb") || has_suffix(base, "_spec.rb") ||
                has_prefix(base, "test_");
-    case CBM_LANG_PHP:
+    case CTX_LANG_PHP:
         return has_suffix(base, "Test.php");
-    case CBM_LANG_CSHARP:
+    case CTX_LANG_CSHARP:
         return has_suffix(base, "Tests.cs") || has_suffix(base, "Test.cs");
-    case CBM_LANG_CPP:
-    case CBM_LANG_C:
+    case CTX_LANG_CPP:
+    case CTX_LANG_C:
         return has_suffix(base, "_test.c") || has_suffix(base, "_test.cc") ||
                has_suffix(base, "_test.cpp") || has_prefix(base, "test_");
-    case CBM_LANG_MATLAB:
+    case CTX_LANG_MATLAB:
         return has_prefix(base, "test_") || has_prefix(base, "Test");
     default:
         return false;
@@ -255,7 +255,7 @@ bool cbm_is_test_file(const char *rel_path, CBMLanguage lang) {
 
 // --- AST traversal helpers ---
 
-TSNode cbm_find_child_by_kind(TSNode parent, const char *kind) {
+TSNode ctx_find_child_by_kind(TSNode parent, const char *kind) {
     uint32_t count = ts_node_child_count(parent);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(parent, i);
@@ -267,7 +267,7 @@ TSNode cbm_find_child_by_kind(TSNode parent, const char *kind) {
     return null_node;
 }
 
-bool cbm_kind_in_set(TSNode node, const char **types) {
+bool ctx_kind_in_set(TSNode node, const char **types) {
     if (!types) {
         return false;
     }
@@ -280,7 +280,7 @@ bool cbm_kind_in_set(TSNode node, const char **types) {
     return false;
 }
 
-bool cbm_has_ancestor_kind(TSNode node, const char *kind, int max_depth) {
+bool ctx_has_ancestor_kind(TSNode node, const char *kind, int max_depth) {
     TSNode cur = node;
     for (int i = 0; i < max_depth; i++) {
         TSNode parent = ts_node_parent(cur);
@@ -319,7 +319,7 @@ static int count_branching_iter(TSNode root, const char **types) {
     return count;
 }
 
-int cbm_count_branching(TSNode node, const char **branching_types) {
+int ctx_count_branching(TSNode node, const char **branching_types) {
     if (!branching_types) {
         return 0;
     }
@@ -360,61 +360,61 @@ static const char *func_kinds_generic[] = {"function_declaration", "function_def
 
 static const char **func_kinds_for_lang(CBMLanguage lang) {
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         return func_kinds_go;
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         return func_kinds_python;
-    case CBM_LANG_JAVASCRIPT:
-    case CBM_LANG_TYPESCRIPT:
-    case CBM_LANG_TSX:
+    case CTX_LANG_JAVASCRIPT:
+    case CTX_LANG_TYPESCRIPT:
+    case CTX_LANG_TSX:
         return func_kinds_js;
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         return func_kinds_rust;
-    case CBM_LANG_JAVA:
+    case CTX_LANG_JAVA:
         return func_kinds_java;
-    case CBM_LANG_CPP:
-    case CBM_LANG_C:
+    case CTX_LANG_CPP:
+    case CTX_LANG_C:
         return func_kinds_cpp;
-    case CBM_LANG_RUBY:
+    case CTX_LANG_RUBY:
         return func_kinds_ruby;
-    case CBM_LANG_PHP:
+    case CTX_LANG_PHP:
         return func_kinds_php;
-    case CBM_LANG_LUA:
+    case CTX_LANG_LUA:
         return func_kinds_lua;
-    case CBM_LANG_SCALA:
+    case CTX_LANG_SCALA:
         return func_kinds_scala;
-    case CBM_LANG_KOTLIN:
+    case CTX_LANG_KOTLIN:
         return func_kinds_kotlin;
-    case CBM_LANG_ELIXIR:
+    case CTX_LANG_ELIXIR:
         return func_kinds_elixir;
-    case CBM_LANG_HASKELL:
+    case CTX_LANG_HASKELL:
         return func_kinds_haskell;
-    case CBM_LANG_OCAML:
+    case CTX_LANG_OCAML:
         return func_kinds_ocaml;
-    case CBM_LANG_ZIG:
+    case CTX_LANG_ZIG:
         return func_kinds_zig;
-    case CBM_LANG_BASH:
+    case CTX_LANG_BASH:
         return func_kinds_bash;
-    case CBM_LANG_ERLANG:
+    case CTX_LANG_ERLANG:
         return func_kinds_erlang;
-    case CBM_LANG_CSHARP:
+    case CTX_LANG_CSHARP:
         return func_kinds_csharp;
-    case CBM_LANG_MATLAB:
+    case CTX_LANG_MATLAB:
         return func_kinds_matlab;
-    case CBM_LANG_LEAN:
+    case CTX_LANG_LEAN:
         return func_kinds_lean;
-    case CBM_LANG_FORM:
+    case CTX_LANG_FORM:
         return func_kinds_form;
-    case CBM_LANG_MAGMA:
+    case CTX_LANG_MAGMA:
         return func_kinds_magma;
-    case CBM_LANG_WOLFRAM:
+    case CTX_LANG_WOLFRAM:
         return func_kinds_wolfram;
     default:
         return func_kinds_generic;
     }
 }
 
-TSNode cbm_find_enclosing_func(TSNode node, CBMLanguage lang) {
+TSNode ctx_find_enclosing_func(TSNode node, CBMLanguage lang) {
     const char **kinds = func_kinds_for_lang(lang);
     TSNode cur = node;
     for (;;) {
@@ -438,7 +438,7 @@ TSNode cbm_find_enclosing_func(TSNode node, CBMLanguage lang) {
 static const char *func_node_name(CBMArena *a, TSNode func_node, const char *source,
                                   CBMLanguage lang) {
     // Wolfram: set_delayed_top/set_top/set_delayed/set — LHS is apply(user_symbol("f"), ...)
-    if (lang == CBM_LANG_WOLFRAM) {
+    if (lang == CTX_LANG_WOLFRAM) {
         const char *nk = ts_node_type(func_node);
         if (strcmp(nk, "set_delayed_top") == 0 || strcmp(nk, "set_top") == 0 ||
             strcmp(nk, "set_delayed") == 0 || strcmp(nk, "set") == 0) {
@@ -447,7 +447,7 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
                 if (strcmp(ts_node_type(lhs), "apply") == 0 && ts_node_named_child_count(lhs) > 0) {
                     TSNode head = ts_node_named_child(lhs, 0);
                     if (strcmp(ts_node_type(head), "user_symbol") == 0) {
-                        return cbm_node_text(a, head, source);
+                        return ctx_node_text(a, head, source);
                     }
                 }
             }
@@ -457,7 +457,7 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
 
     TSNode name_node = ts_node_child_by_field_name(func_node, TS_FIELD("name"));
     if (!ts_node_is_null(name_node)) {
-        return cbm_node_text(a, name_node, source);
+        return ctx_node_text(a, name_node, source);
     }
     // Arrow functions: check parent variable_declarator
     if (strcmp(ts_node_type(func_node), "arrow_function") == 0) {
@@ -465,17 +465,17 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
         if (!ts_node_is_null(parent) && strcmp(ts_node_type(parent), "variable_declarator") == 0) {
             TSNode vname = ts_node_child_by_field_name(parent, TS_FIELD("name"));
             if (!ts_node_is_null(vname)) {
-                return cbm_node_text(a, vname, source);
+                return ctx_node_text(a, vname, source);
             }
         }
     }
     return NULL;
 }
 
-const char *cbm_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, const char *source,
+const char *ctx_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, const char *source,
                                   const char *project, const char *rel_path,
                                   const char *module_qn) {
-    TSNode func_node = cbm_find_enclosing_func(node, lang);
+    TSNode func_node = ctx_find_enclosing_func(node, lang);
     if (ts_node_is_null(func_node)) {
         return module_qn;
     }
@@ -485,17 +485,17 @@ const char *cbm_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, co
     }
 
     // Check if the function is inside a class — compute classQN.funcName
-    const CBMLangSpec *spec = cbm_lang_spec(lang);
+    const CBMLangSpec *spec = ctx_lang_spec(lang);
     if (spec && spec->class_node_types) {
         TSNode cur = ts_node_parent(func_node);
         while (!ts_node_is_null(cur)) {
-            if (cbm_kind_in_set(cur, spec->class_node_types)) {
+            if (ctx_kind_in_set(cur, spec->class_node_types)) {
                 TSNode class_name = ts_node_child_by_field_name(cur, TS_FIELD("name"));
                 if (!ts_node_is_null(class_name)) {
-                    char *cname = cbm_node_text(a, class_name, source);
+                    char *cname = ctx_node_text(a, class_name, source);
                     if (cname && cname[0]) {
-                        const char *class_qn = cbm_fqn_compute(a, project, rel_path, cname);
-                        return cbm_arena_sprintf(a, "%s.%s", class_qn, name);
+                        const char *class_qn = ctx_fqn_compute(a, project, rel_path, cname);
+                        return ctx_arena_sprintf(a, "%s.%s", class_qn, name);
                     }
                 }
             }
@@ -503,16 +503,16 @@ const char *cbm_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, co
         }
     }
 
-    return cbm_fqn_compute(a, project, rel_path, name);
+    return ctx_fqn_compute(a, project, rel_path, name);
 }
 
 // --- Cached enclosing function QN ---
 
-const char *cbm_enclosing_func_qn_cached(CBMExtractCtx *ctx, TSNode node) {
+const char *ctx_enclosing_func_qn_cached(CBMExtractCtx *ctx, TSNode node) {
     uint32_t pos = ts_node_start_byte(node);
 
     // Check cache: find a function range that contains this position.
-    // Linear scan is fine for EFC_SIZE=CBM_SZ_64 (all entries fit in ~1 cache line).
+    // Linear scan is fine for EFC_SIZE=CTX_SZ_64 (all entries fit in ~1 cache line).
     for (int i = 0; i < ctx->ef_cache.count; i++) {
         EFCEntry *e = &ctx->ef_cache.entries[i];
         if (pos >= e->start_byte && pos < e->end_byte) {
@@ -521,11 +521,11 @@ const char *cbm_enclosing_func_qn_cached(CBMExtractCtx *ctx, TSNode node) {
     }
 
     // Cache miss: compute via parent walk
-    const char *qn = cbm_enclosing_func_qn(ctx->arena, node, ctx->language, ctx->source,
+    const char *qn = ctx_enclosing_func_qn(ctx->arena, node, ctx->language, ctx->source,
                                            ctx->project, ctx->rel_path, ctx->module_qn);
 
     // Cache the result: find the enclosing function's byte range
-    TSNode func_node = cbm_find_enclosing_func(node, ctx->language);
+    TSNode func_node = ctx_find_enclosing_func(node, ctx->language);
     if (!ts_node_is_null(func_node) && ctx->ef_cache.count < EFC_SIZE) {
         EFCEntry *e = &ctx->ef_cache.entries[ctx->ef_cache.count++];
         e->start_byte = ts_node_start_byte(func_node);
@@ -585,81 +585,81 @@ static bool check_script_module_level(TSNode parent, const char *pk, const char 
 // Get the module-level parent type list for table-driven languages.
 static const char **get_module_parents(CBMLanguage lang) {
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         return module_parents_go;
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         return module_parents_rust;
-    case CBM_LANG_JAVA:
+    case CTX_LANG_JAVA:
         return module_parents_java;
-    case CBM_LANG_KOTLIN:
+    case CTX_LANG_KOTLIN:
         return module_parents_kotlin;
-    case CBM_LANG_SCALA:
+    case CTX_LANG_SCALA:
         return module_parents_scala;
-    case CBM_LANG_CSHARP:
+    case CTX_LANG_CSHARP:
         return module_parents_csharp;
-    case CBM_LANG_PHP:
+    case CTX_LANG_PHP:
         return module_parents_php;
-    case CBM_LANG_RUBY:
+    case CTX_LANG_RUBY:
         return module_parents_ruby;
-    case CBM_LANG_C:
-    case CBM_LANG_CPP:
-    case CBM_LANG_OBJC:
+    case CTX_LANG_C:
+    case CTX_LANG_CPP:
+    case CTX_LANG_OBJC:
         return module_parents_c;
-    case CBM_LANG_ZIG:
+    case CTX_LANG_ZIG:
         return module_parents_zig;
-    case CBM_LANG_BASH:
+    case CTX_LANG_BASH:
         return module_parents_bash;
-    case CBM_LANG_ERLANG:
+    case CTX_LANG_ERLANG:
         return module_parents_erlang;
-    case CBM_LANG_HASKELL:
+    case CTX_LANG_HASKELL:
         return module_parents_haskell;
-    case CBM_LANG_OCAML:
+    case CTX_LANG_OCAML:
         return module_parents_ocaml;
-    case CBM_LANG_ELIXIR:
+    case CTX_LANG_ELIXIR:
         return module_parents_elixir;
-    case CBM_LANG_HTML:
+    case CTX_LANG_HTML:
         return module_parents_html;
-    case CBM_LANG_CSS:
-    case CBM_LANG_SCSS:
+    case CTX_LANG_CSS:
+    case CTX_LANG_SCSS:
         return module_parents_css;
-    case CBM_LANG_SQL:
+    case CTX_LANG_SQL:
         return module_parents_sql;
-    case CBM_LANG_TOML:
+    case CTX_LANG_TOML:
         return module_parents_toml;
-    case CBM_LANG_HCL:
+    case CTX_LANG_HCL:
         return module_parents_hcl;
-    case CBM_LANG_JSON:
-    case CBM_LANG_INI:
-    case CBM_LANG_XML:
-    case CBM_LANG_MARKDOWN:
+    case CTX_LANG_JSON:
+    case CTX_LANG_INI:
+    case CTX_LANG_XML:
+    case CTX_LANG_MARKDOWN:
         return module_parents_config;
-    case CBM_LANG_SWIFT:
+    case CTX_LANG_SWIFT:
         return module_parents_zig;
-    case CBM_LANG_DART:
+    case CTX_LANG_DART:
         return module_parents_php;
-    case CBM_LANG_PERL:
-    case CBM_LANG_GROOVY:
+    case CTX_LANG_PERL:
+    case CTX_LANG_GROOVY:
         return module_parents_zig;
-    case CBM_LANG_R:
+    case CTX_LANG_R:
         return module_parents_php;
-    case CBM_LANG_MAKEFILE:
+    case CTX_LANG_MAKEFILE:
         return module_parents_makefile;
-    case CBM_LANG_COMMONLISP:
+    case CTX_LANG_COMMONLISP:
         return module_parents_commonlisp;
-    case CBM_LANG_MATLAB:
+    case CTX_LANG_MATLAB:
         return module_parents_matlab;
-    case CBM_LANG_LEAN:
+    case CTX_LANG_LEAN:
         return module_parents_zig;
-    case CBM_LANG_FORM:
+    case CTX_LANG_FORM:
         return module_parents_form;
-    case CBM_LANG_MAGMA:
+    case CTX_LANG_MAGMA:
         return module_parents_magma;
     default:
         return NULL;
     }
 }
 
-bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
+bool ctx_is_module_level(TSNode node, CBMLanguage lang) {
     TSNode parent = ts_node_parent(node);
     if (ts_node_is_null(parent)) {
         return false;
@@ -667,16 +667,16 @@ bool cbm_is_module_level(TSNode node, CBMLanguage lang) {
     const char *pk = ts_node_type(parent);
 
     // Languages with wrapper-pattern (expression_statement/export_statement/assignment_statement)
-    if (lang == CBM_LANG_PYTHON) {
+    if (lang == CTX_LANG_PYTHON) {
         return check_script_module_level(parent, pk, "module", "expression_statement");
     }
-    if (lang == CBM_LANG_JAVASCRIPT || lang == CBM_LANG_TYPESCRIPT || lang == CBM_LANG_TSX) {
+    if (lang == CTX_LANG_JAVASCRIPT || lang == CTX_LANG_TYPESCRIPT || lang == CTX_LANG_TSX) {
         return check_script_module_level(parent, pk, "program", "export_statement");
     }
-    if (lang == CBM_LANG_LUA) {
+    if (lang == CTX_LANG_LUA) {
         return check_script_module_level(parent, pk, "chunk", "assignment_statement");
     }
-    if (lang == CBM_LANG_YAML) {
+    if (lang == CTX_LANG_YAML) {
         return strcmp(pk, "document") == 0 || strcmp(pk, "stream") == 0 ||
                strcmp(pk, "block_mapping") == 0;
     }
@@ -745,13 +745,13 @@ static char *append_path_segments(char *out, const char *rel_path, size_t plen, 
     return out;
 }
 
-char *cbm_fqn_compute(CBMArena *a, const char *project, const char *rel_path, const char *name) {
+char *ctx_fqn_compute(CBMArena *a, const char *project, const char *rel_path, const char *name) {
     size_t proj_len = strlen(project);
     size_t path_len = strlen(rel_path);
     size_t name_len = name ? strlen(name) : 0;
 
     size_t max_len = proj_len + SKIP_ONE + path_len + SKIP_ONE + name_len + SKIP_ONE;
-    char *buf = (char *)cbm_arena_alloc(a, max_len);
+    char *buf = (char *)ctx_arena_alloc(a, max_len);
     if (!buf) {
         return NULL;
     }
@@ -772,16 +772,16 @@ char *cbm_fqn_compute(CBMArena *a, const char *project, const char *rel_path, co
     return buf;
 }
 
-char *cbm_fqn_module(CBMArena *a, const char *project, const char *rel_path) {
-    return cbm_fqn_compute(a, project, rel_path, NULL);
+char *ctx_fqn_module(CBMArena *a, const char *project, const char *rel_path) {
+    return ctx_fqn_compute(a, project, rel_path, NULL);
 }
 
-char *cbm_fqn_folder(CBMArena *a, const char *project, const char *rel_dir) {
+char *ctx_fqn_folder(CBMArena *a, const char *project, const char *rel_dir) {
     // project.dir1.dir2
     size_t proj_len = strlen(project);
     size_t dir_len = strlen(rel_dir);
     size_t max_len = proj_len + SKIP_ONE + dir_len + SKIP_ONE;
-    char *buf = (char *)cbm_arena_alloc(a, max_len);
+    char *buf = (char *)ctx_arena_alloc(a, max_len);
     if (!buf) {
         return NULL;
     }
@@ -895,19 +895,19 @@ static bool is_env_var_pattern(const char *s, int len) {
     return has_upper && has_underscore;
 }
 
-int cbm_classify_string(const char *str, int len) {
+int ctx_classify_string(const char *str, int len) {
     if (!str || len < PAIR_LEN) {
         return NOT_FOUND;
     }
 
     if (is_url_like(str, len)) {
-        return CBM_STRREF_URL;
+        return CTX_STRREF_URL;
     }
     if (has_config_extension(str, len)) {
-        return CBM_STRREF_CONFIG;
+        return CTX_STRREF_CONFIG;
     }
     if (is_env_var_pattern(str, len)) {
-        return CBM_STRREF_CONFIG;
+        return CTX_STRREF_CONFIG;
     }
 
     return NOT_FOUND;

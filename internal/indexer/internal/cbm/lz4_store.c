@@ -6,15 +6,15 @@
 
 #include "lz4_store.h"
 
-int cbm_lz4_compress_hc(const char *src, int srcLen, char *dst, int dstCap) {
+int ctx_lz4_compress_hc(const char *src, int srcLen, char *dst, int dstCap) {
     enum { LZ4_HC_LEVEL = 9 };
     return LZ4_compress_HC(src, dst, srcLen, dstCap, LZ4_HC_LEVEL);
 }
 
-int cbm_lz4_decompress(const char *src, int srcLen, char *dst, int originalLen) {
+int ctx_lz4_decompress(const char *src, int srcLen, char *dst, int originalLen) {
     return LZ4_decompress_safe(src, dst, srcLen, originalLen);
 }
 
-int cbm_lz4_bound(int inputSize) {
+int ctx_lz4_bound(int inputSize) {
     return LZ4_compressBound(inputSize);
 }

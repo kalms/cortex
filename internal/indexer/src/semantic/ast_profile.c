@@ -142,7 +142,7 @@ static bool is_param_name(const char *ident, const char *source, const char **pa
 /* ── Main computation ────────────────────────────────────────────── */
 
 /* Count control-flow statement kinds (if/for/while/switch/try/return). */
-static void accumulate_control_flow(const char *kind, cbm_ast_profile_t *out, bool *in_return) {
+static void accumulate_control_flow(const char *kind, ctx_ast_profile_t *out, bool *in_return) {
     if (is_control_if(kind)) {
         out->if_count++;
     }
@@ -165,7 +165,7 @@ static void accumulate_control_flow(const char *kind, cbm_ast_profile_t *out, bo
 }
 
 /* Count expression- and literal-class counters for one node. */
-static void accumulate_expressions(const char *kind, cbm_ast_profile_t *out) {
+static void accumulate_expressions(const char *kind, ctx_ast_profile_t *out) {
     if (is_comparison(kind)) {
         out->comparison_ops++;
     }
@@ -194,7 +194,7 @@ static void accumulate_expressions(const char *kind, cbm_ast_profile_t *out) {
  * and booleans are "operands"; recognized statement/expression kinds are
  * "operators".  Uses an open-addressed hash set for unique counting. */
 static void accumulate_halstead(const char *kind, uint32_t child_count, uint32_t *op_set,
-                                uint32_t *operand_set, cbm_ast_profile_t *out) {
+                                uint32_t *operand_set, ctx_ast_profile_t *out) {
     if (is_operator_node(kind)) {
         out->total_operators++;
         if (halstead_insert(op_set, kind)) {
@@ -216,16 +216,16 @@ static void accumulate_halstead(const char *kind, uint32_t child_count, uint32_t
  * corresponding syntactic scope. */
 static void accumulate_data_flow(TSNode node, const char *kind, uint32_t child_count,
                                  const char *source, const char **param_names, int param_count,
-                                 bool in_return, bool in_condition, cbm_ast_profile_t *out) {
+                                 bool in_return, bool in_condition, ctx_ast_profile_t *out) {
     if (!(child_count == 0 && is_identifier(kind) && source)) {
         return;
     }
     uint32_t start = ts_node_start_byte(node);
     uint32_t end = ts_node_end_byte(node);
-    if (end <= start || (end - start) >= CBM_SZ_128) {
+    if (end <= start || (end - start) >= CTX_SZ_128) {
         return;
     }
-    char ident_buf[CBM_SZ_128];
+    char ident_buf[CTX_SZ_128];
     int ilen = (int)(end - start);
     memcpy(ident_buf, source + start, (size_t)ilen);
     ident_buf[ilen] = '\0';
@@ -240,8 +240,8 @@ static void accumulate_data_flow(TSNode node, const char *kind, uint32_t child_c
     }
 }
 
-bool cbm_ast_profile_compute(TSNode func_body, const char *source, const char **param_names,
-                             int param_count, cbm_ast_profile_t *out) {
+bool ctx_ast_profile_compute(TSNode func_body, const char *source, const char **param_names,
+                             int param_count, ctx_ast_profile_t *out) {
     if (ts_node_is_null(func_body)) {
         return false;
     }
@@ -318,7 +318,7 @@ bool cbm_ast_profile_compute(TSNode func_body, const char *source, const char **
 
 /* ── Serialization ───────────────────────────────────────────────── */
 
-void cbm_ast_profile_to_str(const cbm_ast_profile_t *p, char *buf, int bufsize) {
+void ctx_ast_profile_to_str(const ctx_ast_profile_t *p, char *buf, int bufsize) {
     if (!p || !buf || bufsize < SKIP_ONE) {
         if (buf && bufsize > 0) {
             buf[0] = '\0';
@@ -341,12 +341,12 @@ void cbm_ast_profile_to_str(const cbm_ast_profile_t *p, char *buf, int bufsize) 
              p->body_tokens);
 }
 
-bool cbm_ast_profile_from_str(const char *str, cbm_ast_profile_t *out) {
+bool ctx_ast_profile_from_str(const char *str, ctx_ast_profile_t *out) {
     if (!str || !out) {
         return false;
     }
     memset(out, 0, sizeof(*out));
-    /* Field layout must match cbm_ast_profile_to_str() exactly. */
+    /* Field layout must match ctx_ast_profile_to_str() exactly. */
     uint16_t *fields[PROFILE_FIELD_COUNT] = {
         &out->if_count,           &out->for_count,
         &out->while_count,        &out->switch_count,
@@ -382,7 +382,7 @@ bool cbm_ast_profile_from_str(const char *str, cbm_ast_profile_t *out) {
     return true;
 }
 
-void cbm_ast_profile_to_vector(const cbm_ast_profile_t *p, float *out) {
+void ctx_ast_profile_to_vector(const ctx_ast_profile_t *p, float *out) {
     if (!p || !out) {
         return;
     }

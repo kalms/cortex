@@ -1,7 +1,7 @@
 /*
  * test_store_bulk.c — Crash-safety tests for bulk write mode.
  *
- * Verifies that cbm_store_begin_bulk / cbm_store_end_bulk never switch away
+ * Verifies that ctx_store_begin_bulk / ctx_store_end_bulk never switch away
  * from WAL journal mode.  Switching to MEMORY journal mode during bulk writes
  * makes the database unrecoverable on a crash because the in-memory rollback
  * journal is lost.  WAL mode is inherently crash-safe: uncommitted WAL entries
@@ -27,7 +27,7 @@
 /* ── Helpers ──────────────────────────────────────────────────── */
 
 /* Query journal_mode via a separate read-only connection so the result is
- * independent of any state held inside the cbm_store_t under test. */
+ * independent of any state held inside the ctx_store_t under test. */
 static char *get_journal_mode(const char *db_path) {
     sqlite3 *db;
     if (sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK)
@@ -44,7 +44,7 @@ static char *get_journal_mode(const char *db_path) {
 }
 
 static void make_temp_path(char *buf, size_t n) {
-    snprintf(buf, n, "%s/cmm_bulk_test_%d.db", cbm_tmpdir(), (int)getpid());
+    snprintf(buf, n, "%s/cmm_bulk_test_%d.db", ctx_tmpdir(), (int)getpid());
 }
 
 static void cleanup_db(const char *path) {
@@ -64,7 +64,7 @@ TEST(bulk_pragma_wal_invariant) {
     make_temp_path(db_path, sizeof(db_path));
     cleanup_db(db_path);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
 
     char *before = get_journal_mode(db_path);
@@ -72,16 +72,16 @@ TEST(bulk_pragma_wal_invariant) {
     ASSERT_STR_EQ(before, "wal");
     free(before);
 
-    int rc = cbm_store_begin_bulk(s);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    int rc = ctx_store_begin_bulk(s);
+    ASSERT_EQ(rc, CTX_STORE_OK);
 
     char *after = get_journal_mode(db_path);
     ASSERT_NOT_NULL(after);
     ASSERT_STR_EQ(after, "wal"); /* FAILS with bug, PASSES with fix */
     free(after);
 
-    cbm_store_end_bulk(s);
-    cbm_store_close(s);
+    ctx_store_end_bulk(s);
+    ctx_store_close(s);
     cleanup_db(db_path);
     PASS();
 }
@@ -92,18 +92,18 @@ TEST(bulk_pragma_end_wal_invariant) {
     make_temp_path(db_path, sizeof(db_path));
     cleanup_db(db_path);
 
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
 
-    cbm_store_begin_bulk(s);
-    cbm_store_end_bulk(s);
+    ctx_store_begin_bulk(s);
+    ctx_store_end_bulk(s);
 
     char *mode = get_journal_mode(db_path);
     ASSERT_NOT_NULL(mode);
     ASSERT_STR_EQ(mode, "wal");
     free(mode);
 
-    cbm_store_close(s);
+    ctx_store_close(s);
     cleanup_db(db_path);
     PASS();
 }
@@ -121,21 +121,21 @@ TEST(bulk_crash_recovery) {
     cleanup_db(db_path);
 
     /* Write committed baseline data. */
-    cbm_store_t *s = cbm_store_open_path(db_path);
+    ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
-    int rc = cbm_store_upsert_project(s, "baseline", "/tmp/baseline");
-    ASSERT_EQ(rc, CBM_STORE_OK);
-    cbm_store_close(s);
+    int rc = ctx_store_upsert_project(s, "baseline", "/tmp/baseline");
+    ASSERT_EQ(rc, CTX_STORE_OK);
+    ctx_store_close(s);
 
     /* Child: enter bulk mode, start a transaction, write, then crash. */
     pid_t pid = fork();
     if (pid == 0) {
-        cbm_store_t *cs = cbm_store_open_path(db_path);
+        ctx_store_t *cs = ctx_store_open_path(db_path);
         if (!cs)
             _exit(1);
-        cbm_store_begin_bulk(cs);
-        cbm_store_begin(cs); /* explicit open transaction */
-        cbm_store_upsert_project(cs, "crashed", "/tmp/crashed");
+        ctx_store_begin_bulk(cs);
+        ctx_store_begin(cs); /* explicit open transaction */
+        ctx_store_upsert_project(cs, "crashed", "/tmp/crashed");
         /* Crash: no COMMIT, no end_bulk, no close. */
         _exit(0);
     }
@@ -146,22 +146,22 @@ TEST(bulk_crash_recovery) {
     ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
     /* Recovery: database must open cleanly. */
-    cbm_store_t *recovered = cbm_store_open_path(db_path);
+    ctx_store_t *recovered = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(recovered); /* NULL would indicate corruption */
 
     /* Baseline commit must survive. */
-    cbm_project_t p = {0};
-    rc = cbm_store_get_project(recovered, "baseline", &p);
-    ASSERT_EQ(rc, CBM_STORE_OK);
+    ctx_project_t p = {0};
+    rc = ctx_store_get_project(recovered, "baseline", &p);
+    ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_STR_EQ(p.name, "baseline");
-    cbm_project_free_fields(&p);
+    ctx_project_free_fields(&p);
 
     /* Uncommitted "crashed" write must NOT appear after recovery. */
-    cbm_project_t p2 = {0};
-    int rc2 = cbm_store_get_project(recovered, "crashed", &p2);
-    ASSERT_NEQ(rc2, CBM_STORE_OK); /* row must be absent */
+    ctx_project_t p2 = {0};
+    int rc2 = ctx_store_get_project(recovered, "crashed", &p2);
+    ASSERT_NEQ(rc2, CTX_STORE_OK); /* row must be absent */
 
-    cbm_store_close(recovered);
+    ctx_store_close(recovered);
     cleanup_db(db_path);
     PASS();
 }

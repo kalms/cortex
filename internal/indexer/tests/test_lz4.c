@@ -9,9 +9,9 @@
 #include <time.h>
 
 /* lz4_store.c has no header — declare extern */
-extern int cbm_lz4_compress_hc(const char *src, int srcLen, char *dst, int dstCap);
-extern int cbm_lz4_decompress(const char *src, int srcLen, char *dst, int originalLen);
-extern int cbm_lz4_bound(int inputSize);
+extern int ctx_lz4_compress_hc(const char *src, int srcLen, char *dst, int dstCap);
+extern int ctx_lz4_decompress(const char *src, int srcLen, char *dst, int originalLen);
+extern int ctx_lz4_bound(int inputSize);
 
 /* ── Helper: compress + decompress round-trip ──────────────────── */
 
@@ -23,7 +23,7 @@ static int lz4_roundtrip(const char *data, int len) {
         return 0;
     }
 
-    int bound = cbm_lz4_bound(len);
+    int bound = ctx_lz4_bound(len);
     if (bound <= 0)
         return -1;
 
@@ -31,7 +31,7 @@ static int lz4_roundtrip(const char *data, int len) {
     if (!cbuf)
         return -1;
 
-    int clen = cbm_lz4_compress_hc(data, len, cbuf, bound);
+    int clen = ctx_lz4_compress_hc(data, len, cbuf, bound);
     if (clen <= 0) {
         free(cbuf);
         return -1;
@@ -43,7 +43,7 @@ static int lz4_roundtrip(const char *data, int len) {
         return -1;
     }
 
-    int dlen = cbm_lz4_decompress(cbuf, clen, dbuf, len);
+    int dlen = ctx_lz4_decompress(cbuf, clen, dbuf, len);
     int ok = (dlen == len && memcmp(dbuf, data, len) == 0) ? 0 : -1;
 
     free(cbuf);
@@ -105,11 +105,11 @@ TEST(lz4_compression_ratio) {
     for (int i = 0; i < 1000; i++)
         memcpy(data + i * line_len, line, line_len);
 
-    int bound = cbm_lz4_bound(total);
+    int bound = ctx_lz4_bound(total);
     char *cbuf = malloc(bound);
     ASSERT_NOT_NULL(cbuf);
 
-    int clen = cbm_lz4_compress_hc(data, total, cbuf, bound);
+    int clen = ctx_lz4_compress_hc(data, total, cbuf, bound);
     ASSERT_GT(clen, 0);
 
     double ratio = (double)total / (double)clen;
@@ -126,11 +126,11 @@ TEST(lz4_decompress_wrong_len) {
     const char *src = "test data for decompression";
     int src_len = (int)strlen(src);
 
-    int bound = cbm_lz4_bound(src_len);
+    int bound = ctx_lz4_bound(src_len);
     char *cbuf = malloc(bound);
     ASSERT_NOT_NULL(cbuf);
 
-    int clen = cbm_lz4_compress_hc(src, src_len, cbuf, bound);
+    int clen = ctx_lz4_compress_hc(src, src_len, cbuf, bound);
     ASSERT_GT(clen, 0);
 
     /* Allocate larger buffer, pass wrong originalLen */
@@ -140,7 +140,7 @@ TEST(lz4_decompress_wrong_len) {
 
     /* LZ4_decompress_safe won't crash — it either succeeds partially
      * or returns a negative error code. The key property is no buffer overflow. */
-    int dlen = cbm_lz4_decompress(cbuf, clen, dbuf, wrong_len);
+    int dlen = ctx_lz4_decompress(cbuf, clen, dbuf, wrong_len);
     (void)dlen; /* result may vary; safety is what matters */
 
     free(cbuf);
@@ -161,17 +161,17 @@ TEST(lz4_random_data) {
         data[i] = (char)(seed >> 16);
     }
 
-    int bound = cbm_lz4_bound(len);
+    int bound = ctx_lz4_bound(len);
     char *cbuf = malloc(bound);
     ASSERT_NOT_NULL(cbuf);
 
-    int clen = cbm_lz4_compress_hc(data, len, cbuf, bound);
+    int clen = ctx_lz4_compress_hc(data, len, cbuf, bound);
     ASSERT_GT(clen, 0);
 
     char *dbuf = malloc(len);
     ASSERT_NOT_NULL(dbuf);
 
-    int dlen = cbm_lz4_decompress(cbuf, clen, dbuf, len);
+    int dlen = ctx_lz4_decompress(cbuf, clen, dbuf, len);
     ASSERT_EQ(dlen, len);
     ASSERT_MEM_EQ(dbuf, data, len);
 
@@ -183,11 +183,11 @@ TEST(lz4_random_data) {
 
 TEST(lz4_bound_positive) {
     /* Bound should be positive for any positive input size */
-    ASSERT_GT(cbm_lz4_bound(1), 0);
-    ASSERT_GT(cbm_lz4_bound(100), 0);
-    ASSERT_GT(cbm_lz4_bound(1000000), 0);
+    ASSERT_GT(ctx_lz4_bound(1), 0);
+    ASSERT_GT(ctx_lz4_bound(100), 0);
+    ASSERT_GT(ctx_lz4_bound(1000000), 0);
     /* Bound should be >= input size (compressed can't be smaller than worst case) */
-    ASSERT_GTE(cbm_lz4_bound(100), 100);
+    ASSERT_GTE(ctx_lz4_bound(100), 100);
     PASS();
 }
 

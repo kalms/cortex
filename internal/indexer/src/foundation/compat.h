@@ -5,8 +5,8 @@
  * POSIX (macOS/Linux) and Windows. Include this instead of using
  * platform-specific macros directly.
  */
-#ifndef CBM_COMPAT_H
-#define CBM_COMPAT_H
+#ifndef CTX_COMPAT_H
+#define CTX_COMPAT_H
 
 #include <stddef.h>
 #include <stdio.h>
@@ -14,7 +14,7 @@
 /* ── Thread-local storage ─────────────────────────────────────── */
 /* _Thread_local is C11 standard — works on GCC, Clang, and MSVC (2019+).
  * __declspec(thread) is MSVC-only and doesn't work on MinGW GCC. */
-#define CBM_TLS _Thread_local
+#define CTX_TLS _Thread_local
 
 /* ── Sleep ────────────────────────────────────────────────────── */
 #ifdef _WIN32
@@ -22,52 +22,52 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#define cbm_usleep(us) Sleep((DWORD)((us) / 1000))
+#define ctx_usleep(us) Sleep((DWORD)((us) / 1000))
 #else
 #include <unistd.h>
-#define cbm_usleep(us) usleep((useconds_t)(us))
+#define ctx_usleep(us) usleep((useconds_t)(us))
 #endif
 
 /* ── strdup / strndup ─────────────────────────────────────────── */
 #ifdef _WIN32
-#define cbm_strdup _strdup
+#define ctx_strdup _strdup
 /* Implemented in compat.c */
-char *cbm_strndup(const char *s, size_t n);
+char *ctx_strndup(const char *s, size_t n);
 #else
-#define cbm_strdup strdup
-#define cbm_strndup strndup
+#define ctx_strdup strdup
+#define ctx_strndup strndup
 #endif
 
 /* ── getline (Windows lacks it) ───────────────────────────────── */
 #ifdef _WIN32
 /* Implemented in compat.c */
-ssize_t cbm_getline(char **lineptr, size_t *n, FILE *stream);
+ssize_t ctx_getline(char **lineptr, size_t *n, FILE *stream);
 #else
-#define cbm_getline getline
+#define ctx_getline getline
 #endif
 
 /* ── fileno ───────────────────────────────────────────────────── */
 #ifdef _WIN32
-#define cbm_fileno _fileno
+#define ctx_fileno _fileno
 #else
-#define cbm_fileno fileno
+#define ctx_fileno fileno
 #endif
 
 /* ── strcasestr (Windows lacks it) ────────────────────────────── */
 #ifdef _WIN32
 /* Implemented in compat.c */
-char *cbm_strcasestr(const char *haystack, const char *needle);
+char *ctx_strcasestr(const char *haystack, const char *needle);
 #else
-#define cbm_strcasestr strcasestr
+#define ctx_strcasestr strcasestr
 #endif
 
 /* ── mkdir portability ───────────────────────────────────────── */
 #ifdef _WIN32
 #include <direct.h>
-#define cbm_mkdir(path) _mkdir(path)
+#define ctx_mkdir(path) _mkdir(path)
 #else
 #include <sys/stat.h>
-#define cbm_mkdir(path) mkdir(path, 0755)
+#define ctx_mkdir(path) mkdir(path, 0755)
 #endif
 
 /* ── clock_gettime / nanosleep (Windows lacks them) ──────────── */
@@ -77,67 +77,67 @@ char *cbm_strcasestr(const char *haystack, const char *needle);
 #define CLOCK_MONOTONIC 1
 #endif
 /* Implemented in compat.c */
-int cbm_clock_gettime(int clk_id, struct timespec *tp);
-static inline int cbm_nanosleep(const struct timespec *req, struct timespec *rem) {
+int ctx_clock_gettime(int clk_id, struct timespec *tp);
+static inline int ctx_nanosleep(const struct timespec *req, struct timespec *rem) {
     (void)rem;
     Sleep((DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000));
     return 0;
 }
 #else
-#define cbm_clock_gettime clock_gettime
-#define cbm_nanosleep nanosleep
+#define ctx_clock_gettime clock_gettime
+#define ctx_nanosleep nanosleep
 #endif
 
 /* ── gmtime_r (Windows lacks it) ─────────────────────────────── */
 #ifdef _WIN32
-static inline struct tm *cbm_gmtime_r(const time_t *timep, struct tm *result) {
+static inline struct tm *ctx_gmtime_r(const time_t *timep, struct tm *result) {
     return gmtime_s(result, timep) == 0 ? result : NULL;
 }
 #else
-#define cbm_gmtime_r gmtime_r
+#define ctx_gmtime_r gmtime_r
 #endif
 
 /* ── mkdtemp (Windows lacks it) ──────────────────────────────── */
 #ifdef _WIN32
 /* Translates /tmp/ to %TEMP%\ and copies result back to tmpl.
- * Callers MUST use char buf[CBM_SZ_256] or larger. */
-char *cbm_mkdtemp(char *tmpl);
+ * Callers MUST use char buf[CTX_SZ_256] or larger. */
+char *ctx_mkdtemp(char *tmpl);
 #else
-#define cbm_mkdtemp mkdtemp
+#define ctx_mkdtemp mkdtemp
 #endif
 
 /* ── mkstemp (Windows lacks it) ──────────────────────────────── */
 #ifdef _WIN32
-int cbm_mkstemp(char *tmpl);
+int ctx_mkstemp(char *tmpl);
 #else
-#define cbm_mkstemp mkstemp
+#define ctx_mkstemp mkstemp
 #endif
 
 /* ── setenv / unsetenv (Windows lacks them) ──────────────────── */
 #ifdef _WIN32
-static inline int cbm_setenv(const char *name, const char *value, int overwrite) {
+static inline int ctx_setenv(const char *name, const char *value, int overwrite) {
     (void)overwrite;
     return _putenv_s(name, value);
 }
-static inline int cbm_unsetenv(const char *name) {
+static inline int ctx_unsetenv(const char *name) {
     return _putenv_s(name, "");
 }
 #else
-#define cbm_setenv setenv
-#define cbm_unsetenv unsetenv
+#define ctx_setenv setenv
+#define ctx_unsetenv unsetenv
 #endif
 
 /* ── pipe (Windows uses _pipe) ───────────────────────────────── */
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
-#define cbm_pipe(fds) _pipe(fds, 4096, _O_BINARY)
+#define ctx_pipe(fds) _pipe(fds, 4096, _O_BINARY)
 #else
-#define cbm_pipe(fds) pipe(fds)
+#define ctx_pipe(fds) pipe(fds)
 #endif
 
 /* ── Temp directory helper ───────────────────────────────────── */
-static inline const char *cbm_tmpdir(void) {
+static inline const char *ctx_tmpdir(void) {
 #ifdef _WIN32
     const char *t = getenv("TEMP");
     if (!t)
@@ -151,9 +151,9 @@ static inline const char *cbm_tmpdir(void) {
 /* ── Signal handling ──────────────────────────────────────────── */
 /* Windows doesn't have sigaction; provide macro to select signal API. */
 #ifdef _WIN32
-#define CBM_HAS_SIGACTION 0
+#define CTX_HAS_SIGACTION 0
 #else
-#define CBM_HAS_SIGACTION 1
+#define CTX_HAS_SIGACTION 1
 #endif
 
-#endif /* CBM_COMPAT_H */
+#endif /* CTX_COMPAT_H */

@@ -3,7 +3,7 @@
  *
  * For each discovered file:
  *   1. Read source content from disk
- *   2. Call cbm_extract_file() to get defs, calls, imports
+ *   2. Call ctx_extract_file() to get defs, calls, imports
  *   3. Create Function/Class/Method/Variable/Module nodes in graph buffer
  *   4. Register callables in the function registry
  *   5. Store import maps and call sites for later passes
@@ -40,7 +40,7 @@ static char *read_file(const char *path, int *out_len) {
     (void)fseek(f, 0, SEEK_SET);
 
     if (size <= 0 ||
-        size > (long)CBM_PERCENT * CBM_SZ_1K * CBM_SZ_1K) { /* CBM_PERCENT MB sanity limit */
+        size > (long)CTX_PERCENT * CTX_SZ_1K * CTX_SZ_1K) { /* CTX_PERCENT MB sanity limit */
         (void)fclose(f);
         return NULL;
     }
@@ -64,8 +64,8 @@ static char *read_file(const char *path, int *out_len) {
 
 /* Format int to string for logging. Thread-safe via TLS. */
 static const char *itoa_log(int val) {
-    static CBM_TLS char bufs[PD_RING][CBM_SZ_32];
-    static CBM_TLS int idx = 0;
+    static CTX_TLS char bufs[PD_RING][CTX_SZ_32];
+    static CTX_TLS int idx = 0;
     int i = idx;
     idx = (idx + SKIP_ONE) & PD_RING_MASK;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
@@ -195,19 +195,19 @@ static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def)
 
     /* MinHash fingerprint — append if present and buffer has room. */
     if (def->fingerprint && def->fingerprint_k > 0 &&
-        pos + CBM_MINHASH_HEX_LEN + CBM_MINHASH_JSON_OVERHEAD < bufsize) {
-        char fp_hex[CBM_MINHASH_HEX_BUF];
-        cbm_minhash_to_hex((const cbm_minhash_t *)def->fingerprint, fp_hex, sizeof(fp_hex));
+        pos + CTX_MINHASH_HEX_LEN + CTX_MINHASH_JSON_OVERHEAD < bufsize) {
+        char fp_hex[CTX_MINHASH_HEX_BUF];
+        ctx_minhash_to_hex((const ctx_minhash_t *)def->fingerprint, fp_hex, sizeof(fp_hex));
         append_json_string(buf, bufsize, &pos, "fp", fp_hex);
     }
 
     /* AST structural profile */
-    if (def->structural_profile && pos + CBM_AST_PROFILE_BUF < bufsize) {
+    if (def->structural_profile && pos + CTX_AST_PROFILE_BUF < bufsize) {
         append_json_string(buf, bufsize, &pos, "sp", def->structural_profile);
     }
 
     /* Body tokens */
-    if (def->body_tokens && pos + CBM_SZ_512 < bufsize) {
+    if (def->body_tokens && pos + CTX_SZ_512 < bufsize) {
         append_json_string(buf, bufsize, &pos, "bt", def->body_tokens);
     }
 
@@ -218,13 +218,13 @@ static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def)
 }
 
 /* Process one definition: create node, register, DEFINES + DEFINES_METHOD edges. */
-static void process_def(cbm_pipeline_ctx_t *ctx, const CBMDefinition *def, const char *rel) {
+static void process_def(ctx_pipeline_ctx_t *ctx, const CBMDefinition *def, const char *rel) {
     if (!def->qualified_name || !def->name) {
         return;
     }
-    char props[CBM_SZ_2K];
+    char props[CTX_SZ_2K];
     build_def_props(props, sizeof(props), def);
-    int64_t node_id = cbm_gbuf_upsert_node(
+    int64_t node_id = ctx_gbuf_upsert_node(
         ctx->gbuf, def->label ? def->label : "Function", def->name, def->qualified_name,
         def->file_path ? def->file_path : rel, (int)def->start_line, (int)def->end_line, props);
     /* Register callable symbols + Interface.  Interface must be in the registry
@@ -233,69 +233,69 @@ static void process_def(cbm_pipeline_ctx_t *ctx, const CBMDefinition *def, const
     if (node_id > 0 && def->label &&
         (strcmp(def->label, "Function") == 0 || strcmp(def->label, "Method") == 0 ||
          strcmp(def->label, "Class") == 0 || strcmp(def->label, "Interface") == 0)) {
-        cbm_registry_add(ctx->registry, def->name, def->qualified_name, def->label);
+        ctx_registry_add(ctx->registry, def->name, def->qualified_name, def->label);
     }
-    char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-    const cbm_gbuf_node_t *file_node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+    char *file_qn = ctx_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+    const ctx_gbuf_node_t *file_node = ctx_gbuf_find_by_qn(ctx->gbuf, file_qn);
     if (file_node && node_id > 0) {
-        cbm_gbuf_insert_edge(ctx->gbuf, file_node->id, node_id, "DEFINES", "{}");
+        ctx_gbuf_insert_edge(ctx->gbuf, file_node->id, node_id, "DEFINES", "{}");
     }
     free(file_qn);
     if (def->parent_class && def->label && strcmp(def->label, "Method") == 0) {
-        const cbm_gbuf_node_t *parent = cbm_gbuf_find_by_qn(ctx->gbuf, def->parent_class);
+        const ctx_gbuf_node_t *parent = ctx_gbuf_find_by_qn(ctx->gbuf, def->parent_class);
         if (parent && node_id > 0) {
-            cbm_gbuf_insert_edge(ctx->gbuf, parent->id, node_id, "DEFINES_METHOD", "{}");
+            ctx_gbuf_insert_edge(ctx->gbuf, parent->id, node_id, "DEFINES_METHOD", "{}");
         }
     }
 }
 
 /* Create Channel nodes + EMITS / LISTENS_ON edges for one file's channels.
- * Mirrors the parallel path in cbm_build_registry_from_cache — keep in sync. */
+ * Mirrors the parallel path in ctx_build_registry_from_cache — keep in sync. */
 /* Find the source node for a channel edge: enclosing function or file node. */
-static const cbm_gbuf_node_t *find_channel_source(cbm_pipeline_ctx_t *ctx, const CBMChannel *ch,
+static const ctx_gbuf_node_t *find_channel_source(ctx_pipeline_ctx_t *ctx, const CBMChannel *ch,
                                                   const char *rel) {
-    const cbm_gbuf_node_t *node = NULL;
+    const ctx_gbuf_node_t *node = NULL;
     if (ch->enclosing_func_qn && ch->enclosing_func_qn[0]) {
-        node = cbm_gbuf_find_by_qn(ctx->gbuf, ch->enclosing_func_qn);
+        node = ctx_gbuf_find_by_qn(ctx->gbuf, ch->enclosing_func_qn);
     }
     if (!node) {
-        char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-        node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+        char *file_qn = ctx_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+        node = ctx_gbuf_find_by_qn(ctx->gbuf, file_qn);
         free(file_qn);
     }
     return node;
 }
 
-static void create_channel_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static void create_channel_edges_for_file(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
                                           const char *rel) {
     for (int j = 0; j < result->channels.count; j++) {
         const CBMChannel *ch = &result->channels.items[j];
         if (!ch->channel_name || !ch->channel_name[0]) {
             continue;
         }
-        char channel_qn[CBM_SZ_512];
+        char channel_qn[CTX_SZ_512];
         snprintf(channel_qn, sizeof(channel_qn), "__channel__%s__%s",
                  ch->transport ? ch->transport : "unknown", ch->channel_name);
-        char channel_props[CBM_SZ_512];
+        char channel_props[CTX_SZ_512];
         snprintf(channel_props, sizeof(channel_props), "{\"transport\":\"%s\",\"name\":\"%s\"}",
                  ch->transport ? ch->transport : "unknown", ch->channel_name);
-        int64_t channel_id = cbm_gbuf_upsert_node(ctx->gbuf, "Channel", ch->channel_name,
+        int64_t channel_id = ctx_gbuf_upsert_node(ctx->gbuf, "Channel", ch->channel_name,
                                                   channel_qn, "", 0, 0, channel_props);
 
-        const cbm_gbuf_node_t *src_node = find_channel_source(ctx, ch, rel);
+        const ctx_gbuf_node_t *src_node = find_channel_source(ctx, ch, rel);
         if (src_node && channel_id > 0) {
-            const char *edge_type = ch->direction == CBM_CHANNEL_EMIT ? "EMITS" : "LISTENS_ON";
-            char edge_props[CBM_SZ_128];
+            const char *edge_type = ch->direction == CTX_CHANNEL_EMIT ? "EMITS" : "LISTENS_ON";
+            char edge_props[CTX_SZ_128];
             snprintf(edge_props, sizeof(edge_props), "{\"transport\":\"%s\"}",
                      ch->transport ? ch->transport : "unknown");
-            cbm_gbuf_insert_edge(ctx->gbuf, src_node->id, channel_id, edge_type, edge_props);
+            ctx_gbuf_insert_edge(ctx->gbuf, src_node->id, channel_id, edge_type, edge_props);
         }
     }
 }
 
 /* Create IMPORTS edges for one file's imports.  Mirrors the resolution
  * logic in pass_parallel.c register_and_link_def — keep the two in sync. */
-static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int create_import_edges_for_file(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
                                         const char *rel) {
     int count = 0;
     for (int j = 0; j < result->imports.count; j++) {
@@ -304,21 +304,21 @@ static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileRe
             continue;
         }
         char *target_qn = NULL;
-        char *resolved = cbm_pipeline_resolve_relative_import(rel, imp->module_path);
+        char *resolved = ctx_pipeline_resolve_relative_import(rel, imp->module_path);
         if (resolved) {
-            target_qn = cbm_pipeline_fqn_module(ctx->project_name, resolved);
+            target_qn = ctx_pipeline_fqn_module(ctx->project_name, resolved);
             free(resolved);
         } else {
-            target_qn = cbm_pipeline_fqn_module(ctx->project_name, imp->module_path);
+            target_qn = ctx_pipeline_fqn_module(ctx->project_name, imp->module_path);
         }
-        const cbm_gbuf_node_t *target = cbm_gbuf_find_by_qn(ctx->gbuf, target_qn);
-        char *file_qn = cbm_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
-        const cbm_gbuf_node_t *source_node = cbm_gbuf_find_by_qn(ctx->gbuf, file_qn);
+        const ctx_gbuf_node_t *target = ctx_gbuf_find_by_qn(ctx->gbuf, target_qn);
+        char *file_qn = ctx_pipeline_fqn_compute(ctx->project_name, rel, "__file__");
+        const ctx_gbuf_node_t *source_node = ctx_gbuf_find_by_qn(ctx->gbuf, file_qn);
         if (source_node && target) {
-            char imp_props[CBM_SZ_256];
+            char imp_props[CTX_SZ_256];
             snprintf(imp_props, sizeof(imp_props), "{\"local_name\":\"%s\"}",
                      imp->local_name ? imp->local_name : "");
-            cbm_gbuf_insert_edge(ctx->gbuf, source_node->id, target->id, "IMPORTS", imp_props);
+            ctx_gbuf_insert_edge(ctx->gbuf, source_node->id, target->id, "IMPORTS", imp_props);
             count++;
         }
         free(target_qn);
@@ -327,12 +327,12 @@ static int create_import_edges_for_file(cbm_pipeline_ctx_t *ctx, const CBMFileRe
     return count;
 }
 
-int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t *files,
+int ctx_pipeline_pass_definitions(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files,
                                   int file_count) {
-    cbm_log_info("pass.start", "pass", "definitions", "files", itoa_log(file_count));
+    ctx_log_info("pass.start", "pass", "definitions", "files", itoa_log(file_count));
 
     /* Ensure extraction library is initialized */
-    cbm_init();
+    ctx_init();
 
     int total_defs = 0;
     int total_calls = 0;
@@ -340,8 +340,8 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
     int errors = 0;
 
     for (int i = 0; i < file_count; i++) {
-        if (cbm_pipeline_check_cancel(ctx)) {
-            return CBM_NOT_FOUND;
+        if (ctx_pipeline_check_cancel(ctx)) {
+            return CTX_NOT_FOUND;
         }
 
         const char *path = files[i].path;
@@ -358,7 +358,7 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
 
         /* Extract */
         CBMFileResult *result =
-            cbm_extract_file(source, source_len, lang, ctx->project_name, rel, CBM_EXTRACT_BUDGET,
+            ctx_extract_file(source, source_len, lang, ctx->project_name, rel, CTX_EXTRACT_BUDGET,
                              NULL, NULL /* no extra defines or include paths */
             );
         free(source);
@@ -384,11 +384,11 @@ int cbm_pipeline_pass_definitions(cbm_pipeline_ctx_t *ctx, const cbm_file_info_t
         if (ctx->result_cache) {
             ctx->result_cache[i] = result;
         } else {
-            cbm_free_result(result);
+            ctx_free_result(result);
         }
     }
 
-    cbm_log_info("pass.done", "pass", "definitions", "defs", itoa_log(total_defs), "calls",
+    ctx_log_info("pass.done", "pass", "definitions", "defs", itoa_log(total_defs), "calls",
                  itoa_log(total_calls), "imports", itoa_log(total_imports), "errors",
                  itoa_log(errors));
     return 0;

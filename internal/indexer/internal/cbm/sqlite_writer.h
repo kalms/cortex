@@ -1,5 +1,5 @@
-#ifndef CBM_SQLITE_WRITER_H
-#define CBM_SQLITE_WRITER_H
+#ifndef CTX_SQLITE_WRITER_H
+#define CTX_SQLITE_WRITER_H
 
 #include <stdint.h>
 
@@ -49,9 +49,9 @@ typedef struct {
 // Constructs B-tree pages directly — no SQL parser, no INSERTs.
 // Returns 0 on success, non-zero on error.
 // vectors/vector_count and token_vecs/token_vec_count may be NULL/0.
-int cbm_write_db(const char *path, const char *project, const char *root_path,
+int ctx_write_db(const char *path, const char *project, const char *root_path,
                  const char *indexed_at, CBMDumpNode *nodes, int node_count, CBMDumpEdge *edges,
                  int edge_count, CBMDumpVector *vectors, int vector_count,
                  CBMDumpTokenVec *token_vecs, int token_vec_count);
 
-#endif // CBM_SQLITE_WRITER_H
+#endif // CTX_SQLITE_WRITER_H

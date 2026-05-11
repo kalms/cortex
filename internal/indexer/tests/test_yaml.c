@@ -7,33 +7,33 @@
 /* ── Parsing: NULL and empty input ─────────────────────────────── */
 
 TEST(yaml_parse_null_input) {
-    cbm_yaml_node_t *root = cbm_yaml_parse(NULL, 0);
+    ctx_yaml_node_t *root = ctx_yaml_parse(NULL, 0);
     ASSERT_NOT_NULL(root); /* returns empty map on NULL */
-    ASSERT_FALSE(cbm_yaml_has(root, "anything"));
-    cbm_yaml_free(root);
+    ASSERT_FALSE(ctx_yaml_has(root, "anything"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_parse_empty_string) {
-    cbm_yaml_node_t *root = cbm_yaml_parse("", 0);
+    ctx_yaml_node_t *root = ctx_yaml_parse("", 0);
     ASSERT_NOT_NULL(root);
-    ASSERT_FALSE(cbm_yaml_has(root, "key"));
-    cbm_yaml_free(root);
+    ASSERT_FALSE(ctx_yaml_has(root, "key"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_parse_negative_len) {
-    cbm_yaml_node_t *root = cbm_yaml_parse("key: val", -1);
+    ctx_yaml_node_t *root = ctx_yaml_parse("key: val", -1);
     ASSERT_NOT_NULL(root);
     /* Negative len treated as empty */
-    ASSERT_FALSE(cbm_yaml_has(root, "key"));
-    cbm_yaml_free(root);
+    ASSERT_FALSE(ctx_yaml_has(root, "key"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_free_null) {
     /* Must not crash */
-    cbm_yaml_free(NULL);
+    ctx_yaml_free(NULL);
     PASS();
 }
 
@@ -41,19 +41,19 @@ TEST(yaml_free_null) {
 
 TEST(yaml_single_kv) {
     const char *yaml = "name: hello";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "hello");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "hello");
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_single_kv_trailing_newline) {
     const char *yaml = "name: hello\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "hello");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "hello");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -64,12 +64,12 @@ TEST(yaml_multiple_kv) {
         "name: myproject\n"
         "version: 1.2.3\n"
         "author: someone\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "myproject");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "version"), "1.2.3");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "author"), "someone");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "myproject");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "version"), "1.2.3");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "author"), "someone");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -80,11 +80,11 @@ TEST(yaml_nested_map_2_levels) {
         "database:\n"
         "  host: localhost\n"
         "  port: 5432\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "database.host"), "localhost");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "database.port"), "5432");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "database.host"), "localhost");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "database.port"), "5432");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -93,10 +93,10 @@ TEST(yaml_nested_map_3_levels) {
         "level1:\n"
         "  level2:\n"
         "    level3: deep_value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "level1.level2.level3"), "deep_value");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "level1.level2.level3"), "deep_value");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -108,13 +108,13 @@ TEST(yaml_nested_siblings) {
         "database:\n"
         "  host: db.local\n"
         "  port: 3306\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "server.host"), "0.0.0.0");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "server.port"), "8080");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "database.host"), "db.local");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "database.port"), "3306");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "server.host"), "0.0.0.0");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "server.port"), "8080");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "database.host"), "db.local");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "database.port"), "3306");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -126,15 +126,15 @@ TEST(yaml_string_list) {
         "  - apple\n"
         "  - banana\n"
         "  - cherry\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[8];
-    int count = cbm_yaml_get_str_list(root, "fruits", items, 8);
+    int count = ctx_yaml_get_str_list(root, "fruits", items, 8);
     ASSERT_EQ(count, 3);
     ASSERT_STR_EQ(items[0], "apple");
     ASSERT_STR_EQ(items[1], "banana");
     ASSERT_STR_EQ(items[2], "cherry");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -145,14 +145,14 @@ TEST(yaml_list_max_out_limit) {
         "  - b\n"
         "  - c\n"
         "  - d\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[2];
-    int count = cbm_yaml_get_str_list(root, "items", items, 2);
+    int count = ctx_yaml_get_str_list(root, "items", items, 2);
     ASSERT_EQ(count, 2);
     ASSERT_STR_EQ(items[0], "a");
     ASSERT_STR_EQ(items[1], "b");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -162,19 +162,19 @@ TEST(yaml_comment_only) {
     const char *yaml =
         "# This is a comment\n"
         "# Another comment\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FALSE(cbm_yaml_has(root, "#"));
-    cbm_yaml_free(root);
+    ASSERT_FALSE(ctx_yaml_has(root, "#"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_inline_comment) {
     const char *yaml = "name: hello # this is a comment\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "hello");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "hello");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -183,11 +183,11 @@ TEST(yaml_comment_between_keys) {
         "a: 1\n"
         "# skip me\n"
         "b: 2\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "a"), "1");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "b"), "2");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "a"), "1");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "b"), "2");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -201,16 +201,16 @@ TEST(yaml_mixed_maps_and_lists) {
         "    - web\n"
         "    - api\n"
         "  version: 2.0\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "project.name"), "myapp");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "project.version"), "2.0");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "project.name"), "myapp");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "project.version"), "2.0");
     const char *tags[4];
-    int count = cbm_yaml_get_str_list(root, "project.tags", tags, 4);
+    int count = ctx_yaml_get_str_list(root, "project.tags", tags, 4);
     ASSERT_EQ(count, 2);
     ASSERT_STR_EQ(tags[0], "web");
     ASSERT_STR_EQ(tags[1], "api");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -219,19 +219,19 @@ TEST(yaml_mixed_maps_and_lists) {
 TEST(yaml_url_value) {
     /* Only the first colon is the separator */
     const char *yaml = "url: https://example.com:8080/path\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "url"), "https://example.com:8080/path");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "url"), "https://example.com:8080/path");
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_multiple_colons) {
     const char *yaml = "time: 12:30:45\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "time"), "12:30:45");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "time"), "12:30:45");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -242,13 +242,13 @@ TEST(yaml_empty_value_becomes_map) {
     const char *yaml =
         "parent:\n"
         "  child: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_has(root, "parent"));
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "parent.child"), "val");
+    ASSERT_TRUE(ctx_yaml_has(root, "parent"));
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "parent.child"), "val");
     /* parent itself is a map, not a scalar */
-    ASSERT_NULL(cbm_yaml_get_str(root, "parent"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "parent"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -256,19 +256,19 @@ TEST(yaml_empty_value_becomes_map) {
 
 TEST(yaml_get_str_scalar) {
     const char *yaml = "key: value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "value");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "value");
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_str_missing) {
     const char *yaml = "key: value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, "nonexistent"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "nonexistent"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -277,10 +277,10 @@ TEST(yaml_get_str_nested) {
         "a:\n"
         "  b:\n"
         "    c: found\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "a.b.c"), "found");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "a.b.c"), "found");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -289,24 +289,24 @@ TEST(yaml_get_str_on_map_node) {
     const char *yaml =
         "group:\n"
         "  key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, "group"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "group"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_str_null_root) {
-    ASSERT_NULL(cbm_yaml_get_str(NULL, "key"));
+    ASSERT_NULL(ctx_yaml_get_str(NULL, "key"));
     PASS();
 }
 
 TEST(yaml_get_str_null_path) {
     const char *yaml = "key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, NULL));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, NULL));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -314,55 +314,55 @@ TEST(yaml_get_str_null_path) {
 
 TEST(yaml_get_float_valid) {
     const char *yaml = "confidence: 0.85\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "confidence", -1.0), 0.85, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "confidence", -1.0), 0.85, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_float_integer) {
     const char *yaml = "count: 42\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "count", -1.0), 42.0, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "count", -1.0), 42.0, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_float_negative) {
     const char *yaml = "offset: -3.14\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "offset", 0.0), -3.14, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "offset", 0.0), -3.14, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_float_invalid_string) {
     const char *yaml = "val: not_a_number\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "val", 99.0), 99.0, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "val", 99.0), 99.0, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_float_missing_key) {
     const char *yaml = "a: 1\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "missing", 77.7), 77.7, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "missing", 77.7), 77.7, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_float_zero) {
     const char *yaml = "val: 0.0\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "val", -1.0), 0.0, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "val", -1.0), 0.0, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -372,11 +372,11 @@ TEST(yaml_get_bool_true_false) {
     const char *yaml =
         "enabled: true\n"
         "disabled: false\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "enabled", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "disabled", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "enabled", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "disabled", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -384,11 +384,11 @@ TEST(yaml_get_bool_yes_no) {
     const char *yaml =
         "feature_a: yes\n"
         "feature_b: no\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "feature_a", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "feature_b", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "feature_a", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "feature_b", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -396,11 +396,11 @@ TEST(yaml_get_bool_on_off) {
     const char *yaml =
         "logging: on\n"
         "debug: off\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "logging", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "debug", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "logging", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "debug", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -408,11 +408,11 @@ TEST(yaml_get_bool_1_0) {
     const char *yaml =
         "flag_on: 1\n"
         "flag_off: 0\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "flag_on", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "flag_off", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "flag_on", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "flag_off", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -424,35 +424,35 @@ TEST(yaml_get_bool_case_insensitive) {
         "d: No\n"
         "e: ON\n"
         "f: Off\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "a", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "b", true));
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "c", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "d", true));
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "e", false));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "f", true));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "a", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "b", true));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "c", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "d", true));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "e", false));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "f", true));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_bool_missing_returns_default) {
     const char *yaml = "a: 1\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "missing", true));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "missing", false));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "missing", true));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "missing", false));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_bool_unrecognized_returns_default) {
     const char *yaml = "val: maybe\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "val", true));
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "val", false));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "val", true));
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "val", false));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -460,29 +460,29 @@ TEST(yaml_get_bool_unrecognized_returns_default) {
 
 TEST(yaml_get_str_list_non_list_path) {
     const char *yaml = "scalar: hello\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[4];
-    int count = cbm_yaml_get_str_list(root, "scalar", items, 4);
+    int count = ctx_yaml_get_str_list(root, "scalar", items, 4);
     ASSERT_EQ(count, 0);
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_str_list_missing_path) {
     const char *yaml = "key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[4];
-    int count = cbm_yaml_get_str_list(root, "nonexistent", items, 4);
+    int count = ctx_yaml_get_str_list(root, "nonexistent", items, 4);
     ASSERT_EQ(count, 0);
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_get_str_list_null_root) {
     const char *items[4];
-    int count = cbm_yaml_get_str_list(NULL, "key", items, 4);
+    int count = ctx_yaml_get_str_list(NULL, "key", items, 4);
     ASSERT_EQ(count, 0);
     PASS();
 }
@@ -491,19 +491,19 @@ TEST(yaml_get_str_list_null_root) {
 
 TEST(yaml_has_existing) {
     const char *yaml = "key: value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_has(root, "key"));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_has(root, "key"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_has_missing) {
     const char *yaml = "key: value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_FALSE(cbm_yaml_has(root, "nope"));
-    cbm_yaml_free(root);
+    ASSERT_FALSE(ctx_yaml_has(root, "nope"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -511,18 +511,18 @@ TEST(yaml_has_nested) {
     const char *yaml =
         "a:\n"
         "  b: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_TRUE(cbm_yaml_has(root, "a"));
-    ASSERT_TRUE(cbm_yaml_has(root, "a.b"));
-    ASSERT_FALSE(cbm_yaml_has(root, "a.c"));
-    ASSERT_FALSE(cbm_yaml_has(root, "a.b.c"));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_has(root, "a"));
+    ASSERT_TRUE(ctx_yaml_has(root, "a.b"));
+    ASSERT_FALSE(ctx_yaml_has(root, "a.c"));
+    ASSERT_FALSE(ctx_yaml_has(root, "a.b.c"));
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_has_null_root) {
-    ASSERT_FALSE(cbm_yaml_has(NULL, "key"));
+    ASSERT_FALSE(ctx_yaml_has(NULL, "key"));
     PASS();
 }
 
@@ -534,13 +534,13 @@ TEST(yaml_long_value) {
     memset(expected, 'x', 1024);
     expected[1024] = '\0';
     int n = snprintf(yaml, sizeof(yaml), "longkey: %s\n", expected);
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, n);
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, n);
     ASSERT_NOT_NULL(root);
-    const char *val = cbm_yaml_get_str(root, "longkey");
+    const char *val = ctx_yaml_get_str(root, "longkey");
     ASSERT_NOT_NULL(val);
     ASSERT_EQ((int)strlen(val), 1024);
     ASSERT_STR_EQ(val, expected);
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -548,19 +548,19 @@ TEST(yaml_long_value) {
 
 TEST(yaml_special_chars_in_value) {
     const char *yaml = "pattern: [a-z]+(foo|bar)*\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "pattern"), "[a-z]+(foo|bar)*");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "pattern"), "[a-z]+(foo|bar)*");
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_equals_in_value) {
     const char *yaml = "query: SELECT * FROM t WHERE x=1\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "query"), "SELECT * FROM t WHERE x=1");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "query"), "SELECT * FROM t WHERE x=1");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -573,13 +573,13 @@ TEST(yaml_deeply_nested) {
         "    l3:\n"
         "      l4:\n"
         "        l5: bottom\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "l1.l2.l3.l4.l5"), "bottom");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "l1.l2.l3.l4.l5"), "bottom");
     /* Intermediate nodes exist but are not scalars */
-    ASSERT_TRUE(cbm_yaml_has(root, "l1.l2.l3.l4"));
-    ASSERT_NULL(cbm_yaml_get_str(root, "l1.l2.l3.l4"));
-    cbm_yaml_free(root);
+    ASSERT_TRUE(ctx_yaml_has(root, "l1.l2.l3.l4"));
+    ASSERT_NULL(ctx_yaml_get_str(root, "l1.l2.l3.l4"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -587,11 +587,11 @@ TEST(yaml_deeply_nested) {
 
 TEST(yaml_missing_intermediate) {
     const char *yaml = "a: 1\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, "x.y.z"));
-    ASSERT_FALSE(cbm_yaml_has(root, "x.y.z"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "x.y.z"));
+    ASSERT_FALSE(ctx_yaml_has(root, "x.y.z"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -602,12 +602,12 @@ TEST(yaml_tab_not_indentation) {
     const char *yaml =
         "key1: val1\n"
         "\tkey2: val2\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key1"), "val1");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key1"), "val1");
     /* tab-indented line has 0 leading spaces, parsed as top-level */
     /* The key will be "key2" after trim_dup strips the tab from the key */
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -615,11 +615,11 @@ TEST(yaml_tab_not_indentation) {
 
 TEST(yaml_crlf_line_endings) {
     const char *yaml = "name: hello\r\nversion: 1.0\r\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "name"), "hello");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "version"), "1.0");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "name"), "hello");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "version"), "1.0");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -628,25 +628,25 @@ TEST(yaml_crlf_line_endings) {
 TEST(yaml_quoted_string_with_hash) {
     /* Quoted strings: inline comment stripping is skipped for quoted values */
     const char *yaml = "color: \"#ff0000\"\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    const char *val = cbm_yaml_get_str(root, "color");
+    const char *val = ctx_yaml_get_str(root, "color");
     ASSERT_NOT_NULL(val);
     /* Parser preserves quotes in value since it doesn't strip them */
     ASSERT_STR_EQ(val, "\"#ff0000\"");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
 TEST(yaml_single_quoted_with_hash) {
     const char *yaml = "regex: '# not a comment'\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    const char *val = cbm_yaml_get_str(root, "regex");
+    const char *val = ctx_yaml_get_str(root, "regex");
     ASSERT_NOT_NULL(val);
     /* Single-quoted values are also preserved with quotes */
     ASSERT_STR_EQ(val, "'# not a comment'");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -658,11 +658,11 @@ TEST(yaml_empty_lines_between_keys) {
         "\n"
         "\n"
         "b: 2\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "a"), "1");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "b"), "2");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "a"), "1");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "b"), "2");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -671,13 +671,13 @@ TEST(yaml_empty_lines_between_keys) {
 TEST(yaml_whitespace_after_colon) {
     /* "key:   " with only spaces after colon -> empty value -> map node */
     const char *yaml = "bare:   \n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* after_len is 0 after trimming spaces, so this becomes a map/list node */
-    ASSERT_TRUE(cbm_yaml_has(root, "bare"));
+    ASSERT_TRUE(ctx_yaml_has(root, "bare"));
     /* Not a scalar, so get_str returns NULL */
-    ASSERT_NULL(cbm_yaml_get_str(root, "bare"));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "bare"));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -685,13 +685,13 @@ TEST(yaml_whitespace_after_colon) {
 
 TEST(yaml_numeric_string_value) {
     const char *yaml = "port: 8080\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* Everything is stored as a string */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "port"), "8080");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "port"), "8080");
     /* But can be retrieved as float */
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "port", -1.0), 8080.0, 0.001);
-    cbm_yaml_free(root);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "port", -1.0), 8080.0, 0.001);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -699,10 +699,10 @@ TEST(yaml_numeric_string_value) {
 
 TEST(yaml_no_trailing_newline) {
     const char *yaml = "key: value";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "value");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "value");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -713,11 +713,11 @@ TEST(yaml_line_without_colon_skipped) {
         "valid: yes\n"
         "this line has no colon\n"
         "also_valid: sure\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "valid"), "yes");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "also_valid"), "sure");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "valid"), "yes");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "also_valid"), "sure");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -726,10 +726,10 @@ TEST(yaml_line_without_colon_skipped) {
 TEST(yaml_hash_no_preceding_space) {
     /* "#" only stripped as inline comment when preceded by space */
     const char *yaml = "channel: #general\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "channel"), "#general");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "channel"), "#general");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -741,14 +741,14 @@ TEST(yaml_list_after_comments) {
         "  # some paths to exclude\n"
         "  - /tmp\n"
         "  - /var/log\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[4];
-    int count = cbm_yaml_get_str_list(root, "paths", items, 4);
+    int count = ctx_yaml_get_str_list(root, "paths", items, 4);
     ASSERT_EQ(count, 2);
     ASSERT_STR_EQ(items[0], "/tmp");
     ASSERT_STR_EQ(items[1], "/var/log");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -761,11 +761,11 @@ TEST(yaml_path_segment_overflow) {
     long_path[260] = '\0';
 
     const char *yaml = "key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_NULL(cbm_yaml_get_str(root, long_path));
-    ASSERT_FALSE(cbm_yaml_has(root, long_path));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, long_path));
+    ASSERT_FALSE(ctx_yaml_has(root, long_path));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -773,11 +773,11 @@ TEST(yaml_path_segment_overflow) {
 
 TEST(yaml_empty_path) {
     const char *yaml = "key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* Empty path -> navigate returns root (seg_len 0 -> NULL) */
-    ASSERT_NULL(cbm_yaml_get_str(root, ""));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, ""));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -787,11 +787,11 @@ TEST(yaml_path_trailing_dot) {
     const char *yaml =
         "a:\n"
         "  b: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* "a." -> segment "a", then empty segment -> seg_len 0 -> NULL */
-    ASSERT_NULL(cbm_yaml_get_str(root, "a."));
-    cbm_yaml_free(root);
+    ASSERT_NULL(ctx_yaml_get_str(root, "a."));
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -802,10 +802,10 @@ TEST(yaml_duplicate_keys) {
     const char *yaml =
         "key: first\n"
         "key: second\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "first");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "first");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -817,11 +817,11 @@ TEST(yaml_indentation_dedent) {
         "outer:\n"
         "  inner: deep\n"
         "top: level\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "outer.inner"), "deep");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "top"), "level");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "outer.inner"), "deep");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "top"), "level");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -845,35 +845,35 @@ TEST(yaml_smoke_cgrconfig) {
         "  verbose: false\n"
         "\n"
         "# End of config\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
 
     /* Top-level scalar */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "mode"), "fast");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "mode"), "fast");
 
     /* Nested bool */
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "http_linker.enabled", false));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "http_linker.enabled", false));
 
     /* Nested float */
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "http_linker.min_confidence", 0.0), 0.7, 0.001);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "http_linker.min_confidence", 0.0), 0.7, 0.001);
 
     /* Nested list */
     const char *paths[8];
-    int count = cbm_yaml_get_str_list(root, "http_linker.exclude_paths", paths, 8);
+    int count = ctx_yaml_get_str_list(root, "http_linker.exclude_paths", paths, 8);
     ASSERT_EQ(count, 3);
     ASSERT_STR_EQ(paths[0], "/health");
     ASSERT_STR_EQ(paths[1], "/metrics");
     ASSERT_STR_EQ(paths[2], "/internal/debug");
 
     /* Another nested section */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "pipeline.workers"), "4");
-    ASSERT_FALSE(cbm_yaml_get_bool(root, "pipeline.verbose", true));
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "pipeline.workers"), "4");
+    ASSERT_FALSE(ctx_yaml_get_bool(root, "pipeline.verbose", true));
 
     /* Non-existent */
-    ASSERT_FALSE(cbm_yaml_has(root, "pipeline.timeout"));
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "pipeline.timeout", 30.0), 30.0, 0.001);
+    ASSERT_FALSE(ctx_yaml_has(root, "pipeline.timeout"));
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "pipeline.timeout", 30.0), 30.0, 0.001);
 
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -891,34 +891,34 @@ TEST(yaml_smoke_multi_query) {
         "  db:\n"
         "    host: pghost\n"
         "    ssl: on\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
 
     /* Scalars at different depths */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "app.name"), "testapp");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "app.db.host"), "pghost");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "app.name"), "testapp");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "app.db.host"), "pghost");
 
     /* Bools */
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "app.debug", false));
-    ASSERT_TRUE(cbm_yaml_get_bool(root, "app.db.ssl", false));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "app.debug", false));
+    ASSERT_TRUE(ctx_yaml_get_bool(root, "app.db.ssl", false));
 
     /* Float */
-    ASSERT_FLOAT_EQ(cbm_yaml_get_float(root, "app.port", 0.0), 9090.0, 0.001);
+    ASSERT_FLOAT_EQ(ctx_yaml_get_float(root, "app.port", 0.0), 9090.0, 0.001);
 
     /* List */
     const char *feats[4];
-    int count = cbm_yaml_get_str_list(root, "app.features", feats, 4);
+    int count = ctx_yaml_get_str_list(root, "app.features", feats, 4);
     ASSERT_EQ(count, 2);
     ASSERT_STR_EQ(feats[0], "auth");
     ASSERT_STR_EQ(feats[1], "logging");
 
     /* has() checks */
-    ASSERT_TRUE(cbm_yaml_has(root, "app"));
-    ASSERT_TRUE(cbm_yaml_has(root, "app.features"));
-    ASSERT_TRUE(cbm_yaml_has(root, "app.db"));
-    ASSERT_FALSE(cbm_yaml_has(root, "app.cache"));
+    ASSERT_TRUE(ctx_yaml_has(root, "app"));
+    ASSERT_TRUE(ctx_yaml_has(root, "app.features"));
+    ASSERT_TRUE(ctx_yaml_has(root, "app.db"));
+    ASSERT_FALSE(ctx_yaml_has(root, "app.cache"));
 
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -927,10 +927,10 @@ TEST(yaml_smoke_multi_query) {
 TEST(yaml_partial_len) {
     /* Only parse first 7 bytes: "key: va" */
     const char *yaml = "key: value\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, 7);
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, 7);
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "va");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "va");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -943,15 +943,15 @@ TEST(yaml_top_level_list_items) {
         "- red\n"
         "- green\n"
         "- blue\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     const char *items[4];
-    int count = cbm_yaml_get_str_list(root, "colors", items, 4);
+    int count = ctx_yaml_get_str_list(root, "colors", items, 4);
     ASSERT_EQ(count, 3);
     ASSERT_STR_EQ(items[0], "red");
     ASSERT_STR_EQ(items[1], "green");
     ASSERT_STR_EQ(items[2], "blue");
-    cbm_yaml_free(root);
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -964,11 +964,11 @@ TEST(yaml_inconsistent_indentation) {
         "    b:\n"
         "        c: deep\n"
         "    d: shallow\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "a.b.c"), "deep");
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "a.d"), "shallow");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "a.b.c"), "deep");
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "a.d"), "shallow");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -976,11 +976,11 @@ TEST(yaml_inconsistent_indentation) {
 
 TEST(yaml_value_whitespace_trimmed) {
     const char *yaml = "key:   spaced   \n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* trim_dup trims leading and trailing whitespace */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "key"), "spaced");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "key"), "spaced");
+    ctx_yaml_free(root);
     PASS();
 }
 
@@ -989,11 +989,11 @@ TEST(yaml_value_whitespace_trimmed) {
 TEST(yaml_indented_top_level) {
     /* Leading spaces make the parser think it's nested */
     const char *yaml = "  indented_key: val\n";
-    cbm_yaml_node_t *root = cbm_yaml_parse(yaml, (int)strlen(yaml));
+    ctx_yaml_node_t *root = ctx_yaml_parse(yaml, (int)strlen(yaml));
     ASSERT_NOT_NULL(root);
     /* With indent=2, stack pops until parent.indent < 2; root.indent=-1 qualifies */
-    ASSERT_STR_EQ(cbm_yaml_get_str(root, "indented_key"), "val");
-    cbm_yaml_free(root);
+    ASSERT_STR_EQ(ctx_yaml_get_str(root, "indented_key"), "val");
+    ctx_yaml_free(root);
     PASS();
 }
 

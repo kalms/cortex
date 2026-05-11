@@ -4,9 +4,9 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-void cbm_arena_init(CBMArena *a) {
+void ctx_arena_init(CBMArena *a) {
     memset(a, 0, sizeof(*a));
-    a->block_size = CBM_ARENA_DEFAULT_BLOCK_SIZE;
+    a->block_size = CTX_ARENA_DEFAULT_BLOCK_SIZE;
     a->blocks[0] = (char *)malloc(a->block_size);
     if (a->blocks[0]) {
         a->nblocks = SKIP_ONE;
@@ -14,7 +14,7 @@ void cbm_arena_init(CBMArena *a) {
 }
 
 static int arena_grow(CBMArena *a, size_t min_size) {
-    if (a->nblocks >= CBM_ARENA_MAX_BLOCKS) {
+    if (a->nblocks >= CTX_ARENA_MAX_BLOCKS) {
         return 0;
     }
     size_t new_size = a->block_size * PAIR_LEN;
@@ -32,7 +32,7 @@ static int arena_grow(CBMArena *a, size_t min_size) {
     return 1;
 }
 
-void *cbm_arena_alloc(CBMArena *a, size_t n) {
+void *ctx_arena_alloc(CBMArena *a, size_t n) {
     if (n == 0) {
         return NULL;
     }
@@ -54,21 +54,21 @@ void *cbm_arena_alloc(CBMArena *a, size_t n) {
     return ptr;
 }
 
-char *cbm_arena_strdup(CBMArena *a, const char *s) {
+char *ctx_arena_strdup(CBMArena *a, const char *s) {
     if (!s)
         return NULL;
     size_t len = strlen(s);
-    char *dst = (char *)cbm_arena_alloc(a, len + SKIP_ONE);
+    char *dst = (char *)ctx_arena_alloc(a, len + SKIP_ONE);
     if (dst) {
         memcpy(dst, s, len + SKIP_ONE);
     }
     return dst;
 }
 
-char *cbm_arena_strndup(CBMArena *a, const char *s, size_t len) {
+char *ctx_arena_strndup(CBMArena *a, const char *s, size_t len) {
     if (!s)
         return NULL;
-    char *dst = (char *)cbm_arena_alloc(a, len + SKIP_ONE);
+    char *dst = (char *)ctx_arena_alloc(a, len + SKIP_ONE);
     if (dst) {
         memcpy(dst, s, len);
         dst[len] = '\0';
@@ -76,7 +76,7 @@ char *cbm_arena_strndup(CBMArena *a, const char *s, size_t len) {
     return dst;
 }
 
-char *cbm_arena_sprintf(CBMArena *a, const char *fmt, ...) {
+char *ctx_arena_sprintf(CBMArena *a, const char *fmt, ...) {
     // First pass: compute length
     va_list args;
     va_start(args, fmt);
@@ -87,7 +87,7 @@ char *cbm_arena_sprintf(CBMArena *a, const char *fmt, ...) {
         return NULL;
     }
 
-    char *dst = (char *)cbm_arena_alloc(a, (size_t)needed + SKIP_ONE);
+    char *dst = (char *)ctx_arena_alloc(a, (size_t)needed + SKIP_ONE);
     if (!dst) {
         return NULL;
     }
@@ -99,7 +99,7 @@ char *cbm_arena_sprintf(CBMArena *a, const char *fmt, ...) {
     return dst;
 }
 
-void cbm_arena_destroy(CBMArena *a) {
+void ctx_arena_destroy(CBMArena *a) {
     for (int i = 0; i < a->nblocks; i++) {
         free(a->blocks[i]);
     }

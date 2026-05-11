@@ -1,5 +1,5 @@
-#ifndef CBM_EXTRACT_UNIFIED_H
-#define CBM_EXTRACT_UNIFIED_H
+#ifndef CTX_EXTRACT_UNIFIED_H
+#define CTX_EXTRACT_UNIFIED_H
 
 #include "cbm.h"
 #include "lang_specs.h"
@@ -44,6 +44,6 @@ void handle_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
 // dispatching to all handlers per node. Replaces the 7 separate walk_*
 // functions for calls/usages/throws/readwrites/type_refs/env_accesses/type_assigns.
 // Definitions and imports stay as separate passes (different recursion patterns).
-void cbm_extract_unified(CBMExtractCtx *ctx);
+void ctx_extract_unified(CBMExtractCtx *ctx);
 
-#endif // CBM_EXTRACT_UNIFIED_H
+#endif // CTX_EXTRACT_UNIFIED_H

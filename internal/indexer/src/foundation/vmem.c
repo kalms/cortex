@@ -56,7 +56,7 @@ static size_t round_to_page(size_t size) {
 
 /* ── Pressure logging ──────────────────────────────────────────── */
 
-#define MB_DIVISOR ((size_t)(CBM_SZ_1K * CBM_SZ_1K))
+#define MB_DIVISOR ((size_t)(CTX_SZ_1K * CTX_SZ_1K))
 
 static void check_pressure(size_t allocated) {
     if (g_budget == 0) {
@@ -69,26 +69,26 @@ static void check_pressure(size_t allocated) {
     if (over && !was) {
         /* Transition: under → over */
         atomic_store(&g_was_over, 1);
-        char alloc_mb[CBM_SZ_32];
-        char budget_mb[CBM_SZ_32];
-        char pct_str[CBM_SZ_16];
+        char alloc_mb[CTX_SZ_32];
+        char budget_mb[CTX_SZ_32];
+        char pct_str[CTX_SZ_16];
         snprintf(alloc_mb, sizeof(alloc_mb), "%zu", allocated / MB_DIVISOR);
         snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
         snprintf(pct_str, sizeof(pct_str), "%zu",
-                 g_budget > 0 ? (allocated * CBM_PERCENT) / g_budget : 0);
-        cbm_log_warn("mem.pressure.warn", "allocated_mb", alloc_mb, "budget_mb", budget_mb, "pct",
+                 g_budget > 0 ? (allocated * CTX_PERCENT) / g_budget : 0);
+        ctx_log_warn("mem.pressure.warn", "allocated_mb", alloc_mb, "budget_mb", budget_mb, "pct",
                      pct_str);
     } else if (!over && was) {
         /* Transition: over → under */
         atomic_store(&g_was_over, 0);
-        char alloc_mb[CBM_SZ_32];
-        char budget_mb[CBM_SZ_32];
-        char pct_str[CBM_SZ_16];
+        char alloc_mb[CTX_SZ_32];
+        char budget_mb[CTX_SZ_32];
+        char pct_str[CTX_SZ_16];
         snprintf(alloc_mb, sizeof(alloc_mb), "%zu", allocated / MB_DIVISOR);
         snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
         snprintf(pct_str, sizeof(pct_str), "%zu",
-                 g_budget > 0 ? (allocated * CBM_PERCENT) / g_budget : 0);
-        cbm_log_info("mem.pressure.ok", "allocated_mb", alloc_mb, "budget_mb", budget_mb, "pct",
+                 g_budget > 0 ? (allocated * CTX_PERCENT) / g_budget : 0);
+        ctx_log_info("mem.pressure.ok", "allocated_mb", alloc_mb, "budget_mb", budget_mb, "pct",
                      pct_str);
     }
 }
@@ -106,7 +106,7 @@ static void update_peak(size_t allocated) {
 
 /* ── Public API ────────────────────────────────────────────────── */
 
-void cbm_vmem_init(double ram_fraction) {
+void ctx_vmem_init(double ram_fraction) {
     /* Only first call takes effect */
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_initialized, &expected, 1)) {
@@ -117,17 +117,17 @@ void cbm_vmem_init(double ram_fraction) {
         ram_fraction = 0.5;
     }
 
-    cbm_system_info_t info = cbm_system_info();
+    ctx_system_info_t info = ctx_system_info();
     g_budget = (size_t)((double)info.total_ram * ram_fraction);
 
-    char budget_mb[CBM_SZ_32];
-    char ram_mb[CBM_SZ_32];
+    char budget_mb[CTX_SZ_32];
+    char ram_mb[CTX_SZ_32];
     snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
     snprintf(ram_mb, sizeof(ram_mb), "%zu", info.total_ram / MB_DIVISOR);
-    cbm_log_info("vmem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb);
+    ctx_log_info("vmem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb);
 }
 
-void *cbm_vmem_alloc(size_t size) {
+void *ctx_vmem_alloc(size_t size) {
     if (size == 0) {
         return NULL;
     }
@@ -144,7 +144,7 @@ void *cbm_vmem_alloc(size_t size) {
 #endif
 
     if (!ptr) {
-        cbm_log_error("vmem.alloc.fail", "size_mb", size > MB_DIVISOR ? "large" : "small");
+        ctx_log_error("vmem.alloc.fail", "size_mb", size > MB_DIVISOR ? "large" : "small");
         return NULL;
     }
 
@@ -155,7 +155,7 @@ void *cbm_vmem_alloc(size_t size) {
     return ptr;
 }
 
-void cbm_vmem_free(void *ptr, size_t size) {
+void ctx_vmem_free(void *ptr, size_t size) {
     if (!ptr || size == 0) {
         return;
     }
@@ -172,23 +172,23 @@ void cbm_vmem_free(void *ptr, size_t size) {
     check_pressure(new_total);
 }
 
-size_t cbm_vmem_allocated(void) {
+size_t ctx_vmem_allocated(void) {
     return atomic_load(&g_allocated);
 }
 
-size_t cbm_vmem_peak(void) {
+size_t ctx_vmem_peak(void) {
     return atomic_load(&g_peak);
 }
 
-size_t cbm_vmem_budget(void) {
+size_t ctx_vmem_budget(void) {
     return g_budget;
 }
 
-bool cbm_vmem_over_budget(void) {
+bool ctx_vmem_over_budget(void) {
     return atomic_load(&g_allocated) > g_budget;
 }
 
-size_t cbm_vmem_worker_budget(int num_workers) {
+size_t ctx_vmem_worker_budget(int num_workers) {
     if (num_workers <= 0) {
         num_workers = SKIP_ONE;
     }

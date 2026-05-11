@@ -3,12 +3,12 @@
  *
  * Maps file extensions and special filenames to CBMLanguage enum values.
  * Handles .m disambiguation (Objective-C vs Magma vs MATLAB).
- * Consults the process-global user config (set via cbm_set_user_lang_config)
+ * Consults the process-global user config (set via ctx_set_user_lang_config)
  * before the built-in lookup table.
  */
 #include "discover/discover.h"
 #include "discover/userconfig.h"
-#include "cbm.h" // CBMLanguage, CBM_LANG_*
+#include "cbm.h" // CBMLanguage, CTX_LANG_*
 
 #include "foundation/constants.h"
 
@@ -28,242 +28,242 @@ typedef struct {
 /* Sorted by extension for binary search (but linear scan is fine for ~120 entries) */
 static const ext_entry_t EXT_TABLE[] = {
     /* Bash */
-    {".bash", CBM_LANG_BASH},
-    {".sh", CBM_LANG_BASH},
+    {".bash", CTX_LANG_BASH},
+    {".sh", CTX_LANG_BASH},
 
     /* C */
-    {".c", CBM_LANG_C},
+    {".c", CTX_LANG_C},
 
     /* C++ */
-    {".cc", CBM_LANG_CPP},
-    {".ccm", CBM_LANG_CPP},
-    {".cpp", CBM_LANG_CPP},
-    {".cppm", CBM_LANG_CPP},
-    {".cxx", CBM_LANG_CPP},
-    {".h", CBM_LANG_CPP},
-    {".hh", CBM_LANG_CPP},
-    {".hpp", CBM_LANG_CPP},
-    {".hxx", CBM_LANG_CPP},
-    {".ixx", CBM_LANG_CPP},
+    {".cc", CTX_LANG_CPP},
+    {".ccm", CTX_LANG_CPP},
+    {".cpp", CTX_LANG_CPP},
+    {".cppm", CTX_LANG_CPP},
+    {".cxx", CTX_LANG_CPP},
+    {".h", CTX_LANG_CPP},
+    {".hh", CTX_LANG_CPP},
+    {".hpp", CTX_LANG_CPP},
+    {".hxx", CTX_LANG_CPP},
+    {".ixx", CTX_LANG_CPP},
 
     /* C# */
-    {".cs", CBM_LANG_CSHARP},
+    {".cs", CTX_LANG_CSHARP},
 
     /* Clojure */
-    {".clj", CBM_LANG_CLOJURE},
-    {".cljc", CBM_LANG_CLOJURE},
-    {".cljs", CBM_LANG_CLOJURE},
+    {".clj", CTX_LANG_CLOJURE},
+    {".cljc", CTX_LANG_CLOJURE},
+    {".cljs", CTX_LANG_CLOJURE},
 
     /* CMake */
-    {".cmake", CBM_LANG_CMAKE},
+    {".cmake", CTX_LANG_CMAKE},
 
     /* COBOL */
-    {".cbl", CBM_LANG_COBOL},
-    {".cob", CBM_LANG_COBOL},
+    {".cbl", CTX_LANG_COBOL},
+    {".cob", CTX_LANG_COBOL},
 
     /* Common Lisp */
-    {".cl", CBM_LANG_COMMONLISP},
-    {".lisp", CBM_LANG_COMMONLISP},
-    {".lsp", CBM_LANG_COMMONLISP},
+    {".cl", CTX_LANG_COMMONLISP},
+    {".lisp", CTX_LANG_COMMONLISP},
+    {".lsp", CTX_LANG_COMMONLISP},
 
     /* CSS */
-    {".css", CBM_LANG_CSS},
+    {".css", CTX_LANG_CSS},
 
     /* CUDA */
-    {".cu", CBM_LANG_CUDA},
-    {".cuh", CBM_LANG_CUDA},
+    {".cu", CTX_LANG_CUDA},
+    {".cuh", CTX_LANG_CUDA},
 
     /* Dart */
-    {".dart", CBM_LANG_DART},
+    {".dart", CTX_LANG_DART},
 
     /* Dockerfile */
-    {".dockerfile", CBM_LANG_DOCKERFILE},
+    {".dockerfile", CTX_LANG_DOCKERFILE},
 
     /* Elixir */
-    {".ex", CBM_LANG_ELIXIR},
-    {".exs", CBM_LANG_ELIXIR},
+    {".ex", CTX_LANG_ELIXIR},
+    {".exs", CTX_LANG_ELIXIR},
 
     /* Elm */
-    {".elm", CBM_LANG_ELM},
+    {".elm", CTX_LANG_ELM},
 
     /* Emacs Lisp */
-    {".el", CBM_LANG_EMACSLISP},
+    {".el", CTX_LANG_EMACSLISP},
 
     /* Erlang */
-    {".erl", CBM_LANG_ERLANG},
+    {".erl", CTX_LANG_ERLANG},
 
     /* F# */
-    {".fs", CBM_LANG_FSHARP},
-    {".fsi", CBM_LANG_FSHARP},
-    {".fsx", CBM_LANG_FSHARP},
+    {".fs", CTX_LANG_FSHARP},
+    {".fsi", CTX_LANG_FSHARP},
+    {".fsx", CTX_LANG_FSHARP},
 
     /* FORM */
-    {".frm", CBM_LANG_FORM},
-    {".prc", CBM_LANG_FORM},
+    {".frm", CTX_LANG_FORM},
+    {".prc", CTX_LANG_FORM},
 
     /* Fortran */
-    {".f03", CBM_LANG_FORTRAN},
-    {".f08", CBM_LANG_FORTRAN},
-    {".f90", CBM_LANG_FORTRAN},
-    {".f95", CBM_LANG_FORTRAN},
+    {".f03", CTX_LANG_FORTRAN},
+    {".f08", CTX_LANG_FORTRAN},
+    {".f90", CTX_LANG_FORTRAN},
+    {".f95", CTX_LANG_FORTRAN},
 
     /* GLSL */
-    {".frag", CBM_LANG_GLSL},
-    {".glsl", CBM_LANG_GLSL},
-    {".vert", CBM_LANG_GLSL},
+    {".frag", CTX_LANG_GLSL},
+    {".glsl", CTX_LANG_GLSL},
+    {".vert", CTX_LANG_GLSL},
 
     /* Go */
-    {".go", CBM_LANG_GO},
+    {".go", CTX_LANG_GO},
 
     /* GraphQL */
-    {".gql", CBM_LANG_GRAPHQL},
-    {".graphql", CBM_LANG_GRAPHQL},
+    {".gql", CTX_LANG_GRAPHQL},
+    {".graphql", CTX_LANG_GRAPHQL},
 
     /* Groovy */
-    {".gradle", CBM_LANG_GROOVY},
-    {".groovy", CBM_LANG_GROOVY},
+    {".gradle", CTX_LANG_GROOVY},
+    {".groovy", CTX_LANG_GROOVY},
 
     /* Haskell */
-    {".hs", CBM_LANG_HASKELL},
+    {".hs", CTX_LANG_HASKELL},
 
     /* HCL / Terraform */
-    {".hcl", CBM_LANG_HCL},
-    {".tf", CBM_LANG_HCL},
+    {".hcl", CTX_LANG_HCL},
+    {".tf", CTX_LANG_HCL},
 
     /* HTML */
-    {".htm", CBM_LANG_HTML},
-    {".html", CBM_LANG_HTML},
+    {".htm", CTX_LANG_HTML},
+    {".html", CTX_LANG_HTML},
 
     /* INI */
-    {".cfg", CBM_LANG_INI},
-    {".conf", CBM_LANG_INI},
-    {".ini", CBM_LANG_INI},
+    {".cfg", CTX_LANG_INI},
+    {".conf", CTX_LANG_INI},
+    {".ini", CTX_LANG_INI},
 
     /* Java */
-    {".java", CBM_LANG_JAVA},
+    {".java", CTX_LANG_JAVA},
 
     /* JavaScript */
-    {".js", CBM_LANG_JAVASCRIPT},
-    {".jsx", CBM_LANG_JAVASCRIPT},
+    {".js", CTX_LANG_JAVASCRIPT},
+    {".jsx", CTX_LANG_JAVASCRIPT},
 
     /* JSON */
-    {".json", CBM_LANG_JSON},
+    {".json", CTX_LANG_JSON},
 
     /* Julia */
-    {".jl", CBM_LANG_JULIA},
+    {".jl", CTX_LANG_JULIA},
 
     /* Kotlin */
-    {".kt", CBM_LANG_KOTLIN},
-    {".kts", CBM_LANG_KOTLIN},
+    {".kt", CTX_LANG_KOTLIN},
+    {".kts", CTX_LANG_KOTLIN},
 
     /* Lean */
-    {".lean", CBM_LANG_LEAN},
+    {".lean", CTX_LANG_LEAN},
 
     /* Lua */
-    {".lua", CBM_LANG_LUA},
+    {".lua", CTX_LANG_LUA},
 
     /* Magma */
-    {".mag", CBM_LANG_MAGMA},
-    {".magma", CBM_LANG_MAGMA},
+    {".mag", CTX_LANG_MAGMA},
+    {".magma", CTX_LANG_MAGMA},
 
     /* Makefile */
-    {".mk", CBM_LANG_MAKEFILE},
+    {".mk", CTX_LANG_MAKEFILE},
 
     /* Markdown */
-    {".md", CBM_LANG_MARKDOWN},
-    {".mdx", CBM_LANG_MARKDOWN},
+    {".md", CTX_LANG_MARKDOWN},
+    {".mdx", CTX_LANG_MARKDOWN},
 
     /* MATLAB */
-    {".matlab", CBM_LANG_MATLAB},
-    {".mlx", CBM_LANG_MATLAB},
+    {".matlab", CTX_LANG_MATLAB},
+    {".mlx", CTX_LANG_MATLAB},
 
     /* Meson */
-    {".meson", CBM_LANG_MESON},
+    {".meson", CTX_LANG_MESON},
 
     /* Nix */
-    {".nix", CBM_LANG_NIX},
+    {".nix", CTX_LANG_NIX},
 
     /* OCaml */
-    {".ml", CBM_LANG_OCAML},
-    {".mli", CBM_LANG_OCAML},
+    {".ml", CTX_LANG_OCAML},
+    {".mli", CTX_LANG_OCAML},
 
     /* Perl */
-    {".pl", CBM_LANG_PERL},
-    {".pm", CBM_LANG_PERL},
+    {".pl", CTX_LANG_PERL},
+    {".pm", CTX_LANG_PERL},
 
     /* PHP */
-    {".php", CBM_LANG_PHP},
+    {".php", CTX_LANG_PHP},
 
     /* Protobuf */
-    {".proto", CBM_LANG_PROTOBUF},
+    {".proto", CTX_LANG_PROTOBUF},
 
     /* Python */
-    {".py", CBM_LANG_PYTHON},
+    {".py", CTX_LANG_PYTHON},
 
     /* R — case insensitive handled separately */
-    {".R", CBM_LANG_R},
-    {".r", CBM_LANG_R},
+    {".R", CTX_LANG_R},
+    {".r", CTX_LANG_R},
 
     /* Ruby */
-    {".gemspec", CBM_LANG_RUBY},
-    {".rake", CBM_LANG_RUBY},
-    {".rb", CBM_LANG_RUBY},
+    {".gemspec", CTX_LANG_RUBY},
+    {".rake", CTX_LANG_RUBY},
+    {".rb", CTX_LANG_RUBY},
 
     /* Rust */
-    {".rs", CBM_LANG_RUST},
+    {".rs", CTX_LANG_RUST},
 
     /* Scala */
-    {".sc", CBM_LANG_SCALA},
-    {".scala", CBM_LANG_SCALA},
+    {".sc", CTX_LANG_SCALA},
+    {".scala", CTX_LANG_SCALA},
 
     /* SCSS */
-    {".scss", CBM_LANG_SCSS},
+    {".scss", CTX_LANG_SCSS},
 
     /* SQL */
-    {".sql", CBM_LANG_SQL},
+    {".sql", CTX_LANG_SQL},
 
     /* Svelte */
-    {".svelte", CBM_LANG_SVELTE},
+    {".svelte", CTX_LANG_SVELTE},
 
     /* Swift */
-    {".swift", CBM_LANG_SWIFT},
+    {".swift", CTX_LANG_SWIFT},
 
     /* SystemVerilog + Verilog */
-    {".sv", CBM_LANG_VERILOG},
-    {".v", CBM_LANG_VERILOG},
+    {".sv", CTX_LANG_VERILOG},
+    {".v", CTX_LANG_VERILOG},
 
     /* TOML */
-    {".toml", CBM_LANG_TOML},
+    {".toml", CTX_LANG_TOML},
 
     /* TSX */
-    {".tsx", CBM_LANG_TSX},
+    {".tsx", CTX_LANG_TSX},
 
     /* TypeScript */
-    {".ts", CBM_LANG_TYPESCRIPT},
+    {".ts", CTX_LANG_TYPESCRIPT},
 
     /* VimScript */
-    {".vim", CBM_LANG_VIMSCRIPT},
-    {".vimrc", CBM_LANG_VIMSCRIPT},
+    {".vim", CTX_LANG_VIMSCRIPT},
+    {".vimrc", CTX_LANG_VIMSCRIPT},
 
     /* Vue */
-    {".vue", CBM_LANG_VUE},
+    {".vue", CTX_LANG_VUE},
 
     /* Wolfram */
-    {".wl", CBM_LANG_WOLFRAM},
-    {".wls", CBM_LANG_WOLFRAM},
+    {".wl", CTX_LANG_WOLFRAM},
+    {".wls", CTX_LANG_WOLFRAM},
 
     /* XML */
-    {".xml", CBM_LANG_XML},
-    {".xsd", CBM_LANG_XML},
-    {".xsl", CBM_LANG_XML},
-    {".svg", CBM_LANG_XML},
+    {".xml", CTX_LANG_XML},
+    {".xsd", CTX_LANG_XML},
+    {".xsl", CTX_LANG_XML},
+    {".svg", CTX_LANG_XML},
 
     /* YAML */
-    {".yaml", CBM_LANG_YAML},
-    {".yml", CBM_LANG_YAML},
+    {".yaml", CTX_LANG_YAML},
+    {".yml", CTX_LANG_YAML},
 
     /* Zig */
-    {".zig", CBM_LANG_ZIG},
+    {".zig", CTX_LANG_ZIG},
 };
 
 #define EXT_TABLE_SIZE (sizeof(EXT_TABLE) / sizeof(EXT_TABLE[0]))
@@ -276,109 +276,109 @@ typedef struct {
 } filename_entry_t;
 
 static const filename_entry_t FILENAME_TABLE[] = {
-    {"CMakeLists.txt", CBM_LANG_CMAKE},
-    {"Dockerfile", CBM_LANG_DOCKERFILE},
-    {"GNUmakefile", CBM_LANG_MAKEFILE},
-    {"Makefile", CBM_LANG_MAKEFILE},
-    {"makefile", CBM_LANG_MAKEFILE},
-    {"meson.build", CBM_LANG_MESON},
-    {"meson.options", CBM_LANG_MESON},
-    {"meson_options.txt", CBM_LANG_MESON},
-    {"kustomization.yaml", CBM_LANG_KUSTOMIZE},
-    {"kustomization.yml", CBM_LANG_KUSTOMIZE},
+    {"CMakeLists.txt", CTX_LANG_CMAKE},
+    {"Dockerfile", CTX_LANG_DOCKERFILE},
+    {"GNUmakefile", CTX_LANG_MAKEFILE},
+    {"Makefile", CTX_LANG_MAKEFILE},
+    {"makefile", CTX_LANG_MAKEFILE},
+    {"meson.build", CTX_LANG_MESON},
+    {"meson.options", CTX_LANG_MESON},
+    {"meson_options.txt", CTX_LANG_MESON},
+    {"kustomization.yaml", CTX_LANG_KUSTOMIZE},
+    {"kustomization.yml", CTX_LANG_KUSTOMIZE},
     /* Note: FILENAME_TABLE uses case-sensitive strcmp, so mixed-case variants
      * (e.g. "Kustomization.yaml") are not matched here.  They fall through to
-     * CBM_LANG_YAML and are re-classified by cbm_is_kustomize_file() in
+     * CTX_LANG_YAML and are re-classified by ctx_is_kustomize_file() in
      * pass_k8s.c, which performs a case-insensitive comparison.  This is the
      * intended behaviour — no additional entries are needed. */
-    {".vimrc", CBM_LANG_VIMSCRIPT},
+    {".vimrc", CTX_LANG_VIMSCRIPT},
 };
 
 #define FILENAME_TABLE_SIZE (sizeof(FILENAME_TABLE) / sizeof(FILENAME_TABLE[0]))
 
 /* ── Language names ──────────────────────────────────────────────── */
 
-static const char *LANG_NAMES[CBM_LANG_COUNT] = {
-    [CBM_LANG_GO] = "Go",
-    [CBM_LANG_PYTHON] = "Python",
-    [CBM_LANG_JAVASCRIPT] = "JavaScript",
-    [CBM_LANG_TYPESCRIPT] = "TypeScript",
-    [CBM_LANG_TSX] = "TSX",
-    [CBM_LANG_RUST] = "Rust",
-    [CBM_LANG_JAVA] = "Java",
-    [CBM_LANG_CPP] = "C++",
-    [CBM_LANG_CSHARP] = "C#",
-    [CBM_LANG_PHP] = "PHP",
-    [CBM_LANG_LUA] = "Lua",
-    [CBM_LANG_SCALA] = "Scala",
-    [CBM_LANG_KOTLIN] = "Kotlin",
-    [CBM_LANG_RUBY] = "Ruby",
-    [CBM_LANG_C] = "C",
-    [CBM_LANG_BASH] = "Bash",
-    [CBM_LANG_ZIG] = "Zig",
-    [CBM_LANG_ELIXIR] = "Elixir",
-    [CBM_LANG_HASKELL] = "Haskell",
-    [CBM_LANG_OCAML] = "OCaml",
-    [CBM_LANG_OBJC] = "Objective-C",
-    [CBM_LANG_SWIFT] = "Swift",
-    [CBM_LANG_DART] = "Dart",
-    [CBM_LANG_PERL] = "Perl",
-    [CBM_LANG_GROOVY] = "Groovy",
-    [CBM_LANG_ERLANG] = "Erlang",
-    [CBM_LANG_R] = "R",
-    [CBM_LANG_HTML] = "HTML",
-    [CBM_LANG_CSS] = "CSS",
-    [CBM_LANG_SCSS] = "SCSS",
-    [CBM_LANG_YAML] = "YAML",
-    [CBM_LANG_TOML] = "TOML",
-    [CBM_LANG_HCL] = "HCL",
-    [CBM_LANG_SQL] = "SQL",
-    [CBM_LANG_DOCKERFILE] = "Dockerfile",
-    [CBM_LANG_CLOJURE] = "Clojure",
-    [CBM_LANG_FSHARP] = "F#",
-    [CBM_LANG_JULIA] = "Julia",
-    [CBM_LANG_VIMSCRIPT] = "VimScript",
-    [CBM_LANG_NIX] = "Nix",
-    [CBM_LANG_COMMONLISP] = "Common Lisp",
-    [CBM_LANG_ELM] = "Elm",
-    [CBM_LANG_FORTRAN] = "Fortran",
-    [CBM_LANG_CUDA] = "CUDA",
-    [CBM_LANG_COBOL] = "COBOL",
-    [CBM_LANG_VERILOG] = "Verilog",
-    [CBM_LANG_EMACSLISP] = "Emacs Lisp",
-    [CBM_LANG_JSON] = "JSON",
-    [CBM_LANG_XML] = "XML",
-    [CBM_LANG_MARKDOWN] = "Markdown",
-    [CBM_LANG_MAKEFILE] = "Makefile",
-    [CBM_LANG_CMAKE] = "CMake",
-    [CBM_LANG_PROTOBUF] = "Protobuf",
-    [CBM_LANG_GRAPHQL] = "GraphQL",
-    [CBM_LANG_VUE] = "Vue",
-    [CBM_LANG_SVELTE] = "Svelte",
-    [CBM_LANG_MESON] = "Meson",
-    [CBM_LANG_GLSL] = "GLSL",
-    [CBM_LANG_INI] = "INI",
-    [CBM_LANG_MATLAB] = "MATLAB",
-    [CBM_LANG_LEAN] = "Lean",
-    [CBM_LANG_FORM] = "FORM",
-    [CBM_LANG_MAGMA] = "Magma",
-    [CBM_LANG_WOLFRAM] = "Wolfram",
-    [CBM_LANG_KUSTOMIZE] = "Kustomize",
-    [CBM_LANG_K8S] = "Kubernetes",
+static const char *LANG_NAMES[CTX_LANG_COUNT] = {
+    [CTX_LANG_GO] = "Go",
+    [CTX_LANG_PYTHON] = "Python",
+    [CTX_LANG_JAVASCRIPT] = "JavaScript",
+    [CTX_LANG_TYPESCRIPT] = "TypeScript",
+    [CTX_LANG_TSX] = "TSX",
+    [CTX_LANG_RUST] = "Rust",
+    [CTX_LANG_JAVA] = "Java",
+    [CTX_LANG_CPP] = "C++",
+    [CTX_LANG_CSHARP] = "C#",
+    [CTX_LANG_PHP] = "PHP",
+    [CTX_LANG_LUA] = "Lua",
+    [CTX_LANG_SCALA] = "Scala",
+    [CTX_LANG_KOTLIN] = "Kotlin",
+    [CTX_LANG_RUBY] = "Ruby",
+    [CTX_LANG_C] = "C",
+    [CTX_LANG_BASH] = "Bash",
+    [CTX_LANG_ZIG] = "Zig",
+    [CTX_LANG_ELIXIR] = "Elixir",
+    [CTX_LANG_HASKELL] = "Haskell",
+    [CTX_LANG_OCAML] = "OCaml",
+    [CTX_LANG_OBJC] = "Objective-C",
+    [CTX_LANG_SWIFT] = "Swift",
+    [CTX_LANG_DART] = "Dart",
+    [CTX_LANG_PERL] = "Perl",
+    [CTX_LANG_GROOVY] = "Groovy",
+    [CTX_LANG_ERLANG] = "Erlang",
+    [CTX_LANG_R] = "R",
+    [CTX_LANG_HTML] = "HTML",
+    [CTX_LANG_CSS] = "CSS",
+    [CTX_LANG_SCSS] = "SCSS",
+    [CTX_LANG_YAML] = "YAML",
+    [CTX_LANG_TOML] = "TOML",
+    [CTX_LANG_HCL] = "HCL",
+    [CTX_LANG_SQL] = "SQL",
+    [CTX_LANG_DOCKERFILE] = "Dockerfile",
+    [CTX_LANG_CLOJURE] = "Clojure",
+    [CTX_LANG_FSHARP] = "F#",
+    [CTX_LANG_JULIA] = "Julia",
+    [CTX_LANG_VIMSCRIPT] = "VimScript",
+    [CTX_LANG_NIX] = "Nix",
+    [CTX_LANG_COMMONLISP] = "Common Lisp",
+    [CTX_LANG_ELM] = "Elm",
+    [CTX_LANG_FORTRAN] = "Fortran",
+    [CTX_LANG_CUDA] = "CUDA",
+    [CTX_LANG_COBOL] = "COBOL",
+    [CTX_LANG_VERILOG] = "Verilog",
+    [CTX_LANG_EMACSLISP] = "Emacs Lisp",
+    [CTX_LANG_JSON] = "JSON",
+    [CTX_LANG_XML] = "XML",
+    [CTX_LANG_MARKDOWN] = "Markdown",
+    [CTX_LANG_MAKEFILE] = "Makefile",
+    [CTX_LANG_CMAKE] = "CMake",
+    [CTX_LANG_PROTOBUF] = "Protobuf",
+    [CTX_LANG_GRAPHQL] = "GraphQL",
+    [CTX_LANG_VUE] = "Vue",
+    [CTX_LANG_SVELTE] = "Svelte",
+    [CTX_LANG_MESON] = "Meson",
+    [CTX_LANG_GLSL] = "GLSL",
+    [CTX_LANG_INI] = "INI",
+    [CTX_LANG_MATLAB] = "MATLAB",
+    [CTX_LANG_LEAN] = "Lean",
+    [CTX_LANG_FORM] = "FORM",
+    [CTX_LANG_MAGMA] = "Magma",
+    [CTX_LANG_WOLFRAM] = "Wolfram",
+    [CTX_LANG_KUSTOMIZE] = "Kustomize",
+    [CTX_LANG_K8S] = "Kubernetes",
 };
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-CBMLanguage cbm_language_for_extension(const char *ext) {
+CBMLanguage ctx_language_for_extension(const char *ext) {
     if (!ext || !ext[0]) {
-        return CBM_LANG_COUNT;
+        return CTX_LANG_COUNT;
     }
 
     /* Check user-defined overrides first */
-    const cbm_userconfig_t *ucfg = cbm_get_user_lang_config();
+    const ctx_userconfig_t *ucfg = ctx_get_user_lang_config();
     if (ucfg) {
-        CBMLanguage ulang = cbm_userconfig_lookup(ucfg, ext);
-        if (ulang != CBM_LANG_COUNT) {
+        CBMLanguage ulang = ctx_userconfig_lookup(ucfg, ext);
+        if (ulang != CTX_LANG_COUNT) {
             return ulang;
         }
     }
@@ -388,12 +388,12 @@ CBMLanguage cbm_language_for_extension(const char *ext) {
             return EXT_TABLE[i].language;
         }
     }
-    return CBM_LANG_COUNT;
+    return CTX_LANG_COUNT;
 }
 
-CBMLanguage cbm_language_for_filename(const char *filename) {
+CBMLanguage ctx_language_for_filename(const char *filename) {
     if (!filename || !filename[0]) {
-        return CBM_LANG_COUNT;
+        return CTX_LANG_COUNT;
     }
 
     /* Check special filenames first */
@@ -409,16 +409,16 @@ CBMLanguage cbm_language_for_filename(const char *filename) {
      * config at each position.  Built-in extensions use the last dot only. */
     const char *last_dot = strrchr(filename, '.');
     if (!last_dot) {
-        return CBM_LANG_COUNT;
+        return CTX_LANG_COUNT;
     }
 
     /* Probe user config for compound extensions (e.g. ".blade.php"). */
-    const cbm_userconfig_t *ucfg = cbm_get_user_lang_config();
+    const ctx_userconfig_t *ucfg = ctx_get_user_lang_config();
     if (ucfg) {
         const char *p = strchr(filename, '.');
         while (p && p < last_dot) {
-            CBMLanguage lang = cbm_userconfig_lookup(ucfg, p);
-            if (lang != CBM_LANG_COUNT) {
+            CBMLanguage lang = ctx_userconfig_lookup(ucfg, p);
+            if (lang != CTX_LANG_COUNT) {
                 return lang;
             }
             p = strchr(p + SKIP_ONE, '.');
@@ -426,11 +426,11 @@ CBMLanguage cbm_language_for_filename(const char *filename) {
     }
 
     /* Standard single-extension lookup (built-ins + user overrides). */
-    return cbm_language_for_extension(last_dot);
+    return ctx_language_for_extension(last_dot);
 }
 
-const char *cbm_language_name(CBMLanguage lang) {
-    if (lang < 0 || lang >= CBM_LANG_COUNT) {
+const char *ctx_language_name(CBMLanguage lang) {
+    if (lang < 0 || lang >= CTX_LANG_COUNT) {
         return "Unknown";
     }
     return LANG_NAMES[lang] ? LANG_NAMES[lang] : "Unknown";
@@ -500,35 +500,35 @@ static bool has_matlab_line_markers(const char *buf) {
     return false;
 }
 
-CBMLanguage cbm_disambiguate_m(const char *path) {
+CBMLanguage ctx_disambiguate_m(const char *path) {
     if (!path) {
-        return CBM_LANG_MATLAB;
+        return CTX_LANG_MATLAB;
     }
 
     FILE *f = fopen(path, "r");
     if (!f) {
-        return CBM_LANG_MATLAB;
+        return CTX_LANG_MATLAB;
     }
 
     /* Read first 4KB */
-    char buf[CBM_SZ_4K + SKIP_ONE];
-    size_t n = fread(buf, SKIP_ONE, CBM_SZ_4K, f);
+    char buf[CTX_SZ_4K + SKIP_ONE];
+    size_t n = fread(buf, SKIP_ONE, CTX_SZ_4K, f);
     buf[n] = '\0';
     (void)fclose(f);
 
     if (has_objc_markers(buf)) {
-        return CBM_LANG_OBJC;
+        return CTX_LANG_OBJC;
     }
     if (has_magma_end_markers(buf)) {
-        return CBM_LANG_MAGMA;
+        return CTX_LANG_MAGMA;
     }
     if ((str_contains(buf, "intrinsic ") || str_contains(buf, "procedure ")) &&
         has_magma_callable_pattern(buf)) {
-        return CBM_LANG_MAGMA;
+        return CTX_LANG_MAGMA;
     }
     if (has_matlab_line_markers(buf)) {
-        return CBM_LANG_MATLAB;
+        return CTX_LANG_MATLAB;
     }
 
-    return CBM_LANG_MATLAB;
+    return CTX_LANG_MATLAB;
 }

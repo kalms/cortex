@@ -13,7 +13,7 @@ static void reg_method(CBMTypeRegistry* reg, CBMArena* arena,
     // Build QN: recv_qn.method_name
     size_t rlen = strlen(recv_qn);
     size_t mlen = strlen(method_name);
-    char* qn = (char*)cbm_arena_alloc(arena, rlen + 1 + mlen + 1);
+    char* qn = (char*)ctx_arena_alloc(arena, rlen + 1 + mlen + 1);
     if (!qn) return;
     memcpy(qn, recv_qn, rlen);
     qn[rlen] = '.';
@@ -23,9 +23,9 @@ static void reg_method(CBMTypeRegistry* reg, CBMArena* arena,
     rf.qualified_name = qn;
     rf.short_name = method_name;
     rf.receiver_type = recv_qn;
-    rf.signature = cbm_type_func(arena, NULL, NULL,
+    rf.signature = ctx_type_func(arena, NULL, NULL,
         ret_type ? (const CBMType*[]){ret_type, NULL} : NULL);
-    cbm_registry_add_func(reg, rf);
+    ctx_registry_add_func(reg, rf);
 }
 
 // Helper: register a type
@@ -34,7 +34,7 @@ static void reg_type(CBMTypeRegistry* reg, const char* qn, const char* short_nam
     memset(&rt, 0, sizeof(rt));
     rt.qualified_name = qn;
     rt.short_name = short_name;
-    cbm_registry_add_type(reg, rt);
+    ctx_registry_add_type(reg, rt);
 }
 
 // Helper: register a type with field names
@@ -47,7 +47,7 @@ static void reg_type_with_fields(CBMTypeRegistry* reg, CBMArena* arena,
     rt.short_name = short_name;
     rt.field_names = fnames;
     rt.field_types = ftypes;
-    cbm_registry_add_type(reg, rt);
+    ctx_registry_add_type(reg, rt);
 }
 
 // Helper: register a free function
@@ -58,28 +58,28 @@ static void reg_func(CBMTypeRegistry* reg, CBMArena* arena,
     rf.min_params = -1;
     rf.qualified_name = qn;
     rf.short_name = short_name;
-    rf.signature = cbm_type_func(arena, NULL, NULL,
+    rf.signature = ctx_type_func(arena, NULL, NULL,
         ret_type ? (const CBMType*[]){ret_type, NULL} : NULL);
-    cbm_registry_add_func(reg, rf);
+    ctx_registry_add_func(reg, rf);
 }
 
-void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
-    const CBMType* t_void = cbm_type_builtin(arena, "void");
-    const CBMType* t_void_ptr = cbm_type_pointer(arena, t_void);
-    const CBMType* t_bool = cbm_type_builtin(arena, "bool");
-    const CBMType* t_int = cbm_type_builtin(arena, "int");
-    const CBMType* t_size_t = cbm_type_builtin(arena, "size_t");
-    const CBMType* t_long = cbm_type_builtin(arena, "long");
-    const CBMType* t_char = cbm_type_builtin(arena, "char");
-    const CBMType* t_char_ptr = cbm_type_pointer(arena, cbm_type_builtin(arena, "const char"));
+void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
+    const CBMType* t_void = ctx_type_builtin(arena, "void");
+    const CBMType* t_void_ptr = ctx_type_pointer(arena, t_void);
+    const CBMType* t_bool = ctx_type_builtin(arena, "bool");
+    const CBMType* t_int = ctx_type_builtin(arena, "int");
+    const CBMType* t_size_t = ctx_type_builtin(arena, "size_t");
+    const CBMType* t_long = ctx_type_builtin(arena, "long");
+    const CBMType* t_char = ctx_type_builtin(arena, "char");
+    const CBMType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "const char"));
 
     // =========================================================================
     // std.string
     // =========================================================================
     const char* string_qn = "std.string";
     reg_type(reg, string_qn, "string");
-    const CBMType* t_string = cbm_type_named(arena, string_qn);
-    const CBMType* t_string_ref = cbm_type_reference(arena, t_string);
+    const CBMType* t_string = ctx_type_named(arena, string_qn);
+    const CBMType* t_string_ref = ctx_type_reference(arena, t_string);
 
     reg_method(reg, arena, string_qn, "c_str", t_char_ptr);
     reg_method(reg, arena, string_qn, "data", t_char_ptr);
@@ -99,12 +99,12 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, string_qn, "replace", t_string_ref);
     reg_method(reg, arena, string_qn, "push_back", t_void);
     reg_method(reg, arena, string_qn, "pop_back", t_void);
-    reg_method(reg, arena, string_qn, "front", cbm_type_reference(arena, t_char));
-    reg_method(reg, arena, string_qn, "back", cbm_type_reference(arena, t_char));
-    reg_method(reg, arena, string_qn, "at", cbm_type_reference(arena, t_char));
-    reg_method(reg, arena, string_qn, "operator[]", cbm_type_reference(arena, t_char));
-    reg_method(reg, arena, string_qn, "begin", cbm_type_named(arena, "std.string.iterator"));
-    reg_method(reg, arena, string_qn, "end", cbm_type_named(arena, "std.string.iterator"));
+    reg_method(reg, arena, string_qn, "front", ctx_type_reference(arena, t_char));
+    reg_method(reg, arena, string_qn, "back", ctx_type_reference(arena, t_char));
+    reg_method(reg, arena, string_qn, "at", ctx_type_reference(arena, t_char));
+    reg_method(reg, arena, string_qn, "operator[]", ctx_type_reference(arena, t_char));
+    reg_method(reg, arena, string_qn, "begin", ctx_type_named(arena, "std.string.iterator"));
+    reg_method(reg, arena, string_qn, "end", ctx_type_named(arena, "std.string.iterator"));
     reg_method(reg, arena, string_qn, "resize", t_void);
     reg_method(reg, arena, string_qn, "reserve", t_void);
     reg_method(reg, arena, string_qn, "starts_with", t_bool);
@@ -119,7 +119,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
         rt.qualified_name = "std.basic_string";
         rt.short_name = "basic_string";
         rt.alias_of = string_qn;
-        cbm_registry_add_type(reg, rt);
+        ctx_registry_add_type(reg, rt);
     }
 
     // =========================================================================
@@ -131,7 +131,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, sv_qn, "size", t_size_t);
     reg_method(reg, arena, sv_qn, "length", t_size_t);
     reg_method(reg, arena, sv_qn, "empty", t_bool);
-    reg_method(reg, arena, sv_qn, "substr", cbm_type_named(arena, sv_qn));
+    reg_method(reg, arena, sv_qn, "substr", ctx_type_named(arena, sv_qn));
     reg_method(reg, arena, sv_qn, "find", t_size_t);
     reg_method(reg, arena, sv_qn, "starts_with", t_bool);
     reg_method(reg, arena, sv_qn, "ends_with", t_bool);
@@ -142,9 +142,9 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* vec_qn = "std.vector";
     reg_type(reg, vec_qn, "vector");
-    const CBMType* t_T = cbm_type_type_param(arena, "T");
-    const CBMType* t_T_ref = cbm_type_reference(arena, t_T);
-    const CBMType* t_T_ptr = cbm_type_pointer(arena, t_T);
+    const CBMType* t_T = ctx_type_type_param(arena, "T");
+    const CBMType* t_T_ref = ctx_type_reference(arena, t_T);
+    const CBMType* t_T_ptr = ctx_type_pointer(arena, t_T);
 
     reg_method(reg, arena, vec_qn, "push_back", t_void);
     reg_method(reg, arena, vec_qn, "emplace_back", t_void);
@@ -161,70 +161,70 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, vec_qn, "at", t_T_ref);
     reg_method(reg, arena, vec_qn, "data", t_T_ptr);
     reg_method(reg, arena, vec_qn, "operator[]", t_T_ref);
-    reg_method(reg, arena, vec_qn, "begin", cbm_type_named(arena, "std.vector.iterator"));
-    reg_method(reg, arena, vec_qn, "end", cbm_type_named(arena, "std.vector.iterator"));
-    reg_method(reg, arena, vec_qn, "erase", cbm_type_named(arena, "std.vector.iterator"));
-    reg_method(reg, arena, vec_qn, "insert", cbm_type_named(arena, "std.vector.iterator"));
+    reg_method(reg, arena, vec_qn, "begin", ctx_type_named(arena, "std.vector.iterator"));
+    reg_method(reg, arena, vec_qn, "end", ctx_type_named(arena, "std.vector.iterator"));
+    reg_method(reg, arena, vec_qn, "erase", ctx_type_named(arena, "std.vector.iterator"));
+    reg_method(reg, arena, vec_qn, "insert", ctx_type_named(arena, "std.vector.iterator"));
 
     // =========================================================================
     // std.map<K,V>
     // =========================================================================
     const char* map_qn = "std.map";
     reg_type(reg, map_qn, "map");
-    const CBMType* t_V = cbm_type_type_param(arena, "V");
-    const CBMType* t_V_ref = cbm_type_reference(arena, t_V);
+    const CBMType* t_V = ctx_type_type_param(arena, "V");
+    const CBMType* t_V_ref = ctx_type_reference(arena, t_V);
 
     reg_method(reg, arena, map_qn, "operator[]", t_V_ref);
     reg_method(reg, arena, map_qn, "at", t_V_ref);
-    reg_method(reg, arena, map_qn, "find", cbm_type_named(arena, "std.map.iterator"));
-    reg_method(reg, arena, map_qn, "insert", cbm_type_named(arena, "std.pair"));
-    reg_method(reg, arena, map_qn, "emplace", cbm_type_named(arena, "std.pair"));
+    reg_method(reg, arena, map_qn, "find", ctx_type_named(arena, "std.map.iterator"));
+    reg_method(reg, arena, map_qn, "insert", ctx_type_named(arena, "std.pair"));
+    reg_method(reg, arena, map_qn, "emplace", ctx_type_named(arena, "std.pair"));
     reg_method(reg, arena, map_qn, "erase", t_size_t);
     reg_method(reg, arena, map_qn, "count", t_size_t);
     reg_method(reg, arena, map_qn, "contains", t_bool);
     reg_method(reg, arena, map_qn, "size", t_size_t);
     reg_method(reg, arena, map_qn, "empty", t_bool);
     reg_method(reg, arena, map_qn, "clear", t_void);
-    reg_method(reg, arena, map_qn, "begin", cbm_type_named(arena, "std.map.iterator"));
-    reg_method(reg, arena, map_qn, "end", cbm_type_named(arena, "std.map.iterator"));
+    reg_method(reg, arena, map_qn, "begin", ctx_type_named(arena, "std.map.iterator"));
+    reg_method(reg, arena, map_qn, "end", ctx_type_named(arena, "std.map.iterator"));
 
     // std.unordered_map<K,V> — same interface
     const char* umap_qn = "std.unordered_map";
     reg_type(reg, umap_qn, "unordered_map");
     reg_method(reg, arena, umap_qn, "operator[]", t_V_ref);
     reg_method(reg, arena, umap_qn, "at", t_V_ref);
-    reg_method(reg, arena, umap_qn, "find", cbm_type_named(arena, "std.unordered_map.iterator"));
-    reg_method(reg, arena, umap_qn, "insert", cbm_type_named(arena, "std.pair"));
-    reg_method(reg, arena, umap_qn, "emplace", cbm_type_named(arena, "std.pair"));
+    reg_method(reg, arena, umap_qn, "find", ctx_type_named(arena, "std.unordered_map.iterator"));
+    reg_method(reg, arena, umap_qn, "insert", ctx_type_named(arena, "std.pair"));
+    reg_method(reg, arena, umap_qn, "emplace", ctx_type_named(arena, "std.pair"));
     reg_method(reg, arena, umap_qn, "erase", t_size_t);
     reg_method(reg, arena, umap_qn, "count", t_size_t);
     reg_method(reg, arena, umap_qn, "contains", t_bool);
     reg_method(reg, arena, umap_qn, "size", t_size_t);
     reg_method(reg, arena, umap_qn, "empty", t_bool);
     reg_method(reg, arena, umap_qn, "clear", t_void);
-    reg_method(reg, arena, umap_qn, "begin", cbm_type_named(arena, "std.unordered_map.iterator"));
-    reg_method(reg, arena, umap_qn, "end", cbm_type_named(arena, "std.unordered_map.iterator"));
+    reg_method(reg, arena, umap_qn, "begin", ctx_type_named(arena, "std.unordered_map.iterator"));
+    reg_method(reg, arena, umap_qn, "end", ctx_type_named(arena, "std.unordered_map.iterator"));
 
     // =========================================================================
     // std.set<T> / std.unordered_set<T>
     // =========================================================================
     const char* set_qn = "std.set";
     reg_type(reg, set_qn, "set");
-    reg_method(reg, arena, set_qn, "insert", cbm_type_named(arena, "std.pair"));
-    reg_method(reg, arena, set_qn, "find", cbm_type_named(arena, "std.set.iterator"));
+    reg_method(reg, arena, set_qn, "insert", ctx_type_named(arena, "std.pair"));
+    reg_method(reg, arena, set_qn, "find", ctx_type_named(arena, "std.set.iterator"));
     reg_method(reg, arena, set_qn, "erase", t_size_t);
     reg_method(reg, arena, set_qn, "count", t_size_t);
     reg_method(reg, arena, set_qn, "contains", t_bool);
     reg_method(reg, arena, set_qn, "size", t_size_t);
     reg_method(reg, arena, set_qn, "empty", t_bool);
     reg_method(reg, arena, set_qn, "clear", t_void);
-    reg_method(reg, arena, set_qn, "begin", cbm_type_named(arena, "std.set.iterator"));
-    reg_method(reg, arena, set_qn, "end", cbm_type_named(arena, "std.set.iterator"));
+    reg_method(reg, arena, set_qn, "begin", ctx_type_named(arena, "std.set.iterator"));
+    reg_method(reg, arena, set_qn, "end", ctx_type_named(arena, "std.set.iterator"));
 
     const char* uset_qn = "std.unordered_set";
     reg_type(reg, uset_qn, "unordered_set");
-    reg_method(reg, arena, uset_qn, "insert", cbm_type_named(arena, "std.pair"));
-    reg_method(reg, arena, uset_qn, "find", cbm_type_named(arena, "std.unordered_set.iterator"));
+    reg_method(reg, arena, uset_qn, "insert", ctx_type_named(arena, "std.pair"));
+    reg_method(reg, arena, uset_qn, "find", ctx_type_named(arena, "std.unordered_set.iterator"));
     reg_method(reg, arena, uset_qn, "erase", t_size_t);
     reg_method(reg, arena, uset_qn, "count", t_size_t);
     reg_method(reg, arena, uset_qn, "contains", t_bool);
@@ -258,7 +258,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
 
     const char* wptr_qn = "std.weak_ptr";
     reg_type(reg, wptr_qn, "weak_ptr");
-    reg_method(reg, arena, wptr_qn, "lock", cbm_type_named(arena, sptr_qn));
+    reg_method(reg, arena, wptr_qn, "lock", ctx_type_named(arena, sptr_qn));
     reg_method(reg, arena, wptr_qn, "use_count", t_long);
     reg_method(reg, arena, wptr_qn, "expired", t_bool);
     reg_method(reg, arena, wptr_qn, "reset", t_void);
@@ -266,9 +266,9 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // std.make_unique / std.make_shared — free functions
     // Return type depends on template arg, registered as returning unique_ptr/shared_ptr
     reg_func(reg, arena, "std.make_unique", "make_unique",
-        cbm_type_named(arena, uptr_qn));
+        ctx_type_named(arena, uptr_qn));
     reg_func(reg, arena, "std.make_shared", "make_shared",
-        cbm_type_named(arena, sptr_qn));
+        ctx_type_named(arena, sptr_qn));
 
     // =========================================================================
     // std.optional<T>
@@ -290,10 +290,10 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     const char* pair_qn = "std.pair";
     {
         static const char* pair_field_names[] = {"first", "second", NULL};
-        const CBMType** pair_field_types = (const CBMType**)cbm_arena_alloc(arena,
+        const CBMType** pair_field_types = (const CBMType**)ctx_arena_alloc(arena,
             3 * sizeof(const CBMType*));
-        pair_field_types[0] = cbm_type_type_param(arena, "T1");
-        pair_field_types[1] = cbm_type_type_param(arena, "T2");
+        pair_field_types[0] = ctx_type_type_param(arena, "T1");
+        pair_field_types[1] = ctx_type_type_param(arena, "T2");
         pair_field_types[2] = NULL;
         reg_type_with_fields(reg, arena, pair_qn, "pair", pair_field_names, pair_field_types);
     }
@@ -302,7 +302,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // std.tuple<...>
     // =========================================================================
     reg_type(reg, "std.tuple", "tuple");
-    reg_func(reg, arena, "std.get", "get", cbm_type_unknown());
+    reg_func(reg, arena, "std.get", "get", ctx_type_unknown());
 
     // =========================================================================
     // std.array<T, N>
@@ -324,7 +324,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // std.function<F>
     // =========================================================================
     reg_type(reg, "std.function", "function");
-    reg_method(reg, arena, "std.function", "operator()", cbm_type_unknown());
+    reg_method(reg, arena, "std.function", "operator()", ctx_type_unknown());
     reg_method(reg, arena, "std.function", "operator bool", t_bool);
     reg_method(reg, arena, "std.function", "target", t_void_ptr);
 
@@ -333,7 +333,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* os_qn = "std.ostream";
     reg_type(reg, os_qn, "ostream");
-    const CBMType* t_ostream_ref = cbm_type_reference(arena, cbm_type_named(arena, os_qn));
+    const CBMType* t_ostream_ref = ctx_type_reference(arena, ctx_type_named(arena, os_qn));
     reg_method(reg, arena, os_qn, "operator<<", t_ostream_ref);
     reg_method(reg, arena, os_qn, "write", t_ostream_ref);
     reg_method(reg, arena, os_qn, "flush", t_ostream_ref);
@@ -345,7 +345,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
 
     const char* is_qn = "std.istream";
     reg_type(reg, is_qn, "istream");
-    const CBMType* t_istream_ref = cbm_type_reference(arena, cbm_type_named(arena, is_qn));
+    const CBMType* t_istream_ref = ctx_type_reference(arena, ctx_type_named(arena, is_qn));
     reg_method(reg, arena, is_qn, "operator>>", t_istream_ref);
     reg_method(reg, arena, is_qn, "read", t_istream_ref);
     reg_method(reg, arena, is_qn, "getline", t_istream_ref);
@@ -355,10 +355,10 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, is_qn, "fail", t_bool);
 
     // Global stream objects
-    reg_func(reg, arena, "std.cout", "cout", cbm_type_named(arena, os_qn));
-    reg_func(reg, arena, "std.cin", "cin", cbm_type_named(arena, is_qn));
-    reg_func(reg, arena, "std.cerr", "cerr", cbm_type_named(arena, os_qn));
-    reg_func(reg, arena, "std.clog", "clog", cbm_type_named(arena, os_qn));
+    reg_func(reg, arena, "std.cout", "cout", ctx_type_named(arena, os_qn));
+    reg_func(reg, arena, "std.cin", "cin", ctx_type_named(arena, is_qn));
+    reg_func(reg, arena, "std.cerr", "cerr", ctx_type_named(arena, os_qn));
+    reg_func(reg, arena, "std.clog", "clog", ctx_type_named(arena, os_qn));
 
     // std.endl, std.flush — manipulators (treat as returning ostream ref)
     reg_func(reg, arena, "std.endl", "endl", t_ostream_ref);
@@ -369,7 +369,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* fspath_qn = "std.filesystem.path";
     reg_type(reg, fspath_qn, "path");
-    const CBMType* t_path = cbm_type_named(arena, fspath_qn);
+    const CBMType* t_path = ctx_type_named(arena, fspath_qn);
     reg_method(reg, arena, fspath_qn, "string", t_string);
     reg_method(reg, arena, fspath_qn, "c_str", t_char_ptr);
     reg_method(reg, arena, fspath_qn, "extension", t_path);
@@ -382,7 +382,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, fspath_qn, "empty", t_bool);
     reg_method(reg, arena, fspath_qn, "exists", t_bool);
     reg_method(reg, arena, fspath_qn, "operator/", t_path);
-    reg_method(reg, arena, fspath_qn, "operator/=", cbm_type_reference(arena, t_path));
+    reg_method(reg, arena, fspath_qn, "operator/=", ctx_type_reference(arena, t_path));
 
     // =========================================================================
     // std.thread
@@ -392,7 +392,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, thread_qn, "join", t_void);
     reg_method(reg, arena, thread_qn, "detach", t_void);
     reg_method(reg, arena, thread_qn, "joinable", t_bool);
-    reg_method(reg, arena, thread_qn, "get_id", cbm_type_named(arena, "std.thread.id"));
+    reg_method(reg, arena, thread_qn, "get_id", ctx_type_named(arena, "std.thread.id"));
 
     // =========================================================================
     // std.mutex / std.lock_guard / std.unique_lock
@@ -420,40 +420,40 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_type(reg, "std.chrono.system_clock", "system_clock");
     reg_type(reg, "std.chrono.steady_clock", "steady_clock");
     reg_func(reg, arena, "std.chrono.system_clock.now", "now",
-        cbm_type_named(arena, "std.chrono.time_point"));
+        ctx_type_named(arena, "std.chrono.time_point"));
     reg_func(reg, arena, "std.chrono.steady_clock.now", "now",
-        cbm_type_named(arena, "std.chrono.time_point"));
+        ctx_type_named(arena, "std.chrono.time_point"));
 
     // =========================================================================
     // std.algorithm free functions
     // =========================================================================
     reg_func(reg, arena, "std.sort", "sort", t_void);
-    reg_func(reg, arena, "std.find", "find", cbm_type_unknown());
-    reg_func(reg, arena, "std.find_if", "find_if", cbm_type_unknown());
-    reg_func(reg, arena, "std.for_each", "for_each", cbm_type_unknown());
-    reg_func(reg, arena, "std.transform", "transform", cbm_type_unknown());
-    reg_func(reg, arena, "std.copy", "copy", cbm_type_unknown());
-    reg_func(reg, arena, "std.move", "move", cbm_type_unknown());
+    reg_func(reg, arena, "std.find", "find", ctx_type_unknown());
+    reg_func(reg, arena, "std.find_if", "find_if", ctx_type_unknown());
+    reg_func(reg, arena, "std.for_each", "for_each", ctx_type_unknown());
+    reg_func(reg, arena, "std.transform", "transform", ctx_type_unknown());
+    reg_func(reg, arena, "std.copy", "copy", ctx_type_unknown());
+    reg_func(reg, arena, "std.move", "move", ctx_type_unknown());
     reg_func(reg, arena, "std.swap", "swap", t_void);
-    reg_func(reg, arena, "std.min", "min", cbm_type_unknown());
-    reg_func(reg, arena, "std.max", "max", cbm_type_unknown());
-    reg_func(reg, arena, "std.accumulate", "accumulate", cbm_type_unknown());
+    reg_func(reg, arena, "std.min", "min", ctx_type_unknown());
+    reg_func(reg, arena, "std.max", "max", ctx_type_unknown());
+    reg_func(reg, arena, "std.accumulate", "accumulate", ctx_type_unknown());
     reg_func(reg, arena, "std.count", "count", t_size_t);
     reg_func(reg, arena, "std.count_if", "count_if", t_size_t);
-    reg_func(reg, arena, "std.remove", "remove", cbm_type_unknown());
-    reg_func(reg, arena, "std.remove_if", "remove_if", cbm_type_unknown());
+    reg_func(reg, arena, "std.remove", "remove", ctx_type_unknown());
+    reg_func(reg, arena, "std.remove_if", "remove_if", ctx_type_unknown());
     reg_func(reg, arena, "std.reverse", "reverse", t_void);
-    reg_func(reg, arena, "std.unique", "unique", cbm_type_unknown());
-    reg_func(reg, arena, "std.lower_bound", "lower_bound", cbm_type_unknown());
-    reg_func(reg, arena, "std.upper_bound", "upper_bound", cbm_type_unknown());
+    reg_func(reg, arena, "std.unique", "unique", ctx_type_unknown());
+    reg_func(reg, arena, "std.lower_bound", "lower_bound", ctx_type_unknown());
+    reg_func(reg, arena, "std.upper_bound", "upper_bound", ctx_type_unknown());
     reg_func(reg, arena, "std.binary_search", "binary_search", t_bool);
 
     // std.to_string
     reg_func(reg, arena, "std.to_string", "to_string", t_string);
     reg_func(reg, arena, "std.stoi", "stoi", t_int);
     reg_func(reg, arena, "std.stol", "stol", t_long);
-    reg_func(reg, arena, "std.stof", "stof", cbm_type_builtin(arena, "float"));
-    reg_func(reg, arena, "std.stod", "stod", cbm_type_builtin(arena, "double"));
+    reg_func(reg, arena, "std.stof", "stof", ctx_type_builtin(arena, "float"));
+    reg_func(reg, arena, "std.stod", "stod", ctx_type_builtin(arena, "double"));
 
     // =========================================================================
     // =========================================================================
@@ -470,10 +470,10 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     reg_type(reg, "std.any", "any");
     reg_method(reg, arena, "std.any", "has_value", t_bool);
-    reg_method(reg, arena, "std.any", "type", cbm_type_unknown()); // type_info
+    reg_method(reg, arena, "std.any", "type", ctx_type_unknown()); // type_info
     reg_method(reg, arena, "std.any", "reset", t_void);
     reg_func(reg, arena, "std.any_cast", "any_cast", t_T);
-    reg_func(reg, arena, "std.make_any", "make_any", cbm_type_named(arena, "std.any"));
+    reg_func(reg, arena, "std.make_any", "make_any", ctx_type_named(arena, "std.any"));
 
     // =========================================================================
     // std.regex / std.smatch
@@ -483,8 +483,8 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, "std.smatch", "size", t_size_t);
     reg_method(reg, arena, "std.smatch", "empty", t_bool);
     reg_method(reg, arena, "std.smatch", "str", t_string);
-    reg_method(reg, arena, "std.smatch", "prefix", cbm_type_unknown());
-    reg_method(reg, arena, "std.smatch", "suffix", cbm_type_unknown());
+    reg_method(reg, arena, "std.smatch", "prefix", ctx_type_unknown());
+    reg_method(reg, arena, "std.smatch", "suffix", ctx_type_unknown());
     reg_func(reg, arena, "std.regex_search", "regex_search", t_bool);
     reg_func(reg, arena, "std.regex_match", "regex_match", t_bool);
     reg_func(reg, arena, "std.regex_replace", "regex_replace", t_string);
@@ -494,7 +494,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     reg_type(reg, "std.pair", "pair");
     reg_func(reg, arena, "std.make_pair", "make_pair",
-        cbm_type_named(arena, "std.pair"));
+        ctx_type_named(arena, "std.pair"));
 
     // =========================================================================
     // <numeric> algorithms
@@ -502,8 +502,8 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_func(reg, arena, "std.accumulate", "accumulate", t_T);
     reg_func(reg, arena, "std.inner_product", "inner_product", t_T);
     reg_func(reg, arena, "std.iota", "iota", t_void);
-    reg_func(reg, arena, "std.partial_sum", "partial_sum", cbm_type_unknown());
-    reg_func(reg, arena, "std.adjacent_difference", "adjacent_difference", cbm_type_unknown());
+    reg_func(reg, arena, "std.partial_sum", "partial_sum", ctx_type_unknown());
+    reg_func(reg, arena, "std.adjacent_difference", "adjacent_difference", ctx_type_unknown());
     reg_func(reg, arena, "std.reduce", "reduce", t_T);
     reg_func(reg, arena, "std.transform_reduce", "transform_reduce", t_T);
 
@@ -511,27 +511,27 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // <iterator> functions
     // =========================================================================
     reg_func(reg, arena, "std.advance", "advance", t_void);
-    reg_func(reg, arena, "std.distance", "distance", cbm_type_builtin(arena, "ptrdiff_t"));
-    reg_func(reg, arena, "std.next", "next", cbm_type_unknown()); // iterator
-    reg_func(reg, arena, "std.prev", "prev", cbm_type_unknown());
-    reg_func(reg, arena, "std.begin", "begin", cbm_type_unknown());
-    reg_func(reg, arena, "std.end", "end", cbm_type_unknown());
-    reg_func(reg, arena, "std.rbegin", "rbegin", cbm_type_unknown());
-    reg_func(reg, arena, "std.rend", "rend", cbm_type_unknown());
+    reg_func(reg, arena, "std.distance", "distance", ctx_type_builtin(arena, "ptrdiff_t"));
+    reg_func(reg, arena, "std.next", "next", ctx_type_unknown()); // iterator
+    reg_func(reg, arena, "std.prev", "prev", ctx_type_unknown());
+    reg_func(reg, arena, "std.begin", "begin", ctx_type_unknown());
+    reg_func(reg, arena, "std.end", "end", ctx_type_unknown());
+    reg_func(reg, arena, "std.rbegin", "rbegin", ctx_type_unknown());
+    reg_func(reg, arena, "std.rend", "rend", ctx_type_unknown());
 
     // =========================================================================
     // <algorithm> — additional entries with better return types
     // =========================================================================
-    reg_func(reg, arena, "std.for_each", "for_each", cbm_type_unknown());
+    reg_func(reg, arena, "std.for_each", "for_each", ctx_type_unknown());
     reg_func(reg, arena, "std.all_of", "all_of", t_bool);
     reg_func(reg, arena, "std.any_of", "any_of", t_bool);
     reg_func(reg, arena, "std.none_of", "none_of", t_bool);
     reg_func(reg, arena, "std.min", "min", t_T_ref);
     reg_func(reg, arena, "std.max", "max", t_T_ref);
-    reg_func(reg, arena, "std.min_element", "min_element", cbm_type_unknown());
-    reg_func(reg, arena, "std.max_element", "max_element", cbm_type_unknown());
+    reg_func(reg, arena, "std.min_element", "min_element", ctx_type_unknown());
+    reg_func(reg, arena, "std.max_element", "max_element", ctx_type_unknown());
     reg_func(reg, arena, "std.minmax", "minmax",
-        cbm_type_named(arena, "std.pair"));
+        ctx_type_named(arena, "std.pair"));
     reg_func(reg, arena, "std.clamp", "clamp", t_T_ref);
     reg_func(reg, arena, "std.swap", "swap", t_void);
     reg_func(reg, arena, "std.fill", "fill", t_void);
@@ -539,28 +539,28 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_func(reg, arena, "std.replace_if", "replace_if", t_void);
     reg_func(reg, arena, "std.equal", "equal", t_bool);
     reg_func(reg, arena, "std.mismatch", "mismatch",
-        cbm_type_named(arena, "std.pair"));
+        ctx_type_named(arena, "std.pair"));
     reg_func(reg, arena, "std.lexicographical_compare", "lexicographical_compare", t_bool);
-    reg_func(reg, arena, "std.partition", "partition", cbm_type_unknown());
-    reg_func(reg, arena, "std.stable_partition", "stable_partition", cbm_type_unknown());
+    reg_func(reg, arena, "std.partition", "partition", ctx_type_unknown());
+    reg_func(reg, arena, "std.stable_partition", "stable_partition", ctx_type_unknown());
     reg_func(reg, arena, "std.nth_element", "nth_element", t_void);
     reg_func(reg, arena, "std.partial_sort", "partial_sort", t_void);
     reg_func(reg, arena, "std.stable_sort", "stable_sort", t_void);
     reg_func(reg, arena, "std.is_sorted", "is_sorted", t_bool);
-    reg_func(reg, arena, "std.merge", "merge", cbm_type_unknown());
+    reg_func(reg, arena, "std.merge", "merge", ctx_type_unknown());
     reg_func(reg, arena, "std.includes", "includes", t_bool);
-    reg_func(reg, arena, "std.set_union", "set_union", cbm_type_unknown());
-    reg_func(reg, arena, "std.set_intersection", "set_intersection", cbm_type_unknown());
-    reg_func(reg, arena, "std.set_difference", "set_difference", cbm_type_unknown());
+    reg_func(reg, arena, "std.set_union", "set_union", ctx_type_unknown());
+    reg_func(reg, arena, "std.set_intersection", "set_intersection", ctx_type_unknown());
+    reg_func(reg, arena, "std.set_difference", "set_difference", ctx_type_unknown());
     reg_func(reg, arena, "std.generate", "generate", t_void);
-    reg_func(reg, arena, "std.generate_n", "generate_n", cbm_type_unknown());
+    reg_func(reg, arena, "std.generate_n", "generate_n", ctx_type_unknown());
 
     // =========================================================================
     // <memory> — additional
     // =========================================================================
     reg_func(reg, arena, "std.addressof", "addressof", t_T_ptr);
     reg_func(reg, arena, "std.allocate_shared", "allocate_shared",
-        cbm_type_named(arena, sptr_qn));
+        ctx_type_named(arena, sptr_qn));
 
     // =========================================================================
     // <utility>
@@ -644,9 +644,9 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // std.bitset<N>
     // =========================================================================
     reg_type(reg, "std.bitset", "bitset");
-    reg_method(reg, arena, "std.bitset", "set", cbm_type_named(arena, "std.bitset"));
-    reg_method(reg, arena, "std.bitset", "reset", cbm_type_named(arena, "std.bitset"));
-    reg_method(reg, arena, "std.bitset", "flip", cbm_type_named(arena, "std.bitset"));
+    reg_method(reg, arena, "std.bitset", "set", ctx_type_named(arena, "std.bitset"));
+    reg_method(reg, arena, "std.bitset", "reset", ctx_type_named(arena, "std.bitset"));
+    reg_method(reg, arena, "std.bitset", "flip", ctx_type_named(arena, "std.bitset"));
     reg_method(reg, arena, "std.bitset", "test", t_bool);
     reg_method(reg, arena, "std.bitset", "count", t_size_t);
     reg_method(reg, arena, "std.bitset", "size", t_size_t);
@@ -654,7 +654,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, "std.bitset", "none", t_bool);
     reg_method(reg, arena, "std.bitset", "all", t_bool);
     reg_method(reg, arena, "std.bitset", "to_string", t_string);
-    reg_method(reg, arena, "std.bitset", "to_ulong", cbm_type_builtin(arena, "unsigned long"));
+    reg_method(reg, arena, "std.bitset", "to_ulong", ctx_type_builtin(arena, "unsigned long"));
 
     // =========================================================================
     // std.stringstream / std.ostringstream / std.istringstream
@@ -680,42 +680,42 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_func(reg, arena, "std.filesystem.exists", "exists", t_bool);
     reg_func(reg, arena, "std.filesystem.is_directory", "is_directory", t_bool);
     reg_func(reg, arena, "std.filesystem.is_regular_file", "is_regular_file", t_bool);
-    reg_func(reg, arena, "std.filesystem.file_size", "file_size", cbm_type_builtin(arena, "uintmax_t"));
+    reg_func(reg, arena, "std.filesystem.file_size", "file_size", ctx_type_builtin(arena, "uintmax_t"));
     reg_func(reg, arena, "std.filesystem.create_directory", "create_directory", t_bool);
     reg_func(reg, arena, "std.filesystem.create_directories", "create_directories", t_bool);
     reg_func(reg, arena, "std.filesystem.remove", "remove", t_bool);
-    reg_func(reg, arena, "std.filesystem.remove_all", "remove_all", cbm_type_builtin(arena, "uintmax_t"));
+    reg_func(reg, arena, "std.filesystem.remove_all", "remove_all", ctx_type_builtin(arena, "uintmax_t"));
     reg_func(reg, arena, "std.filesystem.copy", "copy", t_void);
     reg_func(reg, arena, "std.filesystem.rename", "rename", t_void);
     reg_func(reg, arena, "std.filesystem.current_path", "current_path",
-        cbm_type_named(arena, fspath_qn));
+        ctx_type_named(arena, fspath_qn));
     reg_func(reg, arena, "std.filesystem.absolute", "absolute",
-        cbm_type_named(arena, fspath_qn));
+        ctx_type_named(arena, fspath_qn));
     reg_func(reg, arena, "std.filesystem.canonical", "canonical",
-        cbm_type_named(arena, fspath_qn));
+        ctx_type_named(arena, fspath_qn));
     reg_func(reg, arena, "std.filesystem.relative", "relative",
-        cbm_type_named(arena, fspath_qn));
+        ctx_type_named(arena, fspath_qn));
     reg_func(reg, arena, "std.filesystem.temp_directory_path", "temp_directory_path",
-        cbm_type_named(arena, fspath_qn));
+        ctx_type_named(arena, fspath_qn));
 
     const char* direntry_qn = "std.filesystem.directory_entry";
     reg_type(reg, direntry_qn, "directory_entry");
-    reg_method(reg, arena, direntry_qn, "path", cbm_type_named(arena, fspath_qn));
+    reg_method(reg, arena, direntry_qn, "path", ctx_type_named(arena, fspath_qn));
     reg_method(reg, arena, direntry_qn, "exists", t_bool);
     reg_method(reg, arena, direntry_qn, "is_directory", t_bool);
     reg_method(reg, arena, direntry_qn, "is_regular_file", t_bool);
-    reg_method(reg, arena, direntry_qn, "file_size", cbm_type_builtin(arena, "uintmax_t"));
+    reg_method(reg, arena, direntry_qn, "file_size", ctx_type_builtin(arena, "uintmax_t"));
 
     // =========================================================================
     // std.chrono — additional
     // =========================================================================
     reg_type(reg, "std.chrono.time_point", "time_point");
-    reg_method(reg, arena, "std.chrono.time_point", "time_since_epoch", cbm_type_unknown());
+    reg_method(reg, arena, "std.chrono.time_point", "time_since_epoch", ctx_type_unknown());
     reg_method(reg, arena, "std.chrono.system_clock", "now",
-        cbm_type_named(arena, "std.chrono.time_point"));
+        ctx_type_named(arena, "std.chrono.time_point"));
     reg_method(reg, arena, "std.chrono.steady_clock", "now",
-        cbm_type_named(arena, "std.chrono.time_point"));
-    reg_func(reg, arena, "std.chrono.duration_cast", "duration_cast", cbm_type_unknown());
+        ctx_type_named(arena, "std.chrono.time_point"));
+    reg_func(reg, arena, "std.chrono.duration_cast", "duration_cast", ctx_type_unknown());
 
     // =========================================================================
     // Boost smart pointers (common in older codebases)
@@ -750,10 +750,10 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     const char* bfspath_qn = "boost.filesystem.path";
     reg_type(reg, bfspath_qn, "path");
     reg_method(reg, arena, bfspath_qn, "string", t_string);
-    reg_method(reg, arena, bfspath_qn, "parent_path", cbm_type_named(arena, bfspath_qn));
-    reg_method(reg, arena, bfspath_qn, "filename", cbm_type_named(arena, bfspath_qn));
-    reg_method(reg, arena, bfspath_qn, "extension", cbm_type_named(arena, bfspath_qn));
-    reg_method(reg, arena, bfspath_qn, "stem", cbm_type_named(arena, bfspath_qn));
+    reg_method(reg, arena, bfspath_qn, "parent_path", ctx_type_named(arena, bfspath_qn));
+    reg_method(reg, arena, bfspath_qn, "filename", ctx_type_named(arena, bfspath_qn));
+    reg_method(reg, arena, bfspath_qn, "extension", ctx_type_named(arena, bfspath_qn));
+    reg_method(reg, arena, bfspath_qn, "stem", ctx_type_named(arena, bfspath_qn));
     reg_method(reg, arena, bfspath_qn, "empty", t_bool);
     reg_method(reg, arena, bfspath_qn, "exists", t_bool);
 
@@ -782,36 +782,36 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* absv_qn = "absl.string_view";
     reg_type(reg, absv_qn, "string_view");
-    reg_method(reg, arena, absv_qn, "data", cbm_type_pointer(arena, cbm_type_builtin(arena, "char")));
+    reg_method(reg, arena, absv_qn, "data", ctx_type_pointer(arena, ctx_type_builtin(arena, "char")));
     reg_method(reg, arena, absv_qn, "size", t_size_t);
     reg_method(reg, arena, absv_qn, "length", t_size_t);
     reg_method(reg, arena, absv_qn, "empty", t_bool);
-    reg_method(reg, arena, absv_qn, "substr", cbm_type_named(arena, absv_qn));
+    reg_method(reg, arena, absv_qn, "substr", ctx_type_named(arena, absv_qn));
 
     const char* abstat_qn = "absl.Status";
     reg_type(reg, abstat_qn, "Status");
     reg_method(reg, arena, abstat_qn, "ok", t_bool);
-    reg_method(reg, arena, abstat_qn, "code", cbm_type_unknown());
-    reg_method(reg, arena, abstat_qn, "message", cbm_type_named(arena, absv_qn));
+    reg_method(reg, arena, abstat_qn, "code", ctx_type_unknown());
+    reg_method(reg, arena, abstat_qn, "message", ctx_type_named(arena, absv_qn));
     reg_method(reg, arena, abstat_qn, "ToString", t_string);
-    reg_func(reg, arena, "absl.OkStatus", "OkStatus", cbm_type_named(arena, abstat_qn));
+    reg_func(reg, arena, "absl.OkStatus", "OkStatus", ctx_type_named(arena, abstat_qn));
 
     const char* absor_qn = "absl.StatusOr";
     reg_type(reg, absor_qn, "StatusOr");
     reg_method(reg, arena, absor_qn, "ok", t_bool);
-    reg_method(reg, arena, absor_qn, "status", cbm_type_named(arena, abstat_qn));
+    reg_method(reg, arena, absor_qn, "status", ctx_type_named(arena, abstat_qn));
     reg_method(reg, arena, absor_qn, "value", t_T_ref);
     reg_method(reg, arena, absor_qn, "operator*", t_T_ref);
     reg_method(reg, arena, absor_qn, "operator->", t_T_ptr);
 
     const char* abfhm_qn = "absl.flat_hash_map";
     reg_type(reg, abfhm_qn, "flat_hash_map");
-    reg_method(reg, arena, abfhm_qn, "find", cbm_type_unknown());
+    reg_method(reg, arena, abfhm_qn, "find", ctx_type_unknown());
     reg_method(reg, arena, abfhm_qn, "contains", t_bool);
     reg_method(reg, arena, abfhm_qn, "size", t_size_t);
     reg_method(reg, arena, abfhm_qn, "empty", t_bool);
     reg_method(reg, arena, abfhm_qn, "clear", t_void);
-    reg_method(reg, arena, abfhm_qn, "insert", cbm_type_unknown());
+    reg_method(reg, arena, abfhm_qn, "insert", ctx_type_unknown());
     reg_method(reg, arena, abfhm_qn, "erase", t_size_t);
     reg_method(reg, arena, abfhm_qn, "count", t_size_t);
 
@@ -821,7 +821,7 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, abfhs_qn, "size", t_size_t);
     reg_method(reg, arena, abfhs_qn, "empty", t_bool);
     reg_method(reg, arena, abfhs_qn, "clear", t_void);
-    reg_method(reg, arena, abfhs_qn, "insert", cbm_type_unknown());
+    reg_method(reg, arena, abfhs_qn, "insert", ctx_type_unknown());
     reg_method(reg, arena, abfhs_qn, "erase", t_size_t);
     reg_method(reg, arena, abfhs_qn, "count", t_size_t);
 
@@ -833,14 +833,14 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, abspan_qn, "front", t_T_ref);
     reg_method(reg, arena, abspan_qn, "back", t_T_ref);
     reg_method(reg, arena, abspan_qn, "at", t_T_ref);
-    reg_method(reg, arena, abspan_qn, "subspan", cbm_type_named(arena, abspan_qn));
+    reg_method(reg, arena, abspan_qn, "subspan", ctx_type_named(arena, abspan_qn));
 
     // absl string functions
     reg_func(reg, arena, "absl.StrCat", "StrCat", t_string);
     reg_func(reg, arena, "absl.StrAppend", "StrAppend", t_void);
     reg_func(reg, arena, "absl.StrJoin", "StrJoin", t_string);
     reg_func(reg, arena, "absl.StrSplit", "StrSplit",
-        cbm_type_named(arena, "std.vector"));
+        ctx_type_named(arena, "std.vector"));
     reg_func(reg, arena, "absl.StrFormat", "StrFormat", t_string);
     reg_func(reg, arena, "absl.Substitute", "Substitute", t_string);
 
@@ -850,20 +850,20 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     const char* grpc_status_qn = "grpc.Status";
     reg_type(reg, grpc_status_qn, "Status");
     reg_method(reg, arena, grpc_status_qn, "ok", t_bool);
-    reg_method(reg, arena, grpc_status_qn, "error_code", cbm_type_unknown());
+    reg_method(reg, arena, grpc_status_qn, "error_code", ctx_type_unknown());
     reg_method(reg, arena, grpc_status_qn, "error_message", t_string);
-    reg_func(reg, arena, "grpc.Status.OK", "OK", cbm_type_named(arena, grpc_status_qn));
+    reg_func(reg, arena, "grpc.Status.OK", "OK", ctx_type_named(arena, grpc_status_qn));
 
     const char* grpc_sb_qn = "grpc.ServerBuilder";
     reg_type(reg, grpc_sb_qn, "ServerBuilder");
-    reg_method(reg, arena, grpc_sb_qn, "AddListeningPort", cbm_type_named(arena, grpc_sb_qn));
-    reg_method(reg, arena, grpc_sb_qn, "RegisterService", cbm_type_named(arena, grpc_sb_qn));
-    reg_method(reg, arena, grpc_sb_qn, "BuildAndStart", cbm_type_unknown());
+    reg_method(reg, arena, grpc_sb_qn, "AddListeningPort", ctx_type_named(arena, grpc_sb_qn));
+    reg_method(reg, arena, grpc_sb_qn, "RegisterService", ctx_type_named(arena, grpc_sb_qn));
+    reg_method(reg, arena, grpc_sb_qn, "BuildAndStart", ctx_type_unknown());
 
     const char* grpc_chan_qn = "grpc.Channel";
     reg_type(reg, grpc_chan_qn, "Channel");
     reg_func(reg, arena, "grpc.CreateChannel", "CreateChannel",
-        cbm_type_named(arena, grpc_chan_qn));
+        ctx_type_named(arena, grpc_chan_qn));
 
     const char* grpc_ctx_qn = "grpc.ClientContext";
     reg_type(reg, grpc_ctx_qn, "ClientContext");
@@ -891,45 +891,45 @@ void cbm_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_func(reg, arena, "spdlog.critical", "critical", t_void);
     reg_func(reg, arena, "spdlog.set_level", "set_level", t_void);
     reg_func(reg, arena, "spdlog.get", "get",
-        cbm_type_named(arena, spdlog_qn));
+        ctx_type_named(arena, spdlog_qn));
 
     // =========================================================================
     // Qt basics
     // =========================================================================
     const char* qobj_qn = "QObject";
     reg_type(reg, qobj_qn, "QObject");
-    reg_method(reg, arena, qobj_qn, "parent", cbm_type_pointer(arena, cbm_type_named(arena, qobj_qn)));
-    reg_method(reg, arena, qobj_qn, "children", cbm_type_unknown());
-    reg_method(reg, arena, qobj_qn, "objectName", cbm_type_named(arena, "QString"));
+    reg_method(reg, arena, qobj_qn, "parent", ctx_type_pointer(arena, ctx_type_named(arena, qobj_qn)));
+    reg_method(reg, arena, qobj_qn, "children", ctx_type_unknown());
+    reg_method(reg, arena, qobj_qn, "objectName", ctx_type_named(arena, "QString"));
     reg_method(reg, arena, qobj_qn, "setObjectName", t_void);
     reg_method(reg, arena, qobj_qn, "deleteLater", t_void);
 
     const char* qstr_qn = "QString";
     reg_type(reg, qstr_qn, "QString");
     reg_method(reg, arena, qstr_qn, "toStdString", t_string);
-    reg_method(reg, arena, qstr_qn, "toUtf8", cbm_type_unknown());
-    reg_method(reg, arena, qstr_qn, "toLatin1", cbm_type_unknown());
+    reg_method(reg, arena, qstr_qn, "toUtf8", ctx_type_unknown());
+    reg_method(reg, arena, qstr_qn, "toLatin1", ctx_type_unknown());
     reg_method(reg, arena, qstr_qn, "size", t_int);
     reg_method(reg, arena, qstr_qn, "length", t_int);
     reg_method(reg, arena, qstr_qn, "isEmpty", t_bool);
     reg_method(reg, arena, qstr_qn, "contains", t_bool);
     reg_method(reg, arena, qstr_qn, "startsWith", t_bool);
     reg_method(reg, arena, qstr_qn, "endsWith", t_bool);
-    reg_method(reg, arena, qstr_qn, "trimmed", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "simplified", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "toLower", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "toUpper", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "arg", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "split", cbm_type_unknown());
-    reg_method(reg, arena, qstr_qn, "replace", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "mid", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "left", cbm_type_named(arena, qstr_qn));
-    reg_method(reg, arena, qstr_qn, "right", cbm_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "trimmed", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "simplified", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "toLower", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "toUpper", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "arg", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "split", ctx_type_unknown());
+    reg_method(reg, arena, qstr_qn, "replace", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "mid", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "left", ctx_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "right", ctx_type_named(arena, qstr_qn));
     reg_method(reg, arena, qstr_qn, "toInt", t_int);
-    reg_method(reg, arena, qstr_qn, "toDouble", cbm_type_builtin(arena, "double"));
-    reg_func(reg, arena, "QString.number", "number", cbm_type_named(arena, qstr_qn));
-    reg_func(reg, arena, "QString.fromStdString", "fromStdString", cbm_type_named(arena, qstr_qn));
-    reg_func(reg, arena, "QString.fromUtf8", "fromUtf8", cbm_type_named(arena, qstr_qn));
+    reg_method(reg, arena, qstr_qn, "toDouble", ctx_type_builtin(arena, "double"));
+    reg_func(reg, arena, "QString.number", "number", ctx_type_named(arena, qstr_qn));
+    reg_func(reg, arena, "QString.fromStdString", "fromStdString", ctx_type_named(arena, qstr_qn));
+    reg_func(reg, arena, "QString.fromUtf8", "fromUtf8", ctx_type_named(arena, qstr_qn));
 
     const char* qwidget_qn = "QWidget";
     reg_type(reg, qwidget_qn, "QWidget");

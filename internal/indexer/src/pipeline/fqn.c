@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h> // strdup
 
-/* Maximum path segments in a FQN (CBM_SZ_256 slots total, -2 for project + name) */
+/* Maximum path segments in a FQN (CTX_SZ_256 slots total, -2 for project + name) */
 #define FQN_MAX_PATH_SEGS 254
 #define FQN_MAX_DIR_SEGS 255
 
@@ -97,16 +97,16 @@ static void strip_init_or_index(const char **segments, int *seg_count, const cha
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const char *name) {
+char *ctx_pipeline_fqn_compute(const char *project, const char *rel_path, const char *name) {
     if (!project) {
         return strdup("");
     }
 
     char *path = strdup(rel_path ? rel_path : "");
-    cbm_normalize_path_sep(path);
+    ctx_normalize_path_sep(path);
     strip_file_extension(path);
 
-    const char *segments[CBM_SZ_256];
+    const char *segments[CTX_SZ_256];
     int seg_count = 0;
     segments[seg_count++] = project;
     seg_count += tokenize_path(path, segments + seg_count, FQN_MAX_PATH_SEGS);
@@ -122,8 +122,8 @@ char *cbm_pipeline_fqn_compute(const char *project, const char *rel_path, const 
     return result;
 }
 
-char *cbm_pipeline_fqn_module(const char *project, const char *rel_path) {
-    return cbm_pipeline_fqn_compute(project, rel_path, NULL);
+char *ctx_pipeline_fqn_module(const char *project, const char *rel_path) {
+    return ctx_pipeline_fqn_compute(project, rel_path, NULL);
 }
 
 enum {
@@ -274,7 +274,7 @@ static char *resolve_js_relative(char *buf, size_t buf_size, const char *module_
     return strdup(buf);
 }
 
-char *cbm_pipeline_resolve_relative_import(const char *source_rel, const char *module_path) {
+char *ctx_pipeline_resolve_relative_import(const char *source_rel, const char *module_path) {
     int kind = classify_relative_import(module_path);
     if (kind == FQN_REL_KIND_NONE) {
         return NULL;
@@ -287,16 +287,16 @@ char *cbm_pipeline_resolve_relative_import(const char *source_rel, const char *m
     return resolve_js_relative(buf, sizeof(buf), module_path);
 }
 
-char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
+char *ctx_pipeline_fqn_folder(const char *project, const char *rel_dir) {
     if (!project) {
         return strdup("");
     }
 
     /* Work on mutable copy */
     char *dir = strdup(rel_dir ? rel_dir : "");
-    cbm_normalize_path_sep(dir);
+    ctx_normalize_path_sep(dir);
 
-    const char *segments[CBM_SZ_256];
+    const char *segments[CTX_SZ_256];
     int seg_count = 0;
     segments[seg_count++] = project;
 
@@ -319,7 +319,7 @@ char *cbm_pipeline_fqn_folder(const char *project, const char *rel_dir) {
     return result;
 }
 
-char *cbm_project_name_from_path(const char *abs_path) {
+char *ctx_project_name_from_path(const char *abs_path) {
     if (!abs_path || !abs_path[0]) {
         return strdup("root");
     }
@@ -329,7 +329,7 @@ char *cbm_project_name_from_path(const char *abs_path) {
     size_t len = strlen(path);
 
     /* Normalize path separators */
-    cbm_normalize_path_sep(path);
+    ctx_normalize_path_sep(path);
 
     /* Replace / and : with - */
     for (size_t i = 0; i < len; i++) {

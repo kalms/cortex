@@ -27,7 +27,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 
-#define CBM_PAGE_SIZE 65536
+#define CTX_PAGE_SIZE 65536
 
 /* SQLite reserves the page containing the 1 GiB file offset (the "pending byte"
  * used for file locking on Windows). This page MUST be skipped during allocation
@@ -41,12 +41,12 @@
  *   16KB pages → page 65537
  */
 #define SQLITE_MAX_PAGE_SIZE 65536
-#define CBM_PENDING_BYTE (0x40000000u)
-#define CBM_PENDING_BYTE_PAGE ((CBM_PENDING_BYTE / CBM_PAGE_SIZE) + 1)
+#define CTX_PENDING_BYTE (0x40000000u)
+#define CTX_PENDING_BYTE_PAGE ((CTX_PENDING_BYTE / CTX_PAGE_SIZE) + 1)
 
 /* Skip the pending byte page if allocation lands on it. */
-static inline uint32_t cbm_skip_pending_byte(uint32_t pgno) {
-    return pgno == CBM_PENDING_BYTE_PAGE ? pgno + SKIP_ONE : pgno;
+static inline uint32_t ctx_skip_pending_byte(uint32_t pgno) {
+    return pgno == CTX_PENDING_BYTE_PAGE ? pgno + SKIP_ONE : pgno;
 }
 #define SCHEMA_FORMAT 4
 #define FILE_FORMAT 1
@@ -155,7 +155,7 @@ enum {
 #define BTREE_INTERIOR_INDEX 0x02
 
 // SQLite 100-byte database header field offsets.
-#define HDR_OFF_CBM_PAGE_SIZE 16
+#define HDR_OFF_CTX_PAGE_SIZE 16
 #define HDR_OFF_WRITE_VERSION 18
 #define HDR_OFF_READ_VERSION 19
 #define HDR_OFF_RESERVED 20
@@ -314,7 +314,7 @@ static bool dynbuf_ensure(DynBuf *b, int needed) {
     }
     uint8_t *p = (uint8_t *)realloc(b->data, newcap);
     if (!p) {
-        (void)fprintf(stderr, "cbm_write_db: dynbuf realloc failed size=%d\n", newcap);
+        (void)fprintf(stderr, "ctx_write_db: dynbuf realloc failed size=%d\n", newcap);
         return false;
     }
     b->data = p;
@@ -446,7 +446,7 @@ typedef struct {
     bool is_index;      // true for index B-trees
 
     // Current leaf page being built
-    uint8_t page[CBM_PAGE_SIZE];
+    uint8_t page[CTX_PAGE_SIZE];
     int cell_count;
     int content_offset; // where cell content starts (grows down from page end)
     int ptr_offset;     // where cell pointers are written (grows up from header)
@@ -462,11 +462,11 @@ static void pb_init(PageBuilder *pb, FILE *fp, uint32_t start_page, bool is_inde
     pb->next_page = start_page;
     pb->is_index = is_index;
     pb->cell_count = 0;
-    pb->content_offset = CBM_PAGE_SIZE;
+    pb->content_offset = CTX_PAGE_SIZE;
     pb->page1_offset = (start_page == SKIP_ONE) ? SQLITE_HEADER_SIZE : 0;
     // Header: flag(1) + freeblock(2) + cell_count(2) + content_start(2) + fragmented(1) = 8
     pb->ptr_offset = pb->page1_offset + BTREE_HEADER_SIZE;
-    memset(pb->page, 0, CBM_PAGE_SIZE);
+    memset(pb->page, 0, CTX_PAGE_SIZE);
     pb->leaves = NULL;
     pb->leaf_count = 0;
     pb->leaf_cap = 0;
@@ -496,11 +496,11 @@ static void pb_flush_leaf(PageBuilder *pb) {
     pb->page[hdr + HDR_FRAGBYTES_OFF] = 0; // fragmented free bytes
 
     // Write page to file. Skip the pending byte page (SQLite reserved).
-    pb->next_page = cbm_skip_pending_byte(pb->next_page);
+    pb->next_page = ctx_skip_pending_byte(pb->next_page);
     uint32_t page_num = pb->next_page;
-    long offset = (long)(page_num - SKIP_ONE) * CBM_PAGE_SIZE;
+    long offset = (long)(page_num - SKIP_ONE) * CTX_PAGE_SIZE;
     (void)fseek(pb->fp, offset, SEEK_SET);
-    (void)fwrite(pb->page, SKIP_ONE, CBM_PAGE_SIZE, pb->fp);
+    (void)fwrite(pb->page, SKIP_ONE, CTX_PAGE_SIZE, pb->fp);
 
     // Record this leaf for interior page building
     if (pb->leaf_count >= pb->leaf_cap) {
@@ -523,10 +523,10 @@ static void pb_flush_leaf(PageBuilder *pb) {
     // Reset for next page
     pb->next_page++;
     pb->cell_count = 0;
-    pb->content_offset = CBM_PAGE_SIZE;
+    pb->content_offset = CTX_PAGE_SIZE;
     pb->page1_offset = 0;               // only page 1 has the 100-byte header
     pb->ptr_offset = BTREE_HEADER_SIZE; // standard B-tree header size for non-page-1
-    memset(pb->page, 0, CBM_PAGE_SIZE);
+    memset(pb->page, 0, CTX_PAGE_SIZE);
 }
 
 // Check if a cell of given size fits in the current page
@@ -588,7 +588,7 @@ static int write_interior_page(PageBuilder *pb, uint8_t *page, int cell_count, i
                                uint32_t right_child_page, const PageRef *children,
                                int right_child_idx, bool is_index, PageRef **parents,
                                int parent_count, int *parent_cap) {
-    pb->next_page = cbm_skip_pending_byte(pb->next_page);
+    pb->next_page = ctx_skip_pending_byte(pb->next_page);
     uint32_t pnum = pb->next_page++;
     page[0] = is_index ? INTERIOR_INDEX_FLAG : INTERIOR_TABLE_FLAG;
     put_u16(page + HDR_FREEBLOCK_OFF, 0);
@@ -597,8 +597,8 @@ static int write_interior_page(PageBuilder *pb, uint8_t *page, int cell_count, i
     page[HDR_FRAGBYTES_OFF] = 0;
     put_u32(page + HDR_RIGHTCHILD_OFF, right_child_page);
 
-    (void)fseek(pb->fp, (long)(pnum - SKIP_ONE) * CBM_PAGE_SIZE, SEEK_SET);
-    (void)fwrite(page, SKIP_ONE, CBM_PAGE_SIZE, pb->fp);
+    (void)fseek(pb->fp, (long)(pnum - SKIP_ONE) * CTX_PAGE_SIZE, SEEK_SET);
+    (void)fwrite(page, SKIP_ONE, CTX_PAGE_SIZE, pb->fp);
 
     if (parent_count >= *parent_cap) {
         int old_pcap = *parent_cap;
@@ -607,7 +607,7 @@ static int write_interior_page(PageBuilder *pb, uint8_t *page, int cell_count, i
         if (!tmp) {
             free(*parents);
             *parents = NULL;
-            return CBM_NOT_FOUND;
+            return CTX_NOT_FOUND;
         }
         *parents = tmp;
         memset(&(*parents)[old_pcap], 0,
@@ -682,10 +682,10 @@ static uint32_t pb_build_interior(PageBuilder *pb, bool is_index) {
 
         int i = 0;
         while (i < child_count) {
-            uint8_t page[CBM_PAGE_SIZE];
-            memset(page, 0, CBM_PAGE_SIZE);
+            uint8_t page[CTX_PAGE_SIZE];
+            memset(page, 0, CTX_PAGE_SIZE);
             int cell_count = 0;
-            int content_offset = CBM_PAGE_SIZE;
+            int content_offset = CTX_PAGE_SIZE;
             int ptr_offset = BTREE_INTERIOR_HDR;
 
             fill_interior_page(page, children, child_count, is_index, &i, &cell_count,
@@ -983,18 +983,18 @@ static uint32_t write_table_btree(FILE *fp, uint32_t *next_page, const uint8_t *
                                   bool first_is_page1) {
     if (count == 0) {
         // Empty table: write a single empty leaf page
-        *next_page = cbm_skip_pending_byte(*next_page);
+        *next_page = ctx_skip_pending_byte(*next_page);
         uint32_t pnum = (*next_page)++;
-        uint8_t page[CBM_PAGE_SIZE];
-        memset(page, 0, CBM_PAGE_SIZE);
+        uint8_t page[CTX_PAGE_SIZE];
+        memset(page, 0, CTX_PAGE_SIZE);
         int hdr = first_is_page1 ? SQLITE_HEADER_SIZE : 0;
         page[hdr] = BTREE_LEAF_TABLE;                                   // leaf table
         put_u16(page + hdr + HDR_FREEBLOCK_OFF, 0);                     // no freeblocks
         put_u16(page + hdr + HDR_CELLCOUNT_OFF, 0);                     // 0 cells
-        put_u16(page + hdr + HDR_CONTENT_OFF, (uint16_t)CBM_PAGE_SIZE); // content at end of page
+        put_u16(page + hdr + HDR_CONTENT_OFF, (uint16_t)CTX_PAGE_SIZE); // content at end of page
         page[hdr + HDR_FRAGBYTES_OFF] = 0;                              // 0 fragmented bytes
-        (void)fseek(fp, (long)(pnum - SKIP_ONE) * CBM_PAGE_SIZE, SEEK_SET);
-        (void)fwrite(page, SKIP_ONE, CBM_PAGE_SIZE, fp);
+        (void)fseek(fp, (long)(pnum - SKIP_ONE) * CTX_PAGE_SIZE, SEEK_SET);
+        (void)fwrite(page, SKIP_ONE, CTX_PAGE_SIZE, fp);
         return pnum;
     }
 
@@ -1034,17 +1034,17 @@ static bool pb_promote_and_flush(PageBuilder *pb, uint8_t **cells, int *cell_len
 
 // Write an empty index leaf page.
 static uint32_t write_empty_index_leaf(FILE *fp, uint32_t *next_page) {
-    *next_page = cbm_skip_pending_byte(*next_page);
+    *next_page = ctx_skip_pending_byte(*next_page);
     uint32_t pnum = (*next_page)++;
-    uint8_t page[CBM_PAGE_SIZE];
-    memset(page, 0, CBM_PAGE_SIZE);
+    uint8_t page[CTX_PAGE_SIZE];
+    memset(page, 0, CTX_PAGE_SIZE);
     page[0] = NEWLINE_BYTE;
     put_u16(page + HDR_FREEBLOCK_OFF, 0);
     put_u16(page + HDR_CELLCOUNT_OFF, 0);
-    put_u16(page + HDR_CONTENT_OFF, (uint16_t)CBM_PAGE_SIZE);
+    put_u16(page + HDR_CONTENT_OFF, (uint16_t)CTX_PAGE_SIZE);
     page[HDR_FRAGBYTES_OFF] = 0;
-    (void)fseek(fp, (long)(pnum - SKIP_ONE) * CBM_PAGE_SIZE, SEEK_SET);
-    (void)fwrite(page, SKIP_ONE, CBM_PAGE_SIZE, fp);
+    (void)fseek(fp, (long)(pnum - SKIP_ONE) * CTX_PAGE_SIZE, SEEK_SET);
+    (void)fwrite(page, SKIP_ONE, CTX_PAGE_SIZE, fp);
     return pnum;
 }
 
@@ -1141,7 +1141,7 @@ static inline const char *safe_str(const char *s) {
 static int *make_sorted_perm(int n, int (*cmp)(const void *, const void *)) {
     int *perm = (int *)malloc(n * sizeof(int));
     if (!perm) {
-        (void)fprintf(stderr, "cbm_write_db: perm malloc failed n=%d size=%zu\n", n,
+        (void)fprintf(stderr, "ctx_write_db: perm malloc failed n=%d size=%zu\n", n,
                       (size_t)n * sizeof(int));
         return NULL;
     }
@@ -1463,7 +1463,7 @@ static uint32_t build_node_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpNo
 
 // --- Main entry point ---
 
-/* Write context passed to sub-phases of cbm_write_db. */
+/* Write context passed to sub-phases of ctx_write_db. */
 typedef struct {
     FILE *fp;
     uint32_t next_page;
@@ -1595,8 +1595,8 @@ static void write_metadata_tables(write_db_ctx_t *w, uint32_t *projects_root,
 /* Write the SQLite file header on page 1 with master entries. */
 static void write_sqlite_file_header(uint8_t *page1, uint32_t total_pages) {
     memcpy(page1, "SQLite format 3\000", 16);
-    put_u16(page1 + HDR_OFF_CBM_PAGE_SIZE,
-            CBM_PAGE_SIZE == SQLITE_MAX_PAGE_SIZE ? (uint16_t)SKIP_ONE : (uint16_t)CBM_PAGE_SIZE);
+    put_u16(page1 + HDR_OFF_CTX_PAGE_SIZE,
+            CTX_PAGE_SIZE == SQLITE_MAX_PAGE_SIZE ? (uint16_t)SKIP_ONE : (uint16_t)CTX_PAGE_SIZE);
     page1[HDR_OFF_WRITE_VERSION] = FILE_FORMAT;
     page1[HDR_OFF_READ_VERSION] = FILE_FORMAT;
     page1[HDR_OFF_RESERVED] = 0;
@@ -1629,11 +1629,11 @@ static int write_master_page1(FILE *fp, MasterEntry *master, int master_count, u
         master_records[i] = build_master_record(&master[i], &master_lens[i]);
     }
 
-    uint8_t page1[CBM_PAGE_SIZE];
-    memset(page1, 0, CBM_PAGE_SIZE);
+    uint8_t page1[CTX_PAGE_SIZE];
+    memset(page1, 0, CTX_PAGE_SIZE);
     int hdr = SQLITE_HEADER_SIZE;
     page1[hdr] = BTREE_LEAF_TABLE;
-    int content_off = CBM_PAGE_SIZE;
+    int content_off = CTX_PAGE_SIZE;
     int ptr_off = hdr + BTREE_HEADER_SIZE;
     int mcell_count = 0;
 
@@ -1668,7 +1668,7 @@ static int write_master_page1(FILE *fp, MasterEntry *master, int master_count, u
     write_sqlite_file_header(page1, next_page - SKIP_ONE);
 
     (void)fseek(fp, 0, SEEK_SET);
-    (void)fwrite(page1, SKIP_ONE, CBM_PAGE_SIZE, fp);
+    (void)fwrite(page1, SKIP_ONE, CTX_PAGE_SIZE, fp);
 
     for (int i = 0; i < master_count; i++) {
         free((void *)master_records[i]);
@@ -1683,7 +1683,7 @@ static int write_master_page1(FILE *fp, MasterEntry *master, int master_count, u
 static void pad_file_to_page_boundary(FILE *fp, uint32_t next_page) {
     (void)fseek(fp, 0, SEEK_END);
     long file_size = ftell(fp);
-    long expected_size = (long)(next_page - SKIP_ONE) * CBM_PAGE_SIZE;
+    long expected_size = (long)(next_page - SKIP_ONE) * CTX_PAGE_SIZE;
     if (file_size < expected_size) {
         uint8_t zero = 0;
         (void)fseek(fp, expected_size - SKIP_ONE, SEEK_SET);
@@ -1739,30 +1739,30 @@ static int build_edge_indexes(FILE *fp, uint32_t *next_page, CBMDumpEdge *edges,
 
 /* Launch parallel sort threads for all index permutations. */
 static void parallel_sort_indexes(SortJob *nsorts, int n_node, SortJob *esorts, int n_edge) {
-    cbm_thread_t st[TOTAL_SORT_THREADS];
+    ctx_thread_t st[TOTAL_SORT_THREADS];
     int nt = 0;
     for (int i = 0; i < n_node; i++) {
         if (nsorts[i].count > 0) {
-            cbm_thread_create(&st[nt++], 0, sort_worker, &nsorts[i]);
+            ctx_thread_create(&st[nt++], 0, sort_worker, &nsorts[i]);
         }
     }
     for (int i = 0; i < n_edge; i++) {
         if (esorts[i].count > 0) {
-            cbm_thread_create(&st[nt++], 0, sort_worker, &esorts[i]);
+            ctx_thread_create(&st[nt++], 0, sort_worker, &esorts[i]);
         }
     }
     for (int i = 0; i < nt; i++) {
-        cbm_thread_join(&st[i]);
+        ctx_thread_join(&st[i]);
     }
 }
 
-int cbm_write_db(const char *path, const char *project, const char *root_path,
+int ctx_write_db(const char *path, const char *project, const char *root_path,
                  const char *indexed_at, CBMDumpNode *nodes, int node_count, CBMDumpEdge *edges,
                  int edge_count, CBMDumpVector *vectors, int vector_count,
                  CBMDumpTokenVec *token_vecs, int token_vec_count) {
     FILE *fp = fopen(path, "wb");
     if (!fp) {
-        return CBM_NOT_FOUND;
+        return CTX_NOT_FOUND;
     }
 
     write_db_ctx_t w = {.fp = fp,
@@ -1780,7 +1780,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
                         .token_vec_count = token_vec_count};
 
     // Phase 1: Data tables (streaming node + edge + vector + token_vector records)
-    CBM_PROF_START(t_data);
+    CTX_PROF_START(t_data);
     uint32_t nodes_root;
     uint32_t edges_root;
     uint32_t vectors_root;
@@ -1790,17 +1790,17 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         (void)fclose(fp);
         return rc;
     }
-    CBM_PROF_END_N("write_db", "1_data_tables", t_data, node_count + edge_count);
+    CTX_PROF_END_N("write_db", "1_data_tables", t_data, node_count + edge_count);
 
     // Phase 2: Metadata tables (projects, file_hashes, summaries, sqlite_sequence)
-    CBM_PROF_START(t_meta);
+    CTX_PROF_START(t_meta);
     uint32_t projects_root;
     uint32_t file_hashes_root;
     uint32_t summaries_root;
     uint32_t sqlite_seq_root;
     write_metadata_tables(&w, &projects_root, &file_hashes_root, &summaries_root, &sqlite_seq_root);
     uint32_t next_page = w.next_page;
-    CBM_PROF_END("write_db", "2_metadata_tables", t_meta);
+    CTX_PROF_END("write_db", "2_metadata_tables", t_meta);
 
     // --- Build indexes (all sorted by key columns before writing) ---
 
@@ -1830,12 +1830,12 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         {edge_count, cmp_edge_by_proj_relation, NULL},
     };
 
-    CBM_PROF_START(t_sort);
+    CTX_PROF_START(t_sort);
     parallel_sort_indexes(nsorts, NODE_SORT_THREADS, esorts, EDGE_SORT_THREADS);
-    CBM_PROF_END_N("write_db", "3_parallel_sort_indexes", t_sort, node_count + edge_count);
+    CTX_PROF_END_N("write_db", "3_parallel_sort_indexes", t_sort, node_count + edge_count);
 
     /* Phase 4-5: Build node + edge index B-trees (Cortex schema). */
-    CBM_PROF_START(t_node_idx);
+    CTX_PROF_START(t_node_idx);
     uint32_t idx_nodes_kind_root;
     uint32_t idx_nodes_name_root;
     uint32_t idx_nodes_qn_root;
@@ -1848,7 +1848,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
                                  &idx_nodes_qn_root, &idx_nodes_file_root,
                                  &idx_nodes_tier_root, &idx_nodes_kind_project_root,
                                  &idx_nodes_kind_file_root);
-    CBM_PROF_END_N("write_db", "4_node_indexes_seq", t_node_idx, node_count * NODE_SORT_THREADS);
+    CTX_PROF_END_N("write_db", "4_node_indexes_seq", t_node_idx, node_count * NODE_SORT_THREADS);
     if (nrc != 0) {
         (void)fclose(fp);
         return nrc;
@@ -1898,7 +1898,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         autoindex_nodes_root = write_index_btree(fp, &next_page, NULL, NULL, 0);
     }
 
-    CBM_PROF_START(t_edge_idx);
+    CTX_PROF_START(t_edge_idx);
     uint32_t idx_edges_source_root;
     uint32_t idx_edges_target_root;
     uint32_t idx_edges_relation_root;
@@ -1906,7 +1906,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
     int erc = build_edge_indexes(fp, &next_page, edges, edge_count, esorts,
                                  &idx_edges_source_root, &idx_edges_target_root,
                                  &idx_edges_relation_root, &idx_edges_proj_relation_root);
-    CBM_PROF_END_N("write_db", "5_edge_indexes_seq", t_edge_idx, edge_count * EDGE_SORT_THREADS);
+    CTX_PROF_END_N("write_db", "5_edge_indexes_seq", t_edge_idx, edge_count * EDGE_SORT_THREADS);
     if (erc != 0) {
         (void)fclose(fp);
         return erc;
@@ -2027,7 +2027,7 @@ int cbm_write_db(const char *path, const char *project, const char *root_path,
         {"index", "idx_edges_project_relation", "edges", idx_edges_proj_relation_root,
          "CREATE INDEX idx_edges_project_relation ON edges(project, relation)"},
 
-        /* Indexer-owned bookkeeping tables (formerly cbm_*). */
+        /* Indexer-owned bookkeeping tables (formerly ctx_*). */
         {"table", "ctx_projects", "ctx_projects", projects_root,
          "CREATE TABLE ctx_projects (\n\t\tname TEXT PRIMARY KEY,\n\t\tindexed_at TEXT NOT "
          "NULL,\n\t\troot_path TEXT NOT NULL\n\t)"},

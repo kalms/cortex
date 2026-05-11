@@ -1,11 +1,11 @@
 /*
  * diagnostics.h — Periodic diagnostics file writer.
  *
- * When CBM_DIAGNOSTICS=1, writes /tmp/cbm-diagnostics-<pid>.json every 5s.
+ * When CTX_DIAGNOSTICS=1, writes /tmp/cbm-diagnostics-<pid>.json every 5s.
  * Soak tests read this file to track memory, FDs, query stats over time.
  */
-#ifndef CBM_DIAGNOSTICS_H
-#define CBM_DIAGNOSTICS_H
+#ifndef CTX_DIAGNOSTICS_H
+#define CTX_DIAGNOSTICS_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -17,19 +17,19 @@ typedef struct {
     atomic_int errors;    /* tool calls that returned isError=true */
     atomic_llong time_us; /* cumulative wall-clock time (microseconds) */
     atomic_llong max_us;  /* max single call time (microseconds) */
-} cbm_query_stats_t;
+} ctx_query_stats_t;
 
 /* Singleton query stats — MCP server increments these. */
-extern cbm_query_stats_t g_query_stats;
+extern ctx_query_stats_t g_query_stats;
 
 /* Record a completed tool call. */
-void cbm_diag_record_query(long long duration_us, bool is_error);
+void ctx_diag_record_query(long long duration_us, bool is_error);
 
-/* Start the diagnostics writer thread (if CBM_DIAGNOSTICS env is set).
+/* Start the diagnostics writer thread (if CTX_DIAGNOSTICS env is set).
  * Call once from main(). Returns true if started. */
-bool cbm_diag_start(void);
+bool ctx_diag_start(void);
 
 /* Stop the writer thread and delete the diagnostics file. */
-void cbm_diag_stop(void);
+void ctx_diag_stop(void);
 
-#endif /* CBM_DIAGNOSTICS_H */
+#endif /* CTX_DIAGNOSTICS_H */

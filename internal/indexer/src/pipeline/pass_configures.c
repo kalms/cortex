@@ -10,7 +10,7 @@
 #include <ctype.h>
 #include <string.h>
 
-bool cbm_is_env_var_name(const char *s) {
+bool ctx_is_env_var_name(const char *s) {
     if (!s) {
         return false;
     }
@@ -61,13 +61,13 @@ static void emit_camel_words(const char *part, size_t plen, char *norm_out, size
     (*token_count)++;
 }
 
-int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
+int ctx_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
     if (!key || !norm_out || norm_sz == 0) {
         return 0;
     }
     norm_out[0] = '\0';
 
-    char buf[CBM_SZ_512];
+    char buf[CTX_SZ_512];
     size_t klen = strlen(key);
     if (klen >= sizeof(buf)) {
         klen = sizeof(buf) - SKIP_ONE;
@@ -96,7 +96,7 @@ int cbm_normalize_config_key(const char *key, char *norm_out, size_t norm_sz) {
     return token_count;
 }
 
-bool cbm_has_config_extension(const char *path) {
+bool ctx_has_config_extension(const char *path) {
     if (!path) {
         return false;
     }

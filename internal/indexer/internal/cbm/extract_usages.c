@@ -18,7 +18,7 @@ static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < MAX_PARENT_DEPTH) {
-        if (cbm_kind_in_set(cur, spec->call_node_types)) {
+        if (ctx_kind_in_set(cur, spec->call_node_types)) {
             return true;
         }
         cur = ts_node_parent(cur);
@@ -35,7 +35,7 @@ static bool is_inside_import(TSNode node, const CBMLangSpec *spec) {
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < MAX_PARENT_DEPTH) {
-        if (cbm_kind_in_set(cur, spec->import_node_types)) {
+        if (ctx_kind_in_set(cur, spec->import_node_types)) {
             return true;
         }
         cur = ts_node_parent(cur);
@@ -56,17 +56,17 @@ static bool is_reference_node(TSNode node, CBMLanguage lang) {
 
     // Language-specific reference types
     switch (lang) {
-    case CBM_LANG_GO:
+    case CTX_LANG_GO:
         return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "package_identifier") == 0;
-    case CBM_LANG_PYTHON:
+    case CTX_LANG_PYTHON:
         return strcmp(kind, "attribute") == 0;
-    case CBM_LANG_RUST:
+    case CTX_LANG_RUST:
         return strcmp(kind, "field_identifier") == 0 || strcmp(kind, "scoped_identifier") == 0;
-    case CBM_LANG_HASKELL:
+    case CTX_LANG_HASKELL:
         return strcmp(kind, "variable") == 0 || strcmp(kind, "constructor") == 0;
-    case CBM_LANG_OCAML:
+    case CTX_LANG_OCAML:
         return strcmp(kind, "value_path") == 0 || strcmp(kind, "constructor_path") == 0;
-    case CBM_LANG_ERLANG:
+    case CTX_LANG_ERLANG:
         return strcmp(kind, "atom") == 0 || strcmp(kind, "var") == 0;
     default:
         return false;
@@ -96,12 +96,12 @@ static void try_emit_usage(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *s
     if (is_definition_name(node)) {
         return;
     }
-    char *name = cbm_node_text(ctx->arena, node, ctx->source);
-    if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
+    char *name = ctx_node_text(ctx->arena, node, ctx->source);
+    if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
         CBMUsage usage;
         usage.ref_name = name;
-        usage.enclosing_func_qn = cbm_enclosing_func_qn_cached(ctx, node);
-        cbm_usages_push(&ctx->result->usages, ctx->arena, usage);
+        usage.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
+        ctx_usages_push(&ctx->result->usages, ctx->arena, usage);
     }
 }
 
@@ -122,8 +122,8 @@ static void walk_usages(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec
     }
 }
 
-void cbm_extract_usages(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = cbm_lang_spec(ctx->language);
+void ctx_extract_usages(CBMExtractCtx *ctx) {
+    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -160,11 +160,11 @@ void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
         }
     }
 
-    char *name = cbm_node_text(ctx->arena, node, ctx->source);
-    if (name && name[0] && !cbm_is_keyword(name, ctx->language)) {
+    char *name = ctx_node_text(ctx->arena, node, ctx->source);
+    if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
         CBMUsage usage;
         usage.ref_name = name;
         usage.enclosing_func_qn = state->enclosing_func_qn;
-        cbm_usages_push(&ctx->result->usages, ctx->arena, usage);
+        ctx_usages_push(&ctx->result->usages, ctx->arena, usage);
     }
 }

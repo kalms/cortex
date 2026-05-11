@@ -15,9 +15,9 @@
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-/* Extract a Go file using cbm_extract_file (runs single-file LSP internally) */
+/* Extract a Go file using ctx_extract_file (runs single-file LSP internally) */
 static CBMFileResult *extract_go(const char *source) {
-    return cbm_extract_file(source, (int)strlen(source), CBM_LANG_GO, "test", "main.go", 0, NULL,
+    return ctx_extract_file(source, (int)strlen(source), CTX_LANG_GO, "test", "main.go", 0, NULL,
                             NULL);
 }
 
@@ -93,7 +93,7 @@ TEST(golsp_param_type_simple) {
                                   "func doWork(db *Database) {\n\tdb.Query(\"SELECT 1\")\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doWork", "Query"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -107,7 +107,7 @@ TEST(golsp_param_type_multi) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "setup", "Info"), 0);
     ASSERT_GTE(require_resolved(r, "setup", "Get"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -122,7 +122,7 @@ TEST(golsp_return_type) {
                    "func doRead() {\n\tf := Open(\"/tmp/test\")\n\tf.Read(nil)\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doRead", "Read"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -137,7 +137,7 @@ TEST(golsp_return_type_chain) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doChain", "Build"), 0);
     ASSERT_GTE(require_resolved(r, "doChain", "String"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -156,7 +156,7 @@ TEST(golsp_method_chaining) {
     ASSERT_GTE(require_resolved(r, "doQuery", "Where"), 0);
     ASSERT_GTE(require_resolved(r, "doQuery", "Limit"), 0);
     ASSERT_GTE(require_resolved(r, "doQuery", "Execute"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -171,7 +171,7 @@ TEST(golsp_multi_return) {
                    "func doConnect() {\n\tc, _ := Dial(\"localhost\")\n\tc.Close()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doConnect", "Close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -185,7 +185,7 @@ TEST(golsp_channel_receive) {
                    "func handleEvents(ch chan *Event) {\n\te := <-ch\n\te.Process()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "handleEvents", "Process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -199,7 +199,7 @@ TEST(golsp_range_slice) {
                                   "\tfor _, u := range users {\n\t\tu.Name()\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "listNames", "Name"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -211,7 +211,7 @@ TEST(golsp_range_map) {
                                   "\tfor _, svc := range services {\n\t\tsvc.Start()\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "startAll", "Start"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -237,7 +237,7 @@ TEST(golsp_type_switch) {
             ASSERT_STR_EQ(rc->strategy, "lsp_type_dispatch");
         }
     }
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -251,7 +251,7 @@ TEST(golsp_closure) {
                                   "\tgo func() {\n\t\tdb.Query()\n\t}()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "startWorker", "Query"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -264,7 +264,7 @@ TEST(golsp_composite_literal) {
                                   "func makeConfig() {\n\tc := &Config{}\n\tc.Validate()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "makeConfig", "Validate"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -275,7 +275,7 @@ TEST(golsp_composite_literal_direct) {
                                   "func serve() {\n\t(&Handler{}).ServeHTTP()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "serve", "ServeHTTP"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -289,7 +289,7 @@ TEST(golsp_make_slice) {
                    "func work() {\n\titems := make([]*Item, 0)\n\titems[0].Process()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "work", "Process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -303,7 +303,7 @@ TEST(golsp_type_assertion) {
                    "func writeData(x interface{}) {\n\tw := x.(*Writer)\n\tw.Write(nil)\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "writeData", "Write"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -319,7 +319,7 @@ TEST(golsp_struct_embedding) {
     int idx = require_resolved(r, "persist", "Save");
     ASSERT_GTE(idx, 0);
     ASSERT_STR_EQ(r->resolved_calls.items[idx].strategy, "lsp_embed_dispatch");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -334,7 +334,7 @@ TEST(golsp_interface_dispatch) {
     ASSERT_GTE(idx, 0);
     ASSERT_STR_EQ(r->resolved_calls.items[idx].strategy, "lsp_interface_dispatch");
     ASSERT_TRUE(r->resolved_calls.items[idx].confidence <= 0.90f);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -357,7 +357,7 @@ TEST(golsp_explicit_generics) {
     ASSERT_GTE(require_resolved(r, "main", "Filter"), 0);
     ASSERT_GTE(require_resolved(r, "main", "Transform"), 0);
     ASSERT_GTE(require_resolved(r, "main", "Value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -373,7 +373,7 @@ TEST(golsp_implicit_generics) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "main", "Filter"), 0);
     ASSERT_GTE(require_resolved(r, "main", "Name"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -399,7 +399,7 @@ TEST(golsp_return_types_extracted) {
     }
     ASSERT_TRUE(found_getfoo);
     ASSERT_TRUE(found_multi);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -417,7 +417,7 @@ TEST(golsp_param_names_extracted) {
         }
     }
     ASSERT_TRUE(found);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -429,7 +429,7 @@ TEST(golsp_direct_func_call) {
                                   "func caller() {\n\thelper()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "caller", "helper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -443,7 +443,7 @@ TEST(golsp_stdlib_os_open) {
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "readFile", "os.Open"), 0);
     ASSERT_GTE(require_resolved(r, "readFile", "Close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -454,7 +454,7 @@ TEST(golsp_stdlib_fmt_sprintf) {
                                   "\treturn fmt.Sprintf(\"hello %s\", name)\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "format", "fmt.Sprintf"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -469,7 +469,7 @@ TEST(golsp_select_receive) {
                                   "\tcase <-done:\n\t\treturn\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "worker", "Process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -484,7 +484,7 @@ TEST(golsp_struct_field_access) {
                    "func showUser(u *User) {\n\t_ = u.Name\n\tp := u.Profile\n\tp.Summary()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "showUser", "Summary"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -502,7 +502,7 @@ TEST(golsp_pointer_value_receivers) {
     ASSERT_GTE(require_resolved(r, "usePointer", "Status"), 0);
     ASSERT_GTE(require_resolved(r, "useValue", "Status"), 0);
     ASSERT_GTE(require_resolved(r, "useValue", "Close"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -524,7 +524,7 @@ TEST(golsp_diagnostics) {
         }
     }
     ASSERT_GT(diag_count, 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -540,7 +540,7 @@ TEST(golsp_variadic_args) {
     int idx = require_resolved(r, "logAll", "Info");
     ASSERT_GTE(idx, 0);
     ASSERT_TRUE(r->resolved_calls.items[idx].confidence > 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -556,7 +556,7 @@ TEST(golsp_named_returns) {
     int idx = require_resolved(r, "open", "Close");
     ASSERT_GTE(idx, 0);
     ASSERT_TRUE(r->resolved_calls.items[idx].confidence > 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -572,7 +572,7 @@ TEST(golsp_type_alias) {
     int idx = require_resolved(r, "useAlias", "DoWork");
     ASSERT_GTE(idx, 0);
     ASSERT_TRUE(r->resolved_calls.items[idx].confidence > 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -599,7 +599,7 @@ TEST(golsp_interface_satisfaction) {
     int idx2 = find_resolved(r, "runProcessor", "Finalize");
     ASSERT_GTE(idx2, 0);
     ASSERT_STR_EQ(r->resolved_calls.items[idx2].strategy, "lsp_interface_resolve");
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -614,7 +614,7 @@ TEST(golsp_package_level_var) {
                                   "func handler() {\n\tdb.Query(\"SELECT 1\")\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "handler", "Query"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -627,7 +627,7 @@ TEST(golsp_package_level_const) {
                                   "func doWork() {\n\tlogger.Info(\"starting\")\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doWork", "Info"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -643,7 +643,7 @@ TEST(golsp_if_init) {
                                   "\tif err := getError(); err != nil {\n\t\terr.Code()\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "handle", "Code"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -659,7 +659,7 @@ TEST(golsp_embedded_field_promotion) {
         "func doWork() {\n\to := &Outer{}\n\tp := &Processor{}\n\tp.Process(o.Name)\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "doWork", "Process"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -675,7 +675,7 @@ TEST(golsp_for_init) {
                    "\tfor c := NewCounter(); c.Value() < 10; {\n\t\tc.Value()\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "loop", "Value"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -688,7 +688,7 @@ TEST(golsp_type_conversion) {
                                   "func convert() {\n\ts := MyString(\"hello\")\n\ts.Upper()\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "convert", "Upper"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -704,7 +704,7 @@ TEST(golsp_multi_name_var) {
     ASSERT_NOT_NULL(r);
     int n = count_resolved(r, "readConfig", "Get");
     ASSERT_GTE(n, 2);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -720,7 +720,7 @@ TEST(golsp_switch_init) {
                                   "\tcase true:\n\t\tv.Check()\n\t}\n}\n");
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(require_resolved(r, "validate", "Check"), 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -739,7 +739,7 @@ TEST(golsp_interface_method_single_file) {
     const char *s = r->resolved_calls.items[idx].strategy;
     ASSERT_TRUE(strcmp(s, "lsp_interface_resolve") == 0 ||
                 strcmp(s, "lsp_interface_dispatch") == 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
@@ -760,11 +760,11 @@ TEST(golsp_interface_method_field_chain) {
     const char *s = r->resolved_calls.items[idx].strategy;
     ASSERT_TRUE(strcmp(s, "lsp_interface_resolve") == 0 ||
                 strcmp(s, "lsp_interface_dispatch") == 0);
-    cbm_free_result(r);
+    ctx_free_result(r);
     PASS();
 }
 
-/* ── Cross-file tests (use cbm_run_go_lsp_cross directly) ──────── */
+/* ── Cross-file tests (use ctx_run_go_lsp_cross directly) ──────── */
 
 TEST(golsp_crossfile_method_dispatch) {
     const char *source = "package main\n\n"
@@ -797,10 +797,10 @@ TEST(golsp_crossfile_method_dispatch) {
     const char *imp_qns[] = {"myapp/db"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
 
     ASSERT_GTE(find_resolved_arr(&out, "doQuery", "Connect"), 0);
@@ -808,7 +808,7 @@ TEST(golsp_crossfile_method_dispatch) {
     ASSERT_GTE(idx, 0);
     ASSERT_STR_EQ(out.items[idx].strategy, "lsp_type_dispatch");
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -843,14 +843,14 @@ TEST(golsp_crossfile_return_type_chain) {
     const char *imp_qns[] = {"myapp/repo"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
 
     ASSERT_GTE(find_resolved_arr(&out, "showUser", "Name"), 0);
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -883,10 +883,10 @@ TEST(golsp_crossfile_interface_dispatch) {
     const char *imp_qns[] = {"myapp/svc"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
 
     int idx = find_resolved_arr_confident(&out, "handler", "Bind");
@@ -895,7 +895,7 @@ TEST(golsp_crossfile_interface_dispatch) {
     ASSERT_TRUE(strcmp(s, "lsp_interface_resolve") == 0 ||
                 strcmp(s, "lsp_interface_dispatch") == 0);
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -939,17 +939,17 @@ TEST(golsp_crossfile_interface_field_chain) {
     const char *imp_qns[] = {"myapp/echo"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 6, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 6, imp_names,
                          imp_qns, 1, NULL, &out);
 
     int idx = find_resolved_arr_confident(&out, "process", "Bind");
     ASSERT_GTE(idx, 0);
     ASSERT_TRUE(out.items[idx].confidence >= 0.8f);
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -979,17 +979,17 @@ TEST(golsp_crossfile_map_index) {
     const char *imp_qns[] = {"myapp/echo"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 3, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 3, imp_names,
                          imp_qns, 1, NULL, &out);
 
     int idx = find_resolved_arr_confident(&out, "dispatch", "ServeHTTP");
     ASSERT_GTE(idx, 0);
     ASSERT_STR_EQ(out.items[idx].strategy, "lsp_type_dispatch");
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -1009,16 +1009,16 @@ TEST(golsp_crossfile_stdlib_interface) {
     const char *imp_qns[] = {"context"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 1, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 1, imp_names,
                          imp_qns, 1, NULL, &out);
 
     ASSERT_GTE(find_resolved_arr_confident(&out, "process", "Done"), 0);
     ASSERT_GTE(find_resolved_arr_confident(&out, "process", "Err"), 0);
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 
@@ -1058,10 +1058,10 @@ TEST(golsp_crossfile_local_interface_single_impl) {
     const char *imp_qns[] = {"myapp/svc"};
 
     CBMArena arena;
-    cbm_arena_init(&arena);
+    ctx_arena_init(&arena);
     CBMResolvedCallArray out = {0};
 
-    cbm_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 5, imp_names,
+    ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 5, imp_names,
                          imp_qns, 1, NULL, &out);
 
     int idxGet = find_resolved_arr_confident(&out, "process", "Get");
@@ -1073,7 +1073,7 @@ TEST(golsp_crossfile_local_interface_single_impl) {
     ASSERT_GTE(idxPut, 0);
     ASSERT_STR_EQ(out.items[idxPut].strategy, "lsp_interface_resolve");
 
-    cbm_arena_destroy(&arena);
+    ctx_arena_destroy(&arena);
     PASS();
 }
 

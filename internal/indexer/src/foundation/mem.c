@@ -36,7 +36,7 @@ static size_t g_budget;          /* budget in bytes */
 static atomic_int g_initialized; /* init guard */
 static atomic_int g_was_over;    /* pressure hysteresis */
 
-#define MB_DIVISOR ((size_t)(CBM_SZ_1K * CBM_SZ_1K))
+#define MB_DIVISOR ((size_t)(CTX_SZ_1K * CTX_SZ_1K))
 
 /* ── OS fallback for RSS (ASan builds where MI_OVERRIDE=0) ──── */
 
@@ -67,7 +67,7 @@ static size_t os_rss(void) {
     }
     (void)fclose(f);
     long ps = sysconf(_SC_PAGESIZE);
-    return rss_pages * (ps > 0 ? (size_t)ps : CBM_SZ_4K);
+    return rss_pages * (ps > 0 ? (size_t)ps : CTX_SZ_4K);
 #endif
 }
 
@@ -83,30 +83,30 @@ static void check_pressure(size_t rss) {
 
     if (over && !was) {
         atomic_store(&g_was_over, 1);
-        char rss_mb[CBM_SZ_32];
-        char budget_mb[CBM_SZ_32];
-        char pct_str[CBM_SZ_16];
+        char rss_mb[CTX_SZ_32];
+        char budget_mb[CTX_SZ_32];
+        char pct_str[CTX_SZ_16];
         snprintf(rss_mb, sizeof(rss_mb), "%zu", rss / MB_DIVISOR);
         snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
         snprintf(pct_str, sizeof(pct_str), "%zu",
-                 g_budget > 0 ? (rss * CBM_PERCENT) / g_budget : 0);
-        cbm_log_warn("mem.pressure.warn", "rss_mb", rss_mb, "budget_mb", budget_mb, "pct", pct_str);
+                 g_budget > 0 ? (rss * CTX_PERCENT) / g_budget : 0);
+        ctx_log_warn("mem.pressure.warn", "rss_mb", rss_mb, "budget_mb", budget_mb, "pct", pct_str);
     } else if (!over && was) {
         atomic_store(&g_was_over, 0);
-        char rss_mb[CBM_SZ_32];
-        char budget_mb[CBM_SZ_32];
-        char pct_str[CBM_SZ_16];
+        char rss_mb[CTX_SZ_32];
+        char budget_mb[CTX_SZ_32];
+        char pct_str[CTX_SZ_16];
         snprintf(rss_mb, sizeof(rss_mb), "%zu", rss / MB_DIVISOR);
         snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
         snprintf(pct_str, sizeof(pct_str), "%zu",
-                 g_budget > 0 ? (rss * CBM_PERCENT) / g_budget : 0);
-        cbm_log_info("mem.pressure.ok", "rss_mb", rss_mb, "budget_mb", budget_mb, "pct", pct_str);
+                 g_budget > 0 ? (rss * CTX_PERCENT) / g_budget : 0);
+        ctx_log_info("mem.pressure.ok", "rss_mb", rss_mb, "budget_mb", budget_mb, "pct", pct_str);
     }
 }
 
 /* ── Public API ────────────────────────────────────────────────── */
 
-void cbm_mem_init(double ram_fraction) {
+void ctx_mem_init(double ram_fraction) {
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_initialized, &expected, 1)) {
         return;
@@ -123,17 +123,17 @@ void cbm_mem_init(double ram_fraction) {
     mi_option_set(mi_option_purge_decommits, SKIP_ONE);
     mi_option_set(mi_option_purge_delay, 0); /* immediate purge, no 1s delay */
 
-    cbm_system_info_t info = cbm_system_info();
+    ctx_system_info_t info = ctx_system_info();
     g_budget = (size_t)((double)info.total_ram * ram_fraction);
 
-    char budget_mb[CBM_SZ_32];
-    char ram_mb[CBM_SZ_32];
+    char budget_mb[CTX_SZ_32];
+    char ram_mb[CTX_SZ_32];
     snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
     snprintf(ram_mb, sizeof(ram_mb), "%zu", info.total_ram / MB_DIVISOR);
-    cbm_log_info("mem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb);
+    ctx_log_info("mem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb);
 }
 
-size_t cbm_mem_rss(void) {
+size_t ctx_mem_rss(void) {
     size_t current_rss = 0;
     size_t peak_rss = 0;
     mi_process_info(NULL, NULL, NULL, &current_rss, &peak_rss, NULL, NULL, NULL);
@@ -144,7 +144,7 @@ size_t cbm_mem_rss(void) {
     return os_rss();
 }
 
-size_t cbm_mem_peak_rss(void) {
+size_t ctx_mem_peak_rss(void) {
     size_t peak_rss = 0;
     mi_process_info(NULL, NULL, NULL, NULL, &peak_rss, NULL, NULL, NULL);
     if (peak_rss > 0) {
@@ -154,23 +154,23 @@ size_t cbm_mem_peak_rss(void) {
     return os_rss();
 }
 
-size_t cbm_mem_budget(void) {
+size_t ctx_mem_budget(void) {
     return g_budget;
 }
 
-bool cbm_mem_over_budget(void) {
-    size_t rss = cbm_mem_rss();
+bool ctx_mem_over_budget(void) {
+    size_t rss = ctx_mem_rss();
     check_pressure(rss);
     return rss > g_budget;
 }
 
-size_t cbm_mem_worker_budget(int num_workers) {
+size_t ctx_mem_worker_budget(int num_workers) {
     if (num_workers <= 0) {
         num_workers = SKIP_ONE;
     }
     return g_budget / (size_t)num_workers;
 }
 
-void cbm_mem_collect(void) {
+void ctx_mem_collect(void) {
     mi_collect(true);
 }

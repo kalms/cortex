@@ -1,5 +1,5 @@
-#ifndef CBM_H
-#define CBM_H
+#ifndef CTX_H
+#define CTX_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,75 +9,75 @@
 // Language enum mirrors lang.Language in Go.
 // Order must match lang_specs.c tables.
 typedef enum {
-    CBM_LANG_GO = 0,
-    CBM_LANG_PYTHON,
-    CBM_LANG_JAVASCRIPT,
-    CBM_LANG_TYPESCRIPT,
-    CBM_LANG_TSX,
-    CBM_LANG_RUST,
-    CBM_LANG_JAVA,
-    CBM_LANG_CPP,
-    CBM_LANG_CSHARP,
-    CBM_LANG_PHP,
-    CBM_LANG_LUA,
-    CBM_LANG_SCALA,
-    CBM_LANG_KOTLIN,
-    CBM_LANG_RUBY,
-    CBM_LANG_C,
-    CBM_LANG_BASH,
-    CBM_LANG_ZIG,
-    CBM_LANG_ELIXIR,
-    CBM_LANG_HASKELL,
-    CBM_LANG_OCAML,
-    CBM_LANG_OBJC,
-    CBM_LANG_SWIFT,
-    CBM_LANG_DART,
-    CBM_LANG_PERL,
-    CBM_LANG_GROOVY,
-    CBM_LANG_ERLANG,
-    CBM_LANG_R,
-    CBM_LANG_HTML,
-    CBM_LANG_CSS,
-    CBM_LANG_SCSS,
-    CBM_LANG_YAML,
-    CBM_LANG_TOML,
-    CBM_LANG_HCL,
-    CBM_LANG_SQL,
-    CBM_LANG_DOCKERFILE,
+    CTX_LANG_GO = 0,
+    CTX_LANG_PYTHON,
+    CTX_LANG_JAVASCRIPT,
+    CTX_LANG_TYPESCRIPT,
+    CTX_LANG_TSX,
+    CTX_LANG_RUST,
+    CTX_LANG_JAVA,
+    CTX_LANG_CPP,
+    CTX_LANG_CSHARP,
+    CTX_LANG_PHP,
+    CTX_LANG_LUA,
+    CTX_LANG_SCALA,
+    CTX_LANG_KOTLIN,
+    CTX_LANG_RUBY,
+    CTX_LANG_C,
+    CTX_LANG_BASH,
+    CTX_LANG_ZIG,
+    CTX_LANG_ELIXIR,
+    CTX_LANG_HASKELL,
+    CTX_LANG_OCAML,
+    CTX_LANG_OBJC,
+    CTX_LANG_SWIFT,
+    CTX_LANG_DART,
+    CTX_LANG_PERL,
+    CTX_LANG_GROOVY,
+    CTX_LANG_ERLANG,
+    CTX_LANG_R,
+    CTX_LANG_HTML,
+    CTX_LANG_CSS,
+    CTX_LANG_SCSS,
+    CTX_LANG_YAML,
+    CTX_LANG_TOML,
+    CTX_LANG_HCL,
+    CTX_LANG_SQL,
+    CTX_LANG_DOCKERFILE,
     // New languages (v0.5 expansion)
-    CBM_LANG_CLOJURE,
-    CBM_LANG_FSHARP,
-    CBM_LANG_JULIA,
-    CBM_LANG_VIMSCRIPT,
-    CBM_LANG_NIX,
-    CBM_LANG_COMMONLISP,
-    CBM_LANG_ELM,
-    CBM_LANG_FORTRAN,
-    CBM_LANG_CUDA,
-    CBM_LANG_COBOL,
-    CBM_LANG_VERILOG,
-    CBM_LANG_EMACSLISP,
-    CBM_LANG_JSON,
-    CBM_LANG_XML,
-    CBM_LANG_MARKDOWN,
-    CBM_LANG_MAKEFILE,
-    CBM_LANG_CMAKE,
-    CBM_LANG_PROTOBUF,
-    CBM_LANG_GRAPHQL,
-    CBM_LANG_VUE,
-    CBM_LANG_SVELTE,
-    CBM_LANG_MESON,
-    CBM_LANG_GLSL,
-    CBM_LANG_INI,
+    CTX_LANG_CLOJURE,
+    CTX_LANG_FSHARP,
+    CTX_LANG_JULIA,
+    CTX_LANG_VIMSCRIPT,
+    CTX_LANG_NIX,
+    CTX_LANG_COMMONLISP,
+    CTX_LANG_ELM,
+    CTX_LANG_FORTRAN,
+    CTX_LANG_CUDA,
+    CTX_LANG_COBOL,
+    CTX_LANG_VERILOG,
+    CTX_LANG_EMACSLISP,
+    CTX_LANG_JSON,
+    CTX_LANG_XML,
+    CTX_LANG_MARKDOWN,
+    CTX_LANG_MAKEFILE,
+    CTX_LANG_CMAKE,
+    CTX_LANG_PROTOBUF,
+    CTX_LANG_GRAPHQL,
+    CTX_LANG_VUE,
+    CTX_LANG_SVELTE,
+    CTX_LANG_MESON,
+    CTX_LANG_GLSL,
+    CTX_LANG_INI,
     // Scientific/math languages
-    CBM_LANG_MATLAB,
-    CBM_LANG_LEAN,
-    CBM_LANG_FORM,
-    CBM_LANG_MAGMA,
-    CBM_LANG_WOLFRAM,
-    CBM_LANG_KUSTOMIZE, // kustomization.yaml — Kubernetes overlay tool
-    CBM_LANG_K8S,       // Generic Kubernetes manifest (apiVersion: detected)
-    CBM_LANG_COUNT
+    CTX_LANG_MATLAB,
+    CTX_LANG_LEAN,
+    CTX_LANG_FORM,
+    CTX_LANG_MAGMA,
+    CTX_LANG_WOLFRAM,
+    CTX_LANG_KUSTOMIZE, // kustomization.yaml — Kubernetes overlay tool
+    CTX_LANG_K8S,       // Generic Kubernetes manifest (apiVersion: detected)
+    CTX_LANG_COUNT
 } CBMLanguage;
 
 // --- Extraction result structs ---
@@ -104,7 +104,7 @@ typedef struct {
     int complexity;            // cyclomatic complexity
     int lines;                 // body line count
     uint32_t *fingerprint;     // MinHash fingerprint (arena-allocated, K values) or NULL
-    int fingerprint_k;         // number of hash values (CBM_MINHASH_K or 0)
+    int fingerprint_k;         // number of hash values (CTX_MINHASH_K or 0)
     bool is_exported;
     bool is_abstract;
     bool is_test;
@@ -121,14 +121,14 @@ typedef struct {
     int index;           // positional index (0-based)
 } CBMCallArg;
 
-#define CBM_MAX_CALL_ARGS 8
+#define CTX_MAX_CALL_ARGS 8
 
 typedef struct {
     const char *callee_name;            // raw callee text ("pkg.Func", "foo")
     const char *enclosing_func_qn;      // QN of enclosing function (or module QN)
     const char *first_string_arg;       // first string literal argument (URL, topic, key) or NULL
     const char *second_arg_name;        // second argument identifier (handler ref) or NULL
-    CBMCallArg args[CBM_MAX_CALL_ARGS]; // first N arguments with expressions
+    CBMCallArg args[CTX_MAX_CALL_ARGS]; // first N arguments with expressions
     int arg_count;                      // number of captured arguments
 } CBMCall;
 
@@ -172,8 +172,8 @@ typedef struct {
 // String reference: URL, config key, or async target found in source.
 // Extracted from string literals during AST walk.
 typedef enum {
-    CBM_STRREF_URL = 0,    // REST path or full URL
-    CBM_STRREF_CONFIG = 1, // config file path or env var key
+    CTX_STRREF_URL = 0,    // REST path or full URL
+    CTX_STRREF_CONFIG = 1, // config file path or env var key
 } CBMStringRefKind;
 
 typedef struct {
@@ -199,8 +199,8 @@ typedef struct {
  * service.  Transport disambiguates Socket.IO vs EventEmitter vs future
  * detectors (Kafka, Cloud Pub/Sub, etc.). */
 typedef enum {
-    CBM_CHANNEL_EMIT = 0,
-    CBM_CHANNEL_LISTEN = 1,
+    CTX_CHANNEL_EMIT = 0,
+    CTX_CHANNEL_LISTEN = 1,
 } CBMChannelDirection;
 
 typedef struct {
@@ -339,7 +339,7 @@ typedef struct {
     const char *error_msg;
     bool is_test_file;
     int imports_count;
-    TSTree *cached_tree;     // retained parse tree (caller frees via cbm_free_tree)
+    TSTree *cached_tree;     // retained parse tree (caller frees via ctx_free_tree)
     CBMLanguage cached_lang; // language of cached tree (for parser selection)
 } CBMFileResult;
 
@@ -362,10 +362,10 @@ typedef struct {
 // --- Extraction context passed to sub-extractors ---
 
 // Module-level string constant map (for constant propagation)
-#define CBM_MAX_STRING_CONSTANTS 256
+#define CTX_MAX_STRING_CONSTANTS 256
 typedef struct {
-    const char *names[CBM_MAX_STRING_CONSTANTS];
-    const char *values[CBM_MAX_STRING_CONSTANTS];
+    const char *names[CTX_MAX_STRING_CONSTANTS];
+    const char *values[CTX_MAX_STRING_CONSTANTS];
     int count;
 } CBMStringConstantMap;
 
@@ -387,88 +387,88 @@ typedef struct {
 // --- Public API ---
 
 // Initialize the library. Call once at startup. Returns 0 on success.
-int cbm_init(void);
+int ctx_init(void);
 
-// Extract all data from one file. Caller must call cbm_free_result().
+// Extract all data from one file. Caller must call ctx_free_result().
 // source must remain valid for the duration of the call.
 // timeout_micros: per-file parse timeout in microseconds (0 = no timeout).
-CBMFileResult *cbm_extract_file(const char *source, int source_len, CBMLanguage language,
+CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage language,
                                 const char *project, const char *rel_path, int64_t timeout_micros,
                                 const char **extra_defines, // NULL-terminated, or NULL
                                 const char **include_paths  // NULL-terminated, or NULL
 );
 
 // Free all memory associated with a result.
-void cbm_free_result(CBMFileResult *result);
+void ctx_free_result(CBMFileResult *result);
 
 // Free only the cached tree from a result (caller retained it for reuse).
-void cbm_free_tree(CBMFileResult *result);
+void ctx_free_tree(CBMFileResult *result);
 
 // Free a standalone TSTree pointer (for Go layer cleanup).
-void cbm_free_tree_ptr(TSTree *tree);
+void ctx_free_tree_ptr(TSTree *tree);
 
 // Parse a source string with the given language grammar.
 // Returns a TSTree* (caller must ts_tree_delete). Returns NULL on failure.
 // Uses the thread-local parser pool for efficiency.
-TSTree *cbm_parse_string(const char *source, int source_len, CBMLanguage language);
+TSTree *ctx_parse_string(const char *source, int source_len, CBMLanguage language);
 
 // Reset the thread-local parser's internal state, releasing slab-allocated
-// subtrees. Must be called BEFORE cbm_slab_reset_thread() so the slab rebuild
+// subtrees. Must be called BEFORE ctx_slab_reset_thread() so the slab rebuild
 // doesn't corrupt live parser state.
-void cbm_reset_thread_parser(void);
+void ctx_reset_thread_parser(void);
 
 // Destroy the thread-local parser. Call on worker thread exit.
-void cbm_destroy_thread_parser(void);
+void ctx_destroy_thread_parser(void);
 
 // Shutdown the library. Call once at exit.
-void cbm_shutdown(void);
+void ctx_shutdown(void);
 
 // Profiling: get accumulated parse/extraction times and file count.
 typedef struct {
     uint64_t *parse_ns;
     uint64_t *extract_ns;
     uint64_t *files;
-} cbm_profile_out_t;
-void cbm_get_profile(cbm_profile_out_t out);
-uint64_t cbm_get_lsp_ns(void);
-uint64_t cbm_get_preprocess_ns(void);
-uint64_t cbm_get_files_preprocessed(void);
-void cbm_reset_profile(void);
+} ctx_profile_out_t;
+void ctx_get_profile(ctx_profile_out_t out);
+uint64_t ctx_get_lsp_ns(void);
+uint64_t ctx_get_preprocess_ns(void);
+uint64_t ctx_get_files_preprocessed(void);
+void ctx_reset_profile(void);
 
 // --- Internal helpers used by extractors ---
 
 // Growable array push functions (arena-allocated, no individual free needed).
-void cbm_defs_push(CBMDefArray *arr, CBMArena *a, CBMDefinition def);
-void cbm_calls_push(CBMCallArray *arr, CBMArena *a, CBMCall call);
-void cbm_imports_push(CBMImportArray *arr, CBMArena *a, CBMImport imp);
-void cbm_usages_push(CBMUsageArray *arr, CBMArena *a, CBMUsage usage);
-void cbm_throws_push(CBMThrowArray *arr, CBMArena *a, CBMThrow thr);
-void cbm_rw_push(CBMRWArray *arr, CBMArena *a, CBMReadWrite rw);
-void cbm_typerefs_push(CBMTypeRefArray *arr, CBMArena *a, CBMTypeRef tr);
-void cbm_envaccess_push(CBMEnvAccessArray *arr, CBMArena *a, CBMEnvAccess ea);
-void cbm_typeassign_push(CBMTypeAssignArray *arr, CBMArena *a, CBMTypeAssign ta);
-void cbm_stringref_push(CBMStringRefArray *arr, CBMArena *a, CBMStringRef sr);
-void cbm_infrabinding_push(CBMInfraBindingArray *arr, CBMArena *a, CBMInfraBinding ib);
-void cbm_impltrait_push(CBMImplTraitArray *arr, CBMArena *a, CBMImplTrait it);
-void cbm_resolvedcall_push(CBMResolvedCallArray *arr, CBMArena *a, CBMResolvedCall rc);
-void cbm_channels_push(CBMChannelArray *arr, CBMArena *a, CBMChannel ch);
+void ctx_defs_push(CBMDefArray *arr, CBMArena *a, CBMDefinition def);
+void ctx_calls_push(CBMCallArray *arr, CBMArena *a, CBMCall call);
+void ctx_imports_push(CBMImportArray *arr, CBMArena *a, CBMImport imp);
+void ctx_usages_push(CBMUsageArray *arr, CBMArena *a, CBMUsage usage);
+void ctx_throws_push(CBMThrowArray *arr, CBMArena *a, CBMThrow thr);
+void ctx_rw_push(CBMRWArray *arr, CBMArena *a, CBMReadWrite rw);
+void ctx_typerefs_push(CBMTypeRefArray *arr, CBMArena *a, CBMTypeRef tr);
+void ctx_envaccess_push(CBMEnvAccessArray *arr, CBMArena *a, CBMEnvAccess ea);
+void ctx_typeassign_push(CBMTypeAssignArray *arr, CBMArena *a, CBMTypeAssign ta);
+void ctx_stringref_push(CBMStringRefArray *arr, CBMArena *a, CBMStringRef sr);
+void ctx_infrabinding_push(CBMInfraBindingArray *arr, CBMArena *a, CBMInfraBinding ib);
+void ctx_impltrait_push(CBMImplTraitArray *arr, CBMArena *a, CBMImplTrait it);
+void ctx_resolvedcall_push(CBMResolvedCallArray *arr, CBMArena *a, CBMResolvedCall rc);
+void ctx_channels_push(CBMChannelArray *arr, CBMArena *a, CBMChannel ch);
 
 // --- Sub-extractor entry points ---
 
-void cbm_extract_definitions(CBMExtractCtx *ctx);
-void cbm_extract_calls(CBMExtractCtx *ctx);
-void cbm_extract_imports(CBMExtractCtx *ctx);
-void cbm_extract_usages(CBMExtractCtx *ctx);
-void cbm_extract_semantic(CBMExtractCtx *ctx);
-void cbm_extract_type_refs(CBMExtractCtx *ctx);
-void cbm_extract_env_accesses(CBMExtractCtx *ctx);
-void cbm_extract_type_assigns(CBMExtractCtx *ctx);
-void cbm_extract_channels(CBMExtractCtx *ctx);
+void ctx_extract_definitions(CBMExtractCtx *ctx);
+void ctx_extract_calls(CBMExtractCtx *ctx);
+void ctx_extract_imports(CBMExtractCtx *ctx);
+void ctx_extract_usages(CBMExtractCtx *ctx);
+void ctx_extract_semantic(CBMExtractCtx *ctx);
+void ctx_extract_type_refs(CBMExtractCtx *ctx);
+void ctx_extract_env_accesses(CBMExtractCtx *ctx);
+void ctx_extract_type_assigns(CBMExtractCtx *ctx);
+void ctx_extract_channels(CBMExtractCtx *ctx);
 
 // Single-pass unified extraction (replaces the 7 calls above except defs+imports).
-void cbm_extract_unified(CBMExtractCtx *ctx);
+void ctx_extract_unified(CBMExtractCtx *ctx);
 
-// K8s / Kustomize semantic extractor (called when language is CBM_LANG_K8S or CBM_LANG_KUSTOMIZE).
-void cbm_extract_k8s(CBMExtractCtx *ctx);
+// K8s / Kustomize semantic extractor (called when language is CTX_LANG_K8S or CTX_LANG_KUSTOMIZE).
+void ctx_extract_k8s(CBMExtractCtx *ctx);
 
-#endif // CBM_H
+#endif // CTX_H

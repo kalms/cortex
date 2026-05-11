@@ -30,7 +30,7 @@ typedef struct {
     bool rooted;   /* contains / (anchored to root) */
 } gi_pattern_t;
 
-struct cbm_gitignore {
+struct ctx_gitignore {
     gi_pattern_t *patterns;
     int count;
     int capacity;
@@ -172,7 +172,7 @@ static bool glob_match(const char *pat, const char *str) { // NOLINT(misc-no-rec
 
 /* ── Pattern parsing ─────────────────────────────────────────────── */
 
-static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
+static void gi_add_pattern(ctx_gitignore_t *gi, const char *line, int len) {
     /* Trim trailing whitespace */
     while (len > 0 && (line[len - SKIP_ONE] == ' ' || line[len - SKIP_ONE] == '\t' ||
                        line[len - SKIP_ONE] == '\r')) {
@@ -252,12 +252,12 @@ static void gi_add_pattern(cbm_gitignore_t *gi, const char *line, int len) {
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-cbm_gitignore_t *cbm_gitignore_parse(const char *content) {
+ctx_gitignore_t *ctx_gitignore_parse(const char *content) {
     if (!content) {
         return NULL;
     }
 
-    cbm_gitignore_t *gi = calloc(CBM_ALLOC_ONE, sizeof(cbm_gitignore_t));
+    ctx_gitignore_t *gi = calloc(CTX_ALLOC_ONE, sizeof(ctx_gitignore_t));
     if (!gi) {
         return NULL;
     }
@@ -282,7 +282,7 @@ cbm_gitignore_t *cbm_gitignore_parse(const char *content) {
     return gi;
 }
 
-cbm_gitignore_t *cbm_gitignore_load(const char *path) {
+ctx_gitignore_t *ctx_gitignore_load(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -299,7 +299,7 @@ cbm_gitignore_t *cbm_gitignore_load(const char *path) {
 
     if (size <= 0) {
         (void)fclose(f);
-        return cbm_gitignore_parse("");
+        return ctx_gitignore_parse("");
     }
 
     char *buf = malloc(size + SKIP_ONE);
@@ -312,7 +312,7 @@ cbm_gitignore_t *cbm_gitignore_load(const char *path) {
     buf[n] = '\0';
     (void)fclose(f);
 
-    cbm_gitignore_t *gi = cbm_gitignore_parse(buf);
+    ctx_gitignore_t *gi = ctx_gitignore_parse(buf);
     free(buf);
     return gi;
 }
@@ -340,7 +340,7 @@ static bool match_unrooted(const char *pattern, const char *rel_path, const char
     return false;
 }
 
-bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool is_dir) {
+bool ctx_gitignore_matches(const ctx_gitignore_t *gi, const char *rel_path, bool is_dir) {
     if (!gi || !rel_path) {
         return false;
     }
@@ -369,7 +369,7 @@ bool cbm_gitignore_matches(const cbm_gitignore_t *gi, const char *rel_path, bool
     return matched;
 }
 
-void cbm_gitignore_free(cbm_gitignore_t *gi) {
+void ctx_gitignore_free(ctx_gitignore_t *gi) {
     if (!gi) {
         return;
     }

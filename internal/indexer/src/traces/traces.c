@@ -13,7 +13,7 @@ enum { TRACE_PATH_SLASHES = 3, TRACE_NOT_FOUND = -1 };
 
 /* ── extractServiceName ──────────────────────────────────────────── */
 
-const char *cbm_extract_service_name(const cbm_trace_resource_t *r) {
+const char *ctx_extract_service_name(const ctx_trace_resource_t *r) {
     if (!r) {
         return "";
     }
@@ -27,7 +27,7 @@ const char *cbm_extract_service_name(const cbm_trace_resource_t *r) {
 
 /* ── extractPathFromURL ──────────────────────────────────────────── */
 
-const char *cbm_extract_path_from_url(const char *url, char *buf, size_t buf_sz) {
+const char *ctx_extract_path_from_url(const char *url, char *buf, size_t buf_sz) {
     if (!url || !buf || buf_sz == 0) {
         if (buf) {
             buf[0] = '\0';
@@ -63,19 +63,19 @@ const char *cbm_extract_path_from_url(const char *url, char *buf, size_t buf_sz)
 
 /* ── parseDuration ───────────────────────────────────────────────── */
 
-int64_t cbm_parse_duration(const char *start_nano, const char *end_nano) {
+int64_t ctx_parse_duration(const char *start_nano, const char *end_nano) {
     if (!start_nano || !end_nano) {
         return 0;
     }
-    int64_t start = strtoll(start_nano, NULL, CBM_DECIMAL_BASE);
-    int64_t end = strtoll(end_nano, NULL, CBM_DECIMAL_BASE);
+    int64_t start = strtoll(start_nano, NULL, CTX_DECIMAL_BASE);
+    int64_t end = strtoll(end_nano, NULL, CTX_DECIMAL_BASE);
     return (end > start) ? (end - start) : 0;
 }
 
 /* ── extractHTTPInfo ─────────────────────────────────────────────── */
 
-bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_name,
-                           cbm_http_span_info_t *out) {
+bool ctx_extract_http_info(const ctx_trace_span_t *span, const char *service_name,
+                           ctx_http_span_info_t *out) {
     if (!span || !out) {
         return false;
     }
@@ -84,7 +84,7 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
     out->span_kind = span->kind;
 
     bool has_http = false;
-    static char url_buf[CBM_SZ_1K];
+    static char url_buf[CTX_SZ_1K];
 
     for (int i = 0; i < span->attr_count; i++) {
         const char *key = span->attributes[i].key;
@@ -103,7 +103,7 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
         } else if (strcmp(key, "http.status_code") == 0) {
             out->status_code = val;
         } else if (strcmp(key, "url.full") == 0) {
-            const char *path = cbm_extract_path_from_url(val, url_buf, sizeof(url_buf));
+            const char *path = ctx_extract_path_from_url(val, url_buf, sizeof(url_buf));
             if (path[0] != '\0') {
                 out->path = path;
                 has_http = true;
@@ -115,7 +115,7 @@ bool cbm_extract_http_info(const cbm_trace_span_t *span, const char *service_nam
         return false;
     }
 
-    out->duration_ns = cbm_parse_duration(span->start_time, span->end_time);
+    out->duration_ns = ctx_parse_duration(span->start_time, span->end_time);
     return true;
 }
 
@@ -127,7 +127,7 @@ static int cmp_int64(const void *a, const void *b) {
     return (va > vb) - (va < vb);
 }
 
-int64_t cbm_calculate_p99(int64_t *values, int count) {
+int64_t ctx_calculate_p99(int64_t *values, int count) {
     if (!values || count <= 0) {
         return 0;
     }
