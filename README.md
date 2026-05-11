@@ -222,6 +222,15 @@ Major suites:
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary (for index/detect_changes/delete) |
 | `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
 
+## License & Attribution
+
+Cortex's native indexer originated as a fork of
+[DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+and vendors several C libraries (mimalloc, SQLite, TRE, xxHash, yyjson,
+tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary).
+Full attribution, upstream licenses, and per-component sources are documented
+in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
+
 ## Project Structure
 
 ```
