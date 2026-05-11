@@ -37,9 +37,17 @@ done
 mkdir -p "$ROOT/bin"
 
 echo "Building cortex-indexer from internal/indexer/ ..."
+# Inject the package version into the C build so `cortex-indexer --version`
+# reports a real value instead of the "dev" fallback. We read it from
+# package.json without requiring node/jq — the value is on a fixed line.
+PKG_VERSION="$(awk -F'"' '/^[[:space:]]*"version":/ { print $4; exit }' "$ROOT/package.json")"
+CFLAGS_EXTRA_VAL=""
+if [ -n "${PKG_VERSION:-}" ]; then
+  CFLAGS_EXTRA_VAL="-DCTX_VERSION=\"\\\"${PKG_VERSION}\\\"\""
+fi
 # Must invoke the Makefile from inside internal/indexer/ — its rules use
 # Makefile-relative paths and don't tolerate -f from a parent directory.
-(cd "$INDEXER_SRC" && make -f Makefile.indexer "$MAKE_TARGET")
+(cd "$INDEXER_SRC" && make -f Makefile.indexer "$MAKE_TARGET" CFLAGS_EXTRA="$CFLAGS_EXTRA_VAL")
 
 if [ ! -x "$INDEXER_BUILD" ]; then
   echo "error: build succeeded but expected binary not found" >&2
