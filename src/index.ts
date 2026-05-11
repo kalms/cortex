@@ -22,7 +22,11 @@ const cortexDir = dirname(dbPath);
 mkdirSync(cortexDir, { recursive: true });
 const gitignorePath = join(cortexDir, ".gitignore");
 if (!existsSync(gitignorePath)) {
-  writeFileSync(gitignorePath, "db\ndb-wal\ndb-shm\nlocal/\n");
+  try {
+    writeFileSync(gitignorePath, "db\ndb-wal\ndb-shm\nlocal/\n");
+  } catch (e) {
+    process.stderr.write(`Cortex: could not seed ${gitignorePath} (${(e as Error).message})\n`);
+  }
 }
 
 const store = new GraphStore(dbPath);
