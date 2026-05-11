@@ -14,9 +14,21 @@
 
 #define MAX_RAM_FRACTION 1.0
 #define DEFAULT_RAM_FRACTION 0.5
+
+/* Back-pressure thresholds (fraction of budget).
+ * Hysteresis: enter at WAIT_ENTER, exit at WAIT_EXIT to avoid flapping. */
+#define WAIT_ENTER_PCT 85
+#define WAIT_EXIT_PCT 75
+
+/* Polling cadence for ctx_mem_wait_for_headroom. */
+#define WAIT_SLEEP_US 50000        /* 50 ms */
+#define WAIT_SLEEP_MS 50           /* 50 ms (Windows Sleep) */
+#define WAIT_TIMEOUT_MS 30000      /* hard cap to avoid deadlock */
+
 #include <mimalloc.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -26,6 +38,7 @@
 #include <psapi.h>
 #elif defined(__APPLE__)
 #include <mach/mach.h>
+#include <unistd.h>
 #else
 #include <unistd.h>
 #endif
@@ -34,7 +47,8 @@
 
 static size_t g_budget;          /* budget in bytes */
 static atomic_int g_initialized; /* init guard */
-static atomic_int g_was_over;    /* pressure hysteresis */
+static atomic_int g_was_over;    /* pressure hysteresis (warn/ok) */
+static atomic_int g_was_waiting; /* back-pressure hysteresis (wait/resume) */
 
 #define MB_DIVISOR ((size_t)(CTX_SZ_1K * CTX_SZ_1K))
 
@@ -124,13 +138,30 @@ void ctx_mem_init(double ram_fraction) {
     mi_option_set(mi_option_purge_delay, 0); /* immediate purge, no 1s delay */
 
     ctx_system_info_t info = ctx_system_info();
-    g_budget = (size_t)((double)info.total_ram * ram_fraction);
+
+    /* Env override: CTX_MEM_BUDGET_MB takes precedence over ram_fraction.
+     * Useful for CI runners, constrained containers, and forcing back-pressure
+     * during smoke tests. Empty/unparseable/non-positive falls back to fraction. */
+    const char *source = "ram_fraction";
+    char env_buf[CTX_SZ_32];
+    const char *env_val =
+        ctx_safe_getenv("CTX_MEM_BUDGET_MB", env_buf, sizeof(env_buf), NULL);
+    if (env_val && env_val[0]) {
+        long long mb = atoll(env_val);
+        if (mb > 0) {
+            g_budget = (size_t)mb * MB_DIVISOR;
+            source = "env";
+        }
+    }
+    if (g_budget == 0) {
+        g_budget = (size_t)((double)info.total_ram * ram_fraction);
+    }
 
     char budget_mb[CTX_SZ_32];
     char ram_mb[CTX_SZ_32];
     snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
     snprintf(ram_mb, sizeof(ram_mb), "%zu", info.total_ram / MB_DIVISOR);
-    ctx_log_info("mem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb);
+    ctx_log_info("mem.init", "budget_mb", budget_mb, "total_ram_mb", ram_mb, "source", source);
 }
 
 size_t ctx_mem_rss(void) {
@@ -173,4 +204,63 @@ size_t ctx_mem_worker_budget(int num_workers) {
 
 void ctx_mem_collect(void) {
     mi_collect(true);
+}
+
+/* ── Back-pressure: block worker until RSS drops below safe headroom ── */
+
+static void wait_sleep(void) {
+#ifdef _WIN32
+    Sleep(WAIT_SLEEP_MS);
+#else
+    usleep(WAIT_SLEEP_US);
+#endif
+}
+
+void ctx_mem_wait_for_headroom(void) {
+    if (g_budget == 0) {
+        return;
+    }
+
+    size_t enter_threshold = (g_budget / CTX_PERCENT) * WAIT_ENTER_PCT;
+    size_t exit_threshold = (g_budget / CTX_PERCENT) * WAIT_EXIT_PCT;
+
+    size_t rss = ctx_mem_rss();
+    if (rss <= enter_threshold) {
+        return;
+    }
+
+    /* Entering wait — log once per worker per pressure episode. */
+    int was = atomic_exchange(&g_was_waiting, 1);
+    if (!was) {
+        char rss_mb[CTX_SZ_32];
+        char budget_mb[CTX_SZ_32];
+        snprintf(rss_mb, sizeof(rss_mb), "%zu", rss / MB_DIVISOR);
+        snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
+        ctx_log_warn("mem.pressure.wait", "rss_mb", rss_mb, "budget_mb", budget_mb);
+    }
+
+    /* Spin until RSS drops under exit-threshold or timeout expires. */
+    int waited_ms = 0;
+    while (rss > exit_threshold && waited_ms < WAIT_TIMEOUT_MS) {
+        wait_sleep();
+        waited_ms += WAIT_SLEEP_MS;
+        mi_collect(true);
+        rss = ctx_mem_rss();
+    }
+
+    char rss_mb[CTX_SZ_32];
+    char waited_str[CTX_SZ_32];
+    snprintf(rss_mb, sizeof(rss_mb), "%zu", rss / MB_DIVISOR);
+    snprintf(waited_str, sizeof(waited_str), "%d", waited_ms);
+
+    if (rss > exit_threshold) {
+        /* Timed out — log and return to avoid deadlock. */
+        char budget_mb[CTX_SZ_32];
+        snprintf(budget_mb, sizeof(budget_mb), "%zu", g_budget / MB_DIVISOR);
+        ctx_log_warn("mem.pressure.timeout", "rss_mb", rss_mb, "budget_mb", budget_mb,
+                     "waited_ms", waited_str);
+    } else {
+        atomic_store(&g_was_waiting, 0);
+        ctx_log_info("mem.pressure.resume", "rss_mb", rss_mb, "waited_ms", waited_str);
+    }
 }

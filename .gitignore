@@ -10,3 +10,5 @@ bin/cortex-indexer
 .claude/settings.local.json
 qa-*.png
 qa2-*.png
+.tmp/
+.playwright-mcp/

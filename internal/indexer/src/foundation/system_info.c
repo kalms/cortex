@@ -9,9 +9,20 @@
  */
 #include "foundation/constants.h"
 
-enum { DEFAULT_CORES = 1, MIN_WORKERS = 1 };
+enum {
+    DEFAULT_CORES = 1,
+    MIN_WORKERS = 1,
+    /* Each worker holds ~one file's parser state + slab arenas; treat
+     * ~2 GB as a conservative per-worker memory ceiling so we don't
+     * launch more workers than the host has RAM for. */
+    WORKER_RAM_GB_PER_WORKER = 2,
+    /* Clamp user-supplied CTX_WORKERS to (logical cores * this factor)
+     * to defend against typos like CTX_WORKERS=1000. */
+    WORKER_OVERRIDE_MAX_MULT = 2,
+};
 #include "foundation/platform.h"
 #include <stdint.h> // uint64_t
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -138,10 +149,33 @@ ctx_system_info_t ctx_system_info(void) {
 
 int ctx_default_worker_count(bool initial) {
     ctx_system_info_t info = ctx_system_info();
-    if (initial) {
-        /* Use all cores for initial indexing — user is waiting */
-        return info.total_cores;
+
+    /* CTX_WORKERS env override (applies to both initial and incremental).
+     * Clamped to a sane max to defend against typos like CTX_WORKERS=1000. */
+    char buf[CTX_SZ_32];
+    const char *env_val = ctx_safe_getenv("CTX_WORKERS", buf, sizeof(buf), NULL);
+    if (env_val && env_val[0]) {
+        char *end = NULL;
+        long parsed = strtol(env_val, &end, CTX_DECIMAL_BASE);
+        if (end && end != env_val && parsed > 0) {
+            int max_workers = info.total_cores * WORKER_OVERRIDE_MAX_MULT;
+            int requested = (int)parsed;
+            int clamped = requested > max_workers ? max_workers : requested;
+            return clamped > 0 ? clamped : MIN_WORKERS;
+        }
     }
+
+    if (initial) {
+        /* Use cores for initial indexing — but cap by RAM headroom so we
+         * don't launch 14 workers on a 24 GB machine and OOM. Assume each
+         * worker needs ~2 GB of headroom for parser + arena state. */
+        size_t ram_gb = info.total_ram /
+                        ((size_t)CTX_SZ_1K * CTX_SZ_1K * CTX_SZ_1K);
+        int by_ram = (int)(ram_gb / WORKER_RAM_GB_PER_WORKER);
+        int workers = info.total_cores < by_ram ? info.total_cores : by_ram;
+        return workers > 0 ? workers : MIN_WORKERS;
+    }
+
     /* Incremental: leave headroom for user's apps */
     int workers = info.perf_cores - SKIP_ONE;
     return workers > 0 ? workers : MIN_WORKERS;
