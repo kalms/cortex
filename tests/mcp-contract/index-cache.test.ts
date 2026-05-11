@@ -42,6 +42,7 @@ describe("index_repository content-hash cache", () => {
 
     const r1 = await callTool(h, "index_repository", { path: repo });
     expect(r1.isError).toBeFalsy();
+    expect(r1.content[0].text).not.toMatch(/imported from cache key/);
 
     const r2 = await callTool(h, "index_repository", { path: repo });
     expect(r2.isError).toBeFalsy();
