@@ -2,7 +2,7 @@
 
 ## Overview
 
-This fixture repo exercises the CBM indexer with TS, JS, and Markdown.
+This fixture repo exercises the indexer with TS, JS, and Markdown.
 
 ## Usage
 
