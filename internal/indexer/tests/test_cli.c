@@ -599,14 +599,14 @@ TEST(cli_editor_mcp_install) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "mcpServers") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
-    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -622,17 +622,17 @@ TEST(cli_editor_mcp_idempotent) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
-    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     /* Should still parse as valid JSON with only 1 server */
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    /* Count occurrences of "codebase-memory-mcp" (should be exactly 1 in mcpServers) */
+    /* Count occurrences of "cortex-indexer" (should be exactly 1 in mcpServers) */
     int count = 0;
     const char *p = data;
-    while ((p = strstr(p, "\"codebase-memory-mcp\"")) != NULL) {
+    while ((p = strstr(p, "\"cortex-indexer\"")) != NULL) {
         count++;
         p += 20;
     }
@@ -661,12 +661,12 @@ TEST(cli_editor_mcp_preserves_others) {
     write_test_file(configpath,
                     "{\"mcpServers\": {\"other-server\": {\"command\": \"/usr/bin/other\"}}}");
 
-    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "other-server") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -682,14 +682,14 @@ TEST(cli_editor_mcp_uninstall) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.cursor/mcp.json", tmpdir);
 
-    ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
     int rc = ctx_remove_editor_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    /* codebase-memory-mcp should be removed */
-    ASSERT(strstr(data, "\"codebase-memory-mcp\"") == NULL);
+    /* cortex-indexer should be removed */
+    ASSERT(strstr(data, "\"cortex-indexer\"") == NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -706,13 +706,13 @@ TEST(cli_gemini_mcp_install) {
     snprintf(configpath, sizeof(configpath), "%s/.gemini/settings.json", tmpdir);
 
     /* Gemini uses same mcpServers format as Cursor */
-    int rc = ctx_install_editor_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_editor_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "mcpServers") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -732,7 +732,7 @@ TEST(cli_vscode_mcp_install) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
 
-    int rc = ctx_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_vscode_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -740,8 +740,8 @@ TEST(cli_vscode_mcp_install) {
     ASSERT(strstr(data, "\"servers\"") != NULL);
     ASSERT(strstr(data, "\"type\"") != NULL);
     ASSERT(strstr(data, "\"stdio\"") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
-    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -757,13 +757,13 @@ TEST(cli_vscode_mcp_uninstall) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/Code/User/mcp.json", tmpdir);
 
-    ctx_install_vscode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_vscode_mcp("/usr/local/bin/cortex-indexer", configpath);
     int rc = ctx_remove_vscode_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "\"codebase-memory-mcp\"") == NULL);
+    ASSERT(strstr(data, "\"cortex-indexer\"") == NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -783,7 +783,7 @@ TEST(cli_zed_mcp_install) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
 
-    int rc = ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_zed_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -791,8 +791,8 @@ TEST(cli_zed_mcp_install) {
     ASSERT(strstr(data, "\"context_servers\"") != NULL);
     ASSERT(strstr(data, "\"command\"") != NULL);
     ASSERT(strstr(data, "\"args\"") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
-    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -814,7 +814,7 @@ TEST(cli_zed_mcp_preserves_settings) {
     /* Pre-existing Zed settings */
     write_test_file(configpath, "{\"theme\": \"One Dark\", \"vim_mode\": true}");
 
-    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_zed_mcp("/usr/local/bin/cortex-indexer", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
@@ -823,7 +823,7 @@ TEST(cli_zed_mcp_preserves_settings) {
     ASSERT(strstr(data, "vim_mode") != NULL);
     /* MCP server added */
     ASSERT(strstr(data, "context_servers") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -839,13 +839,13 @@ TEST(cli_zed_mcp_uninstall) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/.config/zed/settings.json", tmpdir);
 
-    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_zed_mcp("/usr/local/bin/cortex-indexer", configpath);
     int rc = ctx_remove_zed_mcp(configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "\"codebase-memory-mcp\"") == NULL);
+    ASSERT(strstr(data, "\"cortex-indexer\"") == NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -873,7 +873,7 @@ TEST(cli_zed_mcp_jsonc_comments) {
                                 "  \"vim_mode\": true,\n" /* trailing comma */
                                 "}\n");
 
-    int rc = ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_install_zed_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -882,7 +882,7 @@ TEST(cli_zed_mcp_jsonc_comments) {
     ASSERT(strstr(data, "One Dark") != NULL);
     ASSERT(strstr(data, "vim_mode") != NULL);
     /* MCP server added */
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
     ASSERT(strstr(data, "context_servers") != NULL);
 
     test_rmdir_r(tmpdir);
@@ -1006,7 +1006,7 @@ TEST(cli_extract_binary_from_targz) {
     const char *content = "fake binary content";
     int gz_len;
     unsigned char *gz =
-        create_test_targz("codebase-memory-mcp-linux-amd64", (const unsigned char *)content,
+        create_test_targz("cortex-indexer-linux-amd64", (const unsigned char *)content,
                           (int)strlen(content), &gz_len);
     ASSERT_NOT_NULL(gz);
 
@@ -1129,7 +1129,7 @@ TEST(cli_extract_binary_from_zip) {
     const char *content = "#!/bin/sh\necho test\n";
     int zip_len = 0;
     unsigned char *zip = create_test_zip_stored(
-        "codebase-memory-mcp", (const unsigned char *)content, (int)strlen(content), &zip_len);
+        "cortex-indexer", (const unsigned char *)content, (int)strlen(content), &zip_len);
     ASSERT_NOT_NULL(zip);
 
     int out_len = 0;
@@ -1160,7 +1160,7 @@ TEST(cli_extract_binary_from_zip_path_traversal) {
     const char *content = "malicious";
     int zip_len = 0;
     unsigned char *zip =
-        create_test_zip_stored("../../etc/codebase-memory-mcp", (const unsigned char *)content,
+        create_test_zip_stored("../../etc/cortex-indexer", (const unsigned char *)content,
                                (int)strlen(content), &zip_len);
     ASSERT_NOT_NULL(zip);
 
@@ -1529,13 +1529,13 @@ TEST(cli_upsert_codex_mcp_fresh) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
 
-    int rc = ctx_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "[mcp_servers.codebase-memory-mcp]") != NULL);
-    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "[mcp_servers.cortex-indexer]") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -1551,7 +1551,7 @@ TEST(cli_upsert_codex_mcp_existing) {
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
     write_test_file(configpath, "model = \"gpt-4\"\n\n[other_setting]\nfoo = \"bar\"\n");
 
-    int rc = ctx_upsert_codex_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
@@ -1560,7 +1560,7 @@ TEST(cli_upsert_codex_mcp_existing) {
     ASSERT(strstr(data, "model = \"gpt-4\"") != NULL);
     ASSERT(strstr(data, "[other_setting]") != NULL);
     /* Our entry added */
-    ASSERT(strstr(data, "[mcp_servers.codebase-memory-mcp]") != NULL);
+    ASSERT(strstr(data, "[mcp_servers.cortex-indexer]") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -1574,19 +1574,19 @@ TEST(cli_upsert_codex_mcp_replace) {
 
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/config.toml", tmpdir);
-    write_test_file(configpath, "[mcp_servers.codebase-memory-mcp]\n"
-                                "command = \"/old/path/codebase-memory-mcp\"\n"
+    write_test_file(configpath, "[mcp_servers.cortex-indexer]\n"
+                                "command = \"/old/path/cortex-indexer\"\n"
                                 "\n"
                                 "[other_setting]\nfoo = \"bar\"\n");
 
-    int rc = ctx_upsert_codex_mcp("/new/path/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_codex_mcp("/new/path/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     /* Old path replaced */
     ASSERT(strstr(data, "/old/path") == NULL);
-    ASSERT(strstr(data, "/new/path/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "/new/path/cortex-indexer") != NULL);
     /* Other settings preserved */
     ASSERT(strstr(data, "[other_setting]") != NULL);
 
@@ -1608,7 +1608,7 @@ TEST(cli_zed_mcp_uses_args_format) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/settings.json", tmpdir);
 
-    ctx_install_zed_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    ctx_install_zed_mcp("/usr/local/bin/cortex-indexer", configpath);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
@@ -1633,13 +1633,13 @@ TEST(cli_upsert_opencode_mcp_fresh) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
 
-    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
-    ASSERT(strstr(data, "/usr/local/bin/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
+    ASSERT(strstr(data, "/usr/local/bin/cortex-indexer") != NULL);
     ASSERT(strstr(data, "\"enabled\":true") != NULL || strstr(data, "\"enabled\": true") != NULL);
     /* command must be emitted as an array, not a string */
     ASSERT(strstr(data, "\"command\":[") != NULL || strstr(data, "\"command\": [") != NULL);
@@ -1661,13 +1661,13 @@ TEST(cli_upsert_opencode_mcp_existing) {
     snprintf(configpath, sizeof(configpath), "%s/opencode.json", tmpdir);
     write_test_file(configpath, "{\"mcp\":{\"other-server\":{\"command\":\"/usr/bin/other\"}}}");
 
-    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_opencode_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "other-server") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -1686,12 +1686,12 @@ TEST(cli_upsert_antigravity_mcp_fresh) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
 
-    int rc = ctx_upsert_antigravity_mcp("/usr/local/bin/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_antigravity_mcp("/usr/local/bin/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -1706,15 +1706,15 @@ TEST(cli_upsert_antigravity_mcp_replace) {
     char configpath[512];
     snprintf(configpath, sizeof(configpath), "%s/mcp_config.json", tmpdir);
     write_test_file(configpath,
-                    "{\"mcpServers\":{\"codebase-memory-mcp\":{\"command\":\"/old/path\"}}}");
+                    "{\"mcpServers\":{\"cortex-indexer\":{\"command\":\"/old/path\"}}}");
 
-    int rc = ctx_upsert_antigravity_mcp("/new/path/codebase-memory-mcp", configpath);
+    int rc = ctx_upsert_antigravity_mcp("/new/path/cortex-indexer", configpath);
     ASSERT_EQ(rc, 0);
 
     const char *data = read_test_file(configpath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "/old/path") == NULL);
-    ASSERT(strstr(data, "/new/path/codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "/new/path/cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -1738,8 +1738,8 @@ TEST(cli_upsert_instructions_fresh) {
 
     const char *data = read_test_file(filepath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "<!-- codebase-memory-mcp:start -->") != NULL);
-    ASSERT(strstr(data, "<!-- codebase-memory-mcp:end -->") != NULL);
+    ASSERT(strstr(data, "<!-- cortex-indexer:start -->") != NULL);
+    ASSERT(strstr(data, "<!-- cortex-indexer:end -->") != NULL);
     ASSERT(strstr(data, "Hello world") != NULL);
 
     test_rmdir_r(tmpdir);
@@ -1765,7 +1765,7 @@ TEST(cli_upsert_instructions_existing) {
     ASSERT(strstr(data, "My Project Rules") != NULL);
     ASSERT(strstr(data, "Do the thing") != NULL);
     /* CMM section appended */
-    ASSERT(strstr(data, "codebase-memory-mcp:start") != NULL);
+    ASSERT(strstr(data, "cortex-indexer:start") != NULL);
     ASSERT(strstr(data, "search_graph") != NULL);
 
     test_rmdir_r(tmpdir);
@@ -1781,9 +1781,9 @@ TEST(cli_upsert_instructions_replace) {
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
     write_test_file(filepath, "# Rules\n"
-                              "<!-- codebase-memory-mcp:start -->\n"
+                              "<!-- cortex-indexer:start -->\n"
                               "OLD CONTENT\n"
-                              "<!-- codebase-memory-mcp:end -->\n"
+                              "<!-- cortex-indexer:end -->\n"
                               "# Other stuff\n");
 
     int rc = ctx_upsert_instructions(filepath, "NEW CONTENT\n");
@@ -1820,7 +1820,7 @@ TEST(cli_upsert_instructions_no_duplicate) {
     /* Only one start marker */
     int count = 0;
     const char *p = data;
-    while ((p = strstr(p, "codebase-memory-mcp:start")) != NULL) {
+    while ((p = strstr(p, "cortex-indexer:start")) != NULL) {
         count++;
         p += 25;
     }
@@ -1842,9 +1842,9 @@ TEST(cli_remove_instructions) {
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/AGENTS.md", tmpdir);
     write_test_file(filepath, "# Rules\n"
-                              "<!-- codebase-memory-mcp:start -->\n"
+                              "<!-- cortex-indexer:start -->\n"
                               "CMM Content\n"
-                              "<!-- codebase-memory-mcp:end -->\n"
+                              "<!-- cortex-indexer:end -->\n"
                               "# Other\n");
 
     int rc = ctx_remove_instructions(filepath);
@@ -1853,7 +1853,7 @@ TEST(cli_remove_instructions) {
     const char *data = read_test_file(filepath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "CMM Content") == NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") == NULL);
+    ASSERT(strstr(data, "cortex-indexer") == NULL);
     ASSERT(strstr(data, "# Rules") != NULL);
     ASSERT(strstr(data, "# Other") != NULL);
 
@@ -2019,7 +2019,7 @@ TEST(cli_upsert_gemini_hook_fresh) {
     const char *data = read_test_file(settingspath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "BeforeTool") != NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -2043,7 +2043,7 @@ TEST(cli_upsert_gemini_hook_existing) {
     const char *data = read_test_file(settingspath);
     ASSERT_NOT_NULL(data);
     /* Our hook added */
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
     /* Existing hook preserved */
     ASSERT(strstr(data, "shell") != NULL);
 
@@ -2070,7 +2070,7 @@ TEST(cli_upsert_gemini_hook_replace) {
     const char *data = read_test_file(settingspath);
     ASSERT_NOT_NULL(data);
     ASSERT(strstr(data, "old-cmm") == NULL);
-    ASSERT(strstr(data, "codebase-memory-mcp") != NULL);
+    ASSERT(strstr(data, "cortex-indexer") != NULL);
 
     test_rmdir_r(tmpdir);
     PASS();
@@ -2091,7 +2091,7 @@ TEST(cli_remove_gemini_hooks) {
 
     const char *data = read_test_file(settingspath);
     ASSERT_NOT_NULL(data);
-    ASSERT(strstr(data, "codebase-memory-mcp") == NULL);
+    ASSERT(strstr(data, "cortex-indexer") == NULL);
 
     test_rmdir_r(tmpdir);
     PASS();

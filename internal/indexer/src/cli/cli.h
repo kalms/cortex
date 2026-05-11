@@ -80,7 +80,7 @@ bool ctx_remove_old_monolithic_skill(const char *skills_dir, bool dry_run);
 /* ── Editor MCP config management ─────────────────────────────── */
 
 /* Install MCP server entry in Cursor/Windsurf/Gemini JSON config.
- * Format: { "mcpServers": { "codebase-memory-mcp": { "command": binary_path } } }
+ * Format: { "mcpServers": { "cortex-indexer": { "command": binary_path } } }
  * Preserves existing entries. Returns 0 on success. */
 int ctx_install_editor_mcp(const char *binary_path, const char *config_path);
 
@@ -89,7 +89,7 @@ int ctx_install_editor_mcp(const char *binary_path, const char *config_path);
 int ctx_remove_editor_mcp(const char *config_path);
 
 /* Install MCP server entry in VS Code JSON config.
- * Format: { "servers": { "codebase-memory-mcp": { "type": "stdio", "command": binary_path } } }
+ * Format: { "servers": { "cortex-indexer": { "type": "stdio", "command": binary_path } } }
  * Returns 0 on success. */
 int ctx_install_vscode_mcp(const char *binary_path, const char *config_path);
 
@@ -98,7 +98,7 @@ int ctx_install_vscode_mcp(const char *binary_path, const char *config_path);
 int ctx_remove_vscode_mcp(const char *config_path);
 
 /* Install MCP server entry in Zed settings.json.
- * Format: { "context_servers": { "codebase-memory-mcp": { "command": path, "args": [""] } } }
+ * Format: { "context_servers": { "cortex-indexer": { "command": path, "args": [""] } } }
  * Returns 0 on success. */
 int ctx_install_zed_mcp(const char *binary_path, const char *config_path);
 
@@ -149,13 +149,13 @@ int ctx_remove_antigravity_mcp(const char *config_path);
 
 /* ── Instructions file upsert ─────────────────────────────────── */
 
-/* Upsert a codebase-memory-mcp instruction section in a markdown file.
- * Uses <!-- codebase-memory-mcp:start --> / <!-- codebase-memory-mcp:end --> markers.
+/* Upsert a cortex-indexer instruction section in a markdown file.
+ * Uses <!-- cortex-indexer:start --> / <!-- cortex-indexer:end --> markers.
  * If markers exist, replaces content between them. Otherwise appends.
  * If file doesn't exist, creates it. Returns 0 on success. */
 int ctx_upsert_instructions(const char *path, const char *content);
 
-/* Remove the codebase-memory-mcp instruction section from a markdown file.
+/* Remove the cortex-indexer instruction section from a markdown file.
  * Returns 0 on success, 1 if not found. */
 int ctx_remove_instructions(const char *path);
 
@@ -194,19 +194,19 @@ const char *ctx_get_codex_instructions(void);
 
 /* ── Tar.gz extraction ────────────────────────────────────────── */
 
-/* Extract a binary named "codebase-memory-mcp*" from a tar.gz buffer.
+/* Extract a binary named "cortex-indexer*" from a tar.gz buffer.
  * Returns malloc'd binary content and sets *out_len.
  * Returns NULL on error. Caller must free. */
 unsigned char *ctx_extract_binary_from_targz(const unsigned char *data, int data_len, int *out_len);
 
-/* Extract the codebase-memory-mcp binary from a zip archive in memory.
+/* Extract the cortex-indexer binary from a zip archive in memory.
  * Returns malloc'd binary content and sets *out_len.
  * Returns NULL on error. Caller must free. */
 unsigned char *ctx_extract_binary_from_zip(const unsigned char *data, int data_len, int *out_len);
 
 /* ── Index management ─────────────────────────────────────────── */
 
-/* List .db files in the cache directory (~/.cache/codebase-memory-mcp/).
+/* List .db files in the cache directory (~/.cache/cortex-indexer/).
  * Prints each file path to stdout. Returns count of .db files found. */
 int ctx_list_indexes(const char *home_dir);
 

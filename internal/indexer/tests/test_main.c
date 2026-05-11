@@ -55,7 +55,7 @@ extern void suite_incremental(void);
 extern void suite_simhash(void);
 
 int main(void) {
-    printf("\n  codebase-memory-mcp  C test suite\n");
+    printf("\n  cortex-indexer  C test suite\n");
 
     /* Foundation */
     RUN_SUITE(arena);

@@ -113,7 +113,7 @@ static void (*ctx_sqlite_transient_fn(void))(void *) {
 #define TAR_SIZE_OFFSET 124 /* octal size field offset */
 #define TAR_SIZE_LEN 13     /* octal size field: bytes 124-135 + NUL */
 #define TAR_TYPE_OFFSET 156 /* type flag byte */
-#define TAR_BINARY_NAME "codebase-memory-mcp"
+#define TAR_BINARY_NAME "cortex-indexer"
 #define TAR_BINARY_NAME_LEN 19
 #define TAR_BLOCK_SIZE CTX_SZ_512 /* tar record alignment */
 #define TAR_BLOCK_MASK 511        /* TAR_BLOCK_SIZE - 1 */
@@ -472,7 +472,7 @@ static const char skill_content[] =
 static const char codex_instructions_content[] =
     "# Codebase Knowledge Graph\n"
     "\n"
-    "This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.\n"
+    "This project uses cortex-indexer to maintain a knowledge graph of the codebase.\n"
     "Use the MCP tools to explore and understand the code:\n"
     "\n"
     "- `search_graph` — find functions, classes, routes by pattern\n"
@@ -764,12 +764,12 @@ int ctx_install_editor_mcp(const char *binary_path, const char *config_path) {
     }
 
     /* Remove existing entry if present */
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     /* Add our entry */
     yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
     yyjson_mut_obj_add_str(mdoc, entry, "command", binary_path);
-    yyjson_mut_obj_add_val(mdoc, servers, "codebase-memory-mcp", entry);
+    yyjson_mut_obj_add_val(mdoc, servers, "cortex-indexer", entry);
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -801,7 +801,7 @@ int ctx_remove_editor_mcp(const char *config_path) {
         return 0;
     }
 
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -840,12 +840,12 @@ int ctx_install_vscode_mcp(const char *binary_path, const char *config_path) {
         yyjson_mut_obj_add_val(mdoc, root, "servers", servers);
     }
 
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
     yyjson_mut_obj_add_str(mdoc, entry, "type", "stdio");
     yyjson_mut_obj_add_str(mdoc, entry, "command", binary_path);
-    yyjson_mut_obj_add_val(mdoc, servers, "codebase-memory-mcp", entry);
+    yyjson_mut_obj_add_val(mdoc, servers, "cortex-indexer", entry);
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -877,7 +877,7 @@ int ctx_remove_vscode_mcp(const char *config_path) {
         return 0;
     }
 
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -916,14 +916,14 @@ int ctx_install_zed_mcp(const char *binary_path, const char *config_path) {
         yyjson_mut_obj_add_val(mdoc, root, "context_servers", servers);
     }
 
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
     yyjson_mut_obj_add_str(mdoc, entry, "command", binary_path);
     yyjson_mut_val *args = yyjson_mut_arr(mdoc);
     yyjson_mut_arr_add_str(mdoc, args, "");
     yyjson_mut_obj_add_val(mdoc, entry, "args", args);
-    yyjson_mut_obj_add_val(mdoc, servers, "codebase-memory-mcp", entry);
+    yyjson_mut_obj_add_val(mdoc, servers, "cortex-indexer", entry);
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -955,7 +955,7 @@ int ctx_remove_zed_mcp(const char *config_path) {
         return 0;
     }
 
-    yyjson_mut_obj_remove_key(servers, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(servers, "cortex-indexer");
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -1035,9 +1035,9 @@ ctx_detected_agents_t ctx_detect_agents(const char *home_dir) {
 /* ── Shared agent instructions content ────────────────────────── */
 
 static const char agent_instructions_content[] =
-    "# Codebase Knowledge Graph (codebase-memory-mcp)\n"
+    "# Codebase Knowledge Graph (cortex-indexer)\n"
     "\n"
-    "This project uses codebase-memory-mcp to maintain a knowledge graph of the codebase.\n"
+    "This project uses cortex-indexer to maintain a knowledge graph of the codebase.\n"
     "ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.\n"
     "\n"
     "## Priority Order\n"
@@ -1063,8 +1063,8 @@ const char *ctx_get_agent_instructions(void) {
 
 /* ── Instructions file upsert ─────────────────────────────────── */
 
-#define CMM_MARKER_START "<!-- codebase-memory-mcp:start -->"
-#define CMM_MARKER_END "<!-- codebase-memory-mcp:end -->"
+#define CMM_MARKER_START "<!-- cortex-indexer:start -->"
+#define CMM_MARKER_END "<!-- cortex-indexer:end -->"
 
 /* Read entire file into malloc'd buffer. Returns NULL on error. */
 static char *read_file_str(const char *path, size_t *out_len) {
@@ -1249,7 +1249,7 @@ int ctx_remove_instructions(const char *path) {
 
 /* ── Codex MCP config (TOML) ─────────────────────────────────── */
 
-#define CODEX_CMM_SECTION "[mcp_servers.codebase-memory-mcp]"
+#define CODEX_CMM_SECTION "[mcp_servers.cortex-indexer]"
 
 int ctx_upsert_codex_mcp(const char *binary_path, const char *config_path) {
     if (!binary_path || !config_path) {
@@ -1271,7 +1271,7 @@ int ctx_upsert_codex_mcp(const char *binary_path, const char *config_path) {
     /* Check if our section already exists */
     char *existing = strstr(content, CODEX_CMM_SECTION);
     if (existing) {
-        /* Remove old section: from [mcp_servers.codebase-memory-mcp] to next [section] or EOF */
+        /* Remove old section: from [mcp_servers.cortex-indexer] to next [section] or EOF */
         char *section_end = existing + strlen(CODEX_CMM_SECTION);
         /* Find next [section] header */
         char *next_section = strstr(section_end, "\n[");
@@ -1398,7 +1398,7 @@ int ctx_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
         yyjson_mut_obj_add_val(mdoc, root, "mcp", mcp);
     }
 
-    yyjson_mut_obj_remove_key(mcp, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(mcp, "cortex-indexer");
 
     yyjson_mut_val *entry = yyjson_mut_obj(mdoc);
     yyjson_mut_obj_add_bool(mdoc, entry, "enabled", true);
@@ -1406,7 +1406,7 @@ int ctx_upsert_opencode_mcp(const char *binary_path, const char *config_path) {
     yyjson_mut_val *cmd_arr = yyjson_mut_arr(mdoc);
     yyjson_mut_arr_add_str(mdoc, cmd_arr, binary_path);
     yyjson_mut_obj_add_val(mdoc, entry, "command", cmd_arr);
-    yyjson_mut_obj_add_val(mdoc, mcp, "codebase-memory-mcp", entry);
+    yyjson_mut_obj_add_val(mdoc, mcp, "cortex-indexer", entry);
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -1438,7 +1438,7 @@ int ctx_remove_opencode_mcp(const char *config_path) {
         return 0;
     }
 
-    yyjson_mut_obj_remove_key(mcp, "codebase-memory-mcp");
+    yyjson_mut_obj_remove_key(mcp, "cortex-indexer");
 
     int rc = write_json_file(config_path, mdoc);
     yyjson_mut_doc_free(mdoc);
@@ -1636,7 +1636,7 @@ int ctx_remove_claude_hooks(const char *settings_path) {
 
 /* Install the code discovery gate script to ~/.claude/hooks/.
  * Blocks the first Grep/Glob/Read/Search call per session (exit 2 + stderr),
- * nudging Claude toward codebase-memory-mcp. All subsequent calls in the same
+ * nudging Claude toward cortex-indexer. All subsequent calls in the same
  * session pass through (gate file keyed on PPID). */
 static void ctx_install_hook_gate_script(const char *home) {
     if (!home) {
@@ -1654,7 +1654,7 @@ static void ctx_install_hook_gate_script(const char *home) {
         return;
     }
     (void)fprintf(f, "#!/bin/bash\n"
-                     "# Gate hook: nudges Claude toward codebase-memory-mcp for code discovery.\n"
+                     "# Gate hook: nudges Claude toward cortex-indexer for code discovery.\n"
                      "# First Grep/Glob/Read/Search per session -> block. Subsequent -> allow.\n"
                      "# PPID = Claude Code process PID, unique per session.\n"
                      "GATE=/tmp/cbm-code-discovery-gate-$PPID\n"
@@ -1663,7 +1663,7 @@ static void ctx_install_hook_gate_script(const char *home) {
                      "    exit 0\n"
                      "fi\n"
                      "touch \"$GATE\"\n"
-                     "echo 'BLOCKED: For code discovery, use codebase-memory-mcp tools first: "
+                     "echo 'BLOCKED: For code discovery, use cortex-indexer tools first: "
                      "search_graph(name_pattern) to find functions/classes, trace_path() for "
                      "call chains, get_code_snippet(qualified_name) to read source. If the graph "
                      "is not indexed yet, call index_repository first. Fall back to Grep/Glob/Read "
@@ -1699,11 +1699,11 @@ static void ctx_install_session_reminder_script(const char *home) {
     }
     (void)fprintf(
         f, "#!/bin/bash\n"
-           "# SessionStart hook: remind agent to use codebase-memory-mcp tools.\n"
-           "# Installed by codebase-memory-mcp. Fires on startup/resume/clear/compact.\n"
+           "# SessionStart hook: remind agent to use cortex-indexer tools.\n"
+           "# Installed by cortex-indexer. Fires on startup/resume/clear/compact.\n"
            "cat << 'REMINDER'\n"
            "CRITICAL - Code Discovery Protocol:\n"
-           "1. ALWAYS use codebase-memory-mcp tools FIRST for ANY code exploration:\n"
+           "1. ALWAYS use cortex-indexer tools FIRST for ANY code exploration:\n"
            "   - search_graph(name_pattern/label/qn_pattern) to find functions/classes/routes\n"
            "   - trace_path(function_name, mode=calls|data_flow|cross_service) for call chains\n"
            "   - get_code_snippet(qualified_name) to read source (NOT Read/cat)\n"
@@ -1748,7 +1748,7 @@ static int ctx_remove_session_hooks(const char *settings_path) {
 
 #define GEMINI_HOOK_MATCHER "google_search|read_file|grep_search"
 #define GEMINI_HOOK_COMMAND                                               \
-    "echo 'Reminder: prefer codebase-memory-mcp search_graph/trace_path/" \
+    "echo 'Reminder: prefer cortex-indexer search_graph/trace_path/" \
     "get_code_snippet over grep/file search for code discovery.' >&2"
 
 int ctx_upsert_gemini_hooks(const char *settings_path) {
@@ -1793,7 +1793,7 @@ int ctx_ensure_path(const char *bin_dir, const char *rc_file, bool dry_run) {
         return CLI_ERR;
     }
 
-    (void)fprintf(f, "\n# Added by codebase-memory-mcp install\n%s\n", line);
+    (void)fprintf(f, "\n# Added by cortex-indexer install\n%s\n", line);
     (void)fclose(f);
     return 0;
 }
@@ -1909,7 +1909,7 @@ unsigned char *ctx_extract_binary_from_targz(const unsigned char *data, int data
         return NULL;
     }
 
-    /* Parse tar: find entry starting with "codebase-memory-mcp" */
+    /* Parse tar: find entry starting with "cortex-indexer" */
     size_t pos = 0;
     while (pos + TAR_BLOCK_SIZE <= total) {
         const unsigned char *hdr = decompressed + pos;
@@ -2058,8 +2058,8 @@ unsigned char *ctx_extract_binary_from_zip(const unsigned char *data, int data_l
         const char *basename = strrchr(fname, '/');
         basename = basename ? basename + CLI_SKIP_ONE : fname;
 
-        if (strcmp(basename, "codebase-memory-mcp") == 0 ||
-            strcmp(basename, "codebase-memory-mcp.exe") == 0) {
+        if (strcmp(basename, "cortex-indexer") == 0 ||
+            strcmp(basename, "cortex-indexer.exe") == 0) {
             return zip_extract_entry(data + header_end, method, comp_size, uncomp_size, out_len);
         }
 
@@ -2284,7 +2284,7 @@ int ctx_config_delete(ctx_config_t *cfg, const char *key) {
 
 int ctx_cmd_config(int argc, char **argv) {
     if (argc == 0) {
-        printf("Usage: codebase-memory-mcp config <command> [args]\n\n");
+        printf("Usage: cortex-indexer config <command> [args]\n\n");
         printf("Commands:\n");
         printf("  list             Show all config values\n");
         printf("  get <key>        Get a config value\n");
@@ -2474,14 +2474,14 @@ static int ctx_kill_other_instances(void) {
      * Use /FI filter to exclude our own PID. */
     char pid_filter[CTX_SZ_64];
     snprintf(pid_filter, sizeof(pid_filter), "PID ne %lu", (unsigned long)GetCurrentProcessId());
-    const char *argv[] = {"taskkill", "/F",       "/FI", "IMAGENAME eq codebase-memory-mcp.exe",
+    const char *argv[] = {"taskkill", "/F",       "/FI", "IMAGENAME eq cortex-indexer.exe",
                           "/FI",      pid_filter, NULL};
     (void)ctx_exec_no_shell(argv);
     return 0;
 #else
     int killed = 0;
     pid_t self = getpid();
-    FILE *fp = ctx_popen("pgrep -x codebase-memory-mcp", "r");
+    FILE *fp = ctx_popen("pgrep -x cortex-indexer", "r");
     if (!fp) {
         return 0;
     }
@@ -2513,7 +2513,7 @@ static int verify_download_checksum(const char *archive_path, const char *archiv
         snprintf(checksum_url, sizeof(checksum_url), "%s/checksums.txt", dl_base);
     } else {
         snprintf(checksum_url, sizeof(checksum_url), "%s",
-                 "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/"
+                 "https://github.com/DeusData/cortex-indexer/releases/latest/download/"
                  "checksums.txt");
     }
     int rc = ctx_download_to_file_quiet(checksum_url, checksum_file);
@@ -2757,7 +2757,7 @@ static void install_editor_agent_configs(const ctx_detected_agents_t *agents, co
                  "%s/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
                  ctx_app_config_dir());
 #endif
-        snprintf(ip, sizeof(ip), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
+        snprintf(ip, sizeof(ip), "%s/.kilocode/rules/cortex-indexer.md", home);
         install_generic_agent_config("KiloCode", binary_path, cp, ip, dry_run,
                                      ctx_install_editor_mcp);
     }
@@ -2834,9 +2834,9 @@ static void ctx_detect_self_path(char *buf, size_t buf_sz, const char *home) {
 #endif
     if (!buf[0]) {
 #ifdef _WIN32
-        snprintf(buf, buf_sz, "%s/.local/bin/codebase-memory-mcp.exe", home);
+        snprintf(buf, buf_sz, "%s/.local/bin/cortex-indexer.exe", home);
 #else
-        snprintf(buf, buf_sz, "%s/.local/bin/codebase-memory-mcp", home);
+        snprintf(buf, buf_sz, "%s/.local/bin/cortex-indexer", home);
 #endif
     }
 }
@@ -2860,7 +2860,7 @@ int ctx_cmd_install(int argc, char **argv) {
         return CLI_TRUE;
     }
 
-    printf("codebase-memory-mcp install %s\n\n", CTX_VERSION);
+    printf("cortex-indexer install %s\n\n", CTX_VERSION);
 
     int index_count = count_db_indexes(home);
     if (index_count > 0) {
@@ -2889,7 +2889,7 @@ int ctx_cmd_install(int argc, char **argv) {
 #ifdef __APPLE__
     {
         char sign_path[CLI_BUF_1K];
-        snprintf(sign_path, sizeof(sign_path), "%s/.local/bin/codebase-memory-mcp", home);
+        snprintf(sign_path, sizeof(sign_path), "%s/.local/bin/cortex-indexer", home);
         struct stat sign_st;
         if (stat(sign_path, &sign_st) == 0) {
             (void)ctx_macos_adhoc_sign(sign_path);
@@ -3061,7 +3061,7 @@ static void uninstall_editor_agents(const ctx_detected_agents_t *agents, const c
                  "%s/Code/User/globalStorage/kilocode.kilo-code/settings/mcp_settings.json",
                  ctx_app_config_dir());
 #endif
-        snprintf(ip, sizeof(ip), "%s/.kilocode/rules/codebase-memory-mcp.md", home);
+        snprintf(ip, sizeof(ip), "%s/.kilocode/rules/cortex-indexer.md", home);
         uninstall_agent_mcp_instr((mcp_uninstall_args_t){"KiloCode", cp, ip}, dry_run,
                                   ctx_remove_editor_mcp);
     }
@@ -3098,7 +3098,7 @@ int ctx_cmd_uninstall(int argc, char **argv) {
         return CLI_TRUE;
     }
 
-    printf("codebase-memory-mcp uninstall\n\n");
+    printf("cortex-indexer uninstall\n\n");
 
     ctx_detected_agents_t agents = ctx_detect_agents(home);
     if (agents.claude_code) {
@@ -3123,9 +3123,9 @@ int ctx_cmd_uninstall(int argc, char **argv) {
     /* Step 3: Remove binary */
     char bin_path[CLI_BUF_1K];
 #ifdef _WIN32
-    snprintf(bin_path, sizeof(bin_path), "%s/.local/bin/codebase-memory-mcp.exe", home);
+    snprintf(bin_path, sizeof(bin_path), "%s/.local/bin/cortex-indexer.exe", home);
 #else
-    snprintf(bin_path, sizeof(bin_path), "%s/.local/bin/codebase-memory-mcp", home);
+    snprintf(bin_path, sizeof(bin_path), "%s/.local/bin/cortex-indexer", home);
 #endif
     struct stat st;
     if (stat(bin_path, &st) == 0) {
@@ -3206,9 +3206,9 @@ static void build_update_url(char *url, int url_sz, const char *os, const char *
     const char *base_url =
         ctx_safe_getenv("CTX_DOWNLOAD_URL", base_url_buf, sizeof(base_url_buf), NULL);
     if (!base_url || !base_url[0]) {
-        base_url = "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download";
+        base_url = "https://github.com/DeusData/cortex-indexer/releases/latest/download";
     }
-    snprintf(url, url_sz, "%s/codebase-memory-mcp-%s%s-%s.%s", base_url, want_ui ? "ui-" : "", os,
+    snprintf(url, url_sz, "%s/cortex-indexer-%s%s-%s.%s", base_url, want_ui ? "ui-" : "", os,
              arch, ext);
 }
 
@@ -3248,7 +3248,7 @@ static int download_verify_install(const char *url, const char *ext, const char 
     }
 
     char archive_name[CLI_BUF_256];
-    snprintf(archive_name, sizeof(archive_name), "codebase-memory-mcp-%s%s-%s.%s",
+    snprintf(archive_name, sizeof(archive_name), "cortex-indexer-%s%s-%s.%s",
              want_ui ? "ui-" : "", os, arch, ext);
     int crc = verify_download_checksum(tmp_archive, archive_name);
     if (crc == CLI_TRUE) {
@@ -3311,7 +3311,7 @@ static bool prefix_icase(const char *s, const char *prefix) {
  * Returns heap-allocated tag (e.g. "v0.5.7") or NULL on failure. */
 static char *fetch_latest_tag(void) {
     FILE *fp = ctx_popen(
-        "curl -sfI https://github.com/DeusData/codebase-memory-mcp/releases/latest 2>/dev/null",
+        "curl -sfI https://github.com/DeusData/cortex-indexer/releases/latest 2>/dev/null",
         "r");
     if (!fp) {
         return NULL;
@@ -3393,7 +3393,7 @@ int ctx_cmd_update(int argc, char **argv) {
         return CLI_TRUE;
     }
 
-    printf("codebase-memory-mcp update (current: %s)\n\n", CTX_VERSION);
+    printf("cortex-indexer update (current: %s)\n\n", CTX_VERSION);
 
     /* Version check — skip download if already on latest (not in dry-run). */
     if (!force && !dry_run && check_already_latest()) {
@@ -3430,7 +3430,7 @@ int ctx_cmd_update(int argc, char **argv) {
 
     if (dry_run) {
         printf("\n(dry-run — skipping download, extraction, and binary replacement)\n");
-        printf("  target: %s/.local/bin/codebase-memory-mcp\n", home);
+        printf("  target: %s/.local/bin/cortex-indexer\n", home);
         printf("  variant: %s\n", variant_label);
         printf("  os/arch: %s/%s\n", os, arch);
         printf("\nUpdate dry-run complete.\n");
@@ -3441,9 +3441,9 @@ int ctx_cmd_update(int argc, char **argv) {
     /* Step 4-5: Download, verify, and install binary */
     char bin_dest[CLI_BUF_1K];
 #ifdef _WIN32
-    snprintf(bin_dest, sizeof(bin_dest), "%s/.local/bin/codebase-memory-mcp.exe", home);
+    snprintf(bin_dest, sizeof(bin_dest), "%s/.local/bin/cortex-indexer.exe", home);
 #else
-    snprintf(bin_dest, sizeof(bin_dest), "%s/.local/bin/codebase-memory-mcp", home);
+    snprintf(bin_dest, sizeof(bin_dest), "%s/.local/bin/cortex-indexer", home);
 #endif
     char bin_dir[CLI_BUF_1K];
     snprintf(bin_dir, sizeof(bin_dir), "%s/.local/bin", home);

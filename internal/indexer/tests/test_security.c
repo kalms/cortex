@@ -76,7 +76,7 @@ TEST(shell_rejects_null) {
 }
 
 TEST(shell_accepts_clean_path) {
-    ASSERT_TRUE(ctx_validate_shell_arg("/home/user/.local/bin/codebase-memory-mcp"));
+    ASSERT_TRUE(ctx_validate_shell_arg("/home/user/.local/bin/cortex-indexer"));
     PASS();
 }
 

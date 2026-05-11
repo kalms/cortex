@@ -456,15 +456,15 @@ OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(SQLITE3_OBJ_PROD) $(TRE_OBJ_PROD) $(
 
 MAIN_SRC = src/main.c
 
-$(BUILD_DIR)/codebase-memory-mcp: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_PROD) | $(BUILD_DIR)
+$(BUILD_DIR)/cortex-indexer: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_PROD) | $(BUILD_DIR)
 	$(CC) $(CFLAGS_PROD) -o $@ \
 		$(MAIN_SRC) $(PROD_SRCS) \
 		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
 		$(OBJS_VENDORED_PROD) \
 		$(LDFLAGS)
 
-indexer: $(BUILD_DIR)/codebase-memory-mcp
-	@echo "Built: $(BUILD_DIR)/codebase-memory-mcp"
+indexer: $(BUILD_DIR)/cortex-indexer
+	@echo "Built: $(BUILD_DIR)/cortex-indexer"
 
 # Backwards-compatible alias for the pre-rename target name. External callers
 # (e.g. older copies of scripts/build-indexer.sh) may still invoke `cbm`.

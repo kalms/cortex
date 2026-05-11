@@ -37,7 +37,7 @@ type IndexerCallResult = {
 };
 async function callIndexer(tool: string, args: Record<string, unknown>, dbPath?: string): Promise<IndexerCallResult> {
   // Make the indexer write to the same SQLite file Cortex uses. Without this
-  // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
+  // the indexer falls back to ~/.cache/cortex-indexer/<project>.db and
   // Cortex would never see the data.
   const cortexDb = dbPath ?? resolveCortexDbPath();
   const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
