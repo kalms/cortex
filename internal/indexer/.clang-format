@@ -55,7 +55,4 @@ PenaltyBreakAssignment: 2
 PenaltyBreakBeforeFirstCallParameter: 19
 PenaltyReturnTypeOnItsOwnLine: 200
 
-# Keep existing formatting for macro-heavy code
-ForEachMacros:
-  - CBM_DYN_ARRAY_FOREACH
 ...

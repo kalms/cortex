@@ -1,14 +1,15 @@
 # Makefile.indexer — Build system for the native indexer (pure C)
 #
 # Renamed from Makefile.cbm during Phase 9 of the CBM-removal effort. The
-# `cbm` phony target and `CBM_*` variables below are still in use; renaming
-# them is tracked under later 9.x tasks (C-side symbol rename).
+# `CBM_DIR` variable below still points to the inner subtree `internal/cbm`,
+# which is itself a vestigial CBM-era directory name; renaming that subtree
+# (and its dependents) is tracked under later 9.x tasks (C-side symbol rename).
 #
 # Usage:
 #   make -f Makefile.indexer test           # Build + run all tests (ASan + UBSan)
 #   make -f Makefile.indexer test-foundation # Foundation tests only (fast)
 #   make -f Makefile.indexer test-tsan      # Thread sanitizer build
-#   make -f Makefile.indexer cbm            # Production binary
+#   make -f Makefile.indexer indexer        # Production binary
 #   make -f Makefile.indexer clean-c        # Remove build artifacts
 
 # Compiler selection — override via: make CC=gcc CXX=g++
@@ -332,7 +333,7 @@ PP_OBJ_TEST = $(BUILD_DIR)/preprocessor.o
 
 # ── Targets ──────────────────────────────────────────────────────
 
-.PHONY: test test-foundation test-tsan cbm clean-c lint lint-tidy lint-cppcheck lint-format security
+.PHONY: test test-foundation test-tsan indexer cbm clean-c lint lint-tidy lint-cppcheck lint-format security
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -462,8 +463,12 @@ $(BUILD_DIR)/codebase-memory-mcp: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(
 		$(OBJS_VENDORED_PROD) \
 		$(LDFLAGS)
 
-cbm: $(BUILD_DIR)/codebase-memory-mcp
+indexer: $(BUILD_DIR)/codebase-memory-mcp
 	@echo "Built: $(BUILD_DIR)/codebase-memory-mcp"
+
+# Backwards-compatible alias for the pre-rename target name. External callers
+# (e.g. older copies of scripts/build-indexer.sh) may still invoke `cbm`.
+cbm: indexer
 
 clean-c:
 	rm -rf $(BUILD_DIR)
