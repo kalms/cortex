@@ -545,16 +545,8 @@ lint: lint-tidy lint-cppcheck lint-format lint-no-suppress
 lint-ci: lint-cppcheck lint-format lint-no-suppress
 	@echo "=== CI linters passed ==="
 
-# ── Security audit (6 layers) ────────────────────────────────────
-
-# Run all security checks: static audit, binary strings, install, network
-# Requires: production binary already built (make cbm)
-security: cbm
-	@echo "=== Running security audit suite ==="
-	scripts/security-audit.sh
-	scripts/security-strings.sh $(BUILD_DIR)/codebase-memory-mcp
-	scripts/security-install.sh $(BUILD_DIR)/codebase-memory-mcp
-	scripts/security-network.sh $(BUILD_DIR)/codebase-memory-mcp
-	scripts/security-fuzz.sh $(BUILD_DIR)/codebase-memory-mcp
-	scripts/security-vendored.sh
-	@echo "=== All security checks passed ==="
+# ── Security audit ────────────────────────────────────
+#
+# The CBM-era 6-layer security audit suite (scripts/security-*.sh) was removed
+# in Phase 9.6 along with the rest of the CBM standalone-product CI surface.
+# Re-introduce a Cortex-native audit target here if/when needed.
