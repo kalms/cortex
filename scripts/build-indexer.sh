@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# build-indexer.sh — Builds the native indexer (CBM) from internal/indexer/ and
+# build-indexer.sh — Builds the native indexer from internal/indexer/ and
 # installs the resulting binary at bin/cortex-indexer. Invoked by npm postinstall.
 #
-# CBM's Makefile is not relocatable: rules reference src/ paths relative to
-# the Makefile's own directory. We cd into internal/indexer/ to invoke it. The
-# Makefile's `cbm` target produces a binary named `codebase-memory-mcp` at
+# The indexer Makefile is not relocatable: rules reference src/ paths relative
+# to the Makefile's own directory. We cd into internal/indexer/ to invoke it.
+# The Makefile's `cbm` target produces a binary named `codebase-memory-mcp` at
 # build/c/codebase-memory-mcp; we copy it to bin/cortex-indexer for Cortex.
+# (The `cbm` target name and `codebase-memory-mcp` binary name are vestigial
+# pre-rename labels; renaming them is deferred to later CBM-removal tasks.)
 #
 # Skips the build if bin/cortex-indexer is already present and newer than
 # anything in internal/indexer/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1
@@ -20,7 +22,7 @@ MAKE_TARGET="cbm"
 
 # Skip path: binary exists, no force, and no source file is newer than the binary
 if [ -z "${CORTEX_FORCE_REBUILD:-}" ] && [ -x "$INDEXER_DEST" ]; then
-  if ! find "$INDEXER_SRC/src" "$INDEXER_SRC/Makefile.cbm" \
+  if ! find "$INDEXER_SRC/src" "$INDEXER_SRC/Makefile.indexer" \
         -newer "$INDEXER_DEST" -print -quit 2>/dev/null | grep -q .; then
     echo "cortex-indexer up to date at $INDEXER_DEST"
     exit 0
@@ -37,7 +39,7 @@ mkdir -p "$ROOT/bin"
 echo "Building cortex-indexer from internal/indexer/ ..."
 # Must invoke the Makefile from inside internal/indexer/ — its rules use
 # Makefile-relative paths and don't tolerate -f from a parent directory.
-(cd "$INDEXER_SRC" && make -f Makefile.cbm "$MAKE_TARGET")
+(cd "$INDEXER_SRC" && make -f Makefile.indexer "$MAKE_TARGET")
 
 if [ ! -x "$INDEXER_BUILD" ]; then
   echo "error: build succeeded but expected binary not found" >&2

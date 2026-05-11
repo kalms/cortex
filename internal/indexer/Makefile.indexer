@@ -1,11 +1,15 @@
-# Makefile.cbm — Build system for pure C rewrite
+# Makefile.indexer — Build system for the native indexer (pure C)
+#
+# Renamed from Makefile.cbm during Phase 9 of the CBM-removal effort. The
+# `cbm` phony target and `CBM_*` variables below are still in use; renaming
+# them is tracked under later 9.x tasks (C-side symbol rename).
 #
 # Usage:
-#   make -f Makefile.cbm test           # Build + run all tests (ASan + UBSan)
-#   make -f Makefile.cbm test-foundation # Foundation tests only (fast)
-#   make -f Makefile.cbm test-tsan      # Thread sanitizer build
-#   make -f Makefile.cbm cbm            # Production binary
-#   make -f Makefile.cbm clean-c        # Remove build artifacts
+#   make -f Makefile.indexer test           # Build + run all tests (ASan + UBSan)
+#   make -f Makefile.indexer test-foundation # Foundation tests only (fast)
+#   make -f Makefile.indexer test-tsan      # Thread sanitizer build
+#   make -f Makefile.indexer cbm            # Production binary
+#   make -f Makefile.indexer clean-c        # Remove build artifacts
 
 # Compiler selection — override via: make CC=gcc CXX=g++
 # macOS: cc (Apple Clang) — universal binary with ASan support
