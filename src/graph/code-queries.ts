@@ -4,11 +4,8 @@ import { GraphStore } from "./store.js";
  * After Phase 4, code-entity rows live in `nodes` with `kind` as discriminator.
  * The TS-side type used by code-tools.ts and tests keeps the field name `kind`
  * (matching the storage column), `relation` for edges, `data` for the JSON blob.
- *
- * Type name `CbmNode` is preserved through Phase 4 for diff continuity; Phase 8
- * cleanup renames to `IndexerNode`.
  */
-export interface CbmNode {
+export interface IndexerNode {
   id: string;
   project: string;
   kind: string;
@@ -20,7 +17,7 @@ export interface CbmNode {
   data: string;
 }
 
-export interface CbmEdge {
+export interface IndexerEdge {
   id: string;
   project: string;
   source_id: string;
@@ -29,7 +26,7 @@ export interface CbmEdge {
   data: string;
 }
 
-export interface CbmProject {
+export interface IndexerProject {
   name: string;
   indexed_at: string;
   root_path: string;
@@ -41,7 +38,7 @@ export function searchGraph(
   store: GraphStore,
   project: string,
   params: { name_pattern?: string; label?: string; qn_pattern?: string }
-): CbmNode[] {
+): IndexerNode[] {
   const conditions: string[] = ["project = ?", CODE_KIND_FILTER];
   const values: unknown[] = [project];
 
@@ -61,7 +58,7 @@ export function searchGraph(
     values.push(params.qn_pattern);
   }
 
-  return store.queryRaw<CbmNode>(
+  return store.queryRaw<IndexerNode>(
     `SELECT * FROM nodes WHERE ${conditions.join(" AND ")} LIMIT 100`,
     values
   );
@@ -90,8 +87,8 @@ export function tracePath(
   store: GraphStore,
   project: string,
   params: { function_name: string; mode: string; max_depth?: number }
-): Array<{ node: CbmNode; depth: number }> {
-  const startNodes = store.queryRaw<CbmNode>(
+): Array<{ node: IndexerNode; depth: number }> {
+  const startNodes = store.queryRaw<IndexerNode>(
     `SELECT * FROM nodes WHERE project = ? AND name = ? AND ${CODE_KIND_FILTER} LIMIT 1`,
     [project, params.function_name]
   );
@@ -118,18 +115,18 @@ export function tracePath(
   GROUP BY n.id
   ORDER BY depth, n.name`;
 
-  const rows = store.queryRaw<CbmNode & { depth: number }>(sql, [
+  const rows = store.queryRaw<IndexerNode & { depth: number }>(sql, [
     startId, project, maxDepth, startId, project,
   ]);
   return rows.map(({ depth, ...node }) => ({ node, depth: depth as number }));
 }
 
-export function listProjects(store: GraphStore): CbmProject[] {
-  return store.queryRaw<CbmProject>("SELECT * FROM ctx_projects");
+export function listProjects(store: GraphStore): IndexerProject[] {
+  return store.queryRaw<IndexerProject>("SELECT * FROM ctx_projects");
 }
 
-export function indexStatus(store: GraphStore, rootPath: string): CbmProject | null {
-  const results = store.queryRaw<CbmProject>(
+export function indexStatus(store: GraphStore, rootPath: string): IndexerProject | null {
+  const results = store.queryRaw<IndexerProject>(
     "SELECT * FROM ctx_projects WHERE root_path = ?",
     [rootPath]
   );
