@@ -20,7 +20,7 @@ function grammarPackHash(): string {
   // Hash of the grammars directory. Phase 9 may relocate this; fall back to a
   // fixed sentinel when the directory is absent so the cache key is still
   // deterministic.
-  const grammarRoot = join(process.cwd(), "internal", "cbm", "vendored", "grammars");
+  const grammarRoot = join(process.cwd(), "internal", "cbm", "internal", "cbm", "vendored", "grammars");
   if (!existsSync(grammarRoot)) return "no-grammars";
   const h = createHash("sha256");
   function walk(dir: string) {
