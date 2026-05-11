@@ -12,7 +12,7 @@ import {
   getGraphSchema,
   listProjects,
   indexStatus,
-  CbmNode,
+  IndexerNode,
 } from "../../graph/code-queries.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
@@ -29,12 +29,12 @@ const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer")
 const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
 const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
-// 5B: callCbm now handles binary in-stdout errors and returns structured responses
-type CbmCallResult = {
+// 5B: callIndexer now handles binary in-stdout errors and returns structured responses
+type IndexerCallResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: true;
 };
-async function callCbm(tool: string, args: Record<string, unknown>, dbPath?: string): Promise<CbmCallResult> {
+async function callIndexer(tool: string, args: Record<string, unknown>, dbPath?: string): Promise<IndexerCallResult> {
   // Make the indexer write to the same SQLite file Cortex uses. Without this
   // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
   // Cortex would never see the data.
@@ -63,14 +63,14 @@ async function callCbm(tool: string, args: Record<string, unknown>, dbPath?: str
 }
 
 // 5D: formatNodes emits colon form via denormalize
-function formatNodes(nodes: CbmNode[]): string {
+function formatNodes(nodes: IndexerNode[]): string {
   if (nodes.length === 0) return "";
   return nodes
     .map((n) => `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`)
     .join("\n");
 }
 
-export function registerCodeTools(server: McpServer, store: GraphStore, cbmProject: string | null): void {
+export function registerCodeTools(server: McpServer, store: GraphStore, indexerProject: string | null): void {
   // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
   server.tool(
@@ -111,7 +111,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         return ok(`imported from cache key ${cacheKey.slice(0, 12)}…`);
       }
 
-      const result = await callCbm("index_repository", { repo_path: repoPath }, dbPath);
+      const result = await callIndexer("index_repository", { repo_path: repoPath }, dbPath);
       if (!result.isError && cacheKey) {
         // The indexer DB runs in WAL mode (see src/graph/store.ts). Checkpoint
         // WAL into the main file before copying so the cached snapshot is
@@ -143,14 +143,14 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "detect_changes",
     "Map git diff to affected symbols in the knowledge graph",
     { path: z.string().optional().describe("Repository path") },
-    async ({ path }) => callCbm("detect_changes", { repo_path: path || process.cwd() })
+    async ({ path }) => callIndexer("detect_changes", { repo_path: path || process.cwd() })
   );
 
   server.tool(
     "delete_project",
     "Remove a project from the code index",
     { project: z.string().describe("Project name to delete") },
-    async ({ project }) => callCbm("delete_project", { project })
+    async ({ project }) => callIndexer("delete_project", { project })
   );
 
   // 6.8: bridge three indexer tools that don't yet have TS registrations
@@ -165,9 +165,9 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     async ({ query, project, max_rows }) => {
       const args: Record<string, unknown> = { query };
       if (project !== undefined) args.project = project;
-      else if (cbmProject) args.project = cbmProject;
+      else if (indexerProject) args.project = indexerProject;
       if (max_rows !== undefined) args.max_rows = max_rows;
-      return callCbm("query_graph", args);
+      return callIndexer("query_graph", args);
     }
   );
 
@@ -184,8 +184,8 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     async ({ aspects, project }) => {
       const args: Record<string, unknown> = { aspects: aspects ?? ["all"] };
       if (project !== undefined) args.project = project;
-      else if (cbmProject) args.project = cbmProject;
-      return callCbm("get_architecture", args);
+      else if (indexerProject) args.project = indexerProject;
+      return callIndexer("get_architecture", args);
     }
   );
 
@@ -195,7 +195,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     {
       traces: z.array(z.unknown()).describe("Array of trace records"),
     },
-    async ({ traces }) => callCbm("ingest_traces", { traces })
+    async ({ traces }) => callIndexer("ingest_traces", { traces })
   );
 
   // --- SQL-based tools (6) ---
@@ -210,11 +210,11 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qn_pattern: z.string().optional(),
     },
     async (params) => {
-      if (!cbmProject) {
+      if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const qn = params.qn_pattern ? normalize(params.qn_pattern, cbmProject) : undefined;
-      const results = searchGraph(store, cbmProject, { ...params, qn_pattern: qn });
+      const qn = params.qn_pattern ? normalize(params.qn_pattern, indexerProject) : undefined;
+      const results = searchGraph(store, indexerProject, { ...params, qn_pattern: qn });
       const text = formatNodes(results);
       const queryDesc = `search_graph(${JSON.stringify(params)})`;
       return text ? ok(text) : empty(queryDesc);
@@ -231,10 +231,10 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       max_depth: z.number().int().min(1).max(10).optional(),
     },
     async (params) => {
-      if (!cbmProject) {
+      if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const results = tracePath(store, cbmProject, params);
+      const results = tracePath(store, indexerProject, params);
       if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
       const lines = results.map((r) =>
         `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
@@ -251,21 +251,21 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
       qualified_name: z.string().min(1, "qualified_name must not be empty"),
     },
     async ({ qualified_name }) => {
-      if (!cbmProject) {
+      if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const qn = normalize(qualified_name, cbmProject);
-      const nodes = searchGraph(store, cbmProject, { qn_pattern: qn });
+      const qn = normalize(qualified_name, indexerProject);
+      const nodes = searchGraph(store, indexerProject, { qn_pattern: qn });
       if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
       const node = nodes[0];
       try {
         // Resolve file_path: it's relative to project root, so prepend root_path
         const projectRow = store.queryRaw<{ root_path: string }>(
           "SELECT root_path FROM ctx_projects WHERE name = ?",
-          [cbmProject]
+          [indexerProject]
         );
         if (projectRow.length === 0) {
-          return errorResponse("project_not_found", `Project ${cbmProject} not found in CBM DB`);
+          return errorResponse("project_not_found", `Project ${indexerProject} not found in CBM DB`);
         }
         const fullPath = join(projectRow[0].root_path, node.file_path);
         const content = await readFile(fullPath, "utf-8");
@@ -287,10 +287,10 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
     "List node labels, edge types, and their counts in the knowledge graph",
     {},
     async () => {
-      if (!cbmProject) {
+      if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const schema = getGraphSchema(store, cbmProject);
+      const schema = getGraphSchema(store, indexerProject);
       const labelLines = schema.labels.map((l) => `  ${l.name}: ${l.count}`).join("\n");
       const edgeLines = schema.edgeTypes.map((e) => `  ${e.name}: ${e.count}`).join("\n");
       return ok(`Labels:\n${labelLines}\nEdge types:\n${edgeLines}`);
@@ -377,7 +377,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
 
       if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
 
-      if (!cbmProject) {
+      if (!indexerProject) {
         return ok(grepOutput);
       }
 
@@ -387,12 +387,12 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         if (!match) return line;
         const [, filePath, lineNum] = match;
         const lineNumber = parseInt(lineNum, 10);
-        const enclosing = store.queryRaw<CbmNode>(
+        const enclosing = store.queryRaw<IndexerNode>(
           `SELECT * FROM nodes
            WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
              AND kind NOT IN ('decision', 'pr', 'todo')
            ORDER BY (end_line - start_line) ASC LIMIT 1`,
-          [cbmProject, filePath, lineNumber, lineNumber]
+          [indexerProject, filePath, lineNumber, lineNumber]
         );
         if (enclosing.length > 0) {
           return `${line}  // in ${enclosing[0].kind} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;

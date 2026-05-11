@@ -12,7 +12,7 @@ import type { EventBus } from "../events/bus.js";
 
 export function createServer(
   store: GraphStore,
-  cbmProject: string | null = null,
+  indexerProject: string | null = null,
   bus?: EventBus,
 ): McpServer {
   const server = new McpServer({
@@ -22,23 +22,23 @@ export function createServer(
 
   const decisionService = new DecisionService(
     store,
-    bus ? { bus, project_id: cbmProject ?? "" } : {},
+    bus ? { bus, project_id: indexerProject ?? "" } : {},
   );
   const decisionSearch = new DecisionSearch(store);
   const decisionPromotion = new DecisionPromotion(
     store,
-    bus ? { bus, project_id: cbmProject ?? "" } : {},
+    bus ? { bus, project_id: indexerProject ?? "" } : {},
   );
   const prService = new PRService(store, {
     bus: bus,
     default_actor: "system",
-    project_id: cbmProject ?? "",
+    project_id: indexerProject ?? "",
     decisions: decisionService,
   });
 
   registerDecisionTools(server, decisionService, decisionSearch);
   registerPromotionTools(server, decisionPromotion);
-  registerCodeTools(server, store, cbmProject);
+  registerCodeTools(server, store, indexerProject);
   registerPRTools(server, prService);
 
   return server;
