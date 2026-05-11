@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# build-indexer.sh — Builds the native indexer (CBM) from internal/cbm/ and
+# build-indexer.sh — Builds the native indexer (CBM) from internal/indexer/ and
 # installs the resulting binary at bin/cortex-indexer. Invoked by npm postinstall.
 #
 # CBM's Makefile is not relocatable: rules reference src/ paths relative to
-# the Makefile's own directory. We cd into internal/cbm/ to invoke it. The
+# the Makefile's own directory. We cd into internal/indexer/ to invoke it. The
 # Makefile's `cbm` target produces a binary named `codebase-memory-mcp` at
 # build/c/codebase-memory-mcp; we copy it to bin/cortex-indexer for Cortex.
 #
 # Skips the build if bin/cortex-indexer is already present and newer than
-# anything in internal/cbm/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1
+# anything in internal/indexer/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1
 # to override.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INDEXER_SRC="$ROOT/internal/cbm"
+INDEXER_SRC="$ROOT/internal/indexer"
 INDEXER_BUILD="$INDEXER_SRC/build/c/codebase-memory-mcp"
 INDEXER_DEST="$ROOT/bin/cortex-indexer"
 MAKE_TARGET="cbm"
@@ -34,8 +34,8 @@ done
 
 mkdir -p "$ROOT/bin"
 
-echo "Building cortex-indexer from internal/cbm/ ..."
-# Must invoke the Makefile from inside internal/cbm/ — its rules use
+echo "Building cortex-indexer from internal/indexer/ ..."
+# Must invoke the Makefile from inside internal/indexer/ — its rules use
 # Makefile-relative paths and don't tolerate -f from a parent directory.
 (cd "$INDEXER_SRC" && make -f Makefile.cbm "$MAKE_TARGET")
 
