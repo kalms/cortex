@@ -1,6 +1,6 @@
 # Cortex
 
-Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 3D WebGL graph viewer. The indexer is built from CBM (originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed in-tree under `internal/cbm/` on 2026-05-04).
+Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 3D WebGL graph viewer. The indexer is bundled in-tree under `internal/cbm/` and writes directly to Cortex's SQLite database — there is no separate codebase-memory subprocess or external dependency. (Indexer lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04.)
 
 Cortex answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
 
@@ -174,15 +174,15 @@ The 3D viewer at `/viewer` renders the unified knowledge graph in WebGL using [3
 
 ## Native Indexer
 
-Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives at `internal/cbm/`, absorbed from [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) via git subtree on 2026-05-04. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install.
+Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/cbm/` (lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04). `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install, and no longer any separate codebase-memory-mcp process.
 
 The indexer and Cortex share a single SQLite file (`<install>/.cortex/graph.db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); decisions/PRs/TODOs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
 
-- **Single-file architecture:** no SQLite ATTACH, no separate cache file. Both processes operate on the same `cortex.db` with WAL concurrency.
+- **Single-file architecture:** no SQLite ATTACH, no separate cache file. The indexer and Cortex's TS layer operate on the same `cortex.db` with WAL concurrency.
 - **Bulk-write fast path:** `internal/cbm/internal/cbm/sqlite_writer.c` constructs the SQLite file via raw B-tree page writes for full-index runs. Schema-aware after Phase 4 (writes Cortex's `nodes`/`edges` directly). Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
 - **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` env pointing at the same SQLite file.
 
-The historical `~/.cache/codebase-memory-mcp/` cache directory is gone (Phase 3a/3b/4). Migration paths for v0.2/v0.3 legacy DBs were dropped under a "break-away" decision — there is no automatic upgrade. Delete your existing `cortex.db` and re-run `index_repository` to pick up the new schema.
+The historical `~/.cache/codebase-memory-mcp/` cache directory (from pre-absorption versions) is gone (Phase 3a/3b/4). Migration paths for v0.2/v0.3 legacy DBs were dropped under a "break-away" decision — there is no automatic upgrade. Delete your existing `cortex.db` and re-run `index_repository` to pick up the new schema.
 
 ## Seeding Test Data
 
@@ -263,6 +263,6 @@ src/
 scripts/
   seed.ts                           # Seeds sample data for development
 tests/
-  graph/                            # Store, FTS, query, CBM attach tests
+  graph/                            # Store, FTS, query, code-query tests
   decisions/                        # Service, search, promotion tests
 ```

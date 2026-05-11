@@ -32,12 +32,12 @@ if (!existsSync(gitignorePath)) {
 const store = new GraphStore(dbPath);
 
 const cwd = process.cwd();
-let cbmProject: string | null = null;
+let indexerProject: string | null = null;
 
 // Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
 // writes to the same cortex.db file when CORTEX_DB env var is set; once it has
 // run at least once for this repo, ctx_projects has a row keyed by absolute
-// repo path. Until then, cbmProject is null and code-tools surface a clear
+// repo path. Until then, indexerProject is null and code-tools surface a clear
 // "not indexed" error.
 try {
   const row = store
@@ -46,8 +46,8 @@ try {
       [cwd],
     )[0];
   if (row) {
-    cbmProject = row.name;
-    process.stderr.write(`Cortex: indexed project '${cbmProject}' (root: ${cwd})\n`);
+    indexerProject = row.name;
+    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${cwd})\n`);
   } else {
     process.stderr.write(`Cortex: no indexed project for ${cwd} — run index_repository\n`);
   }
@@ -129,12 +129,12 @@ const supervisor = new WorkerSupervisor({
       if (msg.type === "broadcast" && wsHandle) wsHandle.broadcast(msg.bundle);
       else if (msg.type === "error") process.stderr.write(`[worker] ${msg.message}\n`);
     });
-    const wireNodes = toWireNodes(store.getAllNodesUnified(cbmProject ?? undefined));
+    const wireNodes = toWireNodes(store.getAllNodesUnified(indexerProject ?? undefined));
     const governedFilesMap = buildGovernedFilesMap(store);
     w.postMessage({
       type: "init",
       events_db_path: eventsDbPath,
-      project_id: cbmProject ?? "",
+      project_id: indexerProject ?? "",
       nodes: wireNodes,
       repo_path: cwd,
       governed_files: Object.fromEntries(governedFilesMap),
@@ -149,14 +149,14 @@ bus.onEvent((event) => {
   supervisor.current()?.postMessage({ type: "event", event });
 });
 
-const server = createServer(store, cbmProject, bus);
+const server = createServer(store, indexerProject, bus);
 
-const { port, httpServer } = await startViewerServer(store, cbmProject);
+const { port, httpServer } = await startViewerServer(store, indexerProject);
 if (port > 0 && httpServer) {
   wsHandle = startWsServer({
     httpServer,
     persister: mainPersister,
-    projectId: cbmProject ?? "",
+    projectId: indexerProject ?? "",
     serverVersion: "0.2.0",
   });
   process.stderr.write(`Cortex viewer: http://localhost:${port}/viewer (WS at /ws)\n`);
