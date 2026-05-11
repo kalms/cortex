@@ -1,5 +1,5 @@
 /*
- * main.c — Entry point for codebase-memory-mcp.
+ * main.c — Entry point for cortex-indexer.
  *
  * Modes:
  *   cli <tool> <json>  Run a single tool call and print result
@@ -40,7 +40,7 @@ enum {
 static int run_cli(int argc, char **argv) {
     if (argc < MAIN_MIN_ARGC) {
         (void)fprintf(stderr,
-                      "Usage: codebase-memory-mcp cli [--progress] <tool_name> [json_args]\n");
+                      "Usage: cortex-indexer cli [--progress] <tool_name> [json_args]\n");
         return SKIP_ONE;
     }
 
@@ -59,7 +59,7 @@ static int run_cli(int argc, char **argv) {
 
     if (argc < MAIN_MIN_ARGC) {
         (void)fprintf(stderr,
-                      "Usage: codebase-memory-mcp cli [--progress] <tool_name> [json_args]\n");
+                      "Usage: cortex-indexer cli [--progress] <tool_name> [json_args]\n");
         return SKIP_ONE;
     }
 
@@ -95,15 +95,15 @@ static int run_cli(int argc, char **argv) {
 /* ── Help ───────────────────────────────────────────────────────── */
 
 static void print_help(void) {
-    printf("codebase-memory-mcp %s\n\n", CTX_VERSION);
+    printf("cortex-indexer %s\n\n", CTX_VERSION);
     printf("Usage:\n");
-    printf("  codebase-memory-mcp cli <tool> [json]  Run a single tool\n");
-    printf("  codebase-memory-mcp install [-y|-n] [--force] [--dry-run]\n");
-    printf("  codebase-memory-mcp uninstall [-y|-n] [--dry-run]\n");
-    printf("  codebase-memory-mcp update [-y|-n]\n");
-    printf("  codebase-memory-mcp config <list|get|set|reset>\n");
-    printf("  codebase-memory-mcp --version    Print version\n");
-    printf("  codebase-memory-mcp --help       Print this help\n");
+    printf("  cortex-indexer cli <tool> [json]  Run a single tool\n");
+    printf("  cortex-indexer install [-y|-n] [--force] [--dry-run]\n");
+    printf("  cortex-indexer uninstall [-y|-n] [--dry-run]\n");
+    printf("  cortex-indexer update [-y|-n]\n");
+    printf("  cortex-indexer config <list|get|set|reset>\n");
+    printf("  cortex-indexer --version    Print version\n");
+    printf("  cortex-indexer --help       Print this help\n");
     printf("\nSupported agents (auto-detected):\n");
     printf("  Claude Code, Codex CLI, Gemini CLI, Zed, OpenCode, Antigravity, Aider, KiloCode\n");
     printf("\nTools: index_repository, search_graph, query_graph, trace_path,\n");
@@ -114,8 +114,8 @@ static void print_help(void) {
 
 static void print_usage_stderr(void) {
     (void)fprintf(stderr,
-                  "codebase-memory-mcp: a subcommand is required.\n"
-                  "Run 'codebase-memory-mcp --help' for usage.\n");
+                  "cortex-indexer: a subcommand is required.\n"
+                  "Run 'cortex-indexer --help' for usage.\n");
 }
 
 /* ── Main ───────────────────────────────────────────────────────── */
@@ -131,7 +131,7 @@ static int handle_subcommand(int argc, char **argv) {
     }
     for (int i = SKIP_ONE; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
-            printf("codebase-memory-mcp %s\n", CTX_VERSION);
+            printf("cortex-indexer %s\n", CTX_VERSION);
             return 0;
         }
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {

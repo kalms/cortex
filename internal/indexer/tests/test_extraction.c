@@ -6,7 +6,7 @@
  * verifying definitions, calls, and imports are correctly extracted.
  */
 #include "test_framework.h"
-#include "cbm.h"
+#include "extract.h"
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 

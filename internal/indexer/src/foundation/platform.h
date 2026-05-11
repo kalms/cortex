@@ -96,7 +96,7 @@ const char *ctx_app_local_dir(void);
 /* ── Cache directory ────────────────────────────────────────────── */
 
 /* Resolve the database cache directory. All project indexes are stored here.
- * Priority: CTX_CACHE_DIR env var > ~/.cache/codebase-memory-mcp (default).
+ * Priority: CTX_CACHE_DIR env var > ~/.cache/cortex-indexer (default).
  * Returns static buffer or NULL if home is unavailable. */
 const char *ctx_resolve_cache_dir(void);
 

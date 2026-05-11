@@ -2,15 +2,15 @@
  * userconfig.c — User-defined extension→language mappings.
  *
  * Reads extra_extensions from:
- *   Global:  $XDG_CONFIG_HOME/codebase-memory-mcp/config.json
- *            (falls back to ~/.config/codebase-memory-mcp/config.json)
+ *   Global:  $XDG_CONFIG_HOME/cortex-indexer/config.json
+ *            (falls back to ~/.config/cortex-indexer/config.json)
  *   Project: {repo_root}/.codebase-memory.json
  *
  * Project config wins over global. Unknown language values warn and are
  * skipped (fail-open). Missing files are silently ignored.
  */
 #include "discover/userconfig.h"
-#include "cbm.h" /* CtxLanguage, CTX_LANG_* */
+#include "extract.h" /* CtxLanguage, CTX_LANG_* */
 #include "foundation/constants.h"
 #include "foundation/platform.h" /* ctx_safe_getenv */
 
@@ -297,7 +297,7 @@ ctx_userconfig_t *ctx_userconfig_load(const char *repo_path) {
     const char *cfg_base = ctx_app_config_dir();
     const char *cfg_fallback = cfg_base ? cfg_base : "/tmp";
     char global_path[PATH_BUF_SZ];
-    snprintf(global_path, sizeof(global_path), "%s/codebase-memory-mcp/config.json", cfg_fallback);
+    snprintf(global_path, sizeof(global_path), "%s/cortex-indexer/config.json", cfg_fallback);
 
     if (load_config_file(global_path, &entries, &count) != 0) {
         for (int i = 0; i < count; i++) {

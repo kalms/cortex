@@ -9,7 +9,7 @@
  */
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
-/* sqlite_writer.h is at internal/cbm/ — Makefile adds -Iinternal/cbm */
+/* sqlite_writer.h is at extract/ — Makefile adds -Iextract */
 #include "sqlite_writer.h" /* CtxDumpNode, CtxDumpEdge, ctx_write_db */
 #include "sqlite3.h"       /* vendored/sqlite3/ via -Ivendored/sqlite3 */
 #include <unistd.h>

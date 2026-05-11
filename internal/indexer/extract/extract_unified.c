@@ -1,6 +1,6 @@
 #include "extract_unified.h"
 #include "arena.h" // ctx_arena_sprintf
-#include "cbm.h"   // CtxExtractCtx
+#include "extract.h"   // CtxExtractCtx
 #include "helpers.h"
 #include "lang_specs.h"      // CtxLangSpec, ctx_lang_spec, CTX_LANG_*
 #include "tree_sitter/api.h" // TSNode, TSTreeCursor, ts_tree_cursor_*, ts_node_*

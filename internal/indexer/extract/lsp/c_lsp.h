@@ -4,7 +4,7 @@
 #include "type_rep.h"
 #include "scope.h"
 #include "type_registry.h"
-#include "../cbm.h"
+#include "extract.h"
 #include "go_lsp.h"  // for CtxLSPDef, CtxResolvedCallArray
 
 // CLSPContext holds state for C/C++ expression type evaluation within a file.

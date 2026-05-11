@@ -1,7 +1,7 @@
 #ifndef CTX_EXTRACT_UNIFIED_H
 #define CTX_EXTRACT_UNIFIED_H
 
-#include "cbm.h"
+#include "extract.h"
 #include "lang_specs.h"
 
 // Scope kinds for the walk state stack.

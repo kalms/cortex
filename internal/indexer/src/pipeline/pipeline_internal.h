@@ -12,7 +12,7 @@
 #include "graph_buffer/graph_buffer.h"
 #include "discover/discover.h"
 #include "foundation/hash_table.h"
-#include "cbm.h"
+#include "extract.h"
 #include <stdatomic.h>
 
 /* ── Shared pipeline constants ─────────────────────────────────── */

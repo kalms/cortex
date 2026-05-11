@@ -1,7 +1,7 @@
 #ifndef CTX_HELPERS_H
 #define CTX_HELPERS_H
 
-#include "cbm.h"
+#include "extract.h"
 
 // Extract text of a node from source. Returns arena-allocated string.
 char *ctx_node_text(CtxArena *a, TSNode node, const char *source);

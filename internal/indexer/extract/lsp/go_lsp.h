@@ -4,7 +4,7 @@
 #include "type_rep.h"
 #include "scope.h"
 #include "type_registry.h"
-#include "../cbm.h"
+#include "extract.h"
 
 // GoLSPContext holds state for Go expression type evaluation within a file.
 typedef struct {

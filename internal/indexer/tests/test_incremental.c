@@ -230,10 +230,10 @@ static int incremental_setup(void) {
     const char *home = getenv("HOME");
     if (!home)
         home = "/tmp";
-    snprintf(g_dbpath, sizeof(g_dbpath), "%s/.cache/codebase-memory-mcp/%s.db", home, g_project);
+    snprintf(g_dbpath, sizeof(g_dbpath), "%s/.cache/cortex-indexer/%s.db", home, g_project);
 
     char cache_dir[512];
-    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/codebase-memory-mcp", home);
+    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/cortex-indexer", home);
     ctx_mkdir(cache_dir);
 
     unlink(g_dbpath);

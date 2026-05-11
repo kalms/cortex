@@ -10,7 +10,7 @@
  *     field chains, map index, stdlib interfaces
  */
 #include "test_framework.h"
-#include "cbm.h"
+#include "extract.h"
 #include "lsp/go_lsp.h"
 
 /* ── Helpers ───────────────────────────────────────────────────── */

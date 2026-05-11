@@ -2,8 +2,8 @@
  * userconfig.h — User-defined file extension → language mappings.
  *
  * Reads extra_extensions from two optional JSON config files:
- *   Global:  $XDG_CONFIG_HOME/codebase-memory-mcp/config.json
- *            (falls back to ~/.config/codebase-memory-mcp/config.json)
+ *   Global:  $XDG_CONFIG_HOME/cortex-indexer/config.json
+ *            (falls back to ~/.config/cortex-indexer/config.json)
  *   Project: {repo_root}/.codebase-memory.json
  *
  * Project config wins over global. Unknown language values warn and are
@@ -17,7 +17,7 @@
 #ifndef CTX_USERCONFIG_H
 #define CTX_USERCONFIG_H
 
-#include "cbm.h" /* CtxLanguage */
+#include "extract.h" /* CtxLanguage */
 
 /* ── Types ──────────────────────────────────────────────────────── */
 

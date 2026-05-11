@@ -1,5 +1,5 @@
 #include "lang_specs.h"
-#include "cbm.h"             // CtxLanguage, CTX_LANG_*
+#include "extract.h"             // CtxLanguage, CTX_LANG_*
 #include "tree_sitter/api.h" // TSLanguage
 
 // -- Extern declarations for tree-sitter grammar functions --

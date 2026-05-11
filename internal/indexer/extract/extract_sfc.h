@@ -1,7 +1,7 @@
 #ifndef CTX_EXTRACT_SFC_H
 #define CTX_EXTRACT_SFC_H
 
-#include "cbm.h"
+#include "extract.h"
 
 // Extract definitions, imports, calls, and usages from Vue/Svelte SFCs.
 // Re-parses <script> blocks with TS/JS grammar and walks <template> for

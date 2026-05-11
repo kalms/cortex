@@ -8,7 +8,7 @@
 // first document's block_mapping and emits one CtxDefinition with label
 // "Resource" and name "Kind/metadata-name".
 
-#include "cbm.h"
+#include "extract.h"
 #include "arena.h"
 #include "helpers.h"
 #include "tree_sitter/api.h"

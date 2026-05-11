@@ -19,7 +19,7 @@ enum { PC_RING = 4, PC_RING_MASK = 3, PC_SIG_SCAN = 15, PC_REGEX_GRP = 2 };
 #include "foundation/log.h"
 #include "foundation/compat.h"
 #include "foundation/str_util.h"
-#include "cbm.h"
+#include "extract.h"
 #include "service_patterns.h"
 
 #include "foundation/compat_regex.h"

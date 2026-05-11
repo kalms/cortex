@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 /* Use the existing CtxLanguage enum from extraction layer */
-#include "cbm.h"
+#include "extract.h"
 
 /* ── Language detection ──────────────────────────────────────────── */
 
@@ -99,7 +99,7 @@ typedef struct {
 
 typedef struct {
     ctx_index_mode_t mode;   /* CTX_MODE_FULL or CTX_MODE_FAST */
-    const char *ignore_file; /* path to .cbmignore file, or NULL */
+    const char *ignore_file; /* path to .cortexignore file, or NULL */
     int64_t max_file_size;   /* 0 = no limit */
 } ctx_discover_opts_t;
 

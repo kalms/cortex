@@ -40,7 +40,7 @@ enum {
 #include "foundation/str_util.h"
 #include "foundation/profile.h"
 #include "foundation/compat_regex.h"
-#include "cbm.h"
+#include "extract.h"
 #include "simhash/minhash.h"
 #include "semantic/ast_profile.h"
 

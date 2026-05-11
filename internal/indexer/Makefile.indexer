@@ -1,9 +1,8 @@
 # Makefile.indexer — Build system for the native indexer (pure C)
 #
 # Renamed from Makefile.cbm during Phase 9 of the CBM-removal effort. The
-# `CBM_DIR` variable below still points to the inner subtree `internal/cbm`,
-# which is itself a vestigial CBM-era directory name; renaming that subtree
-# (and its dependents) is tracked under later 9.x tasks (C-side symbol rename).
+# extraction sources now live under `extract/` (flattened from the historical
+# `internal/cbm/` subtree); vendored libs live under `vendored/`.
 #
 # Usage:
 #   make -f Makefile.indexer test           # Build + run all tests (ASan + UBSan)
@@ -21,14 +20,14 @@
 
 # Include paths for:
 #   src/         — new foundation headers
-#   vendored/    — yyjson, xxhash, sqlite3
-#   internal/cbm — existing extraction headers (cbm.h, helpers.h, etc.)
-#   internal/cbm/vendored/ts_runtime/include — tree-sitter API
-CBM_DIR = internal/cbm
-TS_INCLUDE = $(CBM_DIR)/vendored/ts_runtime/include
+#   vendored/    — yyjson, xxhash, sqlite3, ts_runtime, lz4, simplecpp, grammars
+#   extract/     — extraction headers (extract.h, helpers.h, etc.)
+#   vendored/ts_runtime/include — tree-sitter API
+EXTRACT_DIR = extract
+TS_INCLUDE = vendored/ts_runtime/include
 # Vendored tree-sitter src/ contains unicode/ headers (umachine.h, utf.h, utf8.h).
 # This ensures we use our vendored copies instead of requiring system libicu-dev.
-TS_SRC = $(CBM_DIR)/vendored/ts_runtime/src
+TS_SRC = vendored/ts_runtime/src
 
 # ── Optional libgit2 (faster git history parsing) ────────────────
 # Auto-detected via pkg-config. Falls back to popen("git log ...") if absent.
@@ -53,14 +52,14 @@ endif
 CFLAGS_COMMON = -std=c11 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Wall -Wextra -Werror \
                 -Wno-unused-parameter -Wno-sign-compare \
                 $(GCC_ONLY_FLAGS) \
-                -Isrc -Ivendored -Ivendored/sqlite3 \
+                -I. -Isrc -Ivendored -Ivendored/sqlite3 \
                 -Ivendored/mimalloc/include \
-                -I$(CBM_DIR) -I$(TS_INCLUDE) \
+                -I$(EXTRACT_DIR) -I$(TS_INCLUDE) \
                 $(LIBGIT2_FLAGS)
 
 CXXFLAGS_COMMON = -std=c++14 -Wall -Wextra -Werror \
                   -Wno-unused-parameter \
-                  -I$(CBM_DIR) -I$(TS_INCLUDE)
+                  -I. -I$(EXTRACT_DIR) -I$(TS_INCLUDE)
 
 # Production flags (CFLAGS_EXTRA allows CI to inject -DCTX_VERSION)
 CFLAGS_PROD = $(CFLAGS_COMMON) -O2 $(CFLAGS_EXTRA)
@@ -117,40 +116,40 @@ FOUNDATION_SRCS = \
 
 # Existing extraction C code (compiled from current location)
 EXTRACTION_SRCS = \
-    $(CBM_DIR)/cbm.c \
-    $(CBM_DIR)/extract_defs.c \
-    $(CBM_DIR)/extract_calls.c \
-    $(CBM_DIR)/extract_imports.c \
-    $(CBM_DIR)/extract_usages.c \
-    $(CBM_DIR)/extract_unified.c \
-    $(CBM_DIR)/extract_semantic.c \
-    $(CBM_DIR)/extract_type_refs.c \
-    $(CBM_DIR)/extract_type_assigns.c \
-    $(CBM_DIR)/extract_env_accesses.c \
-    $(CBM_DIR)/extract_channels.c \
-    $(CBM_DIR)/extract_k8s.c \
-    $(CBM_DIR)/extract_sfc.c \
-    $(CBM_DIR)/helpers.c \
-    $(CBM_DIR)/lang_specs.c \
-    $(CBM_DIR)/service_patterns.c
+    $(EXTRACT_DIR)/extract.c \
+    $(EXTRACT_DIR)/extract_defs.c \
+    $(EXTRACT_DIR)/extract_calls.c \
+    $(EXTRACT_DIR)/extract_imports.c \
+    $(EXTRACT_DIR)/extract_usages.c \
+    $(EXTRACT_DIR)/extract_unified.c \
+    $(EXTRACT_DIR)/extract_semantic.c \
+    $(EXTRACT_DIR)/extract_type_refs.c \
+    $(EXTRACT_DIR)/extract_type_assigns.c \
+    $(EXTRACT_DIR)/extract_env_accesses.c \
+    $(EXTRACT_DIR)/extract_channels.c \
+    $(EXTRACT_DIR)/extract_k8s.c \
+    $(EXTRACT_DIR)/extract_sfc.c \
+    $(EXTRACT_DIR)/helpers.c \
+    $(EXTRACT_DIR)/lang_specs.c \
+    $(EXTRACT_DIR)/service_patterns.c
 
 # LSP resolvers (compiled as one unit via lsp_all.c)
-LSP_SRCS = $(CBM_DIR)/lsp_all.c
+LSP_SRCS = $(EXTRACT_DIR)/lsp_all.c
 
 # Tree-sitter runtime
-TS_RUNTIME_SRC = $(CBM_DIR)/ts_runtime.c
+TS_RUNTIME_SRC = $(EXTRACT_DIR)/ts_runtime.c
 
 # All 64 grammar shim files
-GRAMMAR_SRCS = $(wildcard $(CBM_DIR)/grammar_*.c)
+GRAMMAR_SRCS = $(wildcard $(EXTRACT_DIR)/grammar_*.c)
 
 # LZ4 + Aho-Corasick
-AC_LZ4_SRCS = $(CBM_DIR)/ac.c $(CBM_DIR)/lz4_store.c
+AC_LZ4_SRCS = $(EXTRACT_DIR)/ac.c $(EXTRACT_DIR)/lz4_store.c
 
 # Preprocessor (C++)
-PREPROCESSOR_SRC = $(CBM_DIR)/preprocessor.cpp
+PREPROCESSOR_SRC = $(EXTRACT_DIR)/preprocessor.cpp
 
 # SQLite writer
-SQLITE_WRITER_SRC = $(CBM_DIR)/sqlite_writer.c
+SQLITE_WRITER_SRC = $(EXTRACT_DIR)/sqlite_writer.c
 
 # Store module (new)
 STORE_SRCS = src/store/store.c
@@ -319,14 +318,14 @@ BUILD_DIR = build/c
 # ── Object file compilation (grammars need relaxed warnings) ─────
 
 # Grammar + tree-sitter runtime: compiled without -Werror (upstream code has warnings)
-GRAMMAR_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC)
-GRAMMAR_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
+GRAMMAR_CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -w -I. -I$(EXTRACT_DIR) -I$(TS_INCLUDE) -I$(TS_SRC)
+GRAMMAR_CFLAGS_TEST = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I. -I$(EXTRACT_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
                       $(SANITIZE)
-GRAMMAR_CFLAGS_TSAN = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I$(CBM_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
+GRAMMAR_CFLAGS_TSAN = -std=c11 -D_DEFAULT_SOURCE -g -O1 -w -I. -I$(EXTRACT_DIR) -I$(TS_INCLUDE) -I$(TS_SRC) \
                       -fsanitize=thread -fno-omit-frame-pointer
 
 # Object files for grammars + ts_runtime + lsp_all + preprocessor
-GRAMMAR_OBJS_TEST = $(patsubst $(CBM_DIR)/%.c,$(BUILD_DIR)/%.o,$(GRAMMAR_SRCS))
+GRAMMAR_OBJS_TEST = $(patsubst $(EXTRACT_DIR)/%.c,$(BUILD_DIR)/%.o,$(GRAMMAR_SRCS))
 TS_RUNTIME_OBJ_TEST = $(BUILD_DIR)/ts_runtime.o
 LSP_OBJ_TEST = $(BUILD_DIR)/lsp_all.o
 PP_OBJ_TEST = $(BUILD_DIR)/preprocessor.o
@@ -348,17 +347,17 @@ test-foundation: $(BUILD_DIR)/test-foundation
 
 # ── Grammar/TS/LSP object files (compiled with relaxed warnings) ─
 
-$(BUILD_DIR)/%.o: $(CBM_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(EXTRACT_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS_TEST) -c -o $@ $<
 
-$(BUILD_DIR)/ts_runtime.o: $(CBM_DIR)/ts_runtime.c | $(BUILD_DIR)
+$(BUILD_DIR)/ts_runtime.o: $(EXTRACT_DIR)/ts_runtime.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS_TEST) -c -o $@ $<
 
-$(BUILD_DIR)/lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
+$(BUILD_DIR)/lsp_all.o: $(EXTRACT_DIR)/lsp_all.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS_TEST) $(SANITIZE) -c -o $@ $<
 
-$(BUILD_DIR)/preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS_TEST) -w -I$(CBM_DIR)/vendored -c -o $@ $<
+$(BUILD_DIR)/preprocessor.o: $(EXTRACT_DIR)/preprocessor.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS_TEST) -w -Ivendored -c -o $@ $<
 
 # ── Full test binary ─────────────────────────────────────────────
 
@@ -398,10 +397,10 @@ endif
 
 # Vendored LZ4 (test build)
 LZ4_OBJ_TEST = $(BUILD_DIR)/test_lz4.o $(BUILD_DIR)/test_lz4hc.o
-$(BUILD_DIR)/test_lz4.o: $(CBM_DIR)/vendored/lz4/lz4.c | $(BUILD_DIR)
-	$(CC) -std=c11 -D_DEFAULT_SOURCE -g -O1 $(SANITIZE) -w -I$(CBM_DIR) -c -o $@ $<
-$(BUILD_DIR)/test_lz4hc.o: $(CBM_DIR)/vendored/lz4/lz4hc.c | $(BUILD_DIR)
-	$(CC) -std=c11 -D_DEFAULT_SOURCE -g -O1 $(SANITIZE) -w -I$(CBM_DIR)/vendored/lz4 -c -o $@ $<
+$(BUILD_DIR)/test_lz4.o: vendored/lz4/lz4.c | $(BUILD_DIR)
+	$(CC) -std=c11 -D_DEFAULT_SOURCE -g -O1 $(SANITIZE) -w -I$(EXTRACT_DIR) -c -o $@ $<
+$(BUILD_DIR)/test_lz4hc.o: vendored/lz4/lz4hc.c | $(BUILD_DIR)
+	$(CC) -std=c11 -D_DEFAULT_SOURCE -g -O1 $(SANITIZE) -w -Ivendored/lz4 -c -o $@ $<
 
 # nomic-embed-code pretrained vector blob
 UNIXCODER_OBJ = $(BUILD_DIR)/unixcoder_blob.o
@@ -428,43 +427,43 @@ test-tsan:
 # ── Production binary ────────────────────────────────────────────
 
 # Grammar/TS/LSP objects for production (compiled with relaxed warnings, -O2)
-GRAMMAR_OBJS_PROD = $(patsubst $(CBM_DIR)/%.c,$(BUILD_DIR)/prod_%.o,$(GRAMMAR_SRCS))
+GRAMMAR_OBJS_PROD = $(patsubst $(EXTRACT_DIR)/%.c,$(BUILD_DIR)/prod_%.o,$(GRAMMAR_SRCS))
 TS_RUNTIME_OBJ_PROD = $(BUILD_DIR)/prod_ts_runtime.o
 LSP_OBJ_PROD = $(BUILD_DIR)/prod_lsp_all.o
 PP_OBJ_PROD = $(BUILD_DIR)/prod_preprocessor.o
 
-$(BUILD_DIR)/prod_%.o: $(CBM_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/prod_%.o: $(EXTRACT_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/prod_ts_runtime.o: $(CBM_DIR)/ts_runtime.c | $(BUILD_DIR)
+$(BUILD_DIR)/prod_ts_runtime.o: $(EXTRACT_DIR)/ts_runtime.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/prod_lsp_all.o: $(CBM_DIR)/lsp_all.c | $(BUILD_DIR)
+$(BUILD_DIR)/prod_lsp_all.o: $(EXTRACT_DIR)/lsp_all.c | $(BUILD_DIR)
 	$(CC) $(GRAMMAR_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/prod_preprocessor.o: $(CBM_DIR)/preprocessor.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS_PROD) -w -I$(CBM_DIR)/vendored -c -o $@ $<
+$(BUILD_DIR)/prod_preprocessor.o: $(EXTRACT_DIR)/preprocessor.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS_PROD) -w -Ivendored -c -o $@ $<
 
 # Vendored LZ4 (compiled separately, not unity-built via lz4_store.c)
 LZ4_OBJ_PROD = $(BUILD_DIR)/prod_lz4.o $(BUILD_DIR)/prod_lz4hc.o
-$(BUILD_DIR)/prod_lz4.o: $(CBM_DIR)/vendored/lz4/lz4.c | $(BUILD_DIR)
-	$(CC) -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR) -c -o $@ $<
-$(BUILD_DIR)/prod_lz4hc.o: $(CBM_DIR)/vendored/lz4/lz4hc.c | $(BUILD_DIR)
-	$(CC) -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(CBM_DIR)/vendored/lz4 -c -o $@ $<
+$(BUILD_DIR)/prod_lz4.o: vendored/lz4/lz4.c | $(BUILD_DIR)
+	$(CC) -std=c11 -D_DEFAULT_SOURCE -O2 -w -I$(EXTRACT_DIR) -c -o $@ $<
+$(BUILD_DIR)/prod_lz4hc.o: vendored/lz4/lz4hc.c | $(BUILD_DIR)
+	$(CC) -std=c11 -D_DEFAULT_SOURCE -O2 -w -Ivendored/lz4 -c -o $@ $<
 
 OBJS_VENDORED_PROD = $(MIMALLOC_OBJ_PROD) $(SQLITE3_OBJ_PROD) $(TRE_OBJ_PROD) $(GRAMMAR_OBJS_PROD) $(TS_RUNTIME_OBJ_PROD) $(LSP_OBJ_PROD) $(PP_OBJ_PROD) $(LZ4_OBJ_PROD) $(UNIXCODER_OBJ)
 
 MAIN_SRC = src/main.c
 
-$(BUILD_DIR)/codebase-memory-mcp: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_PROD) | $(BUILD_DIR)
+$(BUILD_DIR)/cortex-indexer: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_PROD) | $(BUILD_DIR)
 	$(CC) $(CFLAGS_PROD) -o $@ \
 		$(MAIN_SRC) $(PROD_SRCS) \
 		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
 		$(OBJS_VENDORED_PROD) \
 		$(LDFLAGS)
 
-indexer: $(BUILD_DIR)/codebase-memory-mcp
-	@echo "Built: $(BUILD_DIR)/codebase-memory-mcp"
+indexer: $(BUILD_DIR)/cortex-indexer
+	@echo "Built: $(BUILD_DIR)/cortex-indexer"
 
 # Backwards-compatible alias for the pre-rename target name. External callers
 # (e.g. older copies of scripts/build-indexer.sh) may still invoke `cbm`.
@@ -491,7 +490,7 @@ LINT_SRCS = $(FOUNDATION_SRCS) $(STORE_SRCS) $(CYPHER_SRCS) $(MCP_SRCS) \
             $(DISCOVER_SRCS) $(GRAPH_BUFFER_SRCS) $(PIPELINE_SRCS) $(SIMHASH_SRCS) $(SEMANTIC_SRCS) \
             $(TRACES_SRCS) $(WATCHER_SRCS) $(CLI_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) \
             $(SQLITE_WRITER_SRC) $(MAIN_SRC)
-LINT_HDRS = $(wildcard src/**/*.h src/*.h $(CBM_DIR)/*.h)
+LINT_HDRS = $(wildcard src/**/*.h src/*.h $(EXTRACT_DIR)/*.h)
 LINT_TEST_SRCS = $(ALL_TEST_SRCS)
 
 # clang-tidy: deep static analysis (config in .clang-tidy)
@@ -514,9 +513,9 @@ lint-cppcheck:
 		--suppress=nullPointerOutOfMemory \
 		--suppress=nullPointerArithmeticOutOfMemory \
 		--suppress=ctunullpointerOutOfMemory \
-		--suppress='nullPointer:internal/cbm/sqlite_writer.c' \
+		--suppress='nullPointer:extract/sqlite_writer.c' \
 		-Isrc -Ivendored -Ivendored/sqlite3 \
-		-I$(CBM_DIR) -I$(TS_INCLUDE) \
+		-I$(EXTRACT_DIR) -I$(TS_INCLUDE) \
 		$(LINT_SRCS)
 
 # clang-format: formatting check (config in .clang-format, dry-run = no changes)
@@ -530,7 +529,7 @@ lint-format:
 # listed in recursion_whitelist.h. All other NOLINT forms are banned.
 lint-no-suppress:
 	@echo "=== NOLINT check ==="
-	@if grep -rn 'NOLINT' src/ internal/cbm/*.c internal/cbm/*.h 2>/dev/null \
+	@if grep -rn 'NOLINT' src/ extract/*.c extract/*.h 2>/dev/null \
 		| grep -v vendored \
 		| grep -v 'NOLINT(misc-no-recursion)' \
 		| grep -v 'recursion_whitelist.h'; then \

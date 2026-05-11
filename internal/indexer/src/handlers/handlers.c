@@ -214,7 +214,7 @@ static const char *cache_dir(char *buf, size_t bufsz) {
 
 /* Returns full .db path for a project: <cache_dir>/<project>.db
  * Honors CORTEX_DB env var via ctx_resolve_db_path; otherwise falls back
- * to the legacy per-project file under ~/.cache/codebase-memory-mcp/. */
+ * to the legacy per-project file under ~/.cache/cortex-indexer/. */
 static const char *project_db_path(const char *project, char *buf, size_t bufsz) {
     return ctx_resolve_db_path(project, buf, bufsz);
 }
