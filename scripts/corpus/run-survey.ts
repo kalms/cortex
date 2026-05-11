@@ -17,7 +17,7 @@
  * each repo. Re-running with the same BATCH replaces those entries.
  */
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +69,16 @@ function safeDirName(slug: string): string {
 
 function shallowClone(spec: RepoSpec): { repoDir: string; commit: string; tree: string } {
   const repoDir = join(CORPUS_DIR, safeDirName(spec.slug));
+  // Reuse an existing valid clone — avoids re-downloading large repos on retry.
+  if (existsSync(join(repoDir, ".git"))) {
+    try {
+      const commit = execSync("git rev-parse HEAD", { cwd: repoDir, encoding: "utf8" }).trim();
+      const tree = execSync("git rev-parse HEAD^{tree}", { cwd: repoDir, encoding: "utf8" }).trim();
+      return { repoDir, commit, tree };
+    } catch {
+      // fall through and re-clone
+    }
+  }
   if (existsSync(repoDir)) rmSync(repoDir, { recursive: true, force: true });
   mkdirSync(CORPUS_DIR, { recursive: true });
   execSync(`git clone --depth=1 ${spec.url}.git "${repoDir}"`, {
@@ -82,20 +92,33 @@ function shallowClone(spec: RepoSpec): { repoDir: string; commit: string; tree: 
 function runIndex(repoDir: string): { elapsedMs: number; project: string } {
   const dbPath = join(repoDir, ".cortex", "db");
   mkdirSync(dirname(dbPath), { recursive: true });
+  // Redirect indexer stderr to a file — its level=info progress logs are too
+  // verbose to keep in memory for large repos (Tensorflow exceeds the 64MB
+  // default maxBuffer and gets killed mid-run when the pipe blocks).
+  const logPath = join(repoDir, ".cortex", "index.log");
+  const logFd = openSync(logPath, "w");
   const start = Date.now();
-  const result = spawnSync(
-    INDEXER,
-    ["cli", "index_repository", JSON.stringify({ repo_path: repoDir })],
-    {
-      env: { ...process.env, CORTEX_DB: dbPath },
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 30 * 60 * 1000,
-    },
-  );
+  let result: ReturnType<typeof spawnSync>;
+  try {
+    result = spawnSync(
+      INDEXER,
+      ["cli", "index_repository", JSON.stringify({ repo_path: repoDir })],
+      {
+        env: { ...process.env, CORTEX_DB: dbPath },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", logFd],
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 60 * 60 * 1000,
+      },
+    );
+  } finally {
+    closeSync(logFd);
+  }
   const elapsedMs = Date.now() - start;
   if (result.status !== 0) {
-    throw new Error(`index_repository exit ${result.status}: ${result.stderr.slice(0, 500)}`);
+    throw new Error(
+      `index_repository exit ${result.status} (see ${logPath} for stderr)`,
+    );
   }
   // Indexer wraps responses in MCP envelope; isError signals failure.
   // The inner text payload includes the canonical project name — parse it
@@ -194,16 +217,22 @@ function cleanup(slug: string): void {
 
 const BATCH: RepoSpec[] = [
   {
-    slug: "millionco/react-doctor",
-    url: "https://github.com/millionco/react-doctor",
-    archetype: "ts-tooling",
-    notes: "small TS focused React linter (trending 2026-05-11)",
+    slug: "microsoft/vscode",
+    url: "https://github.com/microsoft/vscode",
+    archetype: "ts-large-editor",
+    notes: "large TS Electron editor — 14k files, validation for vscode-class repos",
   },
   {
-    slug: "rasbt/LLMs-from-scratch",
-    url: "https://github.com/rasbt/LLMs-from-scratch",
-    archetype: "research-notebook",
-    notes: "matches spec's research/notebook archetype",
+    slug: "playcanvas/supersplat",
+    url: "https://github.com/playcanvas/supersplat",
+    archetype: "ts-3d-tooling",
+    notes: "Gaussian-splat editor — WebGL/TS tool with binary asset handling",
+  },
+  {
+    slug: "CloakHQ/CloakBrowser",
+    url: "https://github.com/CloakHQ/CloakBrowser",
+    archetype: "ts-electron-app",
+    notes: "privacy-focused browser shell — Electron + TS",
   },
 ];
 
