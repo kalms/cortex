@@ -1,0 +1,29 @@
+Cortex
+
+Copyright (c) 2026 Rasmus Kalms. All rights reserved.
+
+This software and its source code are proprietary. No license — express or
+implied — is granted to use, copy, modify, merge, publish, distribute,
+sublicense, or sell any portion of this software except with the prior
+written permission of the copyright holder.
+
+Portions of this repository are derived from third-party works that
+retain their own licenses. In particular, the native structural indexer
+under `internal/indexer/` originated as a fork of
+codebase-memory-mcp (MIT) and continues to be governed by the MIT
+License with respect to that derivative work; see
+`internal/indexer/LICENSE` and `THIRD_PARTY.md` for the scope of the
+MIT grant and the licenses of vendored libraries.
+
+The proprietary terms above apply to the remainder of the repository
+(Cortex's TypeScript code, viewer, MCP server, decision tooling, build
+scripts, documentation, plugin manifest, and any other content outside
+`internal/indexer/`).
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
