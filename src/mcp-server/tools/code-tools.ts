@@ -116,11 +116,19 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
         // The indexer DB runs in WAL mode (see src/graph/store.ts). Checkpoint
         // WAL into the main file before copying so the cached snapshot is
         // self-contained — otherwise uncheckpointed pages would be missing.
+        let checkpointed = false;
         try {
           const conn = new Database(dbPath);
-          conn.pragma("wal_checkpoint(TRUNCATE)");
-          conn.close();
+          try {
+            conn.pragma("wal_checkpoint(TRUNCATE)");
+            checkpointed = true;
+          } finally {
+            conn.close();
+          }
         } catch { /* checkpoint failure is non-fatal; skip cache write */ }
+        if (!checkpointed) {
+          return result;
+        }
         try {
           writeCacheEntry(cacheKey, dbPath);
         } catch {
