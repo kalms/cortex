@@ -17,7 +17,7 @@
 #ifndef CTX_USERCONFIG_H
 #define CTX_USERCONFIG_H
 
-#include "cbm.h" /* CtxLanguage */
+#include "extract.h" /* CtxLanguage */
 
 /* ── Types ──────────────────────────────────────────────────────── */
 

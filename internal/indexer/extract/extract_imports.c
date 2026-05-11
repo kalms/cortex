@@ -1,4 +1,4 @@
-#include "cbm.h"
+#include "extract.h"
 #include "arena.h" // CtxArena, ctx_arena_strdup/strndup/sprintf
 #include "helpers.h"
 #include "tree_sitter/api.h" // TSNode, ts_node_*

@@ -17,7 +17,7 @@
 #include "graph_buffer/graph_buffer.h"
 #include "foundation/log.h"
 #include "foundation/compat.h"
-#include "cbm.h"
+#include "extract.h"
 
 #include <stdio.h>
 #include <stdlib.h>

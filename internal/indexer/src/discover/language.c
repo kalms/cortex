@@ -8,7 +8,7 @@
  */
 #include "discover/discover.h"
 #include "discover/userconfig.h"
-#include "cbm.h" // CtxLanguage, CTX_LANG_*
+#include "extract.h" // CtxLanguage, CTX_LANG_*
 
 #include "foundation/constants.h"
 

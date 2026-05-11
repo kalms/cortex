@@ -9,7 +9,7 @@
  *   5. Language detection for accepted files
  */
 #include "discover/discover.h"
-#include "cbm.h" // CtxLanguage, CTX_LANG_COUNT, CTX_LANG_JSON
+#include "extract.h" // CtxLanguage, CTX_LANG_COUNT, CTX_LANG_JSON
 
 #include "foundation/constants.h"
 #include "foundation/compat_fs.h"

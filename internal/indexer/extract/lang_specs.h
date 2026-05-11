@@ -1,7 +1,7 @@
 #ifndef CTX_LANG_SPECS_H
 #define CTX_LANG_SPECS_H
 
-#include "cbm.h"
+#include "extract.h"
 
 // CtxLangSpec mirrors Go's lang.LanguageSpec with NULL-terminated string arrays.
 typedef struct {

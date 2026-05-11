@@ -1,5 +1,5 @@
 #!/bin/bash
-# vendor-grammar.sh: Vendor a single tree-sitter grammar into internal/cbm/vendored/grammars/<name>/
+# vendor-grammar.sh: Vendor a single tree-sitter grammar into vendored/grammars/<name>/
 # Usage: ./scripts/vendor-grammar.sh <repo_url> <name> [subdir]
 #   repo_url: GitHub repository URL (e.g., https://github.com/tree-sitter/tree-sitter-json)
 #   name:     Target directory name (e.g., json)
@@ -13,7 +13,7 @@ SUBDIR="${3:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-GRAMMAR_DIR="$PROJECT_DIR/internal/cbm/vendored/grammars/$NAME"
+GRAMMAR_DIR="$PROJECT_DIR/vendored/grammars/$NAME"
 TMPDIR="$(mktemp -d)"
 
 trap 'rm -rf "$TMPDIR"' EXIT

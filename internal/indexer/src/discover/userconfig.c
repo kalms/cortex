@@ -10,7 +10,7 @@
  * skipped (fail-open). Missing files are silently ignored.
  */
 #include "discover/userconfig.h"
-#include "cbm.h" /* CtxLanguage, CTX_LANG_* */
+#include "extract.h" /* CtxLanguage, CTX_LANG_* */
 #include "foundation/constants.h"
 #include "foundation/platform.h" /* ctx_safe_getenv */
 

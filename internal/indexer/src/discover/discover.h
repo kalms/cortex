@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 /* Use the existing CtxLanguage enum from extraction layer */
-#include "cbm.h"
+#include "extract.h"
 
 /* ── Language detection ──────────────────────────────────────────── */
 

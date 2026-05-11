@@ -19,7 +19,7 @@
  *   - DLL patterns, SFINAE, placement new
  */
 #include "test_framework.h"
-#include "cbm.h"
+#include "extract.h"
 
 /* ── Helpers (same as test_go_lsp.c) ───────────────────────────── */
 

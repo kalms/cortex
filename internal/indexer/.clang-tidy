@@ -64,5 +64,5 @@ ExtraArgs:
   - '-Isrc'
   - '-Ivendored'
   - '-Ivendored/sqlite3'
-  - '-Iinternal/cbm'
-  - '-Iinternal/cbm/vendored/ts_runtime/include'
+  - '-Iextract'
+  - '-Ivendored/ts_runtime/include'

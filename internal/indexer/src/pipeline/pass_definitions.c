@@ -19,7 +19,7 @@ enum { PD_RING = 4, PD_RING_MASK = 3, PD_JSON_MARGIN = 10, PD_ESC_MARGIN = 3, PD
 #include "graph_buffer/graph_buffer.h"
 #include "foundation/log.h"
 #include "foundation/compat.h"
-#include "cbm.h"
+#include "extract.h"
 #include "simhash/minhash.h"
 #include "semantic/ast_profile.h"
 

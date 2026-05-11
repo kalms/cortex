@@ -9,7 +9,7 @@
 #include "test_framework.h"
 #include "test_helpers.h"
 #include "simhash/minhash.h"
-#include "cbm.h"
+#include "extract.h"
 #include "graph_buffer/graph_buffer.h"
 #include "pipeline/pipeline_internal.h"
 #include "pipeline/pipeline.h"

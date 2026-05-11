@@ -1,6 +1,6 @@
 #include "helpers.h"
 #include "arena.h" // CtxArena, ctx_arena_alloc/strdup/strndup/sprintf
-#include "cbm.h"   // CtxExtractCtx, CtxLanguage, CTX_LANG_*, EFCEntry, EFC_SIZE
+#include "extract.h"   // CtxExtractCtx, CtxLanguage, CTX_LANG_*, EFCEntry, EFC_SIZE
 #include "lang_specs.h"
 #include "tree_sitter/api.h" // TSNode, ts_node_*
 #include "foundation/constants.h"
