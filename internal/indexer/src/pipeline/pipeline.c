@@ -43,6 +43,34 @@ static inline void *intptr_to_ptr(intptr_t v) {
     return p;
 }
 
+/* Default max file size (KB) for discover filter. Files above this are skipped.
+ * The main offenders are huge generated artifacts (large protobuf headers,
+ * minified vendor JS, lockfiles, etc.) that bloat memory with no useful defs.
+ * Override at runtime via CTX_MAX_FILE_SIZE_KB; set to 0 for "no limit". */
+#define PIPELINE_DEFAULT_MAX_FILE_KB 2048
+
+/* Resolve max file size in bytes from env or use the default.
+ * Empty/unparseable → default. "0" → 0 (no limit, preserves prior behavior). */
+static size_t resolve_max_file_size(void) {
+    char buf[CTX_SZ_32];
+    const char *val = ctx_safe_getenv("CTX_MAX_FILE_SIZE_KB", buf, sizeof(buf), NULL);
+    long long max_kb = PIPELINE_DEFAULT_MAX_FILE_KB;
+    const char *source = "default";
+    if (val && val[0]) {
+        char *end = NULL;
+        long long parsed = strtoll(val, &end, CTX_DECIMAL_BASE);
+        if (end && end != val && parsed >= 0) {
+            max_kb = parsed;
+            source = "env";
+        }
+    }
+    size_t max_bytes = (size_t)max_kb * CTX_SZ_1K;
+    char kb_str[CTX_SZ_32];
+    snprintf(kb_str, sizeof(kb_str), "%lld", max_kb);
+    ctx_log_info("pipeline.max_file_size", "max_kb", kb_str, "source", source);
+    return max_bytes;
+}
+
 /* ── Global index lock ─────────────────────────────────────────── */
 /* Prevents concurrent pipeline runs on the same DB file.
  * Atomic spinlock: 0 = free, 1 = locked. */
@@ -798,7 +826,7 @@ int ctx_pipeline_run(ctx_pipeline_t *p) {
     ctx_discover_opts_t opts = {
         .mode = p->mode,
         .ignore_file = NULL,
-        .max_file_size = 0,
+        .max_file_size = resolve_max_file_size(),
     };
     ctx_file_info_t *files = NULL;
     int file_count = 0;

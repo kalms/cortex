@@ -531,6 +531,12 @@ static void extract_worker(int worker_id, void *ctx_ptr) {
         ctx_destroy_thread_parser();
         ctx_slab_reclaim();
         ctx_mem_collect();
+
+        /* Back-pressure gate: if RSS is over the safe threshold, block here
+         * until memory drops before pulling the next file. This effectively
+         * serializes workers under pressure, keeping them parallel when there
+         * is headroom. Must come AFTER the per-file cleanup above. */
+        ctx_mem_wait_for_headroom();
     }
 
     /* Final cleanup (parser already destroyed in loop, just slab state) */

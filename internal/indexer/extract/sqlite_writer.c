@@ -1152,6 +1152,16 @@ static int *make_sorted_perm(int n, int (*cmp)(const void *, const void *)) {
     return perm;
 }
 
+/* Autoindex PK sort context — precomputed 'ctx-<int>' / 'ctx-e<int>' strings.
+ * Node and edge autoindex builds run sequentially, so one static slot is safe. */
+static const char (*g_autoindex_id_strs)[32];
+
+static int cmp_perm_by_id_str(const void *a, const void *b) {
+    int ia = *(const int *)a;
+    int ib = *(const int *)b;
+    return strcmp(g_autoindex_id_strs[ia], g_autoindex_id_strs[ib]);
+}
+
 // --- Node index comparators (Cortex schema) ---
 
 // idx_nodes_kind: single-column TEXT index on kind (== LOWER(label))
@@ -1862,38 +1872,34 @@ int ctx_write_db(const char *path, const char *project, const char *root_path,
      * text. */
     uint32_t autoindex_nodes_root = 0;
     if (node_count > 0) {
-        int *node_perm = (int *)malloc(node_count * sizeof(int));
-        for (int i = 0; i < node_count; i++) node_perm[i] = i;
-        /* Reuse cmp_node_by_label-style approach but sort by formatted id text. */
-        struct { CtxDumpNode *base; } pctx = {nodes};
-        (void)pctx;  /* qsort_r is portability-fragile; use a small inline sort below. */
-        /* Insertion sort — node_count is small enough relative to other sorts. */
-        for (int i = 1; i < node_count; i++) {
-            int key = node_perm[i];
-            char key_buf[32];
-            format_node_id(key_buf, sizeof(key_buf), nodes[key].id);
-            int j = i - 1;
-            while (j >= 0) {
-                char cmp_buf[32];
-                format_node_id(cmp_buf, sizeof(cmp_buf), nodes[node_perm[j]].id);
-                if (strcmp(cmp_buf, key_buf) <= 0) break;
-                node_perm[j + 1] = node_perm[j];
-                j--;
-            }
-            node_perm[j + 1] = key;
+        /* Precompute formatted ID strings once (was: 2 snprintf per insertion-sort
+         * compare → O(N²) snprintfs on large repos, hung vscode for 20+ minutes). */
+        char (*id_strs)[32] = (char (*)[32])malloc((size_t)node_count * sizeof(char[32]));
+        int *node_perm = (int *)malloc((size_t)node_count * sizeof(int));
+        uint8_t **cells = (uint8_t **)malloc((size_t)node_count * sizeof(uint8_t *));
+        int *lens = (int *)malloc((size_t)node_count * sizeof(int));
+        if (!id_strs || !node_perm || !cells || !lens) {
+            free(id_strs); free(node_perm); free(cells); free(lens);
+            (void)fclose(fp);
+            return ERR_WRITE_FAILED;
         }
-        uint8_t **cells = (uint8_t **)malloc(node_count * sizeof(uint8_t *));
-        int *lens = (int *)malloc(node_count * sizeof(int));
         for (int i = 0; i < node_count; i++) {
-            char id_buf[32];
-            format_node_id(id_buf, sizeof(id_buf), nodes[node_perm[i]].id);
-            cells[i] = build_index_entry_1text_rowid(id_buf, nodes[node_perm[i]].id, &lens[i]);
+            format_node_id(id_strs[i], sizeof(id_strs[i]), nodes[i].id);
+            node_perm[i] = i;
+        }
+        g_autoindex_id_strs = (const char (*)[32])id_strs;
+        qsort(node_perm, (size_t)node_count, sizeof(int), cmp_perm_by_id_str);
+        g_autoindex_id_strs = NULL;
+        for (int i = 0; i < node_count; i++) {
+            int src = node_perm[i];
+            cells[i] = build_index_entry_1text_rowid(id_strs[src], nodes[src].id, &lens[i]);
         }
         autoindex_nodes_root = write_index_btree(fp, &next_page, cells, lens, node_count);
         for (int i = 0; i < node_count; i++) free(cells[i]);
         free(cells);
         free(lens);
         free(node_perm);
+        free(id_strs);
     } else {
         autoindex_nodes_root = write_index_btree(fp, &next_page, NULL, NULL, 0);
     }
@@ -1916,34 +1922,33 @@ int ctx_write_db(const char *path, const char *project, const char *root_path,
      * sort over 'ctx-e<int>'. */
     uint32_t autoindex_edges_root = 0;
     if (edge_count > 0) {
-        int *edge_perm = (int *)malloc(edge_count * sizeof(int));
-        for (int i = 0; i < edge_count; i++) edge_perm[i] = i;
-        for (int i = 1; i < edge_count; i++) {
-            int key = edge_perm[i];
-            char key_buf[32];
-            format_edge_id(key_buf, sizeof(key_buf), edges[key].id);
-            int j = i - 1;
-            while (j >= 0) {
-                char cmp_buf[32];
-                format_edge_id(cmp_buf, sizeof(cmp_buf), edges[edge_perm[j]].id);
-                if (strcmp(cmp_buf, key_buf) <= 0) break;
-                edge_perm[j + 1] = edge_perm[j];
-                j--;
-            }
-            edge_perm[j + 1] = key;
+        /* Same precompute-then-qsort approach as the nodes autoindex above. */
+        char (*id_strs)[32] = (char (*)[32])malloc((size_t)edge_count * sizeof(char[32]));
+        int *edge_perm = (int *)malloc((size_t)edge_count * sizeof(int));
+        uint8_t **cells = (uint8_t **)malloc((size_t)edge_count * sizeof(uint8_t *));
+        int *lens = (int *)malloc((size_t)edge_count * sizeof(int));
+        if (!id_strs || !edge_perm || !cells || !lens) {
+            free(id_strs); free(edge_perm); free(cells); free(lens);
+            (void)fclose(fp);
+            return ERR_WRITE_FAILED;
         }
-        uint8_t **cells = (uint8_t **)malloc(edge_count * sizeof(uint8_t *));
-        int *lens = (int *)malloc(edge_count * sizeof(int));
         for (int i = 0; i < edge_count; i++) {
-            char id_buf[32];
-            format_edge_id(id_buf, sizeof(id_buf), edges[edge_perm[i]].id);
-            cells[i] = build_index_entry_1text_rowid(id_buf, edges[edge_perm[i]].id, &lens[i]);
+            format_edge_id(id_strs[i], sizeof(id_strs[i]), edges[i].id);
+            edge_perm[i] = i;
+        }
+        g_autoindex_id_strs = (const char (*)[32])id_strs;
+        qsort(edge_perm, (size_t)edge_count, sizeof(int), cmp_perm_by_id_str);
+        g_autoindex_id_strs = NULL;
+        for (int i = 0; i < edge_count; i++) {
+            int src = edge_perm[i];
+            cells[i] = build_index_entry_1text_rowid(id_strs[src], edges[src].id, &lens[i]);
         }
         autoindex_edges_root = write_index_btree(fp, &next_page, cells, lens, edge_count);
         for (int i = 0; i < edge_count; i++) free(cells[i]);
         free(cells);
         free(lens);
         free(edge_perm);
+        free(id_strs);
     } else {
         autoindex_edges_root = write_index_btree(fp, &next_page, NULL, NULL, 0);
     }
