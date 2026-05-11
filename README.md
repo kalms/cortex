@@ -224,12 +224,20 @@ Major suites:
 
 ## License & Attribution
 
-Cortex's native indexer originated as a fork of
-[DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
-and vendors several C libraries (mimalloc, SQLite, TRE, xxHash, yyjson,
-tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary).
-Full attribution, upstream licenses, and per-component sources are documented
-in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
+Cortex is split into two licensing zones:
+
+- **`internal/indexer/`** — derivative of
+  [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
+  Governed by the **MIT License** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)).
+- **Everything else** — Cortex's TypeScript code, viewer, MCP server, decision
+  tooling, build scripts, plugin manifest, and documentation. **Proprietary,
+  all rights reserved** (see the root [`LICENSE`](./LICENSE)).
+
+The indexer additionally vendors several C libraries (mimalloc, SQLite, TRE,
+xxHash, yyjson, tree-sitter runtime + grammars, LZ4, simplecpp, nomic
+embedding vocabulary), each retaining its own upstream license. Full
+attribution, upstream licenses, and per-component sources are documented in
+[`THIRD_PARTY.md`](./THIRD_PARTY.md).
 
 ## Project Structure
 
