@@ -1,5 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { GraphStore, type NodeRow } from "./graph/store.js";
 import { createServer } from "./mcp-server/server.js";
@@ -8,11 +9,25 @@ import { startWsServer, type WsServerHandle } from "./ws/server.js";
 import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
+import { resolveCortexDbPath } from "./db/resolve-path.js";
 import type { WireNode } from "./events/types.js";
 
-const dbPath = process.env.CORTEX_DB_PATH || ".cortex/graph.db";
+const dbPath = resolveCortexDbPath();
 const eventsDbPath = process.env.CORTEX_EVENTS_DB_PATH || ".cortex/events.db";
-mkdirSync(".cortex", { recursive: true });
+
+// Ensure <repo>/.cortex/ exists and seed a .gitignore so SQLite artifacts
+// (db, db-wal, db-shm) and the future local/ dir don't leak into the repo's
+// git history when Cortex indexes a foreign repo.
+const cortexDir = dirname(dbPath);
+mkdirSync(cortexDir, { recursive: true });
+const gitignorePath = join(cortexDir, ".gitignore");
+if (!existsSync(gitignorePath)) {
+  try {
+    writeFileSync(gitignorePath, "db\ndb-wal\ndb-shm\nlocal/\n");
+  } catch (e) {
+    process.stderr.write(`Cortex: could not seed ${gitignorePath} (${(e as Error).message})\n`);
+  }
+}
 
 const store = new GraphStore(dbPath);
 
