@@ -244,7 +244,7 @@ static const char *local_rel_path(const char *rel_path, const char *local_prefix
 /* Check if a directory entry should be skipped (hardcoded dirs + gitignore). */
 static bool should_skip_directory(const char *entry_name, const char *rel_path,
                                   const ctx_discover_opts_t *opts, const ctx_gitignore_t *gitignore,
-                                  const ctx_gitignore_t *cbmignore, const ctx_gitignore_t *local_gi,
+                                  const ctx_gitignore_t *ctxignore, const ctx_gitignore_t *local_gi,
                                   const char *local_gi_prefix) {
     if (ctx_should_skip_dir(entry_name, opts ? opts->mode : CTX_MODE_FULL)) {
         return true;
@@ -258,7 +258,7 @@ static bool should_skip_directory(const char *entry_name, const char *rel_path,
             return true;
         }
     }
-    if (cbmignore && ctx_gitignore_matches(cbmignore, rel_path, true)) {
+    if (ctxignore && ctx_gitignore_matches(ctxignore, rel_path, true)) {
         return true;
     }
     return false;
@@ -267,7 +267,7 @@ static bool should_skip_directory(const char *entry_name, const char *rel_path,
 /* Check if a regular file should be skipped (filters + gitignore + size). */
 static bool should_skip_file(const char *entry_name, const char *rel_path,
                              const ctx_discover_opts_t *opts, const ctx_gitignore_t *gitignore,
-                             const ctx_gitignore_t *cbmignore, const ctx_gitignore_t *local_gi,
+                             const ctx_gitignore_t *ctxignore, const ctx_gitignore_t *local_gi,
                              const char *local_gi_prefix, off_t file_size) {
     ctx_index_mode_t mode = opts ? opts->mode : CTX_MODE_FULL;
     if (ctx_has_ignored_suffix(entry_name, mode)) {
@@ -288,7 +288,7 @@ static bool should_skip_file(const char *entry_name, const char *rel_path,
             return true;
         }
     }
-    if (cbmignore && ctx_gitignore_matches(cbmignore, rel_path, false)) {
+    if (ctxignore && ctx_gitignore_matches(ctxignore, rel_path, false)) {
         return true;
     }
     if (opts && opts->max_file_size > 0 && file_size > opts->max_file_size) {
@@ -335,9 +335,9 @@ static int safe_stat(const char *abs_path, struct stat *st) {
 /* Process a single regular file entry during directory walk. */
 static void walk_dir_process_file(const char *abs_path, const char *rel_path, const char *name,
                                   const ctx_discover_opts_t *opts, const ctx_gitignore_t *gitignore,
-                                  const ctx_gitignore_t *cbmignore, const ctx_gitignore_t *local_gi,
+                                  const ctx_gitignore_t *ctxignore, const ctx_gitignore_t *local_gi,
                                   const char *local_gi_prefix, off_t size, file_list_t *out) {
-    if (should_skip_file(name, rel_path, opts, gitignore, cbmignore, local_gi, local_gi_prefix,
+    if (should_skip_file(name, rel_path, opts, gitignore, ctxignore, local_gi, local_gi_prefix,
                          size)) {
         return;
     }
@@ -386,7 +386,7 @@ static void walk_push_subdir(walk_frame_t *stack, int *top, const char *abs_path
 static void walk_dir_process_entry(ctx_dirent_t *entry, const walk_frame_t *frame,
                                    const ctx_discover_opts_t *opts,
                                    const ctx_gitignore_t *gitignore,
-                                   const ctx_gitignore_t *cbmignore, walk_frame_t *stack, int *top,
+                                   const ctx_gitignore_t *ctxignore, walk_frame_t *stack, int *top,
                                    file_list_t *out) {
     char abs_path[CTX_SZ_4K];
     char rel_path[CTX_SZ_4K];
@@ -403,12 +403,12 @@ static void walk_dir_process_entry(ctx_dirent_t *entry, const walk_frame_t *fram
     }
 
     if (S_ISDIR(st.st_mode)) {
-        if (!should_skip_directory(entry->name, rel_path, opts, gitignore, cbmignore,
+        if (!should_skip_directory(entry->name, rel_path, opts, gitignore, ctxignore,
                                    frame->local_gi, frame->local_gi_prefix)) {
             walk_push_subdir(stack, top, abs_path, rel_path, frame);
         }
     } else if (S_ISREG(st.st_mode)) {
-        walk_dir_process_file(abs_path, rel_path, entry->name, opts, gitignore, cbmignore,
+        walk_dir_process_file(abs_path, rel_path, entry->name, opts, gitignore, ctxignore,
                               frame->local_gi, frame->local_gi_prefix, st.st_size, out);
     }
 }
@@ -416,7 +416,7 @@ static void walk_dir_process_entry(ctx_dirent_t *entry, const walk_frame_t *fram
 enum { GI_OWNED_CAP = 64 };
 
 static void walk_dir(const char *dir_path, const char *rel_prefix, const ctx_discover_opts_t *opts,
-                     const ctx_gitignore_t *gitignore, const ctx_gitignore_t *cbmignore,
+                     const ctx_gitignore_t *gitignore, const ctx_gitignore_t *ctxignore,
                      file_list_t *out) {
     walk_frame_t *stack = calloc(WALK_STACK_CAP, sizeof(walk_frame_t));
     if (!stack) {
@@ -451,7 +451,7 @@ static void walk_dir(const char *dir_path, const char *rel_prefix, const ctx_dis
 
         ctx_dirent_t *entry;
         while ((entry = ctx_readdir(d)) != NULL) {
-            walk_dir_process_entry(entry, &frame, opts, gitignore, cbmignore, stack, &top, out);
+            walk_dir_process_entry(entry, &frame, opts, gitignore, ctxignore, stack, &top, out);
         }
         ctx_closedir(d);
     }
@@ -488,22 +488,22 @@ int ctx_discover(const char *repo_path, const ctx_discover_opts_t *opts, ctx_fil
         gitignore = ctx_gitignore_load(gi_path);
     }
 
-    /* Load cbmignore if specified or exists at repo root */
-    ctx_gitignore_t *cbmignore = NULL;
+    /* Load ctxignore if specified or exists at repo root */
+    ctx_gitignore_t *ctxignore = NULL;
     if (opts && opts->ignore_file) {
-        cbmignore = ctx_gitignore_load(opts->ignore_file);
+        ctxignore = ctx_gitignore_load(opts->ignore_file);
     } else {
-        snprintf(gi_path, sizeof(gi_path), "%s/.cbmignore", repo_path);
-        cbmignore = ctx_gitignore_load(gi_path);
+        snprintf(gi_path, sizeof(gi_path), "%s/.cortexignore", repo_path);
+        ctxignore = ctx_gitignore_load(gi_path);
     }
 
     /* Walk */
     file_list_t fl = {0};
-    walk_dir(repo_path, "", opts, gitignore, cbmignore, &fl);
+    walk_dir(repo_path, "", opts, gitignore, ctxignore, &fl);
 
     /* Cleanup */
     ctx_gitignore_free(gitignore);
-    ctx_gitignore_free(cbmignore);
+    ctx_gitignore_free(ctxignore);
 
     *out = fl.files;
     *count = fl.count;

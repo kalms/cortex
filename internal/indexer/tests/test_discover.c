@@ -410,12 +410,12 @@ TEST(discover_skips_worktrees) {
     PASS();
 }
 
-TEST(discover_cbmignore) {
+TEST(discover_cortexignore) {
     char *base = th_mktempdir("ctx_disc_cbmi");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
-    th_write_file(TH_PATH(base, ".cbmignore"), "generated/\n*.pb.go\n");
+    th_write_file(TH_PATH(base, ".cortexignore"), "generated/\n*.pb.go\n");
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
     th_write_file(TH_PATH(base, "generated/types.go"), "package gen\n");
     th_write_file(TH_PATH(base, "api.pb.go"), "package api\n");
@@ -434,13 +434,13 @@ TEST(discover_cbmignore) {
     PASS();
 }
 
-TEST(discover_cbmignore_stacks) {
+TEST(discover_cortexignore_stacks) {
     char *base = th_mktempdir("ctx_disc_stack");
     ASSERT(base != NULL);
 
     th_mkdir_p(TH_PATH(base, ".git"));
     th_write_file(TH_PATH(base, ".gitignore"), "*.log\n");
-    th_write_file(TH_PATH(base, ".cbmignore"), "docs/\n");
+    th_write_file(TH_PATH(base, ".cortexignore"), "docs/\n");
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
     th_write_file(TH_PATH(base, "docs/api.go"), "package docs\n");
 
@@ -571,11 +571,11 @@ TEST(discover_generic_dirs_fast_mode) {
     PASS();
 }
 
-TEST(discover_cbmignore_no_git) {
+TEST(discover_cortexignore_no_git) {
     char *base = th_mktempdir("ctx_disc_nogit");
     ASSERT(base != NULL);
 
-    th_write_file(TH_PATH(base, ".cbmignore"), "scratch/\n");
+    th_write_file(TH_PATH(base, ".cortexignore"), "scratch/\n");
     th_write_file(TH_PATH(base, "main.go"), "package main\n");
     th_write_file(TH_PATH(base, "scratch/tmp.go"), "package scratch\n");
 
@@ -750,13 +750,13 @@ SUITE(discover) {
 
     /* Go test ports (cross-platform) */
     RUN_TEST(discover_skips_worktrees);
-    RUN_TEST(discover_cbmignore);
-    RUN_TEST(discover_cbmignore_stacks);
+    RUN_TEST(discover_cortexignore);
+    RUN_TEST(discover_cortexignore_stacks);
     RUN_TEST(discover_symlink_skipped);
     RUN_TEST(discover_new_ignore_patterns);
     RUN_TEST(discover_generic_dirs_full_mode);
     RUN_TEST(discover_generic_dirs_fast_mode);
-    RUN_TEST(discover_cbmignore_no_git);
+    RUN_TEST(discover_cortexignore_no_git);
 
     /* Nested .gitignore tests (issue #178) */
     RUN_TEST(discover_nested_gitignore);
