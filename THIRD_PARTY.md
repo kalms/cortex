@@ -4,11 +4,26 @@ Cortex incorporates code from a number of upstream projects. We are grateful
 to the authors and maintainers of these projects for making their work freely
 available.
 
-This document is the single source of attribution for the Cortex repository.
-Individual `LICENSE` files for each vendored library remain inside their own
-directories (under `internal/indexer/vendored/` and
-`internal/indexer/internal/cbm/vendored/`) so that source-level license tooling
-and downstream packagers can still locate them.
+## Licensing summary
+
+Cortex is split into two licensing zones:
+
+- **`internal/indexer/`** — derivative of
+  [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
+  Governed by the **MIT License**; see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE).
+- **Everything else in this repository** — Cortex's TypeScript code, viewer,
+  MCP server, decision tooling, build scripts, plugin manifest, documentation,
+  etc. **Proprietary, all rights reserved**; see the root [`LICENSE`](./LICENSE).
+
+Vendored C libraries inside `internal/indexer/vendored/` and
+`internal/indexer/internal/cbm/vendored/` retain their own licenses (MIT,
+BSD-2-Clause, Apache-2.0, Public Domain, EPL-1.0 — see the tables below) and
+are unaffected by either of the above; their per-directory `LICENSE` and
+in-source notice files remain authoritative for source-level license tooling
+and downstream packagers.
+
+This document is the single consolidated source of attribution for the Cortex
+repository.
 
 ## codebase-memory-mcp (CBM)
 
@@ -99,6 +114,7 @@ are summarised here:
   `internal/indexer/internal/cbm/vendored/<lib>/` are the authoritative
   per-component licenses. This document is a consolidation, not a
   replacement.
-- Cortex itself is released under the same terms as its upstream lineage
-  (MIT). Contributions to Cortex are accepted under the same license unless
-  otherwise noted.
+- Cortex as a whole is proprietary (all rights reserved); see the root
+  `LICENSE`. The MIT terms apply only to the derivative indexer code in
+  `internal/indexer/` (per `internal/indexer/LICENSE`) and to those vendored
+  libraries whose individual licenses are MIT.
