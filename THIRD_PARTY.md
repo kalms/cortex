@@ -15,12 +15,11 @@ Cortex is split into two licensing zones:
   MCP server, decision tooling, build scripts, plugin manifest, documentation,
   etc. **Proprietary, all rights reserved**; see the root [`LICENSE`](./LICENSE).
 
-Vendored C libraries inside `internal/indexer/vendored/` and
-`internal/indexer/internal/cbm/vendored/` retain their own licenses (MIT,
-BSD-2-Clause, Apache-2.0, Public Domain, EPL-1.0 — see the tables below) and
-are unaffected by either of the above; their per-directory `LICENSE` and
-in-source notice files remain authoritative for source-level license tooling
-and downstream packagers.
+Vendored C libraries inside `internal/indexer/vendored/` retain their own
+licenses (MIT, BSD-2-Clause, Apache-2.0, Public Domain, EPL-1.0 — see the
+table below) and are unaffected by either of the above; their per-directory
+`LICENSE` and in-source notice files remain authoritative for source-level
+license tooling and downstream packagers.
 
 This document is the single consolidated source of attribution for the Cortex
 repository.
@@ -82,23 +81,24 @@ in-source license header) inside its vendor directory.
 | xxHash     | Fast non-cryptographic hash | BSD-2-Clause       | `internal/indexer/vendored/xxhash/` (notice in `xxhash.c`)        |
 | yyjson     | JSON parser / writer        | MIT                | `internal/indexer/vendored/yyjson/` (notice in `yyjson.h`)        |
 
-### Additional vendored sources under `internal/indexer/internal/cbm/vendored/`
+### Additional vendored sources (lineage: CBM)
 
-Inherited from the upstream CBM tree and still built into the indexer:
+These four sit alongside the libraries above in `internal/indexer/vendored/`
+and were inherited from the upstream CBM tree:
 
 | Library              | Used for                                    | License       | Source                                                                         |
 | -------------------- | ------------------------------------------- | ------------- | ------------------------------------------------------------------------------ |
-| tree-sitter runtime  | Incremental parser runtime                  | MIT           | `internal/indexer/internal/cbm/vendored/ts_runtime/` (Max Brunsfeld, 2018)     |
-| tree-sitter grammars | Per-language generated `parser.c`/`scanner.c` for ~60 languages | MIT (Clojure: EPL-1.0; FORM and Magma: MIT, custom to DeusData) | `internal/indexer/internal/cbm/vendored/grammars/<lang>/` |
-| LZ4                  | Block compression for cache pages           | BSD-2-Clause  | `internal/indexer/internal/cbm/vendored/lz4/` (Yann Collet, 2011-2023)         |
-| simplecpp            | C/C++ preprocessor (for extraction passes)  | Per upstream simplecpp project (see in-source header in `simplecpp.h`) | `internal/indexer/internal/cbm/vendored/simplecpp/` |
+| tree-sitter runtime  | Incremental parser runtime                  | MIT           | `internal/indexer/vendored/ts_runtime/` (Max Brunsfeld, 2018)                  |
+| tree-sitter grammars | Per-language generated `parser.c`/`scanner.c` for ~60 languages | MIT (Clojure: EPL-1.0; FORM and Magma: MIT, custom to DeusData) | `internal/indexer/vendored/grammars/<lang>/` |
+| LZ4                  | Block compression for cache pages           | BSD-2-Clause  | `internal/indexer/vendored/lz4/` (Yann Collet, 2011-2023)                      |
+| simplecpp            | C/C++ preprocessor (for extraction passes)  | Per upstream simplecpp project (see in-source header in `simplecpp.h`) | `internal/indexer/vendored/simplecpp/` |
 
 A full per-grammar table (upstream repo, copyright, license) is preserved in
-the upstream CBM `THIRD_PARTY.md` history; the same grammars are still
-vendored under `internal/indexer/internal/cbm/vendored/grammars/`. Each
-grammar's upstream `LICENSE` accompanies its `parser.c` where the upstream
-project provided one. The grammar list and licenses (unchanged from upstream)
-are summarised here:
+the upstream CBM `THIRD_PARTY.md` history; the same grammars now live under
+`internal/indexer/vendored/grammars/<lang>/`. Each grammar's upstream
+`LICENSE` accompanies its `parser.c` where the upstream project provided
+one. The grammar list and licenses (unchanged from upstream) are summarised
+here:
 
 - Most grammars: MIT (tree-sitter org and `tree-sitter-grammars/` org).
 - `clojure`: EPL-1.0 (compatible with MIT for downstream consumption).
@@ -110,10 +110,8 @@ are summarised here:
 ## Notes
 
 - The vendored libraries' own `LICENSE` and in-source notice files inside
-  `internal/indexer/vendored/<lib>/` and
-  `internal/indexer/internal/cbm/vendored/<lib>/` are the authoritative
-  per-component licenses. This document is a consolidation, not a
-  replacement.
+  `internal/indexer/vendored/<lib>/` are the authoritative per-component
+  licenses. This document is a consolidation, not a replacement.
 - Cortex as a whole is proprietary (all rights reserved); see the root
   `LICENSE`. The MIT terms apply only to the derivative indexer code in
   `internal/indexer/` (per `internal/indexer/LICENSE`) and to those vendored
