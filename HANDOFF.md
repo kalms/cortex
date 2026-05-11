@@ -20,7 +20,7 @@ Cortex v0.3 is a **multi-track release**. Track 1 (CBM absorption) is the most a
 
 | Track | Status | Where |
 |---|---|---|
-| **CBM absorption Phase 1** — vendor CBM into `internal/cbm/` via subtree | ✅ tagged `phase-1-subtree-merged` | merged 2026-05-04 |
+| **CBM absorption Phase 1** — vendor CBM into `internal/indexer/` via subtree | ✅ tagged `phase-1-subtree-merged` | merged 2026-05-04 |
 | **CBM absorption Phase 2** — `npm install` builds indexer locally; remove GitHub release download path | ✅ tagged `phase-2-build-pipeline` | merged 2026-05-04 |
 | **CBM absorption Phase 3a** — indexer honors `CORTEX_DB`; `cbm_*` table prefix | ✅ tagged `phase-3a-storage-retarget` | merged 2026-05-04 |
 | **CBM absorption Phase 3b** — TS query layer drops ATTACH; queries `cbm_*` directly | ✅ tagged `phase-3b-ts-side` | merged 2026-05-04 |
@@ -65,7 +65,7 @@ These all have authoritative design docs in `docs/specs/cortex-v0.3/`:
 - `code-queries.ts` queries `nodes WHERE project = ? AND kind NOT IN ('decision','pr','todo')`.
 
 **C-side**
-- `internal/cbm/internal/cbm/sqlite_writer.c` (the hot bulk-write path) rewritten to produce the new schema via raw B-tree pages. Record builders, comparators (sort by formatted text id to match SQLite BINARY collation), index B-trees, and `sqlite_autoindex_*_1` autoindexes for TEXT PRIMARY KEY all updated.
+- `internal/indexer/internal/cbm/sqlite_writer.c` (the hot bulk-write path) rewritten to produce the new schema via raw B-tree pages. Record builders, comparators (sort by formatted text id to match SQLite BINARY collation), index B-trees, and `sqlite_autoindex_*_1` autoindexes for TEXT PRIMARY KEY all updated.
 - `cbm_store_t.upsert_node` / `insert_edge` SQL-API path also writes the new schema. In-process `next_node_id` / `next_edge_id` counters seeded on store-open from `MAX(SUBSTR(id, 5))`.
 - Bookkeeping tables renamed `cbm_*` → `ctx_*` (`ctx_projects`, `ctx_file_hashes`, `ctx_project_summaries`, `ctx_nodes_fts`, `ctx_node_vectors`, `ctx_token_vectors`).
 - `init_schema` no longer creates `nodes`/`edges` (Cortex owns them).
@@ -87,7 +87,7 @@ There's no single "right next thing." Five reasonable options, each with a diffe
 
 ### Option A — Continue Track 1 (CBM absorption)
 
-**Phase 6 (strip CBM's MCP shell + bridge missing tools).** Smallest scope of the remaining absorption phases. Files to delete: `internal/cbm/src/mcp/`, MCP entry in `internal/cbm/src/main.c`, `internal/cbm/graph-ui/`, `internal/cbm/vendored/mongoose`. New CLI subcommands (`query_graph`, `get_architecture`, `ingest_traces`) lifted from `mcp.c` to `cli/`, then bridged via Cortex's `code-tools.ts`. `manage_adr` deliberately not bridged.
+**Phase 6 (strip CBM's MCP shell + bridge missing tools).** Smallest scope of the remaining absorption phases. Files to delete: `internal/indexer/src/mcp/`, MCP entry in `internal/indexer/src/main.c`, `internal/indexer/graph-ui/`, `internal/indexer/vendored/mongoose`. New CLI subcommands (`query_graph`, `get_architecture`, `ingest_traces`) lifted from `mcp.c` to `cli/`, then bridged via Cortex's `code-tools.ts`. `manage_adr` deliberately not bridged.
 
 **When to pick this:** if completing the absorption story matters more than other tracks. Phase 6 is mostly mechanical deletion + handler-lifting.
 
@@ -123,7 +123,7 @@ If you want to ship something user-facing quickly: **C (TODO entity)** — clean
 
 If you want to set up the next major piece: **B (corpus survey)** — unblocks E.
 
-If you want to finish the absorption story: **A.6 (strip MCP shell)** — keeps that track moving and reduces dead code in `internal/cbm/`.
+If you want to finish the absorption story: **A.6 (strip MCP shell)** — keeps that track moving and reduces dead code in `internal/indexer/`.
 
 ## Project conventions (recap)
 
@@ -147,9 +147,9 @@ From recent observation (this session):
 
 ### Phase 4 follow-ups
 - **Viewer regression for granular kinds.** 2D viewer's color/shape map was tuned for the old `function`/`component`/`path` collapse. Post-Phase-4 kinds (`class`, `method`, `interface`, `enum`, etc.) render with default styling. Pick up in a small viewer-styling pass.
-- **CBM C tests broken.** `internal/cbm/tests/` (~2700 tests) still references `cbm_*` tables / old column names. `npm test` doesn't run them so it's not a CI issue, but if you ever want to run CBM's own test suite they need updating.
+- **CBM C tests broken.** `internal/indexer/tests/` (~2700 tests) still references `cbm_*` tables / old column names. `npm test` doesn't run them so it's not a CI issue, but if you ever want to run CBM's own test suite they need updating.
 - **`Cbm*` TS interface names.** `CbmNode`, `CbmEdge`, `CbmProject` kept for diff continuity. Phase 8 renames.
-- **Lean grammar parser ~100MB.** `internal/cbm/internal/cbm/vendored/grammars/lean/parser.c` flagged on push. Future Git LFS consideration.
+- **Lean grammar parser ~100MB.** `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push. Future Git LFS consideration.
 - **`tests/mcp-contract/decision-tools.test.ts` 1 skipped test.** Pre-existing; investigate someday.
 
 ### From earlier sessions
@@ -238,9 +238,9 @@ Pick a track from §"What to pick up next" above. Then:
 | [`src/graph/code-queries.ts`](src/graph/code-queries.ts) | All SQL targets unified `nodes`/`edges` |
 | [`src/index.ts`](src/index.ts) | `cbm_projects` → `ctx_projects` |
 | [`src/mcp-server/tools/code-tools.ts`](src/mcp-server/tools/code-tools.ts) | Inline SQL + formatters use `kind` |
-| [`internal/cbm/src/store/store.c`](internal/cbm/src/store/store.c) | New schema in `init_schema`, INSERTs, SELECTs |
-| [`internal/cbm/internal/cbm/sqlite_writer.c`](internal/cbm/internal/cbm/sqlite_writer.c) | Bulk-write path full rewrite |
-| [`internal/cbm/src/pipeline/pipeline.c`](internal/cbm/src/pipeline/pipeline.c) | FTS backfill uses `nodes.rowid` |
+| [`internal/indexer/src/store/store.c`](internal/indexer/src/store/store.c) | New schema in `init_schema`, INSERTs, SELECTs |
+| [`internal/indexer/internal/cbm/sqlite_writer.c`](internal/indexer/internal/cbm/sqlite_writer.c) | Bulk-write path full rewrite |
+| [`internal/indexer/src/pipeline/pipeline.c`](internal/indexer/src/pipeline/pipeline.c) | FTS backfill uses `nodes.rowid` |
 | [`tests/mcp-contract/globalSetup.ts`](tests/mcp-contract/globalSetup.ts) | Queries new schema |
 | [`tests/graph/code-queries.test.ts`](tests/graph/code-queries.test.ts) | `ctx-` prefix; `ctx_projects` |
 | [`tests/mcp-contract/code-tools.test.ts`](tests/mcp-contract/code-tools.test.ts) | Lowercase kind regex |
