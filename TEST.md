@@ -4,14 +4,14 @@
 
 ```bash
 npm install
-npm test                    # 70 unit tests via vitest
+npm test                    # Unit tests via vitest
 npm run dev                 # Starts MCP server (stdio) + viewer (http://localhost:3334)
 ```
 
 ## Unit Tests
 
 ```bash
-npm test                              # Run all 70 tests
+npm test                              # Run all tests
 npm run test:watch                    # Watch mode
 npx vitest run tests/graph/store.test.ts   # Single file
 ```
@@ -23,7 +23,6 @@ npx vitest run tests/graph/store.test.ts   # Single file
 | `tests/graph/store.test.ts` | 15 | Schema migration, node/edge CRUD, annotations, FTS |
 | `tests/graph/fts.test.ts` | 5 | FTS5 index, search, update, remove |
 | `tests/graph/query.test.ts` | 7 | getConnected (out/in/filtered), findPath (direct/multi-hop/maxDepth) |
-| `tests/graph/cbm-attach.test.ts` | 18 | CBM ATTACH, discovery, searchGraph, tracePath, schema, unified queries |
 | `tests/decisions/service.test.ts` | 14 | Decision create/update/delete/get with GOVERNS/REFERENCES edges |
 | `tests/decisions/search.test.ts` | 7 | FTS keyword search, scoped search, whyWasThisBuilt hierarchy walk |
 | `tests/decisions/promotion.test.ts` | 4 | Tier promotion (personal → team → public) |
@@ -88,34 +87,42 @@ open http://localhost:3334/viewer
 
 The viewer shows the full graph — decisions, code entities, and all edges. Click nodes to see detail panels, use search and kind filters, test mobile layout at narrow viewport.
 
-## Testing the CBM Integration
+## Testing the Indexer Integration
 
 ### Prerequisites
 
-Cortex needs an indexed CBM database. If you've used `codebase-memory-mcp` before, databases are at `~/.cache/codebase-memory-mcp/`.
+Cortex indexes a repository into a single SQLite file at `<repo>/.cortex/db`.
+The schema is unified: `nodes`, `edges`, `decisions`, and `prs` tables live in
+the same file — no ATTACH, no `cbm_*` prefix.
+
+The native indexer is bundled with Cortex as `bin/cortex-indexer` (built by
+`npm install` via `scripts/build-indexer.sh`). A per-checkout cache of indexed
+databases lives at `~/.cache/cortex/<key>.db`, where `<key>` is computed from
+`(indexerVersion, grammarPackHash, gitTreeHash)`. The pre-Phase-7 cache at
+`~/.cache/codebase-memory-mcp/` is no longer used.
 
 ```bash
-# Check if current project is indexed
-ls ~/.cache/codebase-memory-mcp/*.db
+# Index the current project via the bundled binary
+bin/cortex-indexer cli index_repository '{"repo_path":"'$(pwd)'"}'
 
-# Index the current project (requires codebase-memory-mcp binary)
-codebase-memory-mcp cli index_repository '{"path":"'$(pwd)'"}'
+# Or, from an MCP client, call the tool directly:
+#   index_repository({ repo_path: "<absolute path>" })
+
+# Inspect the cached database for the current checkout
+ls -la ~/.cache/cortex/
 ```
 
-### Verifying the ATTACH works
+### Verifying the graph
 
 ```bash
-# Start the server — stderr should show:
-# "Cortex: attached CBM database (project: ...)"
+# Start the server and load the graph in the viewer
 npm run dev
 
-# Check unified node count (should be much higher than seed-only 14)
+# Quick API check — total node/edge counts
 curl -s http://localhost:3334/api/graph | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-cbm = sum(1 for n in d['nodes'] if str(n['id']).startswith('cbm-'))
-ctx = len(d['nodes']) - cbm
-print(f'CBM: {cbm} nodes, Cortex: {ctx} nodes, Total: {len(d[\"nodes\"])} nodes, {len(d[\"edges\"])} edges')
+print(f'{len(d[\"nodes\"])} nodes, {len(d[\"edges\"])} edges')
 "
 ```
 
@@ -146,10 +153,10 @@ get_graph_schema({})
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database |
+| `CORTEX_DB_PATH` | `.cortex/db` | Cortex unified SQLite database |
 | `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
-| `CBM_BINARY_PATH` | `codebase-memory-mcp` | Path to CBM binary (for index/detect_changes/delete) |
-| `CBM_DB_PATH` | Auto-discovered | Explicit path to CBM database (skips discovery) |
+| `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the native indexer binary |
+| `CBM_BINARY_PATH` | _(unset)_ | _(deprecated alias for `CORTEX_INDEXER_PATH`)_ |
 
 ---
 

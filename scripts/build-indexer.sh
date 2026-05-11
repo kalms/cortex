@@ -4,10 +4,11 @@
 #
 # The indexer Makefile is not relocatable: rules reference src/ paths relative
 # to the Makefile's own directory. We cd into internal/indexer/ to invoke it.
-# The Makefile's `cbm` target produces a binary named `codebase-memory-mcp` at
-# build/c/codebase-memory-mcp; we copy it to bin/cortex-indexer for Cortex.
-# (The `cbm` target name and `codebase-memory-mcp` binary name are vestigial
-# pre-rename labels; renaming them is deferred to later CBM-removal tasks.)
+# The Makefile's `indexer` target produces a binary named `codebase-memory-mcp`
+# at build/c/codebase-memory-mcp; we copy it to bin/cortex-indexer for Cortex.
+# (The `codebase-memory-mcp` binary filename is a vestigial pre-rename label;
+# renaming it is deferred to later CBM-removal tasks. The Makefile keeps `cbm`
+# as a backwards-compatible alias for `indexer`.)
 #
 # Skips the build if bin/cortex-indexer is already present and newer than
 # anything in internal/indexer/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1
@@ -18,7 +19,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INDEXER_SRC="$ROOT/internal/indexer"
 INDEXER_BUILD="$INDEXER_SRC/build/c/codebase-memory-mcp"
 INDEXER_DEST="$ROOT/bin/cortex-indexer"
-MAKE_TARGET="cbm"
+MAKE_TARGET="indexer"
 
 # Skip path: binary exists, no force, and no source file is newer than the binary
 if [ -z "${CORTEX_FORCE_REBUILD:-}" ] && [ -x "$INDEXER_DEST" ]; then
