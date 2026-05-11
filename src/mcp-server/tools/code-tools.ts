@@ -3,6 +3,8 @@ import { z } from "zod";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
+import { existsSync, unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
 import { GraphStore } from "../../graph/store.js";
 import {
   searchGraph,
@@ -16,6 +18,7 @@ import {
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 import { resolveCortexDbPath } from "../../db/resolve-path.js";
+import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
 
 const execFileAsync = promisify(execFile);
 import { join } from "node:path";
@@ -27,11 +30,15 @@ const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY
 const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 // 5B: callCbm now handles binary in-stdout errors and returns structured responses
-async function callCbm(tool: string, args: Record<string, unknown>) {
+type CbmCallResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: true;
+};
+async function callCbm(tool: string, args: Record<string, unknown>, dbPath?: string): Promise<CbmCallResult> {
   // Make the indexer write to the same SQLite file Cortex uses. Without this
   // the indexer falls back to ~/.cache/codebase-memory-mcp/<project>.db and
   // Cortex would never see the data.
-  const cortexDb = resolveCortexDbPath();
+  const cortexDb = dbPath ?? resolveCortexDbPath();
   const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
   try {
     const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
@@ -68,9 +75,60 @@ export function registerCodeTools(server: McpServer, store: GraphStore, cbmProje
 
   server.tool(
     "index_repository",
-    "Index a repository into the knowledge graph",
+    "Index a repository into the knowledge graph (uses content-hash build cache)",
     { path: z.string().optional().describe("Repository path (default: current directory)") },
-    async ({ path }) => callCbm("index_repository", { repo_path: path || process.cwd() })
+    async ({ path }) => {
+      const repoPath = path || process.cwd();
+      const dbPath = resolveCortexDbPath(repoPath);
+
+      // Cache requires a git tree to key on. Without it, computeCacheKey()
+      // returns the same value for every non-git directory — which would let
+      // an unrelated repo serve stale results. Skip cache entirely when there's
+      // no .git directory.
+      let cacheKey: string | null = null;
+      if (existsSync(join(repoPath, ".git"))) {
+        try {
+          cacheKey = computeCacheKey(repoPath);
+        } catch {
+          // Defensive: current cache module catches errors internally, but
+          // keep this so a future stricter implementation can't break
+          // index_repository.
+          cacheKey = null;
+        }
+      }
+
+      if (cacheKey && hasCacheEntry(cacheKey)) {
+        readCacheEntry(cacheKey, dbPath);
+        // Remove any stale WAL sidecars left over from a previous indexer run.
+        // Otherwise SQLite will replay them on top of the freshly restored
+        // main file and serve stale data.
+        for (const ext of ["-wal", "-shm"]) {
+          const sidecar = dbPath + ext;
+          if (existsSync(sidecar)) {
+            try { unlinkSync(sidecar); } catch { /* non-fatal */ }
+          }
+        }
+        return ok(`imported from cache key ${cacheKey.slice(0, 12)}…`);
+      }
+
+      const result = await callCbm("index_repository", { repo_path: repoPath }, dbPath);
+      if (!result.isError && cacheKey) {
+        // The indexer DB runs in WAL mode (see src/graph/store.ts). Checkpoint
+        // WAL into the main file before copying so the cached snapshot is
+        // self-contained — otherwise uncheckpointed pages would be missing.
+        try {
+          const conn = new Database(dbPath);
+          conn.pragma("wal_checkpoint(TRUNCATE)");
+          conn.close();
+        } catch { /* checkpoint failure is non-fatal; skip cache write */ }
+        try {
+          writeCacheEntry(cacheKey, dbPath);
+        } catch {
+          // Cache write failure is non-fatal.
+        }
+      }
+      return result;
+    }
   );
 
   server.tool(
