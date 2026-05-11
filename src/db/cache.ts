@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 const CACHE_DIR = join(homedir(), ".cache", "cortex");
 
@@ -17,11 +17,14 @@ function indexerVersion(): string {
 }
 
 function grammarPackHash(): string {
-  // Hash of the grammars directory. Phase 9 may relocate this; fall back to a
-  // fixed sentinel when the directory is absent so the cache key is still
-  // deterministic.
+  // Phase 9 may relocate this. If the dir is missing the key is still
+  // deterministic, but grammar updates no longer invalidate it — log loudly
+  // so a future path-break doesn't silently kill cache correctness.
   const grammarRoot = join(process.cwd(), "internal", "cbm", "internal", "cbm", "vendored", "grammars");
-  if (!existsSync(grammarRoot)) return "no-grammars";
+  if (!existsSync(grammarRoot)) {
+    process.stderr.write(`Cortex cache: grammar dir not found at ${grammarRoot}; cache keys will not invalidate on grammar changes\n`);
+    return "no-grammars";
+  }
   const h = createHash("sha256");
   function walk(dir: string) {
     for (const entry of readdirSync(dir).sort()) {
@@ -29,7 +32,8 @@ function grammarPackHash(): string {
       const s = statSync(p);
       if (s.isDirectory()) walk(p);
       else {
-        h.update(entry);
+        h.update(relative(grammarRoot, p));
+        h.update("\0");
         h.update(readFileSync(p));
       }
     }
@@ -39,7 +43,11 @@ function grammarPackHash(): string {
 }
 
 function gitTreeHash(repo: string): string {
-  return execSync("git rev-parse HEAD^{tree}", { cwd: repo, encoding: "utf8" }).trim();
+  try {
+    return execSync("git rev-parse HEAD^{tree}", { cwd: repo, encoding: "utf8" }).trim();
+  } catch {
+    return "no-tree";
+  }
 }
 
 export function computeCacheKey(repo: string): string {
@@ -60,6 +68,7 @@ export function writeCacheEntry(key: string, sourceDbPath: string): void {
   copyFileSync(sourceDbPath, cachePath(key));
 }
 
+/** @returns true if cache hit (entry copied to destDbPath), false on miss */
 export function readCacheEntry(key: string, destDbPath: string): boolean {
   if (!hasCacheEntry(key)) return false;
   copyFileSync(cachePath(key), destDbPath);
