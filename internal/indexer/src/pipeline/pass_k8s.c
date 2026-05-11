@@ -80,7 +80,7 @@ static const char *k8s_basename(const char *path) {
 /* ── Kustomize handler ───────────────────────────────────────────── */
 
 static void handle_kustomize(ctx_pipeline_ctx_t *ctx, const char *path, const char *rel_path,
-                             CBMFileResult *result) {
+                             CtxFileResult *result) {
     /* Emit Module node for this kustomize overlay file */
     char *mod_qn = ctx_infra_qn(ctx->project_name, rel_path, "kustomize", NULL);
     if (!mod_qn) {
@@ -98,7 +98,7 @@ static void handle_kustomize(ctx_pipeline_ctx_t *ctx, const char *path, const ch
     /* If we have a cached extraction result, emit IMPORTS edges for
      * resources/bases/patches/components entries */
     int import_count = 0;
-    CBMFileResult *res = result;
+    CtxFileResult *res = result;
     bool allocated = false;
 
     if (!res) {
@@ -115,7 +115,7 @@ static void handle_kustomize(ctx_pipeline_ctx_t *ctx, const char *path, const ch
 
     if (res) {
         for (int j = 0; j < res->imports.count; j++) {
-            CBMImport *imp = &res->imports.items[j];
+            CtxImport *imp = &res->imports.items[j];
             if (!imp->module_path) {
                 continue;
             }
@@ -154,7 +154,7 @@ static void handle_k8s_manifest(ctx_pipeline_ctx_t *ctx, const char *path, const
     (void)path; /* retained for symmetry; source is always provided now */
     int resource_count = 0;
 
-    CBMFileResult *res = ctx_extract_file(source, src_len, CTX_LANG_K8S, ctx->project_name,
+    CtxFileResult *res = ctx_extract_file(source, src_len, CTX_LANG_K8S, ctx->project_name,
                                           rel_path, CTX_EXTRACT_BUDGET, NULL, NULL);
     if (!res) {
         return;
@@ -166,7 +166,7 @@ static void handle_k8s_manifest(ctx_pipeline_ctx_t *ctx, const char *path, const
     free(file_qn);
 
     for (int d = 0; d < res->defs.count; d++) {
-        CBMDefinition *def = &res->defs.items[d];
+        CtxDefinition *def = &res->defs.items[d];
         if (!def->label || strcmp(def->label, "Resource") != 0) {
             continue;
         }
@@ -208,10 +208,10 @@ int ctx_pipeline_pass_k8s(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files,
 
         const char *path = files[i].path;
         const char *rel = files[i].rel_path;
-        CBMLanguage lang = files[i].language;
+        CtxLanguage lang = files[i].language;
         const char *base = k8s_basename(rel);
 
-        CBMFileResult *cached =
+        CtxFileResult *cached =
             (ctx->result_cache && ctx->result_cache[i]) ? ctx->result_cache[i] : NULL;
 
         if (ctx_is_kustomize_file(base)) {

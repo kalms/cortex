@@ -389,7 +389,7 @@ float ctx_sem_cosine(const ctx_sem_vec_t *a, const ctx_sem_vec_t *b) {
 }
 
 /* Pretrained token lookup table — built lazily on first use. */
-static CBMHashTable *g_pretrained_map = NULL;
+static CtxHashTable *g_pretrained_map = NULL;
 static _Atomic int g_pretrained_ready = 0;
 static ctx_mutex_t g_pretrained_mtx;
 static _Atomic int g_pretrained_mtx_init = 0;
@@ -501,7 +501,7 @@ typedef struct {
 } corpus_entry_t;
 
 struct ctx_sem_corpus {
-    CBMHashTable *token_map; /* token → index into entries[] */
+    CtxHashTable *token_map; /* token → index into entries[] */
     corpus_entry_t *entries;
     int entry_count;
     int entry_cap;

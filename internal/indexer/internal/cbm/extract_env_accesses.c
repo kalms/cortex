@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, ctx_arena_strndup
+#include "arena.h" // CtxArena, ctx_arena_strndup
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -13,7 +13,7 @@
 enum { MIN_ENV_NAME_LEN = 2 };
 
 // Unquote a string literal: "foo" -> foo, 'foo' -> foo
-static const char *unquote(CBMArena *a, const char *s) {
+static const char *unquote(CtxArena *a, const char *s) {
     if (!s || !s[0]) {
         return NULL;
     }
@@ -34,8 +34,8 @@ static const char *unquote(CBMArena *a, const char *s) {
 }
 
 // Extract env key from a function call like os.Getenv("KEY").
-static const char *extract_env_key_from_call(CBMExtractCtx *ctx, TSNode node,
-                                             const CBMLangSpec *spec) {
+static const char *extract_env_key_from_call(CtxExtractCtx *ctx, TSNode node,
+                                             const CtxLangSpec *spec) {
     if (!spec->env_access_functions || !spec->env_access_functions[0]) {
         return NULL;
     }
@@ -80,8 +80,8 @@ static const char *extract_env_key_from_call(CBMExtractCtx *ctx, TSNode node,
 }
 
 // Extract env key from member access like process.env.KEY or os.environ["KEY"].
-static const char *extract_env_key_from_member(CBMExtractCtx *ctx, TSNode node,
-                                               const CBMLangSpec *spec) {
+static const char *extract_env_key_from_member(CtxExtractCtx *ctx, TSNode node,
+                                               const CtxLangSpec *spec) {
     if (!spec->env_access_member_patterns || !spec->env_access_member_patterns[0]) {
         return NULL;
     }
@@ -138,7 +138,7 @@ static bool is_env_var_name(const char *s) {
 
 // Iterative env access walker — explicit stack
 #define ENV_STACK_CAP 4096
-static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
+static void walk_env_accesses(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec) {
     TSNode stack[ENV_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -156,7 +156,7 @@ static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
         }
 
         if (env_key && env_key[0] && is_env_var_name(env_key)) {
-            CBMEnvAccess ea;
+            CtxEnvAccess ea;
             ea.env_key = env_key;
             ea.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
             ctx_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);
@@ -171,8 +171,8 @@ static void walk_env_accesses(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
     }
 }
 
-void ctx_extract_env_accesses(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_env_accesses(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -188,7 +188,7 @@ void ctx_extract_env_accesses(CBMExtractCtx *ctx) {
 
 // --- Unified handler ---
 
-void handle_env_accesses(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+void handle_env_accesses(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                          WalkState *state) {
     bool has_funcs = spec->env_access_functions && spec->env_access_functions[0];
     bool has_members = spec->env_access_member_patterns && spec->env_access_member_patterns[0];
@@ -207,7 +207,7 @@ void handle_env_accesses(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spe
     }
 
     if (env_key && env_key[0] && is_env_var_name(env_key)) {
-        CBMEnvAccess ea;
+        CtxEnvAccess ea;
         ea.env_key = env_key;
         ea.enclosing_func_qn = state->enclosing_func_qn;
         ctx_envaccess_push(&ctx->result->env_accesses, ctx->arena, ea);

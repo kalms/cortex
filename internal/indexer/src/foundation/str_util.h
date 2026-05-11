@@ -12,10 +12,10 @@
 #include <stddef.h>
 
 /* Join two path components with '/'. Handles trailing/leading slashes. */
-char *ctx_path_join(CBMArena *a, const char *base, const char *name);
+char *ctx_path_join(CtxArena *a, const char *base, const char *name);
 
 /* Join N path components. parts is an array of N strings. */
-char *ctx_path_join_n(CBMArena *a, const char **parts, int n);
+char *ctx_path_join_n(CtxArena *a, const char **parts, int n);
 
 /* Get the file extension (without dot). Returns "" if none. */
 const char *ctx_path_ext(const char *path);
@@ -24,7 +24,7 @@ const char *ctx_path_ext(const char *path);
 const char *ctx_path_base(const char *path);
 
 /* Get the directory part (before last '/'). Returns "." if no '/'. */
-char *ctx_path_dir(CBMArena *a, const char *path);
+char *ctx_path_dir(CtxArena *a, const char *path);
 
 /* Check if string starts with prefix. */
 bool ctx_str_starts_with(const char *s, const char *prefix);
@@ -36,17 +36,17 @@ bool ctx_str_ends_with(const char *s, const char *suffix);
 bool ctx_str_contains(const char *s, const char *sub);
 
 /* Convert to lowercase (arena-allocated copy). */
-char *ctx_str_tolower(CBMArena *a, const char *s);
+char *ctx_str_tolower(CtxArena *a, const char *s);
 
 /* Replace all occurrences of 'from' char with 'to' char (arena copy). */
-char *ctx_str_replace_char(CBMArena *a, const char *s, char from, char to);
+char *ctx_str_replace_char(CtxArena *a, const char *s, char from, char to);
 
 /* Strip file extension: "foo.go" → "foo" (arena copy). */
-char *ctx_str_strip_ext(CBMArena *a, const char *path);
+char *ctx_str_strip_ext(CtxArena *a, const char *path);
 
 /* Split string by delimiter. Returns arena-allocated array + count.
  * The array itself and all substrings are arena-allocated. */
-char **ctx_str_split(CBMArena *a, const char *s, char delim, int *out_count);
+char **ctx_str_split(CtxArena *a, const char *s, char delim, int *out_count);
 
 /* Validate a string is safe for shell interpolation inside single quotes.
  * Rejects: ' ; | & $ ` \n \r \0 (embedded NULs via len check).

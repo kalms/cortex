@@ -12,7 +12,7 @@
  * Design:
  *   - Items are contiguous in memory (cache-friendly)
  *   - Grows by 2x (amortized O(1) push)
- *   - Uses realloc — NOT arena-compatible (use CBMDefArray etc. for arena)
+ *   - Uses realloc — NOT arena-compatible (use CtxDefArray etc. for arena)
  *   - Header-only: no .c file needed
  */
 #ifndef CTX_DYN_ARRAY_H

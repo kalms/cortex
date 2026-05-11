@@ -212,7 +212,7 @@ static int extract_decorator_words(const char *json, char ***out_words) {
     /* Collect unique words from all decorators */
     char *all_words[CTX_SZ_256];
     int total = 0;
-    CBMHashTable *seen = ctx_ht_create(CTX_SZ_32);
+    CtxHashTable *seen = ctx_ht_create(CTX_SZ_32);
 
     for (int i = 0; decorators[i]; i++) {
         char *tokens[CTX_SZ_32];
@@ -291,7 +291,7 @@ static void free_tagged_nodes(tagged_node_t *nodes, int count) {
 
 /* Phase 1: Collect decorated nodes and count word frequency. */
 static int collect_decorated_nodes(ctx_gbuf_t *gbuf, tagged_node_t **out_nodes,
-                                   CBMHashTable *word_counts) {
+                                   CtxHashTable *word_counts) {
     static const char *labels[] = {"Function", "Method", "Class"};
     static const int nlabels = 3;
     tagged_node_t *nodes = NULL;
@@ -334,7 +334,7 @@ static int collect_decorated_nodes(ctx_gbuf_t *gbuf, tagged_node_t **out_nodes,
 
 /* Phase 3: Apply candidate tags to nodes in the gbuf. */
 static int apply_decorator_tags(ctx_gbuf_t *gbuf, tagged_node_t *nodes, int node_count,
-                                CBMHashTable *candidates) {
+                                CtxHashTable *candidates) {
     int tagged = 0;
     for (int n = 0; n < node_count; n++) {
         char *tag_words[CTX_SZ_256];
@@ -371,7 +371,7 @@ int ctx_pipeline_pass_decorator_tags(ctx_gbuf_t *gbuf, const char *project) {
         return 0;
     }
 
-    CBMHashTable *word_counts = ctx_ht_create(CTX_SZ_128);
+    CtxHashTable *word_counts = ctx_ht_create(CTX_SZ_128);
     tagged_node_t *nodes = NULL;
     int node_count = collect_decorated_nodes(gbuf, &nodes, word_counts);
     if (node_count == 0) {
@@ -381,7 +381,7 @@ int ctx_pipeline_pass_decorator_tags(ctx_gbuf_t *gbuf, const char *project) {
     }
 
     /* Phase 2: Determine candidates (words on 2+ nodes) */
-    CBMHashTable *candidates = ctx_ht_create(CTX_SZ_64);
+    CtxHashTable *candidates = ctx_ht_create(CTX_SZ_64);
     int candidate_count = 0;
     for (int n = 0; n < node_count; n++) {
         for (int w = 0; w < nodes[n].word_count; w++) {

@@ -9,7 +9,7 @@
  *   5. Language detection for accepted files
  */
 #include "discover/discover.h"
-#include "cbm.h" // CBMLanguage, CTX_LANG_COUNT, CTX_LANG_JSON
+#include "cbm.h" // CtxLanguage, CTX_LANG_COUNT, CTX_LANG_JSON
 
 #include "foundation/constants.h"
 #include "foundation/compat_fs.h"
@@ -207,7 +207,7 @@ typedef struct {
     int capacity;
 } file_list_t;
 
-static void fl_add(file_list_t *fl, const char *abs_path, const char *rel_path, CBMLanguage lang,
+static void fl_add(file_list_t *fl, const char *abs_path, const char *rel_path, CtxLanguage lang,
                    int64_t size) {
     if (fl->count >= fl->capacity) {
         int new_cap = fl->capacity ? fl->capacity * PAIR_LEN : CTX_SZ_256;
@@ -298,8 +298,8 @@ static bool should_skip_file(const char *entry_name, const char *rel_path,
 }
 
 /* Detect language for a file, handling .m disambiguation and JSON filtering. */
-static CBMLanguage detect_file_language(const char *entry_name, const char *abs_path) {
-    CBMLanguage lang = ctx_language_for_filename(entry_name);
+static CtxLanguage detect_file_language(const char *entry_name, const char *abs_path) {
+    CtxLanguage lang = ctx_language_for_filename(entry_name);
     if (lang == CTX_LANG_COUNT) {
         return CTX_LANG_COUNT;
     }
@@ -341,7 +341,7 @@ static void walk_dir_process_file(const char *abs_path, const char *rel_path, co
                          size)) {
         return;
     }
-    CBMLanguage lang = detect_file_language(name, abs_path);
+    CtxLanguage lang = detect_file_language(name, abs_path);
     if (lang == CTX_LANG_COUNT) {
         return;
     }

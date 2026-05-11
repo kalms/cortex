@@ -293,7 +293,7 @@ static void free_counter(const char *key, void *val, void *ud) {
 
 /* Context for collect_coupling_result callback. */
 typedef struct {
-    CBMHashTable *file_counts;
+    CtxHashTable *file_counts;
     ctx_change_coupling_t *out;
     int out_count;
     int max_out;
@@ -348,8 +348,8 @@ static void collect_coupling_cb(const char *pair_key, void *val, void *ud) {
 
 int ctx_compute_change_coupling(const ctx_commit_files_t *commits, int commit_count,
                                 ctx_change_coupling_t *out, int max_out) {
-    CBMHashTable *file_counts = ctx_ht_create(CTX_SZ_1K);
-    CBMHashTable *pair_counts = ctx_ht_create(CTX_SZ_2K);
+    CtxHashTable *file_counts = ctx_ht_create(CTX_SZ_1K);
+    CtxHashTable *pair_counts = ctx_ht_create(CTX_SZ_2K);
 
     for (int c = 0; c < commit_count; c++) {
         if (commits[c].count > GH_MAX_FILES) {

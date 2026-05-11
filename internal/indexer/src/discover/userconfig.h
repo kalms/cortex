@@ -17,13 +17,13 @@
 #ifndef CTX_USERCONFIG_H
 #define CTX_USERCONFIG_H
 
-#include "cbm.h" /* CBMLanguage */
+#include "cbm.h" /* CtxLanguage */
 
 /* ── Types ──────────────────────────────────────────────────────── */
 
 typedef struct {
     char *ext;        /* file extension including dot, e.g. ".blade.php" */
-    CBMLanguage lang; /* resolved language enum */
+    CtxLanguage lang; /* resolved language enum */
 } ctx_userext_t;
 
 typedef struct {
@@ -45,9 +45,9 @@ ctx_userconfig_t *ctx_userconfig_load(const char *repo_path);
 /*
  * Look up a file extension in the user config.
  * ext: extension including dot, e.g. ".blade.php"
- * Returns the mapped CBMLanguage, or CTX_LANG_COUNT if not found.
+ * Returns the mapped CtxLanguage, or CTX_LANG_COUNT if not found.
  */
-CBMLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext);
+CtxLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext);
 
 /* Free a ctx_userconfig_t returned by ctx_userconfig_load. NULL-safe. */
 void ctx_userconfig_free(ctx_userconfig_t *cfg);

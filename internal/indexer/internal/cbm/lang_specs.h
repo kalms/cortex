@@ -3,9 +3,9 @@
 
 #include "cbm.h"
 
-// CBMLangSpec mirrors Go's lang.LanguageSpec with NULL-terminated string arrays.
+// CtxLangSpec mirrors Go's lang.LanguageSpec with NULL-terminated string arrays.
 typedef struct {
-    CBMLanguage language;
+    CtxLanguage language;
     const char **function_node_types;
     const char **class_node_types;
     const char **field_node_types;
@@ -21,13 +21,13 @@ typedef struct {
     const char **decorator_node_types;
     const char **env_access_functions;       // NULL-terminated (NULL if none)
     const char **env_access_member_patterns; // NULL-terminated (NULL if none)
-} CBMLangSpec;
+} CtxLangSpec;
 
 // Get the language spec for a given language. Returns NULL for unsupported.
-const CBMLangSpec *ctx_lang_spec(CBMLanguage lang);
+const CtxLangSpec *ctx_lang_spec(CtxLanguage lang);
 
 // Get the TSLanguage* for a given language. Returns NULL for unsupported.
 // These resolve at link time to grammar symbols from Go tree-sitter modules.
-const TSLanguage *ctx_ts_language(CBMLanguage lang);
+const TSLanguage *ctx_ts_language(CtxLanguage lang);
 
 #endif // CTX_LANG_SPECS_H

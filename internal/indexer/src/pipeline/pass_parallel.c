@@ -5,7 +5,7 @@
  * Phase 3B: Serial registry build + edge creation from cached results
  * Phase 4:  Parallel call/usage/semantic resolution (per-worker edge bufs)
  *
- * Each file is read and parsed ONCE (Phase 3A). The CBMFileResult is cached
+ * Each file is read and parsed ONCE (Phase 3A). The CtxFileResult is cached
  * and reused for resolution (Phase 4), eliminating 3x redundant I/O + parsing.
  *
  * Depends on: worker_pool, graph_buffer (shared IDs + merge), extraction (cbm.h)
@@ -195,7 +195,7 @@ static void append_json_str_array(char *buf, size_t bufsize, size_t *pos, const 
     *pos = p;
 }
 
-static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def) {
+static void build_def_props(char *buf, size_t bufsize, const CtxDefinition *def) {
     int n = snprintf(buf, bufsize,
                      "{\"complexity\":%d,\"lines\":%d,\"is_exported\":%s,"
                      "\"is_test\":%s,\"is_entry_point\":%s",
@@ -393,7 +393,7 @@ typedef struct {
     int max_workers;
     _Atomic int next_worker_id;
 
-    CBMFileResult **result_cache;
+    CtxFileResult **result_cache;
     _Atomic int64_t *shared_ids;
     _Atomic int *cancelled;
     _Atomic int next_file_idx;
@@ -401,7 +401,7 @@ typedef struct {
 
 /* Insert one definition node (and its route if present) into the local gbuf. */
 static void insert_def_into_gbuf(extract_worker_state_t *ws, const ctx_file_info_t *fi,
-                                 CBMDefinition *def) {
+                                 CtxDefinition *def) {
     char props[CTX_SZ_2K];
     build_def_props(props, sizeof(props), def);
     int64_t func_id =
@@ -478,7 +478,7 @@ static void extract_worker(int worker_id, void *ctx_ptr) {
 
         uint64_t file_t0 = extract_now_ns();
 
-        CBMFileResult *result = ctx_extract_file(source, source_len, fi->language, ec->project_name,
+        CtxFileResult *result = ctx_extract_file(source, source_len, fi->language, ec->project_name,
                                                  fi->rel_path, CTX_EXTRACT_BUDGET, NULL, NULL);
 
         uint64_t file_elapsed_ms = (extract_now_ns() - file_t0) / PP_USEC_PER_MS;
@@ -493,7 +493,7 @@ static void extract_worker(int worker_id, void *ctx_ptr) {
 
         /* Create definition nodes in local gbuf */
         for (int d = 0; d < result->defs.count; d++) {
-            CBMDefinition *def = &result->defs.items[d];
+            CtxDefinition *def = &result->defs.items[d];
             if (def->qualified_name && def->name) {
                 insert_def_into_gbuf(ws, fi, def);
             }
@@ -538,7 +538,7 @@ static void extract_worker(int worker_id, void *ctx_ptr) {
 }
 
 int ctx_parallel_extract(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, int file_count,
-                         CBMFileResult **result_cache, _Atomic int64_t *shared_ids,
+                         CtxFileResult **result_cache, _Atomic int64_t *shared_ids,
                          int worker_count) {
     if (file_count == 0) {
         return 0;
@@ -644,7 +644,7 @@ int ctx_parallel_extract(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, 
 /* ── Phase 3B: Serial Registry Build ─────────────────────────────── */
 
 /* Register one definition and create DEFINES + DEFINES_METHOD edges. Returns edge count. */
-static int register_and_link_def(ctx_pipeline_ctx_t *ctx, const CBMDefinition *def, const char *rel,
+static int register_and_link_def(ctx_pipeline_ctx_t *ctx, const CtxDefinition *def, const char *rel,
                                  int *reg_entries) {
     int edges = 0;
     if (!def->name || !def->qualified_name || !def->label) {
@@ -674,11 +674,11 @@ static int register_and_link_def(ctx_pipeline_ctx_t *ctx, const CBMDefinition *d
 }
 
 /* Create IMPORTS edges for one file's imports (parallel path). */
-static int create_imports_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int create_imports_edges(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                 const char *rel) {
     int count = 0;
     for (int j = 0; j < result->imports.count; j++) {
-        CBMImport *imp = &result->imports.items[j];
+        CtxImport *imp = &result->imports.items[j];
         if (!imp->module_path) {
             continue;
         }
@@ -708,7 +708,7 @@ static int create_imports_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *re
 }
 
 /* Find channel source node (enclosing function or file). */
-static const ctx_gbuf_node_t *find_channel_src(ctx_pipeline_ctx_t *ctx, const CBMChannel *ch,
+static const ctx_gbuf_node_t *find_channel_src(ctx_pipeline_ctx_t *ctx, const CtxChannel *ch,
                                                const char *rel) {
     const ctx_gbuf_node_t *node = NULL;
     if (ch->enclosing_func_qn && ch->enclosing_func_qn[0]) {
@@ -723,10 +723,10 @@ static const ctx_gbuf_node_t *find_channel_src(ctx_pipeline_ctx_t *ctx, const CB
 }
 
 /* Create Channel nodes + EMITS/LISTENS_ON edges for one file. */
-static void create_channel_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static void create_channel_edges(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                  const char *rel) {
     for (int j = 0; j < result->channels.count; j++) {
-        CBMChannel *ch = &result->channels.items[j];
+        CtxChannel *ch = &result->channels.items[j];
         if (!ch->channel_name || !ch->channel_name[0]) {
             continue;
         }
@@ -752,7 +752,7 @@ static void create_channel_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *r
 }
 
 int ctx_build_registry_from_cache(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files,
-                                  int file_count, CBMFileResult **result_cache) {
+                                  int file_count, CtxFileResult **result_cache) {
     ctx_log_info("parallel.registry.start", "files", itoa_log(file_count));
 
     int reg_entries = 0;
@@ -764,7 +764,7 @@ int ctx_build_registry_from_cache(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t
             return CTX_NOT_FOUND;
         }
 
-        CBMFileResult *result = result_cache[i];
+        CtxFileResult *result = result_cache[i];
         if (!result) {
             continue;
         }
@@ -805,7 +805,7 @@ typedef struct {
     resolve_worker_state_t *workers;
     int max_workers;
 
-    CBMFileResult **result_cache;
+    CtxFileResult **result_cache;
     const ctx_gbuf_t *main_gbuf;    /* READ-ONLY during Phase 4 */
     const ctx_registry_t *registry; /* READ-ONLY during Phase 4 */
     _Atomic int64_t *shared_ids;
@@ -836,7 +836,7 @@ static void sanitize_expr(char *expr_buf, const char *expr) {
 }
 
 /* Format one call arg as JSON. Returns snprintf result. */
-static int format_call_arg(char *buf, size_t bufsize, const CBMCallArg *a, const char *expr) {
+static int format_call_arg(char *buf, size_t bufsize, const CtxCallArg *a, const char *expr) {
     char esc_k[CTX_SZ_128];
     char esc_e[CTX_SZ_128];
     char esc_v[CTX_SZ_128];
@@ -860,7 +860,7 @@ static int format_call_arg(char *buf, size_t bufsize, const CBMCallArg *a, const
     return snprintf(buf, bufsize, "{\"i\":%d,\"e\":\"%s\"}", a->index, esc_e);
 }
 
-static size_t append_args_json(char *buf, size_t bufsize, size_t pos, const CBMCall *call) {
+static size_t append_args_json(char *buf, size_t bufsize, size_t pos, const CtxCall *call) {
     if (call->arg_count == 0 || pos >= bufsize - PP_ARGS_MARGIN) {
         return pos;
     }
@@ -870,7 +870,7 @@ static size_t append_args_json(char *buf, size_t bufsize, size_t pos, const CBMC
     }
     pos += (size_t)n;
     for (int i = 0; i < call->arg_count && pos < bufsize - CTX_ARG_JSON_GUARD; i++) {
-        const CBMCallArg *a = &call->args[i];
+        const CtxCallArg *a = &call->args[i];
         if (i > 0 && pos < bufsize - SKIP_ONE) {
             buf[pos++] = ',';
         }
@@ -901,7 +901,7 @@ static bool is_path_keyword(const char *keyword) {
     return false;
 }
 
-static const char *find_route_path_in_args(const CBMCall *call, const char **out_handler) {
+static const char *find_route_path_in_args(const CtxCall *call, const char **out_handler) {
     *out_handler = NULL;
     /* 1. First string arg starting with / */
     if (call->first_string_arg && call->first_string_arg[0] == '/') {
@@ -911,7 +911,7 @@ static const char *find_route_path_in_args(const CBMCall *call, const char **out
     /* 2. Keyword args (prefix=, path=, route=, etc.) */
     const char *found = NULL;
     for (int ai = 0; ai < call->arg_count && !found; ai++) {
-        const CBMCallArg *ca = &call->args[ai];
+        const CtxCallArg *ca = &call->args[ai];
         const char *val = ca->value ? ca->value : ca->expr;
         if (!val || val[0] != '/') {
             continue;
@@ -925,7 +925,7 @@ static const char *find_route_path_in_args(const CBMCall *call, const char **out
     }
     /* 3. Handler: first identifier arg that's not a path/keyword */
     for (int ai = 0; ai < call->arg_count; ai++) {
-        const CBMCallArg *ca = &call->args[ai];
+        const CtxCallArg *ca = &call->args[ai];
         if (!ca->expr || ca->expr[0] == '/' || ca->expr[0] == '"' || ca->expr[0] == '\'') {
             continue;
         }
@@ -941,7 +941,7 @@ static const char *find_route_path_in_args(const CBMCall *call, const char **out
 
 /* Build props JSON, append args, close brace, emit edge. */
 static void finalize_and_emit(ctx_gbuf_t *gbuf, int64_t src_id, int64_t tgt_id,
-                              const char *edge_type, char *props, int n, const CBMCall *call) {
+                              const char *edge_type, char *props, int n, const CtxCall *call) {
     if (n > 0 && (size_t)n < CTX_SZ_2K - PP_ESC_SPACE) {
         size_t pos = append_args_json(props, CTX_SZ_2K, (size_t)n, call);
         if (pos < CTX_SZ_2K - SKIP_ONE) {
@@ -976,7 +976,7 @@ static int64_t build_service_route(ctx_gbuf_t *gbuf, const char *arg, const char
 
 /* Emit HTTP_CALLS or ASYNC_CALLS edge via Route node. */
 static void emit_http_async_service_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                                         const CBMCall *call, const ctx_resolution_t *res,
+                                         const CtxCall *call, const ctx_resolution_t *res,
                                          ctx_svc_kind_t svc, const char *arg) {
     const char *edge_type = (svc == CTX_SVC_HTTP) ? "HTTP_CALLS" : "ASYNC_CALLS";
     const char *method =
@@ -1003,7 +1003,7 @@ static void emit_http_async_service_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t
 
 /* Emit CONFIGURES edge. */
 static void emit_config_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                             const ctx_gbuf_node_t *target, const CBMCall *call,
+                             const ctx_gbuf_node_t *target, const CtxCall *call,
                              const ctx_resolution_t *res, const char *arg) {
     char esc_c[CTX_SZ_256];
     char esc_k[CTX_SZ_256];
@@ -1017,7 +1017,7 @@ static void emit_config_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
 
 /* Emit normal CALLS edge. */
 static void emit_normal_calls_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                                   const ctx_gbuf_node_t *target, const CBMCall *call,
+                                   const ctx_gbuf_node_t *target, const CtxCall *call,
                                    const ctx_resolution_t *res) {
     char esc_c[CTX_SZ_256];
     ctx_json_escape(esc_c, sizeof(esc_c), call->callee_name);
@@ -1032,7 +1032,7 @@ static void emit_normal_calls_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *sour
 /* Classify a resolved call by library identity and emit the appropriate edge. */
 /* Create Route node + CALLS + HANDLES edges for a route registration call. */
 static void emit_route_registration(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                                    const CBMCall *call, const char *route_path,
+                                    const CtxCall *call, const char *route_path,
                                     const char *handler_ref, const char *module_qn,
                                     const ctx_registry_t *registry, const ctx_gbuf_t *main_gbuf,
                                     const char **ik, const char **iv, int ic) {
@@ -1112,9 +1112,9 @@ static bool normalize_url_arg(const char *url, char *norm, int norm_sz) {
 
 /* Detect API paths in call arguments and create HTTP_CALLS edges. */
 static void detect_url_in_args(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                               const CBMCall *call) {
+                               const CtxCall *call) {
     for (int ai = 0; ai < call->arg_count; ai++) {
-        const CBMCallArg *ca = &call->args[ai];
+        const CtxCallArg *ca = &call->args[ai];
         const char *url = ca->value ? ca->value : ca->expr;
         if (!url || (url[0] != '/' && url[0] != '`')) {
             continue;
@@ -1140,7 +1140,7 @@ static void detect_url_in_args(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
 }
 
 static void emit_service_edge(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
-                              const ctx_gbuf_node_t *target, const CBMCall *call,
+                              const ctx_gbuf_node_t *target, const CtxCall *call,
                               const ctx_resolution_t *res, const char *module_qn,
                               const ctx_registry_t *registry, const ctx_gbuf_t *main_gbuf,
                               const char **imp_keys, const char **imp_vals, int imp_count) {
@@ -1194,11 +1194,11 @@ static const ctx_gbuf_node_t *find_source_node(const ctx_gbuf_t *gbuf, const cha
 }
 
 /* Resolve calls for one file and emit CALLS/HTTP_CALLS/ASYNC_CALLS edges. */
-static void resolve_file_calls(resolve_ctx_t *rc, resolve_worker_state_t *ws, CBMFileResult *result,
+static void resolve_file_calls(resolve_ctx_t *rc, resolve_worker_state_t *ws, CtxFileResult *result,
                                const char *rel, const char *module_qn, const char **imp_keys,
                                const char **imp_vals, int imp_count) {
     for (int c = 0; c < result->calls.count; c++) {
-        CBMCall *call = &result->calls.items[c];
+        CtxCall *call = &result->calls.items[c];
         if (!call->callee_name) {
             continue;
         }
@@ -1233,10 +1233,10 @@ static void resolve_file_calls(resolve_ctx_t *rc, resolve_worker_state_t *ws, CB
 
 /* Resolve usages for one file. */
 static void resolve_file_usages(resolve_ctx_t *rc, resolve_worker_state_t *ws,
-                                CBMFileResult *result, const char *rel, const char *module_qn,
+                                CtxFileResult *result, const char *rel, const char *module_qn,
                                 const char **imp_keys, const char **imp_vals, int imp_count) {
     for (int u = 0; u < result->usages.count; u++) {
-        CBMUsage *usage = &result->usages.items[u];
+        CtxUsage *usage = &result->usages.items[u];
         if (!usage->ref_name) {
             continue;
         }
@@ -1263,10 +1263,10 @@ static void resolve_file_usages(resolve_ctx_t *rc, resolve_worker_state_t *ws,
 
 /* Resolve throws/raises for one file. */
 static void resolve_file_throws(resolve_ctx_t *rc, resolve_worker_state_t *ws,
-                                CBMFileResult *result, const char *module_qn, const char **imp_keys,
+                                CtxFileResult *result, const char *module_qn, const char **imp_keys,
                                 const char **imp_vals, int imp_count) {
     for (int t = 0; t < result->throws.count; t++) {
-        CBMThrow *thr = &result->throws.items[t];
+        CtxThrow *thr = &result->throws.items[t];
         if (!thr->exception_name || !thr->enclosing_func_qn) {
             continue;
         }
@@ -1289,11 +1289,11 @@ static void resolve_file_throws(resolve_ctx_t *rc, resolve_worker_state_t *ws,
 }
 
 /* Resolve reads/writes for one file. */
-static void resolve_file_rw(resolve_ctx_t *rc, resolve_worker_state_t *ws, CBMFileResult *result,
+static void resolve_file_rw(resolve_ctx_t *rc, resolve_worker_state_t *ws, CtxFileResult *result,
                             const char *rel, const char *module_qn, const char **imp_keys,
                             const char **imp_vals, int imp_count) {
     for (int r = 0; r < result->rw.count; r++) {
-        CBMReadWrite *rw = &result->rw.items[r];
+        CtxReadWrite *rw = &result->rw.items[r];
         if (!rw->var_name) {
             continue;
         }
@@ -1318,7 +1318,7 @@ static void resolve_file_rw(resolve_ctx_t *rc, resolve_worker_state_t *ws, CBMFi
 
 /* Resolve base_classes → INHERITS edges for one definition. */
 static void resolve_def_inherits(resolve_ctx_t *rc, resolve_worker_state_t *ws,
-                                 const CBMDefinition *def, const ctx_gbuf_node_t *node,
+                                 const CtxDefinition *def, const ctx_gbuf_node_t *node,
                                  const char *mq, const char **ik, const char **iv, int ic) {
     if (!def->base_classes) {
         return;
@@ -1338,7 +1338,7 @@ static void resolve_def_inherits(resolve_ctx_t *rc, resolve_worker_state_t *ws,
 
 /* Resolve decorators → DECORATES edges for one definition. */
 static void resolve_def_decorators(resolve_ctx_t *rc, resolve_worker_state_t *ws,
-                                   const CBMDefinition *def, const ctx_gbuf_node_t *node,
+                                   const CtxDefinition *def, const ctx_gbuf_node_t *node,
                                    const char *mq, const char **ik, const char **iv, int ic) {
     if (!def->decorators) {
         return;
@@ -1365,10 +1365,10 @@ static void resolve_def_decorators(resolve_ctx_t *rc, resolve_worker_state_t *ws
 
 /* Resolve INHERITS + DECORATES + IMPLEMENTS for one file. */
 static void resolve_file_semantic(resolve_ctx_t *rc, resolve_worker_state_t *ws,
-                                  CBMFileResult *result, const char *module_qn,
+                                  CtxFileResult *result, const char *module_qn,
                                   const char **imp_keys, const char **imp_vals, int imp_count) {
     for (int d = 0; d < result->defs.count; d++) {
-        CBMDefinition *def = &result->defs.items[d];
+        CtxDefinition *def = &result->defs.items[d];
         if (!def->qualified_name) {
             continue;
         }
@@ -1380,7 +1380,7 @@ static void resolve_file_semantic(resolve_ctx_t *rc, resolve_worker_state_t *ws,
         resolve_def_decorators(rc, ws, def, node, module_qn, imp_keys, imp_vals, imp_count);
     }
     for (int t = 0; t < result->impl_traits.count; t++) {
-        CBMImplTrait *it = &result->impl_traits.items[t];
+        CtxImplTrait *it = &result->impl_traits.items[t];
         if (!it->trait_name || !it->struct_name) {
             continue;
         }
@@ -1419,7 +1419,7 @@ static void resolve_worker(int worker_id, void *ctx_ptr) {
             break;
         }
 
-        CBMFileResult *result = rc->result_cache[file_idx];
+        CtxFileResult *result = rc->result_cache[file_idx];
         if (!result) {
             continue;
         }
@@ -1461,7 +1461,7 @@ static void resolve_worker(int worker_id, void *ctx_ptr) {
 }
 
 int ctx_parallel_resolve(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, int file_count,
-                         CBMFileResult **result_cache, _Atomic int64_t *shared_ids,
+                         CtxFileResult **result_cache, _Atomic int64_t *shared_ids,
                          int worker_count) {
     if (file_count == 0) {
         return 0;

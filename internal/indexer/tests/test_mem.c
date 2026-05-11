@@ -293,7 +293,7 @@ TEST(mem_init_second_call_noop) {
 /* ── Arena integration tests ──────────────────────────────────── */
 
 TEST(arena_alloc_and_destroy) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     ASSERT_EQ(a.nblocks, 1);
     ASSERT_EQ(a.block_sizes[0], CTX_ARENA_DEFAULT_BLOCK_SIZE);
@@ -308,7 +308,7 @@ TEST(arena_alloc_and_destroy) {
 }
 
 TEST(arena_grow_tracks_sizes) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 64);
     ASSERT_EQ(a.block_sizes[0], 64);
 
@@ -323,7 +323,7 @@ TEST(arena_grow_tracks_sizes) {
 }
 
 TEST(arena_large_alloc) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
 
     size_t big = 128 * 1024;
@@ -339,7 +339,7 @@ TEST(arena_large_alloc) {
 }
 
 TEST(arena_reset_frees_blocks) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 128);
 
     ctx_arena_alloc(&a, 100);
@@ -599,7 +599,7 @@ TEST(parallel_extract_with_slab) {
     int64_t gbuf_next = ctx_gbuf_next_id(gbuf);
     atomic_init(&shared_ids, gbuf_next);
 
-    CBMFileResult **result_cache = calloc(file_count, sizeof(CBMFileResult *));
+    CtxFileResult **result_cache = calloc(file_count, sizeof(CtxFileResult *));
     ASSERT_NOT_NULL(result_cache);
 
     int rc = ctx_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, 2);

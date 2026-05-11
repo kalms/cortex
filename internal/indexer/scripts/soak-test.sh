@@ -2,7 +2,7 @@
 # soak-test.sh — Endurance test for codebase-memory-mcp.
 #
 # Runs compressed workload cycles: queries, file mutations, reindexes, idle periods.
-# Reads diagnostics from /tmp/cbm-diagnostics-<pid>.json (requires CBM_DIAGNOSTICS=1).
+# Reads diagnostics from /tmp/ctx-diagnostics-<pid>.json (requires CTX_DIAGNOSTICS=1).
 # Outputs metrics to soak-results/ and exits 0 (pass) or 1 (fail).
 #
 # Usage:
@@ -218,7 +218,7 @@ mcp_call() {
 # ── Helper: collect diagnostics snapshot ─────────────────────────
 
 collect_snapshot() {
-    local diag_file="/tmp/cbm-diagnostics-${SERVER_PID}.json"
+    local diag_file="/tmp/ctx-diagnostics-${SERVER_PID}.json"
     if [ -f "$diag_file" ]; then
         python3 -c "
 import json, time
@@ -239,7 +239,7 @@ SERVER_IN=$(mktemp -u).in
 SERVER_OUT=$(mktemp -u).out
 mkfifo "$SERVER_IN" "$SERVER_OUT"
 
-CBM_DIAGNOSTICS=1 "$BINARY" < "$SERVER_IN" > "$SERVER_OUT" 2>"$RESULTS_DIR/server-stderr.log" &
+CTX_DIAGNOSTICS=1 "$BINARY" < "$SERVER_IN" > "$SERVER_OUT" 2>"$RESULTS_DIR/server-stderr.log" &
 SERVER_PID=$!
 
 # Open fds AFTER server starts (otherwise fifo blocks)
@@ -269,7 +269,7 @@ collect_snapshot
 # Derive project name (same logic as cbm_project_name_from_path)
 PROJ_NAME=$(echo "$SOAK_PROJECT" | sed 's|^/||; s|/|-|g')
 
-DIAG_FILE="/tmp/cbm-diagnostics-${SERVER_PID}.json"
+DIAG_FILE="/tmp/ctx-diagnostics-${SERVER_PID}.json"
 BASELINE_RSS=$(cat "$DIAG_FILE" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('rss_bytes',0))" 2>/dev/null || echo "0")
 BASELINE_FDS=$(cat "$DIAG_FILE" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('fd_count',0))" 2>/dev/null || echo "0")
 echo "OK: baseline RSS=${BASELINE_RSS} FDs=${BASELINE_FDS}"
@@ -335,7 +335,7 @@ if [ "$SKIP_CRASH" != "--skip-crash-test" ]; then
     exec 3>&- 4<&-
 
     # Restart server
-    CBM_DIAGNOSTICS=1 "$BINARY" < "$SERVER_IN" > "$SERVER_OUT" 2>>"$RESULTS_DIR/server-stderr.log" &
+    CTX_DIAGNOSTICS=1 "$BINARY" < "$SERVER_IN" > "$SERVER_OUT" 2>>"$RESULTS_DIR/server-stderr.log" &
     SERVER_PID=$!
     exec 3>"$SERVER_IN"
     exec 4<"$SERVER_OUT"
@@ -366,7 +366,7 @@ wait "$SERVER_PID" 2>/dev/null || true
 rm -f "$SERVER_IN" "$SERVER_OUT"
 
 # Final diagnostics (written by thread before exit)
-FINAL_DIAG="/tmp/cbm-diagnostics-${SERVER_PID}.json"
+FINAL_DIAG="/tmp/ctx-diagnostics-${SERVER_PID}.json"
 
 # ── Analysis ─────────────────────────────────────────────────────
 

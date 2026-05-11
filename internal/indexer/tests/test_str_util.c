@@ -4,7 +4,7 @@
 #include "test_framework.h"
 #include "../src/foundation/str_util.h"
 
-static CBMArena a;
+static CtxArena a;
 
 static void setup(void) {
     ctx_arena_init(&a);

@@ -30,20 +30,20 @@ typedef struct {
 
 // Per-node handler prototypes. Each is called once per node during the
 // unified cursor walk, replacing the old recursive walk_* functions.
-void handle_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state);
-void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state);
-void handle_throws(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state);
-void handle_readwrites(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state);
-void handle_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state);
-void handle_env_accesses(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+void handle_calls(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state);
+void handle_usages(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state);
+void handle_throws(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state);
+void handle_readwrites(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state);
+void handle_type_refs(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state);
+void handle_env_accesses(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                          WalkState *state);
-void handle_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+void handle_type_assigns(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                          WalkState *state);
 
 // Single-pass extraction using TSTreeCursor. Visits every node once,
 // dispatching to all handlers per node. Replaces the 7 separate walk_*
 // functions for calls/usages/throws/readwrites/type_refs/env_accesses/type_assigns.
 // Definitions and imports stay as separate passes (different recursion patterns).
-void ctx_extract_unified(CBMExtractCtx *ctx);
+void ctx_extract_unified(CtxExtractCtx *ctx);
 
 #endif // CTX_EXTRACT_UNIFIED_H

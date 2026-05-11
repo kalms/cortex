@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 TEST(arena_init_default) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     ASSERT_EQ(a.nblocks, 1);
     ASSERT_EQ(a.block_size, CTX_ARENA_DEFAULT_BLOCK_SIZE);
@@ -17,7 +17,7 @@ TEST(arena_init_default) {
 }
 
 TEST(arena_init_sized) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 256);
     ASSERT_EQ(a.nblocks, 1);
     ASSERT_EQ(a.block_size, 256);
@@ -26,7 +26,7 @@ TEST(arena_init_sized) {
 }
 
 TEST(arena_alloc_basic) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     void *p = ctx_arena_alloc(&a, 100);
     ASSERT_NOT_NULL(p);
@@ -37,7 +37,7 @@ TEST(arena_alloc_basic) {
 }
 
 TEST(arena_alloc_zero) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     void *p = ctx_arena_alloc(&a, 0);
     ASSERT_NULL(p);
@@ -46,7 +46,7 @@ TEST(arena_alloc_zero) {
 }
 
 TEST(arena_alloc_alignment) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     /* Allocate 1 byte — should be padded to 8 */
     void *p1 = ctx_arena_alloc(&a, 1);
@@ -63,7 +63,7 @@ TEST(arena_alloc_alignment) {
 }
 
 TEST(arena_alloc_grows_blocks) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 64); /* tiny block to force growth */
     /* Allocate more than one block's worth */
     void *p1 = ctx_arena_alloc(&a, 48);
@@ -77,7 +77,7 @@ TEST(arena_alloc_grows_blocks) {
 }
 
 TEST(arena_alloc_large_single) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 64);
     /* Allocate something larger than block_size */
     void *p = ctx_arena_alloc(&a, 256);
@@ -88,7 +88,7 @@ TEST(arena_alloc_large_single) {
 }
 
 TEST(arena_calloc) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     unsigned char *p = (unsigned char *)ctx_arena_calloc(&a, 64);
     ASSERT_NOT_NULL(p);
@@ -101,7 +101,7 @@ TEST(arena_calloc) {
 }
 
 TEST(arena_strdup) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_strdup(&a, "hello world");
     ASSERT_NOT_NULL(s);
@@ -112,7 +112,7 @@ TEST(arena_strdup) {
 }
 
 TEST(arena_strdup_null) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_strdup(&a, NULL);
     ASSERT_NULL(s);
@@ -121,7 +121,7 @@ TEST(arena_strdup_null) {
 }
 
 TEST(arena_strndup) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_strndup(&a, "hello world", 5);
     ASSERT_NOT_NULL(s);
@@ -131,7 +131,7 @@ TEST(arena_strndup) {
 }
 
 TEST(arena_sprintf) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_sprintf(&a, "%s.%s.%s", "project", "path", "name");
     ASSERT_NOT_NULL(s);
@@ -141,7 +141,7 @@ TEST(arena_sprintf) {
 }
 
 TEST(arena_sprintf_int) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_sprintf(&a, "count=%d", 42);
     ASSERT_NOT_NULL(s);
@@ -151,7 +151,7 @@ TEST(arena_sprintf_int) {
 }
 
 TEST(arena_reset) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 128);
     /* Allocate enough to create multiple blocks */
     ctx_arena_alloc(&a, 100);
@@ -169,7 +169,7 @@ TEST(arena_reset) {
 }
 
 TEST(arena_total) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     ASSERT_EQ(ctx_arena_total(&a), 0);
     ctx_arena_alloc(&a, 100);
@@ -181,7 +181,7 @@ TEST(arena_total) {
 }
 
 TEST(arena_many_small_allocs) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     /* 10K small allocations — shouldn't exhaust MAX_BLOCKS */
     for (int i = 0; i < 10000; i++) {
@@ -196,7 +196,7 @@ TEST(arena_many_small_allocs) {
 
 TEST(arena_init_sized_clamp_small) {
     /* block_size < 64 should be clamped to 64 */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 32);
     ASSERT_EQ(a.block_size, 64);
     ASSERT_EQ(a.nblocks, 1);
@@ -209,7 +209,7 @@ TEST(arena_init_sized_clamp_small) {
 
 TEST(arena_init_sized_clamp_zero) {
     /* block_size 0 should be clamped to 64 */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 0);
     ASSERT_EQ(a.block_size, 64);
     ASSERT_EQ(a.nblocks, 1);
@@ -219,7 +219,7 @@ TEST(arena_init_sized_clamp_zero) {
 
 TEST(arena_alloc_null_on_zero_nblocks) {
     /* Corrupted arena with nblocks=0 should return NULL */
-    CBMArena a;
+    CtxArena a;
     memset(&a, 0, sizeof(a));
     /* nblocks is 0 — no valid blocks */
     void *p = ctx_arena_alloc(&a, 16);
@@ -230,7 +230,7 @@ TEST(arena_alloc_null_on_zero_nblocks) {
 
 TEST(arena_multiple_resets) {
     /* reset, use, reset, use — should not leak or crash */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 128);
 
     /* Round 1 */
@@ -262,7 +262,7 @@ TEST(arena_multiple_resets) {
 
 TEST(arena_reset_single_block) {
     /* Reset on arena that never grew — should be a no-op, not crash */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 1024);
     ctx_arena_alloc(&a, 16);
     ASSERT_EQ(a.nblocks, 1);
@@ -277,7 +277,7 @@ TEST(arena_reset_single_block) {
 }
 
 TEST(arena_strdup_empty) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_strdup(&a, "");
     ASSERT_NOT_NULL(s);
@@ -290,7 +290,7 @@ TEST(arena_strdup_empty) {
 TEST(arena_strndup_len_exceeds_string) {
     /* len > actual string length — copies len bytes (may include garbage
      * after NUL, but result must be NUL-terminated at position len) */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     const char *src = "abc";
     /* len=10 > strlen("abc")=3 — implementation copies exactly len bytes */
@@ -306,7 +306,7 @@ TEST(arena_strndup_len_exceeds_string) {
 }
 
 TEST(arena_sprintf_empty_format) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     /* Use "%s" with empty string — GCC rejects literal "" as format (-Wformat-zero-length) */
     char *s = ctx_arena_sprintf(&a, "%s", "");
@@ -319,7 +319,7 @@ TEST(arena_sprintf_empty_format) {
 
 TEST(arena_double_destroy) {
     /* Destroy already-destroyed arena — should not crash (memset to 0) */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     ctx_arena_alloc(&a, 128);
     ctx_arena_destroy(&a);
@@ -333,7 +333,7 @@ TEST(arena_double_destroy) {
 }
 
 TEST(arena_calloc_zero) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     /* calloc(0) delegates to alloc(0) which returns NULL */
     void *p = ctx_arena_calloc(&a, 0);
@@ -344,7 +344,7 @@ TEST(arena_calloc_zero) {
 
 TEST(arena_many_large_allocs_block_growth) {
     /* Force many block growths with large allocations */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 64); /* tiny blocks */
     for (int i = 0; i < 50; i++) {
         void *p = ctx_arena_alloc(&a, 128); /* each > block_size initially */
@@ -359,7 +359,7 @@ TEST(arena_many_large_allocs_block_growth) {
 
 TEST(arena_total_through_reset) {
     /* total_alloc resets to 0 on reset, then accumulates again */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 1024);
     ctx_arena_alloc(&a, 100);
     ASSERT_GTE(ctx_arena_total(&a), 100);
@@ -384,7 +384,7 @@ TEST(arena_reset_block_size_invariant) {
      * arena_reset() frees the grown blocks but does NOT restore block_size.
      * Result: arena thinks blocks[0] has more capacity than it actually does.
      * This is a heap-buffer-overflow waiting to happen. */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 128);
     size_t original_block_size = a.block_size;
     ASSERT_EQ(original_block_size, 128);
@@ -411,7 +411,7 @@ TEST(arena_reset_block_size_invariant) {
 
 TEST(arena_strndup_zero_len) {
     /* strndup with len=0 — should return empty string */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     char *s = ctx_arena_strndup(&a, "hello", 0);
     /* alloc(0+1=1) should succeed, result is NUL-terminated at pos 0 */

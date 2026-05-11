@@ -192,7 +192,7 @@ static void free_seen_dir_key(const char *key, void *val, void *ud) {
 
 /* Create Project, Folder/Package, and File nodes in the graph buffer. */
 /* Walk directory chain upward, creating Folder nodes and CONTAINS_FOLDER edges. */
-static void create_folder_chain(ctx_pipeline_t *p, const char *dir, CBMHashTable *seen_dirs) {
+static void create_folder_chain(ctx_pipeline_t *p, const char *dir, CtxHashTable *seen_dirs) {
     char *walk = strdup(dir);
     while (walk[0] != '\0' && !ctx_ht_get(seen_dirs, walk)) {
         ctx_ht_set(seen_dirs, strdup(walk), intptr_to_ptr(SKIP_ONE));
@@ -242,7 +242,7 @@ static int pass_structure(ctx_pipeline_t *p, const ctx_file_info_t *files, int f
     ctx_gbuf_upsert_node(p->gbuf, "Project", p->project_name, p->project_name, NULL, 0, 0, "{}");
 
     /* Collect unique directories and create Folder/Package nodes */
-    CBMHashTable *seen_dirs = ctx_ht_create(CTX_SZ_256);
+    CtxHashTable *seen_dirs = ctx_ht_create(CTX_SZ_256);
 
     for (int i = 0; i < file_count; i++) {
         const char *rel = files[i].rel_path;
@@ -332,7 +332,7 @@ static void *gh_compute_thread_fn(void *arg) {
  * Creates Route nodes for endpoints and HANDLES edges linking
  * topic Routes to endpoint Routes (bridging the gap). */
 /* Process one infra binding: create Route node + INFRA_MAPS edge. */
-static int process_one_infra_binding(ctx_gbuf_t *gbuf, const CBMInfraBinding *ib,
+static int process_one_infra_binding(ctx_gbuf_t *gbuf, const CtxInfraBinding *ib,
                                      const char *rel_path) {
     char url_route_qn[CTX_ROUTE_QN_SIZE];
     snprintf(url_route_qn, sizeof(url_route_qn), "__route__infra__%s", ib->target_url);
@@ -353,14 +353,14 @@ static int process_one_infra_binding(ctx_gbuf_t *gbuf, const CBMInfraBinding *ib
 }
 
 static void ctx_pipeline_process_infra_bindings(ctx_gbuf_t *gbuf, const ctx_file_info_t *files,
-                                                CBMFileResult **result_cache, int file_count) {
+                                                CtxFileResult **result_cache, int file_count) {
     int bindings = 0;
     for (int i = 0; i < file_count; i++) {
         if (!result_cache[i]) {
             continue;
         }
         for (int bi = 0; bi < result_cache[i]->infra_bindings.count; bi++) {
-            const CBMInfraBinding *ib = &result_cache[i]->infra_bindings.items[bi];
+            const CtxInfraBinding *ib = &result_cache[i]->infra_bindings.items[bi];
             if (ib->source_name && ib->target_url) {
                 bindings += process_one_infra_binding(gbuf, ib, files[i].rel_path);
             }
@@ -380,7 +380,7 @@ static bool is_infra_file(const char *fp) {
 }
 
 /* Try to create an infra Route node from one string_ref. */
-static void try_upsert_infra_route(ctx_gbuf_t *gbuf, const CBMStringRef *sr, const char *fp) {
+static void try_upsert_infra_route(ctx_gbuf_t *gbuf, const CtxStringRef *sr, const char *fp) {
     if (sr->kind != CTX_STRREF_URL || !sr->value || !strstr(sr->value, "://")) {
         return;
     }
@@ -397,7 +397,7 @@ static void try_upsert_infra_route(ctx_gbuf_t *gbuf, const CBMStringRef *sr, con
 }
 
 static void ctx_pipeline_extract_infra_routes(ctx_gbuf_t *gbuf, const ctx_file_info_t *files,
-                                              CBMFileResult **result_cache, int file_count) {
+                                              CtxFileResult **result_cache, int file_count) {
     for (int i = 0; i < file_count; i++) {
         if (!result_cache[i] || !is_infra_file(files[i].rel_path)) {
             continue;
@@ -455,7 +455,7 @@ static int run_sequential_pipeline(ctx_pipeline_t *p, ctx_pipeline_ctx_t *ctx,
                                    const ctx_file_info_t *files, int file_count,
                                    struct timespec *t) {
     ctx_log_info("pipeline.mode", "mode", "sequential", "files", itoa_buf(file_count));
-    CBMFileResult **seq_cache = (CBMFileResult **)calloc(file_count, sizeof(CBMFileResult *));
+    CtxFileResult **seq_cache = (CtxFileResult **)calloc(file_count, sizeof(CtxFileResult *));
     if (seq_cache) {
         ctx->result_cache = seq_cache;
     }
@@ -504,7 +504,7 @@ static int run_parallel_pipeline(ctx_pipeline_t *p, ctx_pipeline_ctx_t *ctx,
                  itoa_buf(file_count));
     _Atomic int64_t shared_ids;
     atomic_init(&shared_ids, ctx_gbuf_next_id(p->gbuf));
-    CBMFileResult **cache = (CBMFileResult **)calloc(file_count, sizeof(CBMFileResult *));
+    CtxFileResult **cache = (CtxFileResult **)calloc(file_count, sizeof(CtxFileResult *));
     if (!cache) {
         ctx_log_error("pipeline.err", "phase", "cache_alloc");
         return CTX_NOT_FOUND;

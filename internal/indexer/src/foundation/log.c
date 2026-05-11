@@ -8,22 +8,22 @@
 #include <stdint.h>
 #include <stdio.h>
 
-static CBMLogLevel g_log_level = CTX_LOG_INFO;
+static CtxLogLevel g_log_level = CTX_LOG_INFO;
 static ctx_log_sink_fn g_log_sink = NULL;
 
 void ctx_log_set_sink(ctx_log_sink_fn fn) {
     g_log_sink = fn;
 }
 
-void ctx_log_set_level(CBMLogLevel level) {
+void ctx_log_set_level(CtxLogLevel level) {
     g_log_level = level;
 }
 
-CBMLogLevel ctx_log_get_level(void) {
+CtxLogLevel ctx_log_get_level(void) {
     return g_log_level;
 }
 
-static const char *level_str(CBMLogLevel level) {
+static const char *level_str(CtxLogLevel level) {
     switch (level) {
     case CTX_LOG_DEBUG:
         return "debug";
@@ -38,7 +38,7 @@ static const char *level_str(CBMLogLevel level) {
     }
 }
 
-void ctx_log(CBMLogLevel level, const char *msg, ...) {
+void ctx_log(CtxLogLevel level, const char *msg, ...) {
     if (level < g_log_level) {
         return;
     }
@@ -74,7 +74,7 @@ void ctx_log(CBMLogLevel level, const char *msg, ...) {
     }
 }
 
-void ctx_log_int(CBMLogLevel level, const char *msg, const char *key, int64_t value) {
+void ctx_log_int(CtxLogLevel level, const char *msg, const char *key, int64_t value) {
     if (level < g_log_level) {
         return;
     }

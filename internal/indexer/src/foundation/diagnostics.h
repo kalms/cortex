@@ -1,7 +1,7 @@
 /*
  * diagnostics.h — Periodic diagnostics file writer.
  *
- * When CTX_DIAGNOSTICS=1, writes /tmp/cbm-diagnostics-<pid>.json every 5s.
+ * When CTX_DIAGNOSTICS=1, writes /tmp/ctx-diagnostics-<pid>.json every 5s.
  * Soak tests read this file to track memory, FDs, query stats over time.
  */
 #ifndef CTX_DIAGNOSTICS_H

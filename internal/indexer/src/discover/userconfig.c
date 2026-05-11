@@ -10,7 +10,7 @@
  * skipped (fail-open). Missing files are silently ignored.
  */
 #include "discover/userconfig.h"
-#include "cbm.h" /* CBMLanguage, CTX_LANG_* */
+#include "cbm.h" /* CtxLanguage, CTX_LANG_* */
 #include "foundation/constants.h"
 #include "foundation/platform.h" /* ctx_safe_getenv */
 
@@ -39,12 +39,12 @@ const ctx_userconfig_t *ctx_get_user_lang_config(void) {
 /* ── Language name → enum table ──────────────────────────────────── */
 
 /*
- * Reverse-mapping from lowercase language name strings to CBMLanguage.
+ * Reverse-mapping from lowercase language name strings to CtxLanguage.
  * Covers all names exposed by ctx_language_name() plus common aliases.
  */
 typedef struct {
     const char *name; /* lowercase */
-    CBMLanguage lang;
+    CtxLanguage lang;
 } lang_name_entry_t;
 
 static const lang_name_entry_t LANG_NAME_TABLE[] = {
@@ -126,10 +126,10 @@ static const lang_name_entry_t LANG_NAME_TABLE[] = {
 #define LANG_NAME_TABLE_SIZE (sizeof(LANG_NAME_TABLE) / sizeof(LANG_NAME_TABLE[0]))
 
 /*
- * Parse a language string (case-insensitive) to a CBMLanguage enum.
+ * Parse a language string (case-insensitive) to a CtxLanguage enum.
  * Returns CTX_LANG_COUNT if the string is not recognized.
  */
-static CBMLanguage lang_from_string(const char *s) {
+static CtxLanguage lang_from_string(const char *s) {
     if (!s || !s[0]) {
         return CTX_LANG_COUNT;
     }
@@ -200,7 +200,7 @@ static int parse_extra_extensions(yyjson_val *root, ctx_userext_t **entries, int
             continue;
         }
 
-        CBMLanguage lang = lang_from_string(lang_str);
+        CtxLanguage lang = lang_from_string(lang_str);
         if (lang == CTX_LANG_COUNT) {
             ctx_log_warn("userconfig.unknown_lang", "file", source_label, "lang", lang_str);
             continue; /* fail-open: skip unknown languages */
@@ -363,7 +363,7 @@ ctx_userconfig_t *ctx_userconfig_load(const char *repo_path) {
     return cfg;
 }
 
-CBMLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext) {
+CtxLanguage ctx_userconfig_lookup(const ctx_userconfig_t *cfg, const char *ext) {
     if (!cfg || !ext || !ext[0]) {
         return CTX_LANG_COUNT;
     }

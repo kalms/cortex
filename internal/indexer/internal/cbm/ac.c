@@ -31,7 +31,7 @@
 // Decompression buffer alignment mask (round up to 64KB chunks).
 #define DECOMP_BUF_ALIGN_MASK 0xFFFF
 
-struct CBMAutomaton {
+struct CtxAutomaton {
     int num_states;
     int num_patterns;
     int alpha_size;                       // 256 for raw byte, or smaller for mapped alphabet
@@ -69,7 +69,7 @@ static void queue_free(Queue *q) {
 }
 
 // Phase 1: Build trie (goto function) from patterns. Returns state count.
-static int ac_build_trie(CBMAutomaton *ac, const char **patterns, const int *lengths, int count) {
+static int ac_build_trie(CtxAutomaton *ac, const char **patterns, const int *lengths, int count) {
     int alpha_size = ac->alpha_size;
     int num_states = CTX_AC_ROOT_STATES; // state 0 = root
 
@@ -99,7 +99,7 @@ static int ac_build_trie(CBMAutomaton *ac, const char **patterns, const int *len
 }
 
 // Phase 2: Build failure function via BFS + compute full goto table.
-static void ac_build_failure(CBMAutomaton *ac, int num_states) {
+static void ac_build_failure(CtxAutomaton *ac, int num_states) {
     int alpha_size = ac->alpha_size;
     int *fail = (int *)calloc(num_states, sizeof(int));
 
@@ -138,7 +138,7 @@ static void ac_build_failure(CBMAutomaton *ac, int num_states) {
 }
 
 // Shrink allocations to exact state count.
-static void ac_shrink_tables(CBMAutomaton *ac, int num_states, int max_states) {
+static void ac_shrink_tables(CtxAutomaton *ac, int num_states, int max_states) {
     if (num_states >= max_states) {
         return;
     }
@@ -173,7 +173,7 @@ static void ac_shrink_tables(CBMAutomaton *ac, int num_states, int max_states) {
 //   alpha_size  — alphabet size (256 if alpha_map is NULL)
 //
 // Returns a heap-allocated automaton. Caller must call ctx_ac_free().
-CBMAutomaton *ctx_ac_build(const char **patterns, const int *lengths, int count,
+CtxAutomaton *ctx_ac_build(const char **patterns, const int *lengths, int count,
                            const uint8_t *alpha_map, int alpha_size) {
     if (count <= 0) {
         return NULL;
@@ -187,7 +187,7 @@ CBMAutomaton *ctx_ac_build(const char **patterns, const int *lengths, int count,
         max_states += lengths[i];
     }
 
-    CBMAutomaton *ac = (CBMAutomaton *)calloc(CTX_AC_ALLOC_ONE, sizeof(CBMAutomaton));
+    CtxAutomaton *ac = (CtxAutomaton *)calloc(CTX_AC_ALLOC_ONE, sizeof(CtxAutomaton));
     ac->alpha_size = alpha_size;
     ac->num_patterns = count;
 
@@ -218,7 +218,7 @@ CBMAutomaton *ctx_ac_build(const char **patterns, const int *lengths, int count,
 }
 
 // ctx_ac_free releases all memory for an automaton.
-void ctx_ac_free(CBMAutomaton *ac) {
+void ctx_ac_free(CtxAutomaton *ac) {
     if (!ac) {
         return;
     }
@@ -233,7 +233,7 @@ void ctx_ac_free(CBMAutomaton *ac) {
 
 // ctx_ac_scan_bitmask scans text through the automaton and returns a bitmask
 // of all matched pattern IDs (patterns 0..63).
-uint64_t ctx_ac_scan_bitmask(const CBMAutomaton *ac, const char *text, int text_len) {
+uint64_t ctx_ac_scan_bitmask(const CtxAutomaton *ac, const char *text, int text_len) {
     uint64_t result = 0;
     int state = 0;
     const int alpha_size = ac->alpha_size;
@@ -269,7 +269,7 @@ static char *get_decomp_buf(int needed) {
 // ctx_ac_scan_lz4_bitmask decompresses LZ4 data into a thread-local buffer
 // and scans it through the AC automaton. Returns bitmask of matched patterns.
 // Zero Go heap allocation — the decompression buffer lives in C.
-uint64_t ctx_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed, int compressed_len,
+uint64_t ctx_ac_scan_lz4_bitmask(const CtxAutomaton *ac, const char *compressed, int compressed_len,
                                  int original_len) {
     if (!ac || !compressed || compressed_len <= 0 || original_len <= 0) {
         return 0;
@@ -290,13 +290,13 @@ uint64_t ctx_ac_scan_lz4_bitmask(const CBMAutomaton *ac, const char *compressed,
 
 // ─── Batch LZ4 + AC scan ───────────────────────────────────────────────────
 
-// CBMLz4Entry and CBMLz4Match defined in ac.h.
+// CtxLz4Entry and CtxLz4Match defined in ac.h.
 
 // ctx_ac_scan_lz4_batch decompresses and scans multiple files in one call.
 // Returns the number of matching files written to out_matches.
 // Uses a single reusable decompression buffer across all files.
-int ctx_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, int num_entries,
-                          CBMLz4Match *out_matches, int max_matches) {
+int ctx_ac_scan_lz4_batch(const CtxAutomaton *ac, const CtxLz4Entry *entries, int num_entries,
+                          CtxLz4Match *out_matches, int max_matches) {
     if (!ac || !entries || num_entries <= 0) {
         return 0;
     }
@@ -350,7 +350,7 @@ int ctx_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, in
 
 // ─── Batch scan for configlinker ───────────────────────────────────────────
 
-// CBMMatchResult defined in ac.h.
+// CtxMatchResult defined in ac.h.
 
 // ctx_ac_scan_batch scans multiple NUL-separated names through the automaton.
 // For each name, reports all unique matched pattern IDs.
@@ -364,8 +364,8 @@ int ctx_ac_scan_lz4_batch(const CBMAutomaton *ac, const CBMLz4Entry *entries, in
 //   num_names    — number of names
 //   out_matches  — output buffer for (name_index, pattern_id) pairs
 //   max_matches  — capacity of out_matches
-int ctx_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *name_offsets,
-                      const int *name_lengths, int num_names, CBMMatchResult *out_matches,
+int ctx_ac_scan_batch(const CtxAutomaton *ac, const char *names_buf, const int *name_offsets,
+                      const int *name_lengths, int num_names, CtxMatchResult *out_matches,
                       int max_matches) {
     int total = 0;
     const int alpha_size = ac->alpha_size;
@@ -411,16 +411,16 @@ int ctx_ac_scan_batch(const CBMAutomaton *ac, const char *names_buf, const int *
 
 // ─── Info ──────────────────────────────────────────────────────────────────
 
-int ctx_ac_num_states(const CBMAutomaton *ac) {
+int ctx_ac_num_states(const CtxAutomaton *ac) {
     return ac ? ac->num_states : 0;
 }
 
-int ctx_ac_num_patterns(const CBMAutomaton *ac) {
+int ctx_ac_num_patterns(const CtxAutomaton *ac) {
     return ac ? ac->num_patterns : 0;
 }
 
 // ctx_ac_table_bytes returns the approximate memory used by the goto table.
-int ctx_ac_table_bytes(const CBMAutomaton *ac) {
+int ctx_ac_table_bytes(const CtxAutomaton *ac) {
     if (!ac) {
         return 0;
     }

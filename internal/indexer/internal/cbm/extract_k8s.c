@@ -2,10 +2,10 @@
 //
 // For CTX_LANG_KUSTOMIZE: walks top-level block_mapping_pair nodes whose key
 // matches "resources", "bases", "patches", "components", or
-// "patchesStrategicMerge", then emits one CBMImport per block_sequence item.
+// "patchesStrategicMerge", then emits one CtxImport per block_sequence item.
 //
 // For CTX_LANG_K8S: finds apiVersion, kind, and metadata.name scalars in the
-// first document's block_mapping and emits one CBMDefinition with label
+// first document's block_mapping and emits one CtxDefinition with label
 // "Resource" and name "Kind/metadata-name".
 
 #include "cbm.h"
@@ -32,7 +32,7 @@ enum {
 // Handles flow_node wrappers transparently by descending into the first named
 // child (the tree-sitter YAML grammar often wraps scalars in flow_node).
 // Returns NULL for non-scalar node types.
-static const char *get_scalar_text(CBMArena *a, TSNode node, const char *source) {
+static const char *get_scalar_text(CtxArena *a, TSNode node, const char *source) {
     enum { MAX_UNWRAP = 4 };
     for (int depth = 0; depth < MAX_UNWRAP; depth++) {
         const char *type = ts_node_type(node);
@@ -75,10 +75,10 @@ static int is_kustomize_list_key(const char *key) {
 // Kustomize extraction
 // ---------------------------------------------------------------------------
 
-// Walk a block_sequence node and emit one CBMImport per block_sequence_item
+// Walk a block_sequence node and emit one CtxImport per block_sequence_item
 // scalar child, using key_name as the local_name.
-static void emit_kustomize_sequence(CBMExtractCtx *ctx, TSNode seq_node, const char *key_name) {
-    CBMArena *a = ctx->arena;
+static void emit_kustomize_sequence(CtxExtractCtx *ctx, TSNode seq_node, const char *key_name) {
+    CtxArena *a = ctx->arena;
     uint32_t n = ts_node_child_count(seq_node);
     for (uint32_t i = 0; i < n; i++) {
         TSNode item = ts_node_child(seq_node, i);
@@ -93,7 +93,7 @@ static void emit_kustomize_sequence(CBMExtractCtx *ctx, TSNode seq_node, const c
             if (!scalar) {
                 continue;
             }
-            CBMImport imp = {
+            CtxImport imp = {
                 .local_name = ctx_arena_strdup(a, key_name),
                 .module_path = ctx_arena_strdup(a, scalar),
             };
@@ -120,7 +120,7 @@ static TSNode unwrap_block_mapping(TSNode doc_child) {
 }
 
 // Process a single block_mapping_pair for kustomize list keys.
-static void process_kustomize_pair(CBMExtractCtx *ctx, TSNode pair) {
+static void process_kustomize_pair(CtxExtractCtx *ctx, TSNode pair) {
     if (strcmp(ts_node_type(pair), "block_mapping_pair") != 0) {
         return;
     }
@@ -146,7 +146,7 @@ static void process_kustomize_pair(CBMExtractCtx *ctx, TSNode pair) {
     emit_kustomize_sequence(ctx, val_node, key_text);
 }
 
-static void extract_kustomize(CBMExtractCtx *ctx) {
+static void extract_kustomize(CtxExtractCtx *ctx) {
     TSNode root = ctx->root;
     uint32_t root_n = ts_node_child_count(root);
     for (uint32_t si = 0; si < root_n; si++) {
@@ -171,7 +171,7 @@ static void extract_kustomize(CBMExtractCtx *ctx) {
 // ---------------------------------------------------------------------------
 
 // Extract the "name" scalar from a metadata block_mapping.
-static void extract_metadata_name(CBMArena *a, TSNode meta_mapping, const char *source,
+static void extract_metadata_name(CtxArena *a, TSNode meta_mapping, const char *source,
                                   char *meta_name_buf, size_t meta_sz) {
     if (ts_node_is_null(meta_mapping) || strcmp(ts_node_type(meta_mapping), "block_mapping") != 0) {
         return;
@@ -215,9 +215,9 @@ static TSNode unwrap_pair_value(TSNode pair) {
 
 // Descend into the first block_mapping of a document and extract
 // kind and metadata.name. Returns void; fills kind_buf and meta_name_buf.
-static void extract_k8s_scalars(CBMExtractCtx *ctx, TSNode mapping, char *kind_buf, size_t kind_sz,
+static void extract_k8s_scalars(CtxExtractCtx *ctx, TSNode mapping, char *kind_buf, size_t kind_sz,
                                 char *meta_name_buf, size_t meta_sz) {
-    CBMArena *a = ctx->arena;
+    CtxArena *a = ctx->arena;
     kind_buf[0] = '\0';
     meta_name_buf[0] = '\0';
 
@@ -252,8 +252,8 @@ static void extract_k8s_scalars(CBMExtractCtx *ctx, TSNode mapping, char *kind_b
     }
 }
 
-static void extract_k8s_manifest(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void extract_k8s_manifest(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSNode root = ctx->root;
     uint32_t root_n = ts_node_child_count(root);
@@ -287,7 +287,7 @@ static void extract_k8s_manifest(CBMExtractCtx *ctx) {
         char def_name[RESULT_BUF_SIZE];
         snprintf(def_name, sizeof(def_name), "%s/%s", kind_buf, meta_name_buf);
 
-        CBMDefinition def = {0};
+        CtxDefinition def = {0};
         def.name = ctx_arena_strdup(a, def_name);
         def.qualified_name = ctx_arena_sprintf(a, "%s.%s", ctx->module_qn, def_name);
         def.label = ctx_arena_strdup(a, "Resource");
@@ -304,7 +304,7 @@ static void extract_k8s_manifest(CBMExtractCtx *ctx) {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-void ctx_extract_k8s(CBMExtractCtx *ctx) {
+void ctx_extract_k8s(CtxExtractCtx *ctx) {
     if (ctx->language == CTX_LANG_KUSTOMIZE) {
         extract_kustomize(ctx);
     } else if (ctx->language == CTX_LANG_K8S) {

@@ -749,7 +749,7 @@ static char *str_to_lower(const char *s) {
 //   id TEXT PK, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT,
 //   data TEXT, tier TEXT, created_at TEXT, updated_at TEXT,
 //   start_line INTEGER, end_line INTEGER, project TEXT
-static uint8_t *build_node_record(const CBMDumpNode *n, const char *indexed_at, int *out_len) {
+static uint8_t *build_node_record(const CtxDumpNode *n, const char *indexed_at, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
@@ -779,7 +779,7 @@ static uint8_t *build_node_record(const CBMDumpNode *n, const char *indexed_at, 
 // Build an edges table record matching Cortex's edges schema (7 columns):
 //   id TEXT PK, source_id TEXT, target_id TEXT, relation TEXT,
 //   data TEXT, created_at TEXT, project TEXT
-static uint8_t *build_edge_record(const CBMDumpEdge *e, const char *indexed_at, int *out_len) {
+static uint8_t *build_edge_record(const CtxDumpEdge *e, const char *indexed_at, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
@@ -803,7 +803,7 @@ static uint8_t *build_edge_record(const CBMDumpEdge *e, const char *indexed_at, 
 
 // Build a node_vectors table record: (node_id, project, vector)
 // Includes node_id in the record body (same pattern as build_node_record).
-static uint8_t *build_vector_record(const CBMDumpVector *v, int *out_len) {
+static uint8_t *build_vector_record(const CtxDumpVector *v, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
@@ -817,7 +817,7 @@ static uint8_t *build_vector_record(const CBMDumpVector *v, int *out_len) {
 }
 
 // Build a token_vectors table record: (id, project, token, vector, idf)
-static uint8_t *build_token_vec_record(const CBMDumpTokenVec *tv, int *out_len) {
+static uint8_t *build_token_vec_record(const CtxDumpTokenVec *tv, int *out_len) {
     RecordBuilder r;
     rec_init(&r);
 
@@ -1125,8 +1125,8 @@ static uint8_t *build_master_record(const MasterEntry *e, int *out_len) {
 // --- qsort comparators for index sorting ---
 // Single-threaded writer: static context is safe.
 
-static const CBMDumpNode *g_sort_nodes;
-static const CBMDumpEdge *g_sort_edges;
+static const CtxDumpNode *g_sort_nodes;
+static const CtxDumpEdge *g_sort_edges;
 
 static inline int cmp_i64(int64_t a, int64_t b) {
     return (a > b) - (a < b);
@@ -1283,7 +1283,7 @@ static void *sort_worker(void *arg) {
 }
 
 /* Edge index cell builder callback: builds one index cell from an edge. */
-typedef uint8_t *(*edge_cell_fn)(const CBMDumpEdge *e, int *out_len);
+typedef uint8_t *(*edge_cell_fn)(const CtxDumpEdge *e, int *out_len);
 
 /* Build a 1-column TEXT index cell: (text_val) + rowid.
  * Used for idx_edges_source (source_id TEXT) and idx_edges_target (target_id TEXT). */
@@ -1308,31 +1308,31 @@ static uint8_t *build_index_entry_1text_rowid(const char *col, int64_t rowid, in
 }
 
 /* idx_edges_source: (source_id TEXT) + rowid */
-static uint8_t *ecell_source(const CBMDumpEdge *e, int *out_len) {
+static uint8_t *ecell_source(const CtxDumpEdge *e, int *out_len) {
     char src_buf[32];
     format_node_id(src_buf, sizeof(src_buf), e->source_id);
     return build_index_entry_1text_rowid(src_buf, e->id, out_len);
 }
 
 /* idx_edges_target: (target_id TEXT) + rowid */
-static uint8_t *ecell_target(const CBMDumpEdge *e, int *out_len) {
+static uint8_t *ecell_target(const CtxDumpEdge *e, int *out_len) {
     char tgt_buf[32];
     format_node_id(tgt_buf, sizeof(tgt_buf), e->target_id);
     return build_index_entry_1text_rowid(tgt_buf, e->id, out_len);
 }
 
 /* idx_edges_relation: (relation TEXT) + rowid */
-static uint8_t *ecell_relation(const CBMDumpEdge *e, int *out_len) {
+static uint8_t *ecell_relation(const CtxDumpEdge *e, int *out_len) {
     return build_index_entry_1text_rowid(safe_str(e->type), e->id, out_len);
 }
 
 /* idx_edges_project_relation: (project TEXT, relation TEXT) + rowid */
-static uint8_t *ecell_proj_relation(const CBMDumpEdge *e, int *out_len) {
+static uint8_t *ecell_proj_relation(const CtxDumpEdge *e, int *out_len) {
     return build_index_entry_2text_rowid(safe_str(e->project), safe_str(e->type), e->id, out_len);
 }
 
 /* Build an edge index from a pre-sorted permutation using a cell builder callback. */
-static uint32_t build_edge_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpEdge *edges,
+static uint32_t build_edge_index_sorted(FILE *fp, uint32_t *next_page, CtxDumpEdge *edges,
                                         int edge_count, int *perm, edge_cell_fn cell_fn) {
     if (edge_count <= 0) {
         return write_index_btree(fp, next_page, NULL, NULL, 0);
@@ -1372,10 +1372,10 @@ static uint32_t build_edge_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpEd
 }
 
 /* Node cell builder callback for index building. */
-typedef uint8_t *(*node_cell_fn)(const CBMDumpNode *n, int *out_len);
+typedef uint8_t *(*node_cell_fn)(const CtxDumpNode *n, int *out_len);
 
 /* idx_nodes_kind: (kind TEXT) + rowid — kind = LOWER(label) */
-static uint8_t *ncell_kind(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_kind(const CtxDumpNode *n, int *out_len) {
     char *kind = str_to_lower(n->label ? n->label : "");
     uint8_t *cell = build_index_entry_1text_rowid(kind ? kind : "", n->id, out_len);
     free(kind);
@@ -1383,27 +1383,27 @@ static uint8_t *ncell_kind(const CBMDumpNode *n, int *out_len) {
 }
 
 /* idx_nodes_name: (name TEXT) + rowid */
-static uint8_t *ncell_name(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_name(const CtxDumpNode *n, int *out_len) {
     return build_index_entry_1text_rowid(n->name ? n->name : "", n->id, out_len);
 }
 
 /* idx_nodes_qualified_name: (qualified_name TEXT) + rowid */
-static uint8_t *ncell_qn(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_qn(const CtxDumpNode *n, int *out_len) {
     return build_index_entry_1text_rowid(n->qualified_name ? n->qualified_name : "", n->id, out_len);
 }
 
 /* idx_nodes_file_path: (file_path TEXT) + rowid */
-static uint8_t *ncell_file(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_file(const CtxDumpNode *n, int *out_len) {
     return build_index_entry_1text_rowid(n->file_path ? n->file_path : "", n->id, out_len);
 }
 
 /* idx_nodes_tier: (tier TEXT) + rowid — tier is always "shared" for code nodes */
-static uint8_t *ncell_tier(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_tier(const CtxDumpNode *n, int *out_len) {
     return build_index_entry_1text_rowid("shared", n->id, out_len);
 }
 
 /* idx_nodes_kind_project: (kind TEXT, project TEXT) + rowid */
-static uint8_t *ncell_kind_project(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_kind_project(const CtxDumpNode *n, int *out_len) {
     char *kind = str_to_lower(n->label ? n->label : "");
     uint8_t *cell =
         build_index_entry_2text_rowid(kind ? kind : "", n->project ? n->project : "", n->id, out_len);
@@ -1412,7 +1412,7 @@ static uint8_t *ncell_kind_project(const CBMDumpNode *n, int *out_len) {
 }
 
 /* idx_nodes_kind_file: (kind TEXT, file_path TEXT) + rowid */
-static uint8_t *ncell_kind_file(const CBMDumpNode *n, int *out_len) {
+static uint8_t *ncell_kind_file(const CtxDumpNode *n, int *out_len) {
     char *kind = str_to_lower(n->label ? n->label : "");
     uint8_t *cell = build_index_entry_2text_rowid(kind ? kind : "",
                                                   n->file_path ? n->file_path : "", n->id, out_len);
@@ -1422,7 +1422,7 @@ static uint8_t *ncell_kind_file(const CBMDumpNode *n, int *out_len) {
 
 /* Build a node index from a pre-sorted permutation using a cell builder callback.
  * Returns root page or 0. */
-static uint32_t build_node_index_sorted(FILE *fp, uint32_t *next_page, CBMDumpNode *nodes,
+static uint32_t build_node_index_sorted(FILE *fp, uint32_t *next_page, CtxDumpNode *nodes,
                                         int node_count, int *perm, node_cell_fn cell_fn) {
     if (node_count <= 0) {
         return write_index_btree(fp, next_page, NULL, NULL, 0);
@@ -1470,13 +1470,13 @@ typedef struct {
     const char *project;
     const char *root_path;
     const char *indexed_at;
-    CBMDumpNode *nodes;
+    CtxDumpNode *nodes;
     int node_count;
-    CBMDumpEdge *edges;
+    CtxDumpEdge *edges;
     int edge_count;
-    CBMDumpVector *vectors;
+    CtxDumpVector *vectors;
     int vector_count;
-    CBMDumpTokenVec *token_vecs;
+    CtxDumpTokenVec *token_vecs;
     int token_vec_count;
 } write_db_ctx_t;
 
@@ -1510,12 +1510,12 @@ static int write_one_table(write_db_ctx_t *w, uint32_t *root, const void *items,
 
 /* Wrapper structs so adapters can forward indexed_at to record builders. */
 typedef struct {
-    const CBMDumpNode *nodes;
+    const CtxDumpNode *nodes;
     const char *indexed_at;
 } NodeTableCtx;
 
 typedef struct {
-    const CBMDumpEdge *edges;
+    const CtxDumpEdge *edges;
     const char *indexed_at;
 } EdgeTableCtx;
 
@@ -1535,16 +1535,16 @@ static int64_t adapt_edge_id(const void *items, int i) {
     return ((const EdgeTableCtx *)items)->edges[i].id;
 }
 static uint8_t *adapt_build_vector(const void *items, int i, int *out_len) {
-    return build_vector_record(&((const CBMDumpVector *)items)[i], out_len);
+    return build_vector_record(&((const CtxDumpVector *)items)[i], out_len);
 }
 static int64_t adapt_vector_id(const void *items, int i) {
-    return ((const CBMDumpVector *)items)[i].node_id;
+    return ((const CtxDumpVector *)items)[i].node_id;
 }
 static uint8_t *adapt_build_token_vec(const void *items, int i, int *out_len) {
-    return build_token_vec_record(&((const CBMDumpTokenVec *)items)[i], out_len);
+    return build_token_vec_record(&((const CtxDumpTokenVec *)items)[i], out_len);
 }
 static int64_t adapt_token_vec_id(const void *items, int i) {
-    return ((const CBMDumpTokenVec *)items)[i].id;
+    return ((const CtxDumpTokenVec *)items)[i].id;
 }
 
 /* Phase 1: Write node + edge + vector data tables (streaming). */
@@ -1692,7 +1692,7 @@ static void pad_file_to_page_boundary(FILE *fp, uint32_t next_page) {
 }
 
 /* Build all 7 node index B-trees (Cortex schema). Returns 0 on success. */
-static int build_node_indexes(FILE *fp, uint32_t *next_page, CBMDumpNode *nodes, int node_count,
+static int build_node_indexes(FILE *fp, uint32_t *next_page, CtxDumpNode *nodes, int node_count,
                               SortJob *nsorts,
                               uint32_t *kind_root, uint32_t *name_root, uint32_t *qn_root,
                               uint32_t *file_root, uint32_t *tier_root,
@@ -1719,7 +1719,7 @@ static int build_node_indexes(FILE *fp, uint32_t *next_page, CBMDumpNode *nodes,
 }
 
 /* Build all 4 edge index B-trees (Cortex schema). Returns 0 on success. */
-static int build_edge_indexes(FILE *fp, uint32_t *next_page, CBMDumpEdge *edges, int edge_count,
+static int build_edge_indexes(FILE *fp, uint32_t *next_page, CtxDumpEdge *edges, int edge_count,
                               SortJob *esorts,
                               uint32_t *source_root, uint32_t *target_root,
                               uint32_t *relation_root, uint32_t *proj_relation_root) {
@@ -1757,9 +1757,9 @@ static void parallel_sort_indexes(SortJob *nsorts, int n_node, SortJob *esorts, 
 }
 
 int ctx_write_db(const char *path, const char *project, const char *root_path,
-                 const char *indexed_at, CBMDumpNode *nodes, int node_count, CBMDumpEdge *edges,
-                 int edge_count, CBMDumpVector *vectors, int vector_count,
-                 CBMDumpTokenVec *token_vecs, int token_vec_count) {
+                 const char *indexed_at, CtxDumpNode *nodes, int node_count, CtxDumpEdge *edges,
+                 int edge_count, CtxDumpVector *vectors, int vector_count,
+                 CtxDumpTokenVec *token_vecs, int token_vec_count) {
     FILE *fp = fopen(path, "wb");
     if (!fp) {
         return CTX_NOT_FOUND;
@@ -1865,7 +1865,7 @@ int ctx_write_db(const char *path, const char *project, const char *root_path,
         int *node_perm = (int *)malloc(node_count * sizeof(int));
         for (int i = 0; i < node_count; i++) node_perm[i] = i;
         /* Reuse cmp_node_by_label-style approach but sort by formatted id text. */
-        struct { CBMDumpNode *base; } pctx = {nodes};
+        struct { CtxDumpNode *base; } pctx = {nodes};
         (void)pctx;  /* qsort_r is portability-fragile; use a small inline sort below. */
         /* Insertion sort — node_count is small enough relative to other sorts. */
         for (int i = 1; i < node_count; i++) {

@@ -24,36 +24,36 @@ typedef struct {
     size_t block_size;  /* current block capacity */
     size_t used;        /* bytes used in current block */
     size_t total_alloc; /* cumulative bytes allocated (for stats) */
-} CBMArena;
+} CtxArena;
 
 /* Initialize arena with default block size. */
-void ctx_arena_init(CBMArena *a);
+void ctx_arena_init(CtxArena *a);
 
 /* Initialize arena with a custom initial block size. */
-void ctx_arena_init_sized(CBMArena *a, size_t block_size);
+void ctx_arena_init_sized(CtxArena *a, size_t block_size);
 
 /* Allocate n bytes (8-byte aligned). Returns NULL on OOM. */
-void *ctx_arena_alloc(CBMArena *a, size_t n);
+void *ctx_arena_alloc(CtxArena *a, size_t n);
 
 /* Allocate n bytes, zero-initialized. */
-void *ctx_arena_calloc(CBMArena *a, size_t n);
+void *ctx_arena_calloc(CtxArena *a, size_t n);
 
 /* Duplicate a NUL-terminated string. */
-char *ctx_arena_strdup(CBMArena *a, const char *s);
+char *ctx_arena_strdup(CtxArena *a, const char *s);
 
 /* Duplicate a string of known length, NUL-terminate. */
-char *ctx_arena_strndup(CBMArena *a, const char *s, size_t len);
+char *ctx_arena_strndup(CtxArena *a, const char *s, size_t len);
 
 /* sprintf into arena memory. */
-char *ctx_arena_sprintf(CBMArena *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+char *ctx_arena_sprintf(CtxArena *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 /* Reset arena for reuse: keeps first block, frees the rest. */
-void ctx_arena_reset(CBMArena *a);
+void ctx_arena_reset(CtxArena *a);
 
 /* Free all blocks. Arena is zeroed after this. */
-void ctx_arena_destroy(CBMArena *a);
+void ctx_arena_destroy(CtxArena *a);
 
 /* Return total bytes allocated (for diagnostics). */
-size_t ctx_arena_total(const CBMArena *a);
+size_t ctx_arena_total(const CtxArena *a);
 
 #endif /* CTX_ARENA_H */

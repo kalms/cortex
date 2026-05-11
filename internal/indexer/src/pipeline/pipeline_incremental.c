@@ -84,7 +84,7 @@ static bool *classify_files(ctx_file_info_t *files, int file_count, ctx_file_has
     int n_unchanged = 0;
 
     /* Build lookup: rel_path -> stored hash */
-    CBMHashTable *ht =
+    CtxHashTable *ht =
         ctx_ht_create(stored_count > 0 ? (size_t)stored_count * PAIR_LEN : CTX_SZ_64);
     for (int i = 0; i < stored_count; i++) {
         ctx_ht_set(ht, stored[i].rel_path, &stored[i]);
@@ -123,7 +123,7 @@ static bool *classify_files(ctx_file_info_t *files, int file_count, ctx_file_has
 /* Find stored files that no longer exist on disk. Returns count. */
 static int find_deleted_files(ctx_file_info_t *files, int file_count, ctx_file_hash_t *stored,
                               int stored_count, char ***out_deleted) {
-    CBMHashTable *current = ctx_ht_create((size_t)file_count * PAIR_LEN);
+    CtxHashTable *current = ctx_ht_create((size_t)file_count * PAIR_LEN);
     for (int i = 0; i < file_count; i++) {
         ctx_ht_set(current, files[i].rel_path, &files[i]);
     }
@@ -189,7 +189,7 @@ static void run_extract_resolve(ctx_pipeline_ctx_t *ctx, ctx_file_info_t *change
         _Atomic int64_t shared_ids;
         atomic_init(&shared_ids, ctx_gbuf_next_id(ctx->gbuf));
 
-        CBMFileResult **cache = (CBMFileResult **)calloc(ci, sizeof(CBMFileResult *));
+        CtxFileResult **cache = (CtxFileResult **)calloc(ci, sizeof(CtxFileResult *));
         if (cache) {
             ctx_clock_gettime(CLOCK_MONOTONIC, &t);
             ctx_parallel_extract(ctx, changed_files, ci, cache, &shared_ids, worker_count);

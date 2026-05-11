@@ -1,7 +1,7 @@
 /*
  * diagnostics.c — Periodic diagnostics file writer.
  *
- * Writes JSON to /tmp/cbm-diagnostics-<pid>.json every 5 seconds.
+ * Writes JSON to /tmp/ctx-diagnostics-<pid>.json every 5 seconds.
  * Atomic: writes .tmp then renames to avoid partial reads.
  */
 #include "foundation/constants.h"
@@ -177,7 +177,7 @@ bool ctx_diag_start(void) {
     g_start_time = time(NULL);
     atomic_store(&g_diag_stop, 0);
 
-    snprintf(g_diag_path, sizeof(g_diag_path), "%s/cbm-diagnostics-%d.json", ctx_tmpdir(),
+    snprintf(g_diag_path, sizeof(g_diag_path), "%s/ctx-diagnostics-%d.json", ctx_tmpdir(),
              (int)getpid());
 
     if (ctx_thread_create(&g_diag_thread, 0, diag_thread_fn, NULL) != 0) {

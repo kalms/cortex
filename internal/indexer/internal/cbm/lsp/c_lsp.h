@@ -5,15 +5,15 @@
 #include "scope.h"
 #include "type_registry.h"
 #include "../cbm.h"
-#include "go_lsp.h"  // for CBMLSPDef, CBMResolvedCallArray
+#include "go_lsp.h"  // for CtxLSPDef, CtxResolvedCallArray
 
 // CLSPContext holds state for C/C++ expression type evaluation within a file.
 typedef struct {
-    CBMArena* arena;
+    CtxArena* arena;
     const char* source;
     int source_len;
-    const CBMTypeRegistry* registry;
-    CBMScope* current_scope;
+    const CtxTypeRegistry* registry;
+    CtxScope* current_scope;
 
     // Include map: header_path -> namespace QN prefix
     const char** include_paths;
@@ -46,7 +46,7 @@ typedef struct {
     const char* module_qn;
 
     // Output
-    CBMResolvedCallArray* resolved_calls;
+    CtxResolvedCallArray* resolved_calls;
 
     // Function pointer targets: var_name -> target function QN
     const char** fp_var_names;
@@ -56,7 +56,7 @@ typedef struct {
 
     // Template parameter defaults for current template scope
     const char** template_param_names;    // e.g., ["T", "U"]
-    const CBMType** template_param_defaults; // e.g., [int_type, NULL]
+    const CtxType** template_param_defaults; // e.g., [int_type, NULL]
     int template_param_count;
 
     // Pending template calls: member calls on TYPE_PARAM inside template functions.
@@ -79,46 +79,46 @@ typedef struct {
 
 // --- API ---
 
-void c_lsp_init(CLSPContext* ctx, CBMArena* arena, const char* source, int source_len,
-    const CBMTypeRegistry* registry, const char* module_qn, bool cpp_mode,
-    CBMResolvedCallArray* out);
+void c_lsp_init(CLSPContext* ctx, CtxArena* arena, const char* source, int source_len,
+    const CtxTypeRegistry* registry, const char* module_qn, bool cpp_mode,
+    CtxResolvedCallArray* out);
 
 void c_lsp_add_include(CLSPContext* ctx, const char* header_path, const char* ns_qn);
 
 void c_lsp_process_file(CLSPContext* ctx, TSNode root);
 
-const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node);
-const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node);
+const CtxType* c_eval_expr_type(CLSPContext* ctx, TSNode node);
+const CtxType* c_parse_type_node(CLSPContext* ctx, TSNode node);
 void c_process_statement(CLSPContext* ctx, TSNode node);
 
 // Look up a member (method/field) on a type, traversing base classes.
-const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name);
+const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name);
 
 // Type simplification: unwrap refs, aliases, pointers (like clangd simplifyType).
-const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_pointer);
+const CtxType* c_simplify_type(CLSPContext* ctx, const CtxType* t, bool unwrap_pointer);
 
 // --- Entry points ---
 
 // Single-file LSP: build registry from file defs + stdlib, run resolution.
-void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
+void ctx_run_c_lsp(CtxArena* arena, CtxFileResult* result,
     const char* source, int source_len, TSNode root, bool cpp_mode);
 
 // Cross-file LSP: build registry from defs + stdlib, re-parse and resolve.
 void ctx_run_c_lsp_cross(
-    CBMArena* arena,
+    CtxArena* arena,
     const char* source, int source_len,
     const char* module_qn,
     bool cpp_mode,
-    CBMLSPDef* defs, int def_count,
+    CtxLSPDef* defs, int def_count,
     const char** include_paths, const char** include_ns_qns, int include_count,
     TSTree* cached_tree,           // NULL = parse internally
-    CBMResolvedCallArray* out);
+    CtxResolvedCallArray* out);
 
 // Register C stdlib types and functions into a registry.
-void ctx_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
+void ctx_c_stdlib_register(CtxTypeRegistry* reg, CtxArena* arena);
 
 // Register C++ stdlib types and functions into a registry.
-void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena);
+void ctx_cpp_stdlib_register(CtxTypeRegistry* reg, CtxArena* arena);
 
 // --- Batch cross-file LSP ---
 
@@ -129,18 +129,18 @@ typedef struct {
     const char* module_qn;
     bool cpp_mode;
     TSTree* cached_tree;           // from TSTree caching (NULL = parse internally)
-    CBMLSPDef* defs;               // combined file-local + cross-file defs
+    CtxLSPDef* defs;               // combined file-local + cross-file defs
     int def_count;
     const char** include_paths;    // parallel arrays, include_count long
     const char** include_ns_qns;
     int include_count;
-} CBMBatchCLSPFile;
+} CtxBatchCLSPFile;
 
 // Process multiple C/C++ files' cross-file LSP in one CGo call.
-// out must point to file_count pre-zeroed CBMResolvedCallArray structs.
+// out must point to file_count pre-zeroed CtxResolvedCallArray structs.
 void ctx_batch_c_lsp_cross(
-    CBMArena* arena,
-    CBMBatchCLSPFile* files, int file_count,
-    CBMResolvedCallArray* out);
+    CtxArena* arena,
+    CtxBatchCLSPFile* files, int file_count,
+    CtxResolvedCallArray* out);
 
 #endif // CTX_LSP_C_LSP_H

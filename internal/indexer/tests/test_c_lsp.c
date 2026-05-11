@@ -23,9 +23,9 @@
 
 /* ── Helpers (same as test_go_lsp.c) ───────────────────────────── */
 
-static int find_resolved(const CBMFileResult *r, const char *callerSub, const char *calleeSub) {
+static int find_resolved(const CtxFileResult *r, const char *callerSub, const char *calleeSub) {
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, callerSub) && rc->callee_qn &&
             strstr(rc->callee_qn, calleeSub))
             return i;
@@ -33,10 +33,10 @@ static int find_resolved(const CBMFileResult *r, const char *callerSub, const ch
     return -1;
 }
 
-static int count_resolved(const CBMFileResult *r, const char *callerSub, const char *calleeSub) {
+static int count_resolved(const CtxFileResult *r, const char *callerSub, const char *calleeSub) {
     int n = 0;
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, callerSub) && rc->callee_qn &&
             strstr(rc->callee_qn, calleeSub))
             n++;
@@ -45,16 +45,16 @@ static int count_resolved(const CBMFileResult *r, const char *callerSub, const c
 }
 
 /* Wrapper: extract C source, return -1 length to auto-compute strlen */
-static CBMFileResult *extract_c(const char *src) {
+static CtxFileResult *extract_c(const char *src) {
     return ctx_extract_file(src, (int)strlen(src), CTX_LANG_C, "test", "main.c", 0, NULL, NULL);
 }
 
-static CBMFileResult *extract_cpp(const char *src) {
+static CtxFileResult *extract_cpp(const char *src) {
     return ctx_extract_file(src, (int)strlen(src), CTX_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
 }
 
 TEST(clsp_simple_var_decl) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Foo {\n"
                                  "    int value;\n"
                                  "};\n"
@@ -73,7 +73,7 @@ TEST(clsp_simple_var_decl) {
 }
 
 TEST(clsp_pointer_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -90,7 +90,7 @@ TEST(clsp_pointer_arrow) {
 }
 
 TEST(clsp_dot_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -108,7 +108,7 @@ TEST(clsp_dot_access) {
 }
 
 TEST(clsp_auto_inference) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -134,7 +134,7 @@ TEST(clsp_auto_inference) {
 }
 
 TEST(clsp_namespace_qualified) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace ns {\n"
                                    "    class Foo {\n"
                                    "    public:\n"
@@ -153,7 +153,7 @@ TEST(clsp_namespace_qualified) {
 }
 
 TEST(clsp_constructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    Foo(int a, int b) {}\n"
@@ -172,7 +172,7 @@ TEST(clsp_constructor) {
 }
 
 TEST(clsp_new_delete) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -191,7 +191,7 @@ TEST(clsp_new_delete) {
 }
 
 TEST(clsp_implicit_this) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int helper() { return 0; }\n"
@@ -207,7 +207,7 @@ TEST(clsp_implicit_this) {
 }
 
 TEST(clsp_explicit_this) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -223,7 +223,7 @@ TEST(clsp_explicit_this) {
 }
 
 TEST(clsp_type_alias) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -243,7 +243,7 @@ TEST(clsp_type_alias) {
 }
 
 TEST(clsp_typedef) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -263,7 +263,7 @@ TEST(clsp_typedef) {
 }
 
 TEST(clsp_scope_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int method1() { return 0; }\n"
@@ -293,7 +293,7 @@ TEST(clsp_scope_chain) {
 }
 
 TEST(clsp_static_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    virtual int bar() { return 0; }\n"
@@ -316,7 +316,7 @@ TEST(clsp_static_cast) {
 }
 
 TEST(clsp_using_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace ns {\n"
                                    "    int foo() { return 42; }\n"
                                    "}\n"
@@ -333,7 +333,7 @@ TEST(clsp_using_namespace) {
 }
 
 TEST(clsp_cmode) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "#include <stdlib.h>\n"
                                  "\n"
                                  "struct Point {\n"
@@ -359,7 +359,7 @@ TEST(clsp_cmode) {
 }
 
 TEST(clsp_direct_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int helper(int x) { return x + 1; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -373,7 +373,7 @@ TEST(clsp_direct_call) {
 }
 
 TEST(clsp_direct_callcpp) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "int helper(int x) { return x + 1; }\n"
                                    "\n"
                                    "void test() {\n"
@@ -387,7 +387,7 @@ TEST(clsp_direct_callcpp) {
 }
 
 TEST(clsp_stdlib_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "#include <string.h>\n"
                                  "\n"
                                  "void test() {\n"
@@ -402,7 +402,7 @@ TEST(clsp_stdlib_call) {
 }
 
 TEST(clsp_multiple_calls_same_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void info(const char* msg) {}\n"
@@ -429,7 +429,7 @@ TEST(clsp_multiple_calls_same_func) {
 }
 
 TEST(clsp_return_type_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class File {\n"
                                    "public:\n"
                                    "    int read() { return 0; }\n"
@@ -449,7 +449,7 @@ TEST(clsp_return_type_chain) {
 }
 
 TEST(clsp_method_chaining) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Builder {\n"
                                    "public:\n"
                                    "    Builder& setName(const char* name) { return *this; }\n"
@@ -470,7 +470,7 @@ TEST(clsp_method_chaining) {
 }
 
 TEST(clsp_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    int baseMethod() { return 0; }\n"
@@ -495,7 +495,7 @@ TEST(clsp_inheritance) {
 }
 
 TEST(clsp_operator_stream) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <iostream>\n"
                                    "\n"
                                    "void test() {\n"
@@ -508,7 +508,7 @@ TEST(clsp_operator_stream) {
 }
 
 TEST(clsp_cross_file) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void render() {}\n"
@@ -525,7 +525,7 @@ TEST(clsp_cross_file) {
 }
 
 TEST(clsp_nocrash_template_expression) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <vector>\n"
                                    "#include <string>\n"
                                    "\n"
@@ -541,7 +541,7 @@ TEST(clsp_nocrash_template_expression) {
 }
 
 TEST(clsp_nocrash_lambda) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void test() {\n"
                                    "    auto f = [](int x) -> int { return x + 1; };\n"
                                    "    f(42);\n"
@@ -553,7 +553,7 @@ TEST(clsp_nocrash_lambda) {
 }
 
 TEST(clsp_nocrash_nested_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace a {\n"
                                    "    namespace b {\n"
                                    "        namespace c {\n"
@@ -572,14 +572,14 @@ TEST(clsp_nocrash_nested_namespace) {
 }
 
 TEST(clsp_nocrash_empty_source) {
-    CBMFileResult *r = ctx_extract_file("", 0, CTX_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
+    CtxFileResult *r = ctx_extract_file("", 0, CTX_LANG_CPP, "test", "main.cpp", 0, NULL, NULL);
     ASSERT_NOT_NULL(r);
     ctx_free_result(r);
     PASS();
 }
 
 TEST(clsp_nocrash_complex_class) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    virtual ~Base() {}\n"
@@ -618,7 +618,7 @@ TEST(clsp_nocrash_complex_class) {
 }
 
 TEST(clsp_operator_subscript) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vec {\n"
                                    "public:\n"
                                    "    int& operator[](int idx) { static int x; return x; }\n"
@@ -636,7 +636,7 @@ TEST(clsp_operator_subscript) {
 }
 
 TEST(clsp_operator_binary) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vec3 {\n"
                                    "public:\n"
                                    "    Vec3 operator+(const Vec3& other) { return Vec3(); }\n"
@@ -655,7 +655,7 @@ TEST(clsp_operator_binary) {
 }
 
 TEST(clsp_operator_unary) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Iter {\n"
                                    "public:\n"
                                    "    int operator*() { return 0; }\n"
@@ -676,7 +676,7 @@ TEST(clsp_operator_unary) {
 }
 
 TEST(clsp_functor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Predicate {\n"
                                    "public:\n"
                                    "    bool operator()(int x) { return x > 0; }\n"
@@ -694,7 +694,7 @@ TEST(clsp_functor) {
 }
 
 TEST(clsp_copy_constructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    Foo() {}\n"
@@ -714,7 +714,7 @@ TEST(clsp_copy_constructor) {
 }
 
 TEST(clsp_delete_destructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    ~Widget() {}\n"
@@ -732,7 +732,7 @@ TEST(clsp_delete_destructor) {
 }
 
 TEST(clsp_range_for) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -751,7 +751,7 @@ TEST(clsp_range_for) {
 }
 
 TEST(clsp_parent_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace outer {\n"
                                    "    int helper() { return 42; }\n"
                                    "\n"
@@ -769,7 +769,7 @@ TEST(clsp_parent_namespace) {
 }
 
 TEST(clsp_conversion_operator_bool) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Guard {\n"
                                    "public:\n"
                                    "    operator bool() { return true; }\n"
@@ -789,7 +789,7 @@ TEST(clsp_conversion_operator_bool) {
 }
 
 TEST(clsp_namespace_alias) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace very_long_name {\n"
                                    "    int foo() { return 42; }\n"
                                    "}\n"
@@ -805,7 +805,7 @@ TEST(clsp_namespace_alias) {
 }
 
 TEST(clsp_template_in_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace ns {\n"
                                    "    template<typename T>\n"
                                    "    class Wrapper {\n"
@@ -827,7 +827,7 @@ TEST(clsp_template_in_namespace) {
 }
 
 TEST(clsp_nocrash_using_enum) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "enum class Color { Red, Green, Blue };\n"
                                    "\n"
                                    "void test() {\n"
@@ -840,7 +840,7 @@ TEST(clsp_nocrash_using_enum) {
 }
 
 TEST(clsp_nocrash_multiple_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class A {\n"
                                    "public:\n"
                                    "    void methodA() {}\n"
@@ -869,7 +869,7 @@ TEST(clsp_nocrash_multiple_inheritance) {
 }
 
 TEST(clsp_nocrash_pointer_arithmetic) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void test() {\n"
                                  "    int arr[10];\n"
                                  "    int* p = arr;\n"
@@ -882,7 +882,7 @@ TEST(clsp_nocrash_pointer_arithmetic) {
 }
 
 TEST(clsp_function_pointer) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int target_func(int x) { return x + 1; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -897,7 +897,7 @@ TEST(clsp_function_pointer) {
 }
 
 TEST(clsp_function_pointer_decay) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int target_func(int x) { return x + 1; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -912,7 +912,7 @@ TEST(clsp_function_pointer_decay) {
 }
 
 TEST(clsp_overload_by_arg_count) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int bar() { return 0; }\n"
@@ -934,7 +934,7 @@ TEST(clsp_overload_by_arg_count) {
 }
 
 TEST(clsp_template_default_args) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class DefaultType {\n"
                                    "public:\n"
                                    "    int method() { return 0; }\n"
@@ -953,7 +953,7 @@ TEST(clsp_template_default_args) {
 }
 
 TEST(clsp_spaceship_operator) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Vec3 {\n"
                     "public:\n"
@@ -974,7 +974,7 @@ TEST(clsp_spaceship_operator) {
 }
 
 TEST(clsp_nocrash_concept) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -994,7 +994,7 @@ TEST(clsp_nocrash_concept) {
 }
 
 TEST(clsp_dependent_member_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void render() {}\n"
@@ -1012,7 +1012,7 @@ TEST(clsp_dependent_member_access) {
 }
 
 TEST(clsp_nocrash_try_catch) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Exception {\n"
                                    "public:\n"
                                    "    const char* what() { return \"error\"; }\n"
@@ -1032,7 +1032,7 @@ TEST(clsp_nocrash_try_catch) {
 }
 
 TEST(clsp_macro_wrapped_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "#define CALL(f) f()\n"
                                  "void foo(void);\n"
                                  "void test(void) { CALL(foo); }\n"
@@ -1043,7 +1043,7 @@ TEST(clsp_macro_wrapped_call) {
 }
 
 TEST(clsp_macro_with_args) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int printf(const char* fmt, ...);\n"
                                  "#define LOG(msg) printf(msg)\n"
                                  "void test(void) { LOG(\"hi\"); }\n"
@@ -1054,7 +1054,7 @@ TEST(clsp_macro_with_args) {
 }
 
 TEST(clsp_recursive_macro) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void target(int x);\n"
                                  "#define B(x) target(x)\n"
                                  "#define A(x) B(x)\n"
@@ -1066,7 +1066,7 @@ TEST(clsp_recursive_macro) {
 }
 
 TEST(clsp_conditional_macro) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void new_func(void);\n"
                                  "void old_func(void);\n"
                                  "#define USE_NEW 1\n"
@@ -1082,7 +1082,7 @@ TEST(clsp_conditional_macro) {
 }
 
 TEST(clsp_token_paste) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void order_handler(void);\n"
                                  "#define HANDLER(name) name##_handler()\n"
                                  "void test(void) { HANDLER(order); }\n"
@@ -1093,7 +1093,7 @@ TEST(clsp_token_paste) {
 }
 
 TEST(clsp_no_macro_no_overhead) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void foo(void);\n"
                                  "void bar(void);\n"
                                  "void test(void) { foo(); bar(); }\n"
@@ -1104,7 +1104,7 @@ TEST(clsp_no_macro_no_overhead) {
 }
 
 TEST(clsp_variadic_macro) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int fprintf(void* stream, const char* fmt, ...);\n"
                                  "#define DBG(fmt, ...) fprintf(0, fmt, __VA_ARGS__)\n"
                                  "void test(void) { DBG(\"x=%d\", 42); }\n"
@@ -1115,7 +1115,7 @@ TEST(clsp_variadic_macro) {
 }
 
 TEST(clsp_cppmacro_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void log(const char* msg) {}\n"
@@ -1134,7 +1134,7 @@ TEST(clsp_cppmacro_method_call) {
 }
 
 TEST(clsp_struct_field_extraction) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point {\n"
                                  "    int x;\n"
                                  "    int y;\n"
@@ -1147,7 +1147,7 @@ TEST(clsp_struct_field_extraction) {
 }
 
 TEST(clsp_struct_field_defs_tolspdefs) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Config {\n"
                                  "    int timeout;\n"
                                  "    char* name;\n"
@@ -1160,7 +1160,7 @@ TEST(clsp_struct_field_defs_tolspdefs) {
 }
 
 TEST(clsp_make_shared_template_arg) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <memory>\n"
                                    "\n"
                                    "class Widget {\n"
@@ -1180,7 +1180,7 @@ TEST(clsp_make_shared_template_arg) {
 }
 
 TEST(clsp_make_unique_template_arg) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <memory>\n"
                                    "\n"
                                    "class Engine {\n"
@@ -1200,7 +1200,7 @@ TEST(clsp_make_unique_template_arg) {
 }
 
 TEST(clsp_template_class_method_return_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Box {\n"
                                    "public:\n"
@@ -1227,7 +1227,7 @@ TEST(clsp_template_class_method_return_type) {
 }
 
 TEST(clsp_trailing_return_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    void bar() {}\n"
@@ -1249,7 +1249,7 @@ TEST(clsp_trailing_return_type) {
 }
 
 TEST(clsp_trailing_return_type_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Builder {\n"
                                    "public:\n"
                                    "    auto self() -> Builder& { return *this; }\n"
@@ -1268,7 +1268,7 @@ TEST(clsp_trailing_return_type_method) {
 }
 
 TEST(clsp_cppclass_field_extraction) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    int width;\n"
@@ -1284,7 +1284,7 @@ TEST(clsp_cppclass_field_extraction) {
 }
 
 TEST(clsp_std_variant) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <variant>\n"
                                    "#include <string>\n"
                                    "\n"
@@ -1300,7 +1300,7 @@ TEST(clsp_std_variant) {
 }
 
 TEST(clsp_std_deque) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <deque>\n"
                                    "\n"
                                    "class Task {\n"
@@ -1323,7 +1323,7 @@ TEST(clsp_std_deque) {
 }
 
 TEST(clsp_std_filesystem) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <filesystem>\n"
                                    "\n"
                                    "void test() {\n"
@@ -1340,7 +1340,7 @@ TEST(clsp_std_filesystem) {
 }
 
 TEST(clsp_std_accumulate) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <vector>\n"
                                    "#include <numeric>\n"
                                    "\n"
@@ -1358,7 +1358,7 @@ TEST(clsp_std_accumulate) {
 }
 
 TEST(clsp_std_string_stream) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <sstream>\n"
                                    "#include <string>\n"
                                    "\n"
@@ -1374,7 +1374,7 @@ TEST(clsp_std_string_stream) {
 }
 
 TEST(clsp_abseil_status_or) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace absl {\n"
                                    "    class Status {\n"
                                    "    public:\n"
@@ -1410,7 +1410,7 @@ TEST(clsp_abseil_status_or) {
 }
 
 TEST(clsp_spdlog_logger) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace spdlog {\n"
                                    "    class logger {\n"
                                    "    public:\n"
@@ -1436,7 +1436,7 @@ TEST(clsp_spdlog_logger) {
 }
 
 TEST(clsp_qtqstring) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class QString {\n"
                                    "public:\n"
                                    "    int length() { return 0; }\n"
@@ -1458,7 +1458,7 @@ TEST(clsp_qtqstring) {
 }
 
 TEST(clsp_adl_swap) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace mylib {\n"
                                    "    class Widget {\n"
                                    "    public:\n"
@@ -1479,7 +1479,7 @@ TEST(clsp_adl_swap) {
 }
 
 TEST(clsp_adl_operator_free_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace geo {\n"
                                    "    class Point {\n"
                                    "    public:\n"
@@ -1500,7 +1500,7 @@ TEST(clsp_adl_operator_free_func) {
 }
 
 TEST(clsp_adl_std_sort) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "#include <vector>\n"
                                    "#include <algorithm>\n"
                                    "\n"
@@ -1516,7 +1516,7 @@ TEST(clsp_adl_std_sort) {
 }
 
 TEST(clsp_adl_no_false_positive) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo {\n"
                                    "public:\n"
                                    "    int x;\n"
@@ -1533,7 +1533,7 @@ TEST(clsp_adl_no_false_positive) {
 }
 
 TEST(clsp_overload_by_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {};\n"
                                    "class Gadget {};\n"
                                    "\n"
@@ -1556,7 +1556,7 @@ TEST(clsp_overload_by_type) {
 }
 
 TEST(clsp_overload_by_type_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Renderer {\n"
                                    "public:\n"
                                    "    void draw(int x) {}\n"
@@ -1576,7 +1576,7 @@ TEST(clsp_overload_by_type_method) {
 }
 
 TEST(clsp_lambda_trailing_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -1594,7 +1594,7 @@ TEST(clsp_lambda_trailing_return) {
 }
 
 TEST(clsp_lambda_body_inference) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void activate() {}\n"
@@ -1612,7 +1612,7 @@ TEST(clsp_lambda_body_inference) {
 }
 
 TEST(clsp_inline_namespace_libc) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "namespace __1 {\n"
                                    "class string {\n"
@@ -1634,7 +1634,7 @@ TEST(clsp_inline_namespace_libc) {
 }
 
 TEST(clsp_inline_namespace_gcc) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "namespace __cxx11 {\n"
                                    "class basic_string {\n"
@@ -1656,7 +1656,7 @@ TEST(clsp_inline_namespace_gcc) {
 }
 
 TEST(clsp_implicit_string_conversion) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "class string {\n"
                                    "public:\n"
@@ -1683,7 +1683,7 @@ TEST(clsp_implicit_string_conversion) {
 }
 
 TEST(clsp_numeric_promotion) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Math {\n"
                                    "public:\n"
                                    "    double compute(double x) { return x; }\n"
@@ -1703,7 +1703,7 @@ TEST(clsp_numeric_promotion) {
 }
 
 TEST(clsp_virtual_override) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    virtual void draw() {}\n"
@@ -1727,7 +1727,7 @@ TEST(clsp_virtual_override) {
 }
 
 TEST(clsp_base_pointer_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    virtual void render() {}\n"
@@ -1749,7 +1749,7 @@ TEST(clsp_base_pointer_call) {
 }
 
 TEST(clsp_crtp_basic) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<class T>\n"
                                    "class Base {\n"
                                    "public:\n"
@@ -1771,7 +1771,7 @@ TEST(clsp_crtp_basic) {
 }
 
 TEST(clsp_crtp_multi_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<class T, class Policy>\n"
                                    "class CRTPBase {\n"
                                    "public:\n"
@@ -1792,7 +1792,7 @@ TEST(clsp_crtp_multi_param) {
 }
 
 TEST(clsp_range_for_map) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class K, class V>\n"
                                    "class map {\n"
@@ -1827,7 +1827,7 @@ TEST(clsp_range_for_map) {
 }
 
 TEST(clsp_range_for_custom_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void activate() {}\n"
@@ -1858,7 +1858,7 @@ TEST(clsp_range_for_custom_iterator) {
 }
 
 TEST(clsp_tad_free_function_identity) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -1879,7 +1879,7 @@ TEST(clsp_tad_free_function_identity) {
 }
 
 TEST(clsp_tad_make_pair_like) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<class A, class B>\n"
@@ -1909,7 +1909,7 @@ TEST(clsp_tad_make_pair_like) {
 }
 
 TEST(clsp_structured_binding_pair) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class A, class B>\n"
                                    "class pair {\n"
@@ -1937,7 +1937,7 @@ TEST(clsp_structured_binding_pair) {
 }
 
 TEST(clsp_structured_binding_struct) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Engine {\n"
                                    "public:\n"
                                    "    void start() {}\n"
@@ -1961,7 +1961,7 @@ TEST(clsp_structured_binding_struct) {
 }
 
 TEST(clsp_ternary_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -1982,7 +1982,7 @@ TEST(clsp_ternary_type) {
 }
 
 TEST(clsp_chained_method_calls) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void render() {}\n"
@@ -2007,7 +2007,7 @@ TEST(clsp_chained_method_calls) {
 }
 
 TEST(clsp_std_vector_push_back) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class vector {\n"
@@ -2039,7 +2039,7 @@ TEST(clsp_std_vector_push_back) {
 }
 
 TEST(clsp_iterator_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class unique_ptr {\n"
@@ -2066,7 +2066,7 @@ TEST(clsp_iterator_deref) {
 }
 
 TEST(clsp_enum_class_usage) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void log(int level) {}\n"
@@ -2084,7 +2084,7 @@ TEST(clsp_enum_class_usage) {
 }
 
 TEST(clsp_multiple_return_paths) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2104,7 +2104,7 @@ TEST(clsp_multiple_return_paths) {
 }
 
 TEST(clsp_nested_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class vector {\n"
@@ -2130,7 +2130,7 @@ TEST(clsp_nested_template) {
 }
 
 TEST(clsp_const_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2147,7 +2147,7 @@ TEST(clsp_const_ref) {
 }
 
 TEST(clsp_std_function_callback) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class function {};\n"
@@ -2176,7 +2176,7 @@ TEST(clsp_std_function_callback) {
 }
 
 TEST(clsp_optional_value_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class optional {\n"
@@ -2204,7 +2204,7 @@ TEST(clsp_optional_value_access) {
 }
 
 TEST(clsp_typedef_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2224,7 +2224,7 @@ TEST(clsp_typedef_chain) {
 }
 
 TEST(clsp_if_init_statement) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2247,7 +2247,7 @@ TEST(clsp_if_init_statement) {
 }
 
 TEST(clsp_dependent_type_member) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T>\n"
                                    "class vector {\n"
@@ -2273,7 +2273,7 @@ TEST(clsp_dependent_type_member) {
 }
 
 TEST(clsp_auto_return_function) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2296,7 +2296,7 @@ TEST(clsp_auto_return_function) {
 }
 
 TEST(clsp_move_semantics) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2320,7 +2320,7 @@ TEST(clsp_move_semantics) {
 }
 
 TEST(clsp_multi_level_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class A {\n"
                                    "public:\n"
                                    "    void base_op() {}\n"
@@ -2351,7 +2351,7 @@ TEST(clsp_multi_level_inheritance) {
 }
 
 TEST(clsp_range_for_structured_binding) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class K, class V>\n"
                                    "class map {\n"
@@ -2386,7 +2386,7 @@ TEST(clsp_range_for_structured_binding) {
 }
 
 TEST(clsp_cross_file_include) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2403,7 +2403,7 @@ TEST(clsp_cross_file_include) {
 }
 
 TEST(clsp_function_returning_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2426,7 +2426,7 @@ TEST(clsp_function_returning_ref) {
 }
 
 TEST(clsp_template_method_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T> class vector {};\n"
                                    "}\n"
@@ -2453,7 +2453,7 @@ TEST(clsp_template_method_chain) {
 }
 
 TEST(clsp_algorithm_with_lambda) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<class It, class Fn>\n"
@@ -2486,7 +2486,7 @@ TEST(clsp_algorithm_with_lambda) {
 }
 
 TEST(clsp_static_cast_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    void base_method() {}\n"
@@ -2509,7 +2509,7 @@ TEST(clsp_static_cast_chain) {
 }
 
 TEST(clsp_smart_pointer_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T> class unique_ptr {\n"
                                    "public:\n"
@@ -2535,7 +2535,7 @@ TEST(clsp_smart_pointer_arrow) {
 }
 
 TEST(clsp_static_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    static Widget create() { return Widget(); }\n"
@@ -2555,7 +2555,7 @@ TEST(clsp_static_method_call) {
 }
 
 TEST(clsp_subscript_draw) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<class T> class vector {\n"
                                    "public:\n"
@@ -2581,7 +2581,7 @@ TEST(clsp_subscript_draw) {
 }
 
 TEST(clsp_auto_from_method_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Product {\n"
                                    "public:\n"
                                    "    void use() {}\n"
@@ -2606,7 +2606,7 @@ TEST(clsp_auto_from_method_return) {
 }
 
 TEST(clsp_nested_class_return_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Factory {\n"
                                    "public:\n"
                                    "    class Product {\n"
@@ -2630,7 +2630,7 @@ TEST(clsp_nested_class_return_type) {
 }
 
 TEST(clsp_make_shared_chain) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<class T> class shared_ptr {\n"
@@ -2658,7 +2658,7 @@ TEST(clsp_make_shared_chain) {
 }
 
 TEST(clsp_dependent_member_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2681,7 +2681,7 @@ TEST(clsp_dependent_member_call) {
 }
 
 TEST(clsp_default_args) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Logger {\n"
                     "public:\n"
@@ -2702,7 +2702,7 @@ TEST(clsp_default_args) {
 }
 
 TEST(clsp_gap_std_forward) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -2725,7 +2725,7 @@ TEST(clsp_gap_std_forward) {
 }
 
 TEST(clsp_gap_generic_lambda) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Gadget {\n"
                                    "public:\n"
                                    "    int compute() { return 0; }\n"
@@ -2743,7 +2743,7 @@ TEST(clsp_gap_generic_lambda) {
 }
 
 TEST(clsp_gap_decltype_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Sensor {\n"
                                    "public:\n"
                                    "    int read() { return 0; }\n"
@@ -2769,7 +2769,7 @@ TEST(clsp_gap_decltype_return) {
 }
 
 TEST(clsp_gap_std_move) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Resource {\n"
                                    "public:\n"
                                    "    void release() {}\n"
@@ -2787,7 +2787,7 @@ TEST(clsp_gap_std_move) {
 }
 
 TEST(clsp_probe_c_struct_callback) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct EventHandler {\n"
                                  "    int (*on_click)(int x, int y);\n"
                                  "};\n"
@@ -2807,7 +2807,7 @@ TEST(clsp_probe_c_struct_callback) {
 }
 
 TEST(clsp_probe_c_typedef_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef struct {\n"
                                  "    int x;\n"
                                  "    int y;\n"
@@ -2827,7 +2827,7 @@ TEST(clsp_probe_c_typedef_struct) {
 }
 
 TEST(clsp_probe_c_nested_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int value; };\n"
                                  "struct Outer { struct Inner inner; };\n"
                                  "\n"
@@ -2845,7 +2845,7 @@ TEST(clsp_probe_c_nested_struct) {
 }
 
 TEST(clsp_probe_c_array_decay) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int strlen(const char* s);\n"
                                  "\n"
                                  "void test() {\n"
@@ -2865,7 +2865,7 @@ TEST(clsp_probe_c_array_decay) {
 }
 
 TEST(clsp_probe_c_compound_literal) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "int distance(struct Point* p);\n"
@@ -2881,7 +2881,7 @@ TEST(clsp_probe_c_compound_literal) {
 }
 
 TEST(clsp_probe_c_chained_func_calls) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "char* strdup(const char* s);\n"
                                  "int strlen(const char* s);\n"
                                  "\n"
@@ -2897,7 +2897,7 @@ TEST(clsp_probe_c_chained_func_calls) {
 }
 
 TEST(clsp_probe_c_enum_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "enum Color { RED, GREEN, BLUE };\n"
                                  "\n"
                                  "void set_color(enum Color c);\n"
@@ -2913,7 +2913,7 @@ TEST(clsp_probe_c_enum_param) {
 }
 
 TEST(clsp_probe_c_global_var_func_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Logger { int level; };\n"
                                  "struct Logger* get_logger();\n"
                                  "void log_msg(struct Logger* l, const char* msg);\n"
@@ -2933,7 +2933,7 @@ TEST(clsp_probe_c_global_var_func_call) {
 }
 
 TEST(clsp_probe_cpp_dynamic_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base { public: virtual void draw() {} };\n"
                                    "class Circle : public Base { public: void radius() {} };\n"
                                    "\n"
@@ -2955,7 +2955,7 @@ TEST(clsp_probe_cpp_dynamic_cast) {
 }
 
 TEST(clsp_probe_cpp_reinterpret_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Data { public: void process() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -2976,7 +2976,7 @@ TEST(clsp_probe_cpp_reinterpret_cast) {
 }
 
 TEST(clsp_probe_cpp_const_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config { public: void reload() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -2997,7 +2997,7 @@ TEST(clsp_probe_cpp_const_cast) {
 }
 
 TEST(clsp_probe_cpp_const_method_overload) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Container {\n"
                                    "public:\n"
                                    "    int& get(int i) { return data[i]; }\n"
@@ -3019,7 +3019,7 @@ TEST(clsp_probe_cpp_const_method_overload) {
 }
 
 TEST(clsp_probe_cpp_using_base_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    void process() {}\n"
@@ -3049,7 +3049,7 @@ TEST(clsp_probe_cpp_using_base_method) {
 }
 
 TEST(clsp_probe_cpp_pair_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename K, typename V>\n"
                                    "    struct pair {\n"
@@ -3077,7 +3077,7 @@ TEST(clsp_probe_cpp_pair_access) {
 }
 
 TEST(clsp_probe_cpp_builder_pattern) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class QueryBuilder {\n"
                     "public:\n"
@@ -3104,7 +3104,7 @@ TEST(clsp_probe_cpp_builder_pattern) {
 }
 
 TEST(clsp_probe_cpp_exception_catch_var) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class MyError {\n"
                                    "public:\n"
                                    "    const char* what() { return \"error\"; }\n"
@@ -3132,7 +3132,7 @@ TEST(clsp_probe_cpp_exception_catch_var) {
 }
 
 TEST(clsp_probe_cpp_for_loop_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> class vector {\n"
                                    "    public:\n"
@@ -3169,7 +3169,7 @@ TEST(clsp_probe_cpp_for_loop_iterator) {
 }
 
 TEST(clsp_probe_cpp_nested_class_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Outer {\n"
                                    "public:\n"
                                    "    class Inner {\n"
@@ -3197,7 +3197,7 @@ TEST(clsp_probe_cpp_nested_class_access) {
 }
 
 TEST(clsp_probe_cpp_static_member_var) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config {\n"
                                    "public:\n"
                                    "    static Config& instance() { static Config c; return c; }\n"
@@ -3220,7 +3220,7 @@ TEST(clsp_probe_cpp_static_member_var) {
 }
 
 TEST(clsp_probe_cpp_std_array_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T, int N>\n"
                                    "    class array {\n"
@@ -3250,7 +3250,7 @@ TEST(clsp_probe_cpp_std_array_access) {
 }
 
 TEST(clsp_probe_cpp_unordered_map_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename K, typename V>\n"
                                    "    class unordered_map {\n"
@@ -3279,7 +3279,7 @@ TEST(clsp_probe_cpp_unordered_map_access) {
 }
 
 TEST(clsp_probe_cpp_lambda_capture) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void log(const char* msg) {}\n"
@@ -3303,7 +3303,7 @@ TEST(clsp_probe_cpp_lambda_capture) {
 }
 
 TEST(clsp_probe_cpp_tuple_get) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args>\n"
                                    "    class tuple {};\n"
@@ -3328,7 +3328,7 @@ TEST(clsp_probe_cpp_tuple_get) {
 }
 
 TEST(clsp_probe_cpp_initializer_list) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "Widget make_widget() { return Widget(); }\n"
@@ -3347,7 +3347,7 @@ TEST(clsp_probe_cpp_initializer_list) {
 }
 
 TEST(clsp_probe_cpp_conditional_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class FileReader { public: void read() {} };\n"
                                    "class NetReader { public: void read() {} };\n"
                                    "\n"
@@ -3372,7 +3372,7 @@ TEST(clsp_probe_cpp_conditional_method) {
 }
 
 TEST(clsp_gap_multiple_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class A { public: void method_a() {} };\n"
                                    "class B : public A { public: void method_b() {} };\n"
                                    "class C : public A { public: void method_c() {} };\n"
@@ -3392,7 +3392,7 @@ TEST(clsp_gap_multiple_inheritance) {
 }
 
 TEST(clsp_c_union_member_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "union Data {\n"
                                  "    int i;\n"
                                  "    float f;\n"
@@ -3413,7 +3413,7 @@ TEST(clsp_c_union_member_access) {
 }
 
 TEST(clsp_c_void_pointer_cast) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Widget { int x; };\n"
                                  "void widget_draw(struct Widget* w);\n"
                                  "\n"
@@ -3429,7 +3429,7 @@ TEST(clsp_c_void_pointer_cast) {
 }
 
 TEST(clsp_c_double_pointer) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Node { int val; };\n"
                                  "void node_init(struct Node** out);\n"
                                  "void node_process(struct Node* n);\n"
@@ -3448,7 +3448,7 @@ TEST(clsp_c_double_pointer) {
 }
 
 TEST(clsp_c_static_local_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int compute(int x);\n"
                                  "\n"
                                  "void test() {\n"
@@ -3463,7 +3463,7 @@ TEST(clsp_c_static_local_call) {
 }
 
 TEST(clsp_c_array_of_struct_loop) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Sensor { int id; };\n"
                                  "int read_sensor(struct Sensor* s);\n"
                                  "\n"
@@ -3481,7 +3481,7 @@ TEST(clsp_c_array_of_struct_loop) {
 }
 
 TEST(clsp_c_func_ptr_typedef) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef int (*Comparator)(const void*, const void*);\n"
                                  "\n"
                                  "int compare_ints(const void* a, const void* b);\n"
@@ -3498,7 +3498,7 @@ TEST(clsp_c_func_ptr_typedef) {
 }
 
 TEST(clsp_c_nested_func_calls) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int abs(int x);\n"
                                  "int max(int a, int b);\n"
                                  "int min(int a, int b);\n"
@@ -3516,7 +3516,7 @@ TEST(clsp_c_nested_func_calls) {
 }
 
 TEST(clsp_c_struct_return_chain) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "struct Point make_point(int x, int y);\n"
                                  "int point_distance(struct Point* p);\n"
@@ -3534,7 +3534,7 @@ TEST(clsp_c_struct_return_chain) {
 }
 
 TEST(clsp_c_conditional_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int validate(int x);\n"
                                  "int process(int x);\n"
                                  "void report_error(int code);\n"
@@ -3556,7 +3556,7 @@ TEST(clsp_c_conditional_call) {
 }
 
 TEST(clsp_c_switch_case_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "enum Mode { READ, WRITE, EXEC };\n"
                                  "void do_read();\n"
                                  "void do_write();\n"
@@ -3579,7 +3579,7 @@ TEST(clsp_c_switch_case_call) {
 }
 
 TEST(clsp_c_recursive_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int factorial(int n) {\n"
                                  "    if (n <= 1) return 1;\n"
                                  "    return n * factorial(n - 1);\n"
@@ -3592,7 +3592,7 @@ TEST(clsp_c_recursive_call) {
 }
 
 TEST(clsp_c_struct_member_func_ptr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct VTable {\n"
                                  "    void (*init)(void);\n"
                                  "    void (*destroy)(void);\n"
@@ -3617,7 +3617,7 @@ TEST(clsp_c_struct_member_func_ptr) {
 }
 
 TEST(clsp_c_variadic_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int printf(const char* fmt, ...);\n"
                                  "int sprintf(char* buf, const char* fmt, ...);\n"
                                  "\n"
@@ -3635,7 +3635,7 @@ TEST(clsp_c_variadic_call) {
 }
 
 TEST(clsp_c_const_qualified_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Config { int level; };\n"
                                  "int config_get_level(const struct Config* c);\n"
                                  "\n"
@@ -3651,7 +3651,7 @@ TEST(clsp_c_const_qualified_param) {
 }
 
 TEST(clsp_c_while_loop_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int has_next(void* iter);\n"
                                  "void* get_next(void* iter);\n"
                                  "void process_item(void* item);\n"
@@ -3672,7 +3672,7 @@ TEST(clsp_c_while_loop_call) {
 }
 
 TEST(clsp_c_do_while_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int read_byte(void);\n"
                                  "int is_valid(int b);\n"
                                  "\n"
@@ -3691,7 +3691,7 @@ TEST(clsp_c_do_while_call) {
 }
 
 TEST(clsp_c_ternary_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int fast_path(int x);\n"
                                  "int slow_path(int x);\n"
                                  "\n"
@@ -3707,7 +3707,7 @@ TEST(clsp_c_ternary_call) {
 }
 
 TEST(clsp_c_multiple_return_calls) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int check_a(void);\n"
                                  "int check_b(void);\n"
                                  "int fallback(void);\n"
@@ -3727,7 +3727,7 @@ TEST(clsp_c_multiple_return_calls) {
 }
 
 TEST(clsp_cpp_ref_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void render(Widget& w) {\n"
@@ -3741,7 +3741,7 @@ TEST(clsp_cpp_ref_param) {
 }
 
 TEST(clsp_cpp_const_ref_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: int width() const { return 0; } };\n"
                                    "\n"
                                    "int measure(const Widget& w) {\n"
@@ -3755,7 +3755,7 @@ TEST(clsp_cpp_const_ref_param) {
 }
 
 TEST(clsp_cpp_rvalue_ref_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Buffer {\n"
                                    "public:\n"
                                    "    void consume() {}\n"
@@ -3772,7 +3772,7 @@ TEST(clsp_cpp_rvalue_ref_param) {
 }
 
 TEST(clsp_cpp_anonymous_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace {\n"
                                    "    class Helper { public: void work() {} };\n"
                                    "}\n"
@@ -3789,7 +3789,7 @@ TEST(clsp_cpp_anonymous_namespace) {
 }
 
 TEST(clsp_cpp_nested_namespace_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace a::b::c {\n"
                                    "    class Engine { public: void run() {} };\n"
                                    "}\n"
@@ -3806,7 +3806,7 @@ TEST(clsp_cpp_nested_namespace_decl) {
 }
 
 TEST(clsp_cpp_pure_virtual) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Shape {\n"
                                    "public:\n"
                                    "    virtual void draw() = 0;\n"
@@ -3832,7 +3832,7 @@ TEST(clsp_cpp_pure_virtual) {
 }
 
 TEST(clsp_cpp_protected_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base { public: void work() {} };\n"
                                    "class Derived : protected Base {\n"
                                    "public:\n"
@@ -3851,7 +3851,7 @@ TEST(clsp_cpp_protected_inheritance) {
 }
 
 TEST(clsp_cpp_constexpr_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Math {\n"
                                    "public:\n"
                                    "    static constexpr int square(int x) { return x * x; }\n"
@@ -3868,7 +3868,7 @@ TEST(clsp_cpp_constexpr_call) {
 }
 
 TEST(clsp_cpp_default_member_init) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config {\n"
                                    "public:\n"
                                    "    int level = 0;\n"
@@ -3890,7 +3890,7 @@ TEST(clsp_cpp_default_member_init) {
 }
 
 TEST(clsp_cpp_multiple_vars_one_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Conn { public: void open() {} void close() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -3906,7 +3906,7 @@ TEST(clsp_cpp_multiple_vars_one_type) {
 }
 
 TEST(clsp_cpp_while_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Iterator {\n"
                                    "public:\n"
                                    "    bool has_next() { return false; }\n"
@@ -3928,7 +3928,7 @@ TEST(clsp_cpp_while_method_call) {
 }
 
 TEST(clsp_cpp_for_range_auto_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> class vector {\n"
                                    "    public:\n"
@@ -3953,7 +3953,7 @@ TEST(clsp_cpp_for_range_auto_ref) {
 }
 
 TEST(clsp_cpp_for_range_const_auto_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> class vector {\n"
                                    "    public:\n"
@@ -3978,7 +3978,7 @@ TEST(clsp_cpp_for_range_const_auto_ref) {
 }
 
 TEST(clsp_cpp_new_expression) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Node {\n"
                                    "public:\n"
                                    "    void link(Node* other) {}\n"
@@ -3997,7 +3997,7 @@ TEST(clsp_cpp_new_expression) {
 }
 
 TEST(clsp_cpp_scoped_enum_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "enum class Color { Red, Green, Blue };\n"
                                    "\n"
                                    "class Renderer {\n"
@@ -4020,7 +4020,7 @@ TEST(clsp_cpp_scoped_enum_param) {
 }
 
 TEST(clsp_cpp_multiple_smart_ptrs) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<class T> class unique_ptr {\n"
@@ -4055,7 +4055,7 @@ TEST(clsp_cpp_multiple_smart_ptrs) {
 }
 
 TEST(clsp_cpp_try_catch_multiple) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class IOError { public: const char* file() { return \"\"; } };\n"
                     "class ParseError { public: int line() { return 0; } };\n"
@@ -4080,7 +4080,7 @@ TEST(clsp_cpp_try_catch_multiple) {
 }
 
 TEST(clsp_cpp_lambda_capture_this) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Server {\n"
                                    "public:\n"
                                    "    int port;\n"
@@ -4097,7 +4097,7 @@ TEST(clsp_cpp_lambda_capture_this) {
 }
 
 TEST(clsp_cpp_operator_plus_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vec2 {\n"
                                    "public:\n"
                                    "    Vec2 operator+(const Vec2& other) { return *this; }\n"
@@ -4117,7 +4117,7 @@ TEST(clsp_cpp_operator_plus_method) {
 }
 
 TEST(clsp_cpp_operator_assign) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Matrix {\n"
                                    "public:\n"
                                    "    Matrix& operator=(const Matrix& other) { return *this; }\n"
@@ -4137,7 +4137,7 @@ TEST(clsp_cpp_operator_assign) {
 }
 
 TEST(clsp_cpp_explicit_template_instantiation) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -4162,7 +4162,7 @@ TEST(clsp_cpp_explicit_template_instantiation) {
 }
 
 TEST(clsp_cpp_nested_method_call_in_arg) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Formatter { public: const char* format() { return \"\"; } };\n"
                     "class Logger { public: void log(const char* msg) {} };\n"
@@ -4181,7 +4181,7 @@ TEST(clsp_cpp_nested_method_call_in_arg) {
 }
 
 TEST(clsp_cpp_return_method_call_result) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Parser {\n"
                                    "public:\n"
                                    "    int parse() { return 0; }\n"
@@ -4199,7 +4199,7 @@ TEST(clsp_cpp_return_method_call_result) {
 }
 
 TEST(clsp_cpp_static_factory_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Connection {\n"
                                    "public:\n"
                                    "    static Connection create() { return Connection(); }\n"
@@ -4219,7 +4219,7 @@ TEST(clsp_cpp_static_factory_method) {
 }
 
 TEST(clsp_cpp_deep_inheritance_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class A { public: void base_method() {} };\n"
                                    "class B : public A {};\n"
                                    "class C : public B {};\n"
@@ -4238,7 +4238,7 @@ TEST(clsp_cpp_deep_inheritance_chain) {
 }
 
 TEST(clsp_cpp_override_virtual) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Animal {\n"
                                    "public:\n"
                                    "    virtual void speak() {}\n"
@@ -4264,7 +4264,7 @@ TEST(clsp_cpp_override_virtual) {
 }
 
 TEST(clsp_cpp_scope_resolution_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace net {\n"
                                    "    class Socket {\n"
                                    "    public:\n"
@@ -4287,7 +4287,7 @@ TEST(clsp_cpp_scope_resolution_call) {
 }
 
 TEST(clsp_cpp_init_list_construct) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Point {\n"
                                    "public:\n"
                                    "    Point(int x, int y) {}\n"
@@ -4307,7 +4307,7 @@ TEST(clsp_cpp_init_list_construct) {
 }
 
 TEST(clsp_cpp_return_smart_ptr) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<class T> class unique_ptr {\n"
@@ -4332,7 +4332,7 @@ TEST(clsp_cpp_return_smart_ptr) {
 }
 
 TEST(clsp_cpp_assign_in_if) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Parser {\n"
                                    "public:\n"
                                    "    int parse() { return 0; }\n"
@@ -4353,7 +4353,7 @@ TEST(clsp_cpp_assign_in_if) {
 }
 
 TEST(clsp_cpp_nullptr_check) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Handler { public: void handle() {} };\n"
                                    "Handler* find_handler(int id);\n"
                                    "\n"
@@ -4371,7 +4371,7 @@ TEST(clsp_cpp_nullptr_check) {
 }
 
 TEST(clsp_cpp_explicit_ptr_from_new) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Worker { public: void run() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -4387,7 +4387,7 @@ TEST(clsp_cpp_explicit_ptr_from_new) {
 }
 
 TEST(clsp_cpp_multiple_methods_same_obj) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Stream {\n"
                                    "public:\n"
                                    "    void open() {}\n"
@@ -4414,7 +4414,7 @@ TEST(clsp_cpp_multiple_methods_same_obj) {
 }
 
 TEST(clsp_cpp_nested_class_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Database {\n"
                                    "public:\n"
                                    "    class Transaction {\n"
@@ -4439,7 +4439,7 @@ TEST(clsp_cpp_nested_class_method) {
 }
 
 TEST(clsp_cpp_diamond_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base { public: void common() {} };\n"
                                    "class Left : public Base { public: void left_op() {} };\n"
                                    "class Right : public Base { public: void right_op() {} };\n"
@@ -4459,7 +4459,7 @@ TEST(clsp_cpp_diamond_inheritance) {
 }
 
 TEST(clsp_cpp_switch_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void debug(const char* msg) {}\n"
@@ -4485,7 +4485,7 @@ TEST(clsp_cpp_switch_method_call) {
 }
 
 TEST(clsp_cpp_throw_expression) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Error {\n"
                                    "public:\n"
                                    "    Error(const char* msg) {}\n"
@@ -4506,7 +4506,7 @@ TEST(clsp_cpp_throw_expression) {
 }
 
 TEST(clsp_cpp_for_init_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Timer {\n"
                                    "public:\n"
                                    "    void start() {}\n"
@@ -4529,7 +4529,7 @@ TEST(clsp_cpp_for_init_decl) {
 }
 
 TEST(clsp_heavycpp_const_overload_discrimination) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Container {\n"
                                    "public:\n"
                                    "    int& get(int i) { return data[i]; }\n"
@@ -4551,7 +4551,7 @@ TEST(clsp_heavycpp_const_overload_discrimination) {
 }
 
 TEST(clsp_heavycpp_pair_field_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename K, typename V>\n"
                                    "struct Pair { K first; V second; };\n"
                                    "class Foo { public: void bar() {} };\n"
@@ -4567,7 +4567,7 @@ TEST(clsp_heavycpp_pair_field_type) {
 }
 
 TEST(clsp_heavycpp_iterator_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> class vector {\n"
                                    "    public:\n"
@@ -4602,7 +4602,7 @@ TEST(clsp_heavycpp_iterator_deref) {
 }
 
 TEST(clsp_heavycpp_template_func_syntax) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args> class tuple {};\n"
                                    "    template<int N, typename T> auto get(T& t) -> int&;\n"
@@ -4624,7 +4624,7 @@ TEST(clsp_heavycpp_template_func_syntax) {
 }
 
 TEST(clsp_audit_c_comma_operator) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int init(void);\n"
                                  "int process(void);\n"
                                  "\n"
@@ -4640,7 +4640,7 @@ TEST(clsp_audit_c_comma_operator) {
 }
 
 TEST(clsp_audit_c_cast_then_field_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Device {\n"
                                  "    void (*reset)(void);\n"
                                  "};\n"
@@ -4655,7 +4655,7 @@ TEST(clsp_audit_c_cast_then_field_call) {
 }
 
 TEST(clsp_audit_c_nested_struct_field_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int (*compute)(int); };\n"
                                  "struct Outer { struct Inner inner; };\n"
                                  "\n"
@@ -4671,7 +4671,7 @@ TEST(clsp_audit_c_nested_struct_field_call) {
 }
 
 TEST(clsp_audit_c_array_subscript_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Handler { void (*handle)(void); };\n"
                                  "\n"
                                  "void test() {\n"
@@ -4686,7 +4686,7 @@ TEST(clsp_audit_c_array_subscript_call) {
 }
 
 TEST(clsp_audit_c_func_ptr_alias) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int real_func(int x);\n"
                                  "typedef int (*fn_t)(int);\n"
                                  "\n"
@@ -4702,7 +4702,7 @@ TEST(clsp_audit_c_func_ptr_alias) {
 }
 
 TEST(clsp_audit_c_generic_selection) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int process_int(int x);\n"
                                  "float process_float(float x);\n"
                                  "\n"
@@ -4718,7 +4718,7 @@ TEST(clsp_audit_c_generic_selection) {
 }
 
 TEST(clsp_audit_c_for_loop_func_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int count(void);\n"
                                  "int get_item(int i);\n"
                                  "void process(int item);\n"
@@ -4738,7 +4738,7 @@ TEST(clsp_audit_c_for_loop_func_call) {
 }
 
 TEST(clsp_audit_c_assert_macro_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int validate(int x);\n"
                                  "int transform(int x);\n"
                                  "\n"
@@ -4756,7 +4756,7 @@ TEST(clsp_audit_c_assert_macro_call) {
 }
 
 TEST(clsp_audit_cpp_auto_from_new) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -4772,7 +4772,7 @@ TEST(clsp_audit_cpp_auto_from_new) {
 }
 
 TEST(clsp_audit_cpp_auto_from_factory) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Connection { public: void send() {} };\n"
                                    "Connection create_connection() { return Connection(); }\n"
                                    "\n"
@@ -4788,7 +4788,7 @@ TEST(clsp_audit_cpp_auto_from_factory) {
 }
 
 TEST(clsp_audit_cpp_auto_from_smart_ptr_factory) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<class T> class unique_ptr {\n"
@@ -4817,7 +4817,7 @@ TEST(clsp_audit_cpp_auto_from_smart_ptr_factory) {
 }
 
 TEST(clsp_audit_cpp_decltype_var) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -4833,7 +4833,7 @@ TEST(clsp_audit_cpp_decltype_var) {
 }
 
 TEST(clsp_audit_cpp_auto_from_ternary) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "Widget* make_a();\n"
                                    "Widget* make_b();\n"
@@ -4855,7 +4855,7 @@ TEST(clsp_audit_cpp_auto_from_ternary) {
 }
 
 TEST(clsp_audit_cpp_if_constexpr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class FastPath { public: void execute() {} };\n"
                                    "class SlowPath { public: void execute() {} };\n"
                                    "\n"
@@ -4874,7 +4874,7 @@ TEST(clsp_audit_cpp_if_constexpr) {
 }
 
 TEST(clsp_audit_cpp_structured_binding_from_tuple) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args> class tuple {};\n"
                                    "}\n"
@@ -4892,7 +4892,7 @@ TEST(clsp_audit_cpp_structured_binding_from_tuple) {
 }
 
 TEST(clsp_audit_cpp_ctad) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -4917,7 +4917,7 @@ TEST(clsp_audit_cpp_ctad) {
 }
 
 TEST(clsp_audit_cpp_user_defined_literal) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Duration { public: int seconds() { return 0; } };\n"
                     "Duration operator\"\" _s(unsigned long long val) { return Duration(); }\n"
@@ -4935,7 +4935,7 @@ TEST(clsp_audit_cpp_user_defined_literal) {
 }
 
 TEST(clsp_audit_cpp_aggregate_init) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Renderer { public: void render() {} };\n"
                                    "\n"
                                    "struct Config {\n"
@@ -4962,7 +4962,7 @@ TEST(clsp_audit_cpp_aggregate_init) {
 }
 
 TEST(clsp_audit_cpp_covariant_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base {\n"
                                    "public:\n"
                                    "    virtual Base* clone() { return new Base(); }\n"
@@ -4987,7 +4987,7 @@ TEST(clsp_audit_cpp_covariant_return) {
 }
 
 TEST(clsp_audit_heavycpp_variadic_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Args>\n"
                                    "class Visitor {\n"
                                    "public:\n"
@@ -5011,7 +5011,7 @@ TEST(clsp_audit_heavycpp_variadic_template) {
 }
 
 TEST(clsp_audit_heavycpp_enable_if) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T = void> struct enable_if {};\n"
@@ -5033,7 +5033,7 @@ TEST(clsp_audit_heavycpp_enable_if) {
 }
 
 TEST(clsp_audit_heavycpp_perfect_forwarding) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> T&& forward(T& t) { return (T&&)t; }\n"
                                    "    template<typename T> T&& move(T& t) { return (T&&)t; }\n"
@@ -5059,7 +5059,7 @@ TEST(clsp_audit_heavycpp_perfect_forwarding) {
 }
 
 TEST(clsp_audit_heavycpp_policy_based_design) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct LogToFile {\n"
                                    "    void log(const char* msg) {}\n"
                                    "};\n"
@@ -5091,7 +5091,7 @@ TEST(clsp_audit_heavycpp_policy_based_design) {
 }
 
 TEST(clsp_audit_heavycpp_expression_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vector {\n"
                                    "public:\n"
                                    "    Vector operator+(const Vector& other) { return *this; }\n"
@@ -5112,7 +5112,7 @@ TEST(clsp_audit_heavycpp_expression_template) {
 }
 
 TEST(clsp_audit_heavycpp_template_template_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class MyVector {\n"
                                    "public:\n"
@@ -5143,7 +5143,7 @@ TEST(clsp_audit_heavycpp_template_template_param) {
 }
 
 TEST(clsp_audit_heavycpp_concept_constrained) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Serializable {\n"
                                    "public:\n"
                                    "    void serialize() {}\n"
@@ -5161,7 +5161,7 @@ TEST(clsp_audit_heavycpp_concept_constrained) {
 }
 
 TEST(clsp_audit_heavycpp_coroutine) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Task {\n"
                                    "public:\n"
                                    "    void resume() {}\n"
@@ -5182,7 +5182,7 @@ TEST(clsp_audit_heavycpp_coroutine) {
 }
 
 TEST(clsp_expr_gap_sizeof_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Buffer {\n"
                                    "    void reserve(int n) {}\n"
                                    "};\n"
@@ -5199,7 +5199,7 @@ TEST(clsp_expr_gap_sizeof_type) {
 }
 
 TEST(clsp_expr_gap_sizeof_expr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Buffer {\n"
                                    "    void reserve(int n) {}\n"
                                    "};\n"
@@ -5217,7 +5217,7 @@ TEST(clsp_expr_gap_sizeof_expr) {
 }
 
 TEST(clsp_expr_gap_alignof_expr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Allocator {\n"
                                    "    void set_alignment(int n) {}\n"
                                    "};\n"
@@ -5234,7 +5234,7 @@ TEST(clsp_expr_gap_alignof_expr) {
 }
 
 TEST(clsp_expr_gap_binary_comparison_bool) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(bool flag) {}\n"
                                    "\n"
                                    "struct Widget {\n"
@@ -5256,7 +5256,7 @@ TEST(clsp_expr_gap_binary_comparison_bool) {
 }
 
 TEST(clsp_expr_gap_logical_and_or) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Validator {\n"
                                    "    bool check_a() { return true; }\n"
                                    "    bool check_b() { return true; }\n"
@@ -5280,7 +5280,7 @@ TEST(clsp_expr_gap_logical_and_or) {
 }
 
 TEST(clsp_expr_gap_parenthesized_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Engine {\n"
                                    "    void start() {}\n"
                                    "};\n"
@@ -5297,7 +5297,7 @@ TEST(clsp_expr_gap_parenthesized_method_call) {
 }
 
 TEST(clsp_expr_gap_assignment_type_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Config {\n"
                                    "    void apply() {}\n"
                                    "};\n"
@@ -5315,7 +5315,7 @@ TEST(clsp_expr_gap_assignment_type_chain) {
 }
 
 TEST(clsp_expr_gap_update_expr_type_preservation) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Counter {\n"
                                    "    int value() { return 0; }\n"
                                    "};\n"
@@ -5334,7 +5334,7 @@ TEST(clsp_expr_gap_update_expr_type_preservation) {
 }
 
 TEST(clsp_expr_gap_unary_bitwise_not) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int x) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -5349,7 +5349,7 @@ TEST(clsp_expr_gap_unary_bitwise_not) {
 }
 
 TEST(clsp_expr_gap_unary_plus) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int x) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -5364,7 +5364,7 @@ TEST(clsp_expr_gap_unary_plus) {
 }
 
 TEST(clsp_expr_gap_address_of_then_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Point {\n"
                                    "    int x;\n"
                                    "    int y;\n"
@@ -5384,7 +5384,7 @@ TEST(clsp_expr_gap_address_of_then_arrow) {
 }
 
 TEST(clsp_expr_gap_double_pointer_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    void draw() {}\n"
                                    "};\n"
@@ -5403,7 +5403,7 @@ TEST(clsp_expr_gap_double_pointer_deref) {
 }
 
 TEST(clsp_expr_gap_deref_then_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Node {\n"
                                    "    void process() {}\n"
                                    "};\n"
@@ -5422,7 +5422,7 @@ TEST(clsp_expr_gap_deref_then_arrow) {
 }
 
 TEST(clsp_expr_gap_comma_expr_method_call) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "struct Logger {\n"
                     "    void flush() {}\n"
@@ -5444,7 +5444,7 @@ TEST(clsp_expr_gap_comma_expr_method_call) {
 }
 
 TEST(clsp_expr_gap_raw_string_literal) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(const char* s) {}\n"
                                    "\n"
                                    "void test() {\n"
@@ -5458,7 +5458,7 @@ TEST(clsp_expr_gap_raw_string_literal) {
 }
 
 TEST(clsp_expr_gap_concatenated_string) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(const char* s) {}\n"
                                    "\n"
                                    "void test() {\n"
@@ -5472,7 +5472,7 @@ TEST(clsp_expr_gap_concatenated_string) {
 }
 
 TEST(clsp_expr_gap_char_literal_type) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(char c) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -5486,7 +5486,7 @@ TEST(clsp_expr_gap_char_literal_type) {
 }
 
 TEST(clsp_expr_gap_bool_literal_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void set_flag(bool b) {}\n"
                                    "\n"
                                    "void test() {\n"
@@ -5501,7 +5501,7 @@ TEST(clsp_expr_gap_bool_literal_type) {
 }
 
 TEST(clsp_expr_gap_nullptr_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void set_ptr(void* p) {}\n"
                                    "\n"
                                    "void test() {\n"
@@ -5515,7 +5515,7 @@ TEST(clsp_expr_gap_nullptr_type) {
 }
 
 TEST(clsp_expr_gap_number_literal_int) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int n) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -5531,7 +5531,7 @@ TEST(clsp_expr_gap_number_literal_int) {
 }
 
 TEST(clsp_expr_gap_number_literal_float) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(double d) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -5546,7 +5546,7 @@ TEST(clsp_expr_gap_number_literal_float) {
 }
 
 TEST(clsp_stmt_gap_array_param_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Item {\n"
                                    "    void process() {}\n"
                                    "};\n"
@@ -5562,7 +5562,7 @@ TEST(clsp_stmt_gap_array_param_decl) {
 }
 
 TEST(clsp_stmt_gap_carray_param_bracket) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "void reset_point(struct Point* p) {}\n"
@@ -5578,7 +5578,7 @@ TEST(clsp_stmt_gap_carray_param_bracket) {
 }
 
 TEST(clsp_stmt_gap_for_range_over_return_value) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    T* begin() { return nullptr; }\n"
@@ -5609,7 +5609,7 @@ TEST(clsp_stmt_gap_for_range_over_return_value) {
 }
 
 TEST(clsp_stmt_gap_multiple_using_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace ns1 {\n"
                                    "    void foo() {}\n"
                                    "}\n"
@@ -5632,7 +5632,7 @@ TEST(clsp_stmt_gap_multiple_using_decl) {
 }
 
 TEST(clsp_stmt_gap_typedef_func_ptr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int compare(int a, int b) { return a - b; }\n"
                                  "\n"
                                  "typedef int (*Comparator)(int, int);\n"
@@ -5649,7 +5649,7 @@ TEST(clsp_stmt_gap_typedef_func_ptr) {
 }
 
 TEST(clsp_stmt_gap_catch_multiple_types) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class IOException {\n"
                                    "public:\n"
                                    "    const char* what() { return \"io\"; }\n"
@@ -5681,7 +5681,7 @@ TEST(clsp_stmt_gap_catch_multiple_types) {
 }
 
 TEST(clsp_stmt_gap_namespace_alias_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "namespace filesystem {\n"
                                    "    void remove(const char* path) {}\n"
@@ -5699,7 +5699,7 @@ TEST(clsp_stmt_gap_namespace_alias_chain) {
 }
 
 TEST(clsp_stmt_gap_using_alias_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void push_back(T val) {}\n"
@@ -5722,7 +5722,7 @@ TEST(clsp_stmt_gap_using_alias_template) {
 }
 
 TEST(clsp_call_gap_nested_new_expressions) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Bar {\n"
                                    "    Bar() {}\n"
                                    "};\n"
@@ -5746,7 +5746,7 @@ TEST(clsp_call_gap_nested_new_expressions) {
 }
 
 TEST(clsp_call_gap_chained_operators) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Stream {\n"
                                    "    Stream& operator<<(int x) { return *this; }\n"
                                    "    Stream& operator<<(const char* s) { return *this; }\n"
@@ -5764,7 +5764,7 @@ TEST(clsp_call_gap_chained_operators) {
 }
 
 TEST(clsp_call_gap_operator_plus_equals) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Vec3 {\n"
                                    "    Vec3& operator+=(const Vec3& other) { return *this; }\n"
                                    "};\n"
@@ -5782,7 +5782,7 @@ TEST(clsp_call_gap_operator_plus_equals) {
 }
 
 TEST(clsp_call_gap_operator_minus_method) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "struct Duration {\n"
                     "    Duration operator-(const Duration& other) { return Duration(); }\n"
@@ -5804,7 +5804,7 @@ TEST(clsp_call_gap_operator_minus_method) {
 }
 
 TEST(clsp_call_gap_unary_operator_star) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Value {\n"
                                    "    void use() {}\n"
                                    "};\n"
@@ -5826,7 +5826,7 @@ TEST(clsp_call_gap_unary_operator_star) {
 }
 
 TEST(clsp_call_gap_subscript_operator_emission) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Row {\n"
                                    "    void process() {}\n"
                                    "};\n"
@@ -5848,7 +5848,7 @@ TEST(clsp_call_gap_subscript_operator_emission) {
 }
 
 TEST(clsp_call_gap_delete_destructor_emission) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Resource {\n"
                                    "    ~Resource() {}\n"
                                    "};\n"
@@ -5866,7 +5866,7 @@ TEST(clsp_call_gap_delete_destructor_emission) {
 }
 
 TEST(clsp_call_gap_constructor_from_init_list) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Point {\n"
                                    "    Point(int x, int y) {}\n"
                                    "    void draw() {}\n"
@@ -5885,7 +5885,7 @@ TEST(clsp_call_gap_constructor_from_init_list) {
 }
 
 TEST(clsp_call_gap_constructor_from_parens) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Config {\n"
                                    "    Config(int level) {}\n"
                                    "    void validate() {}\n"
@@ -5904,7 +5904,7 @@ TEST(clsp_call_gap_constructor_from_parens) {
 }
 
 TEST(clsp_call_gap_copy_constructor_emission) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    Widget() {}\n"
                                    "    Widget(const Widget& other) {}\n"
@@ -5926,7 +5926,7 @@ TEST(clsp_call_gap_copy_constructor_emission) {
 }
 
 TEST(clsp_call_gap_conversion_operator_in_if) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct OptionalResult {\n"
                                    "    bool operator bool() { return true; }\n"
                                    "    int value() { return 0; }\n"
@@ -5952,7 +5952,7 @@ TEST(clsp_call_gap_conversion_operator_in_if) {
 }
 
 TEST(clsp_call_gap_functor_call_emission) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Comparator {\n"
                                    "    bool operator()(int a, int b) { return a < b; }\n"
                                    "};\n"
@@ -5969,7 +5969,7 @@ TEST(clsp_call_gap_functor_call_emission) {
 }
 
 TEST(clsp_call_gap_adlfree_function) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace geom {\n"
                                    "    struct Point { int x; int y; };\n"
                                    "    double distance(Point a, Point b) { return 0.0; }\n"
@@ -5988,7 +5988,7 @@ TEST(clsp_call_gap_adlfree_function) {
 }
 
 TEST(clsp_call_gap_implicit_this_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Service {\n"
                                    "    void helper() {}\n"
                                    "    void run() {\n"
@@ -6004,7 +6004,7 @@ TEST(clsp_call_gap_implicit_this_method_call) {
 }
 
 TEST(clsp_call_gap_template_func_qualified_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace util {\n"
                                    "    template<typename T>\n"
                                    "    T max(T a, T b) { return a; }\n"
@@ -6021,7 +6021,7 @@ TEST(clsp_call_gap_template_func_qualified_call) {
 }
 
 TEST(clsp_cgap_struct_init_and_field_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Config {\n"
                                  "    int level;\n"
                                  "    int mode;\n"
@@ -6041,7 +6041,7 @@ TEST(clsp_cgap_struct_init_and_field_call) {
 }
 
 TEST(clsp_cgap_enum_var_as_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "enum Status { OK, ERR };\n"
                                  "\n"
                                  "void handle_status(enum Status s) {}\n"
@@ -6058,7 +6058,7 @@ TEST(clsp_cgap_enum_var_as_param) {
 }
 
 TEST(clsp_cgap_static_func_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "static int helper(int x) { return x * 2; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -6072,7 +6072,7 @@ TEST(clsp_cgap_static_func_call) {
 }
 
 TEST(clsp_cgap_void_func_no_return) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void setup() {}\n"
                                  "void teardown() {}\n"
                                  "\n"
@@ -6089,7 +6089,7 @@ TEST(clsp_cgap_void_func_no_return) {
 }
 
 TEST(clsp_cgap_multi_level_struct_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int value; };\n"
                                  "struct Middle { struct Inner inner; };\n"
                                  "struct Outer { struct Middle mid; };\n"
@@ -6108,7 +6108,7 @@ TEST(clsp_cgap_multi_level_struct_access) {
 }
 
 TEST(clsp_cgap_cast_in_func_arg) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int* p) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -6123,7 +6123,7 @@ TEST(clsp_cgap_cast_in_func_arg) {
 }
 
 TEST(clsp_cgap_ternary_in_arg) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int x) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -6138,7 +6138,7 @@ TEST(clsp_cgap_ternary_in_arg) {
 }
 
 TEST(clsp_cgap_nested_func_call_in_condition) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int check() { return 1; }\n"
                                  "void handle() {}\n"
                                  "\n"
@@ -6156,7 +6156,7 @@ TEST(clsp_cgap_nested_func_call_in_condition) {
 }
 
 TEST(clsp_cgap_for_loop_all_parts) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int init_val() { return 0; }\n"
                                  "int limit() { return 10; }\n"
                                  "void step(int i) {}\n"
@@ -6178,7 +6178,7 @@ TEST(clsp_cgap_for_loop_all_parts) {
 }
 
 TEST(clsp_cgap_while_condition_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Reader {\n"
                                    "    int has_more() { return 1; }\n"
                                    "    void read_next() {}\n"
@@ -6199,7 +6199,7 @@ TEST(clsp_cgap_while_condition_call) {
 }
 
 TEST(clsp_cgap_return_value_func_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int compute(int x) { return x * 2; }\n"
                                  "\n"
                                  "int test() {\n"
@@ -6213,7 +6213,7 @@ TEST(clsp_cgap_return_value_func_call) {
 }
 
 TEST(clsp_cross_gap_cast_then_method_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Base {\n"
                                    "    void base_method() {}\n"
                                    "};\n"
@@ -6234,7 +6234,7 @@ TEST(clsp_cross_gap_cast_then_method_chain) {
 }
 
 TEST(clsp_cross_gap_new_then_method_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Service {\n"
                                    "    void start() {}\n"
                                    "    void stop() {}\n"
@@ -6257,7 +6257,7 @@ TEST(clsp_cross_gap_new_then_method_chain) {
 }
 
 TEST(clsp_cross_gap_lambda_as_argument) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Processor {\n"
                                    "    void for_each(void (*f)(int)) {}\n"
                                    "};\n"
@@ -6274,7 +6274,7 @@ TEST(clsp_cross_gap_lambda_as_argument) {
 }
 
 TEST(clsp_cross_gap_auto_from_static_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Base {};\n"
                                    "struct Derived : Base {\n"
                                    "    void derived_op() {}\n"
@@ -6293,7 +6293,7 @@ TEST(clsp_cross_gap_auto_from_static_cast) {
 }
 
 TEST(clsp_cross_gap_auto_from_conditional) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    void draw() {}\n"
                                    "};\n"
@@ -6312,7 +6312,7 @@ TEST(clsp_cross_gap_auto_from_conditional) {
 }
 
 TEST(clsp_cross_gap_method_call_in_switch_case) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Logger {\n"
                                    "    void info(const char* msg) {}\n"
                                    "    void warn(const char* msg) {}\n"
@@ -6337,7 +6337,7 @@ TEST(clsp_cross_gap_method_call_in_switch_case) {
 }
 
 TEST(clsp_cross_gap_multiple_objects_same_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Timer {\n"
                                    "    void start() {}\n"
                                    "    void stop() {}\n"
@@ -6363,7 +6363,7 @@ TEST(clsp_cross_gap_multiple_objects_same_type) {
 }
 
 TEST(clsp_cross_gap_method_call_on_return_value) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Builder {\n"
                                    "    Builder& set_name(const char* n) { return *this; }\n"
                                    "    Builder& set_value(int v) { return *this; }\n"
@@ -6389,7 +6389,7 @@ TEST(clsp_cross_gap_method_call_on_return_value) {
 }
 
 TEST(clsp_cross_gap_deep_scope_nesting) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Worker {\n"
                                    "    void process() {}\n"
                                    "};\n"
@@ -6417,7 +6417,7 @@ TEST(clsp_cross_gap_deep_scope_nesting) {
 }
 
 TEST(clsp_cross_gap_variable_shadowing) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct TypeA {\n"
                                    "    void do_a() {}\n"
                                    "};\n"
@@ -6443,7 +6443,7 @@ TEST(clsp_cross_gap_variable_shadowing) {
 }
 
 TEST(clsp_cross_gap_if_else_method_calls) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Connection {\n"
                                    "    bool is_open() { return true; }\n"
                                    "    void open() {}\n"
@@ -6468,7 +6468,7 @@ TEST(clsp_cross_gap_if_else_method_calls) {
 }
 
 TEST(clsp_cross_gap_method_result_as_arg) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Formatter {\n"
                                    "    const char* format(int x) { return \"\"; }\n"
                                    "};\n"
@@ -6491,7 +6491,7 @@ TEST(clsp_cross_gap_method_result_as_arg) {
 }
 
 TEST(clsp_cross_gap_nested_template_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void push_back(T val) {}\n"
@@ -6515,7 +6515,7 @@ TEST(clsp_cross_gap_nested_template_method_call) {
 }
 
 TEST(clsp_cross_gap_static_method_with_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace app {\n"
                                    "struct Factory {\n"
                                    "    static Factory create() { return Factory(); }\n"
@@ -6536,7 +6536,7 @@ TEST(clsp_cross_gap_static_method_with_namespace) {
 }
 
 TEST(clsp_cross_gap_const_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Config {\n"
                                    "    int get_level() const { return 0; }\n"
                                    "    const char* get_name() const { return \"\"; }\n"
@@ -6555,7 +6555,7 @@ TEST(clsp_cross_gap_const_method_call) {
 }
 
 TEST(clsp_cross_gap_pointer_to_member_via_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct unique_ptr {\n"
                                    "    T* operator->() { return nullptr; }\n"
@@ -6582,7 +6582,7 @@ TEST(clsp_cross_gap_pointer_to_member_via_arrow) {
 }
 
 TEST(clsp_cross_gap_auto_from_subscript) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    T& operator[](int i) { static T t; return t; }\n"
@@ -6607,7 +6607,7 @@ TEST(clsp_cross_gap_auto_from_subscript) {
 }
 
 TEST(clsp_cross_gap_multiple_func_ptr_targets) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void action_a() {}\n"
                                  "void action_b() {}\n"
                                  "void dispatch(void (*fn)()) {}\n"
@@ -6625,7 +6625,7 @@ TEST(clsp_cross_gap_multiple_func_ptr_targets) {
 }
 
 TEST(clsp_type_gap_const_pointer_to_const) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Buffer {\n"
                                    "    void write(const int* data, int len) {}\n"
                                    "};\n"
@@ -6643,7 +6643,7 @@ TEST(clsp_type_gap_const_pointer_to_const) {
 }
 
 TEST(clsp_type_gap_volatile_pointer) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void write_register(volatile int* reg, int value) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -6658,7 +6658,7 @@ TEST(clsp_type_gap_volatile_pointer) {
 }
 
 TEST(clsp_type_gap_enum_class_member) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "enum class Color { Red, Green, Blue };\n"
                                    "\n"
                                    "struct Painter {\n"
@@ -6677,7 +6677,7 @@ TEST(clsp_type_gap_enum_class_member) {
 }
 
 TEST(clsp_type_gap_reference_to_pointer) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Node {\n"
                                    "    void link(Node*& next) {}\n"
                                    "};\n"
@@ -6695,7 +6695,7 @@ TEST(clsp_type_gap_reference_to_pointer) {
 }
 
 TEST(clsp_type_gap_array_of_pointers) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    void draw() {}\n"
                                    "};\n"
@@ -6713,7 +6713,7 @@ TEST(clsp_type_gap_array_of_pointers) {
 }
 
 TEST(clsp_call_edge_method_call_on_this) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Worker {\n"
                                    "    void helper() {}\n"
                                    "    void run() {\n"
@@ -6728,7 +6728,7 @@ TEST(clsp_call_edge_method_call_on_this) {
 }
 
 TEST(clsp_call_edge_base_class_method_via_using) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Base {\n"
                                    "    void shared_method() {}\n"
                                    "};\n"
@@ -6746,7 +6746,7 @@ TEST(clsp_call_edge_base_class_method_via_using) {
 }
 
 TEST(clsp_call_edge_template_method_explicit_args) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Converter {\n"
                                    "    template<typename T>\n"
                                    "    T convert(int x) { return T(); }\n"
@@ -6768,7 +6768,7 @@ TEST(clsp_call_edge_template_method_explicit_args) {
 }
 
 TEST(clsp_call_edge_recursive_mutual_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void bar(int n);\n"
                                    "\n"
                                    "void foo(int n) {\n"
@@ -6787,7 +6787,7 @@ TEST(clsp_call_edge_recursive_mutual_call) {
 }
 
 TEST(clsp_call_edge_overloaded_func_diff_arg_count) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Logger {\n"
                                    "    void log(const char* msg) {}\n"
                                    "    void log(const char* msg, int level) {}\n"
@@ -6806,7 +6806,7 @@ TEST(clsp_call_edge_overloaded_func_diff_arg_count) {
 }
 
 TEST(clsp_call_edge_global_func_from_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void global_helper() {}\n"
                                    "\n"
                                    "struct Service {\n"
@@ -6822,7 +6822,7 @@ TEST(clsp_call_edge_global_func_from_method) {
 }
 
 TEST(clsp_scope_gap_for_loop_var_scope) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Item {\n"
                                    "    void validate() {}\n"
                                    "};\n"
@@ -6849,7 +6849,7 @@ TEST(clsp_scope_gap_for_loop_var_scope) {
 }
 
 TEST(clsp_scope_gap_if_init_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Result {\n"
                                    "    bool ok() { return true; }\n"
                                    "    int value() { return 0; }\n"
@@ -6872,7 +6872,7 @@ TEST(clsp_scope_gap_if_init_decl) {
 }
 
 TEST(clsp_scope_gap_while_var_decl) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Token {\n"
                                    "    bool valid() { return true; }\n"
                                    "    void process() {}\n"
@@ -6895,7 +6895,7 @@ TEST(clsp_scope_gap_while_var_decl) {
 }
 
 TEST(clsp_scope_gap_do_while_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Queue {\n"
                                    "    bool empty() { return true; }\n"
                                    "    void pop() {}\n"
@@ -6916,7 +6916,7 @@ TEST(clsp_scope_gap_do_while_method_call) {
 }
 
 TEST(clsp_nocrash_compound_literal_field_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "void process(int val) {}\n"
@@ -6931,7 +6931,7 @@ TEST(clsp_nocrash_compound_literal_field_access) {
 }
 
 TEST(clsp_nocrash_deeply_nested_expr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int x) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -6945,7 +6945,7 @@ TEST(clsp_nocrash_deeply_nested_expr) {
 }
 
 TEST(clsp_nocrash_empty_lambda) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Runner {\n"
                                    "    void run(void (*f)()) {}\n"
                                    "};\n"
@@ -6961,7 +6961,7 @@ TEST(clsp_nocrash_empty_lambda) {
 }
 
 TEST(clsp_nocrash_nested_lambdas) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Executor {\n"
                                    "    void submit(void (*f)()) {}\n"
                                    "};\n"
@@ -6983,7 +6983,7 @@ TEST(clsp_nocrash_nested_lambdas) {
 }
 
 TEST(clsp_nocrash_template_in_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> struct map {\n"
                                    "    V& operator[](const K& key) { static V v; return v; }\n"
@@ -7007,7 +7007,7 @@ TEST(clsp_nocrash_template_in_template) {
 }
 
 TEST(clsp_nocrash_very_long_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Builder {\n"
                                    "    Builder& a() { return *this; }\n"
                                    "    Builder& b() { return *this; }\n"
@@ -7027,7 +7027,7 @@ TEST(clsp_nocrash_very_long_chain) {
 }
 
 TEST(clsp_nocrash_mixedcand_cpp_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Base { void base_op() {} };\n"
                                    "struct Derived : Base { void derived_op() {} };\n"
                                    "\n"
@@ -7059,7 +7059,7 @@ TEST(clsp_nocrash_extremely_large_function) {
     off += snprintf(src + off, sizeof(src) - off, "    W w0;\n");
     off += snprintf(src + off, sizeof(src) - off, "    w0.m();\n");
     off += snprintf(src + off, sizeof(src) - off, "}\n");
-    CBMFileResult *r = extract_cpp(src);
+    CtxFileResult *r = extract_cpp(src);
     ASSERT_NOT_NULL(r);
     ASSERT_GTE(find_resolved(r, "test", ".m"), 0);
     ctx_free_result(r);
@@ -7067,7 +7067,7 @@ TEST(clsp_nocrash_extremely_large_function) {
 }
 
 TEST(clsp_call_gap_operator_times_equals) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Matrix {\n"
                                    "    Matrix& operator*=(float scalar) { return *this; }\n"
                                    "};\n"
@@ -7084,7 +7084,7 @@ TEST(clsp_call_gap_operator_times_equals) {
 }
 
 TEST(clsp_call_gap_operator_shift_left_equals) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct BitField {\n"
                                    "    BitField& operator<<=(int bits) { return *this; }\n"
                                    "};\n"
@@ -7101,7 +7101,7 @@ TEST(clsp_call_gap_operator_shift_left_equals) {
 }
 
 TEST(clsp_call_gap_operator_and_equals) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Mask {\n"
                                    "    Mask& operator&=(const Mask& other) { return *this; }\n"
                                    "};\n"
@@ -7119,7 +7119,7 @@ TEST(clsp_call_gap_operator_and_equals) {
 }
 
 TEST(clsp_call_gap_operator_or_equals) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Flags {\n"
                                    "    Flags& operator|=(const Flags& other) { return *this; }\n"
                                    "};\n"
@@ -7137,7 +7137,7 @@ TEST(clsp_call_gap_operator_or_equals) {
 }
 
 TEST(clsp_pattern_auto_ref_from_method_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Data {\n"
                                    "    int value;\n"
                                    "    void modify() {}\n"
@@ -7162,7 +7162,7 @@ TEST(clsp_pattern_auto_ref_from_method_return) {
 }
 
 TEST(clsp_pattern_auto_ptr_from_new) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    void draw() {}\n"
                                    "};\n"
@@ -7182,7 +7182,7 @@ TEST(clsp_pattern_auto_ptr_from_new) {
 }
 
 TEST(clsp_pattern_auto_from_make_shared) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> struct shared_ptr {\n"
@@ -7208,7 +7208,7 @@ TEST(clsp_pattern_auto_from_make_shared) {
 }
 
 TEST(clsp_pattern_multi_declarator_same_line) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process(int x) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -7224,7 +7224,7 @@ TEST(clsp_pattern_multi_declarator_same_line) {
 }
 
 TEST(clsp_pattern_struct_ptr_arrow_chain) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int value; };\n"
                                  "struct Outer { struct Inner* inner; };\n"
                                  "\n"
@@ -7244,7 +7244,7 @@ TEST(clsp_pattern_struct_ptr_arrow_chain) {
 }
 
 TEST(clsp_pattern_constexpr_variable) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(int x) {}\n"
                                    "\n"
                                    "void test() {\n"
@@ -7259,7 +7259,7 @@ TEST(clsp_pattern_constexpr_variable) {
 }
 
 TEST(clsp_pattern_inline_variable) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace config {\n"
                                    "    constexpr int MAX_SIZE = 1024;\n"
                                    "}\n"
@@ -7277,7 +7277,7 @@ TEST(clsp_pattern_inline_variable) {
 }
 
 TEST(clsp_pattern_string_view_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "struct string_view {\n"
                                    "    int size() { return 0; }\n"
@@ -7298,7 +7298,7 @@ TEST(clsp_pattern_string_view_param) {
 }
 
 TEST(clsp_pattern_initializer_list_constructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void push_back(T val) {}\n"
@@ -7320,7 +7320,7 @@ TEST(clsp_pattern_initializer_list_constructor) {
 }
 
 TEST(clsp_pattern_template_member_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct optional {\n"
                                    "    T value() { T t; return t; }\n"
@@ -7349,7 +7349,7 @@ TEST(clsp_pattern_template_member_access) {
 }
 
 TEST(clsp_pattern_map_iterator_second) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename F, typename S> struct pair {\n"
                                    "    F first;\n"
@@ -7378,7 +7378,7 @@ TEST(clsp_pattern_map_iterator_second) {
 }
 
 TEST(clsp_pattern_func_returning_pointer) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Widget {\n"
                                    "    void draw() {}\n"
                                    "};\n"
@@ -7398,7 +7398,7 @@ TEST(clsp_pattern_func_returning_pointer) {
 }
 
 TEST(clsp_pattern_multiple_catch_same_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Error {\n"
                                    "public:\n"
                                    "    const char* what() { return \"err\"; }\n"
@@ -7432,7 +7432,7 @@ TEST(clsp_pattern_multiple_catch_same_func) {
 }
 
 TEST(clsp_pattern_method_call_in_ternary_branch) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Fast {\n"
                                    "    int compute() { return 1; }\n"
                                    "};\n"
@@ -7457,7 +7457,7 @@ TEST(clsp_pattern_method_call_in_ternary_branch) {
 }
 
 TEST(clsp_pattern_nested_class_from_outer_scope) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Outer {\n"
                                    "    struct Inner {\n"
                                    "        void inner_method() {}\n"
@@ -7475,7 +7475,7 @@ TEST(clsp_pattern_nested_class_from_outer_scope) {
 }
 
 TEST(clsp_pattern_volatile_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Register {\n"
                                    "    void write(int val) {}\n"
                                    "    int read() { return 0; }\n"
@@ -7495,7 +7495,7 @@ TEST(clsp_pattern_volatile_method_call) {
 }
 
 TEST(clsp_pattern_enum_switch_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "enum class State { Init, Running, Done };\n"
                                    "\n"
                                    "void on_init() {}\n"
@@ -7519,7 +7519,7 @@ TEST(clsp_pattern_enum_switch_call) {
 }
 
 TEST(clsp_fix1_template_return_type_smart_ptr_factory) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T> struct unique_ptr {\n"
                                    "        T* operator->() { return nullptr; }\n"
@@ -7546,7 +7546,7 @@ TEST(clsp_fix1_template_return_type_smart_ptr_factory) {
 }
 
 TEST(clsp_fix1_template_return_type_vector_factory) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename T> struct vector {\n"
@@ -7573,7 +7573,7 @@ TEST(clsp_fix1_template_return_type_vector_factory) {
 }
 
 TEST(clsp_fix1_template_return_type_map_factory) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<typename K, typename V> struct map {\n"
@@ -7598,7 +7598,7 @@ TEST(clsp_fix1_template_return_type_map_factory) {
 }
 
 TEST(clsp_fix1_template_return_type_shared_ptr) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename T> struct shared_ptr {\n"
@@ -7623,7 +7623,7 @@ TEST(clsp_fix1_template_return_type_shared_ptr) {
 }
 
 TEST(clsp_fix2_struct_field_access_simple) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Renderer { public: void render() {} };\n"
                                    "\n"
                                    "struct Config {\n"
@@ -7646,7 +7646,7 @@ TEST(clsp_fix2_struct_field_access_simple) {
 }
 
 TEST(clsp_fix2_struct_field_access_pair_second) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename K, typename V>\n"
                                    "    struct pair {\n"
@@ -7673,7 +7673,7 @@ TEST(clsp_fix2_struct_field_access_pair_second) {
 }
 
 TEST(clsp_fix2_struct_field_access_cstruct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int value; };\n"
                                  "struct Outer { struct Inner inner; };\n"
                                  "\n"
@@ -7691,7 +7691,7 @@ TEST(clsp_fix2_struct_field_access_cstruct) {
 }
 
 TEST(clsp_fix2_struct_field_access_nested_ptr_field) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Engine { void start() {} };\n"
                                    "struct Car {\n"
                                    "    Engine* engine;\n"
@@ -7709,7 +7709,7 @@ TEST(clsp_fix2_struct_field_access_nested_ptr_field) {
 }
 
 TEST(clsp_fix3_typedef_func_ptr_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int real_func(int x) { return x * 2; }\n"
                                  "typedef int (*fn_t)(int);\n"
                                  "\n"
@@ -7725,7 +7725,7 @@ TEST(clsp_fix3_typedef_func_ptr_call) {
 }
 
 TEST(clsp_fix3_direct_func_ptr_assign) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int compute(int x) { return x + 1; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -7740,7 +7740,7 @@ TEST(clsp_fix3_direct_func_ptr_assign) {
 }
 
 TEST(clsp_fix4_forward_decl_return_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "Widget* make_a();\n"
@@ -7758,7 +7758,7 @@ TEST(clsp_fix4_forward_decl_return_type) {
 }
 
 TEST(clsp_fix4_forward_decl_simple_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Result { void process() {} };\n"
                                    "\n"
                                    "Result compute();\n"
@@ -7776,7 +7776,7 @@ TEST(clsp_fix4_forward_decl_simple_call) {
 }
 
 TEST(clsp_fix4_cforward_decl) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "struct Point make_point(int x, int y);\n"
@@ -7795,7 +7795,7 @@ TEST(clsp_fix4_cforward_decl) {
 }
 
 TEST(clsp_fix5_user_defined_literal) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Duration { public: int seconds() { return 0; } };\n"
                     "Duration operator\"\" _s(unsigned long long val) { return Duration(); }\n"
@@ -7812,7 +7812,7 @@ TEST(clsp_fix5_user_defined_literal) {
 }
 
 TEST(clsp_fix5_user_defined_literal_string) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class UpperString { public: int length() { return 0; } };\n"
                                    "UpperString operator\"\" _upper(const char* s, unsigned long "
                                    "len) { return UpperString(); }\n"
@@ -7829,7 +7829,7 @@ TEST(clsp_fix5_user_defined_literal_string) {
 }
 
 TEST(clsp_gap_v2_auto_from_ternary) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "Widget* make_a() { return new Widget(); }\n"
                                    "Widget* make_b() { return new Widget(); }\n"
@@ -7851,7 +7851,7 @@ TEST(clsp_gap_v2_auto_from_ternary) {
 }
 
 TEST(clsp_gap_v2_auto_from_static_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger {\n"
                                    "public:\n"
                                    "    void info(const char* msg) {}\n"
@@ -7870,7 +7870,7 @@ TEST(clsp_gap_v2_auto_from_static_method) {
 }
 
 TEST(clsp_gap_v2_auto_from_subscript) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Item { public: void process() {} };\n"
                                    "\n"
                                    "namespace std {\n"
@@ -7899,7 +7899,7 @@ TEST(clsp_gap_v2_auto_from_subscript) {
 }
 
 TEST(clsp_gap_v2_auto_from_method_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config { public: bool validate() { return true; } };\n"
                                    "class Server {\n"
                                    "public:\n"
@@ -7919,7 +7919,7 @@ TEST(clsp_gap_v2_auto_from_method_return) {
 }
 
 TEST(clsp_gap_v2_auto_from_chained_method_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class C { public: void run() {} };\n"
                                    "class B { public: C getC() { return C(); } };\n"
                                    "class A { public: B getB() { return B(); } };\n"
@@ -7937,7 +7937,7 @@ TEST(clsp_gap_v2_auto_from_chained_method_return) {
 }
 
 TEST(clsp_gap_v2_reassigned_variable) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -7953,7 +7953,7 @@ TEST(clsp_gap_v2_reassigned_variable) {
 }
 
 TEST(clsp_gap_v2_multiple_vars_from_same_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -7975,7 +7975,7 @@ TEST(clsp_gap_v2_multiple_vars_from_same_type) {
 }
 
 TEST(clsp_gap_v2_derived_object_calls_base_method) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Base { public: void base_method() {} };\n"
                     "class Derived : public Base { public: void derived_method() {} };\n"
@@ -7994,7 +7994,7 @@ TEST(clsp_gap_v2_derived_object_calls_base_method) {
 }
 
 TEST(clsp_gap_v2_base_pointer_to_derived) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Base { public: virtual void run() {} };\n"
                     "class Derived : public Base { public: void run() override {} };\n"
@@ -8012,7 +8012,7 @@ TEST(clsp_gap_v2_base_pointer_to_derived) {
 }
 
 TEST(clsp_gap_v2_multiple_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Drawable { public: void draw() {} };\n"
                                    "class Clickable { public: void click() {} };\n"
                                    "class Widget : public Drawable, public Clickable {};\n"
@@ -8031,7 +8031,7 @@ TEST(clsp_gap_v2_multiple_inheritance) {
 }
 
 TEST(clsp_gap_v2_vector_push_back_and_iterate) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Task { public: void execute() {} };\n"
                                    "\n"
                                    "namespace std {\n"
@@ -8065,7 +8065,7 @@ TEST(clsp_gap_v2_vector_push_back_and_iterate) {
 }
 
 TEST(clsp_gap_v2_map_insert_and_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Handler { public: void handle() {} };\n"
                                    "\n"
                                    "namespace std {\n"
@@ -8092,7 +8092,7 @@ TEST(clsp_gap_v2_map_insert_and_access) {
 }
 
 TEST(clsp_gap_v2_shared_ptr_method_call) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<class T> class shared_ptr {\n"
@@ -8118,7 +8118,7 @@ TEST(clsp_gap_v2_shared_ptr_method_call) {
 }
 
 TEST(clsp_gap_v2_optional_value_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<class T> class optional {\n"
                                    "    public:\n"
@@ -8152,7 +8152,7 @@ TEST(clsp_gap_v2_optional_value_access) {
 }
 
 TEST(clsp_gap_v2_method_call_on_parameter) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void process(Widget& w) {\n"
@@ -8166,7 +8166,7 @@ TEST(clsp_gap_v2_method_call_on_parameter) {
 }
 
 TEST(clsp_gap_v2_method_call_on_const_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void show() const {} };\n"
                                    "\n"
                                    "void display(const Widget& w) {\n"
@@ -8180,7 +8180,7 @@ TEST(clsp_gap_v2_method_call_on_const_ref) {
 }
 
 TEST(clsp_gap_v2_method_call_on_pointer_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void process(Widget* w) {\n"
@@ -8194,7 +8194,7 @@ TEST(clsp_gap_v2_method_call_on_pointer_param) {
 }
 
 TEST(clsp_gap_v2_return_value_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "Widget get_widget() { return Widget(); }\n"
                                    "\n"
@@ -8209,7 +8209,7 @@ TEST(clsp_gap_v2_return_value_chain) {
 }
 
 TEST(clsp_gap_v2_c_struct_ptr_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Widget {\n"
                                  "    int value;\n"
                                  "    void (*on_click)(void);\n"
@@ -8225,7 +8225,7 @@ TEST(clsp_gap_v2_c_struct_ptr_param) {
 }
 
 TEST(clsp_gap_v2_c_func_ptr_in_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Operations {\n"
                                  "    int (*init)(void);\n"
                                  "    void (*cleanup)(void);\n"
@@ -8249,7 +8249,7 @@ TEST(clsp_gap_v2_c_func_ptr_in_struct) {
 }
 
 TEST(clsp_gap_v2_c_callback_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process_item(int x) {}\n"
                                  "\n"
                                  "void foreach(void (*cb)(int), int count) {\n"
@@ -8267,7 +8267,7 @@ TEST(clsp_gap_v2_c_callback_param) {
 }
 
 TEST(clsp_gap_v2_c_static_func) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "static int helper(int x) { return x + 1; }\n"
                                  "\n"
                                  "int test(int x) {\n"
@@ -8281,7 +8281,7 @@ TEST(clsp_gap_v2_c_static_func) {
 }
 
 TEST(clsp_gap_v2_c_nested_struct_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "struct Rect { struct Point origin; struct Point size; };\n"
                                  "\n"
@@ -8295,7 +8295,7 @@ TEST(clsp_gap_v2_c_nested_struct_access) {
 }
 
 TEST(clsp_gap_v2_c_enum_switch) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "enum State { INIT, RUNNING, DONE };\n"
                                  "\n"
                                  "void on_init(void) {}\n"
@@ -8319,7 +8319,7 @@ TEST(clsp_gap_v2_c_enum_switch) {
 }
 
 TEST(clsp_gap_v2_simple_template_instantiation) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "template<typename T>\n"
@@ -8348,7 +8348,7 @@ TEST(clsp_gap_v2_simple_template_instantiation) {
 }
 
 TEST(clsp_gap_v2_template_with_multiple_params) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Key { public: int hash() { return 0; } };\n"
                                    "class Value { public: void process() {} };\n"
                                    "\n"
@@ -8383,7 +8383,7 @@ TEST(clsp_gap_v2_template_with_multiple_params) {
 }
 
 TEST(clsp_gap_v2_nested_template_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<class T> class shared_ptr {\n"
                                    "    public:\n"
@@ -8414,7 +8414,7 @@ TEST(clsp_gap_v2_nested_template_type) {
 }
 
 TEST(clsp_gap_v2_namespace_function) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace utils {\n"
                                    "    class Logger { public: void log(const char* msg) {} };\n"
                                    "    Logger create_logger() { return Logger(); }\n"
@@ -8438,7 +8438,7 @@ TEST(clsp_gap_v2_namespace_function) {
 }
 
 TEST(clsp_gap_v2_nested_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace a { namespace b {\n"
                                    "    class Processor { public: void run() {} };\n"
                                    "}}\n"
@@ -8455,7 +8455,7 @@ TEST(clsp_gap_v2_nested_namespace) {
 }
 
 TEST(clsp_gap_v2_using_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace utils {\n"
                                    "    void helper() {}\n"
                                    "}\n"
@@ -8471,7 +8471,7 @@ TEST(clsp_gap_v2_using_namespace) {
 }
 
 TEST(clsp_gap_v2_operator_plus_member_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vec {\n"
                                    "public:\n"
                                    "    Vec operator+(const Vec& other) { return Vec(); }\n"
@@ -8491,7 +8491,7 @@ TEST(clsp_gap_v2_operator_plus_member_call) {
 }
 
 TEST(clsp_gap_v2_stream_operator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class OStream {\n"
                                    "public:\n"
                                    "    OStream& operator<<(const char* s) { return *this; }\n"
@@ -8511,7 +8511,7 @@ TEST(clsp_gap_v2_stream_operator) {
 }
 
 TEST(clsp_gap_v2_explicit_constructor_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    Widget(int size) {}\n"
@@ -8530,7 +8530,7 @@ TEST(clsp_gap_v2_explicit_constructor_call) {
 }
 
 TEST(clsp_gap_v2_brace_init_constructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    Widget(int size) {}\n"
@@ -8549,7 +8549,7 @@ TEST(clsp_gap_v2_brace_init_constructor) {
 }
 
 TEST(clsp_gap_v2_temporary_object_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    Widget(int size) {}\n"
@@ -8567,7 +8567,7 @@ TEST(clsp_gap_v2_temporary_object_method_call) {
 }
 
 TEST(clsp_gap_v2_lambda_capture_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -8588,7 +8588,7 @@ TEST(clsp_gap_v2_lambda_capture_method_call) {
 }
 
 TEST(clsp_gap_v2_lambda_return_type_used) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -8608,7 +8608,7 @@ TEST(clsp_gap_v2_lambda_return_type_used) {
 }
 
 TEST(clsp_gap_v2_catch_exception_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class MyException {\n"
                                    "public:\n"
                                    "    const char* what() { return \"error\"; }\n"
@@ -8639,7 +8639,7 @@ TEST(clsp_gap_v2_catch_exception_method) {
 }
 
 TEST(clsp_gap_v2_static_member_function) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Factory {\n"
                                    "public:\n"
                                    "    static Factory create() { return Factory(); }\n"
@@ -8659,7 +8659,7 @@ TEST(clsp_gap_v2_static_member_function) {
 }
 
 TEST(clsp_gap_v2_enum_class_used_in_switch) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "enum class Color { Red, Green, Blue };\n"
                                    "\n"
                                    "void paint_red() {}\n"
@@ -8683,7 +8683,7 @@ TEST(clsp_gap_v2_enum_class_used_in_switch) {
 }
 
 TEST(clsp_gap_v2_builder_pattern) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class App { public: void run() {} };\n"
                                    "\n"
                                    "class Builder {\n"
@@ -8711,7 +8711,7 @@ TEST(clsp_gap_v2_builder_pattern) {
 }
 
 TEST(clsp_gap_v2_method_chaining_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Query {\n"
                                    "public:\n"
                                    "    Query& where(const char* clause) { return *this; }\n"
@@ -8735,7 +8735,7 @@ TEST(clsp_gap_v2_method_chaining_ref) {
 }
 
 TEST(clsp_gap_v2_raiilock_guard) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Mutex { public: void lock() {} void unlock() {} };\n"
                                    "\n"
                                    "template<class M>\n"
@@ -8758,7 +8758,7 @@ TEST(clsp_gap_v2_raiilock_guard) {
 }
 
 TEST(clsp_gap_v2_typedef_class) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class RealWidget { public: void draw() {} };\n"
                                    "typedef RealWidget Widget;\n"
                                    "\n"
@@ -8779,7 +8779,7 @@ TEST(clsp_gap_v2_typedef_class) {
 }
 
 TEST(clsp_gap_v2_using_alias) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class RealWidget { public: void draw() {} };\n"
                                    "using Widget = RealWidget;\n"
                                    "\n"
@@ -8800,7 +8800,7 @@ TEST(clsp_gap_v2_using_alias) {
 }
 
 TEST(clsp_gap_v2_using_template_alias) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<class T> class vector {\n"
                                    "    public:\n"
@@ -8831,7 +8831,7 @@ TEST(clsp_gap_v2_using_template_alias) {
 }
 
 TEST(clsp_gap_v2_if_null_check) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test(Widget* w) {\n"
@@ -8847,7 +8847,7 @@ TEST(clsp_gap_v2_if_null_check) {
 }
 
 TEST(clsp_gap_v2_try_catch_finally) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class DB {\n"
                                    "public:\n"
                                    "    void connect() {}\n"
@@ -8874,7 +8874,7 @@ TEST(clsp_gap_v2_try_catch_finally) {
 }
 
 TEST(clsp_gap_v2_method_call_in_for_init) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Item { public: void process() {} };\n"
                                    "\n"
                                    "class Container {\n"
@@ -8897,7 +8897,7 @@ TEST(clsp_gap_v2_method_call_in_for_init) {
 }
 
 TEST(clsp_gap_v2_nested_method_call_args) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Provider { public: int get_value() { return 0; } };\n"
                                    "class Consumer { public: void process(int val) {} };\n"
                                    "\n"
@@ -8915,7 +8915,7 @@ TEST(clsp_gap_v2_nested_method_call_args) {
 }
 
 TEST(clsp_gap_v2_conditional_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void show() {}\n"
@@ -8936,7 +8936,7 @@ TEST(clsp_gap_v2_conditional_method_call) {
 }
 
 TEST(clsp_fix_cstruct_func_ptr_chain_call) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef void (*callback_fn)(int);\n"
                                  "struct Handler {\n"
                                  "    callback_fn on_event;\n"
@@ -8957,7 +8957,7 @@ TEST(clsp_fix_cstruct_func_ptr_chain_call) {
 }
 
 TEST(clsp_fix_cast_chained_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Base { public: virtual void foo() {} };\n"
                                    "class Derived : public Base { public: void bar() {} };\n"
                                    "void test() {\n"
@@ -8973,7 +8973,7 @@ TEST(clsp_fix_cast_chained_method) {
 }
 
 TEST(clsp_fix_catch_by_value) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Error { public: const char* msg() { return \"\"; } };\n"
                                    "void test() {\n"
                                    "    try {\n"
@@ -8990,7 +8990,7 @@ TEST(clsp_fix_catch_by_value) {
 }
 
 TEST(clsp_fix_subscript_on_auto_var) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
                                    "    T& operator[](int index);\n"
@@ -9009,7 +9009,7 @@ TEST(clsp_fix_subscript_on_auto_var) {
 }
 
 TEST(clsp_fix_lambda_capture_this) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    void draw() {}\n"
@@ -9027,7 +9027,7 @@ TEST(clsp_fix_lambda_capture_this) {
 }
 
 TEST(clsp_cpp17_structured_binding_pair) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename K, typename V>\n"
                                    "struct pair { K first; V second; };\n"
                                    "class Foo { public: void bar() {} };\n"
@@ -9044,7 +9044,7 @@ TEST(clsp_cpp17_structured_binding_pair) {
 }
 
 TEST(clsp_cpp17_structured_binding_struct) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "struct Result { int code; Widget widget; };\n"
                                    "void test() {\n"
@@ -9060,7 +9060,7 @@ TEST(clsp_cpp17_structured_binding_struct) {
 }
 
 TEST(clsp_cpp17_structured_binding_array) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Foo { public: void run() {} };\n"
                                    "void test() {\n"
                                    "    Foo arr[3];\n"
@@ -9075,7 +9075,7 @@ TEST(clsp_cpp17_structured_binding_array) {
 }
 
 TEST(clsp_cpp17_structured_binding_const) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config { public: void load() {} };\n"
                                    "struct Settings { int level; Config config; };\n"
                                    "void test() {\n"
@@ -9091,7 +9091,7 @@ TEST(clsp_cpp17_structured_binding_const) {
 }
 
 TEST(clsp_cpp17_structured_binding_map) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename K, typename V> class map {\n"
                                    "public:\n"
                                    "    struct pair { K first; V second; };\n"
@@ -9114,7 +9114,7 @@ TEST(clsp_cpp17_structured_binding_map) {
 }
 
 TEST(clsp_cpp17_structured_binding_nested) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename A, typename B>\n"
                                    "struct pair { A first; B second; };\n"
                                    "class Logger { public: void log() {} };\n"
@@ -9132,7 +9132,7 @@ TEST(clsp_cpp17_structured_binding_nested) {
 }
 
 TEST(clsp_cpp17_structured_binding_tuple) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args> class tuple {};\n"
                                    "    template<int N, typename T> auto get(T& t);\n"
@@ -9151,7 +9151,7 @@ TEST(clsp_cpp17_structured_binding_tuple) {
 }
 
 TEST(clsp_cpp17_structured_binding_in_if) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct Result { bool ok; int value; };\n"
                                    "Result getResult();\n"
                                    "void process(int x) {}\n"
@@ -9169,7 +9169,7 @@ TEST(clsp_cpp17_structured_binding_in_if) {
 }
 
 TEST(clsp_cpp17_if_init_simple) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Lock { public: bool locked() { return true; } };\n"
                                    "Lock acquire();\n"
                                    "void test() {\n"
@@ -9186,7 +9186,7 @@ TEST(clsp_cpp17_if_init_simple) {
 }
 
 TEST(clsp_cpp17_if_init_with_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Database { public: int query() { return 0; } };\n"
                                    "void test() {\n"
                                    "    Database db;\n"
@@ -9202,7 +9202,7 @@ TEST(clsp_cpp17_if_init_with_type) {
 }
 
 TEST(clsp_cpp17_switch_init) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Parser { public: int parse() { return 0; } };\n"
                                    "void handle_a() {}\n"
                                    "void handle_b() {}\n"
@@ -9223,7 +9223,7 @@ TEST(clsp_cpp17_switch_init) {
 }
 
 TEST(clsp_cpp17_if_init_lock) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class mutex { public: void lock() {} void unlock() {} };\n"
                                    "class lock_guard {\n"
                                    "public:\n"
@@ -9245,7 +9245,7 @@ TEST(clsp_cpp17_if_init_lock) {
 }
 
 TEST(clsp_cpp17_fold_expr_sum) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Args>\n"
                                    "auto sum(Args... args) {\n"
                                    "    return (args + ...);\n"
@@ -9261,7 +9261,7 @@ TEST(clsp_cpp17_fold_expr_sum) {
 }
 
 TEST(clsp_cpp17_fold_expr_binary) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Args>\n"
                                    "auto multiply(Args... args) {\n"
                                    "    return (args * ... * 1);\n"
@@ -9277,7 +9277,7 @@ TEST(clsp_cpp17_fold_expr_binary) {
 }
 
 TEST(clsp_cpp17_fold_expr_comma) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(int x) {}\n"
                                    "template<typename... Args>\n"
                                    "void call_all(Args... args) {\n"
@@ -9295,7 +9295,7 @@ TEST(clsp_cpp17_fold_expr_comma) {
 }
 
 TEST(clsp_cpp17_fold_expr_logical) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Args>\n"
                                    "bool all_true(Args... args) {\n"
                                    "    return (args && ...);\n"
@@ -9311,7 +9311,7 @@ TEST(clsp_cpp17_fold_expr_logical) {
 }
 
 TEST(clsp_cpp17_ctadvector) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
                                    "    void push_back(const T& val);\n"
@@ -9332,7 +9332,7 @@ TEST(clsp_cpp17_ctadvector) {
 }
 
 TEST(clsp_cpp17_ctadpair) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename A, typename B>\n"
                                    "struct pair {\n"
                                    "    A first;\n"
@@ -9352,7 +9352,7 @@ TEST(clsp_cpp17_ctadpair) {
 }
 
 TEST(clsp_cpp17_ctadoptional) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    optional(T val);\n"
@@ -9372,7 +9372,7 @@ TEST(clsp_cpp17_ctadoptional) {
 }
 
 TEST(clsp_cpp17_ctadtuple) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args> class tuple {\n"
                                    "    public:\n"
@@ -9390,7 +9390,7 @@ TEST(clsp_cpp17_ctadtuple) {
 }
 
 TEST(clsp_cpp17_ctaduser_defined) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -9410,7 +9410,7 @@ TEST(clsp_cpp17_ctaduser_defined) {
 }
 
 TEST(clsp_cpp17_ctadlock_guard) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class mutex { public: void lock() {} void unlock() {} };\n"
                                    "template<typename M>\n"
                                    "class lock_guard {\n"
@@ -9429,7 +9429,7 @@ TEST(clsp_cpp17_ctadlock_guard) {
 }
 
 TEST(clsp_cpp17_optional_value) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    T& value();\n"
@@ -9448,7 +9448,7 @@ TEST(clsp_cpp17_optional_value) {
 }
 
 TEST(clsp_cpp17_optional_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    T* operator->();\n"
@@ -9467,7 +9467,7 @@ TEST(clsp_cpp17_optional_arrow) {
 }
 
 TEST(clsp_cpp17_optional_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    T& operator*();\n"
@@ -9485,7 +9485,7 @@ TEST(clsp_cpp17_optional_deref) {
 }
 
 TEST(clsp_cpp17_optional_has_value) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    bool has_value();\n"
@@ -9506,7 +9506,7 @@ TEST(clsp_cpp17_optional_has_value) {
 }
 
 TEST(clsp_cpp17_variant_get) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Types> class variant {};\n"
                                    "    template<typename T, typename V> T& get(V& v);\n"
@@ -9524,7 +9524,7 @@ TEST(clsp_cpp17_variant_get) {
 }
 
 TEST(clsp_cpp17_variant_visit) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename... Types> class variant {};\n"
@@ -9544,7 +9544,7 @@ TEST(clsp_cpp17_variant_visit) {
 }
 
 TEST(clsp_cpp17_any_any_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    class any {};\n"
                                    "    template<typename T> T any_cast(any& a);\n"
@@ -9562,7 +9562,7 @@ TEST(clsp_cpp17_any_any_cast) {
 }
 
 TEST(clsp_cpp17_optional_value_or) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    T value_or(T default_val);\n"
@@ -9580,7 +9580,7 @@ TEST(clsp_cpp17_optional_value_or) {
 }
 
 TEST(clsp_cpp17_optional_and_then) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    template<typename F> auto and_then(F f);\n"
@@ -9599,7 +9599,7 @@ TEST(clsp_cpp17_optional_and_then) {
 }
 
 TEST(clsp_cpp17_optional_transform) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
                                    "    template<typename F> auto transform(F f);\n"
@@ -9617,7 +9617,7 @@ TEST(clsp_cpp17_optional_transform) {
 }
 
 TEST(clsp_cpp17_if_constexpr_body) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class IntHandler { public: void handle_int() {} };\n"
                                    "class FloatHandler { public: void handle_float() {} };\n"
                                    "template<typename T>\n"
@@ -9643,7 +9643,7 @@ TEST(clsp_cpp17_if_constexpr_body) {
 }
 
 TEST(clsp_cpp17_inline_variable) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config {\n"
                                    "public:\n"
                                    "    static inline int max_retries = 3;\n"
@@ -9661,7 +9661,7 @@ TEST(clsp_cpp17_inline_variable) {
 }
 
 TEST(clsp_cpp17_nested_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace a::b::c {\n"
                                    "    class Widget { public: void draw() {} };\n"
                                    "}\n"
@@ -9677,7 +9677,7 @@ TEST(clsp_cpp17_nested_namespace) {
 }
 
 TEST(clsp_cpp17_constexpr_if) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Handler { public: void handle() {} };\n"
                                    "template<bool B>\n"
                                    "void dispatch() {\n"
@@ -9697,7 +9697,7 @@ TEST(clsp_cpp17_constexpr_if) {
 }
 
 TEST(clsp_cpp17_string_view) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    class string_view {\n"
                                    "    public:\n"
@@ -9720,7 +9720,7 @@ TEST(clsp_cpp17_string_view) {
 }
 
 TEST(clsp_cpp17_filesystem_path) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace filesystem {\n"
                                    "    class path {\n"
                                    "    public:\n"
@@ -9743,7 +9743,7 @@ TEST(clsp_cpp17_filesystem_path) {
 }
 
 TEST(clsp_cpp17_user_defined_literal) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Duration { public: int seconds() { return 0; } };\n"
                     "Duration operator\"\"_s(unsigned long long val) { return Duration(); }\n"
@@ -9759,7 +9759,7 @@ TEST(clsp_cpp17_user_defined_literal) {
 }
 
 TEST(clsp_cpp17_class_template_deduction) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Wrapper {\n"
                                    "public:\n"
@@ -9779,7 +9779,7 @@ TEST(clsp_cpp17_class_template_deduction) {
 }
 
 TEST(clsp_cpp17_apply_tuple) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename... Args> class tuple {};\n"
@@ -9798,7 +9798,7 @@ TEST(clsp_cpp17_apply_tuple) {
 }
 
 TEST(clsp_cpp17_invoke_result) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename F, typename... Args>\n"
                                    "    auto invoke(F&& f, Args&&... args);\n"
@@ -9817,7 +9817,7 @@ TEST(clsp_cpp17_invoke_result) {
 }
 
 TEST(clsp_cpp20_concept_constrained_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "template<typename T>\n"
                                    "concept Drawable = requires(T t) { t.draw(); };\n"
@@ -9837,7 +9837,7 @@ TEST(clsp_cpp20_concept_constrained_func) {
 }
 
 TEST(clsp_cpp20_concept_requires_clause) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger { public: void log() {} };\n"
                                    "template<typename T>\n"
                                    "void process(T& obj) requires requires { obj.log(); } {\n"
@@ -9855,7 +9855,7 @@ TEST(clsp_cpp20_concept_requires_clause) {
 }
 
 TEST(clsp_cpp20_concept_auto_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Processor { public: void run() {} };\n"
                                    "void handle(auto& obj) {\n"
                                    "    obj.run();\n"
@@ -9872,7 +9872,7 @@ TEST(clsp_cpp20_concept_auto_param) {
 }
 
 TEST(clsp_cpp20_concept_nested) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "template<typename T>\n"
                     "concept Hashable = requires(T a) {\n"
@@ -9897,7 +9897,7 @@ TEST(clsp_cpp20_concept_nested) {
 }
 
 TEST(clsp_cpp20_concept_conjunction) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> concept A = true;\n"
                                    "template<typename T> concept B = true;\n"
                                    "template<typename T> requires A<T> && B<T>\n"
@@ -9914,7 +9914,7 @@ TEST(clsp_cpp20_concept_conjunction) {
 }
 
 TEST(clsp_cpp20_concept_subsumption) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> concept Base = true;\n"
                                    "template<typename T> concept Derived = Base<T> && true;\n"
                                    "template<Base T> void f(T val) {}\n"
@@ -9930,7 +9930,7 @@ TEST(clsp_cpp20_concept_subsumption) {
 }
 
 TEST(clsp_cpp20_concept_on_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> concept Numeric = true;\n"
                                    "class Calculator {\n"
                                    "public:\n"
@@ -9948,7 +9948,7 @@ TEST(clsp_cpp20_concept_on_method) {
 }
 
 TEST(clsp_cpp20_requires_expression) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "template<typename T>\n"
                                    "bool can_draw() {\n"
@@ -9965,7 +9965,7 @@ TEST(clsp_cpp20_requires_expression) {
 }
 
 TEST(clsp_cpp20_co_await_expr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Task {\n"
                                    "public:\n"
@@ -9986,7 +9986,7 @@ TEST(clsp_cpp20_co_await_expr) {
 }
 
 TEST(clsp_cpp20_co_yield_expr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class generator {};\n"
                                    "void process(int x) {}\n"
                                    "generator<int> generate() {\n"
@@ -10005,7 +10005,7 @@ TEST(clsp_cpp20_co_yield_expr) {
 }
 
 TEST(clsp_cpp20_co_return_expr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class Task {};\n"
                                    "class Widget { public: void prepare() {} };\n"
                                    "Task<Widget> make_widget() {\n"
@@ -10025,7 +10025,7 @@ TEST(clsp_cpp20_co_return_expr) {
 }
 
 TEST(clsp_cpp20_coroutine_handle) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename P = void>\n"
                                    "    class coroutine_handle {\n"
@@ -10049,7 +10049,7 @@ TEST(clsp_cpp20_coroutine_handle) {
 }
 
 TEST(clsp_cpp20_task) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Task {\n"
                                    "public:\n"
@@ -10070,7 +10070,7 @@ TEST(clsp_cpp20_task) {
 }
 
 TEST(clsp_cpp20_coroutine_body_calls) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Logger { public: void log() {} };\n"
                                    "template<typename T> class Task {};\n"
                                    "Task<void> async_work() {\n"
@@ -10090,7 +10090,7 @@ TEST(clsp_cpp20_coroutine_body_calls) {
 }
 
 TEST(clsp_cpp20_generator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class generator {\n"
                                    "public:\n"
                                    "    class iterator {\n"
@@ -10119,7 +10119,7 @@ TEST(clsp_cpp20_generator) {
 }
 
 TEST(clsp_cpp20_nested_co_await) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T> class Task {};\n"
                                    "class Database { public: void query() {} };\n"
                                    "Task<Database> connect();\n"
@@ -10142,7 +10142,7 @@ TEST(clsp_cpp20_nested_co_await) {
 }
 
 TEST(clsp_cpp20_ranges_pipeline) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std { namespace views {\n"
                     "    template<typename F> auto transform(F f);\n"
@@ -10163,7 +10163,7 @@ TEST(clsp_cpp20_ranges_pipeline) {
 }
 
 TEST(clsp_cpp20_ranges_for_each) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std { namespace ranges {\n"
                     "    template<typename R, typename F> void for_each(R&& r, F f);\n"
@@ -10181,7 +10181,7 @@ TEST(clsp_cpp20_ranges_for_each) {
 }
 
 TEST(clsp_cpp20_views_transform) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace views {\n"
                                    "    template<typename F> auto transform(F f);\n"
                                    "}}\n"
@@ -10197,7 +10197,7 @@ TEST(clsp_cpp20_views_transform) {
 }
 
 TEST(clsp_cpp20_views_filter) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace views {\n"
                                    "    template<typename P> auto filter(P pred);\n"
                                    "}}\n"
@@ -10213,7 +10213,7 @@ TEST(clsp_cpp20_views_filter) {
 }
 
 TEST(clsp_cpp20_ranges_sort) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace ranges {\n"
                                    "    template<typename R> void sort(R&& r);\n"
                                    "}}\n"
@@ -10229,7 +10229,7 @@ TEST(clsp_cpp20_ranges_sort) {
 }
 
 TEST(clsp_cpp20_views_take) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace views {\n"
                                    "    auto take(int n);\n"
                                    "}}\n"
@@ -10244,7 +10244,7 @@ TEST(clsp_cpp20_views_take) {
 }
 
 TEST(clsp_cpp20_ranges_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std { namespace ranges {\n"
                                    "    template<typename R> auto begin(R&& r);\n"
                                    "    template<typename R> auto end(R&& r);\n"
@@ -10263,7 +10263,7 @@ TEST(clsp_cpp20_ranges_iterator) {
 }
 
 TEST(clsp_cpp20_ranges_projection) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std { namespace ranges {\n"
                     "    template<typename R, typename Proj> void sort(R&& r, Proj proj);\n"
@@ -10281,7 +10281,7 @@ TEST(clsp_cpp20_ranges_projection) {
 }
 
 TEST(clsp_cpp20_consteval_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "consteval int square(int n) { return n * n; }\n"
                                    "void test() {\n"
                                    "    int x = square(5);\n"
@@ -10294,7 +10294,7 @@ TEST(clsp_cpp20_consteval_func) {
 }
 
 TEST(clsp_cpp20_constinit_var) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Config { public: void load() {} };\n"
                                    "constinit int global_val = 42;\n"
                                    "void test() {\n"
@@ -10309,7 +10309,7 @@ TEST(clsp_cpp20_constinit_var) {
 }
 
 TEST(clsp_cpp20_designated_init) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Engine { public: void start() {} };\n"
                                    "struct Car { int speed; Engine engine; };\n"
                                    "void test() {\n"
@@ -10324,7 +10324,7 @@ TEST(clsp_cpp20_designated_init) {
 }
 
 TEST(clsp_cpp20_three_way_comparison) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Version {\n"
                                    "public:\n"
                                    "    int major, minor;\n"
@@ -10342,7 +10342,7 @@ TEST(clsp_cpp20_three_way_comparison) {
 }
 
 TEST(clsp_cpp20_span_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename T>\n"
                                    "    class span {\n"
@@ -10365,7 +10365,7 @@ TEST(clsp_cpp20_span_access) {
 }
 
 TEST(clsp_cpp20_jthread) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    class jthread {\n"
                                    "    public:\n"
@@ -10388,7 +10388,7 @@ TEST(clsp_cpp20_jthread) {
 }
 
 TEST(clsp_cpp20_format_string) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename... Args>\n"
                                    "    auto format(const char* fmt, Args&&... args);\n"
@@ -10404,7 +10404,7 @@ TEST(clsp_cpp20_format_string) {
 }
 
 TEST(clsp_cpp20_source_location) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    class source_location {\n"
                                    "    public:\n"
@@ -10426,7 +10426,7 @@ TEST(clsp_cpp20_source_location) {
 }
 
 TEST(clsp_cpp20_using_enum) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Processor { public: void process() {} };\n"
                                    "enum class Color { Red, Green, Blue };\n"
                                    "void test() {\n"
@@ -10442,7 +10442,7 @@ TEST(clsp_cpp20_using_enum) {
 }
 
 TEST(clsp_cpp20_lambda_template_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "void test() {\n"
                                    "    auto fn = []<typename T>(T& obj) {\n"
@@ -10459,7 +10459,7 @@ TEST(clsp_cpp20_lambda_template_param) {
 }
 
 TEST(clsp_cpp20_lambda_init_capture) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "void test() {\n"
                                    "    Widget w;\n"
@@ -10475,7 +10475,7 @@ TEST(clsp_cpp20_lambda_init_capture) {
 }
 
 TEST(clsp_template_enable_if_method) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T = void> struct enable_if {};\n"
@@ -10502,7 +10502,7 @@ TEST(clsp_template_enable_if_method) {
 }
 
 TEST(clsp_template_enable_if_return) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T = void> struct enable_if {};\n"
@@ -10526,7 +10526,7 @@ TEST(clsp_template_enable_if_return) {
 }
 
 TEST(clsp_template_void_t) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename...> using void_t = void;\n"
@@ -10552,7 +10552,7 @@ TEST(clsp_template_void_t) {
 }
 
 TEST(clsp_template_is_detected) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename...> using void_t = void;\n"
@@ -10580,7 +10580,7 @@ TEST(clsp_template_is_detected) {
 }
 
 TEST(clsp_template_if_constexprsfinae) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Printer { public: void print_val() {} };\n"
                                    "class Logger { public: void log_val() {} };\n"
                                    "\n"
@@ -10607,7 +10607,7 @@ TEST(clsp_template_if_constexprsfinae) {
 }
 
 TEST(clsp_template_conditional_type) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T, class F> struct conditional { typedef T type; };\n"
@@ -10631,7 +10631,7 @@ TEST(clsp_template_conditional_type) {
 }
 
 TEST(clsp_template_decltype_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: int value() { return 0; } };\n"
                                    "\n"
                                    "Widget make_widget() { return Widget{}; }\n"
@@ -10651,7 +10651,7 @@ TEST(clsp_template_decltype_return) {
 }
 
 TEST(clsp_template_trailing_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "auto create() -> Widget { return Widget{}; }\n"
@@ -10669,7 +10669,7 @@ TEST(clsp_template_trailing_return) {
 }
 
 TEST(clsp_template_partial_spec_pointer) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -10694,7 +10694,7 @@ TEST(clsp_template_partial_spec_pointer) {
 }
 
 TEST(clsp_template_partial_spec_const) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Wrapper {\n"
                                    "public:\n"
@@ -10719,7 +10719,7 @@ TEST(clsp_template_partial_spec_const) {
 }
 
 TEST(clsp_template_full_spec) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Container {\n"
                                    "public:\n"
@@ -10744,7 +10744,7 @@ TEST(clsp_template_full_spec) {
 }
 
 TEST(clsp_template_member_spec) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Converter {\n"
                                    "public:\n"
@@ -10766,7 +10766,7 @@ TEST(clsp_template_member_spec) {
 }
 
 TEST(clsp_template_static_member_spec) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Registry {\n"
                                    "public:\n"
@@ -10784,7 +10784,7 @@ TEST(clsp_template_static_member_spec) {
 }
 
 TEST(clsp_template_type_trait_spec) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "struct is_widget { static const bool value = false; };\n"
                                    "\n"
@@ -10805,7 +10805,7 @@ TEST(clsp_template_type_trait_spec) {
 }
 
 TEST(clsp_template_variadic_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Target { public: void invoke() {} };\n"
                                    "\n"
                                    "template<typename... Args>\n"
@@ -10825,7 +10825,7 @@ TEST(clsp_template_variadic_func) {
 }
 
 TEST(clsp_template_variadic_class) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Ts>\n"
                                    "class Tuple {\n"
                                    "public:\n"
@@ -10844,7 +10844,7 @@ TEST(clsp_template_variadic_class) {
 }
 
 TEST(clsp_template_parameter_pack) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename... Args>\n"
                                    "int count_args(Args... args) {\n"
                                    "    return sizeof...(Args);\n"
@@ -10861,7 +10861,7 @@ TEST(clsp_template_parameter_pack) {
 }
 
 TEST(clsp_template_fold_over_args) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void process(int x) {}\n"
                                    "\n"
                                    "template<typename... Args>\n"
@@ -10881,7 +10881,7 @@ TEST(clsp_template_fold_over_args) {
 }
 
 TEST(clsp_template_variadic_inheritance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct MixA { void do_a() {} };\n"
                                    "struct MixB { void do_b() {} };\n"
                                    "\n"
@@ -10904,7 +10904,7 @@ TEST(clsp_template_variadic_inheritance) {
 }
 
 TEST(clsp_template_recursive_variadic) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void base_print() {}\n"
                                    "\n"
                                    "template<typename T>\n"
@@ -10930,7 +10930,7 @@ TEST(clsp_template_recursive_variadic) {
 }
 
 TEST(clsp_template_make_from_variadic) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class shared_ptr {\n"
@@ -10956,7 +10956,7 @@ TEST(clsp_template_make_from_variadic) {
 }
 
 TEST(clsp_template_tuple_element) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename A, typename B>\n"
                                    "struct pair {\n"
@@ -10980,7 +10980,7 @@ TEST(clsp_template_tuple_element) {
 }
 
 TEST(clsp_template_dependent_type) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Container {\n"
                                    "public:\n"
                                    "    typedef int value_type;\n"
@@ -11005,7 +11005,7 @@ TEST(clsp_template_dependent_type) {
 }
 
 TEST(clsp_template_dependent_name) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class MyContainer {\n"
                                    "public:\n"
                                    "    typedef int iterator;\n"
@@ -11029,7 +11029,7 @@ TEST(clsp_template_dependent_name) {
 }
 
 TEST(clsp_template_nested_dependent) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Inner { public: void action() {} };\n"
                                    "class Outer {\n"
                                    "public:\n"
@@ -11056,7 +11056,7 @@ TEST(clsp_template_nested_dependent) {
 }
 
 TEST(clsp_template_dependent_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "template<typename T>\n"
@@ -11076,7 +11076,7 @@ TEST(clsp_template_dependent_return) {
 }
 
 TEST(clsp_template_dependent_field) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class Holder {\n"
                                    "    T item;\n"
@@ -11098,7 +11098,7 @@ TEST(clsp_template_dependent_field) {
 }
 
 TEST(clsp_template_dependent_method_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Renderer { public: void render() {} };\n"
                                    "\n"
                                    "template<typename T>\n"
@@ -11118,7 +11118,7 @@ TEST(clsp_template_dependent_method_call) {
 }
 
 TEST(clsp_template_dependent_base_class) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename Derived>\n"
                                    "class Base {\n"
                                    "public:\n"
@@ -11144,7 +11144,7 @@ TEST(clsp_template_dependent_base_class) {
 }
 
 TEST(clsp_template_two_phase) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "void non_dependent() {}\n"
                                    "\n"
                                    "template<typename T>\n"
@@ -11168,7 +11168,7 @@ TEST(clsp_template_two_phase) {
 }
 
 TEST(clsp_template_expr_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Vec {\n"
                                    "public:\n"
                                    "    Vec operator+(const Vec& other) { return *this; }\n"
@@ -11189,7 +11189,7 @@ TEST(clsp_template_expr_template) {
 }
 
 TEST(clsp_template_policy_based_log) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct ConsolePolicy {\n"
                                    "    void write(const char* msg) {}\n"
                                    "};\n"
@@ -11213,7 +11213,7 @@ TEST(clsp_template_policy_based_log) {
 }
 
 TEST(clsp_template_policy_based_alloc) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "struct MallocAlloc {\n"
                                    "    void* allocate(int sz) { return 0; }\n"
                                    "};\n"
@@ -11237,7 +11237,7 @@ TEST(clsp_template_policy_based_alloc) {
 }
 
 TEST(clsp_template_template_template) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class DefaultContainer {\n"
                                    "public:\n"
@@ -11263,7 +11263,7 @@ TEST(clsp_template_template_template) {
 }
 
 TEST(clsp_template_mixin_pattern) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename Derived>\n"
                                    "class Printable {\n"
                                    "public:\n"
@@ -11289,7 +11289,7 @@ TEST(clsp_template_mixin_pattern) {
 }
 
 TEST(clsp_template_type_erasure) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Drawable {\n"
                                    "public:\n"
                                    "    virtual void draw() = 0;\n"
@@ -11312,7 +11312,7 @@ TEST(clsp_template_type_erasure) {
 }
 
 TEST(clsp_template_static_assert) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "class SafeContainer {\n"
                                    "public:\n"
@@ -11331,7 +11331,7 @@ TEST(clsp_template_static_assert) {
 }
 
 TEST(clsp_tad_simple_func) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "T identity(T val) { return val; }\n"
                                    "\n"
@@ -11346,7 +11346,7 @@ TEST(clsp_tad_simple_func) {
 }
 
 TEST(clsp_tad_return_type_deduction) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "auto make_widget() {\n"
@@ -11367,7 +11367,7 @@ TEST(clsp_tad_return_type_deduction) {
 }
 
 TEST(clsp_tad_multi_param) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename A, typename B>\n"
                                    "A combine(A a, B b) { return a; }\n"
                                    "\n"
@@ -11382,7 +11382,7 @@ TEST(clsp_tad_multi_param) {
 }
 
 TEST(clsp_tad_explicit_args) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T>\n"
                                    "T create() { return T{}; }\n"
                                    "\n"
@@ -11397,7 +11397,7 @@ TEST(clsp_tad_explicit_args) {
 }
 
 TEST(clsp_tad_partial_explicit) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename R, typename T>\n"
                                    "R convert(T val) { return R{}; }\n"
                                    "\n"
@@ -11412,7 +11412,7 @@ TEST(clsp_tad_partial_explicit) {
 }
 
 TEST(clsp_tad_default_arg) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "template<typename T = int>\n"
                                    "class Box {\n"
                                    "public:\n"
@@ -11431,7 +11431,7 @@ TEST(clsp_tad_default_arg) {
 }
 
 TEST(clsp_tad_perfect_forwarding) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "    template<typename T> T&& forward(T& arg) { return (T&&)arg; }\n"
@@ -11455,7 +11455,7 @@ TEST(clsp_tad_perfect_forwarding) {
 }
 
 TEST(clsp_tad_auto_return) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "auto build_widget() {\n"
@@ -11477,7 +11477,7 @@ TEST(clsp_tad_auto_return) {
 }
 
 TEST(clsp_rw_shared_ptr_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class shared_ptr {\n"
                                    "public:\n"
@@ -11500,7 +11500,7 @@ TEST(clsp_rw_shared_ptr_arrow) {
 }
 
 TEST(clsp_rw_unique_ptr_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class unique_ptr {\n"
                                    "public:\n"
@@ -11523,7 +11523,7 @@ TEST(clsp_rw_unique_ptr_arrow) {
 }
 
 TEST(clsp_rw_shared_ptr_get) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class shared_ptr {\n"
                                    "public:\n"
@@ -11546,7 +11546,7 @@ TEST(clsp_rw_shared_ptr_get) {
 }
 
 TEST(clsp_rw_shared_ptr_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class shared_ptr {\n"
                                    "public:\n"
@@ -11569,7 +11569,7 @@ TEST(clsp_rw_shared_ptr_deref) {
 }
 
 TEST(clsp_rw_shared_ptr_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class shared_ptr {\n"
                                    "public:\n"
@@ -11596,7 +11596,7 @@ TEST(clsp_rw_shared_ptr_chain) {
 }
 
 TEST(clsp_rw_weak_ptr_lock) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class shared_ptr {\n"
                                    "public:\n"
@@ -11622,7 +11622,7 @@ TEST(clsp_rw_weak_ptr_lock) {
 }
 
 TEST(clsp_rw_make_shared_method_chain) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class shared_ptr {\n"
@@ -11645,7 +11645,7 @@ TEST(clsp_rw_make_shared_method_chain) {
 }
 
 TEST(clsp_rw_shared_ptr_cast) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "template<typename T> class shared_ptr {\n"
@@ -11672,7 +11672,7 @@ TEST(clsp_rw_shared_ptr_cast) {
 }
 
 TEST(clsp_rw_iterator_for_loop) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "void test() {\n"
@@ -11689,7 +11689,7 @@ TEST(clsp_rw_iterator_for_loop) {
 }
 
 TEST(clsp_rw_iterator_deref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    struct iterator {\n"
@@ -11716,7 +11716,7 @@ TEST(clsp_rw_iterator_deref) {
 }
 
 TEST(clsp_rw_iterator_arrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    struct iterator {\n"
@@ -11741,7 +11741,7 @@ TEST(clsp_rw_iterator_arrow) {
 }
 
 TEST(clsp_rw_reverse_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void rbegin() {}\n"
@@ -11763,7 +11763,7 @@ TEST(clsp_rw_reverse_iterator) {
 }
 
 TEST(clsp_rw_const_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void cbegin() {}\n"
@@ -11785,7 +11785,7 @@ TEST(clsp_rw_const_iterator) {
 }
 
 TEST(clsp_rw_insert_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> struct vector {\n"
                                    "    void push_back(const T& val) {}\n"
@@ -11806,7 +11806,7 @@ TEST(clsp_rw_insert_iterator) {
 }
 
 TEST(clsp_rw_iterator_advance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "void advance(Iter& it, int n) {}\n"
@@ -11824,7 +11824,7 @@ TEST(clsp_rw_iterator_advance) {
 }
 
 TEST(clsp_rw_iterator_distance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "int distance(Iter first, Iter last) { return 0; }\n"
@@ -11843,7 +11843,7 @@ TEST(clsp_rw_iterator_distance) {
 }
 
 TEST(clsp_rw_stack_push) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class stack {\n"
                                    "public:\n"
@@ -11865,7 +11865,7 @@ TEST(clsp_rw_stack_push) {
 }
 
 TEST(clsp_rw_queue_front) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class queue {\n"
                                    "public:\n"
@@ -11888,7 +11888,7 @@ TEST(clsp_rw_queue_front) {
 }
 
 TEST(clsp_rw_priority_queue_top) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class priority_queue {\n"
                                    "public:\n"
@@ -11911,7 +11911,7 @@ TEST(clsp_rw_priority_queue_top) {
 }
 
 TEST(clsp_rw_deque_access) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class deque {\n"
                                    "public:\n"
@@ -11933,7 +11933,7 @@ TEST(clsp_rw_deque_access) {
 }
 
 TEST(clsp_rw_set_insert) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class set {\n"
                                    "public:\n"
@@ -11954,7 +11954,7 @@ TEST(clsp_rw_set_insert) {
 }
 
 TEST(clsp_rw_multi_map_range) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class multimap {\n"
                                    "public:\n"
@@ -11977,7 +11977,7 @@ TEST(clsp_rw_multi_map_range) {
 }
 
 TEST(clsp_rw_lock_guard_scope) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Mutex { public: void lock() {} void unlock() {} };\n"
                                    "\n"
                                    "class LockGuard {\n"
@@ -12001,7 +12001,7 @@ TEST(clsp_rw_lock_guard_scope) {
 }
 
 TEST(clsp_rw_unique_lock_scope) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Mutex { public: void lock() {} void unlock() {} };\n"
                                    "\n"
                                    "class UniqueLock {\n"
@@ -12028,7 +12028,7 @@ TEST(clsp_rw_unique_lock_scope) {
 }
 
 TEST(clsp_rw_scoped_timer) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class ScopedTimer {\n"
                                    "public:\n"
                                    "    void start() {}\n"
@@ -12053,7 +12053,7 @@ TEST(clsp_rw_scoped_timer) {
 }
 
 TEST(clsp_rw_file_handle) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class FileHandle {\n"
                                    "public:\n"
                                    "    void read() {}\n"
@@ -12075,7 +12075,7 @@ TEST(clsp_rw_file_handle) {
 }
 
 TEST(clsp_rw_transaction_scope) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Transaction {\n"
                                    "public:\n"
                                    "    void begin() {}\n"
@@ -12101,7 +12101,7 @@ TEST(clsp_rw_transaction_scope) {
 }
 
 TEST(clsp_rw_connection_pool) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Connection {\n"
                                    "public:\n"
                                    "    void query() {}\n"
@@ -12125,7 +12125,7 @@ TEST(clsp_rw_connection_pool) {
 }
 
 TEST(clsp_rw_scope_guard) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class ScopeGuard {\n"
                                    "public:\n"
                                    "    void dismiss() {}\n"
@@ -12147,7 +12147,7 @@ TEST(clsp_rw_scope_guard) {
 }
 
 TEST(clsp_rw_factory_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {\n"
                                    "public:\n"
                                    "    static Widget create() { return Widget{}; }\n"
@@ -12167,7 +12167,7 @@ TEST(clsp_rw_factory_method) {
 }
 
 TEST(clsp_rw_abstract_factory) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Product { public: virtual void use() {} };\n"
                     "\n"
@@ -12195,7 +12195,7 @@ TEST(clsp_rw_abstract_factory) {
 }
 
 TEST(clsp_rw_factory_function) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "Widget make_widget() { return Widget{}; }\n"
@@ -12213,7 +12213,7 @@ TEST(clsp_rw_factory_function) {
 }
 
 TEST(clsp_rw_builder_pattern) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Builder {\n"
                                    "public:\n"
                                    "    Builder& set_x(int x) { return *this; }\n"
@@ -12235,7 +12235,7 @@ TEST(clsp_rw_builder_pattern) {
 }
 
 TEST(clsp_rw_singleton) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Singleton {\n"
                     "public:\n"
@@ -12255,7 +12255,7 @@ TEST(clsp_rw_singleton) {
 }
 
 TEST(clsp_rw_prototype_clone) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Prototype {\n"
                                    "public:\n"
                                    "    virtual Prototype* clone() { return new Prototype(); }\n"
@@ -12276,7 +12276,7 @@ TEST(clsp_rw_prototype_clone) {
 }
 
 TEST(clsp_rw_factory_registry) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "class Registry {\n"
@@ -12298,7 +12298,7 @@ TEST(clsp_rw_factory_registry) {
 }
 
 TEST(clsp_rw_named_constructor) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Widget {\n"
                     "public:\n"
@@ -12319,7 +12319,7 @@ TEST(clsp_rw_named_constructor) {
 }
 
 TEST(clsp_rw_observer_notify) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Observer {\n"
                                    "public:\n"
                                    "    virtual void notify() {}\n"
@@ -12337,7 +12337,7 @@ TEST(clsp_rw_observer_notify) {
 }
 
 TEST(clsp_rw_observer_subscribe) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Observer { public: void on_event() {} };\n"
                                    "\n"
                                    "class Subject {\n"
@@ -12358,7 +12358,7 @@ TEST(clsp_rw_observer_subscribe) {
 }
 
 TEST(clsp_rw_visitor_accept) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Visitor;\n"
                                    "\n"
                                    "class Element {\n"
@@ -12378,7 +12378,7 @@ TEST(clsp_rw_visitor_accept) {
 }
 
 TEST(clsp_rw_visitor_visit) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Element {};\n"
                                    "\n"
                                    "class Visitor {\n"
@@ -12399,7 +12399,7 @@ TEST(clsp_rw_visitor_visit) {
 }
 
 TEST(clsp_rw_strategy_execute) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Strategy {\n"
                                    "public:\n"
                                    "    virtual void execute() {}\n"
@@ -12423,7 +12423,7 @@ TEST(clsp_rw_strategy_execute) {
 }
 
 TEST(clsp_rw_strategy_set_algorithm) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Strategy {};\n"
                                    "\n"
                                    "class Context {\n"
@@ -12447,7 +12447,7 @@ TEST(clsp_rw_strategy_set_algorithm) {
 }
 
 TEST(clsp_rw_command_execute) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Command {\n"
                                    "public:\n"
                                    "    virtual void execute() {}\n"
@@ -12465,7 +12465,7 @@ TEST(clsp_rw_command_execute) {
 }
 
 TEST(clsp_rw_command_undo) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Command {\n"
                                    "public:\n"
                                    "    virtual void execute() {}\n"
@@ -12486,7 +12486,7 @@ TEST(clsp_rw_command_undo) {
 }
 
 TEST(clsp_rw_mediator_send) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Mediator {\n"
                                    "public:\n"
                                    "    void send(const char* msg) {}\n"
@@ -12504,7 +12504,7 @@ TEST(clsp_rw_mediator_send) {
 }
 
 TEST(clsp_rw_chain_of_responsibility) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Handler {\n"
                                    "public:\n"
                                    "    Handler* next;\n"
@@ -12523,7 +12523,7 @@ TEST(clsp_rw_chain_of_responsibility) {
 }
 
 TEST(clsp_rw_mvccontroller) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Request {};\n"
                                    "\n"
                                    "class Controller {\n"
@@ -12544,7 +12544,7 @@ TEST(clsp_rw_mvccontroller) {
 }
 
 TEST(clsp_rw_event_loop) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class EventLoop {\n"
                                    "public:\n"
                                    "    void run() {}\n"
@@ -12563,7 +12563,7 @@ TEST(clsp_rw_event_loop) {
 }
 
 TEST(clsp_rw_plugin_system) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Plugin {\n"
                                    "public:\n"
                                    "    virtual void initialize() {}\n"
@@ -12582,7 +12582,7 @@ TEST(clsp_rw_plugin_system) {
 }
 
 TEST(clsp_rw_pipeline_stage) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Stage {\n"
                                    "public:\n"
                                    "    virtual void process(int data) {}\n"
@@ -12600,7 +12600,7 @@ TEST(clsp_rw_pipeline_stage) {
 }
 
 TEST(clsp_rw_middleware_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Middleware {\n"
                                    "public:\n"
                                    "    Middleware* next_mw;\n"
@@ -12619,7 +12619,7 @@ TEST(clsp_rw_middleware_chain) {
 }
 
 TEST(clsp_rw_state_machine) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class StateMachine {\n"
                                    "public:\n"
                                    "    void transition(int event) {}\n"
@@ -12638,7 +12638,7 @@ TEST(clsp_rw_state_machine) {
 }
 
 TEST(clsp_rw_actor_model) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Actor {\n"
                                    "public:\n"
                                    "    void send(const char* msg) {}\n"
@@ -12657,7 +12657,7 @@ TEST(clsp_rw_actor_model) {
 }
 
 TEST(clsp_rw_reactive_stream) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Stream {\n"
                                    "public:\n"
                                    "    void subscribe() {}\n"
@@ -12676,7 +12676,7 @@ TEST(clsp_rw_reactive_stream) {
 }
 
 TEST(clsp_stl_vector_push_back) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
@@ -12695,7 +12695,7 @@ TEST(clsp_stl_vector_push_back) {
 }
 
 TEST(clsp_stl_vector_emplace_back) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class vector {\n"
@@ -12715,7 +12715,7 @@ TEST(clsp_stl_vector_emplace_back) {
 }
 
 TEST(clsp_stl_vector_reserve) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
@@ -12734,7 +12734,7 @@ TEST(clsp_stl_vector_reserve) {
 }
 
 TEST(clsp_stl_vector_clear) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
@@ -12753,7 +12753,7 @@ TEST(clsp_stl_vector_clear) {
 }
 
 TEST(clsp_stl_map_insert) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class map {\n"
                                    "public:\n"
@@ -12772,7 +12772,7 @@ TEST(clsp_stl_map_insert) {
 }
 
 TEST(clsp_stl_map_find) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class map {\n"
                                    "public:\n"
@@ -12791,7 +12791,7 @@ TEST(clsp_stl_map_find) {
 }
 
 TEST(clsp_stl_map_erase) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class map {\n"
                                    "public:\n"
@@ -12810,7 +12810,7 @@ TEST(clsp_stl_map_erase) {
 }
 
 TEST(clsp_stl_map_count) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class map {\n"
                                    "public:\n"
@@ -12829,7 +12829,7 @@ TEST(clsp_stl_map_count) {
 }
 
 TEST(clsp_stl_unordered_map_insert) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class unordered_map {\n"
                                    "public:\n"
@@ -12848,7 +12848,7 @@ TEST(clsp_stl_unordered_map_insert) {
 }
 
 TEST(clsp_stl_unordered_map_find) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename K, typename V> class unordered_map {\n"
                                    "public:\n"
@@ -12867,7 +12867,7 @@ TEST(clsp_stl_unordered_map_find) {
 }
 
 TEST(clsp_stl_set_insert) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class set {\n"
                                    "public:\n"
@@ -12886,7 +12886,7 @@ TEST(clsp_stl_set_insert) {
 }
 
 TEST(clsp_stl_set_find) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class set {\n"
                                    "public:\n"
@@ -12905,7 +12905,7 @@ TEST(clsp_stl_set_find) {
 }
 
 TEST(clsp_stl_set_count) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class set {\n"
                                    "public:\n"
@@ -12924,7 +12924,7 @@ TEST(clsp_stl_set_count) {
 }
 
 TEST(clsp_stl_list_push_front) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class list {\n"
                                    "public:\n"
@@ -12944,7 +12944,7 @@ TEST(clsp_stl_list_push_front) {
 }
 
 TEST(clsp_stl_list_pop_front) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class list {\n"
                                    "public:\n"
@@ -12963,7 +12963,7 @@ TEST(clsp_stl_list_pop_front) {
 }
 
 TEST(clsp_stl_list_sort) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class list {\n"
                                    "public:\n"
@@ -12982,7 +12982,7 @@ TEST(clsp_stl_list_sort) {
 }
 
 TEST(clsp_stl_array_at) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T, int N> class array {\n"
                                    "public:\n"
@@ -13001,7 +13001,7 @@ TEST(clsp_stl_array_at) {
 }
 
 TEST(clsp_stl_array_fill) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T, int N> class array {\n"
                                    "public:\n"
@@ -13020,7 +13020,7 @@ TEST(clsp_stl_array_fill) {
 }
 
 TEST(clsp_stl_string_append) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "class string {\n"
                                    "public:\n"
@@ -13039,7 +13039,7 @@ TEST(clsp_stl_string_append) {
 }
 
 TEST(clsp_stl_string_substr) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "class string {\n"
                                    "public:\n"
@@ -13058,7 +13058,7 @@ TEST(clsp_stl_string_substr) {
 }
 
 TEST(clsp_stl_sort) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "void sort(Iter first, Iter last) {}\n"
@@ -13075,7 +13075,7 @@ TEST(clsp_stl_sort) {
 }
 
 TEST(clsp_stl_find) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename Iter, typename T>\n"
@@ -13093,7 +13093,7 @@ TEST(clsp_stl_find) {
 }
 
 TEST(clsp_stl_for_each) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter, typename Func>\n"
                                    "void for_each(Iter first, Iter last, Func fn) {}\n"
@@ -13111,7 +13111,7 @@ TEST(clsp_stl_for_each) {
 }
 
 TEST(clsp_stl_transform) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename InIter, typename OutIter, typename Func>\n"
@@ -13131,7 +13131,7 @@ TEST(clsp_stl_transform) {
 }
 
 TEST(clsp_stl_copy) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename InIter, typename OutIter>\n"
                                    "void copy(InIter first, InIter last, OutIter out) {}\n"
@@ -13149,7 +13149,7 @@ TEST(clsp_stl_copy) {
 }
 
 TEST(clsp_stl_accumulate) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter, typename T>\n"
                                    "T accumulate(Iter first, Iter last, T init) { return init; }\n"
@@ -13166,7 +13166,7 @@ TEST(clsp_stl_accumulate) {
 }
 
 TEST(clsp_stl_count) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter, typename T>\n"
                                    "int count(Iter first, Iter last, const T& val) { return 0; }\n"
@@ -13183,7 +13183,7 @@ TEST(clsp_stl_count) {
 }
 
 TEST(clsp_stl_remove) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename Iter, typename T>\n"
@@ -13201,7 +13201,7 @@ TEST(clsp_stl_remove) {
 }
 
 TEST(clsp_stl_unique) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "Iter unique(Iter first, Iter last) { return first; }\n"
@@ -13218,7 +13218,7 @@ TEST(clsp_stl_unique) {
 }
 
 TEST(clsp_stl_reverse) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "void reverse(Iter first, Iter last) {}\n"
@@ -13235,7 +13235,7 @@ TEST(clsp_stl_reverse) {
 }
 
 TEST(clsp_stl_min_element) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "Iter min_element(Iter first, Iter last) { return first; }\n"
@@ -13252,7 +13252,7 @@ TEST(clsp_stl_min_element) {
 }
 
 TEST(clsp_stl_max_element) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "Iter max_element(Iter first, Iter last) { return first; }\n"
@@ -13269,7 +13269,7 @@ TEST(clsp_stl_max_element) {
 }
 
 TEST(clsp_stl_binary_search) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename Iter, typename T>\n"
@@ -13287,7 +13287,7 @@ TEST(clsp_stl_binary_search) {
 }
 
 TEST(clsp_stl_lower_bound) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename Iter, typename T>\n"
@@ -13305,7 +13305,7 @@ TEST(clsp_stl_lower_bound) {
 }
 
 TEST(clsp_stl_partition) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename Iter, typename Pred>\n"
@@ -13324,7 +13324,7 @@ TEST(clsp_stl_partition) {
 }
 
 TEST(clsp_stl_begin) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename C>\n"
                                    "auto begin(C& c) -> decltype(c.begin()) { return c.begin(); }\n"
@@ -13345,7 +13345,7 @@ TEST(clsp_stl_begin) {
 }
 
 TEST(clsp_stl_end) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename C>\n"
                                    "auto end(C& c) -> decltype(c.end()) { return c.end(); }\n"
@@ -13366,7 +13366,7 @@ TEST(clsp_stl_end) {
 }
 
 TEST(clsp_stl_next) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "Iter next(Iter it, int n) { return it; }\n"
@@ -13383,7 +13383,7 @@ TEST(clsp_stl_next) {
 }
 
 TEST(clsp_stl_prev) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "Iter prev(Iter it, int n) { return it; }\n"
@@ -13400,7 +13400,7 @@ TEST(clsp_stl_prev) {
 }
 
 TEST(clsp_stl_advance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "void advance(Iter& it, int n) {}\n"
@@ -13417,7 +13417,7 @@ TEST(clsp_stl_advance) {
 }
 
 TEST(clsp_stl_distance) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Iter>\n"
                                    "int distance(Iter first, Iter last) { return 0; }\n"
@@ -13435,7 +13435,7 @@ TEST(clsp_stl_distance) {
 }
 
 TEST(clsp_stl_back_inserter) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "template<typename C> class back_insert_iterator {};\n"
@@ -13455,7 +13455,7 @@ TEST(clsp_stl_back_inserter) {
 }
 
 TEST(clsp_stl_front_inserter) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "template<typename C> class front_insert_iterator {};\n"
@@ -13475,7 +13475,7 @@ TEST(clsp_stl_front_inserter) {
 }
 
 TEST(clsp_stl_move_iterator) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "template<typename Iter> class move_iterator {};\n"
@@ -13494,7 +13494,7 @@ TEST(clsp_stl_move_iterator) {
 }
 
 TEST(clsp_stl_reverse_iterator) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class vector {\n"
                                    "public:\n"
@@ -13516,7 +13516,7 @@ TEST(clsp_stl_reverse_iterator) {
 }
 
 TEST(clsp_stl_make_pair) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename A, typename B> struct pair { A first; B second; };\n"
@@ -13534,7 +13534,7 @@ TEST(clsp_stl_make_pair) {
 }
 
 TEST(clsp_stl_make_tuple) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename... Args> struct tuple {};\n"
@@ -13552,7 +13552,7 @@ TEST(clsp_stl_make_tuple) {
 }
 
 TEST(clsp_stl_tie) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename... Args> struct tuple {};\n"
@@ -13571,7 +13571,7 @@ TEST(clsp_stl_tie) {
 }
 
 TEST(clsp_stl_get) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename A, typename B> struct pair { A first; B second; };\n"
@@ -13590,7 +13590,7 @@ TEST(clsp_stl_get) {
 }
 
 TEST(clsp_stl_swap) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T>\n"
                                    "void swap(T& a, T& b) { T tmp = a; a = b; b = tmp; }\n"
@@ -13607,7 +13607,7 @@ TEST(clsp_stl_swap) {
 }
 
 TEST(clsp_stl_function_call) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename Sig> class function;\n"
                                    "template<typename R, typename... Args>\n"
@@ -13628,7 +13628,7 @@ TEST(clsp_stl_function_call) {
 }
 
 TEST(clsp_stl_bind) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename F, typename... Args>\n"
                                    "void bind(F fn, Args... args) {}\n"
@@ -13645,7 +13645,7 @@ TEST(clsp_stl_bind) {
 }
 
 TEST(clsp_stl_ref) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class reference_wrapper {\n"
@@ -13667,7 +13667,7 @@ TEST(clsp_stl_ref) {
 }
 
 TEST(clsp_stl_cref) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "template<typename T> class reference_wrapper {};\n"
@@ -13686,7 +13686,7 @@ TEST(clsp_stl_cref) {
 }
 
 TEST(clsp_stl_invoke) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename F, typename... Args>\n"
                                    "void invoke(F fn, Args... args) {}\n"
@@ -13703,7 +13703,7 @@ TEST(clsp_stl_invoke) {
 }
 
 TEST(clsp_stl_make_optional) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> class optional {\n"
                                    "public:\n"
@@ -13723,7 +13723,7 @@ TEST(clsp_stl_make_optional) {
 }
 
 TEST(clsp_stl_make_unique) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class unique_ptr {\n"
@@ -13747,7 +13747,7 @@ TEST(clsp_stl_make_unique) {
 }
 
 TEST(clsp_stl_make_shared) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "namespace std {\n"
                     "template<typename T> class shared_ptr {\n"
@@ -13771,7 +13771,7 @@ TEST(clsp_stl_make_shared) {
 }
 
 TEST(clsp_stl_forward) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& forward(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -13791,7 +13791,7 @@ TEST(clsp_stl_forward) {
 }
 
 TEST(clsp_stl_move) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& move(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -13809,7 +13809,7 @@ TEST(clsp_stl_move) {
 }
 
 TEST(clsp_c_func_ptr_array) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void action_a(void) {}\n"
                                  "void action_b(void) {}\n"
                                  "\n"
@@ -13829,7 +13829,7 @@ TEST(clsp_c_func_ptr_array) {
 }
 
 TEST(clsp_c_func_ptr_struct_array) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void do_open(void) {}\n"
                                  "void do_close(void) {}\n"
                                  "\n"
@@ -13852,7 +13852,7 @@ TEST(clsp_c_func_ptr_struct_array) {
 }
 
 TEST(clsp_c_vtable_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void impl_start(void) {}\n"
                                  "void impl_stop(void) {}\n"
                                  "\n"
@@ -13875,7 +13875,7 @@ TEST(clsp_c_vtable_struct) {
 }
 
 TEST(clsp_c_func_ptr_return) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void target_func(void) {}\n"
                                  "\n"
                                  "typedef void (*fn_t)(void);\n"
@@ -13896,7 +13896,7 @@ TEST(clsp_c_func_ptr_return) {
 }
 
 TEST(clsp_c_func_ptr_param) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void worker(void) {}\n"
                                  "\n"
                                  "void dispatch(void (*fn)(void)) {\n"
@@ -13914,7 +13914,7 @@ TEST(clsp_c_func_ptr_param) {
 }
 
 TEST(clsp_c_dispatch_table) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void handle_event_a(void) {}\n"
                                  "void handle_event_b(void) {}\n"
                                  "\n"
@@ -13934,7 +13934,7 @@ TEST(clsp_c_dispatch_table) {
 }
 
 TEST(clsp_c_func_ptr_cast) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int real_func(int x) { return x; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -13950,7 +13950,7 @@ TEST(clsp_c_func_ptr_cast) {
 }
 
 TEST(clsp_c_callback_registration) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef void (*callback_t)(int);\n"
                                  "\n"
                                  "void on_data(int val) {}\n"
@@ -13968,7 +13968,7 @@ TEST(clsp_c_callback_registration) {
 }
 
 TEST(clsp_c_func_ptr_typedef_usage) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef int (*compare_fn)(const void*, const void*);\n"
                                  "\n"
                                  "int my_compare(const void* a, const void* b) { return 0; }\n"
@@ -13986,7 +13986,7 @@ TEST(clsp_c_func_ptr_typedef_usage) {
 }
 
 TEST(clsp_c_qsort) {
-    CBMFileResult *r = extract_c(
+    CtxFileResult *r = extract_c(
         "\n"
         "int cmp_int(const void* a, const void* b) { return 0; }\n"
         "\n"
@@ -14004,7 +14004,7 @@ TEST(clsp_c_qsort) {
 }
 
 TEST(clsp_c_opaque_handle) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Impl;\n"
                                  "typedef struct Impl* Handle;\n"
                                  "\n"
@@ -14022,7 +14022,7 @@ TEST(clsp_c_opaque_handle) {
 }
 
 TEST(clsp_c_opaque_void_ptr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Data { int value; };\n"
                                  "\n"
                                  "void process(void* ctx) {\n"
@@ -14041,7 +14041,7 @@ TEST(clsp_c_opaque_void_ptr) {
 }
 
 TEST(clsp_c_opaque_forward_decl) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Opaque;\n"
                                  "\n"
                                  "struct Opaque* create_opaque(void);\n"
@@ -14060,7 +14060,7 @@ TEST(clsp_c_opaque_forward_decl) {
 }
 
 TEST(clsp_c_opaque_pimpl) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Widget;\n"
                                  "\n"
                                  "struct Widget* widget_create(void);\n"
@@ -14082,7 +14082,7 @@ TEST(clsp_c_opaque_pimpl) {
 }
 
 TEST(clsp_c_opaque_typedef_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef struct {\n"
                                  "    int x;\n"
                                  "    int y;\n"
@@ -14102,7 +14102,7 @@ TEST(clsp_c_opaque_typedef_struct) {
 }
 
 TEST(clsp_c_opaque_enum_flags) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef enum {\n"
                                  "    FLAG_A = 1,\n"
                                  "    FLAG_B = 2,\n"
@@ -14122,7 +14122,7 @@ TEST(clsp_c_opaque_enum_flags) {
 }
 
 TEST(clsp_c_flex_array_member) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Message {\n"
                                  "    int length;\n"
                                  "    char data[];\n"
@@ -14142,7 +14142,7 @@ TEST(clsp_c_flex_array_member) {
 }
 
 TEST(clsp_c_flex_array_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Buffer {\n"
                                  "    int size;\n"
                                  "    unsigned char data[];\n"
@@ -14162,7 +14162,7 @@ TEST(clsp_c_flex_array_access) {
 }
 
 TEST(clsp_c_flex_array_nested) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Header { int type; };\n"
                                  "struct Packet {\n"
                                  "    struct Header hdr;\n"
@@ -14184,7 +14184,7 @@ TEST(clsp_c_flex_array_nested) {
 }
 
 TEST(clsp_c_flex_array_malloc) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void* malloc(unsigned long size);\n"
                                  "\n"
                                  "struct DynArray {\n"
@@ -14204,7 +14204,7 @@ TEST(clsp_c_flex_array_malloc) {
 }
 
 TEST(clsp_c_compound_literal_arg) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "void draw_point(struct Point p) {}\n"
@@ -14220,7 +14220,7 @@ TEST(clsp_c_compound_literal_arg) {
 }
 
 TEST(clsp_c_compound_literal_assign) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "void use_point(struct Point* p) {}\n"
@@ -14237,7 +14237,7 @@ TEST(clsp_c_compound_literal_assign) {
 }
 
 TEST(clsp_c_compound_literal_array) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void process_ints(int* arr, int count) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14251,7 +14251,7 @@ TEST(clsp_c_compound_literal_array) {
 }
 
 TEST(clsp_c_compound_literal_nested) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int val; };\n"
                                  "struct Outer { struct Inner inner; int extra; };\n"
                                  "\n"
@@ -14269,7 +14269,7 @@ TEST(clsp_c_compound_literal_nested) {
 }
 
 TEST(clsp_c_compound_literal_return) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Point { int x; int y; };\n"
                                  "\n"
                                  "struct Point make_point(int x, int y) {\n"
@@ -14287,7 +14287,7 @@ TEST(clsp_c_compound_literal_return) {
 }
 
 TEST(clsp_c_generic_basic) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int f_int(int x) { return x; }\n"
                                  "float f_float(float x) { return x; }\n"
                                  "\n"
@@ -14303,7 +14303,7 @@ TEST(clsp_c_generic_basic) {
 }
 
 TEST(clsp_c_generic_macro) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "const char* type_name_int(void) { return \"int\"; }\n"
                                  "const char* type_name_float(void) { return \"float\"; }\n"
                                  "\n"
@@ -14318,7 +14318,7 @@ TEST(clsp_c_generic_macro) {
 }
 
 TEST(clsp_c_generic_default) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void handle_default(void) {}\n"
                                  "void handle_int(int x) {}\n"
                                  "\n"
@@ -14334,7 +14334,7 @@ TEST(clsp_c_generic_default) {
 }
 
 TEST(clsp_c_generic_nested) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int inner_int(int x) { return x; }\n"
                                  "float inner_float(float x) { return x; }\n"
                                  "\n"
@@ -14351,7 +14351,7 @@ TEST(clsp_c_generic_nested) {
 }
 
 TEST(clsp_c_bitfield_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Flags {\n"
                                  "    unsigned int read : 1;\n"
                                  "    unsigned int write : 1;\n"
@@ -14372,7 +14372,7 @@ TEST(clsp_c_bitfield_access) {
 }
 
 TEST(clsp_c_union_access) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "union Value {\n"
                                  "    int i;\n"
                                  "    float f;\n"
@@ -14393,7 +14393,7 @@ TEST(clsp_c_union_access) {
 }
 
 TEST(clsp_c_enum_switch) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "enum Color { RED, GREEN, BLUE };\n"
                                  "\n"
                                  "void handle_red(void) {}\n"
@@ -14418,7 +14418,7 @@ TEST(clsp_c_enum_switch) {
 }
 
 TEST(clsp_c_goto_label) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void cleanup(void) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14435,7 +14435,7 @@ TEST(clsp_c_goto_label) {
 }
 
 TEST(clsp_c_var_args_func) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void log_msg(const char* fmt, ...) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14449,7 +14449,7 @@ TEST(clsp_c_var_args_func) {
 }
 
 TEST(clsp_c_inline_func) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "static inline int square(int x) { return x * x; }\n"
                                  "\n"
                                  "void test() {\n"
@@ -14463,7 +14463,7 @@ TEST(clsp_c_inline_func) {
 }
 
 TEST(clsp_c_static_func) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "static void helper(void) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14477,7 +14477,7 @@ TEST(clsp_c_static_func) {
 }
 
 TEST(clsp_c_extern_func) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "extern void external_func(int x);\n"
                                  "\n"
                                  "void test() {\n"
@@ -14491,7 +14491,7 @@ TEST(clsp_c_extern_func) {
 }
 
 TEST(clsp_c_nested_struct) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Inner { int value; };\n"
                                  "struct Outer {\n"
                                  "    struct Inner inner;\n"
@@ -14512,7 +14512,7 @@ TEST(clsp_c_nested_struct) {
 }
 
 TEST(clsp_c_typedef_chain) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef int Int32;\n"
                                  "typedef Int32 MyInt;\n"
                                  "\n"
@@ -14530,7 +14530,7 @@ TEST(clsp_c_typedef_chain) {
 }
 
 TEST(clsp_c_macro_expansion) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void real_alloc(int size) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14544,7 +14544,7 @@ TEST(clsp_c_macro_expansion) {
 }
 
 TEST(clsp_c_designated_init) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_c("\n"
                   "struct Config {\n"
                   "    int width;\n"
@@ -14566,7 +14566,7 @@ TEST(clsp_c_designated_init) {
 }
 
 TEST(clsp_c_compound_assign) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void accumulate(int* val, int delta) {}\n"
                                  "\n"
                                  "void test() {\n"
@@ -14581,7 +14581,7 @@ TEST(clsp_c_compound_assign) {
 }
 
 TEST(clsp_c_comma_expr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int first_op(void) { return 0; }\n"
                                  "int second_op(void) { return 1; }\n"
                                  "\n"
@@ -14597,7 +14597,7 @@ TEST(clsp_c_comma_expr) {
 }
 
 TEST(clsp_c_ternary_call_branches) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "void path_a(void) {}\n"
                                  "void path_b(void) {}\n"
                                  "\n"
@@ -14614,7 +14614,7 @@ TEST(clsp_c_ternary_call_branches) {
 }
 
 TEST(clsp_c_sizeof_expr) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "struct Data { int x; int y; int z; };\n"
                                  "\n"
                                  "void alloc(int size) {}\n"
@@ -14630,7 +14630,7 @@ TEST(clsp_c_sizeof_expr) {
 }
 
 TEST(clsp_easy_win_placement_new) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Widget {\n"
                     "public:\n"
@@ -14653,7 +14653,7 @@ TEST(clsp_easy_win_placement_new) {
 }
 
 TEST(clsp_easy_win_placement_new_array) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_cpp("\n"
                     "class Widget { public: void draw() {} };\n"
                     "\n"
@@ -14670,7 +14670,7 @@ TEST(clsp_easy_win_placement_new_array) {
 }
 
 TEST(clsp_easy_win_throw_constructor) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class MyError {\n"
                                    "public:\n"
                                    "    MyError(const char* msg) {}\n"
@@ -14687,7 +14687,7 @@ TEST(clsp_easy_win_throw_constructor) {
 }
 
 TEST(clsp_easy_win_throw_rethrow) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Error {};\n"
                                    "\n"
                                    "void test() {\n"
@@ -14704,7 +14704,7 @@ TEST(clsp_easy_win_throw_rethrow) {
 }
 
 TEST(clsp_easy_win_std_move_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& move(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -14726,7 +14726,7 @@ TEST(clsp_easy_win_std_move_method) {
 }
 
 TEST(clsp_easy_win_std_forward_method) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& forward(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -14753,7 +14753,7 @@ TEST(clsp_easy_win_std_forward_method) {
 }
 
 TEST(clsp_easy_win_move_assign_chain) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& move(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -14776,7 +14776,7 @@ TEST(clsp_easy_win_move_assign_chain) {
 }
 
 TEST(clsp_easy_win_conversion_operator_explicit) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Wrapper {\n"
                                    "public:\n"
                                    "    explicit operator bool() { return true; }\n"
@@ -14794,7 +14794,7 @@ TEST(clsp_easy_win_conversion_operator_explicit) {
 }
 
 TEST(clsp_easy_win_conversion_operator_implicit) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget { public: void draw() {} };\n"
                                    "\n"
                                    "class WidgetWrapper {\n"
@@ -14815,7 +14815,7 @@ TEST(clsp_easy_win_conversion_operator_implicit) {
 }
 
 TEST(clsp_easy_win_adlfrom_arg_namespace) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace gfx {\n"
                                    "    class Widget { public: int data; };\n"
                                    "    void serialize(Widget& w) {}\n"
@@ -14833,7 +14833,7 @@ TEST(clsp_easy_win_adlfrom_arg_namespace) {
 }
 
 TEST(clsp_easy_win_adlswap) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace custom {\n"
                                    "    class Type { public: int val; };\n"
                                    "    void swap(Type& a, Type& b) {}\n"
@@ -14851,7 +14851,7 @@ TEST(clsp_easy_win_adlswap) {
 }
 
 TEST(clsp_easy_win_overload_lvalue_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "class Widget {};\n"
                                    "\n"
                                    "void process(Widget& w) {}\n"
@@ -14869,7 +14869,7 @@ TEST(clsp_easy_win_overload_lvalue_ref) {
 }
 
 TEST(clsp_easy_win_overload_rvalue_ref) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "template<typename T> T&& move(T& arg) { return (T&&)arg; }\n"
                                    "}\n"
@@ -14891,7 +14891,7 @@ TEST(clsp_easy_win_overload_rvalue_ref) {
 }
 
 TEST(clsp_easy_win_sfinaeenable_if) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T = void> struct enable_if {};\n"
@@ -14914,7 +14914,7 @@ TEST(clsp_easy_win_sfinaeenable_if) {
 }
 
 TEST(clsp_easy_win_sfinaevoid_t) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "namespace std {\n"
                                    "    template<typename...> using void_t = void;\n"
                                    "}\n"
@@ -14936,7 +14936,7 @@ TEST(clsp_easy_win_sfinaevoid_t) {
  * Windows Defender false positive. See issue #89. */
 
 TEST(clsp_dll_custom_resolver) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef int (*ProcessFunc)(const char*);\n"
                                  "void* Resolve(const char* name);\n"
                                  "\n"
@@ -14952,7 +14952,7 @@ TEST(clsp_dll_custom_resolver) {
 }
 
 TEST(clsp_dll_cpp_static_cast) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "typedef void (*RenderFunc)(void);\n"
         "void* LoadSymbol(const char* name);\n"
@@ -14969,7 +14969,7 @@ TEST(clsp_dll_cpp_static_cast) {
 }
 
 TEST(clsp_dll_reinterpret_cast) {
-    CBMFileResult *r = extract_cpp("\n"
+    CtxFileResult *r = extract_cpp("\n"
                                    "typedef void (*ShutdownFunc)(void);\n"
                                    "void* GetSymbol(void* lib, const char* sym);\n"
                                    "\n"
@@ -14987,7 +14987,7 @@ TEST(clsp_dll_reinterpret_cast) {
 }
 
 TEST(clsp_dll_no_false_positive_nonfp) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "char* lookup(const char* key);\n"
                                  "\n"
                                  "void test() {\n"
@@ -15001,7 +15001,7 @@ TEST(clsp_dll_no_false_positive_nonfp) {
 }
 
 TEST(clsp_dll_no_false_positive_no_cast) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "int find(const char* name);\n"
                                  "\n"
                                  "void test() {\n"
@@ -15015,7 +15015,7 @@ TEST(clsp_dll_no_false_positive_no_cast) {
 }
 
 TEST(clsp_dll_multiple_functions) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef void (*FuncA)(void);\n"
                                  "typedef int (*FuncB)(int);\n"
                                  "void* Resolve(const char* name);\n"
@@ -15035,7 +15035,7 @@ TEST(clsp_dll_multiple_functions) {
 }
 
 TEST(clsp_dll_func_ptr_typedef) {
-    CBMFileResult *r = extract_c("\n"
+    CtxFileResult *r = extract_c("\n"
                                  "typedef void (*callback_t)(int, int);\n"
                                  "callback_t get_callback(const char* name);\n"
                                  "\n"
@@ -15050,7 +15050,7 @@ TEST(clsp_dll_func_ptr_typedef) {
 }
 
 TEST(clsp_easy_win_sfinaeconditional_return) {
-    CBMFileResult *r = extract_cpp(
+    CtxFileResult *r = extract_cpp(
         "\n"
         "namespace std {\n"
         "    template<bool B, class T, class F> struct conditional { typedef T type; };\n"

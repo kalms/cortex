@@ -1,14 +1,14 @@
 /*
  * language.c — Language detection from filename and extension.
  *
- * Maps file extensions and special filenames to CBMLanguage enum values.
+ * Maps file extensions and special filenames to CtxLanguage enum values.
  * Handles .m disambiguation (Objective-C vs Magma vs MATLAB).
  * Consults the process-global user config (set via ctx_set_user_lang_config)
  * before the built-in lookup table.
  */
 #include "discover/discover.h"
 #include "discover/userconfig.h"
-#include "cbm.h" // CBMLanguage, CTX_LANG_*
+#include "cbm.h" // CtxLanguage, CTX_LANG_*
 
 #include "foundation/constants.h"
 
@@ -22,7 +22,7 @@ enum { LANG_SCAN_PASSES = 2 };
 
 typedef struct {
     const char *ext; /* including dot, e.g. ".go" */
-    CBMLanguage language;
+    CtxLanguage language;
 } ext_entry_t;
 
 /* Sorted by extension for binary search (but linear scan is fine for ~120 entries) */
@@ -272,7 +272,7 @@ static const ext_entry_t EXT_TABLE[] = {
 
 typedef struct {
     const char *filename;
-    CBMLanguage language;
+    CtxLanguage language;
 } filename_entry_t;
 
 static const filename_entry_t FILENAME_TABLE[] = {
@@ -369,7 +369,7 @@ static const char *LANG_NAMES[CTX_LANG_COUNT] = {
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-CBMLanguage ctx_language_for_extension(const char *ext) {
+CtxLanguage ctx_language_for_extension(const char *ext) {
     if (!ext || !ext[0]) {
         return CTX_LANG_COUNT;
     }
@@ -377,7 +377,7 @@ CBMLanguage ctx_language_for_extension(const char *ext) {
     /* Check user-defined overrides first */
     const ctx_userconfig_t *ucfg = ctx_get_user_lang_config();
     if (ucfg) {
-        CBMLanguage ulang = ctx_userconfig_lookup(ucfg, ext);
+        CtxLanguage ulang = ctx_userconfig_lookup(ucfg, ext);
         if (ulang != CTX_LANG_COUNT) {
             return ulang;
         }
@@ -391,7 +391,7 @@ CBMLanguage ctx_language_for_extension(const char *ext) {
     return CTX_LANG_COUNT;
 }
 
-CBMLanguage ctx_language_for_filename(const char *filename) {
+CtxLanguage ctx_language_for_filename(const char *filename) {
     if (!filename || !filename[0]) {
         return CTX_LANG_COUNT;
     }
@@ -417,7 +417,7 @@ CBMLanguage ctx_language_for_filename(const char *filename) {
     if (ucfg) {
         const char *p = strchr(filename, '.');
         while (p && p < last_dot) {
-            CBMLanguage lang = ctx_userconfig_lookup(ucfg, p);
+            CtxLanguage lang = ctx_userconfig_lookup(ucfg, p);
             if (lang != CTX_LANG_COUNT) {
                 return lang;
             }
@@ -429,7 +429,7 @@ CBMLanguage ctx_language_for_filename(const char *filename) {
     return ctx_language_for_extension(last_dot);
 }
 
-const char *ctx_language_name(CBMLanguage lang) {
+const char *ctx_language_name(CtxLanguage lang) {
     if (lang < 0 || lang >= CTX_LANG_COUNT) {
         return "Unknown";
     }
@@ -500,7 +500,7 @@ static bool has_matlab_line_markers(const char *buf) {
     return false;
 }
 
-CBMLanguage ctx_disambiguate_m(const char *path) {
+CtxLanguage ctx_disambiguate_m(const char *path) {
     if (!path) {
         return CTX_LANG_MATLAB;
     }

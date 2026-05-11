@@ -15,7 +15,7 @@ typedef struct {
     int start_line;
     int end_line;
     const char *properties; // JSON string
-} CBMDumpNode;
+} CtxDumpNode;
 
 typedef struct {
     int64_t id; // sequential ID (1..M), assigned by Go
@@ -25,14 +25,14 @@ typedef struct {
     const char *type;
     const char *properties; // JSON string
     const char *url_path;   // extracted from properties by Go (for idx_edges_url_path)
-} CBMDumpEdge;
+} CtxDumpEdge;
 
 typedef struct {
     int64_t node_id; // final sequential ID (matches nodes.id)
     const char *project;
     const uint8_t *vector; // int8-quantized vector blob
     int vector_len;        // length in bytes (e.g. 256 for d=256)
-} CBMDumpVector;
+} CtxDumpVector;
 
 typedef struct {
     int64_t id; // sequential ID (1..T)
@@ -41,7 +41,7 @@ typedef struct {
     const uint8_t *vector; // int8-quantized enriched RI vector blob
     int vector_len;        // length in bytes (e.g. 256 for d=256)
     float idf;             // inverse document frequency weight
-} CBMDumpTokenVec;
+} CtxDumpTokenVec;
 
 // --- Public API ---
 
@@ -50,8 +50,8 @@ typedef struct {
 // Returns 0 on success, non-zero on error.
 // vectors/vector_count and token_vecs/token_vec_count may be NULL/0.
 int ctx_write_db(const char *path, const char *project, const char *root_path,
-                 const char *indexed_at, CBMDumpNode *nodes, int node_count, CBMDumpEdge *edges,
-                 int edge_count, CBMDumpVector *vectors, int vector_count,
-                 CBMDumpTokenVec *token_vecs, int token_vec_count);
+                 const char *indexed_at, CtxDumpNode *nodes, int node_count, CtxDumpEdge *edges,
+                 int edge_count, CtxDumpVector *vectors, int vector_count,
+                 CtxDumpTokenVec *token_vecs, int token_vec_count);
 
 #endif // CTX_SQLITE_WRITER_H

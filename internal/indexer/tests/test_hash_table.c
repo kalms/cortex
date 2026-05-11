@@ -5,7 +5,7 @@
 #include "../src/foundation/hash_table.h"
 
 TEST(ht_create_free) {
-    CBMHashTable *ht = ctx_ht_create(16);
+    CtxHashTable *ht = ctx_ht_create(16);
     ASSERT_NOT_NULL(ht);
     ASSERT_EQ(ctx_ht_count(ht), 0);
     ctx_ht_free(ht);
@@ -13,7 +13,7 @@ TEST(ht_create_free) {
 }
 
 TEST(ht_set_get) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int val = 42;
     void *prev = ctx_ht_set(ht, "hello", &val);
     ASSERT_NULL(prev); /* first insert */
@@ -26,7 +26,7 @@ TEST(ht_set_get) {
 }
 
 TEST(ht_set_overwrite) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v1 = 1, v2 = 2;
     ctx_ht_set(ht, "key", &v1);
     void *prev = ctx_ht_set(ht, "key", &v2);
@@ -38,14 +38,14 @@ TEST(ht_set_overwrite) {
 }
 
 TEST(ht_get_missing) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     ASSERT_NULL(ctx_ht_get(ht, "nope"));
     ctx_ht_free(ht);
     PASS();
 }
 
 TEST(ht_has) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v = 1;
     ctx_ht_set(ht, "exists", &v);
     ASSERT_TRUE(ctx_ht_has(ht, "exists"));
@@ -55,7 +55,7 @@ TEST(ht_has) {
 }
 
 TEST(ht_delete) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v = 99;
     ctx_ht_set(ht, "delete_me", &v);
     ASSERT_EQ(ctx_ht_count(ht), 1);
@@ -69,7 +69,7 @@ TEST(ht_delete) {
 }
 
 TEST(ht_delete_missing) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     void *removed = ctx_ht_delete(ht, "nope");
     ASSERT_NULL(removed);
     ctx_ht_free(ht);
@@ -77,7 +77,7 @@ TEST(ht_delete_missing) {
 }
 
 TEST(ht_many_entries) {
-    CBMHashTable *ht = ctx_ht_create(4); /* tiny initial, force resize */
+    CtxHashTable *ht = ctx_ht_create(4); /* tiny initial, force resize */
     char keys[200][32];
     int vals[200];
     for (int i = 0; i < 200; i++) {
@@ -97,7 +97,7 @@ TEST(ht_many_entries) {
 }
 
 TEST(ht_delete_then_reinsert) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v1 = 1, v2 = 2;
     ctx_ht_set(ht, "key", &v1);
     ctx_ht_delete(ht, "key");
@@ -116,7 +116,7 @@ static void sum_values(const char *key, void *value, void *userdata) {
 }
 
 TEST(ht_foreach) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int vals[] = {10, 20, 30};
     ctx_ht_set(ht, "a", &vals[0]);
     ctx_ht_set(ht, "b", &vals[1]);
@@ -130,7 +130,7 @@ TEST(ht_foreach) {
 }
 
 TEST(ht_clear) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v = 1;
     ctx_ht_set(ht, "a", &v);
     ctx_ht_set(ht, "b", &v);
@@ -142,7 +142,7 @@ TEST(ht_clear) {
 }
 
 TEST(ht_empty_string_key) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v = 42;
     ctx_ht_set(ht, "", &v);
     ASSERT_EQ(*(int *)ctx_ht_get(ht, ""), 42);
@@ -151,7 +151,7 @@ TEST(ht_empty_string_key) {
 }
 
 TEST(ht_long_key) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     /* 200-char key */
     char long_key[201];
     memset(long_key, 'x', 200);
@@ -165,7 +165,7 @@ TEST(ht_long_key) {
 
 TEST(ht_power_of_two_capacity) {
     /* Capacity 7 should be rounded up to 8 */
-    CBMHashTable *ht = ctx_ht_create(7);
+    CtxHashTable *ht = ctx_ht_create(7);
     ASSERT_NOT_NULL(ht);
     /* capacity should be >= 8 and power of 2 */
     ASSERT_GTE(ht->capacity, 8);
@@ -177,7 +177,7 @@ TEST(ht_power_of_two_capacity) {
 /* ── Edge case tests ───────────────────────────────────────────── */
 
 TEST(ht_get_key_returns_stored_pointer) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     /* Use a heap key so we can verify the stored pointer differs from lookup */
     char stored_key[] = "mykey";
     int v = 1;
@@ -194,7 +194,7 @@ TEST(ht_get_key_returns_stored_pointer) {
 }
 
 TEST(ht_get_key_missing) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     const char *got = ctx_ht_get_key(ht, "nonexistent");
     ASSERT_NULL(got);
     ctx_ht_free(ht);
@@ -208,7 +208,7 @@ TEST(ht_get_key_null_ht) {
 }
 
 TEST(ht_get_key_null_key) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     const char *got = ctx_ht_get_key(ht, NULL);
     ASSERT_NULL(got);
     ctx_ht_free(ht);
@@ -239,7 +239,7 @@ TEST(ht_foreach_null_ht) {
 }
 
 TEST(ht_foreach_null_fn) {
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     int v = 1;
     ctx_ht_set(ht, "a", &v);
     /* Should not crash with NULL function pointer */
@@ -250,7 +250,7 @@ TEST(ht_foreach_null_fn) {
 
 TEST(ht_delete_readd_stress) {
     /* Stress backward-shift deletion: add 100, delete all, re-add all */
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     char keys[100][16];
     int vals[100];
     for (int i = 0; i < 100; i++) {
@@ -281,7 +281,7 @@ TEST(ht_delete_readd_stress) {
 
 TEST(ht_interleaved_insert_delete) {
     /* Insert 100, delete odd-indexed, verify even-indexed survive */
-    CBMHashTable *ht = ctx_ht_create(8);
+    CtxHashTable *ht = ctx_ht_create(8);
     char keys[100][16];
     int vals[100];
     for (int i = 0; i < 100; i++) {
@@ -313,7 +313,7 @@ TEST(ht_interleaved_insert_delete) {
 
 TEST(ht_create_capacity_zero) {
     /* Capacity 0 should be rounded up to minimum (8) */
-    CBMHashTable *ht = ctx_ht_create(0);
+    CtxHashTable *ht = ctx_ht_create(0);
     ASSERT_NOT_NULL(ht);
     ASSERT_GTE(ht->capacity, 8);
     ASSERT_EQ(ht->capacity & (ht->capacity - 1), 0);
@@ -327,7 +327,7 @@ TEST(ht_create_capacity_zero) {
 
 TEST(ht_create_capacity_one) {
     /* Capacity 1 should be rounded up to minimum (8) */
-    CBMHashTable *ht = ctx_ht_create(1);
+    CtxHashTable *ht = ctx_ht_create(1);
     ASSERT_NOT_NULL(ht);
     ASSERT_GTE(ht->capacity, 8);
     int v = 99;
@@ -338,7 +338,7 @@ TEST(ht_create_capacity_one) {
 }
 
 TEST(ht_stress_10000) {
-    CBMHashTable *ht = ctx_ht_create(16);
+    CtxHashTable *ht = ctx_ht_create(16);
     char keys[10000][24];
     int vals[10000];
     for (int i = 0; i < 10000; i++) {
@@ -362,7 +362,7 @@ TEST(ht_stress_10000) {
 TEST(ht_robin_hood_bounded_psl) {
     /* Max PSL should be bounded — Robin Hood keeps probes short.
      * With 10000 entries and power-of-2 sizing, max PSL should be < 32. */
-    CBMHashTable *ht = ctx_ht_create(16);
+    CtxHashTable *ht = ctx_ht_create(16);
     char key[24];
     int val = 0;
     for (int i = 0; i < 10000; i++) {

@@ -1,5 +1,5 @@
 #include "lang_specs.h"
-#include "cbm.h"             // CBMLanguage, CTX_LANG_*
+#include "cbm.h"             // CtxLanguage, CTX_LANG_*
 #include "tree_sitter/api.h" // TSLanguage
 
 // -- Extern declarations for tree-sitter grammar functions --
@@ -717,7 +717,7 @@ static const char *fsharp_env_funcs[] = {"Environment.GetEnvironmentVariable", N
 
 // ==================== SPEC TABLE ====================
 
-static const CBMLangSpec lang_specs[CTX_LANG_COUNT] = {
+static const CtxLangSpec lang_specs[CTX_LANG_COUNT] = {
     // CTX_LANG_GO
     {CTX_LANG_GO, go_func_types, go_class_types, go_field_types, go_module_types, go_call_types,
      go_import_types, go_import_types, go_branch_types, go_var_types, go_assign_types, empty_types,
@@ -1053,14 +1053,14 @@ static const CBMLangSpec lang_specs[CTX_LANG_COUNT] = {
      empty_types, NULL, NULL},
 };
 
-const CBMLangSpec *ctx_lang_spec(CBMLanguage lang) {
+const CtxLangSpec *ctx_lang_spec(CtxLanguage lang) {
     if (lang < 0 || lang >= CTX_LANG_COUNT) {
         return NULL;
     }
     return &lang_specs[lang];
 }
 
-const TSLanguage *ctx_ts_language(CBMLanguage lang) {
+const TSLanguage *ctx_ts_language(CtxLanguage lang) {
     switch (lang) {
     case CTX_LANG_GO:
         return tree_sitter_go();

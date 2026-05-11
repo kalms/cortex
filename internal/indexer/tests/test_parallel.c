@@ -129,7 +129,7 @@ static ctx_gbuf_t *run_parallel(const char *project, const char *repo_path, ctx_
     int64_t gbuf_next = ctx_gbuf_next_id(gbuf);
     atomic_init(&shared_ids, gbuf_next);
 
-    CBMFileResult **result_cache = calloc(file_count, sizeof(CBMFileResult *));
+    CtxFileResult **result_cache = calloc(file_count, sizeof(CtxFileResult *));
 
     ctx_init();
     ctx_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, worker_count);
@@ -306,7 +306,7 @@ TEST(parallel_empty_files) {
     _Atomic int64_t shared_ids;
     atomic_init(&shared_ids, 1);
 
-    CBMFileResult **cache = NULL;
+    CtxFileResult **cache = NULL;
     int rc = ctx_parallel_extract(&ctx, NULL, 0, cache, &shared_ids, 2);
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(ctx_gbuf_node_count(gbuf), 0);

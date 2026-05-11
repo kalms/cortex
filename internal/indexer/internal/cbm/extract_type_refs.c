@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, ctx_arena_sprintf/strndup
+#include "arena.h" // CtxArena, ctx_arena_sprintf/strndup
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -44,7 +44,7 @@ static bool is_builtin_type(const char *name) {
 }
 
 // Strip pointer/reference/slice/optional markers from a type name.
-static const char *clean_type_name(CBMArena *a, const char *name) {
+static const char *clean_type_name(CtxArena *a, const char *name) {
     if (!name || !name[0]) {
         return name;
     }
@@ -70,7 +70,7 @@ static const char *clean_type_name(CBMArena *a, const char *name) {
 }
 
 // Extract type name from a type annotation node.
-static const char *extract_type_text(CBMArena *a, TSNode node, const char *source) {
+static const char *extract_type_text(CtxArena *a, TSNode node, const char *source) {
     enum { MAX_UNWRAP = 8 };
     for (int depth = 0; depth < MAX_UNWRAP; depth++) {
         const char *kind = ts_node_type(node);
@@ -102,7 +102,7 @@ static const char *extract_type_text(CBMArena *a, TSNode node, const char *sourc
 }
 
 // Add a type reference for a function.
-static void add_type_ref(CBMExtractCtx *ctx, const char *type_name, const char *func_qn) {
+static void add_type_ref(CtxExtractCtx *ctx, const char *type_name, const char *func_qn) {
     if (!type_name || !type_name[0]) {
         return;
     }
@@ -114,14 +114,14 @@ static void add_type_ref(CBMExtractCtx *ctx, const char *type_name, const char *
         return;
     }
 
-    CBMTypeRef tr;
+    CtxTypeRef tr;
     tr.type_name = type_name;
     tr.enclosing_func_qn = func_qn;
     ctx_typerefs_push(&ctx->result->type_refs, ctx->arena, tr);
 }
 
 // Extract parameter types from a parameters/formal_parameters node.
-static void extract_param_type_refs(CBMExtractCtx *ctx, TSNode params, const char *func_qn) {
+static void extract_param_type_refs(CtxExtractCtx *ctx, TSNode params, const char *func_qn) {
     uint32_t count = ts_node_child_count(params);
     for (uint32_t i = 0; i < count; i++) {
         TSNode child = ts_node_child(params, i);
@@ -134,7 +134,7 @@ static void extract_param_type_refs(CBMExtractCtx *ctx, TSNode params, const cha
 }
 
 // Extract return type references.
-static void extract_return_type_refs(CBMExtractCtx *ctx, TSNode func_node, const char *func_qn) {
+static void extract_return_type_refs(CtxExtractCtx *ctx, TSNode func_node, const char *func_qn) {
     const char *fields[] = {"result", "return_type", "type", NULL};
     for (const char **f = fields; *f; f++) {
         TSNode rt = ts_node_child_by_field_name(func_node, *f, (uint32_t)strlen(*f));
@@ -147,7 +147,7 @@ static void extract_return_type_refs(CBMExtractCtx *ctx, TSNode func_node, const
 }
 
 // Extract type ref from a node whose "type" field contains the type.
-static void extract_type_field_ref(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void extract_type_field_ref(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     TSNode type_node = ts_node_child_by_field_name(node, TS_FIELD("type"));
     if (!ts_node_is_null(type_node)) {
         add_type_ref(ctx, extract_type_text(ctx->arena, type_node, ctx->source), func_qn);
@@ -155,7 +155,7 @@ static void extract_type_field_ref(CBMExtractCtx *ctx, TSNode node, const char *
 }
 
 // Extract type refs from TS/JS type_arguments or type_annotation children.
-static void extract_ts_body_type_refs(CBMExtractCtx *ctx, TSNode node, const char *kind,
+static void extract_ts_body_type_refs(CtxExtractCtx *ctx, TSNode node, const char *kind,
                                       const char *func_qn) {
     if (strcmp(kind, "as_expression") == 0 || strcmp(kind, "satisfies_expression") == 0) {
         extract_type_field_ref(ctx, node, func_qn);
@@ -183,7 +183,7 @@ static void extract_ts_body_type_refs(CBMExtractCtx *ctx, TSNode node, const cha
 }
 
 // Extract type refs from Java generic_type children.
-static void extract_java_body_type_refs(CBMExtractCtx *ctx, TSNode node, const char *kind,
+static void extract_java_body_type_refs(CtxExtractCtx *ctx, TSNode node, const char *kind,
                                         const char *func_qn) {
     if (strcmp(kind, "local_variable_declaration") == 0 || strcmp(kind, "cast_expression") == 0) {
         extract_type_field_ref(ctx, node, func_qn);
@@ -205,7 +205,7 @@ static void extract_java_body_type_refs(CBMExtractCtx *ctx, TSNode node, const c
 }
 
 // Process a single node for body-level type references.
-static void process_body_type_ref(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void process_body_type_ref(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     const char *kind = ts_node_type(node);
 
     switch (ctx->language) {
@@ -243,7 +243,7 @@ static void process_body_type_ref(CBMExtractCtx *ctx, TSNode node, const char *f
 
 // Walk function body for type references (casts, type assertions, local var types, generics).
 #define BODY_TYPE_REF_STACK_CAP 4096
-static void walk_body_type_refs(CBMExtractCtx *ctx, TSNode root, const char *func_qn) {
+static void walk_body_type_refs(CtxExtractCtx *ctx, TSNode root, const char *func_qn) {
     TSNode stack[BODY_TYPE_REF_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -259,7 +259,7 @@ static void walk_body_type_refs(CBMExtractCtx *ctx, TSNode root, const char *fun
 
 // Walk AST for function nodes, extract type references from signatures and bodies.
 /* Process a single function node: extract type refs from signature + body. */
-static void process_func_type_refs(CBMExtractCtx *ctx, TSNode node) {
+static void process_func_type_refs(CtxExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(name_node)) {
         return;
@@ -284,7 +284,7 @@ static void process_func_type_refs(CBMExtractCtx *ctx, TSNode node) {
 }
 
 #define TYPE_REF_STACK_CAP 4096
-static void walk_type_refs(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
+static void walk_type_refs(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec) {
     if (!spec->function_node_types || !spec->function_node_types[0]) {
         return;
     }
@@ -307,8 +307,8 @@ static void walk_type_refs(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *s
     }
 }
 
-void ctx_extract_type_refs(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_type_refs(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -323,7 +323,7 @@ void ctx_extract_type_refs(CBMExtractCtx *ctx) {
 // walk_type_refs + walk_body_type_refs split.
 
 // Extract signature type refs from a function node.
-static void extract_signature_type_refs(CBMExtractCtx *ctx, TSNode node, WalkState *state) {
+static void extract_signature_type_refs(CtxExtractCtx *ctx, TSNode node, WalkState *state) {
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(name_node)) {
         return;
@@ -347,7 +347,7 @@ static void extract_signature_type_refs(CBMExtractCtx *ctx, TSNode node, WalkSta
     extract_return_type_refs(ctx, node, func_qn);
 }
 
-void handle_type_refs(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+void handle_type_refs(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state) {
     if (!spec->function_node_types || !spec->function_node_types[0]) {
         return;
     }

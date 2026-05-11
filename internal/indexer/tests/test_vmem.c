@@ -299,7 +299,7 @@ TEST(vmem_worker_budget_many_workers) {
 TEST(arena_vmem_alloc_and_destroy) {
     /* When vmem is initialized, arena should use vmem for blocks.
      * When not initialized, falls back to malloc. Either way, this must work. */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
     ASSERT_EQ(a.nblocks, 1);
     /* block_sizes[0] should track the initial block size */
@@ -316,7 +316,7 @@ TEST(arena_vmem_alloc_and_destroy) {
 }
 
 TEST(arena_vmem_grow_tracks_sizes) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 64);
     ASSERT_EQ(a.block_sizes[0], 64);
 
@@ -334,7 +334,7 @@ TEST(arena_vmem_grow_tracks_sizes) {
 
 TEST(arena_vmem_large_alloc) {
     /* Allocate > 64KB to test vmem for larger arena blocks */
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init(&a);
 
     size_t big = 128 * 1024;
@@ -352,7 +352,7 @@ TEST(arena_vmem_large_alloc) {
 }
 
 TEST(arena_vmem_reset_frees_blocks) {
-    CBMArena a;
+    CtxArena a;
     ctx_arena_init_sized(&a, 128);
 
     /* Create multiple blocks */
@@ -736,7 +736,7 @@ TEST(vmem_parallel_extract_with_slab) {
     int64_t gbuf_next = ctx_gbuf_next_id(gbuf);
     atomic_init(&shared_ids, gbuf_next);
 
-    CBMFileResult **result_cache = calloc(file_count, sizeof(CBMFileResult *));
+    CtxFileResult **result_cache = calloc(file_count, sizeof(CtxFileResult *));
     ASSERT_NOT_NULL(result_cache);
 
     /* Run parallel extraction with 2 workers — enough to trigger

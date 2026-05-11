@@ -7,7 +7,7 @@
  *   - IMPLEMENTS: Struct/Class → Interface (Go implicit + explicit base_classes + Rust impl)
  *
  * These passes re-extract files to access base_classes, decorators, and impl_traits data
- * since that information is in CBMDefinition fields, not stored in node properties JSON.
+ * since that information is in CtxDefinition fields, not stored in node properties JSON.
  *
  * Depends on: pass_definitions having populated the registry and graph buffer
  */
@@ -63,7 +63,7 @@ static const char *itoa_log(int val) {
 
 /* Build per-file import map from cached extraction result or graph buffer edges. */
 static int build_import_map(ctx_pipeline_ctx_t *ctx, const char *rel_path,
-                            const CBMFileResult *result, const char ***out_keys,
+                            const CtxFileResult *result, const char ***out_keys,
                             const char ***out_vals, int *out_count) {
     *out_keys = NULL;
     *out_vals = NULL;
@@ -76,7 +76,7 @@ static int build_import_map(ctx_pipeline_ctx_t *ctx, const char *rel_path,
         int count = 0;
 
         for (int i = 0; i < result->imports.count; i++) {
-            const CBMImport *imp = &result->imports.items[i];
+            const CtxImport *imp = &result->imports.items[i];
             if (!imp->local_name || !imp->local_name[0] || !imp->module_path) {
                 continue;
             }
@@ -325,7 +325,7 @@ static void resolve_decorator(ctx_pipeline_ctx_t *ctx, const ctx_gbuf_node_t *no
     }
 }
 
-static void sem_process_def_edges(ctx_pipeline_ctx_t *ctx, const CBMDefinition *def,
+static void sem_process_def_edges(ctx_pipeline_ctx_t *ctx, const CtxDefinition *def,
                                   const char *module_qn, const char **imp_keys,
                                   const char **imp_vals, int imp_count, int *inherits_count,
                                   int *decorates_count) {
@@ -359,7 +359,7 @@ static void sem_process_def_edges(ctx_pipeline_ctx_t *ctx, const CBMDefinition *
 }
 
 /* Get extraction result from cache or re-extract. Sets *owned=true if caller must free. */
-static CBMFileResult *sem_get_or_extract(ctx_pipeline_ctx_t *ctx, int file_idx,
+static CtxFileResult *sem_get_or_extract(ctx_pipeline_ctx_t *ctx, int file_idx,
                                          const ctx_file_info_t *fi, bool *owned) {
     *owned = false;
     if (ctx->result_cache && ctx->result_cache[file_idx]) {
@@ -370,7 +370,7 @@ static CBMFileResult *sem_get_or_extract(ctx_pipeline_ctx_t *ctx, int file_idx,
     if (!source) {
         return NULL;
     }
-    CBMFileResult *r = ctx_extract_file(source, source_len, fi->language, ctx->project_name,
+    CtxFileResult *r = ctx_extract_file(source, source_len, fi->language, ctx->project_name,
                                         fi->rel_path, CTX_EXTRACT_BUDGET, NULL, NULL);
     free(source);
     if (r) {
@@ -380,12 +380,12 @@ static CBMFileResult *sem_get_or_extract(ctx_pipeline_ctx_t *ctx, int file_idx,
 }
 
 /* Resolve Rust impl traits for one file's extraction results. */
-static int resolve_impl_traits(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int resolve_impl_traits(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                const char *module_qn, const char **imp_keys, const char **imp_vals,
                                int imp_count) {
     int count = 0;
     for (int t = 0; t < result->impl_traits.count; t++) {
-        CBMImplTrait *it = &result->impl_traits.items[t];
+        CtxImplTrait *it = &result->impl_traits.items[t];
         if (!it->trait_name || !it->struct_name) {
             continue;
         }
@@ -426,7 +426,7 @@ int ctx_pipeline_pass_semantic(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *f
         const char *rel = files[i].rel_path;
 
         bool result_owned = false;
-        CBMFileResult *result = sem_get_or_extract(ctx, i, &files[i], &result_owned);
+        CtxFileResult *result = sem_get_or_extract(ctx, i, &files[i], &result_owned);
         if (!result) {
             errors++;
             continue;

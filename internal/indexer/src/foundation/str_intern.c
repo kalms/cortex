@@ -34,8 +34,8 @@ typedef struct {
     uint32_t len; /* string length (excluding NUL) */
 } InternEntry;
 
-struct CBMInternPool {
-    CBMArena arena;
+struct CtxInternPool {
+    CtxArena arena;
     InternEntry *buckets;
     uint32_t capacity;
     uint32_t count;
@@ -43,8 +43,8 @@ struct CBMInternPool {
     size_t total_bytes; /* sum of string lengths stored */
 };
 
-CBMInternPool *ctx_intern_create(void) {
-    CBMInternPool *p = (CBMInternPool *)calloc(CTX_ALLOC_ONE, sizeof(*p));
+CtxInternPool *ctx_intern_create(void) {
+    CtxInternPool *p = (CtxInternPool *)calloc(CTX_ALLOC_ONE, sizeof(*p));
     if (!p) {
         return NULL;
     }
@@ -60,7 +60,7 @@ CBMInternPool *ctx_intern_create(void) {
     return p;
 }
 
-void ctx_intern_free(CBMInternPool *pool) {
+void ctx_intern_free(CtxInternPool *pool) {
     if (!pool) {
         return;
     }
@@ -69,7 +69,7 @@ void ctx_intern_free(CBMInternPool *pool) {
     free(pool);
 }
 
-static void intern_resize(CBMInternPool *p) {
+static void intern_resize(CtxInternPool *p) {
     uint32_t new_cap = p->capacity * PAIR_LEN;
     uint32_t new_mask = new_cap - SKIP_ONE;
     InternEntry *new_buckets = (InternEntry *)calloc(new_cap, sizeof(InternEntry));
@@ -95,7 +95,7 @@ static void intern_resize(CBMInternPool *p) {
     p->mask = new_mask;
 }
 
-const char *ctx_intern_n(CBMInternPool *pool, const char *s, size_t len) {
+const char *ctx_intern_n(CtxInternPool *pool, const char *s, size_t len) {
     if (!pool || !s) {
         return NULL;
     }
@@ -137,17 +137,17 @@ const char *ctx_intern_n(CBMInternPool *pool, const char *s, size_t len) {
     return copy;
 }
 
-const char *ctx_intern(CBMInternPool *pool, const char *s) {
+const char *ctx_intern(CtxInternPool *pool, const char *s) {
     if (!s) {
         return NULL;
     }
     return ctx_intern_n(pool, s, strlen(s));
 }
 
-uint32_t ctx_intern_count(const CBMInternPool *pool) {
+uint32_t ctx_intern_count(const CtxInternPool *pool) {
     return pool ? pool->count : 0;
 }
 
-size_t ctx_intern_bytes(const CBMInternPool *pool) {
+size_t ctx_intern_bytes(const CtxInternPool *pool) {
     return pool ? pool->total_bytes : 0;
 }

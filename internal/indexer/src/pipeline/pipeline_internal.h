@@ -45,7 +45,7 @@ typedef struct {
      * When non-NULL, pass_definitions stores results here instead of freeing,
      * and pass_calls/usages/semantic reuse cached results instead of re-extracting.
      * Indexed by file position in the files[] array. Owned by pipeline.c. */
-    CBMFileResult **result_cache;
+    CtxFileResult **result_cache;
 } ctx_pipeline_ctx_t;
 
 /* Check cancellation. Returns non-zero if cancelled. */
@@ -284,24 +284,24 @@ char *ctx_infra_qn(const char *project_name, const char *rel_path, const char *i
 
 /* Phase 3A: Parallel extract + create definition nodes.
  * Each worker creates nodes in a per-worker gbuf, then merges into ctx->gbuf.
- * Caches CBMFileResult* in result_cache[file_idx] for reuse in Phase 3B/4.
+ * Caches CtxFileResult* in result_cache[file_idx] for reuse in Phase 3B/4.
  * shared_ids provides globally unique node/edge IDs across workers. */
 int ctx_parallel_extract(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, int file_count,
-                         CBMFileResult **result_cache, _Atomic int64_t *shared_ids,
+                         CtxFileResult **result_cache, _Atomic int64_t *shared_ids,
                          int worker_count);
 
 /* Phase 3B: Serial registry build from cached extraction results.
  * Creates DEFINES, DEFINES_METHOD, and IMPORTS edges in ctx->gbuf.
  * Registers callable symbols (Function/Method/Class) in ctx->registry. */
 int ctx_build_registry_from_cache(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files,
-                                  int file_count, CBMFileResult **result_cache);
+                                  int file_count, CtxFileResult **result_cache);
 
 /* Phase 4: Parallel call/usage/semantic resolution.
  * Each worker resolves calls, usages, throws, rw, inherits, decorates,
  * and implements edges into per-worker edge bufs, then merges.
  * Runs Go-style implicit IMPLEMENTS as serial post-step. */
 int ctx_parallel_resolve(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *files, int file_count,
-                         CBMFileResult **result_cache, _Atomic int64_t *shared_ids,
+                         CtxFileResult **result_cache, _Atomic int64_t *shared_ids,
                          int worker_count);
 
 /* Post-merge: create Route nodes for HTTP_CALLS/ASYNC_CALLS edges that

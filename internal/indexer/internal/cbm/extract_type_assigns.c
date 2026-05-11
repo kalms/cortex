@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena
+#include "arena.h" // CtxArena
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -10,7 +10,7 @@
 #include <ctype.h>
 
 // Extract type from new_expression / object_creation_expression.
-static const char *extract_new_expr_type(CBMArena *a, TSNode rhs, const char *source) {
+static const char *extract_new_expr_type(CtxArena *a, TSNode rhs, const char *source) {
     TSNode type_node = ts_node_child_by_field_name(rhs, TS_FIELD("type"));
     if (!ts_node_is_null(type_node)) {
         const char *tk = ts_node_type(type_node);
@@ -37,8 +37,8 @@ static const char *extract_new_expr_type(CBMArena *a, TSNode rhs, const char *so
 
 // Extract class/type name from a constructor expression.
 // e.g., new Foo() -> "Foo", Foo() -> "Foo" (if uppercase), Foo{} -> "Foo"
-static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char *source,
-                                            CBMLanguage lang) {
+static const char *extract_constructor_type(CtxArena *a, TSNode rhs, const char *source,
+                                            CtxLanguage lang) {
     const char *kind = ts_node_type(rhs);
 
     if (strcmp(kind, "new_expression") == 0 || strcmp(kind, "object_creation_expression") == 0) {
@@ -76,13 +76,13 @@ static const char *extract_constructor_type(CBMArena *a, TSNode rhs, const char 
 }
 
 // Emit a type assignment if var_name and constructor type are valid.
-static void try_emit_type_assign(CBMExtractCtx *ctx, TSNode var_node, TSNode rhs_node,
+static void try_emit_type_assign(CtxExtractCtx *ctx, TSNode var_node, TSNode rhs_node,
                                  const char *func_qn) {
     char *var_name = ctx_node_text(ctx->arena, var_node, ctx->source);
     const char *type_name =
         extract_constructor_type(ctx->arena, rhs_node, ctx->source, ctx->language);
     if (var_name && var_name[0] && type_name && type_name[0]) {
-        CBMTypeAssign ta;
+        CtxTypeAssign ta;
         ta.var_name = var_name;
         ta.type_name = type_name;
         ta.enclosing_func_qn = func_qn;
@@ -91,7 +91,7 @@ static void try_emit_type_assign(CBMExtractCtx *ctx, TSNode var_node, TSNode rhs
 }
 
 // Process assignment-type nodes (left/right fields with identifier check).
-static void process_assignment_type_assign(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void process_assignment_type_assign(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     TSNode left = ts_node_child_by_field_name(node, TS_FIELD("left"));
     TSNode right = ts_node_child_by_field_name(node, TS_FIELD("right"));
     if (ts_node_is_null(right)) {
@@ -106,7 +106,7 @@ static void process_assignment_type_assign(CBMExtractCtx *ctx, TSNode node, cons
 }
 
 // Process Go short_var_declaration/var_spec nodes.
-static void process_go_var_type_assign(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void process_go_var_type_assign(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     TSNode left = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(left)) {
         left = ts_node_child_by_field_name(node, TS_FIELD("left"));
@@ -121,7 +121,7 @@ static void process_go_var_type_assign(CBMExtractCtx *ctx, TSNode node, const ch
 }
 
 // Process JS/TS variable_declarator nodes (name + value with identifier check).
-static void process_declarator_type_assign(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void process_declarator_type_assign(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     TSNode value_node = ts_node_child_by_field_name(node, TS_FIELD("value"));
     if (!ts_node_is_null(name_node) && !ts_node_is_null(value_node)) {
@@ -133,7 +133,7 @@ static void process_declarator_type_assign(CBMExtractCtx *ctx, TSNode node, cons
 }
 
 // Process Rust let_declaration nodes (pattern + value).
-static void process_rust_let_type_assign(CBMExtractCtx *ctx, TSNode node, const char *func_qn) {
+static void process_rust_let_type_assign(CtxExtractCtx *ctx, TSNode node, const char *func_qn) {
     TSNode pat = ts_node_child_by_field_name(node, TS_FIELD("pattern"));
     TSNode val = ts_node_child_by_field_name(node, TS_FIELD("value"));
     if (!ts_node_is_null(pat) && !ts_node_is_null(val)) {
@@ -145,7 +145,7 @@ static void process_rust_let_type_assign(CBMExtractCtx *ctx, TSNode node, const 
 
 // Process assignment nodes (assignment, short_var_declaration, variable_declarator,
 // let_declaration).
-static void process_type_assign_node(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+static void process_type_assign_node(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                                      const char *func_qn) {
     const char *kind = ts_node_type(node);
 
@@ -165,7 +165,7 @@ static void process_type_assign_node(CBMExtractCtx *ctx, TSNode node, const CBML
 
 // Walk AST for assignment patterns where RHS is a constructor call.
 #define TYPE_ASSIGN_STACK_CAP 4096
-static void walk_type_assigns(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
+static void walk_type_assigns(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec) {
     TSNode stack[TYPE_ASSIGN_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -180,8 +180,8 @@ static void walk_type_assigns(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec
     }
 }
 
-void ctx_extract_type_assigns(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_type_assigns(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -191,7 +191,7 @@ void ctx_extract_type_assigns(CBMExtractCtx *ctx) {
 
 // --- Unified handler ---
 
-void handle_type_assigns(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+void handle_type_assigns(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                          WalkState *state) {
     process_type_assign_node(ctx, node, spec, state->enclosing_func_qn);
 }

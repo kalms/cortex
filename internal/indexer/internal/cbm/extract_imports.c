@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, ctx_arena_strdup/strndup/sprintf
+#include "arena.h" // CtxArena, ctx_arena_strdup/strndup/sprintf
 #include "helpers.h"
 #include "tree_sitter/api.h" // TSNode, ts_node_*
 #include "foundation/constants.h"
@@ -18,19 +18,19 @@ enum {
 #define FIELD_LEN_MODULE_NAME 11 // strlen("module_name")
 
 // Forward declarations
-static void parse_go_imports(CBMExtractCtx *ctx);
-static void parse_python_imports(CBMExtractCtx *ctx);
-static void parse_es_imports(CBMExtractCtx *ctx);
-static void parse_java_imports(CBMExtractCtx *ctx);
-static void parse_rust_imports(CBMExtractCtx *ctx);
-static void parse_c_imports(CBMExtractCtx *ctx);
-static void parse_ruby_imports(CBMExtractCtx *ctx);
-static void parse_lua_imports(CBMExtractCtx *ctx);
-static void parse_generic_imports(CBMExtractCtx *ctx, const char *node_type);
-static void parse_wolfram_imports(CBMExtractCtx *ctx);
+static void parse_go_imports(CtxExtractCtx *ctx);
+static void parse_python_imports(CtxExtractCtx *ctx);
+static void parse_es_imports(CtxExtractCtx *ctx);
+static void parse_java_imports(CtxExtractCtx *ctx);
+static void parse_rust_imports(CtxExtractCtx *ctx);
+static void parse_c_imports(CtxExtractCtx *ctx);
+static void parse_ruby_imports(CtxExtractCtx *ctx);
+static void parse_lua_imports(CtxExtractCtx *ctx);
+static void parse_generic_imports(CtxExtractCtx *ctx, const char *node_type);
+static void parse_wolfram_imports(CtxExtractCtx *ctx);
 
 // Helper: strip quotes from a string literal
-static char *strip_quotes(CBMArena *a, const char *s) {
+static char *strip_quotes(CtxArena *a, const char *s) {
     if (!s) {
         return NULL;
     }
@@ -42,7 +42,7 @@ static char *strip_quotes(CBMArena *a, const char *s) {
 }
 
 // Helper: get last path component as local name
-static const char *path_last(CBMArena *a, const char *path) {
+static const char *path_last(CtxArena *a, const char *path) {
     if (!path) {
         return NULL;
     }
@@ -61,8 +61,8 @@ static const char *path_last(CBMArena *a, const char *path) {
 // import_declaration -> import_spec_list -> import_spec -> (name, path)
 
 // Parse a single Go import_spec node.
-static void parse_go_import_spec(CBMExtractCtx *ctx, TSNode spec) {
-    CBMArena *a = ctx->arena;
+static void parse_go_import_spec(CtxExtractCtx *ctx, TSNode spec) {
+    CtxArena *a = ctx->arena;
     TSNode path_node = ts_node_child_by_field_name(spec, TS_FIELD("path"));
     if (ts_node_is_null(path_node)) {
         return;
@@ -76,11 +76,11 @@ static void parse_go_import_spec(CBMExtractCtx *ctx, TSNode spec) {
     const char *local_name =
         !ts_node_is_null(name_node) ? ctx_node_text(a, name_node, ctx->source) : path_last(a, path);
 
-    CBMImport imp = {.local_name = local_name, .module_path = path};
+    CtxImport imp = {.local_name = local_name, .module_path = path};
     ctx_imports_push(&ctx->result->imports, a, imp);
 }
 
-static void parse_go_imports(CBMExtractCtx *ctx) {
+static void parse_go_imports(CtxExtractCtx *ctx) {
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
         ts_tree_cursor_delete(&cursor);
@@ -117,8 +117,8 @@ static void parse_go_imports(CBMExtractCtx *ctx) {
 // import_from_statement: from X import Y, from X import Y as Z
 
 // Emit a Python aliased_import (import X as Y / from X import Y as Z).
-static void emit_py_aliased_import(CBMExtractCtx *ctx, TSNode child, const char *mod_prefix) {
-    CBMArena *a = ctx->arena;
+static void emit_py_aliased_import(CtxExtractCtx *ctx, TSNode child, const char *mod_prefix) {
+    CtxArena *a = ctx->arena;
     TSNode mod_node = ts_node_child_by_field_name(child, TS_FIELD("name"));
     TSNode alias_node = ts_node_child_by_field_name(child, TS_FIELD("alias"));
     if (ts_node_is_null(mod_node)) {
@@ -131,13 +131,13 @@ static void emit_py_aliased_import(CBMExtractCtx *ctx, TSNode child, const char 
     const char *local = !ts_node_is_null(alias_node) ? ctx_node_text(a, alias_node, ctx->source)
                                                      : path_last(a, name);
     const char *full = mod_prefix ? ctx_arena_sprintf(a, "%s.%s", mod_prefix, name) : name;
-    CBMImport imp = {.local_name = local, .module_path = full};
+    CtxImport imp = {.local_name = local, .module_path = full};
     ctx_imports_push(&ctx->result->imports, a, imp);
 }
 
 // Process a single Python import_statement node (import X, import X as Y).
-static void process_py_import_stmt(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static void process_py_import_stmt(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(name_node)) {
         uint32_t nc = ts_node_child_count(node);
@@ -147,7 +147,7 @@ static void process_py_import_stmt(CBMExtractCtx *ctx, TSNode node) {
             if (strcmp(ck, "dotted_name") == 0 || strcmp(ck, "identifier") == 0) {
                 char *mod = ctx_node_text(a, child, ctx->source);
                 if (mod && mod[0]) {
-                    CBMImport imp = {.local_name = path_last(a, mod), .module_path = mod};
+                    CtxImport imp = {.local_name = path_last(a, mod), .module_path = mod};
                     ctx_imports_push(&ctx->result->imports, a, imp);
                 }
             } else if (strcmp(ck, "aliased_import") == 0) {
@@ -157,7 +157,7 @@ static void process_py_import_stmt(CBMExtractCtx *ctx, TSNode node) {
     } else {
         char *mod = ctx_node_text(a, name_node, ctx->source);
         if (mod && mod[0]) {
-            CBMImport imp = {.local_name = path_last(a, mod), .module_path = mod};
+            CtxImport imp = {.local_name = path_last(a, mod), .module_path = mod};
             ctx_imports_push(&ctx->result->imports, a, imp);
         }
     }
@@ -180,19 +180,19 @@ static TSNode resolve_py_module_node(TSNode node) {
 }
 
 // Emit a Python import-from name child (identifier/dotted_name).
-static void emit_py_import_from_name(CBMExtractCtx *ctx, TSNode child, const char *mod_path) {
-    CBMArena *a = ctx->arena;
+static void emit_py_import_from_name(CtxExtractCtx *ctx, TSNode child, const char *mod_path) {
+    CtxArena *a = ctx->arena;
     char *name = ctx_node_text(a, child, ctx->source);
     if (name && name[0]) {
         const char *full = mod_path ? ctx_arena_sprintf(a, "%s.%s", mod_path, name) : name;
-        CBMImport imp = {.local_name = name, .module_path = full};
+        CtxImport imp = {.local_name = name, .module_path = full};
         ctx_imports_push(&ctx->result->imports, a, imp);
     }
 }
 
 // Process a single Python import_from_statement node (from X import Y [as Z]).
-static void process_py_import_from(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static void process_py_import_from(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     TSNode module_node = resolve_py_module_node(node);
     char *mod_path =
         ts_node_is_null(module_node) ? NULL : ctx_node_text(a, module_node, ctx->source);
@@ -213,7 +213,7 @@ static void process_py_import_from(CBMExtractCtx *ctx, TSNode node) {
     }
 }
 
-static void parse_python_imports(CBMExtractCtx *ctx) {
+static void parse_python_imports(CtxExtractCtx *ctx) {
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
         ts_tree_cursor_delete(&cursor);
@@ -253,8 +253,8 @@ static TSNode find_es_source_node(TSNode node) {
 }
 
 // Process named_imports: import {A, B as C} from "path".
-static bool process_named_imports(CBMExtractCtx *ctx, TSNode sub, const char *path) {
-    CBMArena *a = ctx->arena;
+static bool process_named_imports(CtxExtractCtx *ctx, TSNode sub, const char *path) {
+    CtxArena *a = ctx->arena;
     bool found = false;
     uint32_t nc2 = ts_node_child_count(sub);
     for (uint32_t m = 0; m < nc2; m++) {
@@ -270,7 +270,7 @@ static bool process_named_imports(CBMExtractCtx *ctx, TSNode sub, const char *pa
         if (!ts_node_is_null(orig)) {
             char *local_name = !ts_node_is_null(local) ? ctx_node_text(a, local, ctx->source)
                                                        : ctx_node_text(a, orig, ctx->source);
-            CBMImport imp = {.local_name = local_name, .module_path = path};
+            CtxImport imp = {.local_name = local_name, .module_path = path};
             ctx_imports_push(&ctx->result->imports, a, imp);
             found = true;
         }
@@ -279,8 +279,8 @@ static bool process_named_imports(CBMExtractCtx *ctx, TSNode sub, const char *pa
 }
 
 // Process an import_clause node: default, namespace, and named imports.
-static bool process_import_clause(CBMExtractCtx *ctx, TSNode clause, const char *path) {
-    CBMArena *a = ctx->arena;
+static bool process_import_clause(CtxExtractCtx *ctx, TSNode clause, const char *path) {
+    CtxArena *a = ctx->arena;
     bool found = false;
     uint32_t cc = ts_node_child_count(clause);
     for (uint32_t k = 0; k < cc; k++) {
@@ -288,7 +288,7 @@ static bool process_import_clause(CBMExtractCtx *ctx, TSNode clause, const char 
         const char *sk = ts_node_type(sub);
         if (strcmp(sk, "identifier") == 0) {
             char *name = ctx_node_text(a, sub, ctx->source);
-            CBMImport imp = {.local_name = name, .module_path = path};
+            CtxImport imp = {.local_name = name, .module_path = path};
             ctx_imports_push(&ctx->result->imports, a, imp);
             found = true;
         } else if (strcmp(sk, "namespace_import") == 0) {
@@ -298,7 +298,7 @@ static bool process_import_clause(CBMExtractCtx *ctx, TSNode clause, const char 
             }
             if (!ts_node_is_null(as_name)) {
                 char *name = ctx_node_text(a, as_name, ctx->source);
-                CBMImport imp = {.local_name = name, .module_path = path};
+                CtxImport imp = {.local_name = name, .module_path = path};
                 ctx_imports_push(&ctx->result->imports, a, imp);
                 found = true;
             }
@@ -312,8 +312,8 @@ static bool process_import_clause(CBMExtractCtx *ctx, TSNode clause, const char 
 }
 
 /* Process a single ES import_statement node. Returns true if fully handled. */
-static bool process_es_import_statement(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static bool process_es_import_statement(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     TSNode source_node = find_es_source_node(node);
     if (ts_node_is_null(source_node)) {
         return false;
@@ -329,7 +329,7 @@ static bool process_es_import_statement(CBMExtractCtx *ctx, TSNode node) {
         const char *ck = ts_node_type(child);
         if (strcmp(ck, "identifier") == 0) {
             char *name = ctx_node_text(a, child, ctx->source);
-            CBMImport imp = {.local_name = name, .module_path = path};
+            CtxImport imp = {.local_name = name, .module_path = path};
             ctx_imports_push(&ctx->result->imports, a, imp);
             found = true;
         } else if (strcmp(ck, "import_clause") == 0) {
@@ -339,7 +339,7 @@ static bool process_es_import_statement(CBMExtractCtx *ctx, TSNode node) {
         }
     }
     if (!found) {
-        CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+        CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
         ctx_imports_push(&ctx->result->imports, a, imp);
     }
     return true;
@@ -349,8 +349,8 @@ static bool process_es_import_statement(CBMExtractCtx *ctx, TSNode node) {
  * is derived from the enclosing variable_declarator / assignment when
  * possible (so `const foo = require('./foo')` emits local_name="foo"),
  * otherwise falls back to the last path component. */
-static bool process_commonjs_require(CBMExtractCtx *ctx, TSNode call) {
-    CBMArena *a = ctx->arena;
+static bool process_commonjs_require(CtxExtractCtx *ctx, TSNode call) {
+    CtxArena *a = ctx->arena;
     if (ts_node_child_count(call) < MIN_WOLFRAM_CHILDREN) {
         return false;
     }
@@ -406,13 +406,13 @@ static bool process_commonjs_require(CBMExtractCtx *ctx, TSNode call) {
         local_name = path_last(a, path);
     }
 
-    CBMImport imp = {.local_name = local_name, .module_path = path};
+    CtxImport imp = {.local_name = local_name, .module_path = path};
     ctx_imports_push(&ctx->result->imports, a, imp);
     return true;
 }
 
 #define ES_IMPORT_STACK_CAP CTX_SZ_512
-static void walk_es_imports(CBMExtractCtx *ctx, TSNode root) {
+static void walk_es_imports(CtxExtractCtx *ctx, TSNode root) {
     TSNode stack[ES_IMPORT_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -443,15 +443,15 @@ static void walk_es_imports(CBMExtractCtx *ctx, TSNode root) {
     }
 }
 
-static void parse_es_imports(CBMExtractCtx *ctx) {
+static void parse_es_imports(CtxExtractCtx *ctx) {
     walk_es_imports(ctx, ctx->root);
 }
 
 // --- Java imports ---
 // import_declaration -> scoped_identifier
 
-static void parse_java_imports(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void parse_java_imports(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -472,7 +472,7 @@ static void parse_java_imports(CBMExtractCtx *ctx) {
             if (strcmp(ck, "scoped_identifier") == 0 || strcmp(ck, "identifier") == 0) {
                 char *path = ctx_node_text(a, child, ctx->source);
                 if (path && path[0]) {
-                    CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+                    CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
                     ctx_imports_push(&ctx->result->imports, a, imp);
                 }
                 break;
@@ -485,8 +485,8 @@ static void parse_java_imports(CBMExtractCtx *ctx) {
 // --- Rust imports ---
 // use_declaration -> use_list or scoped_use_list
 
-static void parse_rust_imports(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void parse_rust_imports(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -512,7 +512,7 @@ static void parse_rust_imports(CBMExtractCtx *ctx) {
             full[len - SKIP_ONE] = '\0';
         }
 
-        CBMImport imp = {.local_name = path_last(a, full), .module_path = full};
+        CtxImport imp = {.local_name = path_last(a, full), .module_path = full};
         ctx_imports_push(&ctx->result->imports, a, imp);
     } while (ts_tree_cursor_goto_next_sibling(&cursor));
     ts_tree_cursor_delete(&cursor);
@@ -538,7 +538,7 @@ static TSNode find_include_path_node(TSNode node) {
 }
 
 // Strip angle brackets from a system include path (<stdio.h> → stdio.h).
-static char *strip_angle_brackets(CBMArena *a, char *path) {
+static char *strip_angle_brackets(CtxArena *a, char *path) {
     if (path && path[0] == '<') {
         size_t len = strlen(path);
         if (len > SKIP_ONE && path[len - SKIP_ONE] == '>') {
@@ -548,8 +548,8 @@ static char *strip_angle_brackets(CBMArena *a, char *path) {
     return path;
 }
 
-static void parse_c_imports(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void parse_c_imports(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -574,7 +574,7 @@ static void parse_c_imports(CBMExtractCtx *ctx) {
             continue;
         }
 
-        CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+        CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
         ctx_imports_push(&ctx->result->imports, a, imp);
     } while (ts_tree_cursor_goto_next_sibling(&cursor));
     ts_tree_cursor_delete(&cursor);
@@ -584,7 +584,7 @@ static void parse_c_imports(CBMExtractCtx *ctx) {
 // call nodes: require("X"), require_relative("X")
 
 // Check if a Ruby call node is a require/require_relative, return method name or NULL.
-static const char *ruby_require_method(CBMArena *a, TSNode node, const char *source) {
+static const char *ruby_require_method(CtxArena *a, TSNode node, const char *source) {
     TSNode method = ts_node_child_by_field_name(node, TS_FIELD("method"));
     if (ts_node_is_null(method) && ts_node_child_count(node) > 0) {
         method = ts_node_child(node, 0);
@@ -600,7 +600,7 @@ static const char *ruby_require_method(CBMArena *a, TSNode node, const char *sou
 }
 
 // Extract string argument from a Ruby require/require_relative call.
-static char *extract_ruby_require_arg(CBMArena *a, TSNode node, const char *source) {
+static char *extract_ruby_require_arg(CtxArena *a, TSNode node, const char *source) {
     TSNode args = ts_node_child_by_field_name(node, TS_FIELD("arguments"));
     if (ts_node_is_null(args)) {
         if (ts_node_child_count(node) > SECOND_IDX) {
@@ -622,8 +622,8 @@ static char *extract_ruby_require_arg(CBMArena *a, TSNode node, const char *sour
     return strip_quotes(a, ctx_node_text(a, args, source));
 }
 
-static void parse_ruby_imports(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void parse_ruby_imports(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -646,7 +646,7 @@ static void parse_ruby_imports(CBMExtractCtx *ctx) {
             continue;
         }
 
-        CBMImport imp = {.local_name = path_last(a, arg_text), .module_path = arg_text};
+        CtxImport imp = {.local_name = path_last(a, arg_text), .module_path = arg_text};
         ctx_imports_push(&ctx->result->imports, a, imp);
     } while (ts_tree_cursor_goto_next_sibling(&cursor));
     ts_tree_cursor_delete(&cursor);
@@ -655,8 +655,8 @@ static void parse_ruby_imports(CBMExtractCtx *ctx) {
 // --- Lua imports ---
 // function_call: require("X")
 
-static void parse_lua_imports(CBMExtractCtx *ctx) {
-    CBMArena *a = ctx->arena;
+static void parse_lua_imports(CtxExtractCtx *ctx) {
+    CtxArena *a = ctx->arena;
 
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -707,7 +707,7 @@ static void parse_lua_imports(CBMExtractCtx *ctx) {
         }
 
         char *mod = ctx_arena_strndup(a, start, (size_t)(end - start));
-        CBMImport imp = {.local_name = path_last(a, mod), .module_path = mod};
+        CtxImport imp = {.local_name = path_last(a, mod), .module_path = mod};
         ctx_imports_push(&ctx->result->imports, a, imp);
     } while (ts_tree_cursor_goto_next_sibling(&cursor));
     ts_tree_cursor_delete(&cursor);
@@ -716,15 +716,15 @@ static void parse_lua_imports(CBMExtractCtx *ctx) {
 // --- Generic import parsing for languages with simple import_declaration ---
 
 // Try known field names (path/source/module/name) to extract import path.
-static bool try_generic_path_fields(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static bool try_generic_path_fields(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     static const char *path_fields[] = {"path", "source", "module", "name", NULL};
     for (const char **f = path_fields; *f; f++) {
         TSNode path_node = ts_node_child_by_field_name(node, *f, (uint32_t)strlen(*f));
         if (!ts_node_is_null(path_node)) {
             char *path = strip_quotes(a, ctx_node_text(a, path_node, ctx->source));
             if (path && path[0]) {
-                CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+                CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
                 ctx_imports_push(&ctx->result->imports, a, imp);
             }
             return true;
@@ -734,8 +734,8 @@ static bool try_generic_path_fields(CBMExtractCtx *ctx, TSNode node) {
 }
 
 // Fallback: extract import path from full node text, stripping keyword and semicolon.
-static void generic_import_from_text(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static void generic_import_from_text(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     char *text = ctx_node_text(a, node, ctx->source);
     if (!text || !text[0]) {
         return;
@@ -749,12 +749,12 @@ static void generic_import_from_text(CBMExtractCtx *ctx, TSNode node) {
         text[len - SKIP_ONE] = '\0';
     }
     if (text[0]) {
-        CBMImport imp = {.local_name = path_last(a, text), .module_path = text};
+        CtxImport imp = {.local_name = path_last(a, text), .module_path = text};
         ctx_imports_push(&ctx->result->imports, a, imp);
     }
 }
 
-static void parse_generic_imports(CBMExtractCtx *ctx, const char *node_type) {
+static void parse_generic_imports(CtxExtractCtx *ctx, const char *node_type) {
     /* Use TSTreeCursor for O(1)-per-step sibling traversal. */
     TSTreeCursor cursor = ts_tree_cursor_new(ctx->root);
     if (!ts_tree_cursor_goto_first_child(&cursor)) {
@@ -779,8 +779,8 @@ static void parse_generic_imports(CBMExtractCtx *ctx, const char *node_type) {
 // apply where first child is builtin_symbol "Needs" with string arg
 
 // Handle Wolfram get_top: << "path" → import.
-static void process_wolfram_get_top(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static void process_wolfram_get_top(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     uint32_t nc = ts_node_named_child_count(node);
     for (uint32_t i = 0; i < nc; i++) {
         TSNode child = ts_node_named_child(node, i);
@@ -789,7 +789,7 @@ static void process_wolfram_get_top(CBMExtractCtx *ctx, TSNode node) {
             char *text = ctx_node_text(a, child, ctx->source);
             if (text && text[0]) {
                 char *path = strip_quotes(a, text);
-                CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+                CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
                 ctx_imports_push(&ctx->result->imports, a, imp);
             }
             break;
@@ -798,8 +798,8 @@ static void process_wolfram_get_top(CBMExtractCtx *ctx, TSNode node) {
 }
 
 // Handle Wolfram Needs["package`"] — apply where head is builtin_symbol "Needs".
-static void process_wolfram_needs(CBMExtractCtx *ctx, TSNode node) {
-    CBMArena *a = ctx->arena;
+static void process_wolfram_needs(CtxExtractCtx *ctx, TSNode node) {
+    CtxArena *a = ctx->arena;
     if (ts_node_named_child_count(node) < MIN_WOLFRAM_CHILDREN) {
         return;
     }
@@ -815,13 +815,13 @@ static void process_wolfram_needs(CBMExtractCtx *ctx, TSNode node) {
     char *text = ctx_node_text(a, arg, ctx->source);
     if (text && text[0]) {
         char *path = strip_quotes(a, text);
-        CBMImport imp = {.local_name = path_last(a, path), .module_path = path};
+        CtxImport imp = {.local_name = path_last(a, path), .module_path = path};
         ctx_imports_push(&ctx->result->imports, a, imp);
     }
 }
 
 #define WOLFRAM_IMPORT_STACK_CAP CTX_SZ_512
-static void walk_wolfram_imports(CBMExtractCtx *ctx, TSNode root) {
+static void walk_wolfram_imports(CtxExtractCtx *ctx, TSNode root) {
     TSNode stack[WOLFRAM_IMPORT_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -843,13 +843,13 @@ static void walk_wolfram_imports(CBMExtractCtx *ctx, TSNode root) {
     }
 }
 
-static void parse_wolfram_imports(CBMExtractCtx *ctx) {
+static void parse_wolfram_imports(CtxExtractCtx *ctx) {
     walk_wolfram_imports(ctx, ctx->root);
 }
 
 // --- Main dispatch ---
 
-void ctx_extract_imports(CBMExtractCtx *ctx) {
+void ctx_extract_imports(CtxExtractCtx *ctx) {
     switch (ctx->language) {
     case CTX_LANG_GO:
         parse_go_imports(ctx);

@@ -78,7 +78,7 @@ typedef enum {
     CTX_LANG_KUSTOMIZE, // kustomization.yaml — Kubernetes overlay tool
     CTX_LANG_K8S,       // Generic Kubernetes manifest (apiVersion: detected)
     CTX_LANG_COUNT
-} CBMLanguage;
+} CtxLanguage;
 
 // --- Extraction result structs ---
 
@@ -111,7 +111,7 @@ typedef struct {
     bool is_entry_point;
     const char *structural_profile; // AST structural profile (arena-allocated) or NULL
     const char *body_tokens; // space-separated raw identifier tokens from body (arena) or NULL
-} CBMDefinition;
+} CtxDefinition;
 
 /* Argument captured from a call expression */
 typedef struct {
@@ -119,7 +119,7 @@ typedef struct {
     const char *value;   // resolved string value or NULL (constant propagation)
     const char *keyword; // keyword name if keyword arg ("url", "topic_id"), NULL if positional
     int index;           // positional index (0-based)
-} CBMCallArg;
+} CtxCallArg;
 
 #define CTX_MAX_CALL_ARGS 8
 
@@ -128,60 +128,60 @@ typedef struct {
     const char *enclosing_func_qn;      // QN of enclosing function (or module QN)
     const char *first_string_arg;       // first string literal argument (URL, topic, key) or NULL
     const char *second_arg_name;        // second argument identifier (handler ref) or NULL
-    CBMCallArg args[CTX_MAX_CALL_ARGS]; // first N arguments with expressions
+    CtxCallArg args[CTX_MAX_CALL_ARGS]; // first N arguments with expressions
     int arg_count;                      // number of captured arguments
-} CBMCall;
+} CtxCall;
 
 typedef struct {
     const char *local_name;  // local alias or name
     const char *module_path; // resolved module path / QN
-} CBMImport;
+} CtxImport;
 
 typedef struct {
     const char *ref_name;          // referenced identifier
     const char *enclosing_func_qn; // QN of enclosing function (or module QN)
-} CBMUsage;
+} CtxUsage;
 
 typedef struct {
     const char *exception_name;    // exception class/type name
     const char *enclosing_func_qn; // QN of enclosing function
-} CBMThrow;
+} CtxThrow;
 
 typedef struct {
     const char *var_name;          // variable name
     const char *enclosing_func_qn; // QN of enclosing function
     bool is_write;                 // true = write, false = read
-} CBMReadWrite;
+} CtxReadWrite;
 
 typedef struct {
     const char *type_name;         // referenced type/class name
     const char *enclosing_func_qn; // QN of enclosing function
-} CBMTypeRef;
+} CtxTypeRef;
 
 typedef struct {
     const char *env_key;           // environment variable key
     const char *enclosing_func_qn; // QN of enclosing function
-} CBMEnvAccess;
+} CtxEnvAccess;
 
 typedef struct {
     const char *var_name;          // variable being assigned
     const char *type_name;         // class/type name of RHS constructor
     const char *enclosing_func_qn; // QN of enclosing function
-} CBMTypeAssign;
+} CtxTypeAssign;
 
 // String reference: URL, config key, or async target found in source.
 // Extracted from string literals during AST walk.
 typedef enum {
     CTX_STRREF_URL = 0,    // REST path or full URL
     CTX_STRREF_CONFIG = 1, // config file path or env var key
-} CBMStringRefKind;
+} CtxStringRefKind;
 
 typedef struct {
     const char *value;             // the string literal content
     const char *enclosing_func_qn; // QN of enclosing function
     const char *key_path;          // dotted key path from YAML/JSON nesting (NULL if flat)
-    CBMStringRefKind kind;         // URL, CONFIG
-} CBMStringRef;
+    CtxStringRefKind kind;         // URL, CONFIG
+} CtxStringRef;
 
 /* Infrastructure binding: topic/queue → endpoint URL.
  * Extracted from YAML/HCL/JSON subscription/scheduler configs.
@@ -190,7 +190,7 @@ typedef struct {
     const char *source_name; // topic, queue, or schedule name
     const char *target_url;  // push_endpoint, uri, or http_target URL
     const char *broker;      // "pubsub", "cloud_tasks", "cloud_scheduler", "sqs", "kafka"
-} CBMInfraBinding;
+} CtxInfraBinding;
 
 /* Pub/sub channel participation.  One record per emit() or on()/addListener()
  * call detected in source — the receiver (e.g. Socket.IO client, EventEmitter
@@ -201,20 +201,20 @@ typedef struct {
 typedef enum {
     CTX_CHANNEL_EMIT = 0,
     CTX_CHANNEL_LISTEN = 1,
-} CBMChannelDirection;
+} CtxChannelDirection;
 
 typedef struct {
     const char *channel_name;      // literal channel name (e.g. "user.created")
     const char *transport;         // "socketio", "event_emitter", ...
     const char *enclosing_func_qn; // QN of the function containing the emit/on call
-    CBMChannelDirection direction;
-} CBMChannel;
+    CtxChannelDirection direction;
+} CtxChannel;
 
 // Rust: impl Trait for Struct
 typedef struct {
     const char *trait_name;  // trait name (raw text)
     const char *struct_name; // struct/type name (raw text)
-} CBMImplTrait;
+} CtxImplTrait;
 
 // LSP-resolved call: high-confidence type-aware call resolution
 typedef struct {
@@ -223,111 +223,111 @@ typedef struct {
     const char *strategy;  // "lsp_type_dispatch", "lsp_direct", etc.
     float confidence;      // 0.90-0.95
     const char *reason;    // diagnostic label for unresolved calls (NULL if resolved)
-} CBMResolvedCall;
+} CtxResolvedCall;
 
 typedef struct {
-    CBMResolvedCall *items;
+    CtxResolvedCall *items;
     int count;
     int cap;
-} CBMResolvedCallArray;
+} CtxResolvedCallArray;
 
 // Growable arrays used during extraction.
 typedef struct {
-    CBMDefinition *items;
+    CtxDefinition *items;
     int count;
     int cap;
-} CBMDefArray;
+} CtxDefArray;
 
 typedef struct {
-    CBMCall *items;
+    CtxCall *items;
     int count;
     int cap;
-} CBMCallArray;
+} CtxCallArray;
 
 typedef struct {
-    CBMImport *items;
+    CtxImport *items;
     int count;
     int cap;
-} CBMImportArray;
+} CtxImportArray;
 
 typedef struct {
-    CBMUsage *items;
+    CtxUsage *items;
     int count;
     int cap;
-} CBMUsageArray;
+} CtxUsageArray;
 
 typedef struct {
-    CBMThrow *items;
+    CtxThrow *items;
     int count;
     int cap;
-} CBMThrowArray;
+} CtxThrowArray;
 
 typedef struct {
-    CBMReadWrite *items;
+    CtxReadWrite *items;
     int count;
     int cap;
-} CBMRWArray;
+} CtxRWArray;
 
 typedef struct {
-    CBMTypeRef *items;
+    CtxTypeRef *items;
     int count;
     int cap;
-} CBMTypeRefArray;
+} CtxTypeRefArray;
 
 typedef struct {
-    CBMEnvAccess *items;
+    CtxEnvAccess *items;
     int count;
     int cap;
-} CBMEnvAccessArray;
+} CtxEnvAccessArray;
 
 typedef struct {
-    CBMTypeAssign *items;
+    CtxTypeAssign *items;
     int count;
     int cap;
-} CBMTypeAssignArray;
+} CtxTypeAssignArray;
 
 typedef struct {
-    CBMStringRef *items;
+    CtxStringRef *items;
     int count;
     int cap;
-} CBMStringRefArray;
+} CtxStringRefArray;
 
 typedef struct {
-    CBMInfraBinding *items;
+    CtxInfraBinding *items;
     int count;
     int cap;
-} CBMInfraBindingArray;
+} CtxInfraBindingArray;
 
 typedef struct {
-    CBMImplTrait *items;
+    CtxImplTrait *items;
     int count;
     int cap;
-} CBMImplTraitArray;
+} CtxImplTraitArray;
 
 typedef struct {
-    CBMChannel *items;
+    CtxChannel *items;
     int count;
     int cap;
-} CBMChannelArray;
+} CtxChannelArray;
 
 // Full extraction result for one file.
 typedef struct {
-    CBMArena arena; // owns all string memory
+    CtxArena arena; // owns all string memory
 
-    CBMDefArray defs;
-    CBMCallArray calls;
-    CBMImportArray imports;
-    CBMUsageArray usages;
-    CBMThrowArray throws;
-    CBMRWArray rw;
-    CBMTypeRefArray type_refs;
-    CBMEnvAccessArray env_accesses;
-    CBMTypeAssignArray type_assigns;
-    CBMImplTraitArray impl_traits;       // Rust: impl Trait for Struct pairs
-    CBMResolvedCallArray resolved_calls; // LSP-resolved calls (high confidence)
-    CBMStringRefArray string_refs;       // URL/config string literals from AST
-    CBMInfraBindingArray infra_bindings; // topic→URL pairs from IaC configs
-    CBMChannelArray channels;            // Socket.IO / EventEmitter pub/sub participation
+    CtxDefArray defs;
+    CtxCallArray calls;
+    CtxImportArray imports;
+    CtxUsageArray usages;
+    CtxThrowArray throws;
+    CtxRWArray rw;
+    CtxTypeRefArray type_refs;
+    CtxEnvAccessArray env_accesses;
+    CtxTypeAssignArray type_assigns;
+    CtxImplTraitArray impl_traits;       // Rust: impl Trait for Struct pairs
+    CtxResolvedCallArray resolved_calls; // LSP-resolved calls (high confidence)
+    CtxStringRefArray string_refs;       // URL/config string literals from AST
+    CtxInfraBindingArray infra_bindings; // topic→URL pairs from IaC configs
+    CtxChannelArray channels;            // Socket.IO / EventEmitter pub/sub participation
 
     const char *module_qn;    // module qualified name
     const char **exports;     // NULL-terminated (NULL if none)
@@ -340,8 +340,8 @@ typedef struct {
     bool is_test_file;
     int imports_count;
     TSTree *cached_tree;     // retained parse tree (caller frees via ctx_free_tree)
-    CBMLanguage cached_lang; // language of cached tree (for parser selection)
-} CBMFileResult;
+    CtxLanguage cached_lang; // language of cached tree (for parser selection)
+} CtxFileResult;
 
 // --- Enclosing function cache ---
 // Avoids repeated parent-chain walks for nodes within the same function body.
@@ -367,22 +367,22 @@ typedef struct {
     const char *names[CTX_MAX_STRING_CONSTANTS];
     const char *values[CTX_MAX_STRING_CONSTANTS];
     int count;
-} CBMStringConstantMap;
+} CtxStringConstantMap;
 
 typedef struct {
-    CBMArena *arena;
-    CBMFileResult *result;
+    CtxArena *arena;
+    CtxFileResult *result;
     const char *source;
     int source_len;
-    CBMLanguage language;
+    CtxLanguage language;
     const char *project;
     const char *rel_path;
     const char *module_qn;
     TSNode root;
     EFCache ef_cache;                      // enclosing function cache
     const char *enclosing_class_qn;        // for nested class QN computation
-    CBMStringConstantMap string_constants; // module-level NAME = "value" pairs
-} CBMExtractCtx;
+    CtxStringConstantMap string_constants; // module-level NAME = "value" pairs
+} CtxExtractCtx;
 
 // --- Public API ---
 
@@ -392,17 +392,17 @@ int ctx_init(void);
 // Extract all data from one file. Caller must call ctx_free_result().
 // source must remain valid for the duration of the call.
 // timeout_micros: per-file parse timeout in microseconds (0 = no timeout).
-CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage language,
+CtxFileResult *ctx_extract_file(const char *source, int source_len, CtxLanguage language,
                                 const char *project, const char *rel_path, int64_t timeout_micros,
                                 const char **extra_defines, // NULL-terminated, or NULL
                                 const char **include_paths  // NULL-terminated, or NULL
 );
 
 // Free all memory associated with a result.
-void ctx_free_result(CBMFileResult *result);
+void ctx_free_result(CtxFileResult *result);
 
 // Free only the cached tree from a result (caller retained it for reuse).
-void ctx_free_tree(CBMFileResult *result);
+void ctx_free_tree(CtxFileResult *result);
 
 // Free a standalone TSTree pointer (for Go layer cleanup).
 void ctx_free_tree_ptr(TSTree *tree);
@@ -410,7 +410,7 @@ void ctx_free_tree_ptr(TSTree *tree);
 // Parse a source string with the given language grammar.
 // Returns a TSTree* (caller must ts_tree_delete). Returns NULL on failure.
 // Uses the thread-local parser pool for efficiency.
-TSTree *ctx_parse_string(const char *source, int source_len, CBMLanguage language);
+TSTree *ctx_parse_string(const char *source, int source_len, CtxLanguage language);
 
 // Reset the thread-local parser's internal state, releasing slab-allocated
 // subtrees. Must be called BEFORE ctx_slab_reset_thread() so the slab rebuild
@@ -438,37 +438,37 @@ void ctx_reset_profile(void);
 // --- Internal helpers used by extractors ---
 
 // Growable array push functions (arena-allocated, no individual free needed).
-void ctx_defs_push(CBMDefArray *arr, CBMArena *a, CBMDefinition def);
-void ctx_calls_push(CBMCallArray *arr, CBMArena *a, CBMCall call);
-void ctx_imports_push(CBMImportArray *arr, CBMArena *a, CBMImport imp);
-void ctx_usages_push(CBMUsageArray *arr, CBMArena *a, CBMUsage usage);
-void ctx_throws_push(CBMThrowArray *arr, CBMArena *a, CBMThrow thr);
-void ctx_rw_push(CBMRWArray *arr, CBMArena *a, CBMReadWrite rw);
-void ctx_typerefs_push(CBMTypeRefArray *arr, CBMArena *a, CBMTypeRef tr);
-void ctx_envaccess_push(CBMEnvAccessArray *arr, CBMArena *a, CBMEnvAccess ea);
-void ctx_typeassign_push(CBMTypeAssignArray *arr, CBMArena *a, CBMTypeAssign ta);
-void ctx_stringref_push(CBMStringRefArray *arr, CBMArena *a, CBMStringRef sr);
-void ctx_infrabinding_push(CBMInfraBindingArray *arr, CBMArena *a, CBMInfraBinding ib);
-void ctx_impltrait_push(CBMImplTraitArray *arr, CBMArena *a, CBMImplTrait it);
-void ctx_resolvedcall_push(CBMResolvedCallArray *arr, CBMArena *a, CBMResolvedCall rc);
-void ctx_channels_push(CBMChannelArray *arr, CBMArena *a, CBMChannel ch);
+void ctx_defs_push(CtxDefArray *arr, CtxArena *a, CtxDefinition def);
+void ctx_calls_push(CtxCallArray *arr, CtxArena *a, CtxCall call);
+void ctx_imports_push(CtxImportArray *arr, CtxArena *a, CtxImport imp);
+void ctx_usages_push(CtxUsageArray *arr, CtxArena *a, CtxUsage usage);
+void ctx_throws_push(CtxThrowArray *arr, CtxArena *a, CtxThrow thr);
+void ctx_rw_push(CtxRWArray *arr, CtxArena *a, CtxReadWrite rw);
+void ctx_typerefs_push(CtxTypeRefArray *arr, CtxArena *a, CtxTypeRef tr);
+void ctx_envaccess_push(CtxEnvAccessArray *arr, CtxArena *a, CtxEnvAccess ea);
+void ctx_typeassign_push(CtxTypeAssignArray *arr, CtxArena *a, CtxTypeAssign ta);
+void ctx_stringref_push(CtxStringRefArray *arr, CtxArena *a, CtxStringRef sr);
+void ctx_infrabinding_push(CtxInfraBindingArray *arr, CtxArena *a, CtxInfraBinding ib);
+void ctx_impltrait_push(CtxImplTraitArray *arr, CtxArena *a, CtxImplTrait it);
+void ctx_resolvedcall_push(CtxResolvedCallArray *arr, CtxArena *a, CtxResolvedCall rc);
+void ctx_channels_push(CtxChannelArray *arr, CtxArena *a, CtxChannel ch);
 
 // --- Sub-extractor entry points ---
 
-void ctx_extract_definitions(CBMExtractCtx *ctx);
-void ctx_extract_calls(CBMExtractCtx *ctx);
-void ctx_extract_imports(CBMExtractCtx *ctx);
-void ctx_extract_usages(CBMExtractCtx *ctx);
-void ctx_extract_semantic(CBMExtractCtx *ctx);
-void ctx_extract_type_refs(CBMExtractCtx *ctx);
-void ctx_extract_env_accesses(CBMExtractCtx *ctx);
-void ctx_extract_type_assigns(CBMExtractCtx *ctx);
-void ctx_extract_channels(CBMExtractCtx *ctx);
+void ctx_extract_definitions(CtxExtractCtx *ctx);
+void ctx_extract_calls(CtxExtractCtx *ctx);
+void ctx_extract_imports(CtxExtractCtx *ctx);
+void ctx_extract_usages(CtxExtractCtx *ctx);
+void ctx_extract_semantic(CtxExtractCtx *ctx);
+void ctx_extract_type_refs(CtxExtractCtx *ctx);
+void ctx_extract_env_accesses(CtxExtractCtx *ctx);
+void ctx_extract_type_assigns(CtxExtractCtx *ctx);
+void ctx_extract_channels(CtxExtractCtx *ctx);
 
 // Single-pass unified extraction (replaces the 7 calls above except defs+imports).
-void ctx_extract_unified(CBMExtractCtx *ctx);
+void ctx_extract_unified(CtxExtractCtx *ctx);
 
 // K8s / Kustomize semantic extractor (called when language is CTX_LANG_K8S or CTX_LANG_KUSTOMIZE).
-void ctx_extract_k8s(CBMExtractCtx *ctx);
+void ctx_extract_k8s(CtxExtractCtx *ctx);
 
 #endif // CTX_H

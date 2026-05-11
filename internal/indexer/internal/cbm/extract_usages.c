@@ -11,10 +11,10 @@ enum { MAX_PARENT_DEPTH = 10, LAST_IDX = 1 };
 #include <ctype.h>
 
 // Forward declaration
-static void walk_usages(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec);
+static void walk_usages(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec);
 
 // Check if a node is inside a call expression (to avoid double-counting as usage)
-static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
+static bool is_inside_call(TSNode node, const CtxLangSpec *spec) {
     TSNode cur = ts_node_parent(node);
     int depth = 0;
     while (!ts_node_is_null(cur) && depth < MAX_PARENT_DEPTH) {
@@ -28,7 +28,7 @@ static bool is_inside_call(TSNode node, const CBMLangSpec *spec) {
 }
 
 // Check if a node is inside an import statement
-static bool is_inside_import(TSNode node, const CBMLangSpec *spec) {
+static bool is_inside_import(TSNode node, const CtxLangSpec *spec) {
     if (!spec->import_node_types || !spec->import_node_types[0]) {
         return false;
     }
@@ -45,7 +45,7 @@ static bool is_inside_import(TSNode node, const CBMLangSpec *spec) {
 }
 
 // Is this an identifier-like node that represents a reference?
-static bool is_reference_node(TSNode node, CBMLanguage lang) {
+static bool is_reference_node(TSNode node, CtxLanguage lang) {
     const char *kind = ts_node_type(node);
 
     // Common identifier types across languages
@@ -86,7 +86,7 @@ static bool is_definition_name(TSNode node) {
 }
 
 // Try to emit a usage for a reference node. Returns early if the node should be skipped.
-static void try_emit_usage(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec) {
+static void try_emit_usage(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec) {
     if (!is_reference_node(node, ctx->language)) {
         return;
     }
@@ -98,7 +98,7 @@ static void try_emit_usage(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *s
     }
     char *name = ctx_node_text(ctx->arena, node, ctx->source);
     if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
-        CBMUsage usage;
+        CtxUsage usage;
         usage.ref_name = name;
         usage.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
         ctx_usages_push(&ctx->result->usages, ctx->arena, usage);
@@ -107,7 +107,7 @@ static void try_emit_usage(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *s
 
 // Iterative usage walker — explicit stack
 #define USAGES_STACK_CAP 4096
-static void walk_usages(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
+static void walk_usages(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec) {
     TSNode stack[USAGES_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -122,8 +122,8 @@ static void walk_usages(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec
     }
 }
 
-void ctx_extract_usages(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_usages(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }
@@ -134,7 +134,7 @@ void ctx_extract_usages(CBMExtractCtx *ctx) {
 // --- Unified handler: called once per node by the cursor walk ---
 // Uses WalkState flags instead of parent-chain walks for O(1) context checks.
 
-void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+void handle_usages(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state) {
     (void)spec;
     if (!is_reference_node(node, ctx->language)) {
         return;
@@ -162,7 +162,7 @@ void handle_usages(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Wal
 
     char *name = ctx_node_text(ctx->arena, node, ctx->source);
     if (name && name[0] && !ctx_is_keyword(name, ctx->language)) {
-        CBMUsage usage;
+        CtxUsage usage;
         usage.ref_name = name;
         usage.enclosing_func_qn = state->enclosing_func_qn;
         ctx_usages_push(&ctx->result->usages, ctx->arena, usage);

@@ -67,10 +67,10 @@ typedef CTX_DYN_ARRAY(char *) qn_array_t;
 
 struct ctx_registry {
     /* exact: qualifiedName → label string (heap-owned copies) */
-    CBMHashTable *exact;
+    CtxHashTable *exact;
 
     /* byName: simpleName → qn_array_t* (heap-owned) */
-    CBMHashTable *by_name;
+    CtxHashTable *by_name;
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────── */

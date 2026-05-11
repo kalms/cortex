@@ -3628,7 +3628,7 @@ TEST(k8s_extract_kustomize) {
                       "resources:\n"
                       "  - deployment.yaml\n"
                       "  - service.yaml\n";
-    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_KUSTOMIZE, "myproj",
+    CtxFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_KUSTOMIZE, "myproj",
                                         "base/kustomization.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT_GTE(r->imports.count, 2);
@@ -3655,7 +3655,7 @@ TEST(k8s_extract_manifest) {
                       "metadata:\n"
                       "  name: my-app\n"
                       "  namespace: production\n";
-    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
+    CtxFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/deployment.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT_GTE(r->defs.count, 1);
@@ -3674,7 +3674,7 @@ TEST(k8s_extract_manifest) {
 
 TEST(k8s_extract_manifest_no_name) {
     const char *src = "apiVersion: apps/v1\nkind: Deployment\n";
-    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
+    CtxFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/deploy.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     /* No crash — defs count may be 0 because metadata.name is absent */
@@ -3702,7 +3702,7 @@ TEST(k8s_extract_manifest_multidoc) {
                       "kind: Service\n"
                       "metadata:\n"
                       "  name: my-svc\n";
-    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
+    CtxFileResult *r = ctx_extract_file(src, (int)strlen(src), CTX_LANG_K8S, "myproj",
                                         "k8s/multi.yaml", 0, NULL, NULL);
     ASSERT(r != NULL);
     ASSERT(!r->has_error);

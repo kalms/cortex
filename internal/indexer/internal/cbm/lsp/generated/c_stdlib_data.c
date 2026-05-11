@@ -10,7 +10,7 @@
     rf.min_params = -1; \
     rf.qualified_name = (qn); \
     rf.short_name = (short); \
-    rf.signature = ctx_type_func(arena, NULL, NULL, (const CBMType*[]){(ret_type), NULL}); \
+    rf.signature = ctx_type_func(arena, NULL, NULL, (const CtxType*[]){(ret_type), NULL}); \
     ctx_registry_add_func(reg, rf); \
 } while(0)
 
@@ -21,20 +21,20 @@
     ctx_registry_add_type(reg, rt); \
 } while(0)
 
-void ctx_c_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
-    CBMRegisteredFunc rf;
-    CBMRegisteredType rt;
+void ctx_c_stdlib_register(CtxTypeRegistry* reg, CtxArena* arena) {
+    CtxRegisteredFunc rf;
+    CtxRegisteredType rt;
 
-    const CBMType* t_int = ctx_type_builtin(arena, "int");
-    const CBMType* t_size_t = ctx_type_builtin(arena, "size_t");
-    const CBMType* t_double = ctx_type_builtin(arena, "double");
-    const CBMType* t_void = ctx_type_builtin(arena, "void");
-    const CBMType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "char"));
-    const CBMType* t_void_ptr = ctx_type_pointer(arena, t_void);
+    const CtxType* t_int = ctx_type_builtin(arena, "int");
+    const CtxType* t_size_t = ctx_type_builtin(arena, "size_t");
+    const CtxType* t_double = ctx_type_builtin(arena, "double");
+    const CtxType* t_void = ctx_type_builtin(arena, "void");
+    const CtxType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "char"));
+    const CtxType* t_void_ptr = ctx_type_pointer(arena, t_void);
 
     // FILE type
     REG_TYPE("FILE", "FILE");
-    const CBMType* t_file_ptr = ctx_type_pointer(arena, ctx_type_named(arena, "FILE"));
+    const CtxType* t_file_ptr = ctx_type_pointer(arena, ctx_type_named(arena, "FILE"));
 
     // stdio.h
     REG_FUNC("fopen", "fopen", t_file_ptr);

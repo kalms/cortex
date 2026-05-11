@@ -76,7 +76,7 @@ static bool is_checked_exception(const char *name) {
 }
 
 /* Build import map from cached extraction result (fast path). */
-static int build_import_map_from_cache(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int build_import_map_from_cache(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                        const char ***out_keys, const char ***out_vals,
                                        int *out_count) {
     const char **keys = calloc((size_t)result->imports.count, sizeof(const char *));
@@ -84,7 +84,7 @@ static int build_import_map_from_cache(ctx_pipeline_ctx_t *ctx, const CBMFileRes
     int count = 0;
 
     for (int i = 0; i < result->imports.count; i++) {
-        const CBMImport *imp = &result->imports.items[i];
+        const CtxImport *imp = &result->imports.items[i];
         if (!imp->local_name || !imp->local_name[0] || !imp->module_path) {
             continue;
         }
@@ -155,7 +155,7 @@ static int build_import_map_from_edges(ctx_pipeline_ctx_t *ctx, const char *rel_
 
 /* Build per-file import map from cached extraction result or graph buffer edges. */
 static int build_import_map(ctx_pipeline_ctx_t *ctx, const char *rel_path,
-                            const CBMFileResult *result, const char ***out_keys,
+                            const CtxFileResult *result, const char ***out_keys,
                             const char ***out_vals, int *out_count) {
     *out_keys = NULL;
     *out_vals = NULL;
@@ -195,12 +195,12 @@ static const ctx_gbuf_node_t *find_enclosing_node(ctx_pipeline_ctx_t *ctx, const
 }
 
 /* Resolve USAGE edges for one file's extracted usages. */
-static int resolve_usage_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int resolve_usage_edges(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                const char *rel, const char *module_qn, const char **imp_keys,
                                const char **imp_vals, int imp_count) {
     int resolved = 0;
     for (int u = 0; u < result->usages.count; u++) {
-        CBMUsage *usage = &result->usages.items[u];
+        CtxUsage *usage = &result->usages.items[u];
         if (!usage->ref_name) {
             continue;
         }
@@ -230,12 +230,12 @@ static int resolve_usage_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *res
 }
 
 /* Resolve THROWS/RAISES edges for one file's extracted throws. */
-static int resolve_throw_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int resolve_throw_edges(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                const char *rel, const char *module_qn, const char **imp_keys,
                                const char **imp_vals, int imp_count) {
     int resolved = 0;
     for (int t = 0; t < result->throws.count; t++) {
-        CBMThrow *thr = &result->throws.items[t];
+        CtxThrow *thr = &result->throws.items[t];
         if (!thr->exception_name || !thr->enclosing_func_qn) {
             continue;
         }
@@ -264,12 +264,12 @@ static int resolve_throw_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *res
 }
 
 /* Resolve READS/WRITES edges for one file's extracted read/write accesses. */
-static int resolve_rw_edges(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result, const char *rel,
+static int resolve_rw_edges(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result, const char *rel,
                             const char *module_qn, const char **imp_keys, const char **imp_vals,
                             int imp_count) {
     int resolved = 0;
     for (int r = 0; r < result->rw.count; r++) {
-        CBMReadWrite *rw = &result->rw.items[r];
+        CtxReadWrite *rw = &result->rw.items[r];
         if (!rw->var_name) {
             continue;
         }
@@ -314,7 +314,7 @@ int ctx_pipeline_pass_usages(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *fil
         const char *path = files[i].path;
         const char *rel = files[i].rel_path;
 
-        CBMFileResult *result = NULL;
+        CtxFileResult *result = NULL;
         bool result_owned = false;
         if (ctx->result_cache) {
             result = ctx->result_cache[i];

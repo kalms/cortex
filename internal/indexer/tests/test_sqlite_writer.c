@@ -10,7 +10,7 @@
 #include "../src/foundation/compat.h"
 #include "test_framework.h"
 /* sqlite_writer.h is at internal/cbm/ — Makefile adds -Iinternal/cbm */
-#include "sqlite_writer.h" /* CBMDumpNode, CBMDumpEdge, ctx_write_db */
+#include "sqlite_writer.h" /* CtxDumpNode, CtxDumpEdge, ctx_write_db */
 #include "sqlite3.h"       /* vendored/sqlite3/ via -Ivendored/sqlite3 */
 #include <unistd.h>
 
@@ -31,7 +31,7 @@ TEST(sw_minimal_data) {
     char path[256];
     ASSERT_EQ(make_temp_db(path, sizeof(path)), 0);
 
-    CBMDumpNode nodes[2] = {
+    CtxDumpNode nodes[2] = {
         {.id = 1,
          .project = "test",
          .label = "Module",
@@ -51,7 +51,7 @@ TEST(sw_minimal_data) {
          .end_line = 5,
          .properties = "{}"},
     };
-    CBMDumpEdge edges[1] = {
+    CtxDumpEdge edges[1] = {
         {.id = 1,
          .project = "test",
          .source_id = 1,
@@ -125,7 +125,7 @@ TEST(sw_scale_and_indexes) {
     ASSERT_EQ(make_temp_db(path, sizeof(path)), 0);
 
     /* 100 nodes across multiple files/labels */
-    CBMDumpNode nodes[100];
+    CtxDumpNode nodes[100];
     const char *labels[] = {"Function", "Method", "Class", "Module", "Variable"};
     const char *files[] = {"alpha.go", "beta.go", "gamma.py", "delta.ts", "epsilon.rs"};
     char names[100][32];
@@ -134,7 +134,7 @@ TEST(sw_scale_and_indexes) {
     for (int i = 0; i < 100; i++) {
         snprintf(names[i], sizeof(names[i]), "sym_%03d", i);
         snprintf(qns[i], sizeof(qns[i]), "proj.pkg.sym_%03d", i);
-        nodes[i] = (CBMDumpNode){
+        nodes[i] = (CtxDumpNode){
             .id = i + 1,
             .project = "proj",
             .label = labels[i % 5],
@@ -149,7 +149,7 @@ TEST(sw_scale_and_indexes) {
 
     /* 200 edges with varied types — build unique (source, target, type) combos */
     const char *edge_types[] = {"CALLS", "DEFINES", "IMPORTS", "IMPLEMENTS", "USES"};
-    CBMDumpEdge edges[200];
+    CtxDumpEdge edges[200];
     char eprops[200][80];
     int edge_count = 0;
     int64_t edge_id = 1;
@@ -183,7 +183,7 @@ TEST(sw_scale_and_indexes) {
 
         snprintf(eprops[edge_count], sizeof(eprops[edge_count]), "{\"weight\":%d}", i);
 
-        edges[edge_count] = (CBMDumpEdge){
+        edges[edge_count] = (CtxDumpEdge){
             .id = edge_id++,
             .project = "proj",
             .source_id = src,
@@ -304,7 +304,7 @@ TEST(sw_multi_page) {
 
     /* 192 nodes — enough to trigger multi-page B-tree */
     int N = 192;
-    CBMDumpNode nodes[192];
+    CtxDumpNode nodes[192];
     char node_names[192][16];
     char node_qns[192][32];
     char node_files[192][32];
@@ -313,7 +313,7 @@ TEST(sw_multi_page) {
         snprintf(node_names[i], sizeof(node_names[i]), "f%04d", i);
         snprintf(node_qns[i], sizeof(node_qns[i]), "p.f%04d", i);
         snprintf(node_files[i], sizeof(node_files[i]), "pkg%d/file.go", i % 10);
-        nodes[i] = (CBMDumpNode){
+        nodes[i] = (CtxDumpNode){
             .id = (int64_t)(i + 1),
             .project = "p",
             .label = "Function",

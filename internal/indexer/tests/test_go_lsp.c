@@ -16,16 +16,16 @@
 /* ── Helpers ───────────────────────────────────────────────────── */
 
 /* Extract a Go file using ctx_extract_file (runs single-file LSP internally) */
-static CBMFileResult *extract_go(const char *source) {
+static CtxFileResult *extract_go(const char *source) {
     return ctx_extract_file(source, (int)strlen(source), CTX_LANG_GO, "test", "main.go", 0, NULL,
                             NULL);
 }
 
 /* Search resolved_calls for a match where caller contains callerSub
  * and callee contains calleeSub. Returns index or -1. */
-static int find_resolved(const CBMFileResult *r, const char *callerSub, const char *calleeSub) {
+static int find_resolved(const CtxFileResult *r, const char *callerSub, const char *calleeSub) {
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, callerSub) && rc->callee_qn &&
             strstr(rc->callee_qn, calleeSub))
             return i;
@@ -34,13 +34,13 @@ static int find_resolved(const CBMFileResult *r, const char *callerSub, const ch
 }
 
 /* Assert that a resolved call exists. Returns the index. */
-static int require_resolved(const CBMFileResult *r, const char *callerSub, const char *calleeSub) {
+static int require_resolved(const CtxFileResult *r, const char *callerSub, const char *calleeSub) {
     int idx = find_resolved(r, callerSub, calleeSub);
     if (idx < 0) {
         printf("  MISSING resolved call: caller~%s -> callee~%s (have %d)\n", callerSub, calleeSub,
                r->resolved_calls.count);
         for (int i = 0; i < r->resolved_calls.count; i++) {
-            const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+            const CtxResolvedCall *rc = &r->resolved_calls.items[i];
             printf("    %s -> %s [%s %.2f]\n", rc->caller_qn ? rc->caller_qn : "(null)",
                    rc->callee_qn ? rc->callee_qn : "(null)", rc->strategy ? rc->strategy : "(null)",
                    rc->confidence);
@@ -50,10 +50,10 @@ static int require_resolved(const CBMFileResult *r, const char *callerSub, const
 }
 
 /* Count resolved calls matching pattern */
-static int count_resolved(const CBMFileResult *r, const char *callerSub, const char *calleeSub) {
+static int count_resolved(const CtxFileResult *r, const char *callerSub, const char *calleeSub) {
     int n = 0;
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, callerSub) && rc->callee_qn &&
             strstr(rc->callee_qn, calleeSub))
             n++;
@@ -62,10 +62,10 @@ static int count_resolved(const CBMFileResult *r, const char *callerSub, const c
 }
 
 /* Search cross-file resolved calls array */
-static int find_resolved_arr(const CBMResolvedCallArray *arr, const char *callerSub,
+static int find_resolved_arr(const CtxResolvedCallArray *arr, const char *callerSub,
                              const char *calleeSub) {
     for (int i = 0; i < arr->count; i++) {
-        const CBMResolvedCall *rc = &arr->items[i];
+        const CtxResolvedCall *rc = &arr->items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, callerSub) && rc->callee_qn &&
             strstr(rc->callee_qn, calleeSub))
             return i;
@@ -73,10 +73,10 @@ static int find_resolved_arr(const CBMResolvedCallArray *arr, const char *caller
     return -1;
 }
 
-static int find_resolved_arr_confident(const CBMResolvedCallArray *arr, const char *callerSub,
+static int find_resolved_arr_confident(const CtxResolvedCallArray *arr, const char *callerSub,
                                        const char *calleeSub) {
     for (int i = 0; i < arr->count; i++) {
-        const CBMResolvedCall *rc = &arr->items[i];
+        const CtxResolvedCall *rc = &arr->items[i];
         if (rc->confidence > 0 && rc->caller_qn && strstr(rc->caller_qn, callerSub) &&
             rc->callee_qn && strstr(rc->callee_qn, calleeSub))
             return i;
@@ -87,7 +87,7 @@ static int find_resolved_arr_confident(const CBMResolvedCallArray *arr, const ch
 /* ── Category 1: Parameter type inference ──────────────────────── */
 
 TEST(golsp_param_type_simple) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Database struct{}\n\n"
                                   "func (d *Database) Query(sql string) string { return \"\" }\n\n"
                                   "func doWork(db *Database) {\n\tdb.Query(\"SELECT 1\")\n}\n");
@@ -98,7 +98,7 @@ TEST(golsp_param_type_simple) {
 }
 
 TEST(golsp_param_type_multi) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Logger struct{}\ntype Config struct{}\n\n"
                                   "func (l *Logger) Info(msg string) {}\n"
                                   "func (c *Config) Get(key string) string { return \"\" }\n\n"
@@ -114,7 +114,7 @@ TEST(golsp_param_type_multi) {
 /* ── Category 2: Return type propagation ───────────────────────── */
 
 TEST(golsp_return_type) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type File struct{}\n\n"
                    "func (f *File) Read(buf []byte) int { return 0 }\n"
@@ -127,7 +127,7 @@ TEST(golsp_return_type) {
 }
 
 TEST(golsp_return_type_chain) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Builder struct{}\ntype Result struct{}\n\n"
                    "func (b *Builder) Build() *Result { return nil }\n"
@@ -144,7 +144,7 @@ TEST(golsp_return_type_chain) {
 /* ── Category 3: Method chaining ───────────────────────────────── */
 
 TEST(golsp_method_chaining) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Query struct{}\n\n"
                    "func (q *Query) Where(cond string) *Query { return q }\n"
@@ -163,7 +163,7 @@ TEST(golsp_method_chaining) {
 /* ── Category 4: Multi-return ──────────────────────────────────── */
 
 TEST(golsp_multi_return) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Conn struct{}\n\n"
                    "func (c *Conn) Close() error { return nil }\n"
@@ -178,7 +178,7 @@ TEST(golsp_multi_return) {
 /* ── Category 5: Channel receive ───────────────────────────────── */
 
 TEST(golsp_channel_receive) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Event struct{}\n\n"
                    "func (e *Event) Process() {}\n\n"
@@ -192,7 +192,7 @@ TEST(golsp_channel_receive) {
 /* ── Category 6: Range variables ───────────────────────────────── */
 
 TEST(golsp_range_slice) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type User struct{}\n\n"
                                   "func (u *User) Name() string { return \"\" }\n\n"
                                   "func listNames(users []*User) {\n"
@@ -204,7 +204,7 @@ TEST(golsp_range_slice) {
 }
 
 TEST(golsp_range_map) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Service struct{}\n\n"
                                   "func (s *Service) Start() {}\n\n"
                                   "func startAll(services map[string]*Service) {\n"
@@ -218,7 +218,7 @@ TEST(golsp_range_map) {
 /* ── Category 7: Type switch ───────────────────────────────────── */
 
 TEST(golsp_type_switch) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Dog struct{}\ntype Cat struct{}\n\n"
                                   "func (d *Dog) Speak() string { return \"woof\" }\n"
                                   "func (c *Cat) Speak() string { return \"meow\" }\n\n"
@@ -231,7 +231,7 @@ TEST(golsp_type_switch) {
     ASSERT_GT(n, 0);
     /* Verify strategy is type_dispatch */
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->caller_qn && strstr(rc->caller_qn, "describe") && rc->callee_qn &&
             strstr(rc->callee_qn, "Speak") && rc->confidence > 0) {
             ASSERT_STR_EQ(rc->strategy, "lsp_type_dispatch");
@@ -244,7 +244,7 @@ TEST(golsp_type_switch) {
 /* ── Category 8: Closures ──────────────────────────────────────── */
 
 TEST(golsp_closure) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Database struct{}\n\n"
                                   "func (db *Database) Query() {}\n\n"
                                   "func startWorker(db *Database) {\n"
@@ -258,7 +258,7 @@ TEST(golsp_closure) {
 /* ── Category 9: Composite literals ────────────────────────────── */
 
 TEST(golsp_composite_literal) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Config struct{}\n\n"
                                   "func (c *Config) Validate() bool { return true }\n\n"
                                   "func makeConfig() {\n\tc := &Config{}\n\tc.Validate()\n}\n");
@@ -269,7 +269,7 @@ TEST(golsp_composite_literal) {
 }
 
 TEST(golsp_composite_literal_direct) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Handler struct{}\n\n"
                                   "func (h *Handler) ServeHTTP() {}\n\n"
                                   "func serve() {\n\t(&Handler{}).ServeHTTP()\n}\n");
@@ -282,7 +282,7 @@ TEST(golsp_composite_literal_direct) {
 /* ── Category 10: Builtins (make) ──────────────────────────────── */
 
 TEST(golsp_make_slice) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Item struct{}\n\n"
                    "func (it *Item) Process() {}\n\n"
@@ -296,7 +296,7 @@ TEST(golsp_make_slice) {
 /* ── Category 11: Type assertions ──────────────────────────────── */
 
 TEST(golsp_type_assertion) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Writer struct{}\n\n"
                    "func (w *Writer) Write(data []byte) int { return 0 }\n\n"
@@ -310,7 +310,7 @@ TEST(golsp_type_assertion) {
 /* ── Category 12: Struct embedding ─────────────────────────────── */
 
 TEST(golsp_struct_embedding) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Base struct{}\n\n"
                                   "func (b *Base) Save() {}\n\n"
                                   "type Extended struct {\n\tBase\n}\n\n"
@@ -326,7 +326,7 @@ TEST(golsp_struct_embedding) {
 /* ── Category 13: Interface dispatch ───────────────────────────── */
 
 TEST(golsp_interface_dispatch) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Writer interface {\n\tWrite(data []byte) int\n}\n\n"
                                   "func writeAll(w Writer) {\n\tw.Write(nil)\n}\n");
     ASSERT_NOT_NULL(r);
@@ -341,7 +341,7 @@ TEST(golsp_interface_dispatch) {
 /* ── Category 14-15: Generics ──────────────────────────────────── */
 
 TEST(golsp_explicit_generics) {
-    CBMFileResult *r = extract_go(
+    CtxFileResult *r = extract_go(
         "package main\n\n"
         "type User struct{}\nfunc (u User) Name() string { return \"\" }\n\n"
         "type Result struct{}\nfunc (r Result) Value() int { return 0 }\n\n"
@@ -362,7 +362,7 @@ TEST(golsp_explicit_generics) {
 }
 
 TEST(golsp_implicit_generics) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type User struct{}\nfunc (u User) Name() string { return \"\" }\n\n"
                    "func Filter[T any](s []T, pred func(T) bool) []T { return nil }\n\n"
@@ -380,7 +380,7 @@ TEST(golsp_implicit_generics) {
 /* ── Return types + param names ────────────────────────────────── */
 
 TEST(golsp_return_types_extracted) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Foo struct{}\n\n"
                                   "func GetFoo() *Foo { return nil }\n"
                                   "func Multi() (int, error) { return 0, nil }\n");
@@ -404,7 +404,7 @@ TEST(golsp_return_types_extracted) {
 }
 
 TEST(golsp_param_names_extracted) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "func Process(name string, count int, verbose bool) {}\n");
     ASSERT_NOT_NULL(r);
     /* Verify param_names on the Process def */
@@ -424,7 +424,7 @@ TEST(golsp_param_names_extracted) {
 /* ── Direct function calls ─────────────────────────────────────── */
 
 TEST(golsp_direct_func_call) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "func helper() int { return 42 }\n\n"
                                   "func caller() {\n\thelper()\n}\n");
     ASSERT_NOT_NULL(r);
@@ -436,7 +436,7 @@ TEST(golsp_direct_func_call) {
 /* ── Stdlib integration ────────────────────────────────────────── */
 
 TEST(golsp_stdlib_os_open) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "import \"os\"\n\n"
                                   "func readFile(path string) {\n"
                                   "\tf, _ := os.Open(path)\n\tf.Close()\n}\n");
@@ -448,7 +448,7 @@ TEST(golsp_stdlib_os_open) {
 }
 
 TEST(golsp_stdlib_fmt_sprintf) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "import \"fmt\"\n\n"
                                   "func format(name string) string {\n"
                                   "\treturn fmt.Sprintf(\"hello %s\", name)\n}\n");
@@ -461,7 +461,7 @@ TEST(golsp_stdlib_fmt_sprintf) {
 /* ── Select receive ────────────────────────────────────────────── */
 
 TEST(golsp_select_receive) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Msg struct{}\n\n"
                                   "func (m *Msg) Process() {}\n\n"
                                   "func worker(ch chan *Msg, done chan bool) {\n"
@@ -476,7 +476,7 @@ TEST(golsp_select_receive) {
 /* ── Struct field access ───────────────────────────────────────── */
 
 TEST(golsp_struct_field_access) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type User struct {\n\tName    string\n\tAge     int\n\tProfile *Profile\n}\n\n"
                    "type Profile struct {\n\tBio string\n}\n\n"
@@ -491,7 +491,7 @@ TEST(golsp_struct_field_access) {
 /* ── Pointer/value receivers ───────────────────────────────────── */
 
 TEST(golsp_pointer_value_receivers) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Conn struct{}\n\n"
                                   "func (c *Conn) Close() {}\n"
                                   "func (c Conn) Status() string { return \"\" }\n\n"
@@ -509,7 +509,7 @@ TEST(golsp_pointer_value_receivers) {
 /* ── Diagnostics ───────────────────────────────────────────────── */
 
 TEST(golsp_diagnostics) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "import \"unknownpkg\"\n\n"
                                   "func doStuff() {\n"
                                   "\tunknownpkg.Foo()\n\tx := getUnknown()\n\tx.Bar()\n}\n");
@@ -517,7 +517,7 @@ TEST(golsp_diagnostics) {
     /* Should have at least one diagnostic (confidence==0, reason non-null) */
     int diag_count = 0;
     for (int i = 0; i < r->resolved_calls.count; i++) {
-        const CBMResolvedCall *rc = &r->resolved_calls.items[i];
+        const CtxResolvedCall *rc = &r->resolved_calls.items[i];
         if (rc->confidence == 0 && rc->reason != NULL && strlen(rc->reason) > 0) {
             diag_count++;
             ASSERT_STR_EQ(rc->strategy, "lsp_unresolved");
@@ -531,7 +531,7 @@ TEST(golsp_diagnostics) {
 /* ── Variadic args ─────────────────────────────────────────────── */
 
 TEST(golsp_variadic_args) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Logger struct{}\n\n"
                                   "func (l *Logger) Info(msg string) {}\n\n"
                                   "func logAll(loggers ...*Logger) {\n"
@@ -547,7 +547,7 @@ TEST(golsp_variadic_args) {
 /* ── Named returns ─────────────────────────────────────────────── */
 
 TEST(golsp_named_returns) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Conn struct{}\n\n"
                                   "func (c *Conn) Close() {}\n\n"
                                   "func open() (conn *Conn, err error) {\n"
@@ -563,7 +563,7 @@ TEST(golsp_named_returns) {
 /* ── Type alias ────────────────────────────────────────────────── */
 
 TEST(golsp_type_alias) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Base struct{}\n\n"
                                   "func (b *Base) DoWork() {}\n\n"
                                   "type Alias = Base\n\n"
@@ -579,7 +579,7 @@ TEST(golsp_type_alias) {
 /* ── Interface satisfaction (single implementer) ───────────────── */
 
 TEST(golsp_interface_satisfaction) {
-    CBMFileResult *r = extract_go(
+    CtxFileResult *r = extract_go(
         "package main\n\n"
         "type DataProcessor interface {\n"
         "\tProcessChunk(data []byte) (int, error)\n"
@@ -606,7 +606,7 @@ TEST(golsp_interface_satisfaction) {
 /* ── Package-level var/const ───────────────────────────────────── */
 
 TEST(golsp_package_level_var) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Database struct{}\n\n"
                                   "func (d *Database) Query(sql string) string { return \"\" }\n\n"
                                   "func NewDatabase() *Database { return &Database{} }\n\n"
@@ -619,7 +619,7 @@ TEST(golsp_package_level_var) {
 }
 
 TEST(golsp_package_level_const) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Logger struct{}\n\n"
                                   "func (l *Logger) Info(msg string) {}\n\n"
                                   "func NewLogger() *Logger { return &Logger{} }\n\n"
@@ -634,7 +634,7 @@ TEST(golsp_package_level_const) {
 /* ── If-init ───────────────────────────────────────────────────── */
 
 TEST(golsp_if_init) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type MyError struct{}\n\n"
                                   "func (e *MyError) Error() string { return \"\" }\n"
                                   "func (e *MyError) Code() int { return 0 }\n\n"
@@ -650,7 +650,7 @@ TEST(golsp_if_init) {
 /* ── Embedded field promotion ──────────────────────────────────── */
 
 TEST(golsp_embedded_field_promotion) {
-    CBMFileResult *r = extract_go(
+    CtxFileResult *r = extract_go(
         "package main\n\n"
         "type Inner struct {\n\tName string\n}\n\n"
         "type Outer struct {\n\tInner\n}\n\n"
@@ -666,7 +666,7 @@ TEST(golsp_embedded_field_promotion) {
 /* ── For-init ──────────────────────────────────────────────────── */
 
 TEST(golsp_for_init) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Counter struct{}\n\n"
                    "func (c *Counter) Value() int { return 0 }\n\n"
@@ -682,7 +682,7 @@ TEST(golsp_for_init) {
 /* ── Type conversion ───────────────────────────────────────────── */
 
 TEST(golsp_type_conversion) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type MyString string\n\n"
                                   "func (s MyString) Upper() string { return \"\" }\n\n"
                                   "func convert() {\n\ts := MyString(\"hello\")\n\ts.Upper()\n}\n");
@@ -695,7 +695,7 @@ TEST(golsp_type_conversion) {
 /* ── Multi-name var ────────────────────────────────────────────── */
 
 TEST(golsp_multi_name_var) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Config struct{}\n\n"
                    "func (c *Config) Get(key string) string { return \"\" }\n\n"
@@ -711,7 +711,7 @@ TEST(golsp_multi_name_var) {
 /* ── Switch init ───────────────────────────────────────────────── */
 
 TEST(golsp_switch_init) {
-    CBMFileResult *r = extract_go("package main\n\n"
+    CtxFileResult *r = extract_go("package main\n\n"
                                   "type Validator struct{}\n\n"
                                   "func (v *Validator) Check() bool { return true }\n\n"
                                   "func NewValidator() *Validator { return &Validator{} }\n\n"
@@ -727,7 +727,7 @@ TEST(golsp_switch_init) {
 /* ── Interface method dispatch (single file) ───────────────────── */
 
 TEST(golsp_interface_method_single_file) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Binder interface {\n\tBind(target any) error\n}\n\n"
                    "type DefaultBinder struct{}\n\n"
@@ -746,7 +746,7 @@ TEST(golsp_interface_method_single_file) {
 /* ── Interface method dispatch (field chain) ───────────────────── */
 
 TEST(golsp_interface_method_field_chain) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract_go("package main\n\n"
                    "type Binder interface {\n\tBind(target any) error\n}\n\n"
                    "type DefaultBinder struct{}\n"
@@ -773,7 +773,7 @@ TEST(golsp_crossfile_method_dispatch) {
                          "\tconn := db.Connect(\"localhost\")\n"
                          "\tconn.Query(\"SELECT 1\")\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.doQuery",
          .short_name = "doQuery",
          .label = "Function",
@@ -796,9 +796,9 @@ TEST(golsp_crossfile_method_dispatch) {
     const char *imp_names[] = {"db"};
     const char *imp_qns[] = {"myapp/db"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -819,7 +819,7 @@ TEST(golsp_crossfile_return_type_chain) {
                          "\tuser := repo.GetUser(1)\n"
                          "\tuser.Name()\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.showUser",
          .short_name = "showUser",
          .label = "Function",
@@ -842,9 +842,9 @@ TEST(golsp_crossfile_return_type_chain) {
     const char *imp_names[] = {"repo"};
     const char *imp_qns[] = {"myapp/repo"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -859,7 +859,7 @@ TEST(golsp_crossfile_interface_dispatch) {
                          "import \"myapp/svc\"\n\n"
                          "func handler(b svc.Binder) {\n\tb.Bind(\"data\")\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.handler",
          .short_name = "handler",
          .label = "Function",
@@ -882,9 +882,9 @@ TEST(golsp_crossfile_interface_dispatch) {
     const char *imp_names[] = {"svc"};
     const char *imp_qns[] = {"myapp/svc"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 4, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -905,7 +905,7 @@ TEST(golsp_crossfile_interface_field_chain) {
                          "type Context struct {\n\techo *echo.Echo\n}\n\n"
                          "func (c *Context) process() {\n\tc.echo.Binder.Bind(\"hello\")\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.Context",
          .short_name = "Context",
          .label = "Type",
@@ -938,9 +938,9 @@ TEST(golsp_crossfile_interface_field_chain) {
     const char *imp_names[] = {"echo"};
     const char *imp_qns[] = {"myapp/echo"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 6, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -960,7 +960,7 @@ TEST(golsp_crossfile_map_index) {
                          "\tif vh, ok := vhosts[host]; ok {\n"
                          "\t\tvh.ServeHTTP(nil, nil)\n\t}\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.dispatch",
          .short_name = "dispatch",
          .label = "Function",
@@ -978,9 +978,9 @@ TEST(golsp_crossfile_map_index) {
     const char *imp_names[] = {"echo"};
     const char *imp_qns[] = {"myapp/echo"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 3, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -999,7 +999,7 @@ TEST(golsp_crossfile_stdlib_interface) {
                          "func process(ctx context.Context) {\n"
                          "\t<-ctx.Done()\n\tctx.Err()\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.process",
          .short_name = "process",
          .label = "Function",
@@ -1008,9 +1008,9 @@ TEST(golsp_crossfile_stdlib_interface) {
     const char *imp_names[] = {"context"};
     const char *imp_qns[] = {"context"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 1, imp_names,
                          imp_qns, 1, NULL, &out);
@@ -1028,7 +1028,7 @@ TEST(golsp_crossfile_local_interface_single_impl) {
         "import \"myapp/svc\"\n\n"
         "func process(s svc.Store) {\n\ts.Get(\"key\")\n\ts.Put(\"key\", \"val\")\n}\n";
 
-    CBMLSPDef defs[] = {
+    CtxLSPDef defs[] = {
         {.qualified_name = "test.main.process",
          .short_name = "process",
          .label = "Function",
@@ -1057,9 +1057,9 @@ TEST(golsp_crossfile_local_interface_single_impl) {
     const char *imp_names[] = {"svc"};
     const char *imp_qns[] = {"myapp/svc"};
 
-    CBMArena arena;
+    CtxArena arena;
     ctx_arena_init(&arena);
-    CBMResolvedCallArray out = {0};
+    CtxResolvedCallArray out = {0};
 
     ctx_run_go_lsp_cross(&arena, source, (int)strlen(source), "test.main", defs, 5, imp_names,
                          imp_qns, 1, NULL, &out);

@@ -7,7 +7,7 @@
  *   - Gitignore-style pattern parsing and matching
  *   - Recursive directory walk with hardcoded + gitignore filtering
  *
- * Depends on: foundation (platform.h for file ops), cbm.h (CBMLanguage enum)
+ * Depends on: foundation (platform.h for file ops), cbm.h (CtxLanguage enum)
  */
 #ifndef CTX_DISCOVER_H
 #define CTX_DISCOVER_H
@@ -15,7 +15,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Use the existing CBMLanguage enum from extraction layer */
+/* Use the existing CtxLanguage enum from extraction layer */
 #include "cbm.h"
 
 /* ── Language detection ──────────────────────────────────────────── */
@@ -24,20 +24,20 @@
  * Checks special filenames first (Makefile, CMakeLists.txt, etc.),
  * then falls back to extension-based lookup.
  * Returns CTX_LANG_COUNT if unknown. */
-CBMLanguage ctx_language_for_filename(const char *filename);
+CtxLanguage ctx_language_for_filename(const char *filename);
 
 /* Detect language from a file extension (including the dot, e.g. ".go").
  * Returns CTX_LANG_COUNT if unknown. */
-CBMLanguage ctx_language_for_extension(const char *ext);
+CtxLanguage ctx_language_for_extension(const char *ext);
 
 /* Get the human-readable name for a language enum value.
  * Returns "Unknown" for CTX_LANG_COUNT or out-of-range values. */
-const char *ctx_language_name(CBMLanguage lang);
+const char *ctx_language_name(CtxLanguage lang);
 
 /* Disambiguate .m files by reading first 4KB of content.
  * Returns CTX_LANG_OBJC, CTX_LANG_MAGMA, or CTX_LANG_MATLAB.
  * On read failure, defaults to CTX_LANG_MATLAB. */
-CBMLanguage ctx_disambiguate_m(const char *path);
+CtxLanguage ctx_disambiguate_m(const char *path);
 
 /* ── Gitignore pattern matching ──────────────────────────────────── */
 
@@ -93,7 +93,7 @@ bool ctx_matches_fast_pattern(const char *filename, ctx_index_mode_t mode);
 typedef struct {
     char *path;           /* absolute path (heap-allocated) */
     char *rel_path;       /* relative to repo root (heap-allocated) */
-    CBMLanguage language; /* detected language */
+    CtxLanguage language; /* detected language */
     int64_t size;         /* file size in bytes */
 } ctx_file_info_t;
 

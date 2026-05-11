@@ -92,7 +92,7 @@ static char *extract_local_name_from_json(const char *props_json) {
 }
 
 static int build_import_map(ctx_pipeline_ctx_t *ctx, const char *rel_path,
-                            const CBMFileResult *result, const char ***out_keys,
+                            const CtxFileResult *result, const char ***out_keys,
                             const char ***out_vals, int *out_count) {
     *out_keys = NULL;
     *out_vals = NULL;
@@ -105,7 +105,7 @@ static int build_import_map(ctx_pipeline_ctx_t *ctx, const char *rel_path,
         int count = 0;
 
         for (int i = 0; i < result->imports.count; i++) {
-            const CBMImport *imp = &result->imports.items[i];
+            const CtxImport *imp = &result->imports.items[i];
             if (!imp->local_name || !imp->local_name[0] || !imp->module_path) {
                 continue;
             }
@@ -179,7 +179,7 @@ static void free_import_map(const char **keys, const char **vals, int count) {
 }
 
 /* Handle a route registration call: create Route node + HANDLES edge. */
-static void handle_route_registration(ctx_pipeline_ctx_t *ctx, const CBMCall *call,
+static void handle_route_registration(ctx_pipeline_ctx_t *ctx, const CtxCall *call,
                                       const ctx_gbuf_node_t *source_node, const char *module_qn,
                                       const char **imp_keys, const char **imp_vals, int imp_count) {
     const char *method = ctx_service_pattern_route_method(call->callee_name);
@@ -230,7 +230,7 @@ static int64_t create_svc_route_node(ctx_pipeline_ctx_t *ctx, const char *url, c
     return ctx_gbuf_upsert_node(ctx->gbuf, "Route", url, route_qn, "", 0, 0, rp);
 }
 
-static void emit_http_async_edge(ctx_pipeline_ctx_t *ctx, const CBMCall *call,
+static void emit_http_async_edge(ctx_pipeline_ctx_t *ctx, const CtxCall *call,
                                  const ctx_gbuf_node_t *source, const ctx_gbuf_node_t *target,
                                  const ctx_resolution_t *res, ctx_svc_kind_t svc) {
     const char *url_or_topic = call->first_string_arg;
@@ -273,7 +273,7 @@ static void emit_http_async_edge(ctx_pipeline_ctx_t *ctx, const CBMCall *call,
 }
 
 /* Classify a resolved call and emit the appropriate edge. */
-static void emit_classified_edge(ctx_pipeline_ctx_t *ctx, const CBMCall *call,
+static void emit_classified_edge(ctx_pipeline_ctx_t *ctx, const CtxCall *call,
                                  const ctx_gbuf_node_t *source, const ctx_gbuf_node_t *target,
                                  const ctx_resolution_t *res, const char *module_qn,
                                  const char **imp_keys, const char **imp_vals, int imp_count) {
@@ -323,7 +323,7 @@ static const ctx_gbuf_node_t *calls_find_source(ctx_pipeline_ctx_t *ctx, const c
 }
 
 /* Resolve one call and emit the appropriate edge. Returns 1 if resolved, 0 if not. */
-static int resolve_single_call(ctx_pipeline_ctx_t *ctx, CBMCall *call, const char *rel,
+static int resolve_single_call(ctx_pipeline_ctx_t *ctx, CtxCall *call, const char *rel,
                                const char *module_qn, const char **imp_keys, const char **imp_vals,
                                int imp_count) {
     const ctx_gbuf_node_t *source_node = calls_find_source(ctx, rel, call->enclosing_func_qn);
@@ -344,7 +344,7 @@ static int resolve_single_call(ctx_pipeline_ctx_t *ctx, CBMCall *call, const cha
     return SKIP_ONE;
 }
 
-static CBMFileResult *calls_get_or_extract(ctx_pipeline_ctx_t *ctx, int idx,
+static CtxFileResult *calls_get_or_extract(ctx_pipeline_ctx_t *ctx, int idx,
                                            const ctx_file_info_t *fi, bool *owned) {
     *owned = false;
     if (ctx->result_cache && ctx->result_cache[idx]) {
@@ -355,7 +355,7 @@ static CBMFileResult *calls_get_or_extract(ctx_pipeline_ctx_t *ctx, int idx,
     if (!src) {
         return NULL;
     }
-    CBMFileResult *r = ctx_extract_file(src, slen, fi->language, ctx->project_name, fi->rel_path,
+    CtxFileResult *r = ctx_extract_file(src, slen, fi->language, ctx->project_name, fi->rel_path,
                                         CTX_EXTRACT_BUDGET, NULL, NULL);
     free(src);
     if (r) {
@@ -379,7 +379,7 @@ int ctx_pipeline_pass_calls(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *file
 
         const char *rel = files[i].rel_path;
         bool result_owned = false;
-        CBMFileResult *result = calls_get_or_extract(ctx, i, &files[i], &result_owned);
+        CtxFileResult *result = calls_get_or_extract(ctx, i, &files[i], &result_owned);
         if (!result) {
             errors++;
             continue;
@@ -403,7 +403,7 @@ int ctx_pipeline_pass_calls(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t *file
 
         /* Resolve each call */
         for (int c = 0; c < result->calls.count; c++) {
-            CBMCall *call = &result->calls.items[c];
+            CtxCall *call = &result->calls.items[c];
             if (!call->callee_name) {
                 continue;
             }
@@ -473,7 +473,7 @@ static char *extract_py_signature(const char *source, int start_line, int end_li
 
 /* Scan one function's signature for Depends(func_ref) and create CALLS edges. */
 static int scan_depends_in_sig(ctx_pipeline_ctx_t *ctx, const ctx_regex_t *re, const char *sig,
-                               const CBMDefinition *def, const char *module_qn, const char **ik,
+                               const CtxDefinition *def, const char *module_qn, const char **ik,
                                const char **iv, int ic) {
     int count = 0;
     ctx_regmatch_t match[PC_REGEX_GRP];
@@ -501,12 +501,12 @@ static int scan_depends_in_sig(ctx_pipeline_ctx_t *ctx, const ctx_regex_t *re, c
     return count;
 }
 
-static bool is_callable_def(const CBMDefinition *def) {
+static bool is_callable_def(const CtxDefinition *def) {
     return def->qualified_name && def->start_line > 0 && def->label &&
            (strcmp(def->label, "Function") == 0 || strcmp(def->label, "Method") == 0);
 }
 
-static bool file_has_depends_call(const CBMFileResult *result) {
+static bool file_has_depends_call(const CtxFileResult *result) {
     for (int c = 0; c < result->calls.count; c++) {
         if (result->calls.items[c].callee_name &&
             strcmp(result->calls.items[c].callee_name, "Depends") == 0) {
@@ -532,7 +532,7 @@ void ctx_pipeline_pass_fastapi_depends(ctx_pipeline_ctx_t *ctx, const ctx_file_i
             break;
         }
 
-        CBMFileResult *result = ctx->result_cache ? ctx->result_cache[i] : NULL;
+        CtxFileResult *result = ctx->result_cache ? ctx->result_cache[i] : NULL;
         if (!result || !file_has_depends_call(result)) {
             continue;
         }
@@ -553,7 +553,7 @@ void ctx_pipeline_pass_fastapi_depends(ctx_pipeline_ctx_t *ctx, const ctx_file_i
         build_import_map(ctx, files[i].rel_path, result, &imp_keys, &imp_vals, &imp_count);
 
         for (int d = 0; d < result->defs.count; d++) {
-            CBMDefinition *def = &result->defs.items[d];
+            CtxDefinition *def = &result->defs.items[d];
             if (!is_callable_def(def)) {
                 continue;
             }

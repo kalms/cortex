@@ -2,7 +2,7 @@
  * str_util.c — Safe string operations (arena-allocated).
  */
 #include "str_util.h"
-#include "arena.h" // CBMArena, ctx_arena_alloc/strdup/strndup
+#include "arena.h" // CtxArena, ctx_arena_alloc/strdup/strndup
 #include "foundation/constants.h"
 #include <string.h>
 #include <ctype.h>
@@ -13,7 +13,7 @@ enum {
     JSON_CTRL_LIMIT = 0x20, /* ASCII control character upper bound */
 };
 
-char *ctx_path_join(CBMArena *a, const char *base, const char *name) {
+char *ctx_path_join(CtxArena *a, const char *base, const char *name) {
     if (!base || !name) {
         return NULL;
     }
@@ -56,7 +56,7 @@ char *ctx_path_join(CBMArena *a, const char *base, const char *name) {
     return result;
 }
 
-char *ctx_path_join_n(CBMArena *a, const char **parts, int n) {
+char *ctx_path_join_n(CtxArena *a, const char **parts, int n) {
     if (n <= 0 || !parts) {
         return ctx_arena_strdup(a, "");
     }
@@ -108,7 +108,7 @@ const char *ctx_path_base(const char *path) {
     return last_slash ? last_slash + SKIP_ONE : path;
 }
 
-char *ctx_path_dir(CBMArena *a, const char *path) {
+char *ctx_path_dir(CtxArena *a, const char *path) {
     if (!path) {
         return ctx_arena_strdup(a, ".");
     }
@@ -154,7 +154,7 @@ bool ctx_str_contains(const char *s, const char *sub) {
     return strstr(s, sub) != NULL;
 }
 
-char *ctx_str_tolower(CBMArena *a, const char *s) {
+char *ctx_str_tolower(CtxArena *a, const char *s) {
     if (!s) {
         return NULL;
     }
@@ -170,7 +170,7 @@ char *ctx_str_tolower(CBMArena *a, const char *s) {
     return result;
 }
 
-char *ctx_str_replace_char(CBMArena *a, const char *s, char from, char to) {
+char *ctx_str_replace_char(CtxArena *a, const char *s, char from, char to) {
     if (!s) {
         return NULL;
     }
@@ -186,7 +186,7 @@ char *ctx_str_replace_char(CBMArena *a, const char *s, char from, char to) {
     return result;
 }
 
-char *ctx_str_strip_ext(CBMArena *a, const char *path) {
+char *ctx_str_strip_ext(CtxArena *a, const char *path) {
     if (!path) {
         return NULL;
     }
@@ -206,7 +206,7 @@ char *ctx_str_strip_ext(CBMArena *a, const char *path) {
     return ctx_arena_strndup(a, path, (size_t)(dot - path));
 }
 
-char **ctx_str_split(CBMArena *a, const char *s, char delim, int *out_count) {
+char **ctx_str_split(CtxArena *a, const char *s, char delim, int *out_count) {
     if (!s || !out_count) {
         return NULL;
     }

@@ -2,7 +2,7 @@
  * extract_channels.c — Pub/sub channel participation extractor.
  *
  * Detects Socket.IO and EventEmitter emit / on / addListener call patterns in
- * JS/TS/TSX source and records each participation as a CBMChannel record.
+ * JS/TS/TSX source and records each participation as a CtxChannel record.
  * Transport is stored on the record ("socketio", "event_emitter") so later
  * detectors for Kafka, Cloud Pub/Sub, etc. can share the same schema without
  * changing the edge types.
@@ -39,7 +39,7 @@ typedef struct {
 
 /* ── String literal helpers ──────────────────────────────────────── */
 
-static const char *unquote_string(CBMArena *a, const char *s) {
+static const char *unquote_string(CtxArena *a, const char *s) {
     if (!s) {
         return NULL;
     }
@@ -59,7 +59,7 @@ static const char *unquote_string(CBMArena *a, const char *s) {
 /* Extract a literal channel name from an argument node.  Returns NULL if the
  * argument is not a plain string literal (caller can then try identifier
  * resolution via the constant table). */
-static const char *literal_from_arg(CBMExtractCtx *ctx, TSNode arg) {
+static const char *literal_from_arg(CtxExtractCtx *ctx, TSNode arg) {
     const char *kind = ts_node_type(arg);
     if (strcmp(kind, "string") != 0 && strcmp(kind, "string_literal") != 0) {
         return NULL;
@@ -75,7 +75,7 @@ static const char *literal_from_arg(CBMExtractCtx *ctx, TSNode arg) {
  * string literals are tracked — template literals and expressions are left
  * unresolved.  This is a flat lookup; scope boundaries are ignored (a single
  * const table per file is sufficient for the common Socket.IO pattern). */
-static void scan_string_consts(CBMExtractCtx *ctx, chan_const_table_t *tbl) {
+static void scan_string_consts(CtxExtractCtx *ctx, chan_const_table_t *tbl) {
     TSNode stack[CHAN_STACK_CAP];
     int top = 0;
     stack[top++] = ctx->root;
@@ -130,7 +130,7 @@ static const char *resolve_identifier(const chan_const_table_t *tbl, const char 
 
 /* Walk up the parent chain to find the nearest function-like ancestor and
  * build a best-effort qualified name for it. */
-static const char *enclosing_function_qn(CBMExtractCtx *ctx, TSNode node) {
+static const char *enclosing_function_qn(CtxExtractCtx *ctx, TSNode node) {
     TSNode parent = ts_node_parent(node);
     while (!ts_node_is_null(parent)) {
         const char *pk = ts_node_type(parent);
@@ -167,7 +167,7 @@ static bool is_listen_method(const char *name) {
  * "event_emitter" based on a name heuristic, NULL if the receiver is unknown
  * (which means we skip — we don't want to mistake any .emit()/.on() call
  * for a channel). */
-static const char *classify_receiver(CBMExtractCtx *ctx, TSNode object_node) {
+static const char *classify_receiver(CtxExtractCtx *ctx, TSNode object_node) {
     char *text = ctx_node_text(ctx->arena, object_node, ctx->source);
     if (!text) {
         return NULL;
@@ -193,7 +193,7 @@ static const char *classify_receiver(CBMExtractCtx *ctx, TSNode object_node) {
 }
 
 /* Process a single call_expression node if it looks like a channel call. */
-static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
+static void process_channel_call(CtxExtractCtx *ctx, TSNode call,
                                  const chan_const_table_t *consts) {
     /* call_expression { function: member_expression { object, property }, arguments } */
     TSNode func = ts_node_child_by_field_name(call, TS_FIELD("function"));
@@ -207,7 +207,7 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
     }
 
     char *method = ctx_node_text(ctx->arena, property, ctx->source);
-    CBMChannelDirection direction;
+    CtxChannelDirection direction;
     if (is_emit_method(method)) {
         direction = CTX_CHANNEL_EMIT;
     } else if (is_listen_method(method)) {
@@ -245,7 +245,7 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
         return; /* template literal, member access, expression — skip */
     }
 
-    CBMChannel ch = {
+    CtxChannel ch = {
         .channel_name = channel_name,
         .transport = transport,
         .enclosing_func_qn = enclosing_function_qn(ctx, call),
@@ -256,7 +256,7 @@ static void process_channel_call(CBMExtractCtx *ctx, TSNode call,
 
 /* ── Entry point ────────────────────────────────────────────────── */
 
-void ctx_extract_channels(CBMExtractCtx *ctx) {
+void ctx_extract_channels(CtxExtractCtx *ctx) {
     /* Only JS/TS variants — Socket.IO and EventEmitter are Node.js ecosystem. */
     if (ctx->language != CTX_LANG_JAVASCRIPT && ctx->language != CTX_LANG_TYPESCRIPT &&
         ctx->language != CTX_LANG_TSX) {

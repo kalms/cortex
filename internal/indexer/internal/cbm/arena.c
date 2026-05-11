@@ -4,7 +4,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-void ctx_arena_init(CBMArena *a) {
+void ctx_arena_init(CtxArena *a) {
     memset(a, 0, sizeof(*a));
     a->block_size = CTX_ARENA_DEFAULT_BLOCK_SIZE;
     a->blocks[0] = (char *)malloc(a->block_size);
@@ -13,7 +13,7 @@ void ctx_arena_init(CBMArena *a) {
     }
 }
 
-static int arena_grow(CBMArena *a, size_t min_size) {
+static int arena_grow(CtxArena *a, size_t min_size) {
     if (a->nblocks >= CTX_ARENA_MAX_BLOCKS) {
         return 0;
     }
@@ -32,7 +32,7 @@ static int arena_grow(CBMArena *a, size_t min_size) {
     return 1;
 }
 
-void *ctx_arena_alloc(CBMArena *a, size_t n) {
+void *ctx_arena_alloc(CtxArena *a, size_t n) {
     if (n == 0) {
         return NULL;
     }
@@ -54,7 +54,7 @@ void *ctx_arena_alloc(CBMArena *a, size_t n) {
     return ptr;
 }
 
-char *ctx_arena_strdup(CBMArena *a, const char *s) {
+char *ctx_arena_strdup(CtxArena *a, const char *s) {
     if (!s)
         return NULL;
     size_t len = strlen(s);
@@ -65,7 +65,7 @@ char *ctx_arena_strdup(CBMArena *a, const char *s) {
     return dst;
 }
 
-char *ctx_arena_strndup(CBMArena *a, const char *s, size_t len) {
+char *ctx_arena_strndup(CtxArena *a, const char *s, size_t len) {
     if (!s)
         return NULL;
     char *dst = (char *)ctx_arena_alloc(a, len + SKIP_ONE);
@@ -76,7 +76,7 @@ char *ctx_arena_strndup(CBMArena *a, const char *s, size_t len) {
     return dst;
 }
 
-char *ctx_arena_sprintf(CBMArena *a, const char *fmt, ...) {
+char *ctx_arena_sprintf(CtxArena *a, const char *fmt, ...) {
     // First pass: compute length
     va_list args;
     va_start(args, fmt);
@@ -99,7 +99,7 @@ char *ctx_arena_sprintf(CBMArena *a, const char *fmt, ...) {
     return dst;
 }
 
-void ctx_arena_destroy(CBMArena *a) {
+void ctx_arena_destroy(CtxArena *a) {
     for (int i = 0; i < a->nblocks; i++) {
         free(a->blocks[i]);
     }

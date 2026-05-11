@@ -7,7 +7,7 @@
 
 /* Safe kind accessor — returns CTX_TYPE_UNKNOWN for NULL types.
  * Prevents SEGV in c_eval_expr_type_inner on unusual C++ AST shapes. */
-static inline CBMTypeKind safe_kind(const CBMType* t) {
+static inline CtxTypeKind safe_kind(const CtxType* t) {
     return t ? t->kind : CTX_TYPE_UNKNOWN;
 }
 
@@ -15,14 +15,14 @@ static inline CBMTypeKind safe_kind(const CBMType* t) {
 static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node);
 static void c_emit_resolved_call(CLSPContext* ctx, const char* callee_qn, const char* strategy, float confidence);
 static void c_emit_unresolved_call(CLSPContext* ctx, const char* expr_text, const char* reason);
-static const CBMType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn, const char* field_name, int depth);
+static const CtxType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn, const char* field_name, int depth);
 static void c_process_function(CLSPContext* ctx, TSNode func_node);
 static void c_process_namespace(CLSPContext* ctx, TSNode ns_node);
 static void c_process_class(CLSPContext* ctx, TSNode class_node);
 static void c_process_body_child(CLSPContext* ctx, TSNode child);
-static const char* type_to_qn(const CBMType* t);
-const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_pointer);
-const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node);
+static const char* type_to_qn(const CtxType* t);
+const CtxType* c_simplify_type(CLSPContext* ctx, const CtxType* t, bool unwrap_pointer);
+const CtxType* c_eval_expr_type(CLSPContext* ctx, TSNode node);
 
 // External tree-sitter language functions (defined in grammar_*.c)
 extern const TSLanguage* tree_sitter_c(void);
@@ -53,9 +53,9 @@ static char* c_node_text(CLSPContext* ctx, TSNode node) {
 
 // --- Initialization ---
 
-void c_lsp_init(CLSPContext* ctx, CBMArena* arena, const char* source, int source_len,
-    const CBMTypeRegistry* registry, const char* module_qn, bool cpp_mode,
-    CBMResolvedCallArray* out) {
+void c_lsp_init(CLSPContext* ctx, CtxArena* arena, const char* source, int source_len,
+    const CtxTypeRegistry* registry, const char* module_qn, bool cpp_mode,
+    CtxResolvedCallArray* out) {
     memset(ctx, 0, sizeof(CLSPContext));
     ctx->arena = arena;
     ctx->source = source;
@@ -289,12 +289,12 @@ static void c_add_pending_template_call(CLSPContext* ctx, const char* func_qn,
 // Resolve pending template calls for a function being called with known arg types.
 // Deduces type params from call-site args and resolves stored method calls.
 static void c_resolve_pending_template_calls(CLSPContext* ctx,
-    const CBMRegisteredFunc* callee, const CBMType** call_arg_types, int call_arg_count) {
+    const CtxRegisteredFunc* callee, const CtxType** call_arg_types, int call_arg_count) {
     if (!callee || !callee->type_param_names || !call_arg_types) return;
 
     // Build type param → concrete type mapping from call-site arguments
     const char** tpn = callee->type_param_names;
-    const CBMType* param_map[8] = {0};
+    const CtxType* param_map[8] = {0};
     int tpn_count = 0;
     while (tpn[tpn_count] && tpn_count < 8) tpn_count++;
 
@@ -302,7 +302,7 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
     if (callee->signature && callee->signature->kind == CTX_TYPE_FUNC &&
         callee->signature->data.func.param_types) {
         for (int i = 0; i < call_arg_count; i++) {
-            const CBMType* formal = callee->signature->data.func.param_types[i];
+            const CtxType* formal = callee->signature->data.func.param_types[i];
             if (!formal || !call_arg_types[i]) continue;
             // Unwrap references/pointers
             while (formal && (formal->kind == CTX_TYPE_REFERENCE ||
@@ -314,7 +314,7 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
             if (formal && formal->kind == CTX_TYPE_TYPE_PARAM) {
                 for (int j = 0; j < tpn_count; j++) {
                     if (strcmp(tpn[j], formal->data.type_param.name) == 0) {
-                        const CBMType* arg = call_arg_types[i];
+                        const CtxType* arg = call_arg_types[i];
                         arg = c_simplify_type(ctx, arg, false);
                         param_map[j] = arg;
                     }
@@ -338,7 +338,7 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
             const char* concrete_qn = type_to_qn(param_map[j]);
             if (!concrete_qn) continue;
             // Look up the method on the concrete type
-            const CBMRegisteredFunc* m = c_lookup_member(ctx, concrete_qn, method);
+            const CtxRegisteredFunc* m = c_lookup_member(ctx, concrete_qn, method);
             if (m) {
                 c_emit_resolved_call(ctx, m->qualified_name, "lsp_template_instantiation", 0.90f);
             }
@@ -349,12 +349,12 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
 }
 
 // --- Helper: extract call argument types for overload scoring ---
-static const CBMType** c_extract_call_arg_types(CLSPContext* ctx, TSNode call_node, int* out_count) {
+static const CtxType** c_extract_call_arg_types(CLSPContext* ctx, TSNode call_node, int* out_count) {
     TSNode args = ts_node_child_by_field_name(call_node, "arguments", 9);
     if (ts_node_is_null(args)) { *out_count = 0; return NULL; }
     uint32_t nc = ts_node_named_child_count(args);
     if (nc == 0) { *out_count = 0; return NULL; }
-    const CBMType** types = (const CBMType**)ctx_arena_alloc(ctx->arena, (nc + 1) * sizeof(const CBMType*));
+    const CtxType** types = (const CtxType**)ctx_arena_alloc(ctx->arena, (nc + 1) * sizeof(const CtxType*));
     if (!types) { *out_count = 0; return NULL; }
     int count = 0;
     for (uint32_t i = 0; i < nc; i++) {
@@ -378,7 +378,7 @@ static void c_parse_template_params(CLSPContext* ctx, TSNode template_decl) {
     if (nc == 0) return;
 
     const char** names = (const char**)ctx_arena_alloc(ctx->arena, (nc + 1) * sizeof(const char*));
-    const CBMType** defaults = (const CBMType**)ctx_arena_alloc(ctx->arena, (nc + 1) * sizeof(const CBMType*));
+    const CtxType** defaults = (const CtxType**)ctx_arena_alloc(ctx->arena, (nc + 1) * sizeof(const CtxType*));
     if (!names || !defaults) return;
 
     int idx = 0;
@@ -434,7 +434,7 @@ static void c_parse_template_params(CLSPContext* ctx, TSNode template_decl) {
 }
 
 // Resolve a template type parameter using defaults from current template scope
-static const CBMType* c_resolve_template_param(CLSPContext* ctx, const char* param_name) {
+static const CtxType* c_resolve_template_param(CLSPContext* ctx, const char* param_name) {
     if (!param_name || !ctx->template_param_names) return NULL;
     for (int i = 0; i < ctx->template_param_count; i++) {
         if (ctx->template_param_names[i] &&
@@ -543,7 +543,7 @@ static const char* c_resolve_name(CLSPContext* ctx, const char* name) {
     if (!name) return NULL;
 
     // 1. Scope lookup
-    const CBMType* t = ctx_scope_lookup(ctx->current_scope, name);
+    const CtxType* t = ctx_scope_lookup(ctx->current_scope, name);
     if (!ctx_type_is_unknown(t)) return NULL; // found in scope, not a function
 
     // 2. Using declarations
@@ -554,14 +554,14 @@ static const char* c_resolve_name(CLSPContext* ctx, const char* name) {
 
     // 3. Enclosing class (implicit this)
     if (ctx->enclosing_class_qn) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry,
             ctx->enclosing_class_qn, name);
         if (f) return f->qualified_name;
     }
 
     // 4. Using namespaces
     for (int i = 0; i < ctx->using_ns_count; i++) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
             ctx->using_namespaces[i], name);
         if (f) return f->qualified_name;
     }
@@ -570,7 +570,7 @@ static const char* c_resolve_name(CLSPContext* ctx, const char* name) {
     if (ctx->current_namespace) {
         const char* ns = ctx->current_namespace;
         while (ns && ns[0]) {
-            const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ns, name);
+            const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ns, name);
             if (f) return f->qualified_name;
             // Walk up: "a.b.c" -> "a.b" -> "a"
             const char* dot = strrchr(ns, '.');
@@ -585,13 +585,13 @@ static const char* c_resolve_name(CLSPContext* ctx, const char* name) {
 
     // 6. Module scope
     if (ctx->module_qn) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
             ctx->module_qn, name);
         if (f) return f->qualified_name;
     }
 
     // 7. Global scope (no prefix — C stdlib functions)
-    const CBMRegisteredFunc* f = ctx_registry_lookup_func(ctx->registry, name);
+    const CtxRegisteredFunc* f = ctx_registry_lookup_func(ctx->registry, name);
     if (f) return f->qualified_name;
 
     return NULL;
@@ -599,7 +599,7 @@ static const char* c_resolve_name(CLSPContext* ctx, const char* name) {
 
 // --- ADL (Argument-Dependent Lookup) ---
 // Extract the namespace from a qualified name: "std.vector" → "std", "boost.asio.ip" → "boost.asio"
-static const char* extract_namespace_from_qn(CBMArena* arena, const char* qn) {
+static const char* extract_namespace_from_qn(CtxArena* arena, const char* qn) {
     if (!qn) return NULL;
     const char* dot = strrchr(qn, '.');
     if (!dot || dot == qn) return NULL;
@@ -630,7 +630,7 @@ static const char* c_adl_resolve(CLSPContext* ctx, const char* name, TSNode call
         TSNode arg = ts_node_named_child(args, i);
         if (ts_node_is_null(arg)) continue;
 
-        const CBMType* arg_type = c_eval_expr_type(ctx, arg);
+        const CtxType* arg_type = c_eval_expr_type(ctx, arg);
         const char* qn = type_to_qn(c_simplify_type(ctx, arg_type, false));
         if (!qn) continue;
 
@@ -647,7 +647,7 @@ static const char* c_adl_resolve(CLSPContext* ctx, const char* name, TSNode call
 
     // Try each namespace
     for (int i = 0; i < ns_count; i++) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
             namespaces[i], name);
         if (f) return f->qualified_name;
     }
@@ -669,14 +669,14 @@ static const char* c_resolve_name_to_func_qn(CLSPContext* ctx, const char* name)
 
     // Enclosing class
     if (ctx->enclosing_class_qn) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry,
             ctx->enclosing_class_qn, name);
         if (f) return f->qualified_name;
     }
 
     // Using namespaces
     for (int i = 0; i < ctx->using_ns_count; i++) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
             ctx->using_namespaces[i], name);
         if (f) return f->qualified_name;
     }
@@ -685,7 +685,7 @@ static const char* c_resolve_name_to_func_qn(CLSPContext* ctx, const char* name)
     if (ctx->current_namespace) {
         const char* ns = ctx->current_namespace;
         while (ns && ns[0]) {
-            const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ns, name);
+            const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ns, name);
             if (f) return f->qualified_name;
             const char* dot = strrchr(ns, '.');
             if (!dot) break;
@@ -699,20 +699,20 @@ static const char* c_resolve_name_to_func_qn(CLSPContext* ctx, const char* name)
 
     // Module scope
     if (ctx->module_qn) {
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry,
             ctx->module_qn, name);
         if (f) return f->qualified_name;
     }
 
     // Global scope
-    const CBMRegisteredFunc* gf = ctx_registry_lookup_func(ctx->registry, name);
+    const CtxRegisteredFunc* gf = ctx_registry_lookup_func(ctx->registry, name);
     if (gf) return gf->qualified_name;
 
     return NULL;
 }
 
 // Resolve a name to a type (for identifiers used as types)
-static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name) {
+static const CtxType* c_resolve_name_to_type(CLSPContext* ctx, const char* name) {
     if (!name) return ctx_type_unknown();
 
     // Builtin types
@@ -721,9 +721,9 @@ static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name)
     // Scope lookup: typedef/using aliases are bound here.
     // If the name resolves to an alias, follow it to the underlying type.
     {
-        const CBMType* scoped = ctx_scope_lookup(ctx->current_scope, name);
+        const CtxType* scoped = ctx_scope_lookup(ctx->current_scope, name);
         if (scoped && scoped->kind == CTX_TYPE_ALIAS) {
-            const CBMType* resolved = ctx_type_resolve_alias(scoped);
+            const CtxType* resolved = ctx_type_resolve_alias(scoped);
             if (resolved && !ctx_type_is_unknown(resolved)) return resolved;
         }
     }
@@ -744,7 +744,7 @@ static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name)
     // Using declarations
     for (int i = 0; i < ctx->using_decl_count; i++) {
         if (strcmp(ctx->using_decl_names[i], name) == 0) {
-            const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, ctx->using_decl_qns[i]);
+            const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, ctx->using_decl_qns[i]);
             if (rt) return ctx_type_named(ctx->arena, rt->qualified_name);
         }
     }
@@ -752,35 +752,35 @@ static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name)
     // Enclosing class (nested types: Factory::Product)
     if (ctx->enclosing_class_qn) {
         const char* qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->enclosing_class_qn, name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
     }
 
     // Current namespace
     if (ctx->current_namespace) {
         const char* qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->current_namespace, name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
     }
 
     // Module scope
     if (ctx->module_qn) {
         const char* qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
     }
 
     // Using namespaces
     for (int i = 0; i < ctx->using_ns_count; i++) {
         const char* qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->using_namespaces[i], name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
     }
 
     // Try std:: prefix (very common)
     if (ctx->cpp_mode) {
         const char* std_qn = ctx_arena_sprintf(ctx->arena, "std.%s", name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, std_qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, std_qn);
         if (rt) return ctx_type_named(ctx->arena, std_qn);
     }
 
@@ -793,10 +793,10 @@ static const CBMType* c_resolve_name_to_type(CLSPContext* ctx, const char* name)
 }
 
 // ============================================================================
-// c_parse_type_node: AST type node -> CBMType
+// c_parse_type_node: AST type node -> CtxType
 // ============================================================================
 
-const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
+const CtxType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
     if (ts_node_is_null(node)) return ctx_type_unknown();
     const char* kind = ts_node_type(node);
 
@@ -854,7 +854,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
             }
 
             // Resolve against registry
-            const CBMRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, template_qn);
+            const CtxRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, template_qn);
             if (!trt && ctx->module_qn) {
                 const char* mod_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, template_qn);
                 trt = ctx_registry_lookup_type(ctx->registry, mod_qn);
@@ -862,7 +862,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
             }
 
             // Parse template arguments
-            const CBMType* targs[16];
+            const CtxType* targs[16];
             int targ_count = 0;
             if (!ts_node_is_null(tmpl_args)) {
                 uint32_t nc = ts_node_named_child_count(tmpl_args);
@@ -904,7 +904,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
 
         const char* qn = c_build_qn(ctx, text);
         // Check registry
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
         return ctx_type_named(ctx->arena, qn);
     }
@@ -923,7 +923,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
         const char* template_qn = c_build_qn(ctx, name_text);
 
         // Try resolving short name to full QN
-        const CBMRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, template_qn);
+        const CtxRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, template_qn);
         if (!trt && ctx->module_qn) {
             // Try with module prefix
             const char* mod_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, template_qn);
@@ -952,7 +952,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
         }
 
         // Parse template arguments
-        const CBMType* targs[16];
+        const CtxType* targs[16];
         int targ_count = 0;
         if (!ts_node_is_null(args_node)) {
             uint32_t nc = ts_node_named_child_count(args_node);
@@ -1038,8 +1038,8 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
             if (name) return c_resolve_name_to_type(ctx, name);
         }
         // Anonymous struct
-        CBMType* t = (CBMType*)ctx_arena_alloc(ctx->arena, sizeof(CBMType));
-        memset(t, 0, sizeof(CBMType));
+        CtxType* t = (CtxType*)ctx_arena_alloc(ctx->arena, sizeof(CtxType));
+        memset(t, 0, sizeof(CtxType));
         t->kind = CTX_TYPE_STRUCT;
         return t;
     }
@@ -1087,7 +1087,7 @@ const CBMType* c_parse_type_node(CLSPContext* ctx, TSNode node) {
 // c_simplify_type: multi-step type unwrapping (clangd simplifyType)
 // ============================================================================
 
-const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_pointer) {
+const CtxType* c_simplify_type(CLSPContext* ctx, const CtxType* t, bool unwrap_pointer) {
     for (int i = 0; i < 64 && t; i++) {
         // Resolve aliases
         if (t->kind == CTX_TYPE_ALIAS) {
@@ -1100,7 +1100,7 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
 
         // Resolve template type parameters using defaults
         if (t->kind == CTX_TYPE_TYPE_PARAM && ctx->in_template) {
-            const CBMType* resolved = c_resolve_template_param(ctx, t->data.type_param.name);
+            const CtxType* resolved = c_resolve_template_param(ctx, t->data.type_param.name);
             if (resolved) {
                 t = resolved;
                 continue;
@@ -1132,7 +1132,7 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
 
         // Named type with operator->
         if (t->kind == CTX_TYPE_NAMED) {
-            const CBMRegisteredFunc* op = ctx_registry_lookup_method(ctx->registry,
+            const CtxRegisteredFunc* op = ctx_registry_lookup_method(ctx->registry,
                 t->data.named.qualified_name, "operator->");
             if (op && op->signature && op->signature->kind == CTX_TYPE_FUNC &&
                 op->signature->data.func.return_types && op->signature->data.func.return_types[0]) {
@@ -1146,14 +1146,14 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
         // Template type with operator-> (e.g., optional<Widget>::operator->)
         if (t->kind == CTX_TYPE_TEMPLATE) {
             const char* tqn = t->data.template_type.template_name;
-            const CBMRegisteredFunc* op = c_lookup_member(ctx, tqn, "operator->");
+            const CtxRegisteredFunc* op = c_lookup_member(ctx, tqn, "operator->");
             if (op && op->signature && op->signature->kind == CTX_TYPE_FUNC &&
                 op->signature->data.func.return_types && op->signature->data.func.return_types[0]) {
-                const CBMType* ret = op->signature->data.func.return_types[0];
+                const CtxType* ret = op->signature->data.func.return_types[0];
                 // Substitute template params using receiver's template args
                 if (ret->kind == CTX_TYPE_TYPE_PARAM || ret->kind == CTX_TYPE_POINTER ||
                     ret->kind == CTX_TYPE_REFERENCE) {
-                    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, tqn);
+                    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, tqn);
                     if (!rt && ctx->module_qn) {
                         rt = ctx_registry_lookup_type(ctx->registry,
                             ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, tqn));
@@ -1163,7 +1163,7 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
                             rt->type_param_names, t->data.template_type.template_args);
                     } else {
                         const char* fb[] = {"T", "K", "V", NULL};
-                        const CBMType* fa[3] = {NULL};
+                        const CtxType* fa[3] = {NULL};
                         int na = t->data.template_type.arg_count;
                         if (na > 0) fa[0] = t->data.template_type.template_args[0];
                         if (na > 1) fa[1] = t->data.template_type.template_args[1];
@@ -1189,7 +1189,7 @@ const CBMType* c_simplify_type(CLSPContext* ctx, const CBMType* t, bool unwrap_p
 }
 
 // Get the QN string from a type (for member lookup)
-static const char* type_to_qn(const CBMType* t) {
+static const char* type_to_qn(const CtxType* t) {
     if (!t) return NULL;
     switch (t->kind) {
     case CTX_TYPE_NAMED: return t->data.named.qualified_name;
@@ -1202,9 +1202,9 @@ static const char* type_to_qn(const CBMType* t) {
 // c_eval_expr_type: recursive expression type evaluator
 // ============================================================================
 
-static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node);
+static const CtxType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node);
 
-const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
+const CtxType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
     if (ts_node_is_null(node)) return ctx_type_unknown();
     /* Guard against unbounded recursion on deeply nested C++ templates.
      * Prevents stack overflow and NULL-deref from unusual AST shapes. */
@@ -1212,12 +1212,12 @@ const CBMType* c_eval_expr_type(CLSPContext* ctx, TSNode node) {
         return ctx_type_unknown();
     }
     ctx->eval_depth++;
-    const CBMType* result = c_eval_expr_type_inner(ctx, node);
+    const CtxType* result = c_eval_expr_type_inner(ctx, node);
     ctx->eval_depth--;
     return result ? result : ctx_type_unknown();
 }
 
-static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
+static const CtxType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
     const char* kind = ts_node_type(node);
 
     // --- identifier: scope lookup ---
@@ -1226,19 +1226,19 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         if (!name) return ctx_type_unknown();
 
         // Scope lookup
-        const CBMType* t = ctx_scope_lookup(ctx->current_scope, name);
+        const CtxType* t = ctx_scope_lookup(ctx->current_scope, name);
         if (!ctx_type_is_unknown(t)) return t;
 
         // Check if it's a registered function (before type check — functions
         // return FUNC type which lets call_expression extract return types)
         const char* fqn = c_resolve_name(ctx, name);
         if (fqn) {
-            const CBMRegisteredFunc* f = ctx_registry_lookup_func(ctx->registry, fqn);
+            const CtxRegisteredFunc* f = ctx_registry_lookup_func(ctx->registry, fqn);
             if (f && f->signature) return f->signature;
         }
 
         // Check if it's a type name (for constructor calls / casts)
-        const CBMType* type = c_resolve_name_to_type(ctx, name);
+        const CtxType* type = c_resolve_name_to_type(ctx, name);
         if (type && type->kind == CTX_TYPE_NAMED) {
             // Could be a constructor call — return as type
             return type;
@@ -1266,7 +1266,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         char* field_name = c_node_text(ctx, field_node);
         if (!field_name) return ctx_type_unknown();
 
-        const CBMType* obj_type = c_eval_expr_type(ctx, arg_node);
+        const CtxType* obj_type = c_eval_expr_type(ctx, arg_node);
         if (ctx_type_is_unknown(obj_type)) return ctx_type_unknown();
 
         // Determine if this is . or -> access
@@ -1282,7 +1282,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         }
 
         // Simplify type for member lookup
-        const CBMType* base;
+        const CtxType* base;
         if (is_arrow) {
             base = c_simplify_type(ctx, obj_type, true); // unwrap pointer/smart ptr
         } else {
@@ -1293,11 +1293,11 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         if (!type_qn) return ctx_type_unknown();
 
         // Look up method
-        const CBMRegisteredFunc* method = c_lookup_member(ctx, type_qn, field_name);
+        const CtxRegisteredFunc* method = c_lookup_member(ctx, type_qn, field_name);
         if (method && method->signature) return method->signature;
 
         // Look up field
-        const CBMType* field_type = c_lookup_field_type(ctx, type_qn, field_name, 0);
+        const CtxType* field_type = c_lookup_field_type(ctx, type_qn, field_name, 0);
         if (field_type && !ctx_type_is_unknown(field_type)) {
             // Template field substitution: if field type is TYPE_PARAM (or NAMED matching
             // a template param name) and receiver is a TEMPLATE type, substitute using
@@ -1308,7 +1308,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             // may register template fields as NAMED("V") rather than TYPE_PARAM("V"))
             if (!is_tparam && field_type->kind == CTX_TYPE_NAMED &&
                 base->kind == CTX_TYPE_TEMPLATE) {
-                const CBMRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, type_qn);
+                const CtxRegisteredType* trt = ctx_registry_lookup_type(ctx->registry, type_qn);
                 if (!trt && ctx->module_qn) {
                     trt = ctx_registry_lookup_type(ctx->registry,
                         ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
@@ -1330,7 +1330,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             }
             if (is_tparam && base->kind == CTX_TYPE_TEMPLATE &&
                 base->data.template_type.template_args) {
-                const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+                const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
                 if (!rt && ctx->module_qn) {
                     rt = ctx_registry_lookup_type(ctx->registry,
                         ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
@@ -1341,7 +1341,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 } else {
                     // Fallback: positional T, K, V
                     const char* params[] = {"T", "K", "V", "T1", "T2", NULL};
-                    const CBMType* args[5] = {NULL};
+                    const CtxType* args[5] = {NULL};
                     int nargs = base->data.template_type.arg_count;
                     if (nargs > 0) args[0] = base->data.template_type.template_args[0];
                     if (nargs > 0) args[1] = base->data.template_type.template_args[0];
@@ -1386,7 +1386,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         const char* qn = c_build_qn(ctx, text);
 
         // Try as function: module-prefixed first (shadows stdlib stubs), then bare QN
-        const CBMRegisteredFunc* f = NULL;
+        const CtxRegisteredFunc* f = NULL;
         if (ctx->module_qn) {
             f = ctx_registry_lookup_func(ctx->registry,
                 ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn));
@@ -1409,8 +1409,8 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 f->signature->kind == CTX_TYPE_FUNC &&
                 f->signature->data.func.return_types &&
                 f->signature->data.func.return_types[0]) {
-                const CBMType* base_ret = f->signature->data.func.return_types[0];
-                const CBMType* targs[16];
+                const CtxType* base_ret = f->signature->data.func.return_types[0];
+                const CtxType* targs[16];
                 int targ_count = 0;
                 uint32_t tnc = ts_node_named_child_count(qi_tmpl_args);
                 for (uint32_t ti = 0; ti < tnc && targ_count < 15; ti++) {
@@ -1439,16 +1439,16 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                     // e.g., make_shared<Widget> returns NAMED("std.shared_ptr") →
                     //        TEMPLATE("std.shared_ptr", [Widget])
                     if (base_ret->kind == CTX_TYPE_NAMED) {
-                        const CBMType** final_targs = (const CBMType**)ctx_arena_alloc(
-                            ctx->arena, (targ_count + 1) * sizeof(const CBMType*));
+                        const CtxType** final_targs = (const CtxType**)ctx_arena_alloc(
+                            ctx->arena, (targ_count + 1) * sizeof(const CtxType*));
                         for (int i = 0; i < targ_count; i++) final_targs[i] = targs[i];
                         final_targs[targ_count] = NULL;
                         base_ret = ctx_type_template(ctx->arena,
                             base_ret->data.named.qualified_name, final_targs, targ_count);
                     }
                 }
-                const CBMType** rets = (const CBMType**)ctx_arena_alloc(
-                    ctx->arena, 2 * sizeof(const CBMType*));
+                const CtxType** rets = (const CtxType**)ctx_arena_alloc(
+                    ctx->arena, 2 * sizeof(const CtxType*));
                 rets[0] = base_ret;
                 rets[1] = NULL;
                 return ctx_type_func(ctx->arena, NULL, NULL, rets);
@@ -1457,7 +1457,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         }
 
         // Try as type (bare QN then module-prefixed)
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, qn);
         if (rt) return ctx_type_named(ctx->arena, qn);
         if (!rt && ctx->module_qn) {
             const char* mod_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn);
@@ -1473,7 +1473,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             if (enum_qn) {
                 memcpy(enum_qn, qn, prefix_len);
                 enum_qn[prefix_len] = '\0';
-                const CBMRegisteredType* enum_rt = ctx_registry_lookup_type(ctx->registry, enum_qn);
+                const CtxRegisteredType* enum_rt = ctx_registry_lookup_type(ctx->registry, enum_qn);
                 if (enum_rt) {
                     return ctx_type_named(ctx->arena, enum_qn);
                 }
@@ -1492,20 +1492,20 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 if (scope_name) {
                     memcpy(scope_name, qn, prefix_len2);
                     scope_name[prefix_len2] = '\0';
-                    const CBMType* default_type = c_resolve_template_param(ctx, scope_name);
+                    const CtxType* default_type = c_resolve_template_param(ctx, scope_name);
                     if (default_type) {
                         default_type = c_simplify_type(ctx, default_type, false);
                         const char* default_qn = type_to_qn(default_type);
                         if (default_qn) {
                             // Try as method: DefaultType::member
                             const char* member = dot + 1;
-                            const CBMRegisteredFunc* mf = ctx_registry_lookup_method(
+                            const CtxRegisteredFunc* mf = ctx_registry_lookup_method(
                                 ctx->registry, default_qn, member);
                             if (mf && mf->signature) return mf->signature;
                             // Try as static function
                             const char* dep_qn = ctx_arena_sprintf(ctx->arena, "%s.%s",
                                 default_qn, member);
-                            const CBMRegisteredFunc* sf = ctx_registry_lookup_func(
+                            const CtxRegisteredFunc* sf = ctx_registry_lookup_func(
                                 ctx->registry, dep_qn);
                             if (sf && sf->signature) return sf->signature;
                         }
@@ -1528,7 +1528,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         if (!name) return ctx_type_unknown();
 
         // Look up the function — handle both simple and qualified names
-        const CBMRegisteredFunc* f = NULL;
+        const CtxRegisteredFunc* f = NULL;
         const char* nk = ts_node_type(name_node);
         if (strcmp(nk, "qualified_identifier") == 0 || strcmp(nk, "scoped_identifier") == 0) {
             // Qualified: std::make_shared → std.make_shared
@@ -1545,7 +1545,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         if (!f || !f->signature) return ctx_type_unknown();
 
         // Get the base return type from the function signature
-        const CBMType* base_ret = NULL;
+        const CtxType* base_ret = NULL;
         if (f->signature->kind == CTX_TYPE_FUNC &&
             f->signature->data.func.return_types &&
             f->signature->data.func.return_types[0]) {
@@ -1554,7 +1554,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         if (!base_ret) return f->signature;
 
         // Parse explicit template arguments from <...>
-        const CBMType* targs[16];
+        const CtxType* targs[16];
         int targ_count = 0;
         if (!ts_node_is_null(args_node)) {
             uint32_t nc = ts_node_named_child_count(args_node);
@@ -1585,7 +1585,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         }
 
         // Wrap return type in FUNC signature
-        const CBMType** rets = ctx_arena_alloc(ctx->arena, 2 * sizeof(CBMType*));
+        const CtxType** rets = ctx_arena_alloc(ctx->arena, 2 * sizeof(CtxType*));
         rets[0] = base_ret;
         rets[1] = NULL;
         return ctx_type_func(ctx->arena, NULL, NULL, rets);
@@ -1613,7 +1613,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 if (!ts_node_is_null(call_args) && ts_node_named_child_count(call_args) > 0) {
                     TSNode first_arg = ts_node_named_child(call_args, 0);
                     if (!ts_node_is_null(first_arg)) {
-                        const CBMType* arg_type = c_eval_expr_type(ctx, first_arg);
+                        const CtxType* arg_type = c_eval_expr_type(ctx, first_arg);
                         // Unwrap to base type — move/forward preserves the type
                         arg_type = c_simplify_type(ctx, arg_type, false);
                         if (!ctx_type_is_unknown(arg_type)) return arg_type;
@@ -1622,12 +1622,12 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             }
         }
 
-        const CBMType* func_type = c_eval_expr_type(ctx, func_node);
+        const CtxType* func_type = c_eval_expr_type(ctx, func_node);
         if (!func_type) return ctx_type_unknown();
         // FUNC type -> return its return type
         if (func_type->kind == CTX_TYPE_FUNC &&
             func_type->data.func.return_types && func_type->data.func.return_types[0]) {
-            const CBMType* ret = func_type->data.func.return_types[0];
+            const CtxType* ret = func_type->data.func.return_types[0];
 
             // Template param substitution: try receiver's template args (method calls)
             // then try TAD from call-site argument types (free function calls)
@@ -1646,7 +1646,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 if (strcmp(ts_node_type(func_node), "field_expression") == 0) {
                     TSNode arg_node = ts_node_child_by_field_name(func_node, "argument", 8);
                     if (!ts_node_is_null(arg_node)) {
-                        const CBMType* obj_type = c_eval_expr_type(ctx, arg_node);
+                        const CtxType* obj_type = c_eval_expr_type(ctx, arg_node);
                         // Use false to preserve TEMPLATE type — we need template args
                         // for substitution, not the pointed-to type from operator->
                         obj_type = c_simplify_type(ctx, obj_type, false);
@@ -1657,13 +1657,13 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                             char* method_name = !ts_node_is_null(field_node) ?
                                 c_node_text(ctx, field_node) : NULL;
                             const char* recv_qn = type_to_qn(obj_type);
-                            const CBMRegisteredFunc* mf = (recv_qn && method_name) ?
+                            const CtxRegisteredFunc* mf = (recv_qn && method_name) ?
                                 c_lookup_member(ctx, recv_qn, method_name) : NULL;
                             const char** tpn = mf ? mf->type_param_names : NULL;
 
                             // Try class template param names from registered type
                             if (!tpn && recv_qn) {
-                                const CBMRegisteredType* rrt = ctx_registry_lookup_type(ctx->registry, recv_qn);
+                                const CtxRegisteredType* rrt = ctx_registry_lookup_type(ctx->registry, recv_qn);
                                 if (!rrt && ctx->module_qn) {
                                     rrt = ctx_registry_lookup_type(ctx->registry,
                                         ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, recv_qn));
@@ -1681,7 +1681,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                             } else {
                                 // Fallback: positional params T, K, V, T1, T2
                                 const char* params[] = {"T", "K", "V", "T1", "T2", NULL};
-                                const CBMType* pargs[5] = {NULL};
+                                const CtxType* pargs[5] = {NULL};
                                 if (nargs > 0) pargs[0] = obj_type->data.template_type.template_args[0];
                                 if (nargs > 0) pargs[1] = obj_type->data.template_type.template_args[0];
                                 if (nargs > 1) pargs[2] = obj_type->data.template_type.template_args[1];
@@ -1697,7 +1697,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 // Strategy 2: TAD — deduce template params from call-site argument types
                 if (!substituted) {
                     // Find the registered function to get its type_param_names and param_types
-                    const CBMRegisteredFunc* rf = NULL;
+                    const CtxRegisteredFunc* rf = NULL;
                     const char* fn_type = ts_node_type(func_node);
                     if (strcmp(fn_type, "identifier") == 0) {
                         char* fname = c_node_text(ctx, func_node);
@@ -1722,7 +1722,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                         int tp_count = 0;
                         while (rf->type_param_names[tp_count]) tp_count++;
                         if (tp_count > 0 && tp_count <= 8) {
-                            const CBMType* deduced[8] = {NULL};
+                            const CtxType* deduced[8] = {NULL};
                             TSNode call_args = ts_node_child_by_field_name(node, "arguments", 9);
                             int pi = 0;
                             if (!ts_node_is_null(call_args)) {
@@ -1730,10 +1730,10 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                                 for (uint32_t ai = 0; ai < anc && rf->signature->data.func.param_types[pi]; ai++) {
                                     TSNode carg = ts_node_named_child(call_args, ai);
                                     if (ts_node_is_null(carg)) continue;
-                                    const CBMType* arg_t = c_eval_expr_type(ctx, carg);
+                                    const CtxType* arg_t = c_eval_expr_type(ctx, carg);
                                     if (ctx_type_is_unknown(arg_t)) { pi++; continue; }
                                     // Unwrap ref/ptr from param type
-                                    const CBMType* param_t = rf->signature->data.func.param_types[pi];
+                                    const CtxType* param_t = rf->signature->data.func.param_types[pi];
                                     while (param_t && (param_t->kind == CTX_TYPE_REFERENCE ||
                                                        param_t->kind == CTX_TYPE_RVALUE_REF ||
                                                        param_t->kind == CTX_TYPE_POINTER)) {
@@ -1745,7 +1745,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                                         for (int ti = 0; ti < tp_count; ti++) {
                                             if (strcmp(rf->type_param_names[ti], param_t->data.type_param.name) == 0) {
                                                 // Unwrap ref/ptr from actual arg too
-                                                const CBMType* unwrapped = arg_t;
+                                                const CtxType* unwrapped = arg_t;
                                                 while (unwrapped && (unwrapped->kind == CTX_TYPE_REFERENCE ||
                                                                      unwrapped->kind == CTX_TYPE_RVALUE_REF ||
                                                                      unwrapped->kind == CTX_TYPE_POINTER)) {
@@ -1816,7 +1816,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
     if (strcmp(kind, "subscript_expression") == 0) {
         TSNode arg_node = ts_node_child_by_field_name(node, "argument", 8);
         if (ts_node_is_null(arg_node)) return ctx_type_unknown();
-        const CBMType* arr_type = c_eval_expr_type(ctx, arg_node);
+        const CtxType* arr_type = c_eval_expr_type(ctx, arg_node);
         if (!arr_type) return ctx_type_unknown();
 
         // Array/slice: return element
@@ -1826,16 +1826,16 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         // Template with operator[]: return via method lookup
         const char* qn = type_to_qn(c_simplify_type(ctx, arr_type, false));
         if (qn) {
-            const CBMRegisteredFunc* op = ctx_registry_lookup_method(ctx->registry, qn, "operator[]");
+            const CtxRegisteredFunc* op = ctx_registry_lookup_method(ctx->registry, qn, "operator[]");
             if (op && op->signature && op->signature->kind == CTX_TYPE_FUNC &&
                 op->signature->data.func.return_types && op->signature->data.func.return_types[0]) {
-                const CBMType* ret = op->signature->data.func.return_types[0];
+                const CtxType* ret = op->signature->data.func.return_types[0];
                 if (ret->kind == CTX_TYPE_REFERENCE) ret = ret->data.reference.elem;
 
                 // Substitute template params
                 if (ret->kind == CTX_TYPE_TYPE_PARAM && arr_type->kind == CTX_TYPE_TEMPLATE) {
                     const char* params[] = {"T", "K", "V", NULL};
-                    const CBMType* args[3] = {NULL};
+                    const CtxType* args[3] = {NULL};
                     int nargs = arr_type->data.template_type.arg_count;
                     if (nargs > 0) args[0] = arr_type->data.template_type.template_args[0];
                     if (nargs > 0) args[1] = arr_type->data.template_type.template_args[0];
@@ -1885,17 +1885,17 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 char* op = c_node_text(ctx, child);
                 if (!op) continue;
                 if (strcmp(op, "*") == 0) {
-                    const CBMType* inner = c_eval_expr_type(ctx, operand);
+                    const CtxType* inner = c_eval_expr_type(ctx, operand);
                     inner = c_simplify_type(ctx, inner, false);
                     // TEMPLATE with operator*(): look up and substitute return type
                     if (inner && inner->kind == CTX_TYPE_TEMPLATE) {
                         const char* tqn = inner->data.template_type.template_name;
-                        const CBMRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
+                        const CtxRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
                         if (opf && opf->signature && opf->signature->kind == CTX_TYPE_FUNC &&
                             opf->signature->data.func.return_types &&
                             opf->signature->data.func.return_types[0]) {
-                            const CBMType* ret = opf->signature->data.func.return_types[0];
-                            const CBMRegisteredType* rt = ctx_registry_lookup_type(
+                            const CtxType* ret = opf->signature->data.func.return_types[0];
+                            const CtxRegisteredType* rt = ctx_registry_lookup_type(
                                 ctx->registry, tqn);
                             if (!rt && ctx->module_qn) {
                                 rt = ctx_registry_lookup_type(ctx->registry,
@@ -1907,7 +1907,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                                     inner->data.template_type.template_args);
                             } else {
                                 const char* fb[] = {"T", "K", "V", NULL};
-                                const CBMType* fa[3] = {NULL};
+                                const CtxType* fa[3] = {NULL};
                                 int na = inner->data.template_type.arg_count;
                                 if (na > 0) fa[0] = inner->data.template_type.template_args[0];
                                 if (na > 1) fa[1] = inner->data.template_type.template_args[1];
@@ -1946,16 +1946,16 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             if (!ts_node_is_named(child)) {
                 char* op = c_node_text(ctx, child);
                 if (op && strcmp(op, "*") == 0) {
-                    const CBMType* inner = c_eval_expr_type(ctx, arg);
+                    const CtxType* inner = c_eval_expr_type(ctx, arg);
                     inner = c_simplify_type(ctx, inner, false);
                     if (inner && inner->kind == CTX_TYPE_TEMPLATE) {
                         const char* tqn = inner->data.template_type.template_name;
-                        const CBMRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
+                        const CtxRegisteredFunc* opf = c_lookup_member(ctx, tqn, "operator*");
                         if (opf && opf->signature && opf->signature->kind == CTX_TYPE_FUNC &&
                             opf->signature->data.func.return_types &&
                             opf->signature->data.func.return_types[0]) {
-                            const CBMType* ret = opf->signature->data.func.return_types[0];
-                            const CBMRegisteredType* rt = ctx_registry_lookup_type(
+                            const CtxType* ret = opf->signature->data.func.return_types[0];
+                            const CtxRegisteredType* rt = ctx_registry_lookup_type(
                                 ctx->registry, tqn);
                             if (!rt && ctx->module_qn) {
                                 rt = ctx_registry_lookup_type(ctx->registry,
@@ -1967,7 +1967,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                                     inner->data.template_type.template_args);
                             } else {
                                 const char* fb[] = {"T", "K", "V", NULL};
-                                const CBMType* fa[3] = {NULL};
+                                const CtxType* fa[3] = {NULL};
                                 int na = inner->data.template_type.arg_count;
                                 if (na > 0) fa[0] = inner->data.template_type.template_args[0];
                                 if (na > 1) fa[1] = inner->data.template_type.template_args[1];
@@ -2042,7 +2042,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
 
     // --- lambda_expression ---
     if (strcmp(kind, "lambda_expression") == 0) {
-        const CBMType* ret_type = NULL;
+        const CtxType* ret_type = NULL;
 
         // Phase A: trailing return type on declarator (e.g., [](int x) -> Widget { ... })
         TSNode declarator = ts_node_child_by_field_name(node, "declarator", 10);
@@ -2081,7 +2081,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         }
 
         if (ret_type && !ctx_type_is_unknown(ret_type)) {
-            const CBMType** ret_types = (const CBMType**)ctx_arena_alloc(ctx->arena, 2 * sizeof(const CBMType*));
+            const CtxType** ret_types = (const CtxType**)ctx_arena_alloc(ctx->arena, 2 * sizeof(const CtxType*));
             if (ret_types) {
                 ret_types[0] = ret_type;
                 ret_types[1] = NULL;
@@ -2095,7 +2095,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
     if (strcmp(kind, "co_await_expression") == 0) {
         if (ts_node_named_child_count(node) > 0) {
             TSNode operand = ts_node_named_child(node, 0);
-            const CBMType* op_type = c_eval_expr_type(ctx, operand);
+            const CtxType* op_type = c_eval_expr_type(ctx, operand);
             // co_await returns the result of operator co_await or the awaitable's await_resume
             // Heuristic: if operand is a template type (e.g., Task<T>), return first template arg
             op_type = c_simplify_type(ctx, op_type, false);
@@ -2106,7 +2106,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
             // Fallback: check for await_resume method
             const char* op_qn = type_to_qn(op_type);
             if (op_qn) {
-                const CBMRegisteredFunc* ar = c_lookup_member(ctx, op_qn, "await_resume");
+                const CtxRegisteredFunc* ar = c_lookup_member(ctx, op_qn, "await_resume");
                 if (ar && ar->signature && ar->signature->kind == CTX_TYPE_FUNC &&
                     ar->signature->data.func.return_types &&
                     ar->signature->data.func.return_types[0]) {
@@ -2126,7 +2126,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
         for (uint32_t fi = 0; fi < fnc; fi++) {
             TSNode child = ts_node_named_child(node, fi);
             if (!ts_node_is_null(child)) {
-                const CBMType* ct = c_eval_expr_type(ctx, child);
+                const CtxType* ct = c_eval_expr_type(ctx, child);
                 if (!ctx_type_is_unknown(ct)) return ct;
             }
         }
@@ -2151,7 +2151,7 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 uint32_t anc = ts_node_named_child_count(assoc);
                 if (anc > 0) {
                     TSNode val = ts_node_named_child(assoc, anc - 1);
-                    const CBMType* vt = c_eval_expr_type(ctx, val);
+                    const CtxType* vt = c_eval_expr_type(ctx, val);
                     if (!ctx_type_is_unknown(vt)) return vt;
                 }
             }
@@ -2213,11 +2213,11 @@ static const CBMType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
 // c_lookup_member: method/field lookup with base class traversal
 // ============================================================================
 
-const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name) {
+const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name) {
     if (!type_qn || !member_name) return NULL;
 
     // Direct method lookup
-    const CBMRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry, type_qn, member_name);
+    const CtxRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry, type_qn, member_name);
     if (f) return f;
 
     // Try module-prefixed QN (e.g., "Container" -> "test.main.Container")
@@ -2230,9 +2230,9 @@ const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
     // Scope-based alias: using Vec = std::vector<T>;
     // Vec is in scope as ALIAS → follow to underlying type's QN
     {
-        const CBMType* scoped = ctx_scope_lookup(ctx->current_scope, type_qn);
+        const CtxType* scoped = ctx_scope_lookup(ctx->current_scope, type_qn);
         if (scoped && scoped->kind == CTX_TYPE_ALIAS) {
-            const CBMType* underlying = ctx_type_resolve_alias(scoped);
+            const CtxType* underlying = ctx_type_resolve_alias(scoped);
             if (underlying && !ctx_type_is_unknown(underlying)) {
                 const char* alias_target_qn = type_to_qn(underlying);
                 if (alias_target_qn) {
@@ -2244,7 +2244,7 @@ const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
     }
 
     // Check registered type for alias and base classes
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
     if (!rt && ctx->module_qn) {
         rt = ctx_registry_lookup_type(ctx->registry,
             ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
@@ -2269,11 +2269,11 @@ const CBMRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
 }
 
 // Field type lookup
-static const CBMType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn,
+static const CtxType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn,
     const char* field_name, int depth) {
     if (!type_qn || !field_name || depth > 5) return NULL;
 
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
     if (!rt && ctx->module_qn) {
         rt = ctx_registry_lookup_type(ctx->registry,
             ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, type_qn));
@@ -2292,7 +2292,7 @@ static const CBMType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn,
     // Base classes
     if (rt->embedded_types) {
         for (int i = 0; rt->embedded_types[i]; i++) {
-            const CBMType* f = c_lookup_field_type(ctx, rt->embedded_types[i], field_name, depth + 1);
+            const CtxType* f = c_lookup_field_type(ctx, rt->embedded_types[i], field_name, depth + 1);
             if (f) return f;
         }
     }
@@ -2304,7 +2304,7 @@ static const CBMType* c_lookup_field_type(CLSPContext* ctx, const char* type_qn,
 // ============================================================================
 
 // Parse a declaration to extract type and declarators
-static const CBMType* c_parse_declaration_type(CLSPContext* ctx, TSNode decl_node) {
+static const CtxType* c_parse_declaration_type(CLSPContext* ctx, TSNode decl_node) {
     // Look for type node in declaration children
     uint32_t nc = ts_node_named_child_count(decl_node);
     for (uint32_t i = 0; i < nc; i++) {
@@ -2334,7 +2334,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
 
     // declaration: Type var = expr; or Type var1, var2;
     if (strcmp(kind, "declaration") == 0) {
-        const CBMType* base_type = c_parse_declaration_type(ctx, node);
+        const CtxType* base_type = c_parse_declaration_type(ctx, node);
         bool has_auto = false;
 
         // Check if type is auto/decltype
@@ -2361,7 +2361,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                 TSNode decl = ts_node_child_by_field_name(child, "declarator", 10);
                 TSNode value = ts_node_child_by_field_name(child, "value", 5);
 
-                const CBMType* var_type = base_type;
+                const CtxType* var_type = base_type;
 
                 // For auto, infer from initializer
                 if (has_auto && !ts_node_is_null(value)) {
@@ -2401,7 +2401,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                 var_name = c_node_text(ctx, inner);
                             } else if (strcmp(ik, "structured_binding_declarator") == 0) {
                                 // const auto& [a, b] = expr; — delegate to structured binding
-                                const CBMType* rhs_type = ctx_type_unknown();
+                                const CtxType* rhs_type = ctx_type_unknown();
                                 if (!ts_node_is_null(value)) {
                                     rhs_type = c_eval_expr_type(ctx, value);
                                     rhs_type = c_simplify_type(ctx, rhs_type, false);
@@ -2413,7 +2413,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                     if (strcmp(ts_node_type(bn), "identifier") == 0) {
                                         char* bname = c_node_text(ctx, bn);
                                         if (!bname) continue;
-                                        const CBMType* elem_type = ctx_type_unknown();
+                                        const CtxType* elem_type = ctx_type_unknown();
                                         if (rhs_type && rhs_type->kind == CTX_TYPE_TEMPLATE &&
                                             rhs_type->data.template_type.template_args) {
                                             int nta = rhs_type->data.template_type.arg_count;
@@ -2424,7 +2424,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                             elem_type = rhs_type->data.slice.elem;
                                         if (ctx_type_is_unknown(elem_type) && rhs_type) {
                                             const char* rhs_qn = type_to_qn(rhs_type);
-                                            const CBMRegisteredType* rt = rhs_qn ?
+                                            const CtxRegisteredType* rt = rhs_qn ?
                                                 ctx_registry_lookup_type(ctx->registry, rhs_qn) : NULL;
                                             if (!rt && rhs_qn && ctx->module_qn)
                                                 rt = ctx_registry_lookup_type(ctx->registry,
@@ -2472,7 +2472,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                     } else if (strcmp(dk, "structured_binding_declarator") == 0) {
                         // auto [a, b] = expr;
                         // Try to decompose pair/tuple from initializer type
-                        const CBMType* rhs_type = ctx_type_unknown();
+                        const CtxType* rhs_type = ctx_type_unknown();
                         if (!ts_node_is_null(value)) {
                             rhs_type = c_eval_expr_type(ctx, value);
                             rhs_type = c_simplify_type(ctx, rhs_type, false);
@@ -2484,7 +2484,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                             if (strcmp(ts_node_type(bn), "identifier") == 0) {
                                 char* bname = c_node_text(ctx, bn);
                                 if (!bname) continue;
-                                const CBMType* elem_type = ctx_type_unknown();
+                                const CtxType* elem_type = ctx_type_unknown();
                                 // Decompose std::pair<T1,T2> → first=T1, second=T2
                                 if (rhs_type && rhs_type->kind == CTX_TYPE_TEMPLATE &&
                                     rhs_type->data.template_type.template_args) {
@@ -2501,7 +2501,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                                 // Decompose struct fields
                                 if (ctx_type_is_unknown(elem_type) && rhs_type) {
                                     const char* rhs_qn = type_to_qn(rhs_type);
-                                    const CBMRegisteredType* rt = rhs_qn ?
+                                    const CtxRegisteredType* rt = rhs_qn ?
                                         ctx_registry_lookup_type(ctx->registry, rhs_qn) : NULL;
                                     if (!rt && rhs_qn && ctx->module_qn)
                                         rt = ctx_registry_lookup_type(ctx->registry,
@@ -2612,7 +2612,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                 if (!ts_node_is_null(inner) && strcmp(ts_node_type(inner), "identifier") == 0) {
                     char* var_name = c_node_text(ctx, inner);
                     if (var_name) {
-                        const CBMType* vt = base_type;
+                        const CtxType* vt = base_type;
                         for (int d = 0; d < ptr_depth; d++)
                             vt = ctx_type_pointer(ctx->arena, vt);
                         ctx_scope_bind(ctx->current_scope, var_name, vt);
@@ -2663,7 +2663,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                     if (enum_text) {
                         const char* enum_qn = c_build_qn(ctx, enum_text);
                         // Try to find the enum type in registry, import its members
-                        const CBMRegisteredType* et = ctx_registry_lookup_type(ctx->registry, enum_qn);
+                        const CtxRegisteredType* et = ctx_registry_lookup_type(ctx->registry, enum_qn);
                         if (!et && ctx->module_qn) {
                             enum_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, enum_qn);
                             et = ctx_registry_lookup_type(ctx->registry, enum_qn);
@@ -2704,7 +2704,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
         TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
         if (!ts_node_is_null(name_node) && !ts_node_is_null(type_node)) {
             char* alias_name = c_node_text(ctx, name_node);
-            const CBMType* target = c_parse_type_node(ctx, type_node);
+            const CtxType* target = c_parse_type_node(ctx, type_node);
             if (alias_name && target) {
                 // Build alias QN
                 const char* alias_qn = ctx->current_namespace ?
@@ -2724,7 +2724,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
         // For "typedef RealWidget Widget": { type_identifier("RealWidget") type_identifier("Widget") }
         // For "typedef struct Foo Bar": { struct_specifier type_identifier("Bar") }
         // The first type_identifier may be the source type (when no specifier precedes it).
-        const CBMType* target = ctx_type_unknown();
+        const CtxType* target = ctx_type_unknown();
         uint32_t nc = ts_node_named_child_count(node);
         bool found_type = false;
         int first_type_id_idx = -1;
@@ -2784,9 +2784,9 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
         TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
         TSNode right = ts_node_child_by_field_name(node, "right", 5);
 
-        const CBMType* elem_type = ctx_type_unknown();
+        const CtxType* elem_type = ctx_type_unknown();
         if (!ts_node_is_null(right)) {
-            const CBMType* container_type = c_eval_expr_type(ctx, right);
+            const CtxType* container_type = c_eval_expr_type(ctx, right);
             // Deduce element type: container's begin()->operator* or element type
             if (container_type) {
                 if (container_type->kind == CTX_TYPE_SLICE) {
@@ -2797,7 +2797,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                     const char* tname = container_type->data.template_type.template_name;
                     if (tname && container_type->data.template_type.arg_count >= 2 &&
                         (strstr(tname, "map") || strstr(tname, "Map"))) {
-                        const CBMType* pair_args[3];
+                        const CtxType* pair_args[3];
                         pair_args[0] = container_type->data.template_type.template_args[0];
                         pair_args[1] = container_type->data.template_type.template_args[1];
                         pair_args[2] = NULL;
@@ -2810,15 +2810,15 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                 // Iterator protocol fallback: begin() -> iter -> operator*() -> elem
                 if (ctx_type_is_unknown(elem_type) && container_type->kind == CTX_TYPE_NAMED) {
                     const char* cqn = container_type->data.named.qualified_name;
-                    const CBMRegisteredFunc* begin_fn = c_lookup_member(ctx, cqn, "begin");
+                    const CtxRegisteredFunc* begin_fn = c_lookup_member(ctx, cqn, "begin");
                     if (begin_fn && begin_fn->signature &&
                         begin_fn->signature->kind == CTX_TYPE_FUNC &&
                         begin_fn->signature->data.func.return_types &&
                         begin_fn->signature->data.func.return_types[0]) {
-                        const CBMType* iter_type = begin_fn->signature->data.func.return_types[0];
+                        const CtxType* iter_type = begin_fn->signature->data.func.return_types[0];
                         const char* iter_qn = type_to_qn(iter_type);
                         if (iter_qn) {
-                            const CBMRegisteredFunc* deref = c_lookup_member(ctx, iter_qn, "operator*");
+                            const CtxRegisteredFunc* deref = c_lookup_member(ctx, iter_qn, "operator*");
                             if (deref && deref->signature &&
                                 deref->signature->kind == CTX_TYPE_FUNC &&
                                 deref->signature->data.func.return_types &&
@@ -2862,7 +2862,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                     if (strcmp(ts_node_type(bn), "identifier") == 0) {
                         char* bname = c_node_text(ctx, bn);
                         if (!bname) continue;
-                        const CBMType* bt = ctx_type_unknown();
+                        const CtxType* bt = ctx_type_unknown();
                         // TEMPLATE decomposition (e.g., pair<K,V>)
                         if (elem_type && elem_type->kind == CTX_TYPE_TEMPLATE &&
                             elem_type->data.template_type.template_args &&
@@ -2877,7 +2877,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                         // Struct field decomposition
                         if (ctx_type_is_unknown(bt) && elem_type) {
                             const char* eq = type_to_qn(elem_type);
-                            const CBMRegisteredType* rt = eq ?
+                            const CtxRegisteredType* rt = eq ?
                                 ctx_registry_lookup_type(ctx->registry, eq) : NULL;
                             if (!rt && eq && ctx->module_qn)
                                 rt = ctx_registry_lookup_type(ctx->registry,
@@ -2900,7 +2900,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
         TSNode decl = ts_node_child_by_field_name(node, "declarator", 10);
         if (ts_node_is_null(type_node)) return;
 
-        const CBMType* param_type = c_parse_type_node(ctx, type_node);
+        const CtxType* param_type = c_parse_type_node(ctx, type_node);
 
         if (!ts_node_is_null(decl)) {
             const char* dk = ts_node_type(decl);
@@ -2918,7 +2918,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
                 if (!ts_node_is_null(inner) && strcmp(ts_node_type(inner), "identifier") == 0) {
                     char* name = c_node_text(ctx, inner);
                     if (name) {
-                        const CBMType* vt = param_type;
+                        const CtxType* vt = param_type;
                         for (int d = 0; d < ptr_depth; d++) vt = ctx_type_pointer(ctx->arena, vt);
                         ctx_scope_bind(ctx->current_scope, name, vt);
                     }
@@ -2944,7 +2944,7 @@ void c_process_statement(CLSPContext* ctx, TSNode node) {
 
 static void c_emit_resolved_call(CLSPContext* ctx, const char* callee_qn, const char* strategy, float confidence) {
     if (!ctx->resolved_calls || !callee_qn || !ctx->enclosing_func_qn) return;
-    CBMResolvedCall rc;
+    CtxResolvedCall rc;
     rc.caller_qn = ctx->enclosing_func_qn;
     rc.callee_qn = callee_qn;
     rc.strategy = strategy;
@@ -2955,7 +2955,7 @@ static void c_emit_resolved_call(CLSPContext* ctx, const char* callee_qn, const 
 
 static void c_emit_unresolved_call(CLSPContext* ctx, const char* expr_text, const char* reason) {
     if (!ctx->resolved_calls || !ctx->enclosing_func_qn) return;
-    CBMResolvedCall rc;
+    CtxResolvedCall rc;
     rc.caller_qn = ctx->enclosing_func_qn;
     rc.callee_qn = expr_text ? expr_text : "?";
     rc.strategy = "lsp_unresolved";
@@ -2988,7 +2988,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                 if (!ts_node_is_null(arg_node) && !ts_node_is_null(field_node)) {
                     char* field_name = c_node_text(ctx, field_node);
                     if (field_name) {
-                        const CBMType* obj_type = c_eval_expr_type(ctx, arg_node);
+                        const CtxType* obj_type = c_eval_expr_type(ctx, arg_node);
 
                         // Determine if arrow or dot
                         bool is_arrow = false;
@@ -3001,17 +3001,17 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                             }
                         }
 
-                        const CBMType* base = is_arrow ?
+                        const CtxType* base = is_arrow ?
                             c_simplify_type(ctx, obj_type, true) :
                             c_simplify_type(ctx, obj_type, false);
 
                         const char* type_qn = type_to_qn(base);
                         if (type_qn) {
                             int arg_count = 0;
-                            const CBMType** arg_types = c_extract_call_arg_types(ctx, node, &arg_count);
+                            const CtxType** arg_types = c_extract_call_arg_types(ctx, node, &arg_count);
                             if (ctx->debug) fprintf(stderr, "  [clsp] member call: type_qn=%s field=%s args=%d\n", type_qn, field_name, arg_count);
                             // Use type-aware overload scoring
-                            const CBMRegisteredFunc* method = ctx_registry_lookup_method_by_types(
+                            const CtxRegisteredFunc* method = ctx_registry_lookup_method_by_types(
                                 ctx->registry, type_qn, field_name, arg_types, arg_count);
                             // Fall back to c_lookup_member for base class traversal
                             if (!method) method = c_lookup_member(ctx, type_qn, field_name);
@@ -3020,7 +3020,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                                 const char* strategy = "lsp_type_dispatch";
                                 // Check if resolved through base class — prefer derived override
                                 if (method->receiver_type && strcmp(method->receiver_type, type_qn) != 0) {
-                                    const CBMRegisteredFunc* override_m = ctx_registry_lookup_method(
+                                    const CtxRegisteredFunc* override_m = ctx_registry_lookup_method(
                                         ctx->registry, type_qn, field_name);
                                     if (override_m) {
                                         method = override_m;
@@ -3100,9 +3100,9 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         }
                     }
                     int arg_count = 0;
-                    const CBMType** arg_types = c_extract_call_arg_types(ctx, node, &arg_count);
+                    const CtxType** arg_types = c_extract_call_arg_types(ctx, node, &arg_count);
                     // Module-prefixed first (shadows stdlib stubs), then bare QN
-                    const CBMRegisteredFunc* f = NULL;
+                    const CtxRegisteredFunc* f = NULL;
                     if (ctx->module_qn) {
                         f = ctx_registry_lookup_func(ctx->registry,
                             ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, qn));
@@ -3119,7 +3119,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         char* class_qn = (char*)ctx_arena_alloc(ctx->arena, prefix_len + 1);
                         memcpy(class_qn, qn, prefix_len);
                         class_qn[prefix_len] = '\0';
-                        const CBMRegisteredFunc* m = ctx_registry_lookup_method_by_types(
+                        const CtxRegisteredFunc* m = ctx_registry_lookup_method_by_types(
                             ctx->registry, class_qn, dot + 1, arg_types, arg_count);
                         // Try with module prefix
                         if (!m && ctx->module_qn) {
@@ -3137,7 +3137,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                     // "utils.create_logger" → try "create_logger" and "mod.create_logger"
                     if (dot && ctx->module_qn) {
                         const char* bare_name = dot + 1;
-                        const CBMRegisteredFunc* nf = ctx_registry_lookup_func(ctx->registry, bare_name);
+                        const CtxRegisteredFunc* nf = ctx_registry_lookup_func(ctx->registry, bare_name);
                         if (!nf) {
                             nf = ctx_registry_lookup_func(ctx->registry,
                                 ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->module_qn, bare_name));
@@ -3159,7 +3159,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                     char* name = c_node_text(ctx, name_node);
                     if (name) {
                         const char* nk = ts_node_type(name_node);
-                        const CBMRegisteredFunc* f = NULL;
+                        const CtxRegisteredFunc* f = NULL;
                         if (strcmp(nk, "qualified_identifier") == 0 ||
                             strcmp(nk, "scoped_identifier") == 0) {
                             const char* qn = c_build_qn(ctx, name);
@@ -3177,7 +3177,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                                     char* cls = (char*)ctx_arena_alloc(ctx->arena, plen + 1);
                                     memcpy(cls, qn, plen);
                                     cls[plen] = '\0';
-                                    const CBMRegisteredFunc* m = ctx_registry_lookup_method(
+                                    const CtxRegisteredFunc* m = ctx_registry_lookup_method(
                                         ctx->registry, cls, dot + 1);
                                     if (!m && ctx->module_qn) {
                                         const char* mc = ctx_arena_sprintf(ctx->arena, "%s.%s",
@@ -3196,7 +3196,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                             // Resolve pending template calls at this call site
                             if (ctx->pending_tc_count > 0 && f->type_param_names) {
                                 int ac = 0;
-                                const CBMType** at = c_extract_call_arg_types(ctx, node, &ac);
+                                const CtxType** at = c_extract_call_arg_types(ctx, node, &ac);
                                 if (at) c_resolve_pending_template_calls(ctx, f, at, ac);
                             }
                         } else {
@@ -3225,17 +3225,17 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                     }
 
                     // Check if it's a variable with callable type
-                    const CBMType* var_type = ctx_scope_lookup(ctx->current_scope, name);
+                    const CtxType* var_type = ctx_scope_lookup(ctx->current_scope, name);
                     if (!ctx_type_is_unknown(var_type)) {
                         if (var_type->kind == CTX_TYPE_FUNC) {
                             // Function type variable without tracked target — can't resolve
                             goto recurse;
                         }
                         // Functor call: variable with operator()
-                        const CBMType* base = c_simplify_type(ctx, var_type, false);
+                        const CtxType* base = c_simplify_type(ctx, var_type, false);
                         const char* type_qn = type_to_qn(base);
                         if (type_qn) {
-                            const CBMRegisteredFunc* op = c_lookup_member(ctx, type_qn, "operator()");
+                            const CtxRegisteredFunc* op = c_lookup_member(ctx, type_qn, "operator()");
                             if (op) {
                                 c_emit_resolved_call(ctx, op->qualified_name, "lsp_operator", 0.90f);
                                 goto recurse;
@@ -3244,10 +3244,10 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                     }
 
                     // Check if it's a type name (constructor call)
-                    const CBMType* type = c_resolve_name_to_type(ctx, name);
+                    const CtxType* type = c_resolve_name_to_type(ctx, name);
                     if (type && type->kind == CTX_TYPE_NAMED) {
                         const char* type_qn_str = type->data.named.qualified_name;
-                        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn_str);
+                        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn_str);
                         if (rt && !rt->is_interface) {
                             // Constructor call
                             const char* ctor_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", type_qn_str, name);
@@ -3262,7 +3262,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         // Check if this is implicit 'this' call
                         const char* strategy = "lsp_direct";
                         if (ctx->enclosing_class_qn) {
-                            const CBMRegisteredFunc* m = ctx_registry_lookup_method(ctx->registry,
+                            const CtxRegisteredFunc* m = ctx_registry_lookup_method(ctx->registry,
                                 ctx->enclosing_class_qn, name);
                             if (m && strcmp(fqn, m->qualified_name) == 0) {
                                 strategy = "lsp_implicit_this";
@@ -3271,10 +3271,10 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         c_emit_resolved_call(ctx, fqn, strategy, 0.95f);
                         // Resolve pending template calls at this call site
                         if (ctx->pending_tc_count > 0) {
-                            const CBMRegisteredFunc* called = ctx_registry_lookup_func(ctx->registry, fqn);
+                            const CtxRegisteredFunc* called = ctx_registry_lookup_func(ctx->registry, fqn);
                             if (called && called->type_param_names) {
                                 int ac = 0;
-                                const CBMType** at = c_extract_call_arg_types(ctx, node, &ac);
+                                const CtxType** at = c_extract_call_arg_types(ctx, node, &ac);
                                 if (at) c_resolve_pending_template_calls(ctx, called, at, ac);
                             }
                         }
@@ -3297,7 +3297,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
     if (strcmp(kind, "declaration") == 0 && ctx->cpp_mode) {
         // Check for Foo x(args) or Foo x{args} patterns
         uint32_t nc = ts_node_named_child_count(node);
-        const CBMType* decl_type = ctx_type_unknown();
+        const CtxType* decl_type = ctx_type_unknown();
         bool has_type = false;
         for (uint32_t i = 0; i < nc; i++) {
             TSNode child = ts_node_named_child(node, i);
@@ -3345,7 +3345,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
             }
         }
         if (!ts_node_is_null(type_node)) {
-            const CBMType* t = c_parse_type_node(ctx, type_node);
+            const CtxType* t = c_parse_type_node(ctx, type_node);
             const char* type_qn = type_to_qn(t);
             if (type_qn) {
                 const char* short_name = strrchr(type_qn, '.');
@@ -3364,8 +3364,8 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                 operand = ts_node_named_child(node, 0);
         }
         if (!ts_node_is_null(operand)) {
-            const CBMType* ptr_type = c_eval_expr_type(ctx, operand);
-            const CBMType* base = c_simplify_type(ctx, ptr_type, true);
+            const CtxType* ptr_type = c_eval_expr_type(ctx, operand);
+            const CtxType* base = c_simplify_type(ctx, ptr_type, true);
             const char* type_qn = type_to_qn(base);
             if (type_qn) {
                 const char* short_name = strrchr(type_qn, '.');
@@ -3380,8 +3380,8 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
     if (ctx->cpp_mode && strcmp(kind, "binary_expression") == 0) {
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         if (!ts_node_is_null(left)) {
-            const CBMType* lhs_type = c_eval_expr_type(ctx, left);
-            const CBMType* base = c_simplify_type(ctx, lhs_type, false);
+            const CtxType* lhs_type = c_eval_expr_type(ctx, left);
+            const CtxType* base = c_simplify_type(ctx, lhs_type, false);
             if (base && base->kind != CTX_TYPE_BUILTIN && !ctx_type_is_unknown(base)) {
                 const char* type_qn = type_to_qn(base);
                 if (type_qn) {
@@ -3392,7 +3392,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                             char* op = c_node_text(ctx, child);
                             if (op) {
                                 const char* op_name = ctx_arena_sprintf(ctx->arena, "operator%s", op);
-                                const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
+                                const CtxRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
                                 if (m) {
                                     c_emit_resolved_call(ctx, m->qualified_name, "lsp_operator", 0.90f);
                                 }
@@ -3409,8 +3409,8 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
     if (ctx->cpp_mode && strcmp(kind, "assignment_expression") == 0) {
         TSNode left = ts_node_child_by_field_name(node, "left", 4);
         if (!ts_node_is_null(left)) {
-            const CBMType* lhs_type = c_eval_expr_type(ctx, left);
-            const CBMType* base = c_simplify_type(ctx, lhs_type, false);
+            const CtxType* lhs_type = c_eval_expr_type(ctx, left);
+            const CtxType* base = c_simplify_type(ctx, lhs_type, false);
             if (base && base->kind != CTX_TYPE_BUILTIN && !ctx_type_is_unknown(base)) {
                 const char* type_qn = type_to_qn(base);
                 if (type_qn) {
@@ -3422,7 +3422,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                             if (op && strlen(op) >= 2 && op[strlen(op)-1] == '=') {
                                 // Compound assignment: +=, -=, *=, /=, %=, <<=, >>=, &=, |=, ^=
                                 const char* op_name = ctx_arena_sprintf(ctx->arena, "operator%s", op);
-                                const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
+                                const CtxRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
                                 if (m) {
                                     c_emit_resolved_call(ctx, m->qualified_name, "lsp_operator", 0.90f);
                                 }
@@ -3439,13 +3439,13 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
     if (ctx->cpp_mode && strcmp(kind, "subscript_expression") == 0) {
         TSNode arg_node = ts_node_child_by_field_name(node, "argument", 8);
         if (!ts_node_is_null(arg_node)) {
-            const CBMType* arr_type = c_eval_expr_type(ctx, arg_node);
-            const CBMType* base = c_simplify_type(ctx, arr_type, false);
+            const CtxType* arr_type = c_eval_expr_type(ctx, arg_node);
+            const CtxType* base = c_simplify_type(ctx, arr_type, false);
             if (base && base->kind != CTX_TYPE_BUILTIN && !ctx_type_is_unknown(base) &&
                 base->kind != CTX_TYPE_POINTER && base->kind != CTX_TYPE_SLICE) {
                 const char* type_qn = type_to_qn(base);
                 if (type_qn) {
-                    const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, "operator[]");
+                    const CtxRegisteredFunc* m = c_lookup_member(ctx, type_qn, "operator[]");
                     if (m) {
                         c_emit_resolved_call(ctx, m->qualified_name, "lsp_operator", 0.90f);
                     }
@@ -3462,8 +3462,8 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
         if (ts_node_is_null(operand))
             operand = ts_node_child_by_field_name(node, "operand", 7);
         if (!ts_node_is_null(operand)) {
-            const CBMType* op_type = c_eval_expr_type(ctx, operand);
-            const CBMType* base = c_simplify_type(ctx, op_type, false);
+            const CtxType* op_type = c_eval_expr_type(ctx, operand);
+            const CtxType* base = c_simplify_type(ctx, op_type, false);
             if (base && base->kind != CTX_TYPE_BUILTIN && !ctx_type_is_unknown(base) &&
                 base->kind != CTX_TYPE_POINTER) {
                 const char* type_qn = type_to_qn(base);
@@ -3483,7 +3483,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         }
                     }
                     if (op_name) {
-                        const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
+                        const CtxRegisteredFunc* m = c_lookup_member(ctx, type_qn, op_name);
                         if (m) {
                             c_emit_resolved_call(ctx, m->qualified_name, "lsp_operator", 0.90f);
                         }
@@ -3495,7 +3495,7 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
 
     // --- Copy/move constructor: Foo a = expr; where expr has Foo type ---
     if (ctx->cpp_mode && strcmp(kind, "declaration") == 0) {
-        const CBMType* decl_type = c_parse_declaration_type(ctx, node);
+        const CtxType* decl_type = c_parse_declaration_type(ctx, node);
         if (decl_type && decl_type->kind == CTX_TYPE_NAMED) {
             uint32_t dnc = ts_node_named_child_count(node);
             for (uint32_t di = 0; di < dnc; di++) {
@@ -3507,8 +3507,8 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
                         // Skip if it's argument_list (already handled as constructor above)
                         // or initializer_list (also handled)
                         if (strcmp(vk, "argument_list") != 0 && strcmp(vk, "initializer_list") != 0) {
-                            const CBMType* val_type = c_eval_expr_type(ctx, val);
-                            const CBMType* val_base = c_simplify_type(ctx, val_type, false);
+                            const CtxType* val_type = c_eval_expr_type(ctx, val);
+                            const CtxType* val_base = c_simplify_type(ctx, val_type, false);
                             // If assigning an object of the same type -> copy/move constructor
                             const char* type_qn = type_to_qn(decl_type);
                             const char* val_qn = type_to_qn(val_base);
@@ -3532,13 +3532,13 @@ static void c_resolve_calls_in_node(CLSPContext* ctx, TSNode node) {
         TSNode cond = ts_node_child_by_field_name(node, "condition", 9);
         if (!ts_node_is_null(cond)) {
             // If condition is a single expression of a custom type with operator bool
-            const CBMType* cond_type = c_eval_expr_type(ctx, cond);
-            const CBMType* base = c_simplify_type(ctx, cond_type, false);
+            const CtxType* cond_type = c_eval_expr_type(ctx, cond);
+            const CtxType* base = c_simplify_type(ctx, cond_type, false);
             if (base && base->kind != CTX_TYPE_BUILTIN && !ctx_type_is_unknown(base) &&
                 base->kind != CTX_TYPE_POINTER) {
                 const char* type_qn = type_to_qn(base);
                 if (type_qn) {
-                    const CBMRegisteredFunc* m = c_lookup_member(ctx, type_qn, "operator bool");
+                    const CtxRegisteredFunc* m = c_lookup_member(ctx, type_qn, "operator bool");
                     if (m) {
                         c_emit_resolved_call(ctx, m->qualified_name, "lsp_conversion", 0.85f);
                     }
@@ -3629,7 +3629,7 @@ recurse:;
                         }
                         if (!ts_node_is_null(name_node) && !ts_node_is_null(val_node)) {
                             char* cap_name = c_node_text(ctx, name_node);
-                            const CBMType* cap_type = c_eval_expr_type(ctx, val_node);
+                            const CtxType* cap_type = c_eval_expr_type(ctx, val_node);
                             if (cap_name && !ctx_type_is_unknown(cap_type)) {
                                 ctx_scope_bind(ctx->current_scope, cap_name, cap_type);
                             }
@@ -3691,7 +3691,7 @@ static void c_process_function(CLSPContext* ctx, TSNode func_node) {
                 if (scope_text) {
                     const char* scope_qn = c_build_qn(ctx, scope_text);
                     // Try as a type for enclosing class
-                    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, scope_qn);
+                    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, scope_qn);
                     if (rt) {
                         ctx->enclosing_class_qn = scope_qn;
                     } else if (ctx->module_qn) {
@@ -3732,8 +3732,8 @@ static void c_process_function(CLSPContext* ctx, TSNode func_node) {
     // so pending template calls can be resolved at call sites.
     if (ctx->in_template && ctx->template_param_count > 0) {
         // Find the registered function and set type_param_names
-        for (int ri = 0; ri < ((CBMTypeRegistry*)ctx->registry)->func_count; ri++) {
-            CBMRegisteredFunc* rf = &((CBMTypeRegistry*)ctx->registry)->funcs[ri];
+        for (int ri = 0; ri < ((CtxTypeRegistry*)ctx->registry)->func_count; ri++) {
+            CtxRegisteredFunc* rf = &((CtxTypeRegistry*)ctx->registry)->funcs[ri];
             if (strcmp(rf->qualified_name, func_qn) == 0 && !rf->type_param_names) {
                 const char** tpn = (const char**)ctx_arena_alloc(ctx->arena,
                     (ctx->template_param_count + 1) * sizeof(const char*));
@@ -3747,7 +3747,7 @@ static void c_process_function(CLSPContext* ctx, TSNode func_node) {
     }
 
     // Push function scope
-    CBMScope* saved_scope = ctx->current_scope;
+    CtxScope* saved_scope = ctx->current_scope;
     ctx->current_scope = ctx_scope_push(ctx->arena, ctx->current_scope);
 
     // Bind 'this' if in a method
@@ -3777,8 +3777,8 @@ static void c_process_function(CLSPContext* ctx, TSNode func_node) {
     }
     // Set min_params on the registered function (for default-arg overload matching)
     if (total_params > 0 && defaulted_params > 0) {
-        for (int ri = 0; ri < ((CBMTypeRegistry*)ctx->registry)->func_count; ri++) {
-            CBMRegisteredFunc* rf = &((CBMTypeRegistry*)ctx->registry)->funcs[ri];
+        for (int ri = 0; ri < ((CtxTypeRegistry*)ctx->registry)->func_count; ri++) {
+            CtxRegisteredFunc* rf = &((CtxTypeRegistry*)ctx->registry)->funcs[ri];
             if (strcmp(rf->qualified_name, func_qn) == 0 && rf->min_params < 0) {
                 rf->min_params = total_params - defaulted_params;
                 break;
@@ -3852,7 +3852,7 @@ static void c_process_body_child(CLSPContext* ctx, TSNode child) {
                         char* fname = c_node_text(ctx, fn_name);
                         if (fname && fname[0]) {
                             // Parse return type from declaration's type specifier
-                            const CBMType* ret_type = NULL;
+                            const CtxType* ret_type = NULL;
                             for (uint32_t ri = 0; ri < dnc; ri++) {
                                 TSNode rch = ts_node_named_child(child, ri);
                                 const char* rk = ts_node_type(rch);
@@ -3876,11 +3876,11 @@ static void c_process_body_child(CLSPContext* ctx, TSNode child) {
                                         ctx->current_namespace, fname);
                                 // Only register if not already registered
                                 if (!ctx_registry_lookup_func(ctx->registry, func_qn)) {
-                                    const CBMType** rets = (const CBMType**)ctx_arena_alloc(
-                                        ctx->arena, 2 * sizeof(const CBMType*));
+                                    const CtxType** rets = (const CtxType**)ctx_arena_alloc(
+                                        ctx->arena, 2 * sizeof(const CtxType*));
                                     rets[0] = ret_type;
                                     rets[1] = NULL;
-                                    CBMRegisteredFunc rf = {0};
+                                    CtxRegisteredFunc rf = {0};
                                     rf.qualified_name = func_qn;
                                     rf.short_name = fname;
                                     rf.signature = ctx_type_func(ctx->arena, NULL, NULL, rets);
@@ -3893,7 +3893,7 @@ static void c_process_body_child(CLSPContext* ctx, TSNode child) {
                                         tpn[ctx->template_param_count] = NULL;
                                         rf.type_param_names = tpn;
                                     }
-                                    ctx_registry_add_func((CBMTypeRegistry*)ctx->registry, rf);
+                                    ctx_registry_add_func((CtxTypeRegistry*)ctx->registry, rf);
                                 }
                             }
                         }
@@ -3913,7 +3913,7 @@ static void c_process_body_child(CLSPContext* ctx, TSNode child) {
         // Save template state, parse params for defaults, set flag
         bool saved_template = ctx->in_template;
         const char** saved_tpn = ctx->template_param_names;
-        const CBMType** saved_tpd = ctx->template_param_defaults;
+        const CtxType** saved_tpd = ctx->template_param_defaults;
         int saved_tpc = ctx->template_param_count;
 
         ctx->in_template = true;
@@ -3969,7 +3969,7 @@ static void c_process_namespace(CLSPContext* ctx, TSNode ns_node) {
 static void c_process_class(CLSPContext* ctx, TSNode class_node) {
     const char* saved_class = ctx->enclosing_class_qn;
     const char** saved_tpn = ctx->template_param_names;
-    const CBMType** saved_tpd = ctx->template_param_defaults;
+    const CtxType** saved_tpd = ctx->template_param_defaults;
     int saved_tpc = ctx->template_param_count;
 
     char* class_name = NULL;
@@ -3989,10 +3989,10 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
 
             // Store template param names on the registered type (for substitution)
             if (ctx->in_template && ctx->template_param_names && ctx->template_param_count > 0) {
-                CBMRegisteredType* rt = NULL;
-                for (int ri = 0; ri < ((CBMTypeRegistry*)ctx->registry)->type_count; ri++) {
-                    if (strcmp(((CBMTypeRegistry*)ctx->registry)->types[ri].qualified_name, class_qn) == 0) {
-                        rt = &((CBMTypeRegistry*)ctx->registry)->types[ri];
+                CtxRegisteredType* rt = NULL;
+                for (int ri = 0; ri < ((CtxTypeRegistry*)ctx->registry)->type_count; ri++) {
+                    if (strcmp(((CtxTypeRegistry*)ctx->registry)->types[ri].qualified_name, class_qn) == 0) {
+                        rt = &((CtxTypeRegistry*)ctx->registry)->types[ri];
                         break;
                     }
                 }
@@ -4098,14 +4098,14 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
                     strcmp(ck, "function_definition") != 0)
                     continue;
                 // Parse return type from type specifier
-                const CBMType* ret_type = c_parse_declaration_type(ctx, child);
+                const CtxType* ret_type = c_parse_declaration_type(ctx, child);
                 // Walk declarator chain to find function_declarator + method name
                 uint32_t dnc = ts_node_named_child_count(child);
                 for (uint32_t di = 0; di < dnc; di++) {
                     TSNode decl = ts_node_named_child(child, di);
                     // Navigate through reference_declarator, pointer_declarator to function_declarator
                     TSNode cur = decl;
-                    const CBMType* actual_ret = ret_type;
+                    const CtxType* actual_ret = ret_type;
                     for (int depth = 0; depth < 5 && !ts_node_is_null(cur); depth++) {
                         const char* dk = ts_node_type(cur);
                         if (strcmp(dk, "function_declarator") == 0) {
@@ -4126,7 +4126,7 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
                             // Check if already registered — if so, upgrade return type
                             // if pre-pass has a more specific type (e.g., TEMPLATE vs NAMED)
                             // Check both full QN and short QN (extract_defs may use shorter)
-                            const CBMRegisteredFunc* existing = ctx_registry_lookup_method(
+                            const CtxRegisteredFunc* existing = ctx_registry_lookup_method(
                                 ctx->registry, ctx->enclosing_class_qn, method_name);
                             if (!existing && ctx->module_qn) {
                                 // Try without module prefix: "test.main.std.X" -> "std.X"
@@ -4155,28 +4155,28 @@ static void c_process_class(CLSPContext* ctx, TSNode class_node) {
                                 }
                                 if (should_upgrade) {
                                     // Update existing entry's signature return type
-                                    const CBMType** new_rets = (const CBMType**)ctx_arena_alloc(
-                                        ctx->arena, 2 * sizeof(const CBMType*));
+                                    const CtxType** new_rets = (const CtxType**)ctx_arena_alloc(
+                                        ctx->arena, 2 * sizeof(const CtxType*));
                                     new_rets[0] = actual_ret;
                                     new_rets[1] = NULL;
-                                    CBMRegisteredFunc* mut = (CBMRegisteredFunc*)existing;
+                                    CtxRegisteredFunc* mut = (CtxRegisteredFunc*)existing;
                                     mut->signature = ctx_type_func(ctx->arena, NULL, NULL, new_rets);
                                 }
                                 break;
                             }
                             // Build return type with ref/ptr wrapping
-                            const CBMType** rets = (const CBMType**)ctx_arena_alloc(
-                                ctx->arena, 2 * sizeof(const CBMType*));
+                            const CtxType** rets = (const CtxType**)ctx_arena_alloc(
+                                ctx->arena, 2 * sizeof(const CtxType*));
                             rets[0] = actual_ret;
                             rets[1] = NULL;
-                            CBMRegisteredFunc rf;
+                            CtxRegisteredFunc rf;
                             memset(&rf, 0, sizeof(rf));
                             rf.qualified_name = method_qn;
                             rf.short_name = method_name;
                             rf.receiver_type = ctx->enclosing_class_qn;
                             rf.signature = ctx_type_func(ctx->arena, NULL, NULL, rets);
                             rf.min_params = -1;
-                            ctx_registry_add_func((CBMTypeRegistry*)ctx->registry, rf);
+                            ctx_registry_add_func((CtxTypeRegistry*)ctx->registry, rf);
                             break;
                         } else if (strcmp(dk, "reference_declarator") == 0) {
                             actual_ret = ctx_type_reference(ctx->arena, actual_ret);
@@ -4260,10 +4260,10 @@ void c_lsp_process_file(CLSPContext* ctx, TSNode root) {
 }
 
 // ============================================================================
-// Parse C/C++ return type text into CBMType (for cross-file defs)
+// Parse C/C++ return type text into CtxType (for cross-file defs)
 // ============================================================================
 
-static const CBMType* c_parse_return_type_text(CBMArena* a, const char* text, const char* module_qn) {
+static const CtxType* c_parse_return_type_text(CtxArena* a, const char* text, const char* module_qn) {
     if (!text || !text[0]) return ctx_type_unknown();
 
     // Skip const/volatile qualifiers
@@ -4345,7 +4345,7 @@ static const CBMType* c_parse_return_type_text(CBMArena* a, const char* text, co
             char* args_text = ctx_arena_strndup(a, args_start, args_len);
 
             // Split by comma at nesting depth 0
-            const CBMType* arg_types[16];
+            const CtxType* arg_types[16];
             int arg_count = 0;
             int depth = 0;
             const char* arg_begin = args_text;
@@ -4399,10 +4399,10 @@ static const CBMType* c_parse_return_type_text(CBMArena* a, const char* text, co
 // Entry point: single-file LSP
 // ============================================================================
 
-void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
+void ctx_run_c_lsp(CtxArena* arena, CtxFileResult* result,
     const char* source, int source_len, TSNode root, bool cpp_mode) {
 
-    CBMTypeRegistry reg;
+    CtxTypeRegistry reg;
     ctx_registry_init(&reg, arena);
 
     // Register stdlib
@@ -4413,11 +4413,11 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
 
     // Register file's own definitions
     for (int i = 0; i < result->defs.count; i++) {
-        CBMDefinition* d = &result->defs.items[i];
+        CtxDefinition* d = &result->defs.items[i];
         if (!d->qualified_name || !d->name) continue;
 
         if (d->label && (strcmp(d->label, "Class") == 0 || strcmp(d->label, "Type") == 0)) {
-            CBMRegisteredType rt;
+            CtxRegisteredType rt;
             memset(&rt, 0, sizeof(rt));
             rt.qualified_name = d->qualified_name;
             rt.short_name = d->name;
@@ -4447,7 +4447,7 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
         // Field definitions → populate field_names/field_types on parent type
         if (d->label && strcmp(d->label, "Field") == 0 && d->parent_class && d->return_type) {
             // Find or add the parent type in registry
-            CBMRegisteredType* parent_rt = NULL;
+            CtxRegisteredType* parent_rt = NULL;
             for (int ri = 0; ri < reg.type_count; ri++) {
                 if (strcmp(reg.types[ri].qualified_name, d->parent_class) == 0) {
                     parent_rt = &reg.types[ri];
@@ -4462,7 +4462,7 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
                 }
                 // Add this field
                 const char** new_fnames = (const char**)ctx_arena_alloc(arena, (existing + 2) * sizeof(const char*));
-                const CBMType** new_ftypes = (const CBMType**)ctx_arena_alloc(arena, (existing + 2) * sizeof(const CBMType*));
+                const CtxType** new_ftypes = (const CtxType**)ctx_arena_alloc(arena, (existing + 2) * sizeof(const CtxType*));
                 if (new_fnames && new_ftypes) {
                     for (int j = 0; j < existing; j++) {
                         new_fnames[j] = parent_rt->field_names[j];
@@ -4479,7 +4479,7 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
         }
 
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
-            CBMRegisteredFunc rf;
+            CtxRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
             rf.min_params = -1;
             rf.qualified_name = d->qualified_name;
@@ -4487,16 +4487,16 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
 
             // Build return type — prefer return_type (raw text) over return_types
             // (cleaned by clean_type_name which strips template args like <Service>).
-            const CBMType** ret_types = NULL;
+            const CtxType** ret_types = NULL;
             if (d->return_type && d->return_type[0]) {
-                ret_types = (const CBMType**)ctx_arena_alloc(arena, 2 * sizeof(const CBMType*));
+                ret_types = (const CtxType**)ctx_arena_alloc(arena, 2 * sizeof(const CtxType*));
                 ret_types[0] = c_parse_return_type_text(arena, d->return_type, module_qn);
                 ret_types[1] = NULL;
             } else if (d->return_types) {
                 int count = 0;
                 while (d->return_types[count]) count++;
                 if (count > 0) {
-                    ret_types = (const CBMType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CBMType*));
+                    ret_types = (const CtxType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < count; j++)
                         ret_types[j] = c_parse_return_type_text(arena, d->return_types[j], module_qn);
                     ret_types[count] = NULL;
@@ -4504,12 +4504,12 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
             }
 
             // Build param types
-            const CBMType** param_types_arr = NULL;
+            const CtxType** param_types_arr = NULL;
             if (d->param_types) {
                 int count = 0;
                 while (d->param_types[count]) count++;
                 if (count > 0) {
-                    param_types_arr = (const CBMType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CBMType*));
+                    param_types_arr = (const CtxType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < count; j++)
                         param_types_arr[j] = c_parse_return_type_text(arena, d->param_types[j], module_qn);
                     param_types_arr[count] = NULL;
@@ -4523,7 +4523,7 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
                 rf.receiver_type = d->parent_class;
                 // Auto-create type if needed
                 if (!ctx_registry_lookup_type(&reg, d->parent_class)) {
-                    CBMRegisteredType auto_type;
+                    CtxRegisteredType auto_type;
                     memset(&auto_type, 0, sizeof(auto_type));
                     auto_type.qualified_name = d->parent_class;
                     // Extract short name
@@ -4549,18 +4549,18 @@ void ctx_run_c_lsp(CBMArena* arena, CBMFileResult* result,
 // ============================================================================
 
 void ctx_run_c_lsp_cross(
-    CBMArena* arena,
+    CtxArena* arena,
     const char* source, int source_len,
     const char* module_qn,
     bool cpp_mode,
-    CBMLSPDef* defs, int def_count,
+    CtxLSPDef* defs, int def_count,
     const char** include_paths, const char** include_ns_qns, int include_count,
     TSTree* cached_tree,
-    CBMResolvedCallArray* out) {
+    CtxResolvedCallArray* out) {
 
     if (!source || source_len == 0 || !out) return;
 
-    CBMTypeRegistry reg;
+    CtxTypeRegistry reg;
     ctx_registry_init(&reg, arena);
 
     // Register stdlib
@@ -4569,12 +4569,12 @@ void ctx_run_c_lsp_cross(
 
     // Register all defs
     for (int i = 0; i < def_count; i++) {
-        CBMLSPDef* d = &defs[i];
+        CtxLSPDef* d = &defs[i];
         if (!d->qualified_name || !d->short_name) continue;
 
         if (d->label && (strcmp(d->label, "Class") == 0 || strcmp(d->label, "Type") == 0 ||
                          strcmp(d->label, "Interface") == 0)) {
-            CBMRegisteredType rt;
+            CtxRegisteredType rt;
             memset(&rt, 0, sizeof(rt));
             rt.qualified_name = ctx_arena_strdup(arena, d->qualified_name);
             rt.short_name = ctx_arena_strdup(arena, d->short_name);
@@ -4608,7 +4608,7 @@ void ctx_run_c_lsp_cross(
             if (d->field_defs) {
                 const char* fsrc = d->field_defs;
                 const char* fnames[64];
-                const CBMType* ftypes[64];
+                const CtxType* ftypes[64];
                 int fcount = 0;
                 while (*fsrc && fcount < 63) {
                     const char* sep = strchr(fsrc, '|');
@@ -4627,7 +4627,7 @@ void ctx_run_c_lsp_cross(
                 }
                 if (fcount > 0) {
                     const char** fnarr = (const char**)ctx_arena_alloc(arena, (fcount + 1) * sizeof(const char*));
-                    const CBMType** ftarr = (const CBMType**)ctx_arena_alloc(arena, (fcount + 1) * sizeof(const CBMType*));
+                    const CtxType** ftarr = (const CtxType**)ctx_arena_alloc(arena, (fcount + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < fcount; j++) { fnarr[j] = fnames[j]; ftarr[j] = ftypes[j]; }
                     fnarr[fcount] = NULL;
                     ftarr[fcount] = NULL;
@@ -4640,7 +4640,7 @@ void ctx_run_c_lsp_cross(
         }
 
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
-            CBMRegisteredFunc rf;
+            CtxRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
             rf.min_params = -1;
             rf.qualified_name = ctx_arena_strdup(arena, d->qualified_name);
@@ -4652,7 +4652,7 @@ void ctx_run_c_lsp_cross(
             if (d->return_types) {
                 // Parse "|"-separated
                 const char* rsrc = d->return_types;
-                const CBMType* rets[16];
+                const CtxType* rets[16];
                 int rcount = 0;
                 while (*rsrc && rcount < 15) {
                     const char* sep = strchr(rsrc, '|');
@@ -4663,7 +4663,7 @@ void ctx_run_c_lsp_cross(
                     rsrc = sep + 1;
                 }
                 if (rcount > 0) {
-                    const CBMType** rarr = (const CBMType**)ctx_arena_alloc(arena, (rcount + 1) * sizeof(const CBMType*));
+                    const CtxType** rarr = (const CtxType**)ctx_arena_alloc(arena, (rcount + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < rcount; j++) rarr[j] = rets[j];
                     rarr[rcount] = NULL;
                     rf.signature = ctx_type_func(arena, NULL, NULL, rarr);
@@ -4716,23 +4716,23 @@ void ctx_run_c_lsp_cross(
 // --- Batch cross-file LSP ---
 
 void ctx_batch_c_lsp_cross(
-    CBMArena* arena,
-    CBMBatchCLSPFile* files, int file_count,
-    CBMResolvedCallArray* out)
+    CtxArena* arena,
+    CtxBatchCLSPFile* files, int file_count,
+    CtxResolvedCallArray* out)
 {
     if (!files || file_count <= 0 || !out) return;
 
     for (int f = 0; f < file_count; f++) {
-        CBMBatchCLSPFile* file = &files[f];
-        memset(&out[f], 0, sizeof(CBMResolvedCallArray));
+        CtxBatchCLSPFile* file = &files[f];
+        memset(&out[f], 0, sizeof(CtxResolvedCallArray));
 
         if (!file->source || file->source_len <= 0 || file->def_count <= 0) continue;
 
         // Per-file arena: registry + temp data freed after each file
-        CBMArena file_arena;
+        CtxArena file_arena;
         ctx_arena_init(&file_arena);
 
-        CBMResolvedCallArray file_out;
+        CtxResolvedCallArray file_out;
         memset(&file_out, 0, sizeof(file_out));
 
         // Delegate to existing per-file function
@@ -4749,11 +4749,11 @@ void ctx_batch_c_lsp_cross(
         // Copy results to output arena (must outlive per-file arena)
         if (file_out.count > 0) {
             out[f].count = file_out.count;
-            out[f].items = (CBMResolvedCall*)ctx_arena_alloc(arena,
-                file_out.count * sizeof(CBMResolvedCall));
+            out[f].items = (CtxResolvedCall*)ctx_arena_alloc(arena,
+                file_out.count * sizeof(CtxResolvedCall));
             for (int j = 0; j < file_out.count; j++) {
-                CBMResolvedCall* src = &file_out.items[j];
-                CBMResolvedCall* dst = &out[f].items[j];
+                CtxResolvedCall* src = &file_out.items[j];
+                CtxResolvedCall* dst = &out[f].items[j];
                 dst->caller_qn = src->caller_qn ? ctx_arena_strdup(arena, src->caller_qn) : NULL;
                 dst->callee_qn = src->callee_qn ? ctx_arena_strdup(arena, src->callee_qn) : NULL;
                 dst->strategy  = src->strategy  ? ctx_arena_strdup(arena, src->strategy)  : NULL;

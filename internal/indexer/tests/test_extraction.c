@@ -11,7 +11,7 @@
 /* ── Helpers ───────────────────────────────────────────────────── */
 
 /* Check if any definition with the given label has the given name. */
-static int has_def(CBMFileResult *r, const char *label, const char *name) {
+static int has_def(CtxFileResult *r, const char *label, const char *name) {
     for (int i = 0; i < r->defs.count; i++) {
         if (strcmp(r->defs.items[i].label, label) == 0 && strcmp(r->defs.items[i].name, name) == 0)
             return 1;
@@ -20,7 +20,7 @@ static int has_def(CBMFileResult *r, const char *label, const char *name) {
 }
 
 /* Check if any definition has the given name (any label). */
-static int has_def_any(CBMFileResult *r, const char *name) {
+static int has_def_any(CtxFileResult *r, const char *name) {
     for (int i = 0; i < r->defs.count; i++) {
         if (strcmp(r->defs.items[i].name, name) == 0)
             return 1;
@@ -29,7 +29,7 @@ static int has_def_any(CBMFileResult *r, const char *name) {
 }
 
 /* Check if any call to the given callee exists. */
-static int has_call(CBMFileResult *r, const char *callee) {
+static int has_call(CtxFileResult *r, const char *callee) {
     for (int i = 0; i < r->calls.count; i++) {
         if (strstr(r->calls.items[i].callee_name, callee) != NULL)
             return 1;
@@ -38,7 +38,7 @@ static int has_call(CBMFileResult *r, const char *callee) {
 }
 
 /* Check if any import with the given module path exists. */
-static int __attribute__((unused)) has_import(CBMFileResult *r, const char *path_substr) {
+static int __attribute__((unused)) has_import(CtxFileResult *r, const char *path_substr) {
     for (int i = 0; i < r->imports.count; i++) {
         if (r->imports.items[i].module_path &&
             strstr(r->imports.items[i].module_path, path_substr) != NULL)
@@ -48,7 +48,7 @@ static int __attribute__((unused)) has_import(CBMFileResult *r, const char *path
 }
 
 /* Count definitions with a given label. */
-static int count_defs_with_label(CBMFileResult *r, const char *label) {
+static int count_defs_with_label(CtxFileResult *r, const char *label) {
     int count = 0;
     for (int i = 0; i < r->defs.count; i++) {
         if (strcmp(r->defs.items[i].label, label) == 0)
@@ -58,9 +58,9 @@ static int count_defs_with_label(CBMFileResult *r, const char *label) {
 }
 
 /* Convenience: extract, assert no error, return result. Caller frees. */
-static CBMFileResult *extract(const char *src, CBMLanguage lang, const char *proj,
+static CtxFileResult *extract(const char *src, CtxLanguage lang, const char *proj,
                               const char *path) {
-    CBMFileResult *r = ctx_extract_file(src, (int)strlen(src), lang, proj, path, 0, NULL, NULL);
+    CtxFileResult *r = ctx_extract_file(src, (int)strlen(src), lang, proj, path, 0, NULL, NULL);
     return r;
 }
 
@@ -70,7 +70,7 @@ static CBMFileResult *extract(const char *src, CBMLanguage lang, const char *pro
 
 /* --- Java --- */
 TEST(java_class) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "public class Animal { private String name; public String getName() { return name; } }",
         CTX_LANG_JAVA, "t", "Animal.java");
     ASSERT_NOT_NULL(r);
@@ -81,7 +81,7 @@ TEST(java_class) {
 }
 
 TEST(java_method) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "public class Svc { public void doWork() {} public int compute(int x) { return x; } }",
         CTX_LANG_JAVA, "t", "Svc.java");
     ASSERT_NOT_NULL(r);
@@ -93,7 +93,7 @@ TEST(java_method) {
 }
 
 TEST(java_interface) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("public interface Repository { void save(Object o); Object findById(long id); }",
                 CTX_LANG_JAVA, "t", "Repo.java");
     ASSERT_NOT_NULL(r);
@@ -105,7 +105,7 @@ TEST(java_interface) {
 
 /* --- PHP --- */
 TEST(php_class) {
-    CBMFileResult *r = extract("<?php\nclass User { public string $name; public function "
+    CtxFileResult *r = extract("<?php\nclass User { public string $name; public function "
                                "getName(): string { return $this->name; } }",
                                CTX_LANG_PHP, "t", "User.php");
     ASSERT_NOT_NULL(r);
@@ -117,7 +117,7 @@ TEST(php_class) {
 }
 
 TEST(php_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("<?php\nfunction greet(string $name): string { return 'Hello ' . $name; }",
                 CTX_LANG_PHP, "t", "helpers.php");
     ASSERT_NOT_NULL(r);
@@ -129,7 +129,7 @@ TEST(php_function) {
 
 /* --- Ruby --- */
 TEST(ruby_class) {
-    CBMFileResult *r = extract("class Animal\n  def initialize(name)\n    @name = name\n  end\n  "
+    CtxFileResult *r = extract("class Animal\n  def initialize(name)\n    @name = name\n  end\n  "
                                "def speak\n    puts @name\n  end\nend\n",
                                CTX_LANG_RUBY, "t", "animal.rb");
     ASSERT_NOT_NULL(r);
@@ -141,7 +141,7 @@ TEST(ruby_class) {
 }
 
 TEST(ruby_module) {
-    CBMFileResult *r = extract("module Greetable\n  def greet\n    \"Hello\"\n  end\nend\n",
+    CtxFileResult *r = extract("module Greetable\n  def greet\n    \"Hello\"\n  end\nend\n",
                                CTX_LANG_RUBY, "t", "greetable.rb");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -152,7 +152,7 @@ TEST(ruby_module) {
 
 /* --- C# --- */
 TEST(csharp_class) {
-    CBMFileResult *r = extract("namespace App { public class Service { public void Run() {} public "
+    CtxFileResult *r = extract("namespace App { public class Service { public void Run() {} public "
                                "int Compute(int x) => x * 2; } }",
                                CTX_LANG_CSHARP, "t", "Service.cs");
     ASSERT_NOT_NULL(r);
@@ -164,7 +164,7 @@ TEST(csharp_class) {
 }
 
 TEST(csharp_interface) {
-    CBMFileResult *r = extract("public interface IService { void Execute(); string GetStatus(); }",
+    CtxFileResult *r = extract("public interface IService { void Execute(); string GetStatus(); }",
                                CTX_LANG_CSHARP, "t", "IService.cs");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -175,7 +175,7 @@ TEST(csharp_interface) {
 
 /* --- Swift --- */
 TEST(swift_class) {
-    CBMFileResult *r = extract("class Vehicle {\n    var speed: Int = 0\n    func accelerate() { "
+    CtxFileResult *r = extract("class Vehicle {\n    var speed: Int = 0\n    func accelerate() { "
                                "speed += 10 }\n    func stop() { speed = 0 }\n}\n",
                                CTX_LANG_SWIFT, "t", "Vehicle.swift");
     ASSERT_NOT_NULL(r);
@@ -188,7 +188,7 @@ TEST(swift_class) {
 
 /* --- Kotlin --- */
 TEST(kotlin_function) {
-    CBMFileResult *r = extract("fun greet(name: String): String = \"Hello $name\"\nfun main() { "
+    CtxFileResult *r = extract("fun greet(name: String): String = \"Hello $name\"\nfun main() { "
                                "println(greet(\"World\")) }\n",
                                CTX_LANG_KOTLIN, "t", "main.kt");
     ASSERT_NOT_NULL(r);
@@ -200,7 +200,7 @@ TEST(kotlin_function) {
 }
 
 TEST(kotlin_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class User(val name: String) {\n    fun display(): String = \"User: $name\"\n}\n",
                 CTX_LANG_KOTLIN, "t", "User.kt");
     ASSERT_NOT_NULL(r);
@@ -212,7 +212,7 @@ TEST(kotlin_class) {
 
 /* --- Scala --- */
 TEST(scala_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("object Main {\n  def greet(name: String): String = s\"Hello $name\"\n  def "
                 "main(args: Array[String]): Unit = println(greet(\"World\"))\n}\n",
                 CTX_LANG_SCALA, "t", "Main.scala");
@@ -224,7 +224,7 @@ TEST(scala_function) {
 }
 
 TEST(scala_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class Animal(val name: String) {\n  def speak(): String = s\"I am $name\"\n}\n",
                 CTX_LANG_SCALA, "t", "Animal.scala");
     ASSERT_NOT_NULL(r);
@@ -236,7 +236,7 @@ TEST(scala_class) {
 
 /* --- Dart --- */
 TEST(dart_class) {
-    CBMFileResult *r = extract("class Animal {\n  String name;\n  Animal(this.name);\n  String "
+    CtxFileResult *r = extract("class Animal {\n  String name;\n  Animal(this.name);\n  String "
                                "speak() => 'I am $name';\n}\n",
                                CTX_LANG_DART, "t", "animal.dart");
     ASSERT_NOT_NULL(r);
@@ -249,7 +249,7 @@ TEST(dart_class) {
 
 /* --- Groovy --- */
 TEST(groovy_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class Greeter {\n    String name\n    String greet() { \"Hello, $name\" }\n    "
                 "static void main(args) { println new Greeter(name:'World').greet() }\n}\n",
                 CTX_LANG_GROOVY, "t", "Greeter.groovy");
@@ -267,7 +267,7 @@ TEST(groovy_class) {
 
 /* --- Rust --- */
 TEST(rust_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("fn main() { println!(\"Hello\"); }\npub fn add(a: i32, b: i32) -> i32 { a + b }\n",
                 CTX_LANG_RUST, "t", "main.rs");
     ASSERT_NOT_NULL(r);
@@ -279,7 +279,7 @@ TEST(rust_function) {
 }
 
 TEST(rust_struct) {
-    CBMFileResult *r = extract("pub struct Point { pub x: f64, pub y: f64 }\nimpl Point { pub fn "
+    CtxFileResult *r = extract("pub struct Point { pub x: f64, pub y: f64 }\nimpl Point { pub fn "
                                "new(x: f64, y: f64) -> Self { Point { x, y } } }\n",
                                CTX_LANG_RUST, "t", "point.rs");
     ASSERT_NOT_NULL(r);
@@ -292,7 +292,7 @@ TEST(rust_struct) {
 
 /* --- Go --- */
 TEST(go_function) {
-    CBMFileResult *r = extract("package main\nfunc Greet(name string) string { return \"Hello, \" "
+    CtxFileResult *r = extract("package main\nfunc Greet(name string) string { return \"Hello, \" "
                                "+ name }\nfunc main() { Greet(\"World\") }\n",
                                CTX_LANG_GO, "t", "main.go");
     ASSERT_NOT_NULL(r);
@@ -304,7 +304,7 @@ TEST(go_function) {
 }
 
 TEST(go_struct) {
-    CBMFileResult *r = extract("package main\ntype Server struct { Host string; Port int }\nfunc "
+    CtxFileResult *r = extract("package main\ntype Server struct { Host string; Port int }\nfunc "
                                "(s *Server) Start() error { return nil }\n",
                                CTX_LANG_GO, "t", "server.go");
     ASSERT_NOT_NULL(r);
@@ -316,7 +316,7 @@ TEST(go_struct) {
 }
 
 TEST(go_interface) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("package main\ntype Handler interface { ServeHTTP() error; Close() }\n",
                 CTX_LANG_GO, "t", "handler.go");
     ASSERT_NOT_NULL(r);
@@ -328,7 +328,7 @@ TEST(go_interface) {
 
 /* --- Zig --- */
 TEST(zig_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("const std = @import(\"std\");\npub fn add(a: i32, b: i32) i32 { return a + b; }\n",
                 CTX_LANG_ZIG, "t", "main.zig");
     ASSERT_NOT_NULL(r);
@@ -340,7 +340,7 @@ TEST(zig_function) {
 
 /* --- C --- */
 TEST(c_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("int add(int a, int b) { return a + b; }\nvoid greet() { printf(\"Hello\"); }\n",
                 CTX_LANG_C, "t", "math.c");
     ASSERT_NOT_NULL(r);
@@ -352,7 +352,7 @@ TEST(c_function) {
 }
 
 TEST(c_struct) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("struct Point { int x; int y; };\nvoid init_point(struct Point *p) { p->x = 0; }\n",
                 CTX_LANG_C, "t", "point.c");
     ASSERT_NOT_NULL(r);
@@ -364,7 +364,7 @@ TEST(c_struct) {
 
 /* --- C++ --- */
 TEST(cpp_class) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "class Widget {\npublic:\n    void draw() {}\n    int width() const { return 0; }\n};\n",
         CTX_LANG_CPP, "t", "widget.cpp");
     ASSERT_NOT_NULL(r);
@@ -381,7 +381,7 @@ TEST(cpp_class) {
 
 /* --- Python --- */
 TEST(python_function) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "def greet(name):\n    return f\"Hello {name}\"\n\ndef main():\n    greet(\"World\")\n",
         CTX_LANG_PYTHON, "t", "main.py");
     ASSERT_NOT_NULL(r);
@@ -393,7 +393,7 @@ TEST(python_function) {
 }
 
 TEST(python_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class Dog:\n    def __init__(self, name):\n        self.name = name\n    def "
                 "speak(self):\n        return f\"Woof from {self.name}\"\n",
                 CTX_LANG_PYTHON, "t", "dog.py");
@@ -407,7 +407,7 @@ TEST(python_class) {
 
 /* --- JavaScript --- */
 TEST(js_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("function greet(name) { return `Hello ${name}`; }\nconst add = (a, b) => a + b;\n",
                 CTX_LANG_JAVASCRIPT, "t", "util.js");
     ASSERT_NOT_NULL(r);
@@ -418,7 +418,7 @@ TEST(js_function) {
 }
 
 TEST(js_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class Counter {\n  constructor() { this.count = 0; }\n  increment() { "
                 "this.count++; }\n  get value() { return this.count; }\n}\n",
                 CTX_LANG_JAVASCRIPT, "t", "counter.js");
@@ -432,7 +432,7 @@ TEST(js_class) {
 
 /* --- TypeScript --- */
 TEST(ts_function) {
-    CBMFileResult *r = extract("export function greet(name: string): string { return `Hello "
+    CtxFileResult *r = extract("export function greet(name: string): string { return `Hello "
                                "${name}`; }\nfunction helper(): void {}\n",
                                CTX_LANG_TYPESCRIPT, "t", "util.ts");
     ASSERT_NOT_NULL(r);
@@ -443,7 +443,7 @@ TEST(ts_function) {
 }
 
 TEST(ts_class) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("class Service {\n  private name: string;\n  constructor(name: string) { this.name "
                 "= name; }\n  getName(): string { return this.name; }\n}\n",
                 CTX_LANG_TYPESCRIPT, "t", "service.ts");
@@ -456,7 +456,7 @@ TEST(ts_class) {
 
 /* --- Lua --- */
 TEST(lua_function) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "function greet(name)\n  return \"Hello \" .. name\nend\nlocal function helper() end\n",
         CTX_LANG_LUA, "t", "main.lua");
     ASSERT_NOT_NULL(r);
@@ -468,7 +468,7 @@ TEST(lua_function) {
 
 /* --- Bash --- */
 TEST(bash_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("greet() {\n  echo \"Hello $1\"\n}\nmain() {\n  greet \"World\"\n}\n",
                 CTX_LANG_BASH, "t", "script.sh");
     ASSERT_NOT_NULL(r);
@@ -480,7 +480,7 @@ TEST(bash_function) {
 
 /* --- Perl --- */
 TEST(perl_function) {
-    CBMFileResult *r = extract("sub greet {\n    my ($name) = @_;\n    return \"Hello "
+    CtxFileResult *r = extract("sub greet {\n    my ($name) = @_;\n    return \"Hello "
                                "$name\";\n}\nsub main { greet(\"World\"); }\n",
                                CTX_LANG_PERL, "t", "main.pl");
     ASSERT_NOT_NULL(r);
@@ -492,7 +492,7 @@ TEST(perl_function) {
 
 /* --- R --- */
 TEST(r_function) {
-    CBMFileResult *r = extract("add <- function(x, y) x + y\nmultiply <- function(x, y) x * y\n",
+    CtxFileResult *r = extract("add <- function(x, y) x + y\nmultiply <- function(x, y) x * y\n",
                                CTX_LANG_R, "t", "math.R");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -507,7 +507,7 @@ TEST(r_function) {
 
 /* --- Elixir --- */
 TEST(elixir_function) {
-    CBMFileResult *r = extract("defmodule Greeter do\n  def greet(name), do: \"Hello #{name}\"\n  "
+    CtxFileResult *r = extract("defmodule Greeter do\n  def greet(name), do: \"Hello #{name}\"\n  "
                                "defp helper, do: nil\nend\n",
                                CTX_LANG_ELIXIR, "t", "greeter.ex");
     ASSERT_NOT_NULL(r);
@@ -519,7 +519,7 @@ TEST(elixir_function) {
 
 /* --- Haskell --- */
 TEST(haskell_function) {
-    CBMFileResult *r = extract("add :: Int -> Int -> Int\nadd x y = x + y\n\nmultiply :: Int -> "
+    CtxFileResult *r = extract("add :: Int -> Int -> Int\nadd x y = x + y\n\nmultiply :: Int -> "
                                "Int -> Int\nmultiply x y = x * y\n",
                                CTX_LANG_HASKELL, "t", "Math.hs");
     ASSERT_NOT_NULL(r);
@@ -531,7 +531,7 @@ TEST(haskell_function) {
 
 /* --- OCaml --- */
 TEST(ocaml_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("let add x y = x + y\nlet multiply x y = x * y\n", CTX_LANG_OCAML, "t", "math.ml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -542,7 +542,7 @@ TEST(ocaml_function) {
 
 /* --- Erlang --- */
 TEST(erlang_function) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "-module(math).\n-export([add/2]).\nadd(X, Y) -> X + Y.\nmultiply(X, Y) -> X * Y.\n",
         CTX_LANG_ERLANG, "t", "math.erl");
     ASSERT_NOT_NULL(r);
@@ -558,7 +558,7 @@ TEST(erlang_function) {
 
 /* --- YAML --- */
 TEST(yaml_variables) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("name: myapp\nversion: 1.0\ndatabase:\n  host: localhost\n  port: 5432\n",
                 CTX_LANG_YAML, "t", "config.yml");
     ASSERT_NOT_NULL(r);
@@ -571,7 +571,7 @@ TEST(yaml_variables) {
 
 /* --- HCL --- */
 TEST(hcl_blocks) {
-    CBMFileResult *r = extract("resource \"aws_instance\" \"web\" {\n  ami = \"abc-123\"\n  "
+    CtxFileResult *r = extract("resource \"aws_instance\" \"web\" {\n  ami = \"abc-123\"\n  "
                                "instance_type = \"t2.micro\"\n}\n",
                                CTX_LANG_HCL, "t", "main.tf");
     ASSERT_NOT_NULL(r);
@@ -583,7 +583,7 @@ TEST(hcl_blocks) {
 
 /* --- SQL --- */
 TEST(sql_create_table) {
-    CBMFileResult *r = extract("CREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT "
+    CtxFileResult *r = extract("CREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT "
                                "NULL\n);\nCREATE VIEW active_users AS SELECT * FROM users;\n",
                                CTX_LANG_SQL, "t", "schema.sql");
     ASSERT_NOT_NULL(r);
@@ -594,7 +594,7 @@ TEST(sql_create_table) {
 
 /* --- Dockerfile --- */
 TEST(dockerfile_stages) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "FROM node:18 AS builder\nRUN npm install\nFROM node:18-slim\nCOPY --from=builder /app .\n",
         CTX_LANG_DOCKERFILE, "t", "Dockerfile");
     ASSERT_NOT_NULL(r);
@@ -609,7 +609,7 @@ TEST(dockerfile_stages) {
 
 /* --- MATLAB --- */
 TEST(matlab_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("function y = square(x)\n  y = x.^2;\nend\n", CTX_LANG_MATLAB, "t", "square.m");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -620,7 +620,7 @@ TEST(matlab_function) {
 
 /* --- Lean 4 --- */
 TEST(lean_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("def add (x y : Nat) : Nat := x + y\n", CTX_LANG_LEAN, "t", "Math.lean");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -631,7 +631,7 @@ TEST(lean_function) {
 
 /* --- FORM --- */
 TEST(form_procedure) {
-    CBMFileResult *r = extract("#procedure doSomething\n  id x = y;\n#endprocedure\n",
+    CtxFileResult *r = extract("#procedure doSomething\n  id x = y;\n#endprocedure\n",
                                CTX_LANG_FORM, "t", "test.frm");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -642,7 +642,7 @@ TEST(form_procedure) {
 
 /* --- Wolfram --- */
 TEST(wolfram_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("square[x_] := x^2\nadd[x_, y_] := x + y\n", CTX_LANG_WOLFRAM, "t", "math.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -654,7 +654,7 @@ TEST(wolfram_function) {
 
 /* --- Magma --- */
 TEST(magma_function) {
-    CBMFileResult *r = extract("function Factorial(n)\n  if n le 1 then\n    return 1;\n  end "
+    CtxFileResult *r = extract("function Factorial(n)\n  if n le 1 then\n    return 1;\n  end "
                                "if;\n  return n * Factorial(n - 1);\nend function;\n",
                                CTX_LANG_MAGMA, "t", "test.m");
     ASSERT_NOT_NULL(r);
@@ -671,7 +671,7 @@ TEST(magma_function) {
 /* --- F# --- */
 TEST(fsharp_function) {
     /* Go test only asserts >=1 def — F# name extraction is incomplete */
-    CBMFileResult *r = extract("module Greeter\nlet greet name = sprintf \"Hello %s\" name\n",
+    CtxFileResult *r = extract("module Greeter\nlet greet name = sprintf \"Hello %s\" name\n",
                                CTX_LANG_FSHARP, "t", "Greeter.fs");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -682,7 +682,7 @@ TEST(fsharp_function) {
 
 /* --- Julia --- */
 TEST(julia_function) {
-    CBMFileResult *r = extract("function add(x, y)\n    x + y\nend\nadd2(x, y) = x + y\n",
+    CtxFileResult *r = extract("function add(x, y)\n    x + y\nend\nadd2(x, y) = x + y\n",
                                CTX_LANG_JULIA, "t", "math.jl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -693,7 +693,7 @@ TEST(julia_function) {
 
 /* --- Elm --- */
 TEST(elm_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("add x y = x + y\nmultiply x y = x * y\n", CTX_LANG_ELM, "t", "Math.elm");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -704,7 +704,7 @@ TEST(elm_function) {
 
 /* --- Nix --- */
 TEST(nix_function) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("{ pkgs ? import <nixpkgs> {} }:\nlet\n  hello = pkgs.writeShellScriptBin "
                 "\"hello\" ''echo hello'';\nin { inherit hello; }\n",
                 CTX_LANG_NIX, "t", "default.nix");
@@ -717,7 +717,7 @@ TEST(nix_function) {
 /* --- Fortran --- */
 TEST(fortran_function) {
     /* Fortran subroutine name extraction is incomplete — just verify no crash */
-    CBMFileResult *r = extract("subroutine greet(name)\n  character(*), intent(in) :: name\n  "
+    CtxFileResult *r = extract("subroutine greet(name)\n  character(*), intent(in) :: name\n  "
                                "print *, 'Hello ', name\nend subroutine\n",
                                CTX_LANG_FORTRAN, "t", "greet.f90");
     ASSERT_NOT_NULL(r);
@@ -732,7 +732,7 @@ TEST(fortran_function) {
 
 /* --- Swift struct --- */
 TEST(swift_struct) {
-    CBMFileResult *r = extract("struct Point {\n    var x: Double\n    var y: Double\n    func "
+    CtxFileResult *r = extract("struct Point {\n    var x: Double\n    var y: Double\n    func "
                                "distance() -> Double { return (x*x + y*y).squareRoot() }\n}\n",
                                CTX_LANG_SWIFT, "t", "Point.swift");
     ASSERT_NOT_NULL(r);
@@ -744,7 +744,7 @@ TEST(swift_struct) {
 
 /* --- Swift calls (port of PR #47 Go tests) --- */
 TEST(swift_simple_call) {
-    CBMFileResult *r = extract("func main() { greet() }\nfunc greet() { print(\"hello\") }\n",
+    CtxFileResult *r = extract("func main() { greet() }\nfunc greet() { print(\"hello\") }\n",
                                CTX_LANG_SWIFT, "t", "main.swift");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -754,7 +754,7 @@ TEST(swift_simple_call) {
 }
 
 TEST(swift_method_call) {
-    CBMFileResult *r = extract("class Foo {\n    func bar() { baz.run() }\n}\n", CTX_LANG_SWIFT,
+    CtxFileResult *r = extract("class Foo {\n    func bar() { baz.run() }\n}\n", CTX_LANG_SWIFT,
                                "t", "Foo.swift");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -764,7 +764,7 @@ TEST(swift_method_call) {
 }
 
 TEST(swift_constructor_call) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("func create() { let x = MyClass() }\n", CTX_LANG_SWIFT, "t", "create.swift");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -774,7 +774,7 @@ TEST(swift_constructor_call) {
 }
 
 TEST(swift_chained_call) {
-    CBMFileResult *r = extract("func setup() { AlarmScheduler.shared.startKeepAlive() }\n",
+    CtxFileResult *r = extract("func setup() { AlarmScheduler.shared.startKeepAlive() }\n",
                                CTX_LANG_SWIFT, "t", "setup.swift");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -785,7 +785,7 @@ TEST(swift_chained_call) {
 
 /* --- Objective-C --- */
 TEST(objc_interface) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("@interface Animal : NSObject\n- (NSString *)name;\n- (void)speak;\n@end\n",
                 CTX_LANG_OBJC, "t", "Animal.h");
     ASSERT_NOT_NULL(r);
@@ -796,7 +796,7 @@ TEST(objc_interface) {
 }
 
 TEST(objc_implementation) {
-    CBMFileResult *r = extract("@implementation Animal\n- (NSString *)name { return @\"Animal\"; "
+    CtxFileResult *r = extract("@implementation Animal\n- (NSString *)name { return @\"Animal\"; "
                                "}\n- (void)speak { NSLog(@\"...\"); }\n@end\n",
                                CTX_LANG_OBJC, "t", "Animal.m");
     ASSERT_NOT_NULL(r);
@@ -808,7 +808,7 @@ TEST(objc_implementation) {
 
 /* --- Dart top-level function --- */
 TEST(dart_top_level_function) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "void main() {\n  print('Hello');\n}\nString greet(String name) => 'Hello $name';\n",
         CTX_LANG_DART, "t", "main.dart");
     ASSERT_NOT_NULL(r);
@@ -821,7 +821,7 @@ TEST(dart_top_level_function) {
 
 /* --- Rust enum --- */
 TEST(rust_enum) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("pub enum Direction { North, South, East, West }\n", CTX_LANG_RUST, "t", "dir.rs");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -832,7 +832,7 @@ TEST(rust_enum) {
 
 /* --- Zig struct --- */
 TEST(zig_struct) {
-    CBMFileResult *r = extract("const Point = struct { x: f32, y: f32, pub fn dist(self: Point) "
+    CtxFileResult *r = extract("const Point = struct { x: f32, y: f32, pub fn dist(self: Point) "
                                "f32 { return self.x + self.y; } };\n",
                                CTX_LANG_ZIG, "t", "point.zig");
     ASSERT_NOT_NULL(r);
@@ -844,7 +844,7 @@ TEST(zig_struct) {
 
 /* --- C++ function (standalone) --- */
 TEST(cpp_function) {
-    CBMFileResult *r = extract("#include <string>\nstd::string greet(const std::string& name) { "
+    CtxFileResult *r = extract("#include <string>\nstd::string greet(const std::string& name) { "
                                "return \"Hello \" + name; }\nint main() { return 0; }\n",
                                CTX_LANG_CPP, "t", "main.cpp");
     ASSERT_NOT_NULL(r);
@@ -856,7 +856,7 @@ TEST(cpp_function) {
 
 /* --- COBOL paragraph --- */
 TEST(cobol_paragraph) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("IDENTIFICATION DIVISION.\nPROGRAM-ID. HELLO.\nPROCEDURE DIVISION.\n    "
                 "DISPLAY-GREETING.\n        DISPLAY 'HELLO WORLD'.\n        STOP RUN.\n",
                 CTX_LANG_COBOL, "t", "hello.cbl");
@@ -869,7 +869,7 @@ TEST(cobol_paragraph) {
 
 /* --- Verilog module --- */
 TEST(verilog_module) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("module adder(input a, input b, output sum);\n  assign sum = a + b;\nendmodule\n",
                 CTX_LANG_VERILOG, "t", "adder.v");
     ASSERT_NOT_NULL(r);
@@ -881,7 +881,7 @@ TEST(verilog_module) {
 
 /* --- CUDA kernel --- */
 TEST(cuda_kernel) {
-    CBMFileResult *r = extract("__global__ void vectorAdd(float *a, float *b, float *c, int n) {\n "
+    CtxFileResult *r = extract("__global__ void vectorAdd(float *a, float *b, float *c, int n) {\n "
                                "   int i = blockIdx.x * blockDim.x + threadIdx.x;\n    if (i < n) "
                                "c[i] = a[i] + b[i];\n}\nint main() { return 0; }\n",
                                CTX_LANG_CUDA, "t", "vector.cu");
@@ -894,7 +894,7 @@ TEST(cuda_kernel) {
 
 /* --- Python decorator --- */
 TEST(python_decorator) {
-    CBMFileResult *r = extract("class Router:\n    @staticmethod\n    def route(path: str):\n      "
+    CtxFileResult *r = extract("class Router:\n    @staticmethod\n    def route(path: str):\n      "
                                "  def decorator(func): return func\n        return decorator\n",
                                CTX_LANG_PYTHON, "t", "router.py");
     ASSERT_NOT_NULL(r);
@@ -906,7 +906,7 @@ TEST(python_decorator) {
 
 /* --- TypeScript interface --- */
 TEST(ts_interface) {
-    CBMFileResult *r = extract("export interface Repository<T> { findById(id: number): T; "
+    CtxFileResult *r = extract("export interface Repository<T> { findById(id: number): T; "
                                "save(entity: T): void; delete(id: number): void; }\n",
                                CTX_LANG_TYPESCRIPT, "t", "repo.ts");
     ASSERT_NOT_NULL(r);
@@ -918,7 +918,7 @@ TEST(ts_interface) {
 
 /* --- TSX component --- */
 TEST(tsx_component) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "import React from 'react';\ninterface Props { name: string; }\nexport function Greeting({ "
         "name }: Props) {\n    return <div>Hello {name}</div>;\n}\nexport default Greeting;\n",
         CTX_LANG_TSX, "t", "Greeting.tsx");
@@ -931,7 +931,7 @@ TEST(tsx_component) {
 
 /* --- Lua table method --- */
 TEST(lua_table_method) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("local M = {}\nfunction M.create(name)\n    return { name = name }\nend\nfunction "
                 "M.greet(self)\n    return 'Hi ' .. self.name\nend\nreturn M\n",
                 CTX_LANG_LUA, "t", "module.lua");
@@ -950,7 +950,7 @@ TEST(lua_table_method) {
 
 /* --- Emacs Lisp defun --- */
 TEST(emacs_lisp_defun) {
-    CBMFileResult *r = extract("(defun greet (name)\n  (message \"Hello %s\" name))\n(defun main "
+    CtxFileResult *r = extract("(defun greet (name)\n  (message \"Hello %s\" name))\n(defun main "
                                "()\n  (greet \"World\"))\n",
                                CTX_LANG_EMACSLISP, "t", "init.el");
     ASSERT_NOT_NULL(r);
@@ -963,7 +963,7 @@ TEST(emacs_lisp_defun) {
 
 /* --- Emacs Lisp defvar --- */
 TEST(emacs_lisp_defvar) {
-    CBMFileResult *r = extract("(defvar my-count 0 \"A counter.\")\n(defcustom my-name \"World\" "
+    CtxFileResult *r = extract("(defvar my-count 0 \"A counter.\")\n(defcustom my-name \"World\" "
                                "\"The name.\"\n  :type 'string)\n",
                                CTX_LANG_EMACSLISP, "t", "vars.el");
     ASSERT_NOT_NULL(r);
@@ -975,7 +975,7 @@ TEST(emacs_lisp_defvar) {
 
 /* --- Haskell data type --- */
 TEST(haskell_data_type) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("data Shape = Circle Double | Rectangle Double Double\narea :: Shape -> "
                 "Double\narea (Circle r) = pi * r * r\narea (Rectangle w h) = w * h\n",
                 CTX_LANG_HASKELL, "t", "Shape.hs");
@@ -988,7 +988,7 @@ TEST(haskell_data_type) {
 
 /* --- Clojure function (known limitation: defn produces list_lit) --- */
 TEST(clojure_function) {
-    CBMFileResult *r = extract("(ns greeter.core)\n(defn greet [name]\n  (str \"Hello \" "
+    CtxFileResult *r = extract("(ns greeter.core)\n(defn greet [name]\n  (str \"Hello \" "
                                "name))\n(defn -main [& args]\n  (println (greet \"World\")))\n",
                                CTX_LANG_CLOJURE, "t", "core.clj");
     ASSERT_NOT_NULL(r);
@@ -1004,7 +1004,7 @@ TEST(clojure_function) {
 
 /* --- HTML elements --- */
 TEST(html_elements) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<!DOCTYPE "
         "html><html><head><title>Test</title></head><body><h1>Hello</h1><p>World</p></body></html>",
         CTX_LANG_HTML, "t", "index.html");
@@ -1017,7 +1017,7 @@ TEST(html_elements) {
 
 /* --- SQL function (CREATE FUNCTION) --- */
 TEST(sql_function) {
-    CBMFileResult *r = extract("CREATE FUNCTION get_user_count() RETURNS INTEGER AS $$ SELECT "
+    CtxFileResult *r = extract("CREATE FUNCTION get_user_count() RETURNS INTEGER AS $$ SELECT "
                                "COUNT(*) FROM users; $$ LANGUAGE SQL;\n",
                                CTX_LANG_SQL, "t", "funcs.sql");
     ASSERT_NOT_NULL(r);
@@ -1029,7 +1029,7 @@ TEST(sql_function) {
 
 /* --- Meson project --- */
 TEST(meson_project) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "project('myapp', 'c', version: '1.0.0')\nexecutable('myapp', 'main.c', install: true)\n",
         CTX_LANG_MESON, "t", "meson.build");
     ASSERT_NOT_NULL(r);
@@ -1041,7 +1041,7 @@ TEST(meson_project) {
 
 /* --- CSS rules --- */
 TEST(css_rules) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         ".container { display: flex; width: 100%; }\n.button { background: #007bff; color: white; "
         "border: none; }\n@media (max-width: 768px) { .container { flex-direction: column; } }\n",
         CTX_LANG_CSS, "t", "styles.css");
@@ -1054,7 +1054,7 @@ TEST(css_rules) {
 
 /* --- SCSS rules --- */
 TEST(scss_rules) {
-    CBMFileResult *r = extract("$primary: #007bff;\n.container {\n  width: 100%;\n  .button {\n    "
+    CtxFileResult *r = extract("$primary: #007bff;\n.container {\n  width: 100%;\n  .button {\n    "
                                "background: $primary;\n    &:hover { opacity: 0.8; }\n  }\n}\n",
                                CTX_LANG_SCSS, "t", "styles.scss");
     ASSERT_NOT_NULL(r);
@@ -1066,7 +1066,7 @@ TEST(scss_rules) {
 
 /* --- TOML basic --- */
 TEST(toml_basic) {
-    CBMFileResult *r = extract("[server]\nhost = \"localhost\"\nport = 8080\n\n[database]\nurl = "
+    CtxFileResult *r = extract("[server]\nhost = \"localhost\"\nport = 8080\n\n[database]\nurl = "
                                "\"postgres://localhost/db\"\nmax_connections = 10\n",
                                CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
@@ -1081,7 +1081,7 @@ TEST(toml_basic) {
 
 /* --- CMake function --- */
 TEST(cmake_function) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "cmake_minimum_required(VERSION 3.16)\nproject(MyApp VERSION 1.0)\nadd_executable(myapp "
         "main.cpp)\ntarget_compile_features(myapp PRIVATE cxx_std_17)\n",
         CTX_LANG_CMAKE, "t", "CMakeLists.txt");
@@ -1094,7 +1094,7 @@ TEST(cmake_function) {
 
 /* --- JSON object --- */
 TEST(json_object) {
-    CBMFileResult *r = extract("{\"name\": \"myapp\", \"version\": \"1.0.0\", \"scripts\": "
+    CtxFileResult *r = extract("{\"name\": \"myapp\", \"version\": \"1.0.0\", \"scripts\": "
                                "{\"build\": \"go build\", \"test\": \"go test ./...\"}}",
                                CTX_LANG_JSON, "t", "config.json");
     ASSERT_NOT_NULL(r);
@@ -1107,7 +1107,7 @@ TEST(json_object) {
 
 /* --- Protobuf message --- */
 TEST(protobuf_message) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "syntax = \"proto3\";\npackage user;\nmessage User { int64 id = 1; string name = 2; string "
         "email = 3; }\nservice UserService { rpc GetUser(User) returns (User); }\n",
         CTX_LANG_PROTOBUF, "t", "user.proto");
@@ -1120,7 +1120,7 @@ TEST(protobuf_message) {
 
 /* --- GraphQL type --- */
 TEST(graphql_type) {
-    CBMFileResult *r = extract("type User {\n  id: ID!\n  name: String!\n  email: String!\n}\ntype "
+    CtxFileResult *r = extract("type User {\n  id: ID!\n  name: String!\n  email: String!\n}\ntype "
                                "Query {\n  user(id: ID!): User\n  users: [User!]!\n}\n",
                                CTX_LANG_GRAPHQL, "t", "schema.graphql");
     ASSERT_NOT_NULL(r);
@@ -1135,7 +1135,7 @@ TEST(graphql_type) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(vue_script_options_api) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template><div>hello</div></template>\n"
         "<script>\n"
         "export default {\n"
@@ -1154,7 +1154,7 @@ TEST(vue_script_options_api) {
 }
 
 TEST(vue_script_setup) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template><div>{{ count }}</div></template>\n"
         "<script setup>\n"
         "import { ref, computed } from 'vue';\n"
@@ -1174,7 +1174,7 @@ TEST(vue_script_setup) {
 }
 
 TEST(vue_script_lang_ts) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template><div>typed</div></template>\n"
         "<script lang=\"ts\">\n"
         "interface Props { title: string; }\n"
@@ -1192,7 +1192,7 @@ TEST(vue_script_lang_ts) {
 }
 
 TEST(vue_dual_script_blocks) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script>\n"
         "export const meta = { title: 'Page' };\n"
         "</script>\n"
@@ -1211,7 +1211,7 @@ TEST(vue_dual_script_blocks) {
 }
 
 TEST(vue_script_line_offsets) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <div>hello</div>\n"
         "</template>\n"
@@ -1234,7 +1234,7 @@ TEST(vue_script_line_offsets) {
 }
 
 TEST(vue_template_pascal_component) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <div>\n"
         "    <MyHeader />\n"
@@ -1255,7 +1255,7 @@ TEST(vue_template_pascal_component) {
 }
 
 TEST(vue_template_kebab_component) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <my-component />\n"
         "  <v-btn>Click</v-btn>\n"
@@ -1270,7 +1270,7 @@ TEST(vue_template_kebab_component) {
 }
 
 TEST(vue_template_html_not_component) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <div><span>text</span><input /><a href=\"#\">link</a></div>\n"
         "</template>\n",
@@ -1286,7 +1286,7 @@ TEST(vue_template_html_not_component) {
 }
 
 TEST(vue_directives_usages) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <div v-if=\"isActive\" :class=\"computedClass\">\n"
         "    <span v-for=\"item in items\">{{ item }}</span>\n"
@@ -1304,7 +1304,7 @@ TEST(vue_directives_usages) {
 }
 
 TEST(vue_directives_events) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <button @click=\"handleClick\">Go</button>\n"
         "  <form @submit=\"onSubmit\">\n"
@@ -1328,7 +1328,7 @@ TEST(vue_directives_events) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(svelte_script_defs) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script>\n"
         "  let name = 'World';\n"
         "  function greet() { return `Hello ${name}`; }\n"
@@ -1343,7 +1343,7 @@ TEST(svelte_script_defs) {
 }
 
 TEST(svelte_script_imports) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script>\n"
         "  import { onMount } from 'svelte';\n"
         "  import Button from './Button.svelte';\n"
@@ -1361,7 +1361,7 @@ TEST(svelte_script_imports) {
 }
 
 TEST(svelte_script_lang_ts) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script lang=\"ts\">\n"
         "  interface User { name: string; }\n"
         "  export function getUser(): User { return { name: 'test' }; }\n"
@@ -1376,7 +1376,7 @@ TEST(svelte_script_lang_ts) {
 }
 
 TEST(svelte_template_components) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script>\n"
         "  import Header from './Header.svelte';\n"
         "</script>\n"
@@ -1395,7 +1395,7 @@ TEST(svelte_template_components) {
 }
 
 TEST(svelte_event_and_bind) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script>\n"
         "  let value = '';\n"
         "  function handleClick() {}\n"
@@ -1416,7 +1416,7 @@ TEST(svelte_event_and_bind) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(vue_no_script) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<template>\n"
         "  <MyComponent />\n"
         "  <div>static content</div>\n"
@@ -1430,7 +1430,7 @@ TEST(vue_no_script) {
 }
 
 TEST(vue_no_template) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<script setup>\n"
         "import { ref } from 'vue';\n"
         "const x = ref(0);\n"
@@ -1445,7 +1445,7 @@ TEST(vue_no_template) {
 }
 
 TEST(vue_empty_file) {
-    CBMFileResult *r = extract("", CTX_LANG_VUE, "t", "Empty.vue");
+    CtxFileResult *r = extract("", CTX_LANG_VUE, "t", "Empty.vue");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ctx_free_result(r);
@@ -1454,7 +1454,7 @@ TEST(vue_empty_file) {
 
 /* --- GLSL shader --- */
 TEST(glsl_shader) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "#version 330 core\nvoid main() {\n    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);\n}\nvec3 "
         "transform(vec3 pos, mat4 mvp) {\n    return (mvp * vec4(pos, 1.0)).xyz;\n}\n",
         CTX_LANG_GLSL, "t", "vertex.glsl");
@@ -1467,7 +1467,7 @@ TEST(glsl_shader) {
 
 /* --- VimScript function --- */
 TEST(vimscript_function) {
-    CBMFileResult *r = extract("function! SayHello()\n  echo 'Hello'\nendfunction\n",
+    CtxFileResult *r = extract("function! SayHello()\n  echo 'Hello'\nendfunction\n",
                                CTX_LANG_VIMSCRIPT, "t", "plugin.vim");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1490,7 +1490,7 @@ TEST(vimscript_function) {
 
 /* --- MATLAB parse (simple expression) --- */
 TEST(matlab_parse) {
-    CBMFileResult *r = extract("x = 1;\ny = x + 2;\n", CTX_LANG_MATLAB, "t", "simple.matlab");
+    CtxFileResult *r = extract("x = 1;\ny = x + 2;\n", CTX_LANG_MATLAB, "t", "simple.matlab");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ctx_free_result(r);
@@ -1499,7 +1499,7 @@ TEST(matlab_parse) {
 
 /* --- MATLAB call --- */
 TEST(matlab_call) {
-    CBMFileResult *r = extract("function y = foo(x)\n  y = inv(x);\n  disp hello\nend\n",
+    CtxFileResult *r = extract("function y = foo(x)\n  y = inv(x);\n  disp hello\nend\n",
                                CTX_LANG_MATLAB, "t", "foo.matlab");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1512,7 +1512,7 @@ TEST(matlab_call) {
 
 /* --- Lean parse (theorem) --- */
 TEST(lean_parse) {
-    CBMFileResult *r = extract("theorem add_comm (a b : Nat) : a + b = b + a := by omega\n",
+    CtxFileResult *r = extract("theorem add_comm (a b : Nat) : a + b = b + a := by omega\n",
                                CTX_LANG_LEAN, "t", "Comm.lean");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1522,7 +1522,7 @@ TEST(lean_parse) {
 
 /* --- Lean call (recursive fib) --- */
 TEST(lean_call) {
-    CBMFileResult *r = extract("def fib : Nat \xe2\x86\x92 Nat\n  | 0 => 1\n  | 1 => 1\n  | n + 2 "
+    CtxFileResult *r = extract("def fib : Nat \xe2\x86\x92 Nat\n  | 0 => 1\n  | 1 => 1\n  | n + 2 "
                                "=> fib (n + 1) + fib n\n",
                                CTX_LANG_LEAN, "t", "Fib.lean");
     ASSERT_NOT_NULL(r);
@@ -1535,7 +1535,7 @@ TEST(lean_call) {
 
 /* --- Lean type annotation not call --- */
 TEST(lean_type_annotation_not_call) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "def listLen (xs : List Nat) : Nat := 0\ndef greet : IO Unit := IO.println \"hi\"\n",
         CTX_LANG_LEAN, "t", "Types.lean");
     ASSERT_NOT_NULL(r);
@@ -1558,7 +1558,7 @@ TEST(lean_type_annotation_not_call) {
 
 /* --- FORM parse (simple expression) --- */
 TEST(form_parse) {
-    CBMFileResult *r = extract("Symbols x, y;\nLocal F = x + y;\nPrint;\n.end\n", CTX_LANG_FORM,
+    CtxFileResult *r = extract("Symbols x, y;\nLocal F = x + y;\nPrint;\n.end\n", CTX_LANG_FORM,
                                "t", "example.frm");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1568,7 +1568,7 @@ TEST(form_parse) {
 
 /* --- FORM call (#call) --- */
 TEST(form_call) {
-    CBMFileResult *r = extract("#procedure myproc(x)\n  id `x' = 0;\n#endprocedure\n#procedure "
+    CtxFileResult *r = extract("#procedure myproc(x)\n  id `x' = 0;\n#endprocedure\n#procedure "
                                "caller()\n  #call myproc(1)\n#endprocedure\n",
                                CTX_LANG_FORM, "t", "calc.frm");
     ASSERT_NOT_NULL(r);
@@ -1581,7 +1581,7 @@ TEST(form_call) {
 
 /* --- Magma procedure --- */
 TEST(magma_procedure) {
-    CBMFileResult *r = extract("procedure PrintHello()\n  print \"Hello\";\nend procedure;\n",
+    CtxFileResult *r = extract("procedure PrintHello()\n  print \"Hello\";\nend procedure;\n",
                                CTX_LANG_MAGMA, "t", "hello.mag");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1599,7 +1599,7 @@ TEST(magma_procedure) {
 
 /* --- Magma parse (simple) --- */
 TEST(magma_parse) {
-    CBMFileResult *r = extract("x := 42;\ny := x + 1;\n", CTX_LANG_MAGMA, "t", "simple.mag");
+    CtxFileResult *r = extract("x := 42;\ny := x + 1;\n", CTX_LANG_MAGMA, "t", "simple.mag");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ctx_free_result(r);
@@ -1608,7 +1608,7 @@ TEST(magma_parse) {
 
 /* --- Magma import (load) --- */
 TEST(magma_import) {
-    CBMFileResult *r = extract("load \"utils.mag\";\nload \"lib/helpers.mag\";\n", CTX_LANG_MAGMA,
+    CtxFileResult *r = extract("load \"utils.mag\";\nload \"lib/helpers.mag\";\n", CTX_LANG_MAGMA,
                                "t", "main.mag");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1619,7 +1619,7 @@ TEST(magma_import) {
 
 /* --- Magma call --- */
 TEST(magma_call) {
-    CBMFileResult *r = extract("function Foo(x)\n  y := Bar(x);\n  return y;\nend function;\n",
+    CtxFileResult *r = extract("function Foo(x)\n  y := Bar(x);\n  return y;\nend function;\n",
                                CTX_LANG_MAGMA, "t", "calls.mag");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1631,7 +1631,7 @@ TEST(magma_call) {
 
 /* --- Magma disambiguation (.m file as Magma) --- */
 TEST(magma_disambiguation) {
-    CBMFileResult *r = extract("function Factorial(n)\n  if n le 1 then\n    return 1;\n  end "
+    CtxFileResult *r = extract("function Factorial(n)\n  if n le 1 then\n    return 1;\n  end "
                                "if;\n  return n * Factorial(n - 1);\nend function;\n",
                                CTX_LANG_MAGMA, "t", "test.m");
     ASSERT_NOT_NULL(r);
@@ -1651,7 +1651,7 @@ TEST(magma_disambiguation) {
 
 /* --- Wolfram function (both := and =) --- */
 TEST(wolfram_function_extended) {
-    CBMFileResult *r = extract("f[x_] := x^2\ng[x_] = x + 1\n", CTX_LANG_WOLFRAM, "t", "funcs.wl");
+    CtxFileResult *r = extract("f[x_] := x^2\ng[x_] = x + 1\n", CTX_LANG_WOLFRAM, "t", "funcs.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     int fn_count = 0;
@@ -1668,7 +1668,7 @@ TEST(wolfram_function_extended) {
 
 /* --- Wolfram call --- */
 TEST(wolfram_call) {
-    CBMFileResult *r = extract("f[x_] := g[x] + h[x]\n", CTX_LANG_WOLFRAM, "t", "calls.wl");
+    CtxFileResult *r = extract("f[x_] := g[x] + h[x]\n", CTX_LANG_WOLFRAM, "t", "calls.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_GT(r->calls.count, 0);
@@ -1684,7 +1684,7 @@ TEST(wolfram_call) {
 
 /* --- Wolfram caller attribution --- */
 TEST(wolfram_caller_attribution) {
-    CBMFileResult *r = extract("f[x_] := g[x] + h[x]\n", CTX_LANG_WOLFRAM, "t", "caller.wl");
+    CtxFileResult *r = extract("f[x_] := g[x] + h[x]\n", CTX_LANG_WOLFRAM, "t", "caller.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_GT(r->calls.count, 0);
@@ -1704,7 +1704,7 @@ TEST(wolfram_caller_attribution) {
 
 /* --- Wolfram parse (simple assignment) --- */
 TEST(wolfram_parse) {
-    CBMFileResult *r = extract("x = 42;\ny = x + 1;\n", CTX_LANG_WOLFRAM, "t", "simple.wl");
+    CtxFileResult *r = extract("x = 42;\ny = x + 1;\n", CTX_LANG_WOLFRAM, "t", "simple.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ctx_free_result(r);
@@ -1713,7 +1713,7 @@ TEST(wolfram_parse) {
 
 /* --- Wolfram import --- */
 TEST(wolfram_import) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("<< \"utils.wl\"\nNeeds[\"Package`\"]\n", CTX_LANG_WOLFRAM, "t", "main.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1724,7 +1724,7 @@ TEST(wolfram_import) {
 
 /* --- Wolfram nested def --- */
 TEST(wolfram_nested_def) {
-    CBMFileResult *r = extract("main[x_] := Module[{localF}, localF[t_] := t + 1; localF[x]]\n",
+    CtxFileResult *r = extract("main[x_] := Module[{localF}, localF[t_] := t + 1; localF[x]]\n",
                                CTX_LANG_WOLFRAM, "t", "nested.wl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1739,7 +1739,7 @@ TEST(wolfram_nested_def) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(python_docstring) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "def compute(x, y):\n    \"\"\"Compute the sum of x and y.\"\"\"\n    return x + y\n",
         CTX_LANG_PYTHON, "test", "test.py");
     ASSERT_NOT_NULL(r);
@@ -1760,7 +1760,7 @@ TEST(python_docstring) {
 }
 
 TEST(go_function_extraction) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("package main\n\n// Greet returns a greeting.\nfunc Greet(name string) string "
                 "{\n\treturn \"Hello, \" + name\n}\n\nfunc main() {\n\tGreet(\"world\")\n}\n",
                 CTX_LANG_GO, "test", "main.go");
@@ -1774,7 +1774,7 @@ TEST(go_function_extraction) {
 }
 
 TEST(js_arrow_function) {
-    CBMFileResult *r = extract("const greet = (name) => {\n  return \"Hello \" + "
+    CtxFileResult *r = extract("const greet = (name) => {\n  return \"Hello \" + "
                                "name;\n};\n\nconst result = greet(\"world\");\n",
                                CTX_LANG_JAVASCRIPT, "test", "app.js");
     ASSERT_NOT_NULL(r);
@@ -1790,7 +1790,7 @@ TEST(js_arrow_function) {
 
 /* CommonLisp — defun extraction (known limitation: grammar produces list_lit) */
 TEST(commonlisp_defun) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("(defun hello () \"world\")\n", CTX_LANG_COMMONLISP, "test", "hello.lisp");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1801,7 +1801,7 @@ TEST(commonlisp_defun) {
 }
 
 TEST(commonlisp_multiple_functions) {
-    CBMFileResult *r = extract("(defun add (a b) (+ a b))\n(defun mul (a b) (* a b))\n",
+    CtxFileResult *r = extract("(defun add (a b) (+ a b))\n(defun mul (a b) (* a b))\n",
                                CTX_LANG_COMMONLISP, "test", "math.lisp");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1810,7 +1810,7 @@ TEST(commonlisp_multiple_functions) {
 }
 
 TEST(commonlisp_defmacro) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("(defmacro when2 (condition &body body)\n  `(if ,condition (progn ,@body)))\n",
                 CTX_LANG_COMMONLISP, "test", "macros.lisp");
     ASSERT_NOT_NULL(r);
@@ -1820,7 +1820,7 @@ TEST(commonlisp_defmacro) {
 }
 
 TEST(makefile_rule_as_function) {
-    CBMFileResult *r = extract("all:\n\t@echo hello\n", CTX_LANG_MAKEFILE, "test", "Makefile");
+    CtxFileResult *r = extract("all:\n\t@echo hello\n", CTX_LANG_MAKEFILE, "test", "Makefile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT(has_def(r, "Function", "all"));
@@ -1829,7 +1829,7 @@ TEST(makefile_rule_as_function) {
 }
 
 TEST(makefile_multiple_targets) {
-    CBMFileResult *r = extract("all: main.o\n\tgcc -o all main.o\n\nbuild:\n\tgo build ./...\n",
+    CtxFileResult *r = extract("all: main.o\n\tgcc -o all main.o\n\nbuild:\n\tgo build ./...\n",
                                CTX_LANG_MAKEFILE, "test", "Makefile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1840,7 +1840,7 @@ TEST(makefile_multiple_targets) {
 }
 
 TEST(makefile_variable_extraction) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("CC := gcc\nCFLAGS := -Wall\n", CTX_LANG_MAKEFILE, "test", "Makefile");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1850,7 +1850,7 @@ TEST(makefile_variable_extraction) {
 }
 
 TEST(vimscript_function_extraction) {
-    CBMFileResult *r = extract("function! SayHello()\n  echo 'Hello'\nendfunction\n",
+    CtxFileResult *r = extract("function! SayHello()\n  echo 'Hello'\nendfunction\n",
                                CTX_LANG_VIMSCRIPT, "test", "plugin.vim");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1868,7 +1868,7 @@ TEST(vimscript_function_extraction) {
 }
 
 TEST(vimscript_function_without_bang) {
-    CBMFileResult *r = extract("function MyFunc(arg)\n  return arg\nendfunction\n",
+    CtxFileResult *r = extract("function MyFunc(arg)\n  return arg\nendfunction\n",
                                CTX_LANG_VIMSCRIPT, "test", "plugin.vim");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1885,7 +1885,7 @@ TEST(vimscript_function_without_bang) {
 }
 
 TEST(julia_function_extraction) {
-    CBMFileResult *r = extract("function hello()\n  println(\"Hello, World!\")\nend\n",
+    CtxFileResult *r = extract("function hello()\n  println(\"Hello, World!\")\nend\n",
                                CTX_LANG_JULIA, "test", "hello.jl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1902,7 +1902,7 @@ TEST(julia_function_extraction) {
 }
 
 TEST(julia_function_with_args) {
-    CBMFileResult *r = extract("function add(a::Int, b::Int)::Int\n  return a + b\nend\n",
+    CtxFileResult *r = extract("function add(a::Int, b::Int)::Int\n  return a + b\nend\n",
                                CTX_LANG_JULIA, "test", "math.jl");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -1923,7 +1923,7 @@ TEST(julia_function_with_args) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 TEST(python_calls) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("import os\ndef main():\n    os.path.exists('/tmp')\n    print('hello')\n",
                 CTX_LANG_PYTHON, "t", "main.py");
     ASSERT_NOT_NULL(r);
@@ -1935,7 +1935,7 @@ TEST(python_calls) {
 }
 
 TEST(go_calls) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("package main\nimport \"fmt\"\nfunc main() { fmt.Println(\"hello\") }\n",
                 CTX_LANG_GO, "t", "main.go");
     ASSERT_NOT_NULL(r);
@@ -1946,7 +1946,7 @@ TEST(go_calls) {
 }
 
 TEST(python_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("import os\nfrom sys import argv\nfrom collections import defaultdict\n",
                 CTX_LANG_PYTHON, "t", "main.py");
     ASSERT_NOT_NULL(r);
@@ -1957,7 +1957,7 @@ TEST(python_imports) {
 }
 
 TEST(js_imports) {
-    CBMFileResult *r = extract("import React from 'react';\nimport { useState } from "
+    CtxFileResult *r = extract("import React from 'react';\nimport { useState } from "
                                "'react';\nconst fs = require('fs');\n",
                                CTX_LANG_JAVASCRIPT, "t", "app.js");
     ASSERT_NOT_NULL(r);
@@ -1968,7 +1968,7 @@ TEST(js_imports) {
 }
 
 TEST(go_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("package main\n\nimport \"fmt\"\nimport (\n    \"os\"\n    net \"net/http\"\n)\n",
                 CTX_LANG_GO, "t", "main.go");
     ASSERT_NOT_NULL(r);
@@ -1980,7 +1980,7 @@ TEST(go_imports) {
 }
 
 TEST(java_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("import java.util.List;\nimport java.util.ArrayList;\nimport static java.lang.Math.PI;\n"
                 "public class Foo {}\n",
                 CTX_LANG_JAVA, "t", "Foo.java");
@@ -1993,7 +1993,7 @@ TEST(java_imports) {
 }
 
 TEST(rust_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("use std::collections::HashMap;\nuse std::io::{self, Write};\nuse serde::Serialize;\n"
                 "fn main() {}\n",
                 CTX_LANG_RUST, "t", "main.rs");
@@ -2006,7 +2006,7 @@ TEST(rust_imports) {
 }
 
 TEST(c_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("#include <stdio.h>\n#include <stdlib.h>\n#include \"mylib.h\"\n\nint main() { return 0; }\n",
                 CTX_LANG_C, "t", "main.c");
     ASSERT_NOT_NULL(r);
@@ -2018,7 +2018,7 @@ TEST(c_imports) {
 }
 
 TEST(ruby_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("require 'json'\nrequire 'net/http'\nrequire_relative 'helpers'\n\nclass Foo; end\n",
                 CTX_LANG_RUBY, "t", "app.rb");
     ASSERT_NOT_NULL(r);
@@ -2030,7 +2030,7 @@ TEST(ruby_imports) {
 }
 
 TEST(lua_imports) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("local json = require(\"dkjson\")\nlocal http = require(\"socket.http\")\n\nlocal function greet() end\n",
                 CTX_LANG_LUA, "t", "main.lua");
     ASSERT_NOT_NULL(r);
@@ -2056,7 +2056,7 @@ TEST(import_stress_go) {
         pos += snprintf(src + pos, (size_t)(buf_size - pos), "import \"pkg/%05d\"\n", k);
     }
 
-    CBMFileResult *r = extract(src, CTX_LANG_GO, "t", "stress.go");
+    CtxFileResult *r = extract(src, CTX_LANG_GO, "t", "stress.go");
     free(src);
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2072,7 +2072,7 @@ TEST(import_stress_go) {
 /* --- TOML (8 tests) --- */
 
 TEST(toml_basic_table_and_pair) {
-    CBMFileResult *r = extract("[database]\nhost = \"localhost\"\nport = 5432\n", CTX_LANG_TOML,
+    CtxFileResult *r = extract("[database]\nhost = \"localhost\"\nport = 5432\n", CTX_LANG_TOML,
                                "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2086,7 +2086,7 @@ TEST(toml_basic_table_and_pair) {
 }
 
 TEST(toml_nested_table) {
-    CBMFileResult *r = extract("[server.http]\nport = 8080\n", CTX_LANG_TOML, "t", "config.toml");
+    CtxFileResult *r = extract("[server.http]\nport = 8080\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_GTE(count_defs_with_label(r, "Class"), 1);
@@ -2095,7 +2095,7 @@ TEST(toml_nested_table) {
 }
 
 TEST(toml_table_array_element) {
-    CBMFileResult *r = extract("[[servers]]\nname = \"alpha\"\n[[servers]]\nname = \"beta\"\n",
+    CtxFileResult *r = extract("[[servers]]\nname = \"alpha\"\n[[servers]]\nname = \"beta\"\n",
                                CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2106,7 +2106,7 @@ TEST(toml_table_array_element) {
 }
 
 TEST(toml_dotted_key) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("database.host = \"localhost\"\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2116,7 +2116,7 @@ TEST(toml_dotted_key) {
 }
 
 TEST(toml_quoted_key) {
-    CBMFileResult *r = extract("\"unusual-key\" = \"value\"\n", CTX_LANG_TOML, "t", "config.toml");
+    CtxFileResult *r = extract("\"unusual-key\" = \"value\"\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_GTE(count_defs_with_label(r, "Variable"), 1);
@@ -2125,7 +2125,7 @@ TEST(toml_quoted_key) {
 }
 
 TEST(toml_empty_table) {
-    CBMFileResult *r = extract("[empty]\n", CTX_LANG_TOML, "t", "config.toml");
+    CtxFileResult *r = extract("[empty]\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_EQ(count_defs_with_label(r, "Class"), 1);
@@ -2136,7 +2136,7 @@ TEST(toml_empty_table) {
 }
 
 TEST(toml_comments_only) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("# just a comment\n# another comment\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2147,7 +2147,7 @@ TEST(toml_comments_only) {
 }
 
 TEST(toml_boolean_and_integer_values) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("enabled = true\ncount = 42\nname = \"test\"\n", CTX_LANG_TOML, "t", "config.toml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2159,7 +2159,7 @@ TEST(toml_boolean_and_integer_values) {
 /* --- INI (4 tests) --- */
 
 TEST(ini_basic_section_and_setting) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("[database]\nhost = localhost\nport = 5432\n", CTX_LANG_INI, "t", "config.ini");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2170,7 +2170,7 @@ TEST(ini_basic_section_and_setting) {
 }
 
 TEST(ini_multiple_sections) {
-    CBMFileResult *r = extract("[section1]\nkey1 = val1\n[section2]\nkey2 = val2\n", CTX_LANG_INI,
+    CtxFileResult *r = extract("[section1]\nkey1 = val1\n[section2]\nkey2 = val2\n", CTX_LANG_INI,
                                "t", "config.ini");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2181,7 +2181,7 @@ TEST(ini_multiple_sections) {
 }
 
 TEST(ini_global_keys) {
-    CBMFileResult *r = extract("key1 = value1\nkey2 = value2\n", CTX_LANG_INI, "t", "config.ini");
+    CtxFileResult *r = extract("key1 = value1\nkey2 = value2\n", CTX_LANG_INI, "t", "config.ini");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_EQ(count_defs_with_label(r, "Class"), 0);
@@ -2191,7 +2191,7 @@ TEST(ini_global_keys) {
 }
 
 TEST(ini_comments) {
-    CBMFileResult *r = extract("; comment\n# another comment\n[section]\nkey = val\n", CTX_LANG_INI,
+    CtxFileResult *r = extract("; comment\n# another comment\n[section]\nkey = val\n", CTX_LANG_INI,
                                "t", "config.ini");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2204,7 +2204,7 @@ TEST(ini_comments) {
 /* --- JSON (5 tests) --- */
 
 TEST(json_basic_pair) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("{\"host\": \"localhost\", \"port\": 5432}", CTX_LANG_JSON, "t", "config.json");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2216,7 +2216,7 @@ TEST(json_basic_pair) {
 }
 
 TEST(json_nested_object) {
-    CBMFileResult *r = extract("{\"database\": {\"host\": \"localhost\", \"port\": 5432}}",
+    CtxFileResult *r = extract("{\"database\": {\"host\": \"localhost\", \"port\": 5432}}",
                                CTX_LANG_JSON, "t", "config.json");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2226,7 +2226,7 @@ TEST(json_nested_object) {
 }
 
 TEST(json_empty_object) {
-    CBMFileResult *r = extract("{}", CTX_LANG_JSON, "t", "config.json");
+    CtxFileResult *r = extract("{}", CTX_LANG_JSON, "t", "config.json");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_EQ(count_defs_with_label(r, "Variable"), 0);
@@ -2235,7 +2235,7 @@ TEST(json_empty_object) {
 }
 
 TEST(json_boolean_null_values) {
-    CBMFileResult *r = extract("{\"enabled\": true, \"value\": null, \"name\": \"test\"}",
+    CtxFileResult *r = extract("{\"enabled\": true, \"value\": null, \"name\": \"test\"}",
                                CTX_LANG_JSON, "t", "config.json");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2245,7 +2245,7 @@ TEST(json_boolean_null_values) {
 }
 
 TEST(json_package_json_deps) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("{\"name\":\"pkg\",\"dependencies\":{\"express\":\"^4.0\",\"lodash\":\"^4.17\"}}",
                 CTX_LANG_JSON, "t", "package.json");
     ASSERT_NOT_NULL(r);
@@ -2262,7 +2262,7 @@ TEST(json_package_json_deps) {
 /* --- XML (4 tests) --- */
 
 TEST(xml_basic_element) {
-    CBMFileResult *r = extract(
+    CtxFileResult *r = extract(
         "<?xml version=\"1.0\"?><config><database><host>localhost</host></database></config>",
         CTX_LANG_XML, "t", "config.xml");
     ASSERT_NOT_NULL(r);
@@ -2276,7 +2276,7 @@ TEST(xml_basic_element) {
 }
 
 TEST(xml_self_closing_tag) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("<?xml version=\"1.0\"?><config><feature enabled=\"true\"/></config>", CTX_LANG_XML,
                 "t", "config.xml");
     ASSERT_NOT_NULL(r);
@@ -2287,7 +2287,7 @@ TEST(xml_self_closing_tag) {
 }
 
 TEST(xml_empty_document) {
-    CBMFileResult *r = extract("<?xml version=\"1.0\"?><root/>", CTX_LANG_XML, "t", "config.xml");
+    CtxFileResult *r = extract("<?xml version=\"1.0\"?><root/>", CTX_LANG_XML, "t", "config.xml");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
     ASSERT_GTE(count_defs_with_label(r, "Class"), 1);
@@ -2296,7 +2296,7 @@ TEST(xml_empty_document) {
 }
 
 TEST(xml_multiple_children) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("<?xml version=\"1.0\"?><servers><server/><server/><server/></servers>",
                 CTX_LANG_XML, "t", "config.xml");
     ASSERT_NOT_NULL(r);
@@ -2309,7 +2309,7 @@ TEST(xml_multiple_children) {
 /* --- Markdown (4 tests) --- */
 
 TEST(markdown_atx_headings) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("# Title\n## Section\n### Subsection\n", CTX_LANG_MARKDOWN, "t", "README.md");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2320,7 +2320,7 @@ TEST(markdown_atx_headings) {
 }
 
 TEST(markdown_setext_headings) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("Title\n=====\nSection\n------\n", CTX_LANG_MARKDOWN, "t", "README.md");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2330,7 +2330,7 @@ TEST(markdown_setext_headings) {
 }
 
 TEST(markdown_heading_content) {
-    CBMFileResult *r = extract("# Installation Guide\n## Prerequisites\n## Setup\n",
+    CtxFileResult *r = extract("# Installation Guide\n## Prerequisites\n## Setup\n",
                                CTX_LANG_MARKDOWN, "t", "README.md");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2343,7 +2343,7 @@ TEST(markdown_heading_content) {
 }
 
 TEST(markdown_no_headings) {
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("Just a paragraph\n\nAnother paragraph\n", CTX_LANG_MARKDOWN, "t", "README.md");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2361,7 +2361,7 @@ TEST(python_init_module_qn_not_collide_with_folder) {
      * same directory, causing the Folder node to be overwritten when the
      * Module was upserted. The Module QN must contain "__init__" to
      * distinguish it from the Folder QN. */
-    CBMFileResult *r = extract("class Config:\n    DEBUG = True\n\ndef setup():\n    pass\n",
+    CtxFileResult *r = extract("class Config:\n    DEBUG = True\n\ndef setup():\n    pass\n",
                                CTX_LANG_PYTHON, "proj", "mypackage/__init__.py");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2392,7 +2392,7 @@ TEST(python_init_module_qn_not_collide_with_folder) {
 
 TEST(python_init_nested_module_qn) {
     /* Deeply nested __init__.py — same collision must not happen */
-    CBMFileResult *r = extract("def greet():\n    return 'hello'\n", CTX_LANG_PYTHON, "proj",
+    CtxFileResult *r = extract("def greet():\n    return 'hello'\n", CTX_LANG_PYTHON, "proj",
                                "docker-images/cloud-runs/bq-sync-api/__init__.py");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2405,7 +2405,7 @@ TEST(python_init_nested_module_qn) {
 
 TEST(js_index_module_qn_not_collide_with_folder) {
     /* Same bug for JS/TS index.ts files */
-    CBMFileResult *r = extract("export function App() { return null; }\n", CTX_LANG_TYPESCRIPT,
+    CtxFileResult *r = extract("export function App() { return null; }\n", CTX_LANG_TYPESCRIPT,
                                "proj", "src/components/index.ts");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);
@@ -2418,7 +2418,7 @@ TEST(js_index_module_qn_not_collide_with_folder) {
 
 TEST(python_regular_module_qn_unchanged) {
     /* Non-__init__.py Python files should be unaffected */
-    CBMFileResult *r =
+    CtxFileResult *r =
         extract("def helper():\n    pass\n", CTX_LANG_PYTHON, "proj", "mypackage/utils.py");
     ASSERT_NOT_NULL(r);
     ASSERT_FALSE(r->has_error);

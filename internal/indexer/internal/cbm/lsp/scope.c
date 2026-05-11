@@ -1,20 +1,20 @@
 #include "scope.h"
 #include <string.h>
 
-CBMScope* ctx_scope_push(CBMArena* a, CBMScope* current) {
-    CBMScope* scope = (CBMScope*)ctx_arena_alloc(a, sizeof(CBMScope));
+CtxScope* ctx_scope_push(CtxArena* a, CtxScope* current) {
+    CtxScope* scope = (CtxScope*)ctx_arena_alloc(a, sizeof(CtxScope));
     if (!scope) return current;
-    memset(scope, 0, sizeof(CBMScope));
+    memset(scope, 0, sizeof(CtxScope));
     scope->parent = current;
     return scope;
 }
 
-CBMScope* ctx_scope_pop(CBMScope* scope) {
+CtxScope* ctx_scope_pop(CtxScope* scope) {
     if (!scope) return NULL;
     return scope->parent;
 }
 
-void ctx_scope_bind(CBMScope* scope, const char* name, const CBMType* type) {
+void ctx_scope_bind(CtxScope* scope, const char* name, const CtxType* type) {
     if (!scope || !name || scope->count >= CTX_SCOPE_MAX_BINDINGS) return;
 
     // Overwrite existing binding in same scope if present
@@ -30,10 +30,10 @@ void ctx_scope_bind(CBMScope* scope, const char* name, const CBMType* type) {
     scope->count++;
 }
 
-const CBMType* ctx_scope_lookup(const CBMScope* scope, const char* name) {
+const CtxType* ctx_scope_lookup(const CtxScope* scope, const char* name) {
     if (!name) return ctx_type_unknown();
 
-    for (const CBMScope* s = scope; s != NULL; s = s->parent) {
+    for (const CtxScope* s = scope; s != NULL; s = s->parent) {
         for (int i = 0; i < s->count; i++) {
             if (strcmp(s->bindings[i].name, name) == 0) {
                 return s->bindings[i].type;

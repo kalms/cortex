@@ -1,6 +1,6 @@
 #include "helpers.h"
-#include "arena.h" // CBMArena, ctx_arena_alloc/strdup/strndup/sprintf
-#include "cbm.h"   // CBMExtractCtx, CBMLanguage, CTX_LANG_*, EFCEntry, EFC_SIZE
+#include "arena.h" // CtxArena, ctx_arena_alloc/strdup/strndup/sprintf
+#include "cbm.h"   // CtxExtractCtx, CtxLanguage, CTX_LANG_*, EFCEntry, EFC_SIZE
 #include "lang_specs.h"
 #include "tree_sitter/api.h" // TSNode, ts_node_*
 #include "foundation/constants.h"
@@ -26,7 +26,7 @@ enum {
 
 // --- Node text extraction ---
 
-char *ctx_node_text(CBMArena *a, TSNode node, const char *source) {
+char *ctx_node_text(CtxArena *a, TSNode node, const char *source) {
     uint32_t start = ts_node_start_byte(node);
     uint32_t end = ts_node_end_byte(node);
     if (end <= start) {
@@ -110,7 +110,7 @@ static const char *generic_keywords[] = {
     "def",      "fn",        "func",      "fun",    "proc",   "sub",       "method",  "async",
     "await",    "yield",     NULL};
 
-bool ctx_is_keyword(const char *name, CBMLanguage lang) {
+bool ctx_is_keyword(const char *name, CtxLanguage lang) {
     if (!name || !name[0]) {
         return true;
     }
@@ -151,7 +151,7 @@ bool ctx_is_keyword(const char *name, CBMLanguage lang) {
 
 // --- Export detection ---
 
-bool ctx_is_exported(const char *name, CBMLanguage lang) {
+bool ctx_is_exported(const char *name, CtxLanguage lang) {
     if (!name || !name[0]) {
         return false;
     }
@@ -205,7 +205,7 @@ static void strip_ext(const char *base, char *buf, size_t buflen) {
     }
 }
 
-bool ctx_is_test_file(const char *rel_path, CBMLanguage lang) {
+bool ctx_is_test_file(const char *rel_path, CtxLanguage lang) {
     if (!rel_path) {
         return false;
     }
@@ -358,7 +358,7 @@ static const char *func_kinds_wolfram[] = {"set_delayed_top", "set_top", "set_de
 static const char *func_kinds_generic[] = {"function_declaration", "function_definition",
                                            "method_declaration", "method_definition", NULL};
 
-static const char **func_kinds_for_lang(CBMLanguage lang) {
+static const char **func_kinds_for_lang(CtxLanguage lang) {
     switch (lang) {
     case CTX_LANG_GO:
         return func_kinds_go;
@@ -414,7 +414,7 @@ static const char **func_kinds_for_lang(CBMLanguage lang) {
     }
 }
 
-TSNode ctx_find_enclosing_func(TSNode node, CBMLanguage lang) {
+TSNode ctx_find_enclosing_func(TSNode node, CtxLanguage lang) {
     const char **kinds = func_kinds_for_lang(lang);
     TSNode cur = node;
     for (;;) {
@@ -435,8 +435,8 @@ TSNode ctx_find_enclosing_func(TSNode node, CBMLanguage lang) {
 }
 
 // Get the name of a function node (basic: try "name" field)
-static const char *func_node_name(CBMArena *a, TSNode func_node, const char *source,
-                                  CBMLanguage lang) {
+static const char *func_node_name(CtxArena *a, TSNode func_node, const char *source,
+                                  CtxLanguage lang) {
     // Wolfram: set_delayed_top/set_top/set_delayed/set — LHS is apply(user_symbol("f"), ...)
     if (lang == CTX_LANG_WOLFRAM) {
         const char *nk = ts_node_type(func_node);
@@ -472,7 +472,7 @@ static const char *func_node_name(CBMArena *a, TSNode func_node, const char *sou
     return NULL;
 }
 
-const char *ctx_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, const char *source,
+const char *ctx_enclosing_func_qn(CtxArena *a, TSNode node, CtxLanguage lang, const char *source,
                                   const char *project, const char *rel_path,
                                   const char *module_qn) {
     TSNode func_node = ctx_find_enclosing_func(node, lang);
@@ -485,7 +485,7 @@ const char *ctx_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, co
     }
 
     // Check if the function is inside a class — compute classQN.funcName
-    const CBMLangSpec *spec = ctx_lang_spec(lang);
+    const CtxLangSpec *spec = ctx_lang_spec(lang);
     if (spec && spec->class_node_types) {
         TSNode cur = ts_node_parent(func_node);
         while (!ts_node_is_null(cur)) {
@@ -508,7 +508,7 @@ const char *ctx_enclosing_func_qn(CBMArena *a, TSNode node, CBMLanguage lang, co
 
 // --- Cached enclosing function QN ---
 
-const char *ctx_enclosing_func_qn_cached(CBMExtractCtx *ctx, TSNode node) {
+const char *ctx_enclosing_func_qn_cached(CtxExtractCtx *ctx, TSNode node) {
     uint32_t pos = ts_node_start_byte(node);
 
     // Check cache: find a function range that contains this position.
@@ -583,7 +583,7 @@ static bool check_script_module_level(TSNode parent, const char *pk, const char 
 }
 
 // Get the module-level parent type list for table-driven languages.
-static const char **get_module_parents(CBMLanguage lang) {
+static const char **get_module_parents(CtxLanguage lang) {
     switch (lang) {
     case CTX_LANG_GO:
         return module_parents_go;
@@ -659,7 +659,7 @@ static const char **get_module_parents(CBMLanguage lang) {
     }
 }
 
-bool ctx_is_module_level(TSNode node, CBMLanguage lang) {
+bool ctx_is_module_level(TSNode node, CtxLanguage lang) {
     TSNode parent = ts_node_parent(node);
     if (ts_node_is_null(parent)) {
         return false;
@@ -745,7 +745,7 @@ static char *append_path_segments(char *out, const char *rel_path, size_t plen, 
     return out;
 }
 
-char *ctx_fqn_compute(CBMArena *a, const char *project, const char *rel_path, const char *name) {
+char *ctx_fqn_compute(CtxArena *a, const char *project, const char *rel_path, const char *name) {
     size_t proj_len = strlen(project);
     size_t path_len = strlen(rel_path);
     size_t name_len = name ? strlen(name) : 0;
@@ -772,11 +772,11 @@ char *ctx_fqn_compute(CBMArena *a, const char *project, const char *rel_path, co
     return buf;
 }
 
-char *ctx_fqn_module(CBMArena *a, const char *project, const char *rel_path) {
+char *ctx_fqn_module(CtxArena *a, const char *project, const char *rel_path) {
     return ctx_fqn_compute(a, project, rel_path, NULL);
 }
 
-char *ctx_fqn_folder(CBMArena *a, const char *project, const char *rel_dir) {
+char *ctx_fqn_folder(CtxArena *a, const char *project, const char *rel_dir) {
     // project.dir1.dir2
     size_t proj_len = strlen(project);
     size_t dir_len = strlen(rel_dir);

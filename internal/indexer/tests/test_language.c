@@ -589,7 +589,7 @@ TEST(lang_all_have_names) {
     /* Every language enum value from 0 to CTX_LANG_COUNT-1
      * should have a non-"Unknown" name. */
     for (int i = 0; i < CTX_LANG_COUNT; i++) {
-        const char *name = ctx_language_name((CBMLanguage)i);
+        const char *name = ctx_language_name((CtxLanguage)i);
         ASSERT_NOT_NULL(name);
         ASSERT_TRUE(strcmp(name, "Unknown") != 0);
     }

@@ -26,13 +26,13 @@
  * ═══════════════════════════════════════════════════════════════════ */
 
 /* Extract a single file and return the result.  Caller frees. */
-static CBMFileResult *extract_one(const char *src, CBMLanguage lang, const char *proj,
+static CtxFileResult *extract_one(const char *src, CtxLanguage lang, const char *proj,
                                   const char *path) {
     return ctx_extract_file(src, (int)strlen(src), lang, proj, path, 0, NULL, NULL);
 }
 
 /* Find a definition by name in an extraction result. */
-static const CBMDefinition *find_def(const CBMFileResult *r, const char *name) {
+static const CtxDefinition *find_def(const CtxFileResult *r, const char *name) {
     for (int i = 0; i < r->defs.count; i++) {
         if (strcmp(r->defs.items[i].name, name) == 0) {
             return &r->defs.items[i];
@@ -191,13 +191,13 @@ static int count_similar_to_edges(const ctx_gbuf_t *gb) {
 TEST(minhash_identical_source_same_fingerprint) {
     const char *src = GO_VALIDATE_USER_SRC;
 
-    CBMFileResult *r1 = extract_one(src, CTX_LANG_GO, "test", "a.go");
-    CBMFileResult *r2 = extract_one(src, CTX_LANG_GO, "test", "b.go");
+    CtxFileResult *r1 = extract_one(src, CTX_LANG_GO, "test", "a.go");
+    CtxFileResult *r2 = extract_one(src, CTX_LANG_GO, "test", "b.go");
     ASSERT_NOT_NULL(r1);
     ASSERT_NOT_NULL(r2);
 
-    const CBMDefinition *d1 = find_def(r1, "ValidateUser");
-    const CBMDefinition *d2 = find_def(r2, "ValidateUser");
+    const CtxDefinition *d1 = find_def(r1, "ValidateUser");
+    const CtxDefinition *d2 = find_def(r2, "ValidateUser");
     ASSERT_NOT_NULL(d1);
     ASSERT_NOT_NULL(d2);
     ASSERT_NOT_NULL(d1->fingerprint);
@@ -218,13 +218,13 @@ TEST(minhash_renamed_vars_same_fingerprint) {
     const char *src_a = GO_VALIDATE_USER_SRC;
     const char *src_b = GO_VALIDATE_ORDER_SRC;
 
-    CBMFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
-    CBMFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
+    CtxFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
+    CtxFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
     ASSERT_NOT_NULL(ra);
     ASSERT_NOT_NULL(rb);
 
-    const CBMDefinition *da = find_def(ra, "ValidateUser");
-    const CBMDefinition *db = find_def(rb, "ValidateOrder");
+    const CtxDefinition *da = find_def(ra, "ValidateUser");
+    const CtxDefinition *db = find_def(rb, "ValidateOrder");
     ASSERT_NOT_NULL(da);
     ASSERT_NOT_NULL(db);
     ASSERT_NOT_NULL(da->fingerprint);
@@ -246,13 +246,13 @@ TEST(minhash_different_code_different_fingerprint) {
     const char *src_a = GO_VALIDATE_USER_SRC;
     const char *src_b = GO_HANDLE_REQUEST_SRC;
 
-    CBMFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
-    CBMFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
+    CtxFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
+    CtxFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
     ASSERT_NOT_NULL(ra);
     ASSERT_NOT_NULL(rb);
 
-    const CBMDefinition *da = find_def(ra, "ValidateUser");
-    const CBMDefinition *db = find_def(rb, "HandleRequest");
+    const CtxDefinition *da = find_def(ra, "ValidateUser");
+    const CtxDefinition *db = find_def(rb, "HandleRequest");
     ASSERT_NOT_NULL(da);
     ASSERT_NOT_NULL(db);
     ASSERT_NOT_NULL(da->fingerprint);
@@ -317,13 +317,13 @@ TEST(minhash_minor_edit_high_jaccard) {
         "    return nil\n"
         "}\n";
 
-    CBMFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
-    CBMFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
+    CtxFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
+    CtxFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
     ASSERT_NOT_NULL(ra);
     ASSERT_NOT_NULL(rb);
 
-    const CBMDefinition *da = find_def(ra, "ValidateUser");
-    const CBMDefinition *db = find_def(rb, "ValidateUser");
+    const CtxDefinition *da = find_def(ra, "ValidateUser");
+    const CtxDefinition *db = find_def(rb, "ValidateUser");
     ASSERT_NOT_NULL(da);
     ASSERT_NOT_NULL(db);
     ASSERT_NOT_NULL(da->fingerprint);
@@ -352,10 +352,10 @@ TEST(minhash_empty_body_skipped) {
         "package main\n"
         "func Noop() {}\n";
 
-    CBMFileResult *r = extract_one(src, CTX_LANG_GO, "test", "tiny.go");
+    CtxFileResult *r = extract_one(src, CTX_LANG_GO, "test", "tiny.go");
     ASSERT_NOT_NULL(r);
 
-    const CBMDefinition *d = find_def(r, "Noop");
+    const CtxDefinition *d = find_def(r, "Noop");
     ASSERT_NOT_NULL(d);
     /* Empty body → fingerprint should be NULL */
     ASSERT_NULL(d->fingerprint);
@@ -372,13 +372,13 @@ TEST(minhash_type_annotation_normalized) {
 
     const char *src_b = GO_VALIDATE_ORDER_SRC;
 
-    CBMFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
-    CBMFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
+    CtxFileResult *ra = extract_one(src_a, CTX_LANG_GO, "test", "a.go");
+    CtxFileResult *rb = extract_one(src_b, CTX_LANG_GO, "test", "b.go");
     ASSERT_NOT_NULL(ra);
     ASSERT_NOT_NULL(rb);
 
-    const CBMDefinition *da = find_def(ra, "ValidateUser");
-    const CBMDefinition *db = find_def(rb, "ValidateOrder");
+    const CtxDefinition *da = find_def(ra, "ValidateUser");
+    const CtxDefinition *db = find_def(rb, "ValidateOrder");
     ASSERT_NOT_NULL(da);
     ASSERT_NOT_NULL(db);
     ASSERT_NOT_NULL(da->fingerprint);

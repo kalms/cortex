@@ -1,8 +1,8 @@
 #include "extract_unified.h"
 #include "arena.h" // ctx_arena_sprintf
-#include "cbm.h"   // CBMExtractCtx
+#include "cbm.h"   // CtxExtractCtx
 #include "helpers.h"
-#include "lang_specs.h"      // CBMLangSpec, ctx_lang_spec, CTX_LANG_*
+#include "lang_specs.h"      // CtxLangSpec, ctx_lang_spec, CTX_LANG_*
 #include "tree_sitter/api.h" // TSNode, TSTreeCursor, ts_tree_cursor_*, ts_node_*
 #include "foundation/constants.h"
 
@@ -58,7 +58,7 @@ static void recompute_state(WalkState *state, const char *module_qn) {
 }
 
 // Try to resolve Wolfram function QN from set_delayed_top/set_top/set_delayed/set LHS.
-static const char *compute_wolfram_func_qn(CBMExtractCtx *ctx, TSNode node) {
+static const char *compute_wolfram_func_qn(CtxExtractCtx *ctx, TSNode node) {
     const char *nk = ts_node_type(node);
     if (strcmp(nk, "set_delayed_top") != 0 && strcmp(nk, "set_top") != 0 &&
         strcmp(nk, "set_delayed") != 0 && strcmp(nk, "set") != 0) {
@@ -92,7 +92,7 @@ static TSNode resolve_func_name_node(TSNode node) {
 }
 
 // Compute function QN for scope tracking (mirrors ctx_enclosing_func_qn logic).
-static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+static const char *compute_func_qn(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                                    WalkState *state) {
     (void)spec;
     if (ctx->language == CTX_LANG_WOLFRAM) {
@@ -116,7 +116,7 @@ static const char *compute_func_qn(CBMExtractCtx *ctx, TSNode node, const CBMLan
 }
 
 // Compute class QN for scope tracking.
-static const char *compute_class_qn(CBMExtractCtx *ctx, TSNode node) {
+static const char *compute_class_qn(CtxExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(name_node)) {
         return NULL;
@@ -135,7 +135,7 @@ static bool is_string_node(const char *kind);
 
 // --- Module-level constant collection ---
 
-static void handle_string_constants(CBMExtractCtx *ctx, TSNode node, const WalkState *state) {
+static void handle_string_constants(CtxExtractCtx *ctx, TSNode node, const WalkState *state) {
     /* Only collect at module level (not inside functions/classes) */
     if (state->enclosing_func_qn != NULL && state->enclosing_func_qn != ctx->module_qn) {
         return;
@@ -195,7 +195,7 @@ static void handle_string_constants(CBMExtractCtx *ctx, TSNode node, const WalkS
     }
 
     /* Add to constant map */
-    CBMStringConstantMap *map = &ctx->string_constants;
+    CtxStringConstantMap *map = &ctx->string_constants;
     if (map->count < CTX_MAX_STRING_CONSTANTS) {
         map->names[map->count] = name;
         map->values[map->count] = value;
@@ -215,7 +215,7 @@ static bool is_string_node(const char *kind) {
             strcmp(kind, "double_quote_scalar") == 0 || strcmp(kind, "single_quote_scalar") == 0);
 }
 
-static void handle_string_refs(CBMExtractCtx *ctx, TSNode node, const WalkState *state) {
+static void handle_string_refs(CtxExtractCtx *ctx, TSNode node, const WalkState *state) {
     const char *kind = ts_node_type(node);
     if (!is_string_node(kind)) {
         return;
@@ -250,10 +250,10 @@ static void handle_string_refs(CBMExtractCtx *ctx, TSNode node, const WalkState 
         return;
     }
 
-    CBMStringRef ref = {
+    CtxStringRef ref = {
         .value = val,
         .enclosing_func_qn = state->enclosing_func_qn ? state->enclosing_func_qn : ctx->module_qn,
-        .kind = (CBMStringRefKind)kind_val,
+        .kind = (CtxStringRefKind)kind_val,
     };
     ctx_stringref_push(&ctx->result->string_refs, ctx->arena, ref);
 }
@@ -264,7 +264,7 @@ static void handle_string_refs(CBMExtractCtx *ctx, TSNode node, const WalkState 
  * Emits string_refs with key_path for leaf values that are URLs or config values.
  * Example: body.operational_info.post_url → "https://..." */
 // Classify and emit a YAML leaf value as a string_ref with key_path.
-static void emit_yaml_leaf_value(CBMExtractCtx *ctx, TSNode val, const char *path) {
+static void emit_yaml_leaf_value(CtxExtractCtx *ctx, TSNode val, const char *path) {
     char *val_text = ctx_node_text(ctx->arena, val, ctx->source);
     if (!val_text || !val_text[0]) {
         return;
@@ -290,11 +290,11 @@ static void emit_yaml_leaf_value(CBMExtractCtx *ctx, TSNode val, const char *pat
         return;
     }
 
-    CBMStringRef ref = {
+    CtxStringRef ref = {
         .value = stored,
         .enclosing_func_qn = ctx->module_qn,
         .key_path = path,
-        .kind = (CBMStringRefKind)kind_val,
+        .kind = (CtxStringRefKind)kind_val,
     };
     ctx_stringref_push(&ctx->result->string_refs, ctx->arena, ref);
 }
@@ -318,7 +318,7 @@ static void push_yaml_block_children(TSNode val, const char *path, yaml_walk_fra
     }
 }
 
-static void walk_yaml_mapping(CBMExtractCtx *ctx, TSNode root, const char *root_prefix) {
+static void walk_yaml_mapping(CtxExtractCtx *ctx, TSNode root, const char *root_prefix) {
     yaml_walk_frame_t stack[YAML_WALK_STACK_CAP];
     int top = 0;
     stack[top++] = (yaml_walk_frame_t){root, root_prefix};
@@ -410,7 +410,7 @@ static const char *infer_broker(const char *file_path, const char *source_key) {
 /* Scan a YAML mapping for source+target key pairs.
  * Collects all key-value pairs at this level and one level deep (for nested config:). */
 // Strip quotes from a YAML scalar value.
-static char *strip_yaml_quotes(CBMArena *a, char *v) {
+static char *strip_yaml_quotes(CtxArena *a, char *v) {
     if (!v || !v[0]) {
         return v;
     }
@@ -422,7 +422,7 @@ static char *strip_yaml_quotes(CBMArena *a, char *v) {
 }
 
 // Scan a nested YAML block_mapping for target keys (push_endpoint, uri, etc.).
-static void scan_nested_mapping_targets(CBMExtractCtx *ctx, TSNode val, const char **targets,
+static void scan_nested_mapping_targets(CtxExtractCtx *ctx, TSNode val, const char **targets,
                                         int *n_targets) {
     uint32_t vnc = ts_node_named_child_count(val);
     for (uint32_t vi = 0; vi < vnc; vi++) {
@@ -454,14 +454,14 @@ static void scan_nested_mapping_targets(CBMExtractCtx *ctx, TSNode val, const ch
 }
 
 // Emit infra bindings for each source × target pair combination.
-static void emit_infra_bindings(CBMExtractCtx *ctx, const char **sources, const char **source_keys,
+static void emit_infra_bindings(CtxExtractCtx *ctx, const char **sources, const char **source_keys,
                                 int n_sources, const char **targets, int n_targets) {
     for (int si = 0; si < n_sources; si++) {
         for (int ti = 0; ti < n_targets; ti++) {
             if (!sources[si] || !targets[ti]) {
                 continue;
             }
-            CBMInfraBinding ib = {
+            CtxInfraBinding ib = {
                 .source_name = sources[si],
                 .target_url = targets[ti],
                 .broker = infer_broker(ctx->rel_path, source_keys[si]),
@@ -471,7 +471,7 @@ static void emit_infra_bindings(CBMExtractCtx *ctx, const char **sources, const 
     }
 }
 
-static void scan_mapping_for_bindings(CBMExtractCtx *ctx, TSNode mapping) {
+static void scan_mapping_for_bindings(CtxExtractCtx *ctx, TSNode mapping) {
     const char *sources[MAX_INFRA_BINDINGS] = {NULL};
     const char *source_keys[MAX_INFRA_BINDINGS] = {NULL};
     int n_sources = 0;
@@ -514,7 +514,7 @@ static void scan_mapping_for_bindings(CBMExtractCtx *ctx, TSNode mapping) {
 }
 
 #define INFRA_SCAN_STACK_CAP CTX_SZ_512
-static void scan_yaml_for_infra_bindings(CBMExtractCtx *ctx, TSNode root) {
+static void scan_yaml_for_infra_bindings(CtxExtractCtx *ctx, TSNode root) {
     TSNode stack[INFRA_SCAN_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -537,7 +537,7 @@ static void scan_yaml_for_infra_bindings(CBMExtractCtx *ctx, TSNode root) {
  * push_config { push_endpoint = "..." }. */
 // Extract a string value from an HCL attribute value node
 // (quoted_template/template_literal/string_lit).
-static char *extract_hcl_string_val(CBMArena *a, TSNode val_node, const char *source) {
+static char *extract_hcl_string_val(CtxArena *a, TSNode val_node, const char *source) {
     const char *vk = ts_node_type(val_node);
     if (strcmp(vk, "quoted_template") != 0 && strcmp(vk, "template_literal") != 0 &&
         strcmp(vk, "string_lit") != 0) {
@@ -548,7 +548,7 @@ static char *extract_hcl_string_val(CBMArena *a, TSNode val_node, const char *so
 }
 
 // Scan a nested HCL block for target keys (push_endpoint, uri, etc.).
-static void scan_hcl_nested_block_targets(CBMExtractCtx *ctx, TSNode block, const char **targets,
+static void scan_hcl_nested_block_targets(CtxExtractCtx *ctx, TSNode block, const char **targets,
                                           int *n_targets) {
     uint32_t bnc = ts_node_named_child_count(block);
     for (uint32_t bi = 0; bi < bnc; bi++) {
@@ -572,7 +572,7 @@ static void scan_hcl_nested_block_targets(CBMExtractCtx *ctx, TSNode block, cons
     }
 }
 
-static void scan_hcl_block_for_bindings(CBMExtractCtx *ctx, TSNode block) {
+static void scan_hcl_block_for_bindings(CtxExtractCtx *ctx, TSNode block) {
     const char *sources[MAX_INFRA_BINDINGS] = {NULL};
     const char *source_keys[MAX_INFRA_BINDINGS] = {NULL};
     int n_sources = 0;
@@ -617,7 +617,7 @@ static void scan_hcl_block_for_bindings(CBMExtractCtx *ctx, TSNode block) {
 }
 
 /* Handle YAML files: walk top-level block_mapping recursively */
-static void handle_yaml_nested(CBMExtractCtx *ctx, TSNode node) {
+static void handle_yaml_nested(CtxExtractCtx *ctx, TSNode node) {
     if (ctx->language != CTX_LANG_YAML) {
         return;
     }
@@ -641,7 +641,7 @@ static void handle_yaml_nested(CBMExtractCtx *ctx, TSNode node) {
 // --- Main unified cursor walk ---
 
 // Scan infra bindings for YAML/JSON/HCL languages.
-static void scan_infra_bindings(CBMExtractCtx *ctx, TSNode node) {
+static void scan_infra_bindings(CtxExtractCtx *ctx, TSNode node) {
     if (ctx->language == CTX_LANG_YAML || ctx->language == CTX_LANG_JSON) {
         const char *nk = ts_node_type(node);
         if (strcmp(nk, "block_sequence") == 0 || strcmp(nk, "block_mapping") == 0 ||
@@ -656,7 +656,7 @@ static void scan_infra_bindings(CBMExtractCtx *ctx, TSNode node) {
 }
 
 // Push scope markers for function, class, call, and import boundary nodes.
-static void push_boundary_scopes(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec,
+static void push_boundary_scopes(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec,
                                  WalkState *state, uint32_t depth) {
     if (spec->function_node_types && ctx_kind_in_set(node, spec->function_node_types)) {
         const char *fqn = compute_func_qn(ctx, node, spec, state);
@@ -688,8 +688,8 @@ static void push_boundary_scopes(CBMExtractCtx *ctx, TSNode node, const CBMLangS
     }
 }
 
-void ctx_extract_unified(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_unified(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec) {
         return;
     }

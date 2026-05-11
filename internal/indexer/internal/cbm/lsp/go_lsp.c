@@ -7,14 +7,14 @@
 // Forward declarations
 static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node);
 static void emit_resolved_call(GoLSPContext* ctx, const char* callee_qn, const char* strategy, float confidence);
-static const CBMType* go_lookup_field(GoLSPContext* ctx, const char* type_qn, const char* field_name, int depth);
-static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
+static const CtxType* go_lookup_field(GoLSPContext* ctx, const char* type_qn, const char* field_name, int depth);
+static void extract_type_params_from_ast(CtxArena* arena, CtxTypeRegistry* reg,
     TSNode root, const char* source, const char* module_qn);
 
 // --- Initialization ---
 
-void go_lsp_init(GoLSPContext* ctx, CBMArena* arena, const char* source, int source_len,
-    const CBMTypeRegistry* registry, const char* package_qn, CBMResolvedCallArray* out) {
+void go_lsp_init(GoLSPContext* ctx, CtxArena* arena, const char* source, int source_len,
+    const CtxTypeRegistry* registry, const char* package_qn, CtxResolvedCallArray* out) {
     memset(ctx, 0, sizeof(GoLSPContext));
     ctx->arena = arena;
     ctx->source = source;
@@ -83,7 +83,7 @@ static bool is_go_builtin_func(const char* name) {
 
 // --- Helper: check if name is a Go builtin type ---
 
-static const CBMType* resolve_builtin_type(GoLSPContext* ctx, const char* name) {
+static const CtxType* resolve_builtin_type(GoLSPContext* ctx, const char* name) {
     static const char* builtin_types[] = {
         "int", "int8", "int16", "int32", "int64",
         "uint", "uint8", "uint16", "uint32", "uint64",
@@ -100,9 +100,9 @@ static const CBMType* resolve_builtin_type(GoLSPContext* ctx, const char* name) 
     return NULL;
 }
 
-// --- go_parse_type_node: AST type node -> CBMType ---
+// --- go_parse_type_node: AST type node -> CtxType ---
 
-const CBMType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
+const CtxType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
     if (ts_node_is_null(node)) return ctx_type_unknown();
 
     const char* kind = ts_node_type(node);
@@ -111,7 +111,7 @@ const CBMType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
     if (strcmp(kind, "type_identifier") == 0) {
         char* name = lsp_node_text(ctx, node);
         if (!name) return ctx_type_unknown();
-        const CBMType* builtin = resolve_builtin_type(ctx, name);
+        const CtxType* builtin = resolve_builtin_type(ctx, name);
         if (builtin) return builtin;
         // Resolve as local type: package_qn.TypeName
         return ctx_type_named(ctx->arena,
@@ -194,16 +194,16 @@ const CBMType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
 
     // interface_type
     if (strcmp(kind, "interface_type") == 0) {
-        CBMType* t = (CBMType*)ctx_arena_alloc(ctx->arena, sizeof(CBMType));
-        memset(t, 0, sizeof(CBMType));
+        CtxType* t = (CtxType*)ctx_arena_alloc(ctx->arena, sizeof(CtxType));
+        memset(t, 0, sizeof(CtxType));
         t->kind = CTX_TYPE_INTERFACE;
         return t;
     }
 
     // struct_type
     if (strcmp(kind, "struct_type") == 0) {
-        CBMType* t = (CBMType*)ctx_arena_alloc(ctx->arena, sizeof(CBMType));
-        memset(t, 0, sizeof(CBMType));
+        CtxType* t = (CtxType*)ctx_arena_alloc(ctx->arena, sizeof(CtxType));
+        memset(t, 0, sizeof(CtxType));
         t->kind = CTX_TYPE_STRUCT;
         return t;
     }
@@ -229,7 +229,7 @@ const CBMType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
     // parameter_list used as result type (multi-return)
     if (strcmp(kind, "parameter_list") == 0) {
         int count = 0;
-        const CBMType* elems[16];
+        const CtxType* elems[16];
         uint32_t nc = ts_node_child_count(node);
         for (uint32_t i = 0; i < nc && count < 16; i++) {
             TSNode child = ts_node_child(node, i);
@@ -255,8 +255,8 @@ const CBMType* go_parse_type_node(GoLSPContext* ctx, TSNode node) {
 
 // Unify a parameter type pattern (containing TYPE_PARAM) against a concrete argument type.
 // Fills inferred[i] with the concrete type bound to type_param_names[i].
-static void go_unify_type(const CBMType* param_type, const CBMType* arg_type,
-    const char** type_param_names, const CBMType** inferred, int param_count) {
+static void go_unify_type(const CtxType* param_type, const CtxType* arg_type,
+    const char** type_param_names, const CtxType** inferred, int param_count) {
     if (!param_type || !arg_type || ctx_type_is_unknown(arg_type)) return;
 
     if (param_type->kind == CTX_TYPE_TYPE_PARAM) {
@@ -308,7 +308,7 @@ static void go_unify_type(const CBMType* param_type, const CBMType* arg_type,
 
 // --- go_eval_expr_type: recursive expression type evaluator ---
 
-const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
+const CtxType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
     if (ts_node_is_null(node)) return ctx_type_unknown();
 
     const char* kind = ts_node_type(node);
@@ -319,20 +319,20 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         if (!name) return ctx_type_unknown();
 
         // Check scope first
-        const CBMType* t = ctx_scope_lookup(ctx->current_scope, name);
+        const CtxType* t = ctx_scope_lookup(ctx->current_scope, name);
         if (!ctx_type_is_unknown(t)) return t;
 
         // Check if it's a package-level function
-        const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ctx->package_qn, name);
+        const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ctx->package_qn, name);
         if (f && f->signature) return f->signature;
 
         // Check if it's a builtin type (for type conversions like string(x), int(x))
-        const CBMType* bt = resolve_builtin_type(ctx, name);
+        const CtxType* bt = resolve_builtin_type(ctx, name);
         if (bt) return ctx_type_named(ctx->arena, name);
 
         // Check if it's a registered type (for type conversions like MyType(x))
         const char* type_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->package_qn, name);
-        const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+        const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
         if (rt) return ctx_type_named(ctx->arena, type_qn);
 
         return ctx_type_unknown();
@@ -354,11 +354,11 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                 const char* pkg_qn = resolve_import(ctx, pkg_name);
                 if (pkg_qn) {
                     // Look up pkg.Symbol as a function or type
-                    const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, pkg_qn, field_name);
+                    const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, pkg_qn, field_name);
                     if (f && f->signature) return f->signature;
                     // Check if it's a type
                     char* type_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", pkg_qn, field_name);
-                    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+                    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
                     if (rt) return ctx_type_named(ctx->arena, type_qn);
                     return ctx_type_unknown();
                 }
@@ -366,11 +366,11 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         }
 
         // Evaluate operand type
-        const CBMType* recv_type = go_eval_expr_type(ctx, operand);
+        const CtxType* recv_type = go_eval_expr_type(ctx, operand);
         if (ctx_type_is_unknown(recv_type)) return ctx_type_unknown();
 
         // Auto-deref pointers for method calls
-        const CBMType* base_type = recv_type;
+        const CtxType* base_type = recv_type;
         if (base_type->kind == CTX_TYPE_POINTER) {
             base_type = ctx_type_deref(base_type);
         }
@@ -379,11 +379,11 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
             const char* type_qn = base_type->data.named.qualified_name;
 
             // Look up method/field (methods recurse through embeddings)
-            const CBMRegisteredFunc* method = go_lookup_field_or_method(ctx, type_qn, field_name);
+            const CtxRegisteredFunc* method = go_lookup_field_or_method(ctx, type_qn, field_name);
             if (method && method->signature) return method->signature;
 
             // Check struct fields (with embedded field promotion)
-            const CBMType* field_type = go_lookup_field(ctx, type_qn, field_name, 0);
+            const CtxType* field_type = go_lookup_field(ctx, type_qn, field_name, 0);
             if (field_type && !ctx_type_is_unknown(field_type)) return field_type;
         }
 
@@ -405,7 +405,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         }
 
         // Evaluate function type
-        const CBMType* func_type = go_eval_expr_type(ctx, func_node);
+        const CtxType* func_type = go_eval_expr_type(ctx, func_node);
 
         // If it's a FUNC type, return its return type
         if (func_type && func_type->kind == CTX_TYPE_FUNC &&
@@ -416,7 +416,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
             TSNode targs_node = ts_node_child_by_field_name(node, "type_arguments", 14);
             if (!ts_node_is_null(targs_node)) {
                 // Look up the registered function to get type_param_names
-                const CBMRegisteredFunc* rfunc = NULL;
+                const CtxRegisteredFunc* rfunc = NULL;
                 char* func_name = lsp_node_text(ctx, func_node);
                 if (func_name) {
                     const char* func_qn = ctx_arena_sprintf(ctx->arena, "%s.%s",
@@ -441,7 +441,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
 
                 if (rfunc && rfunc->type_param_names) {
                     // Parse type arguments from AST
-                    const CBMType* type_args[16];
+                    const CtxType* type_args[16];
                     int targ_count = 0;
                     uint32_t ta_nc = ts_node_child_count(targs_node);
                     for (uint32_t ti = 0; ti < ta_nc && targ_count < 15; ti++) {
@@ -455,8 +455,8 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                     while (rfunc->type_param_names[param_count]) param_count++;
 
                     if (targ_count > 0 && targ_count == param_count) {
-                        const CBMType** targ_arr = (const CBMType**)ctx_arena_alloc(
-                            ctx->arena, (targ_count + 1) * sizeof(const CBMType*));
+                        const CtxType** targ_arr = (const CtxType**)ctx_arena_alloc(
+                            ctx->arena, (targ_count + 1) * sizeof(const CtxType*));
                         for (int ti = 0; ti < targ_count; ti++) targ_arr[ti] = type_args[ti];
                         targ_arr[targ_count] = NULL;
 
@@ -470,8 +470,8 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                                 rfunc->type_param_names, targ_arr);
                         }
                         // Multi-return: substitute all
-                        const CBMType** new_rets = (const CBMType**)ctx_arena_alloc(
-                            ctx->arena, (ret_count + 1) * sizeof(const CBMType*));
+                        const CtxType** new_rets = (const CtxType**)ctx_arena_alloc(
+                            ctx->arena, (ret_count + 1) * sizeof(const CtxType*));
                         for (int ri = 0; ri < ret_count; ri++) {
                             new_rets[ri] = ctx_type_substitute(ctx->arena,
                                 func_type->data.func.return_types[ri],
@@ -486,7 +486,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
             // Implicit generics: infer type args from argument types
             if (ts_node_is_null(targs_node)) {
                 // Look up registered function to check for type_param_names
-                const CBMRegisteredFunc* rfunc = NULL;
+                const CtxRegisteredFunc* rfunc = NULL;
                 char* func_name = lsp_node_text(ctx, func_node);
                 if (func_name) {
                     const char* func_qn = ctx_arena_sprintf(ctx->arena, "%s.%s",
@@ -517,7 +517,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                     while (func_type->data.func.return_types[ret_count]) ret_count++;
                     for (int ri = 0; ri < ret_count && !has_type_param; ri++) {
                         // Quick check: walk return type tree for TYPE_PARAM nodes
-                        const CBMType* rt = func_type->data.func.return_types[ri];
+                        const CtxType* rt = func_type->data.func.return_types[ri];
                         if (rt->kind == CTX_TYPE_TYPE_PARAM) has_type_param = true;
                         else if (rt->kind == CTX_TYPE_SLICE && rt->data.slice.elem &&
                                  rt->data.slice.elem->kind == CTX_TYPE_TYPE_PARAM) has_type_param = true;
@@ -531,7 +531,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
 
                     if (has_type_param && tpc > 0 && tpc <= 16) {
                         // Evaluate argument types and unify
-                        const CBMType* inferred[16] = {0};
+                        const CtxType* inferred[16] = {0};
 
                         if (!ts_node_is_null(args_node)) {
                             uint32_t argc = ts_node_named_child_count(args_node);
@@ -539,7 +539,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                             for (uint32_t ai = 0; ai < argc && func_type->data.func.param_types[pi]; ai++) {
                                 TSNode arg = ts_node_named_child(args_node, ai);
                                 if (ts_node_is_null(arg)) continue;
-                                const CBMType* arg_type = go_eval_expr_type(ctx, arg);
+                                const CtxType* arg_type = go_eval_expr_type(ctx, arg);
                                 go_unify_type(func_type->data.func.param_types[pi],
                                     arg_type, rfunc->type_param_names, inferred, tpc);
                                 pi++;
@@ -553,8 +553,8 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                         }
 
                         if (all_inferred) {
-                            const CBMType** targ_arr = (const CBMType**)ctx_arena_alloc(
-                                ctx->arena, (tpc + 1) * sizeof(const CBMType*));
+                            const CtxType** targ_arr = (const CtxType**)ctx_arena_alloc(
+                                ctx->arena, (tpc + 1) * sizeof(const CtxType*));
                             for (int i = 0; i < tpc; i++) targ_arr[i] = inferred[i];
                             targ_arr[tpc] = NULL;
 
@@ -563,8 +563,8 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                                     func_type->data.func.return_types[0],
                                     rfunc->type_param_names, targ_arr);
                             }
-                            const CBMType** new_rets = (const CBMType**)ctx_arena_alloc(
-                                ctx->arena, (ret_count + 1) * sizeof(const CBMType*));
+                            const CtxType** new_rets = (const CtxType**)ctx_arena_alloc(
+                                ctx->arena, (ret_count + 1) * sizeof(const CtxType*));
                             for (int ri = 0; ri < ret_count; ri++) {
                                 new_rets[ri] = ctx_type_substitute(ctx->arena,
                                     func_type->data.func.return_types[ri],
@@ -634,7 +634,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                     return ctx_type_deref(go_eval_expr_type(ctx, operand));
                 }
                 if (strcmp(op, "<-") == 0) {
-                    const CBMType* ch_type = go_eval_expr_type(ctx, operand);
+                    const CtxType* ch_type = go_eval_expr_type(ctx, operand);
                     if (ch_type && ch_type->kind == CTX_TYPE_CHANNEL) {
                         return ch_type->data.channel.elem;
                     }
@@ -653,7 +653,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
     if (strcmp(kind, "index_expression") == 0) {
         TSNode operand = ts_node_child_by_field_name(node, "operand", 7);
         if (ts_node_is_null(operand)) return ctx_type_unknown();
-        const CBMType* op_type = go_eval_expr_type(ctx, operand);
+        const CtxType* op_type = go_eval_expr_type(ctx, operand);
         if (!op_type) return ctx_type_unknown();
         if (op_type->kind == CTX_TYPE_MAP) return op_type->data.map.value;
         if (op_type->kind == CTX_TYPE_SLICE) return op_type->data.slice.elem;
@@ -727,7 +727,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         TSNode body = ts_node_child_by_field_name(node, "body", 4);
         if (!ts_node_is_null(body)) {
             // Push child scope (inherits all outer bindings via parent chain)
-            CBMScope* saved = ctx->current_scope;
+            CtxScope* saved = ctx->current_scope;
             ctx->current_scope = ctx_scope_push(ctx->arena, ctx->current_scope);
 
             // Bind closure parameters
@@ -739,7 +739,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
                     if (ts_node_is_null(param) || !ts_node_is_named(param)) continue;
                     if (strcmp(ts_node_type(param), "parameter_declaration") != 0) continue;
                     TSNode type_node = ts_node_child_by_field_name(param, "type", 4);
-                    const CBMType* pt = go_parse_type_node(ctx, type_node);
+                    const CtxType* pt = go_parse_type_node(ctx, type_node);
                     uint32_t pnc = ts_node_child_count(param);
                     for (uint32_t j = 0; j < pnc; j++) {
                         TSNode ch = ts_node_child(param, j);
@@ -760,7 +760,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         }
 
         // Build full FUNC type with param/return types from AST
-        const CBMType* pt_arr[16];
+        const CtxType* pt_arr[16];
         int pt_count = 0;
         TSNode params2 = ts_node_child_by_field_name(node, "parameters", 10);
         if (!ts_node_is_null(params2)) {
@@ -776,7 +776,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         }
         pt_arr[pt_count] = NULL;
 
-        const CBMType* rt_arr[16];
+        const CtxType* rt_arr[16];
         int rt_count = 0;
         TSNode result = ts_node_child_by_field_name(node, "result", 6);
         if (!ts_node_is_null(result)) {
@@ -796,8 +796,8 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
         rt_arr[rt_count] = NULL;
 
         return ctx_type_func(ctx->arena, NULL,
-            pt_count > 0 ? (const CBMType**)pt_arr : NULL,
-            rt_count > 0 ? (const CBMType**)rt_arr : NULL);
+            pt_count > 0 ? (const CtxType**)pt_arr : NULL,
+            rt_count > 0 ? (const CtxType**)rt_arr : NULL);
     }
 
     return ctx_type_unknown();
@@ -805,7 +805,7 @@ const CBMType* go_eval_expr_type(GoLSPContext* ctx, TSNode node) {
 
 // --- go_eval_builtin_call ---
 
-const CBMType* go_eval_builtin_call(GoLSPContext* ctx, const char* name, TSNode args) {
+const CtxType* go_eval_builtin_call(GoLSPContext* ctx, const char* name, TSNode args) {
     // make(Type, ...) -> Type
     if (strcmp(name, "make") == 0 && !ts_node_is_null(args)) {
         uint32_t nc = ts_node_named_child_count(args);
@@ -847,11 +847,11 @@ const CBMType* go_eval_builtin_call(GoLSPContext* ctx, const char* name, TSNode 
 
 // --- go_lookup_field: struct field lookup with embedding recursion ---
 
-static const CBMType* go_lookup_field(GoLSPContext* ctx,
+static const CtxType* go_lookup_field(GoLSPContext* ctx,
     const char* type_qn, const char* field_name, int depth) {
     if (!type_qn || !field_name || depth > 5) return NULL;
 
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
     if (!rt) return NULL;
 
     // Follow alias chain
@@ -869,7 +869,7 @@ static const CBMType* go_lookup_field(GoLSPContext* ctx,
     // Promoted fields from embedded types
     if (rt->embedded_types) {
         for (int i = 0; rt->embedded_types[i]; i++) {
-            const CBMType* f = go_lookup_field(ctx, rt->embedded_types[i], field_name, depth + 1);
+            const CtxType* f = go_lookup_field(ctx, rt->embedded_types[i], field_name, depth + 1);
             if (f) return f;
         }
     }
@@ -879,15 +879,15 @@ static const CBMType* go_lookup_field(GoLSPContext* ctx,
 
 // --- go_lookup_field_or_method: method sets + embedding ---
 
-const CBMRegisteredFunc* go_lookup_field_or_method(GoLSPContext* ctx,
+const CtxRegisteredFunc* go_lookup_field_or_method(GoLSPContext* ctx,
     const char* type_qn, const char* member_name) {
     if (!type_qn || !member_name) return NULL;
 
     // Direct method lookup
-    const CBMRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry, type_qn, member_name);
+    const CtxRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry, type_qn, member_name);
     if (f) return f;
 
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry, type_qn);
     if (rt) {
         // Follow type alias chain
         if (rt->alias_of) {
@@ -919,7 +919,7 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
         TSNode right = ts_node_child_by_field_name(node, "right", 5);
         if (ts_node_is_null(left) || ts_node_is_null(right)) return;
 
-        const CBMType* rhs_type = NULL;
+        const CtxType* rhs_type = NULL;
 
         // Check if RHS is an expression_list (multiple values)
         if (strcmp(ts_node_type(right), "expression_list") == 0) {
@@ -941,7 +941,7 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
                 char* var_name = lsp_node_text(ctx, lhs_var);
                 if (!var_name || strcmp(var_name, "_") == 0) continue;
 
-                const CBMType* var_type = ctx_type_unknown();
+                const CtxType* var_type = ctx_type_unknown();
                 if (rhs_type) {
                     if (rhs_type->kind == CTX_TYPE_TUPLE && (int)i < rhs_type->data.tuple.count) {
                         var_type = rhs_type->data.tuple.elems[i];
@@ -965,7 +965,7 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
         TSNode type_node = ts_node_child_by_field_name(node, "type", 4);
         TSNode value_node = ts_node_child_by_field_name(node, "value", 5);
 
-        const CBMType* var_type = ctx_type_unknown();
+        const CtxType* var_type = ctx_type_unknown();
         if (!ts_node_is_null(type_node)) {
             var_type = go_parse_type_node(ctx, type_node);
         } else if (!ts_node_is_null(value_node)) {
@@ -999,7 +999,7 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
         TSNode value_node = ts_node_child_by_field_name(node, "value", 5);
         if (ts_node_is_null(name_node)) return;
 
-        const CBMType* const_type = ctx_type_unknown();
+        const CtxType* const_type = ctx_type_unknown();
         if (!ts_node_is_null(type_node)) {
             const_type = go_parse_type_node(ctx, type_node);
         } else if (!ts_node_is_null(value_node)) {
@@ -1026,11 +1026,11 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
         TSNode right = ts_node_child_by_field_name(node, "right", 5);
         if (ts_node_is_null(right)) return;
 
-        const CBMType* container_type = go_eval_expr_type(ctx, right);
+        const CtxType* container_type = go_eval_expr_type(ctx, right);
 
         // Determine key and value types based on container type
-        const CBMType* key_type = ctx_type_unknown();
-        const CBMType* val_type = ctx_type_unknown();
+        const CtxType* key_type = ctx_type_unknown();
+        const CtxType* val_type = ctx_type_unknown();
 
         if (container_type) {
             switch (container_type->kind) {
@@ -1077,7 +1077,7 @@ void go_process_statement(GoLSPContext* ctx, TSNode node) {
 static void emit_resolved_call(GoLSPContext* ctx, const char* callee_qn, const char* strategy, float confidence) {
     if (!ctx->resolved_calls || !callee_qn || !ctx->enclosing_func_qn) return;
 
-    CBMResolvedCall rc;
+    CtxResolvedCall rc;
     rc.caller_qn = ctx->enclosing_func_qn;
     rc.callee_qn = callee_qn;
     rc.strategy = strategy;
@@ -1090,7 +1090,7 @@ static void emit_resolved_call(GoLSPContext* ctx, const char* callee_qn, const c
 static void emit_unresolved_call(GoLSPContext* ctx, const char* expr_text, const char* reason) {
     if (!ctx->resolved_calls || !ctx->enclosing_func_qn) return;
 
-    CBMResolvedCall rc;
+    CtxResolvedCall rc;
     rc.caller_qn = ctx->enclosing_func_qn;
     rc.callee_qn = expr_text ? expr_text : "?";
     rc.strategy = "lsp_unresolved";
@@ -1127,7 +1127,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
                         if (pkg_name) {
                             const char* pkg_qn = resolve_import(ctx, pkg_name);
                             if (pkg_qn && field_name) {
-                                const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, pkg_qn, field_name);
+                                const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, pkg_qn, field_name);
                                 if (f) {
                                     emit_resolved_call(ctx, f->qualified_name, "lsp_direct", 0.95f);
                                     goto recurse;
@@ -1143,12 +1143,12 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
 
                     // Type-based method dispatch
                     if (field_name) {
-                        const CBMType* recv_type = go_eval_expr_type(ctx, operand);
-                        const CBMType* base = recv_type;
+                        const CtxType* recv_type = go_eval_expr_type(ctx, operand);
+                        const CtxType* base = recv_type;
                         if (base && base->kind == CTX_TYPE_POINTER) base = ctx_type_deref(base);
 
                         if (base && base->kind == CTX_TYPE_NAMED) {
-                            const CBMRegisteredFunc* method = go_lookup_field_or_method(ctx,
+                            const CtxRegisteredFunc* method = go_lookup_field_or_method(ctx,
                                 base->data.named.qualified_name, field_name);
                             if (method) {
                                 const char* strategy = "lsp_type_dispatch";
@@ -1166,7 +1166,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
                             bool is_iface = (base->kind == CTX_TYPE_INTERFACE);
                             const char* iface_qn = NULL;
                             if (!is_iface && base->kind == CTX_TYPE_NAMED) {
-                                const CBMRegisteredType* rt = ctx_registry_lookup_type(ctx->registry,
+                                const CtxRegisteredType* rt = ctx_registry_lookup_type(ctx->registry,
                                     base->data.named.qualified_name);
                                 if (rt && rt->is_interface) {
                                     is_iface = true;
@@ -1175,7 +1175,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
                             }
                             if (is_iface) {
                                 // Try interface satisfaction: find concrete types implementing this interface
-                                const CBMRegisteredType* iface_rt = iface_qn ?
+                                const CtxRegisteredType* iface_rt = iface_qn ?
                                     ctx_registry_lookup_type(ctx->registry, iface_qn) : NULL;
                                 if (iface_rt && iface_rt->method_names && iface_rt->method_names[0]) {
                                     // Count interface methods
@@ -1188,7 +1188,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
                                     // Skip stdlib types when interface is from a project package
                                     bool iface_is_project = iface_qn && strchr(iface_qn, '/') != NULL;
                                     for (int ti = 0; ti < ctx->registry->type_count && impl_count < 2; ti++) {
-                                        const CBMRegisteredType* cand = &ctx->registry->types[ti];
+                                        const CtxRegisteredType* cand = &ctx->registry->types[ti];
                                         if (cand->is_interface) continue;
                                         if (!cand->qualified_name) continue;
                                         if (cand->alias_of) continue;
@@ -1212,7 +1212,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
 
                                     if (impl_count == 1 && sole_impl_qn) {
                                         // Single implementer: resolve to concrete method
-                                        const CBMRegisteredFunc* concrete_method =
+                                        const CtxRegisteredFunc* concrete_method =
                                             ctx_registry_lookup_method(ctx->registry, sole_impl_qn, field_name);
                                         if (concrete_method) {
                                             emit_resolved_call(ctx, concrete_method->qualified_name,
@@ -1253,7 +1253,7 @@ static void resolve_calls_in_node(GoLSPContext* ctx, TSNode node) {
                 char* name = lsp_node_text(ctx, func_node);
                 if (name && !is_go_builtin_func(name)) {
                     // Package-local function
-                    const CBMRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ctx->package_qn, name);
+                    const CtxRegisteredFunc* f = ctx_registry_lookup_symbol(ctx->registry, ctx->package_qn, name);
                     if (f) {
                         emit_resolved_call(ctx, f->qualified_name, "lsp_direct", 0.95f);
                     } else {
@@ -1335,7 +1335,7 @@ recurse:;
             if (ts_node_is_null(child) || !ts_node_is_named(child)) continue;
             if (strcmp(ts_node_type(child), "type_case") != 0) continue;
 
-            CBMScope* saved = ctx->current_scope;
+            CtxScope* saved = ctx->current_scope;
             ctx->current_scope = ctx_scope_push(ctx->arena, ctx->current_scope);
 
             // Find case type and bind switch variable
@@ -1386,7 +1386,7 @@ recurse:;
             const char* ck3 = ts_node_type(child);
 
             if (strcmp(ck3, "communication_case") == 0 || strcmp(ck3, "default_case") == 0) {
-                CBMScope* saved = ctx->current_scope;
+                CtxScope* saved = ctx->current_scope;
                 ctx->current_scope = ctx_scope_push(ctx->arena, ctx->current_scope);
 
                 // Process children: receive_statement binds vars, then recurse body
@@ -1403,10 +1403,10 @@ recurse:;
                         TSNode left = ts_node_child_by_field_name(cc_child, "left", 4);
                         TSNode right = ts_node_child_by_field_name(cc_child, "right", 5);
                         if (!ts_node_is_null(right)) {
-                            const CBMType* right_type = go_eval_expr_type(ctx, right);
+                            const CtxType* right_type = go_eval_expr_type(ctx, right);
                             // right_type might be a channel (if right is the channel)
                             // or already the elem type (if right is a <-ch unary expr)
-                            const CBMType* recv_type = right_type;
+                            const CtxType* recv_type = right_type;
                             if (right_type && right_type->kind == CTX_TYPE_CHANNEL) {
                                 recv_type = right_type->data.channel.elem;
                             }
@@ -1471,7 +1471,7 @@ static void process_function(GoLSPContext* ctx, TSNode func_node) {
     ctx->enclosing_func_qn = ctx_arena_sprintf(ctx->arena, "%s.%s", ctx->package_qn, func_name);
 
     // Push function scope
-    CBMScope* saved_scope = ctx->current_scope;
+    CtxScope* saved_scope = ctx->current_scope;
     ctx->current_scope = ctx_scope_push(ctx->arena, ctx->current_scope);
 
     // Bind parameters into scope (including variadic)
@@ -1488,7 +1488,7 @@ static void process_function(GoLSPContext* ctx, TSNode func_node) {
 
             // Get type
             TSNode type_node = ts_node_child_by_field_name(param, "type", 4);
-            const CBMType* param_type = go_parse_type_node(ctx, type_node);
+            const CtxType* param_type = go_parse_type_node(ctx, type_node);
 
             // Variadic: ...T is []T in the function body
             if (is_variadic && param_type) {
@@ -1523,7 +1523,7 @@ static void process_function(GoLSPContext* ctx, TSNode func_node) {
                 if (strcmp(ts_node_type(rparam), "parameter_declaration") != 0) continue;
 
                 TSNode rtype = ts_node_child_by_field_name(rparam, "type", 4);
-                const CBMType* ret_type = go_parse_type_node(ctx, rtype);
+                const CtxType* ret_type = go_parse_type_node(ctx, rtype);
 
                 uint32_t rpnc = ts_node_child_count(rparam);
                 for (uint32_t j = 0; j < rpnc; j++) {
@@ -1551,7 +1551,7 @@ static void process_function(GoLSPContext* ctx, TSNode func_node) {
             if (strcmp(ts_node_type(rp), "parameter_declaration") != 0) continue;
 
             TSNode rtype = ts_node_child_by_field_name(rp, "type", 4);
-            const CBMType* recv_type = go_parse_type_node(ctx, rtype);
+            const CtxType* recv_type = go_parse_type_node(ctx, rtype);
 
             // Find receiver name
             uint32_t rpnc = ts_node_child_count(rp);
@@ -1616,9 +1616,9 @@ void go_lsp_process_file(GoLSPContext* ctx, TSNode root) {
     }
 }
 
-// --- Helper: parse Go return type text into CBMType ---
+// --- Helper: parse Go return type text into CtxType ---
 
-const CBMType* ctx_parse_return_type_text(CBMArena* a, const char* text, const char* module_qn) {
+const CtxType* ctx_parse_return_type_text(CtxArena* a, const char* text, const char* module_qn) {
     if (!text || !text[0]) return ctx_type_unknown();
 
     // Pointer: *Foo
@@ -1649,10 +1649,10 @@ const CBMType* ctx_parse_return_type_text(CBMArena* a, const char* text, const c
 
 // --- Entry point: build registry from file defs + run LSP ---
 
-void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
+void ctx_run_go_lsp(CtxArena* arena, CtxFileResult* result,
     const char* source, int source_len, TSNode root) {
 
-    CBMTypeRegistry reg;
+    CtxTypeRegistry reg;
     ctx_registry_init(&reg, arena);
 
     // Register Go stdlib types/functions
@@ -1662,13 +1662,13 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
 
     // Phase 1: Register all types and functions from the file's own definitions
     for (int i = 0; i < result->defs.count; i++) {
-        CBMDefinition* d = &result->defs.items[i];
+        CtxDefinition* d = &result->defs.items[i];
         if (!d->qualified_name || !d->name) continue;
 
         // Register Class/Type nodes
         if (d->label && (strcmp(d->label, "Class") == 0 || strcmp(d->label, "Type") == 0 ||
                          strcmp(d->label, "Interface") == 0)) {
-            CBMRegisteredType rt;
+            CtxRegisteredType rt;
             memset(&rt, 0, sizeof(rt));
             rt.qualified_name = d->qualified_name;
             rt.short_name = d->name;
@@ -1697,18 +1697,18 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
 
         // Register Function/Method nodes
         if (d->label && (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0)) {
-            CBMRegisteredFunc rf;
+            CtxRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
             rf.qualified_name = d->qualified_name;
             rf.short_name = d->name;
 
             // Build FUNC type from return_types
-            const CBMType** ret_types = NULL;
+            const CtxType** ret_types = NULL;
             if (d->return_types) {
                 int count = 0;
                 while (d->return_types[count]) count++;
                 if (count > 0) {
-                    ret_types = (const CBMType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CBMType*));
+                    ret_types = (const CtxType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < count; j++) {
                         ret_types[j] = ctx_parse_return_type_text(arena, d->return_types[j], module_qn);
                     }
@@ -1716,18 +1716,18 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
                 }
             } else if (d->return_type && d->return_type[0]) {
                 // Fallback: single return_type string
-                ret_types = (const CBMType**)ctx_arena_alloc(arena, 2 * sizeof(const CBMType*));
+                ret_types = (const CtxType**)ctx_arena_alloc(arena, 2 * sizeof(const CtxType*));
                 ret_types[0] = ctx_parse_return_type_text(arena, d->return_type, module_qn);
                 ret_types[1] = NULL;
             }
 
             // Build param types from param_types array
-            const CBMType** param_types_arr = NULL;
+            const CtxType** param_types_arr = NULL;
             if (d->param_types) {
                 int count = 0;
                 while (d->param_types[count]) count++;
                 if (count > 0) {
-                    param_types_arr = (const CBMType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CBMType*));
+                    param_types_arr = (const CtxType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CtxType*));
                     for (int j = 0; j < count; j++) {
                         param_types_arr[j] = ctx_parse_return_type_text(arena, d->param_types[j], module_qn);
                     }
@@ -1754,10 +1754,10 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
                     rf.receiver_type = ctx_arena_sprintf(arena, "%s.%s", module_qn, type_name);
 
                     // Also register this method under the type
-                    const CBMRegisteredType* existing = ctx_registry_lookup_type(&reg, rf.receiver_type);
+                    const CtxRegisteredType* existing = ctx_registry_lookup_type(&reg, rf.receiver_type);
                     if (!existing) {
                         // Auto-create the type entry
-                        CBMRegisteredType auto_type;
+                        CtxRegisteredType auto_type;
                         memset(&auto_type, 0, sizeof(auto_type));
                         auto_type.qualified_name = rf.receiver_type;
                         auto_type.short_name = type_name;
@@ -1805,7 +1805,7 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
                                 }
                             }
                             if (!found_a) {
-                                CBMRegisteredType alias_rt;
+                                CtxRegisteredType alias_rt;
                                 memset(&alias_rt, 0, sizeof(alias_rt));
                                 alias_rt.qualified_name = alias_type_qn;
                                 alias_rt.short_name = aname;
@@ -1879,7 +1879,7 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
                 const char* embeds[16];
                 int embed_count = 0;
                 const char* fld_names[64];
-                const CBMType* fld_types[64];
+                const CtxType* fld_types[64];
                 int fld_count = 0;
 
                 // Create a temporary LSP context for parsing field types
@@ -1936,8 +1936,8 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
                     if (fld_count > 0) {
                         const char** names = (const char**)ctx_arena_alloc(arena,
                             (fld_count + 1) * sizeof(const char*));
-                        const CBMType** types = (const CBMType**)ctx_arena_alloc(arena,
-                            (fld_count + 1) * sizeof(const CBMType*));
+                        const CtxType** types = (const CtxType**)ctx_arena_alloc(arena,
+                            (fld_count + 1) * sizeof(const CtxType*));
                         for (int fi = 0; fi < fld_count; fi++) {
                             names[fi] = fld_names[fi];
                             types[fi] = fld_types[fi];
@@ -1962,7 +1962,7 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
 
     // Add imports
     for (int i = 0; i < result->imports.count; i++) {
-        CBMImport* imp = &result->imports.items[i];
+        CtxImport* imp = &result->imports.items[i];
         if (imp->local_name && imp->module_path) {
             go_lsp_add_import(&lsp_ctx, imp->local_name, imp->module_path);
         }
@@ -1974,8 +1974,8 @@ void ctx_run_go_lsp(CBMArena* arena, CBMFileResult* result,
 
 // --- Cross-file LSP: parse source, build registry from defs, run LSP ---
 
-// Helper: split "|"-separated string into array of CBMType*.
-static const CBMType** split_pipe_types(CBMArena* a, const char* text, const char* module_qn) {
+// Helper: split "|"-separated string into array of CtxType*.
+static const CtxType** split_pipe_types(CtxArena* a, const char* text, const char* module_qn) {
     if (!text || !text[0]) return NULL;
 
     // Count separators
@@ -1984,7 +1984,7 @@ static const CBMType** split_pipe_types(CBMArena* a, const char* text, const cha
         if (*p == '|') count++;
     }
 
-    const CBMType** arr = (const CBMType**)ctx_arena_alloc(a, (count + 1) * sizeof(const CBMType*));
+    const CtxType** arr = (const CtxType**)ctx_arena_alloc(a, (count + 1) * sizeof(const CtxType*));
     if (!arr) return NULL;
 
     // Split and parse each type
@@ -2007,7 +2007,7 @@ static const CBMType** split_pipe_types(CBMArena* a, const char* text, const cha
 }
 
 // Helper: split "|"-separated string into array of const char*.
-static const char** split_pipe_strings(CBMArena* a, const char* text) {
+static const char** split_pipe_strings(CtxArena* a, const char* text) {
     if (!text || !text[0]) return NULL;
 
     int count = 1;
@@ -2039,7 +2039,7 @@ static const char** split_pipe_strings(CBMArena* a, const char* text) {
 // Helper: parse "|"-separated "name:type" field definitions and populate a registered type.
 // Format: "Binder:Binder|Name:string|Count:int"
 // type_text is resolved relative to def_module_qn.
-static void parse_field_defs_into_type(CBMArena* arena, CBMTypeRegistry* reg,
+static void parse_field_defs_into_type(CtxArena* arena, CtxTypeRegistry* reg,
     const char* type_qn, const char* field_defs, const char* def_module_qn) {
     if (!field_defs || !field_defs[0] || !type_qn) return;
 
@@ -2051,7 +2051,7 @@ static void parse_field_defs_into_type(CBMArena* arena, CBMTypeRegistry* reg,
     if (count > 63) count = 63;
 
     const char** names = (const char**)ctx_arena_alloc(arena, (count + 1) * sizeof(const char*));
-    const CBMType** types = (const CBMType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CBMType*));
+    const CtxType** types = (const CtxType**)ctx_arena_alloc(arena, (count + 1) * sizeof(const CtxType*));
     if (!names || !types) return;
 
     char* buf = ctx_arena_strdup(arena, field_defs);
@@ -2097,7 +2097,7 @@ static void parse_field_defs_into_type(CBMArena* arena, CBMTypeRegistry* reg,
 // Helper: parse a tree-sitter type AST node with type param awareness.
 // Like go_parse_type_node but checks type_identifier against type_param_names first,
 // and works without a full GoLSPContext (uses raw arena/source/module_qn).
-static const CBMType* parse_type_node_with_params(CBMArena* arena, TSNode node,
+static const CtxType* parse_type_node_with_params(CtxArena* arena, TSNode node,
     const char* source, const char* module_qn, const char** type_param_names) {
     if (ts_node_is_null(node)) return ctx_type_unknown();
 
@@ -2207,7 +2207,7 @@ static const CBMType* parse_type_node_with_params(CBMArena* arena, TSNode node,
         TSNode params_node = ts_node_child_by_field_name(node, "parameters", 10);
         TSNode result_node = ts_node_child_by_field_name(node, "result", 6);
 
-        const CBMType* param_types_arr[16];
+        const CtxType* param_types_arr[16];
         int pc = 0;
         if (!ts_node_is_null(params_node)) {
             uint32_t pnc = ts_node_child_count(params_node);
@@ -2224,7 +2224,7 @@ static const CBMType* parse_type_node_with_params(CBMArena* arena, TSNode node,
         }
         param_types_arr[pc] = NULL;
 
-        const CBMType* ret_types_arr[16];
+        const CtxType* ret_types_arr[16];
         int rc = 0;
         if (!ts_node_is_null(result_node)) {
             if (strcmp(ts_node_type(result_node), "parameter_list") == 0) {
@@ -2244,15 +2244,15 @@ static const CBMType* parse_type_node_with_params(CBMArena* arena, TSNode node,
         }
         ret_types_arr[rc] = NULL;
 
-        const CBMType** pt = pc > 0 ? (const CBMType**)param_types_arr : NULL;
-        const CBMType** rt = rc > 0 ? (const CBMType**)ret_types_arr : NULL;
+        const CtxType** pt = pc > 0 ? (const CtxType**)param_types_arr : NULL;
+        const CtxType** rt = rc > 0 ? (const CtxType**)ret_types_arr : NULL;
         return ctx_type_func(arena, NULL, pt, rt);
     }
 
     // interface_type
     if (strcmp(kind, "interface_type") == 0) {
-        CBMType* t = (CBMType*)ctx_arena_alloc(arena, sizeof(CBMType));
-        memset(t, 0, sizeof(CBMType));
+        CtxType* t = (CtxType*)ctx_arena_alloc(arena, sizeof(CtxType));
+        memset(t, 0, sizeof(CtxType));
         t->kind = CTX_TYPE_INTERFACE;
         return t;
     }
@@ -2275,7 +2275,7 @@ static const CBMType* parse_type_node_with_params(CBMArena* arena, TSNode node,
 
 // Scan AST for generic function declarations and set type_param_names + re-parse
 // return types on matching registered functions.
-static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
+static void extract_type_params_from_ast(CtxArena* arena, CtxTypeRegistry* reg,
     TSNode root, const char* source, const char* module_qn) {
 
     uint32_t root_nc = ts_node_child_count(root);
@@ -2339,14 +2339,14 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
                 // Re-parse return types with type param awareness
                 if (reg->funcs[fi].signature && reg->funcs[fi].signature->kind == CTX_TYPE_FUNC &&
                     reg->funcs[fi].signature->data.func.return_types) {
-                    const CBMType** old_rets = reg->funcs[fi].signature->data.func.return_types;
+                    const CtxType** old_rets = reg->funcs[fi].signature->data.func.return_types;
                     int ret_count = 0;
                     while (old_rets[ret_count]) ret_count++;
 
                     // Check if any return type is a NAMED that matches a type param
                     bool needs_reparse = false;
                     for (int ri = 0; ri < ret_count && !needs_reparse; ri++) {
-                        const CBMType* check = old_rets[ri];
+                        const CtxType* check = old_rets[ri];
                         // Unwrap slice/pointer to get inner named type
                         if (check->kind == CTX_TYPE_SLICE && check->data.slice.elem)
                             check = check->data.slice.elem;
@@ -2368,8 +2368,8 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
                     if (needs_reparse) {
                         TSNode result_node = ts_node_child_by_field_name(top, "result", 6);
                         if (!ts_node_is_null(result_node)) {
-                            const CBMType** new_rets = (const CBMType**)ctx_arena_alloc(arena,
-                                (ret_count + 1) * sizeof(const CBMType*));
+                            const CtxType** new_rets = (const CtxType**)ctx_arena_alloc(arena,
+                                (ret_count + 1) * sizeof(const CtxType*));
 
                             if (strcmp(ts_node_type(result_node), "parameter_list") == 0) {
                                 int idx = 0;
@@ -2389,8 +2389,8 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
                                 new_rets[1] = NULL;
                             }
 
-                            CBMType* new_sig = (CBMType*)ctx_arena_alloc(arena, sizeof(CBMType));
-                            *new_sig = *(CBMType*)reg->funcs[fi].signature;
+                            CtxType* new_sig = (CtxType*)ctx_arena_alloc(arena, sizeof(CtxType));
+                            *new_sig = *(CtxType*)reg->funcs[fi].signature;
                             new_sig->data.func.return_types = new_rets;
                             reg->funcs[fi].signature = new_sig;
                         }
@@ -2400,14 +2400,14 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
                 // Also re-parse param types with TYPE_PARAM awareness (for implicit generics)
                 if (reg->funcs[fi].signature && reg->funcs[fi].signature->kind == CTX_TYPE_FUNC &&
                     reg->funcs[fi].signature->data.func.param_types) {
-                    const CBMType** old_params = reg->funcs[fi].signature->data.func.param_types;
+                    const CtxType** old_params = reg->funcs[fi].signature->data.func.param_types;
                     int pc = 0;
                     while (old_params[pc]) pc++;
                     // Re-parse from AST parameter list
                     TSNode params_node = ts_node_child_by_field_name(top, "parameters", 10);
                     if (!ts_node_is_null(params_node)) {
-                        const CBMType** new_params = (const CBMType**)ctx_arena_alloc(arena,
-                            (pc + 1) * sizeof(const CBMType*));
+                        const CtxType** new_params = (const CtxType**)ctx_arena_alloc(arena,
+                            (pc + 1) * sizeof(const CtxType*));
                         int idx = 0;
                         uint32_t pnc = ts_node_child_count(params_node);
                         for (uint32_t pi = 0; pi < pnc && idx < pc; pi++) {
@@ -2421,12 +2421,12 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
                         }
                         new_params[idx] = NULL;
                         if (idx > 0) {
-                            CBMType* sig = (CBMType*)reg->funcs[fi].signature;
+                            CtxType* sig = (CtxType*)reg->funcs[fi].signature;
                             if (sig != reg->funcs[fi].signature) {
                                 // Already rebuilt — update in place
-                                ((CBMType*)reg->funcs[fi].signature)->data.func.param_types = new_params;
+                                ((CtxType*)reg->funcs[fi].signature)->data.func.param_types = new_params;
                             } else {
-                                CBMType* new_sig = (CBMType*)ctx_arena_alloc(arena, sizeof(CBMType));
+                                CtxType* new_sig = (CtxType*)ctx_arena_alloc(arena, sizeof(CtxType));
                                 *new_sig = *sig;
                                 new_sig->data.func.param_types = new_params;
                                 reg->funcs[fi].signature = new_sig;
@@ -2444,13 +2444,13 @@ static void extract_type_params_from_ast(CBMArena* arena, CBMTypeRegistry* reg,
 extern const TSLanguage* tree_sitter_go(void);
 
 void ctx_run_go_lsp_cross(
-    CBMArena* arena,
+    CtxArena* arena,
     const char* source, int source_len,
     const char* module_qn,
-    CBMLSPDef* defs, int def_count,
+    CtxLSPDef* defs, int def_count,
     const char** import_names, const char** import_qns, int import_count,
     TSTree* cached_tree,
-    CBMResolvedCallArray* out)
+    CtxResolvedCallArray* out)
 {
     if (!source || source_len <= 0) return;
 
@@ -2469,13 +2469,13 @@ void ctx_run_go_lsp_cross(
     TSNode root = ts_tree_root_node(tree);
 
     // 2. Build registry
-    CBMTypeRegistry reg;
+    CtxTypeRegistry reg;
     ctx_registry_init(&reg, arena);
     ctx_go_stdlib_register(&reg, arena);
 
     // Register all defs (file-local + cross-file)
     for (int i = 0; i < def_count; i++) {
-        CBMLSPDef* d = &defs[i];
+        CtxLSPDef* d = &defs[i];
         if (!d->qualified_name || !d->short_name || !d->label) continue;
 
         const char* def_mod = d->def_module_qn ? d->def_module_qn : module_qn;
@@ -2483,7 +2483,7 @@ void ctx_run_go_lsp_cross(
         // Type/Interface/Class
         if (strcmp(d->label, "Type") == 0 || strcmp(d->label, "Class") == 0 ||
             strcmp(d->label, "Interface") == 0) {
-            CBMRegisteredType rt;
+            CtxRegisteredType rt;
             memset(&rt, 0, sizeof(rt));
             rt.qualified_name = ctx_arena_strdup(arena, d->qualified_name);
             rt.short_name = ctx_arena_strdup(arena, d->short_name);
@@ -2505,13 +2505,13 @@ void ctx_run_go_lsp_cross(
 
         // Function/Method
         if (strcmp(d->label, "Function") == 0 || strcmp(d->label, "Method") == 0) {
-            CBMRegisteredFunc rf;
+            CtxRegisteredFunc rf;
             memset(&rf, 0, sizeof(rf));
             rf.qualified_name = ctx_arena_strdup(arena, d->qualified_name);
             rf.short_name = ctx_arena_strdup(arena, d->short_name);
 
             // Build FUNC type from return_types text
-            const CBMType** ret_types = split_pipe_types(arena, d->return_types, def_mod);
+            const CtxType** ret_types = split_pipe_types(arena, d->return_types, def_mod);
             rf.signature = ctx_type_func(arena, NULL, NULL, ret_types);
 
             // Method receiver
@@ -2519,7 +2519,7 @@ void ctx_run_go_lsp_cross(
                 rf.receiver_type = ctx_arena_strdup(arena, d->receiver_type);
                 // Auto-create type entry if not exists
                 if (!ctx_registry_lookup_type(&reg, rf.receiver_type)) {
-                    CBMRegisteredType auto_type;
+                    CtxRegisteredType auto_type;
                     memset(&auto_type, 0, sizeof(auto_type));
                     auto_type.qualified_name = rf.receiver_type;
                     const char* dot = strrchr(d->receiver_type, '.');
@@ -2565,7 +2565,7 @@ void ctx_run_go_lsp_cross(
                                 }
                             }
                             if (!found_a) {
-                                CBMRegisteredType alias_rt;
+                                CtxRegisteredType alias_rt;
                                 memset(&alias_rt, 0, sizeof(alias_rt));
                                 alias_rt.qualified_name = alias_type_qn;
                                 alias_rt.short_name = aname;
@@ -2598,7 +2598,7 @@ void ctx_run_go_lsp_cross(
                 const char* embeds[16];
                 int embed_count = 0;
                 const char* fld_names[64];
-                const CBMType* fld_types[64];
+                const CtxType* fld_types[64];
                 int fld_count = 0;
 
                 GoLSPContext tmp_ctx;
@@ -2652,8 +2652,8 @@ void ctx_run_go_lsp_cross(
                     if (fld_count > 0) {
                         const char** names = (const char**)ctx_arena_alloc(arena,
                             (fld_count + 1) * sizeof(const char*));
-                        const CBMType** types = (const CBMType**)ctx_arena_alloc(arena,
-                            (fld_count + 1) * sizeof(const CBMType*));
+                        const CtxType** types = (const CtxType**)ctx_arena_alloc(arena,
+                            (fld_count + 1) * sizeof(const CtxType*));
                         for (int fi = 0; fi < fld_count; fi++) {
                             names[fi] = fld_names[fi];
                             types[fi] = fld_types[fi];
@@ -2694,23 +2694,23 @@ void ctx_run_go_lsp_cross(
 // --- Batch cross-file LSP ---
 
 void ctx_batch_go_lsp_cross(
-    CBMArena* arena,
-    CBMBatchGoLSPFile* files, int file_count,
-    CBMResolvedCallArray* out)
+    CtxArena* arena,
+    CtxBatchGoLSPFile* files, int file_count,
+    CtxResolvedCallArray* out)
 {
     if (!files || file_count <= 0 || !out) return;
 
     for (int f = 0; f < file_count; f++) {
-        CBMBatchGoLSPFile* file = &files[f];
-        memset(&out[f], 0, sizeof(CBMResolvedCallArray));
+        CtxBatchGoLSPFile* file = &files[f];
+        memset(&out[f], 0, sizeof(CtxResolvedCallArray));
 
         if (!file->source || file->source_len <= 0 || file->def_count <= 0) continue;
 
         // Per-file arena: registry + temp data freed after each file
-        CBMArena file_arena;
+        CtxArena file_arena;
         ctx_arena_init(&file_arena);
 
-        CBMResolvedCallArray file_out;
+        CtxResolvedCallArray file_out;
         memset(&file_out, 0, sizeof(file_out));
 
         // Delegate to existing per-file function
@@ -2726,11 +2726,11 @@ void ctx_batch_go_lsp_cross(
         // Copy results to output arena (must outlive per-file arena)
         if (file_out.count > 0) {
             out[f].count = file_out.count;
-            out[f].items = (CBMResolvedCall*)ctx_arena_alloc(arena,
-                file_out.count * sizeof(CBMResolvedCall));
+            out[f].items = (CtxResolvedCall*)ctx_arena_alloc(arena,
+                file_out.count * sizeof(CtxResolvedCall));
             for (int j = 0; j < file_out.count; j++) {
-                CBMResolvedCall* src = &file_out.items[j];
-                CBMResolvedCall* dst = &out[f].items[j];
+                CtxResolvedCall* src = &file_out.items[j];
+                CtxResolvedCall* dst = &out[f].items[j];
                 dst->caller_qn = src->caller_qn ? ctx_arena_strdup(arena, src->caller_qn) : NULL;
                 dst->callee_qn = src->callee_qn ? ctx_arena_strdup(arena, src->callee_qn) : NULL;
                 dst->strategy  = src->strategy  ? ctx_arena_strdup(arena, src->strategy)  : NULL;

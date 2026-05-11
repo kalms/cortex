@@ -2,19 +2,19 @@
 #include <string.h>
 #include <stdlib.h>
 
-void ctx_registry_init(CBMTypeRegistry* reg, CBMArena* arena) {
-    memset(reg, 0, sizeof(CBMTypeRegistry));
+void ctx_registry_init(CtxTypeRegistry* reg, CtxArena* arena) {
+    memset(reg, 0, sizeof(CtxTypeRegistry));
     reg->arena = arena;
 }
 
-void ctx_registry_add_func(CBMTypeRegistry* reg, CBMRegisteredFunc func) {
+void ctx_registry_add_func(CtxTypeRegistry* reg, CtxRegisteredFunc func) {
     if (reg->func_count >= reg->func_cap) {
         int new_cap = reg->func_cap == 0 ? 64 : reg->func_cap * 2;
-        CBMRegisteredFunc* new_items = (CBMRegisteredFunc*)ctx_arena_alloc(reg->arena,
-            (size_t)new_cap * sizeof(CBMRegisteredFunc));
+        CtxRegisteredFunc* new_items = (CtxRegisteredFunc*)ctx_arena_alloc(reg->arena,
+            (size_t)new_cap * sizeof(CtxRegisteredFunc));
         if (!new_items) return;
         if (reg->funcs && reg->func_count > 0) {
-            memcpy(new_items, reg->funcs, (size_t)reg->func_count * sizeof(CBMRegisteredFunc));
+            memcpy(new_items, reg->funcs, (size_t)reg->func_count * sizeof(CtxRegisteredFunc));
         }
         reg->funcs = new_items;
         reg->func_cap = new_cap;
@@ -22,14 +22,14 @@ void ctx_registry_add_func(CBMTypeRegistry* reg, CBMRegisteredFunc func) {
     reg->funcs[reg->func_count++] = func;
 }
 
-void ctx_registry_add_type(CBMTypeRegistry* reg, CBMRegisteredType type) {
+void ctx_registry_add_type(CtxTypeRegistry* reg, CtxRegisteredType type) {
     if (reg->type_count >= reg->type_cap) {
         int new_cap = reg->type_cap == 0 ? 64 : reg->type_cap * 2;
-        CBMRegisteredType* new_items = (CBMRegisteredType*)ctx_arena_alloc(reg->arena,
-            (size_t)new_cap * sizeof(CBMRegisteredType));
+        CtxRegisteredType* new_items = (CtxRegisteredType*)ctx_arena_alloc(reg->arena,
+            (size_t)new_cap * sizeof(CtxRegisteredType));
         if (!new_items) return;
         if (reg->types && reg->type_count > 0) {
-            memcpy(new_items, reg->types, (size_t)reg->type_count * sizeof(CBMRegisteredType));
+            memcpy(new_items, reg->types, (size_t)reg->type_count * sizeof(CtxRegisteredType));
         }
         reg->types = new_items;
         reg->type_cap = new_cap;
@@ -37,12 +37,12 @@ void ctx_registry_add_type(CBMTypeRegistry* reg, CBMRegisteredType type) {
     reg->types[reg->type_count++] = type;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_method(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_method(const CtxTypeRegistry* reg,
     const char* receiver_qn, const char* method_name) {
     if (!reg || !receiver_qn || !method_name) return NULL;
 
     for (int i = 0; i < reg->func_count; i++) {
-        const CBMRegisteredFunc* f = &reg->funcs[i];
+        const CtxRegisteredFunc* f = &reg->funcs[i];
         if (f->receiver_type && f->short_name &&
             strcmp(f->receiver_type, receiver_qn) == 0 &&
             strcmp(f->short_name, method_name) == 0) {
@@ -52,7 +52,7 @@ const CBMRegisteredFunc* ctx_registry_lookup_method(const CBMTypeRegistry* reg,
     return NULL;
 }
 
-const CBMRegisteredType* ctx_registry_lookup_type(const CBMTypeRegistry* reg,
+const CtxRegisteredType* ctx_registry_lookup_type(const CtxTypeRegistry* reg,
     const char* qualified_name) {
     if (!reg || !qualified_name) return NULL;
 
@@ -64,7 +64,7 @@ const CBMRegisteredType* ctx_registry_lookup_type(const CBMTypeRegistry* reg,
     return NULL;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_func(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_func(const CtxTypeRegistry* reg,
     const char* qualified_name) {
     if (!reg || !qualified_name) return NULL;
 
@@ -76,27 +76,27 @@ const CBMRegisteredFunc* ctx_registry_lookup_func(const CBMTypeRegistry* reg,
     return NULL;
 }
 
-const CBMRegisteredType* ctx_registry_resolve_alias(const CBMTypeRegistry* reg, const char* type_qn) {
+const CtxRegisteredType* ctx_registry_resolve_alias(const CtxTypeRegistry* reg, const char* type_qn) {
     if (!reg || !type_qn) return NULL;
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(reg, type_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(reg, type_qn);
     for (int i = 0; i < 16 && rt && rt->alias_of; i++) {
-        const CBMRegisteredType* next = ctx_registry_lookup_type(reg, rt->alias_of);
+        const CtxRegisteredType* next = ctx_registry_lookup_type(reg, rt->alias_of);
         if (!next) return rt;
         rt = next;
     }
     return rt;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_method_aliased(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_method_aliased(const CtxTypeRegistry* reg,
     const char* receiver_qn, const char* method_name) {
     if (!reg || !receiver_qn || !method_name) return NULL;
 
     // Direct lookup first
-    const CBMRegisteredFunc* f = ctx_registry_lookup_method(reg, receiver_qn, method_name);
+    const CtxRegisteredFunc* f = ctx_registry_lookup_method(reg, receiver_qn, method_name);
     if (f) return f;
 
     // Follow alias chain
-    const CBMRegisteredType* rt = ctx_registry_lookup_type(reg, receiver_qn);
+    const CtxRegisteredType* rt = ctx_registry_lookup_type(reg, receiver_qn);
     for (int i = 0; i < 16 && rt && rt->alias_of; i++) {
         f = ctx_registry_lookup_method(reg, rt->alias_of, method_name);
         if (f) return f;
@@ -105,7 +105,7 @@ const CBMRegisteredFunc* ctx_registry_lookup_method_aliased(const CBMTypeRegistr
     return NULL;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_symbol(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_symbol(const CtxTypeRegistry* reg,
     const char* package_qn, const char* name) {
     if (!reg || !package_qn || !name) return NULL;
 
@@ -126,7 +126,7 @@ const CBMRegisteredFunc* ctx_registry_lookup_symbol(const CBMTypeRegistry* reg,
 }
 
 // Count parameters in a FUNC signature.
-static int count_func_params(const CBMRegisteredFunc* f) {
+static int count_func_params(const CtxRegisteredFunc* f) {
     if (!f || !f->signature || f->signature->kind != CTX_TYPE_FUNC) return -1;
     if (!f->signature->data.func.param_types) return 0;
     int count = 0;
@@ -134,14 +134,14 @@ static int count_func_params(const CBMRegisteredFunc* f) {
     return count;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_method_by_args(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_method_by_args(const CtxTypeRegistry* reg,
     const char* receiver_qn, const char* method_name, int arg_count) {
     if (!reg || !receiver_qn || !method_name) return NULL;
 
-    const CBMRegisteredFunc* first_match = NULL;
-    const CBMRegisteredFunc* range_match = NULL;
+    const CtxRegisteredFunc* first_match = NULL;
+    const CtxRegisteredFunc* range_match = NULL;
     for (int i = 0; i < reg->func_count; i++) {
-        const CBMRegisteredFunc* f = &reg->funcs[i];
+        const CtxRegisteredFunc* f = &reg->funcs[i];
         if (f->receiver_type && f->short_name &&
             strcmp(f->receiver_type, receiver_qn) == 0 &&
             strcmp(f->short_name, method_name) == 0) {
@@ -161,7 +161,7 @@ const CBMRegisteredFunc* ctx_registry_lookup_method_by_args(const CBMTypeRegistr
 // --- Overload scoring by parameter type ---
 
 // Unwrap pointer/reference to get the core QN for comparison.
-static const char* type_to_qn_simple(const CBMType* t) {
+static const char* type_to_qn_simple(const CtxType* t) {
     if (!t) return NULL;
     // Unwrap references and pointers
     while (t) {
@@ -206,15 +206,15 @@ static bool c_types_compatible(const char* expected_qn, const char* actual_qn) {
 }
 
 // Score an overload match: higher = better. 0 = wrong arg count (no match).
-static int score_overload_match(const CBMRegisteredFunc* f, const CBMType** arg_types, int arg_count) {
+static int score_overload_match(const CtxRegisteredFunc* f, const CtxType** arg_types, int arg_count) {
     int pc = count_func_params(f);
     int min_pc = (f->min_params >= 0) ? f->min_params : pc;
     if (arg_count < min_pc || arg_count > pc) return 0;  // out of range
     if (!arg_types || !f->signature || !f->signature->data.func.param_types) return 50;
     int score = 50;
     for (int i = 0; i < arg_count; i++) {
-        const CBMType* expected = f->signature->data.func.param_types[i];
-        const CBMType* actual = arg_types[i];
+        const CtxType* expected = f->signature->data.func.param_types[i];
+        const CtxType* actual = arg_types[i];
         if (!expected || !actual || ctx_type_is_unknown(actual)) continue; // neutral
         const char* exp_qn = type_to_qn_simple(expected);
         const char* act_qn = type_to_qn_simple(actual);
@@ -228,19 +228,19 @@ static int score_overload_match(const CBMRegisteredFunc* f, const CBMType** arg_
     return score;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_method_by_types(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_method_by_types(const CtxTypeRegistry* reg,
     const char* receiver_qn, const char* method_name,
-    const CBMType** arg_types, int arg_count) {
+    const CtxType** arg_types, int arg_count) {
     if (!reg || !receiver_qn || !method_name) return NULL;
     // If no type info, fall back to arg-count matching
     if (!arg_types) return ctx_registry_lookup_method_by_args(reg, receiver_qn, method_name, arg_count);
 
-    const CBMRegisteredFunc* best = NULL;
+    const CtxRegisteredFunc* best = NULL;
     int best_score = 0;
-    const CBMRegisteredFunc* first_match = NULL;
+    const CtxRegisteredFunc* first_match = NULL;
 
     for (int i = 0; i < reg->func_count; i++) {
-        const CBMRegisteredFunc* f = &reg->funcs[i];
+        const CtxRegisteredFunc* f = &reg->funcs[i];
         if (f->receiver_type && f->short_name &&
             strcmp(f->receiver_type, receiver_qn) == 0 &&
             strcmp(f->short_name, method_name) == 0) {
@@ -252,9 +252,9 @@ const CBMRegisteredFunc* ctx_registry_lookup_method_by_types(const CBMTypeRegist
     return best ? best : first_match;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_symbol_by_types(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_symbol_by_types(const CtxTypeRegistry* reg,
     const char* package_qn, const char* name,
-    const CBMType** arg_types, int arg_count) {
+    const CtxType** arg_types, int arg_count) {
     if (!reg || !package_qn || !name) return NULL;
     if (!arg_types) return ctx_registry_lookup_symbol_by_args(reg, package_qn, name, arg_count);
 
@@ -268,12 +268,12 @@ const CBMRegisteredFunc* ctx_registry_lookup_symbol_by_types(const CBMTypeRegist
     memcpy(buf + pkg_len + 1, name, name_len);
     buf[total_len] = '\0';
 
-    const CBMRegisteredFunc* best = NULL;
+    const CtxRegisteredFunc* best = NULL;
     int best_score = 0;
-    const CBMRegisteredFunc* first_match = NULL;
+    const CtxRegisteredFunc* first_match = NULL;
 
     for (int i = 0; i < reg->func_count; i++) {
-        const CBMRegisteredFunc* f = &reg->funcs[i];
+        const CtxRegisteredFunc* f = &reg->funcs[i];
         if (strcmp(f->qualified_name, buf) == 0) {
             if (!first_match) first_match = f;
             int s = score_overload_match(f, arg_types, arg_count);
@@ -283,7 +283,7 @@ const CBMRegisteredFunc* ctx_registry_lookup_symbol_by_types(const CBMTypeRegist
     return best ? best : first_match;
 }
 
-const CBMRegisteredFunc* ctx_registry_lookup_symbol_by_args(const CBMTypeRegistry* reg,
+const CtxRegisteredFunc* ctx_registry_lookup_symbol_by_args(const CtxTypeRegistry* reg,
     const char* package_qn, const char* name, int arg_count) {
     if (!reg || !package_qn || !name) return NULL;
 
@@ -297,10 +297,10 @@ const CBMRegisteredFunc* ctx_registry_lookup_symbol_by_args(const CBMTypeRegistr
     memcpy(buf + pkg_len + 1, name, name_len);
     buf[total_len] = '\0';
 
-    const CBMRegisteredFunc* first_match = NULL;
-    const CBMRegisteredFunc* range_match = NULL;
+    const CtxRegisteredFunc* first_match = NULL;
+    const CtxRegisteredFunc* range_match = NULL;
     for (int i = 0; i < reg->func_count; i++) {
-        const CBMRegisteredFunc* f = &reg->funcs[i];
+        const CtxRegisteredFunc* f = &reg->funcs[i];
         if (strcmp(f->qualified_name, buf) == 0) {
             if (!first_match) first_match = f;
             int pc = count_func_params(f);

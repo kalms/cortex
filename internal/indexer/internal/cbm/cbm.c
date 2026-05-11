@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, ctx_arena_init/alloc/strdup/destroy
+#include "arena.h" // CtxArena, ctx_arena_init/alloc/strdup/destroy
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -88,72 +88,72 @@ void ctx_reset_profile(void) {
         }                                                                                        \
     } while (0)
 
-void ctx_defs_push(CBMDefArray *arr, CBMArena *a, CBMDefinition def) {
+void ctx_defs_push(CtxDefArray *arr, CtxArena *a, CtxDefinition def) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = def;
 }
 
-void ctx_calls_push(CBMCallArray *arr, CBMArena *a, CBMCall call) {
+void ctx_calls_push(CtxCallArray *arr, CtxArena *a, CtxCall call) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = call;
 }
 
-void ctx_imports_push(CBMImportArray *arr, CBMArena *a, CBMImport imp) {
+void ctx_imports_push(CtxImportArray *arr, CtxArena *a, CtxImport imp) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = imp;
 }
 
-void ctx_usages_push(CBMUsageArray *arr, CBMArena *a, CBMUsage usage) {
+void ctx_usages_push(CtxUsageArray *arr, CtxArena *a, CtxUsage usage) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = usage;
 }
 
-void ctx_throws_push(CBMThrowArray *arr, CBMArena *a, CBMThrow thr) {
+void ctx_throws_push(CtxThrowArray *arr, CtxArena *a, CtxThrow thr) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = thr;
 }
 
-void ctx_rw_push(CBMRWArray *arr, CBMArena *a, CBMReadWrite rw) {
+void ctx_rw_push(CtxRWArray *arr, CtxArena *a, CtxReadWrite rw) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = rw;
 }
 
-void ctx_typerefs_push(CBMTypeRefArray *arr, CBMArena *a, CBMTypeRef tr) {
+void ctx_typerefs_push(CtxTypeRefArray *arr, CtxArena *a, CtxTypeRef tr) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = tr;
 }
 
-void ctx_envaccess_push(CBMEnvAccessArray *arr, CBMArena *a, CBMEnvAccess ea) {
+void ctx_envaccess_push(CtxEnvAccessArray *arr, CtxArena *a, CtxEnvAccess ea) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ea;
 }
 
-void ctx_typeassign_push(CBMTypeAssignArray *arr, CBMArena *a, CBMTypeAssign ta) {
+void ctx_typeassign_push(CtxTypeAssignArray *arr, CtxArena *a, CtxTypeAssign ta) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ta;
 }
 
-void ctx_stringref_push(CBMStringRefArray *arr, CBMArena *a, CBMStringRef sr) {
+void ctx_stringref_push(CtxStringRefArray *arr, CtxArena *a, CtxStringRef sr) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = sr;
 }
 
-void ctx_infrabinding_push(CBMInfraBindingArray *arr, CBMArena *a, CBMInfraBinding ib) {
+void ctx_infrabinding_push(CtxInfraBindingArray *arr, CtxArena *a, CtxInfraBinding ib) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ib;
 }
 
-void ctx_impltrait_push(CBMImplTraitArray *arr, CBMArena *a, CBMImplTrait it) {
+void ctx_impltrait_push(CtxImplTraitArray *arr, CtxArena *a, CtxImplTrait it) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = it;
 }
 
-void ctx_resolvedcall_push(CBMResolvedCallArray *arr, CBMArena *a, CBMResolvedCall rc) {
+void ctx_resolvedcall_push(CtxResolvedCallArray *arr, CtxArena *a, CtxResolvedCall rc) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = rc;
 }
 
-void ctx_channels_push(CBMChannelArray *arr, CBMArena *a, CBMChannel ch) {
+void ctx_channels_push(CtxChannelArray *arr, CtxArena *a, CtxChannel ch) {
     GROW_ARRAY(arr, a);
     arr->items[arr->count++] = ch;
 }
@@ -163,12 +163,12 @@ void ctx_channels_push(CBMChannelArray *arr, CBMArena *a, CBMChannel ch) {
 typedef struct {
     const char *string;
     uint32_t length;
-} CBMStringInput;
+} CtxStringInput;
 
 static const char *ctx_string_read(void *payload, uint32_t byte, TSPoint point,
                                    uint32_t *bytes_read) {
     (void)point;
-    CBMStringInput *self = (CBMStringInput *)payload;
+    CtxStringInput *self = (CtxStringInput *)payload;
     if (byte >= self->length) {
         *bytes_read = 0;
         return "";
@@ -190,10 +190,10 @@ static bool ctx_timeout_cb(TSParseState *state) {
 // This avoids ~70K ts_parser_new()/ts_parser_delete() cycles on large repos.
 
 static CTX_TLS TSParser *tl_parser = NULL;
-static CTX_TLS CBMLanguage tl_parser_lang = CTX_LANG_COUNT; // invalid sentinel
+static CTX_TLS CtxLanguage tl_parser_lang = CTX_LANG_COUNT; // invalid sentinel
 
 // Get or create a thread-local parser configured for the given language.
-static TSParser *get_thread_parser(const TSLanguage *ts_lang, CBMLanguage lang) {
+static TSParser *get_thread_parser(const TSLanguage *ts_lang, CtxLanguage lang) {
     if (!tl_parser) {
         tl_parser = ts_parser_new();
         if (!tl_parser) {
@@ -248,21 +248,21 @@ void ctx_shutdown(void) {
 
 // --- Main extraction function ---
 
-CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage language,
+CtxFileResult *ctx_extract_file(const char *source, int source_len, CtxLanguage language,
                                 const char *project, const char *rel_path, int64_t timeout_micros,
                                 const char **extra_defines, const char **include_paths) {
     // Allocate result on heap (arena inside for all string data)
     enum { SINGLE = 1 };
-    CBMFileResult *result = (CBMFileResult *)calloc(SINGLE, sizeof(CBMFileResult));
+    CtxFileResult *result = (CtxFileResult *)calloc(SINGLE, sizeof(CtxFileResult));
     if (!result) {
         return NULL;
     }
 
     ctx_arena_init(&result->arena);
-    CBMArena *a = &result->arena;
+    CtxArena *a = &result->arena;
 
     // Get language spec
-    const CBMLangSpec *spec = ctx_lang_spec(language);
+    const CtxLangSpec *spec = ctx_lang_spec(language);
     if (!spec) {
         result->has_error = true;
         result->error_msg = ctx_arena_strdup(a, "unsupported language");
@@ -291,7 +291,7 @@ CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage 
     uint64_t t0 = now_ns();
 
     // Build string input + timeout options for parse_with_options
-    CBMStringInput str_input = {source, (uint32_t)source_len};
+    CtxStringInput str_input = {source, (uint32_t)source_len};
     TSInput ts_input = {
         &str_input,
         ctx_string_read,
@@ -324,7 +324,7 @@ CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage 
     result->is_test_file = ctx_is_test_file(rel_path, language);
 
     // Build extraction context
-    CBMExtractCtx ctx = {
+    CtxExtractCtx ctx = {
         .arena = a,
         .result = result,
         .source = source,
@@ -385,7 +385,7 @@ CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage 
             TSParser *pp_parser = get_thread_parser(ts_lang, language);
             if (pp_parser) {
                 ts_parser_reset(pp_parser);
-                CBMStringInput pp_input = {expanded, (uint32_t)expanded_len};
+                CtxStringInput pp_input = {expanded, (uint32_t)expanded_len};
                 TSInput pp_ts_input = {
                     &pp_input,
                     ctx_string_read,
@@ -399,7 +399,7 @@ CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage 
                     TSNode pp_root = ts_tree_root_node(pp_tree);
 
                     // Build context for expanded source — extract only calls via unified extractor
-                    CBMExtractCtx pp_ctx = {
+                    CtxExtractCtx pp_ctx = {
                         .arena = a,
                         .result = result,
                         .source = expanded,
@@ -445,7 +445,7 @@ CBMFileResult *ctx_extract_file(const char *source, int source_len, CBMLanguage 
     return result;
 }
 
-void ctx_free_result(CBMFileResult *result) {
+void ctx_free_result(CtxFileResult *result) {
     if (!result) {
         return;
     }
@@ -457,7 +457,7 @@ void ctx_free_result(CBMFileResult *result) {
     free(result);
 }
 
-void ctx_free_tree(CBMFileResult *result) {
+void ctx_free_tree(CtxFileResult *result) {
     if (result && result->cached_tree) {
         ts_tree_delete(result->cached_tree);
         result->cached_tree = NULL;
@@ -470,7 +470,7 @@ void ctx_free_tree_ptr(TSTree *tree) {
     }
 }
 
-TSTree *ctx_parse_string(const char *source, int source_len, CBMLanguage language) {
+TSTree *ctx_parse_string(const char *source, int source_len, CtxLanguage language) {
     const TSLanguage *ts_lang = ctx_ts_language(language);
     if (!ts_lang) {
         return NULL;
@@ -480,7 +480,7 @@ TSTree *ctx_parse_string(const char *source, int source_len, CBMLanguage languag
         return NULL;
     }
     ts_parser_reset(parser);
-    CBMStringInput str_input = {source, (uint32_t)source_len};
+    CtxStringInput str_input = {source, (uint32_t)source_len};
     TSInput ts_input = {
         &str_input,
         ctx_string_read,

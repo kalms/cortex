@@ -1,5 +1,5 @@
 #include "cbm.h"
-#include "arena.h" // CBMArena, ctx_arena_sprintf
+#include "arena.h" // CtxArena, ctx_arena_sprintf
 #include "helpers.h"
 #include "lang_specs.h"
 #include "extract_unified.h"
@@ -23,11 +23,11 @@ enum { MIN_PRINTABLE = 0x20 };
 enum { HANDLER_START_IDX = 1 };
 
 /* Look up a module-level string constant by name. */
-static const char *lookup_string_constant(const CBMExtractCtx *ctx, const char *name) {
+static const char *lookup_string_constant(const CtxExtractCtx *ctx, const char *name) {
     if (!name || !name[0]) {
         return NULL;
     }
-    const CBMStringConstantMap *map = &ctx->string_constants;
+    const CtxStringConstantMap *map = &ctx->string_constants;
     for (int i = 0; i < map->count; i++) {
         if (strcmp(map->names[i], name) == 0) {
             return map->values[i];
@@ -44,7 +44,7 @@ static int is_string_like(const char *kind) {
 }
 
 /* Strip surrounding quotes from a string, return arena-allocated copy */
-static const char *strip_quotes(CBMArena *a, const char *text) {
+static const char *strip_quotes(CtxArena *a, const char *text) {
     if (!text || !text[0]) {
         return NULL;
     }
@@ -56,9 +56,9 @@ static const char *strip_quotes(CBMArena *a, const char *text) {
 }
 
 // Forward declarations
-static void walk_calls(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec);
-static char *extract_callee_name(CBMArena *a, TSNode node, const char *source, CBMLanguage lang);
-static void extract_jsx_refs(CBMExtractCtx *ctx, TSNode node);
+static void walk_calls(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec);
+static char *extract_callee_name(CtxArena *a, TSNode node, const char *source, CtxLanguage lang);
+static void extract_jsx_refs(CtxExtractCtx *ctx, TSNode node);
 
 // Lean 4: check if an apply node is inside a type annotation.
 // Strategy: walk up to the nearest declaration boundary; if the apply falls
@@ -102,7 +102,7 @@ static bool lean_is_in_type_position(TSNode node) {
 }
 
 // Try common field-based callee resolution (function, name, method fields).
-static char *extract_callee_from_fields(CBMArena *a, TSNode node, const char *source) {
+static char *extract_callee_from_fields(CtxArena *a, TSNode node, const char *source) {
     // Try "function" field
     TSNode func_node = ts_node_child_by_field_name(node, TS_FIELD("function"));
     if (!ts_node_is_null(func_node)) {
@@ -149,7 +149,7 @@ static char *extract_callee_from_fields(CBMArena *a, TSNode node, const char *so
 }
 
 // Haskell/OCaml: extract callee from apply/infix nodes.
-static char *extract_fp_callee(CBMArena *a, TSNode node, const char *source, const char *nk) {
+static char *extract_fp_callee(CtxArena *a, TSNode node, const char *source, const char *nk) {
     if (strcmp(nk, "apply") == 0 || strcmp(nk, "application_expression") == 0) {
         if (ts_node_child_count(node) > 0) {
             TSNode callee = ts_node_child(node, 0);
@@ -174,7 +174,7 @@ static char *extract_fp_callee(CBMArena *a, TSNode node, const char *source, con
 }
 
 // Wolfram: extract callee from apply, skipping LHS of set definitions.
-static char *extract_wolfram_callee(CBMArena *a, TSNode node, const char *source) {
+static char *extract_wolfram_callee(CtxArena *a, TSNode node, const char *source) {
     TSNode parent = ts_node_parent(node);
     if (!ts_node_is_null(parent)) {
         const char *pk = ts_node_type(parent);
@@ -197,7 +197,7 @@ static char *extract_wolfram_callee(CBMArena *a, TSNode node, const char *source
 
 // Language-specific callee extraction for FP and niche languages.
 // Swift callee extraction from call/constructor expressions.
-static char *extract_swift_callee(CBMArena *a, TSNode node, const char *source, const char *nk) {
+static char *extract_swift_callee(CtxArena *a, TSNode node, const char *source, const char *nk) {
     if (strcmp(nk, "call_expression") != 0 && strcmp(nk, "constructor_expression") != 0) {
         return NULL;
     }
@@ -212,8 +212,8 @@ static char *extract_swift_callee(CBMArena *a, TSNode node, const char *source, 
 }
 
 // Callee extraction for scripting languages (Elixir, Perl, PHP, Kotlin, MATLAB).
-static char *extract_scripting_callee(CBMArena *a, TSNode node, const char *source,
-                                      CBMLanguage lang, const char *nk) {
+static char *extract_scripting_callee(CtxArena *a, TSNode node, const char *source,
+                                      CtxLanguage lang, const char *nk) {
     if (lang == CTX_LANG_ELIXIR && strcmp(nk, "call") == 0 && ts_node_child_count(node) > 0) {
         TSNode first = ts_node_child(node, 0);
         const char *fk = ts_node_type(first);
@@ -242,7 +242,7 @@ static char *extract_scripting_callee(CBMArena *a, TSNode node, const char *sour
 }
 
 // ObjC: extract callee from message_expression selector.
-static char *extract_objc_callee(CBMArena *a, TSNode node, const char *source, const char *nk) {
+static char *extract_objc_callee(CtxArena *a, TSNode node, const char *source, const char *nk) {
     if (strcmp(nk, "message_expression") != 0) {
         return NULL;
     }
@@ -251,15 +251,15 @@ static char *extract_objc_callee(CBMArena *a, TSNode node, const char *source, c
 }
 
 // Erlang: extract callee from call node's first child.
-static char *extract_erlang_callee(CBMArena *a, TSNode node, const char *source, const char *nk) {
+static char *extract_erlang_callee(CtxArena *a, TSNode node, const char *source, const char *nk) {
     if (strcmp(nk, "call") != 0 || ts_node_child_count(node) == 0) {
         return NULL;
     }
     return ctx_node_text(a, ts_node_child(node, 0), source);
 }
 
-static char *extract_callee_lang_specific(CBMArena *a, TSNode node, const char *source,
-                                          CBMLanguage lang) {
+static char *extract_callee_lang_specific(CtxArena *a, TSNode node, const char *source,
+                                          CtxLanguage lang) {
     const char *nk = ts_node_type(node);
 
     if (lang == CTX_LANG_OBJC) {
@@ -282,7 +282,7 @@ static char *extract_callee_lang_specific(CBMArena *a, TSNode node, const char *
 }
 
 // Extract callee name from a call node
-static char *extract_callee_name(CBMArena *a, TSNode node, const char *source, CBMLanguage lang) {
+static char *extract_callee_name(CtxArena *a, TSNode node, const char *source, CtxLanguage lang) {
     // Lean 4: skip type-position applies
     if (lang == CTX_LANG_LEAN && strcmp(ts_node_type(node), "apply") == 0) {
         if (lean_is_in_type_position(node)) {
@@ -314,7 +314,7 @@ static char *extract_callee_name(CBMArena *a, TSNode node, const char *source, C
 }
 
 // Strip quotes and validate a string arg. Returns validated text or NULL.
-static const char *strip_and_validate_string_arg(CBMArena *a, char *text) {
+static const char *strip_and_validate_string_arg(CtxArena *a, char *text) {
     if (!text || !text[0]) {
         return NULL;
     }
@@ -335,7 +335,7 @@ static const char *strip_and_validate_string_arg(CBMArena *a, char *text) {
 }
 
 // Extract first string argument from a call's arguments node.
-static const char *extract_first_string_arg(CBMExtractCtx *ctx, TSNode args) {
+static const char *extract_first_string_arg(CtxExtractCtx *ctx, TSNode args) {
     uint32_t nc = ts_node_named_child_count(args);
     for (uint32_t ai = 0; ai < nc && ai < MAX_POSITIONAL_SCAN; ai++) {
         TSNode arg = ts_node_named_child(args, ai);
@@ -350,7 +350,7 @@ static const char *extract_first_string_arg(CBMExtractCtx *ctx, TSNode args) {
 
 // Walk AST for call nodes (iterative)
 #define CALLS_STACK_CAP CTX_SZ_512
-static void walk_calls(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec) {
+static void walk_calls(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec) {
     TSNode stack[CALLS_STACK_CAP];
     int top = 0;
     stack[top++] = root;
@@ -362,7 +362,7 @@ static void walk_calls(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec)
         if (ctx_kind_in_set(node, spec->call_node_types)) {
             char *callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
             if (callee && callee[0] && !ctx_is_keyword(callee, ctx->language)) {
-                CBMCall call = {0};
+                CtxCall call = {0};
                 call.callee_name = callee;
                 call.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
 
@@ -390,7 +390,7 @@ static void walk_calls(CBMExtractCtx *ctx, TSNode root, const CBMLangSpec *spec)
 }
 
 // Extract JSX component references (uppercase = component, lowercase = HTML)
-static void extract_jsx_refs(CBMExtractCtx *ctx, TSNode node) {
+static void extract_jsx_refs(CtxExtractCtx *ctx, TSNode node) {
     TSNode name_node = ts_node_child_by_field_name(node, TS_FIELD("name"));
     if (ts_node_is_null(name_node)) {
         return;
@@ -406,14 +406,14 @@ static void extract_jsx_refs(CBMExtractCtx *ctx, TSNode node) {
         return;
     }
 
-    CBMCall call = {0};
+    CtxCall call = {0};
     call.callee_name = name;
     call.enclosing_func_qn = ctx_enclosing_func_qn_cached(ctx, node);
     ctx_calls_push(&ctx->result->calls, ctx->arena, call);
 }
 
-void ctx_extract_calls(CBMExtractCtx *ctx) {
-    const CBMLangSpec *spec = ctx_lang_spec(ctx->language);
+void ctx_extract_calls(CtxExtractCtx *ctx) {
+    const CtxLangSpec *spec = ctx_lang_spec(ctx->language);
     if (!spec || !spec->call_node_types || !spec->call_node_types[0]) {
         return;
     }
@@ -424,7 +424,7 @@ void ctx_extract_calls(CBMExtractCtx *ctx) {
 // --- Unified handler: called once per node by the cursor walk ---
 
 // Process a keyword argument (keyword_argument or pair node).
-static void process_keyword_arg(CBMExtractCtx *ctx, TSNode arg_node, CBMCallArg *ca) {
+static void process_keyword_arg(CtxExtractCtx *ctx, TSNode arg_node, CtxCallArg *ca) {
     TSNode key_n = ts_node_child_by_field_name(arg_node, TS_FIELD("name"));
     TSNode val_n = ts_node_child_by_field_name(arg_node, TS_FIELD("value"));
     if (ts_node_is_null(key_n)) {
@@ -444,13 +444,13 @@ static void process_keyword_arg(CBMExtractCtx *ctx, TSNode arg_node, CBMCallArg 
 }
 
 /* Extract all arguments from a call expression into call->args[]. */
-static void extract_call_args(CBMExtractCtx *ctx, TSNode args, CBMCall *call) {
+static void extract_call_args(CtxExtractCtx *ctx, TSNode args, CtxCall *call) {
     uint32_t argc = ts_node_named_child_count(args);
     int positional_idx = 0;
     for (uint32_t ai = 0; ai < argc && call->arg_count < CTX_MAX_CALL_ARGS; ai++) {
         TSNode arg_node = ts_node_named_child(args, ai);
         const char *ak = ts_node_type(arg_node);
-        CBMCallArg *ca = &call->args[call->arg_count];
+        CtxCallArg *ca = &call->args[call->arg_count];
         memset(ca, 0, sizeof(*ca));
 
         if (strcmp(ak, "keyword_argument") == 0 || strcmp(ak, "pair") == 0) {
@@ -494,7 +494,7 @@ static bool is_url_or_topic_keyword(const char *key) {
 }
 
 // Extract string value from a node (literal or constant reference).
-static const char *extract_string_value(CBMExtractCtx *ctx, TSNode val_node) {
+static const char *extract_string_value(CtxExtractCtx *ctx, TSNode val_node) {
     const char *vk = ts_node_type(val_node);
     if (is_string_like(vk)) {
         char *text = ctx_node_text(ctx->arena, val_node, ctx->source);
@@ -511,7 +511,7 @@ static const char *extract_string_value(CBMExtractCtx *ctx, TSNode val_node) {
 }
 
 // Try to extract URL/topic from a keyword_argument or pair node.
-static const char *extract_keyword_url(CBMExtractCtx *ctx, TSNode arg) {
+static const char *extract_keyword_url(CtxExtractCtx *ctx, TSNode arg) {
     TSNode key_node = ts_node_child_by_field_name(arg, TS_FIELD("name"));
     TSNode val_node = ts_node_child_by_field_name(arg, TS_FIELD("value"));
     if (ts_node_is_null(key_node)) {
@@ -528,7 +528,7 @@ static const char *extract_keyword_url(CBMExtractCtx *ctx, TSNode arg) {
 }
 
 // Try to extract URL/topic from a positional argument (string or constant).
-static const char *extract_positional_url(CBMExtractCtx *ctx, TSNode arg, const char *ak) {
+static const char *extract_positional_url(CtxExtractCtx *ctx, TSNode arg, const char *ak) {
     if (is_string_like(ak)) {
         char *text = ctx_node_text(ctx->arena, arg, ctx->source);
         const char *validated = strip_and_validate_string_arg(ctx->arena, text);
@@ -546,7 +546,7 @@ static const char *extract_positional_url(CBMExtractCtx *ctx, TSNode arg, const 
 }
 
 // Extract URL/topic from keyword or positional args.
-static const char *extract_url_or_topic_arg(CBMExtractCtx *ctx, TSNode args) {
+static const char *extract_url_or_topic_arg(CtxExtractCtx *ctx, TSNode args) {
     uint32_t nc = ts_node_named_child_count(args);
     for (uint32_t ai = 0; ai < nc; ai++) {
         TSNode arg = ts_node_named_child(args, ai);
@@ -571,7 +571,7 @@ static const char *extract_url_or_topic_arg(CBMExtractCtx *ctx, TSNode args) {
 }
 
 // Extract second argument name (handler ref for route registrations).
-static const char *extract_handler_arg(CBMExtractCtx *ctx, TSNode args) {
+static const char *extract_handler_arg(CtxExtractCtx *ctx, TSNode args) {
     uint32_t nc = ts_node_named_child_count(args);
     for (uint32_t ai = HANDLER_START_IDX; ai < nc && ai < MAX_HANDLER_SCAN; ai++) {
         TSNode arg2 = ts_node_named_child(args, ai);
@@ -586,7 +586,7 @@ static const char *extract_handler_arg(CBMExtractCtx *ctx, TSNode args) {
 }
 
 // Extract JSX component refs (uppercase tags) as CALLS edges.
-static void extract_jsx_component_ref(CBMExtractCtx *ctx, TSNode node, const char *kind,
+static void extract_jsx_component_ref(CtxExtractCtx *ctx, TSNode node, const char *kind,
                                       const char *enclosing_func_qn) {
     if (strcmp(kind, "jsx_self_closing_element") != 0 && strcmp(kind, "jsx_opening_element") != 0) {
         return;
@@ -597,14 +597,14 @@ static void extract_jsx_component_ref(CBMExtractCtx *ctx, TSNode node, const cha
     }
     char *name = ctx_node_text(ctx->arena, name_node, ctx->source);
     if (name && name[0] >= 'A' && name[0] <= 'Z') {
-        CBMCall call = {0};
+        CtxCall call = {0};
         call.callee_name = name;
         call.enclosing_func_qn = enclosing_func_qn;
         ctx_calls_push(&ctx->result->calls, ctx->arena, call);
     }
 }
 
-void handle_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, WalkState *state) {
+void handle_calls(CtxExtractCtx *ctx, TSNode node, const CtxLangSpec *spec, WalkState *state) {
     if (!spec->call_node_types || !spec->call_node_types[0]) {
         return;
     }
@@ -612,7 +612,7 @@ void handle_calls(CBMExtractCtx *ctx, TSNode node, const CBMLangSpec *spec, Walk
     if (ctx_kind_in_set(node, spec->call_node_types)) {
         char *callee = extract_callee_name(ctx->arena, node, ctx->source, ctx->language);
         if (callee && callee[0] && !ctx_is_keyword(callee, ctx->language)) {
-            CBMCall call = {0};
+            CtxCall call = {0};
             call.callee_name = callee;
             call.enclosing_func_qn = state->enclosing_func_qn;
 

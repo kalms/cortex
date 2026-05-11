@@ -170,7 +170,7 @@ static void append_json_str_array(char *buf, size_t bufsize, size_t *pos, const 
 }
 
 /* Build properties JSON for a definition node. */
-static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def) {
+static void build_def_props(char *buf, size_t bufsize, const CtxDefinition *def) {
     int n = snprintf(buf, bufsize,
                      "{\"complexity\":%d,\"lines\":%d,\"is_exported\":%s,"
                      "\"is_test\":%s,\"is_entry_point\":%s",
@@ -218,7 +218,7 @@ static void build_def_props(char *buf, size_t bufsize, const CBMDefinition *def)
 }
 
 /* Process one definition: create node, register, DEFINES + DEFINES_METHOD edges. */
-static void process_def(ctx_pipeline_ctx_t *ctx, const CBMDefinition *def, const char *rel) {
+static void process_def(ctx_pipeline_ctx_t *ctx, const CtxDefinition *def, const char *rel) {
     if (!def->qualified_name || !def->name) {
         return;
     }
@@ -252,7 +252,7 @@ static void process_def(ctx_pipeline_ctx_t *ctx, const CBMDefinition *def, const
 /* Create Channel nodes + EMITS / LISTENS_ON edges for one file's channels.
  * Mirrors the parallel path in ctx_build_registry_from_cache — keep in sync. */
 /* Find the source node for a channel edge: enclosing function or file node. */
-static const ctx_gbuf_node_t *find_channel_source(ctx_pipeline_ctx_t *ctx, const CBMChannel *ch,
+static const ctx_gbuf_node_t *find_channel_source(ctx_pipeline_ctx_t *ctx, const CtxChannel *ch,
                                                   const char *rel) {
     const ctx_gbuf_node_t *node = NULL;
     if (ch->enclosing_func_qn && ch->enclosing_func_qn[0]) {
@@ -266,10 +266,10 @@ static const ctx_gbuf_node_t *find_channel_source(ctx_pipeline_ctx_t *ctx, const
     return node;
 }
 
-static void create_channel_edges_for_file(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static void create_channel_edges_for_file(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                           const char *rel) {
     for (int j = 0; j < result->channels.count; j++) {
-        const CBMChannel *ch = &result->channels.items[j];
+        const CtxChannel *ch = &result->channels.items[j];
         if (!ch->channel_name || !ch->channel_name[0]) {
             continue;
         }
@@ -295,11 +295,11 @@ static void create_channel_edges_for_file(ctx_pipeline_ctx_t *ctx, const CBMFile
 
 /* Create IMPORTS edges for one file's imports.  Mirrors the resolution
  * logic in pass_parallel.c register_and_link_def — keep the two in sync. */
-static int create_import_edges_for_file(ctx_pipeline_ctx_t *ctx, const CBMFileResult *result,
+static int create_import_edges_for_file(ctx_pipeline_ctx_t *ctx, const CtxFileResult *result,
                                         const char *rel) {
     int count = 0;
     for (int j = 0; j < result->imports.count; j++) {
-        const CBMImport *imp = &result->imports.items[j];
+        const CtxImport *imp = &result->imports.items[j];
         if (!imp->module_path) {
             continue;
         }
@@ -346,7 +346,7 @@ int ctx_pipeline_pass_definitions(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t
 
         const char *path = files[i].path;
         const char *rel = files[i].rel_path;
-        CBMLanguage lang = files[i].language;
+        CtxLanguage lang = files[i].language;
 
         /* Read source file */
         int source_len = 0;
@@ -357,7 +357,7 @@ int ctx_pipeline_pass_definitions(ctx_pipeline_ctx_t *ctx, const ctx_file_info_t
         }
 
         /* Extract */
-        CBMFileResult *result =
+        CtxFileResult *result =
             ctx_extract_file(source, source_len, lang, ctx->project_name, rel, CTX_EXTRACT_BUDGET,
                              NULL, NULL /* no extra defines or include paths */
             );

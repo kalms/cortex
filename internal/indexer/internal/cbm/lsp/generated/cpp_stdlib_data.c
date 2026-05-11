@@ -5,9 +5,9 @@
 #include <string.h>
 
 // Helper: register a method on a type
-static void reg_method(CBMTypeRegistry* reg, CBMArena* arena,
-    const char* recv_qn, const char* method_name, const CBMType* ret_type) {
-    CBMRegisteredFunc rf;
+static void reg_method(CtxTypeRegistry* reg, CtxArena* arena,
+    const char* recv_qn, const char* method_name, const CtxType* ret_type) {
+    CtxRegisteredFunc rf;
     memset(&rf, 0, sizeof(rf));
     rf.min_params = -1;
     // Build QN: recv_qn.method_name
@@ -24,13 +24,13 @@ static void reg_method(CBMTypeRegistry* reg, CBMArena* arena,
     rf.short_name = method_name;
     rf.receiver_type = recv_qn;
     rf.signature = ctx_type_func(arena, NULL, NULL,
-        ret_type ? (const CBMType*[]){ret_type, NULL} : NULL);
+        ret_type ? (const CtxType*[]){ret_type, NULL} : NULL);
     ctx_registry_add_func(reg, rf);
 }
 
 // Helper: register a type
-static void reg_type(CBMTypeRegistry* reg, const char* qn, const char* short_name) {
-    CBMRegisteredType rt;
+static void reg_type(CtxTypeRegistry* reg, const char* qn, const char* short_name) {
+    CtxRegisteredType rt;
     memset(&rt, 0, sizeof(rt));
     rt.qualified_name = qn;
     rt.short_name = short_name;
@@ -38,10 +38,10 @@ static void reg_type(CBMTypeRegistry* reg, const char* qn, const char* short_nam
 }
 
 // Helper: register a type with field names
-static void reg_type_with_fields(CBMTypeRegistry* reg, CBMArena* arena,
+static void reg_type_with_fields(CtxTypeRegistry* reg, CtxArena* arena,
     const char* qn, const char* short_name,
-    const char** fnames, const CBMType** ftypes) {
-    CBMRegisteredType rt;
+    const char** fnames, const CtxType** ftypes) {
+    CtxRegisteredType rt;
     memset(&rt, 0, sizeof(rt));
     rt.qualified_name = qn;
     rt.short_name = short_name;
@@ -51,35 +51,35 @@ static void reg_type_with_fields(CBMTypeRegistry* reg, CBMArena* arena,
 }
 
 // Helper: register a free function
-static void reg_func(CBMTypeRegistry* reg, CBMArena* arena,
-    const char* qn, const char* short_name, const CBMType* ret_type) {
-    CBMRegisteredFunc rf;
+static void reg_func(CtxTypeRegistry* reg, CtxArena* arena,
+    const char* qn, const char* short_name, const CtxType* ret_type) {
+    CtxRegisteredFunc rf;
     memset(&rf, 0, sizeof(rf));
     rf.min_params = -1;
     rf.qualified_name = qn;
     rf.short_name = short_name;
     rf.signature = ctx_type_func(arena, NULL, NULL,
-        ret_type ? (const CBMType*[]){ret_type, NULL} : NULL);
+        ret_type ? (const CtxType*[]){ret_type, NULL} : NULL);
     ctx_registry_add_func(reg, rf);
 }
 
-void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
-    const CBMType* t_void = ctx_type_builtin(arena, "void");
-    const CBMType* t_void_ptr = ctx_type_pointer(arena, t_void);
-    const CBMType* t_bool = ctx_type_builtin(arena, "bool");
-    const CBMType* t_int = ctx_type_builtin(arena, "int");
-    const CBMType* t_size_t = ctx_type_builtin(arena, "size_t");
-    const CBMType* t_long = ctx_type_builtin(arena, "long");
-    const CBMType* t_char = ctx_type_builtin(arena, "char");
-    const CBMType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "const char"));
+void ctx_cpp_stdlib_register(CtxTypeRegistry* reg, CtxArena* arena) {
+    const CtxType* t_void = ctx_type_builtin(arena, "void");
+    const CtxType* t_void_ptr = ctx_type_pointer(arena, t_void);
+    const CtxType* t_bool = ctx_type_builtin(arena, "bool");
+    const CtxType* t_int = ctx_type_builtin(arena, "int");
+    const CtxType* t_size_t = ctx_type_builtin(arena, "size_t");
+    const CtxType* t_long = ctx_type_builtin(arena, "long");
+    const CtxType* t_char = ctx_type_builtin(arena, "char");
+    const CtxType* t_char_ptr = ctx_type_pointer(arena, ctx_type_builtin(arena, "const char"));
 
     // =========================================================================
     // std.string
     // =========================================================================
     const char* string_qn = "std.string";
     reg_type(reg, string_qn, "string");
-    const CBMType* t_string = ctx_type_named(arena, string_qn);
-    const CBMType* t_string_ref = ctx_type_reference(arena, t_string);
+    const CtxType* t_string = ctx_type_named(arena, string_qn);
+    const CtxType* t_string_ref = ctx_type_reference(arena, t_string);
 
     reg_method(reg, arena, string_qn, "c_str", t_char_ptr);
     reg_method(reg, arena, string_qn, "data", t_char_ptr);
@@ -114,7 +114,7 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     reg_method(reg, arena, string_qn, "operator+=", t_string_ref);
     // Also register as std.basic_string alias
     {
-        CBMRegisteredType rt;
+        CtxRegisteredType rt;
         memset(&rt, 0, sizeof(rt));
         rt.qualified_name = "std.basic_string";
         rt.short_name = "basic_string";
@@ -142,9 +142,9 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* vec_qn = "std.vector";
     reg_type(reg, vec_qn, "vector");
-    const CBMType* t_T = ctx_type_type_param(arena, "T");
-    const CBMType* t_T_ref = ctx_type_reference(arena, t_T);
-    const CBMType* t_T_ptr = ctx_type_pointer(arena, t_T);
+    const CtxType* t_T = ctx_type_type_param(arena, "T");
+    const CtxType* t_T_ref = ctx_type_reference(arena, t_T);
+    const CtxType* t_T_ptr = ctx_type_pointer(arena, t_T);
 
     reg_method(reg, arena, vec_qn, "push_back", t_void);
     reg_method(reg, arena, vec_qn, "emplace_back", t_void);
@@ -171,8 +171,8 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* map_qn = "std.map";
     reg_type(reg, map_qn, "map");
-    const CBMType* t_V = ctx_type_type_param(arena, "V");
-    const CBMType* t_V_ref = ctx_type_reference(arena, t_V);
+    const CtxType* t_V = ctx_type_type_param(arena, "V");
+    const CtxType* t_V_ref = ctx_type_reference(arena, t_V);
 
     reg_method(reg, arena, map_qn, "operator[]", t_V_ref);
     reg_method(reg, arena, map_qn, "at", t_V_ref);
@@ -290,8 +290,8 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     const char* pair_qn = "std.pair";
     {
         static const char* pair_field_names[] = {"first", "second", NULL};
-        const CBMType** pair_field_types = (const CBMType**)ctx_arena_alloc(arena,
-            3 * sizeof(const CBMType*));
+        const CtxType** pair_field_types = (const CtxType**)ctx_arena_alloc(arena,
+            3 * sizeof(const CtxType*));
         pair_field_types[0] = ctx_type_type_param(arena, "T1");
         pair_field_types[1] = ctx_type_type_param(arena, "T2");
         pair_field_types[2] = NULL;
@@ -333,7 +333,7 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* os_qn = "std.ostream";
     reg_type(reg, os_qn, "ostream");
-    const CBMType* t_ostream_ref = ctx_type_reference(arena, ctx_type_named(arena, os_qn));
+    const CtxType* t_ostream_ref = ctx_type_reference(arena, ctx_type_named(arena, os_qn));
     reg_method(reg, arena, os_qn, "operator<<", t_ostream_ref);
     reg_method(reg, arena, os_qn, "write", t_ostream_ref);
     reg_method(reg, arena, os_qn, "flush", t_ostream_ref);
@@ -345,7 +345,7 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
 
     const char* is_qn = "std.istream";
     reg_type(reg, is_qn, "istream");
-    const CBMType* t_istream_ref = ctx_type_reference(arena, ctx_type_named(arena, is_qn));
+    const CtxType* t_istream_ref = ctx_type_reference(arena, ctx_type_named(arena, is_qn));
     reg_method(reg, arena, is_qn, "operator>>", t_istream_ref);
     reg_method(reg, arena, is_qn, "read", t_istream_ref);
     reg_method(reg, arena, is_qn, "getline", t_istream_ref);
@@ -369,7 +369,7 @@ void ctx_cpp_stdlib_register(CBMTypeRegistry* reg, CBMArena* arena) {
     // =========================================================================
     const char* fspath_qn = "std.filesystem.path";
     reg_type(reg, fspath_qn, "path");
-    const CBMType* t_path = ctx_type_named(arena, fspath_qn);
+    const CtxType* t_path = ctx_type_named(arena, fspath_qn);
     reg_method(reg, arena, fspath_qn, "string", t_string);
     reg_method(reg, arena, fspath_qn, "c_str", t_char_ptr);
     reg_method(reg, arena, fspath_qn, "extension", t_path);

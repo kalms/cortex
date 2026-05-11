@@ -7,6 +7,6 @@
 // Re-parses <script> blocks with TS/JS grammar and walks <template> for
 // component references and directive attributes.
 // Called from ctx_extract_file() when language is CTX_LANG_VUE or CTX_LANG_SVELTE.
-void ctx_extract_sfc(CBMExtractCtx *ctx);
+void ctx_extract_sfc(CtxExtractCtx *ctx);
 
 #endif // CTX_EXTRACT_SFC_H

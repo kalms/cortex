@@ -49,7 +49,7 @@ struct ctx_watcher {
     ctx_store_t *store;
     ctx_index_fn index_fn;
     void *user_data;
-    CBMHashTable *projects; /* name → project_state_t* */
+    CtxHashTable *projects; /* name → project_state_t* */
     atomic_int stopped;
 };
 

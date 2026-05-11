@@ -68,33 +68,33 @@ struct ctx_gbuf {
     CTX_DYN_ARRAY(ctx_gbuf_node_t *) nodes;
 
     /* Primary index: QN → ctx_gbuf_node_t* */
-    CBMHashTable *node_by_qn;
+    CtxHashTable *node_by_qn;
     /* Primary index: "id" string → ctx_gbuf_node_t* */
-    CBMHashTable *node_by_id;
+    CtxHashTable *node_by_id;
 
     /* Secondary node indexes */
-    CBMHashTable *nodes_by_label; /* key: label, value: (node_ptr_array_t*) */
-    CBMHashTable *nodes_by_name;  /* key: name, value: (node_ptr_array_t*) */
+    CtxHashTable *nodes_by_label; /* key: label, value: (node_ptr_array_t*) */
+    CtxHashTable *nodes_by_name;  /* key: name, value: (node_ptr_array_t*) */
 
     /* Edge storage: array of pointers to individually heap-allocated edges */
     CTX_DYN_ARRAY(ctx_gbuf_edge_t *) edges;
 
     /* Edge dedup index: "srcID:tgtID:type" → ctx_gbuf_edge_t* */
-    CBMHashTable *edge_by_key;
+    CtxHashTable *edge_by_key;
 
     /* Edge secondary indexes: composite keys → edge_ptr_array_t */
-    CBMHashTable *edges_by_source_type; /* "srcID:type" → edge_ptr_array_t* */
-    CBMHashTable *edges_by_target_type; /* "tgtID:type" → edge_ptr_array_t* */
-    CBMHashTable *edges_by_type;        /* "type" → edge_ptr_array_t* */
+    CtxHashTable *edges_by_source_type; /* "srcID:type" → edge_ptr_array_t* */
+    CtxHashTable *edges_by_target_type; /* "tgtID:type" → edge_ptr_array_t* */
+    CtxHashTable *edges_by_type;        /* "type" → edge_ptr_array_t* */
 
     /* Vector storage for semantic embeddings (filled by pass_semantic_edges,
      * consumed by ctx_write_db during dump). */
-    CBMDumpVector *dump_vectors;
+    CtxDumpVector *dump_vectors;
     int dump_vector_count;
     int dump_vector_cap;
 
     /* Token vector storage for enriched RI vectors (query-time lookup). */
-    CBMDumpTokenVec *dump_token_vecs;
+    CtxDumpTokenVec *dump_token_vecs;
     int dump_token_vec_count;
     int dump_token_vec_cap;
 };
@@ -118,7 +118,7 @@ static void make_src_type_key(char *buf, size_t bufsz, int64_t src, const char *
 }
 
 /* Get or create a node_ptr_array_t in a hash table */
-static node_ptr_array_t *get_or_create_node_array(CBMHashTable *ht, const char *key) {
+static node_ptr_array_t *get_or_create_node_array(CtxHashTable *ht, const char *key) {
     node_ptr_array_t *arr = ctx_ht_get(ht, key);
     if (!arr) {
         arr = calloc(CTX_ALLOC_ONE, sizeof(node_ptr_array_t));
@@ -128,7 +128,7 @@ static node_ptr_array_t *get_or_create_node_array(CBMHashTable *ht, const char *
 }
 
 /* Get or create an edge_ptr_array_t in a hash table */
-static edge_ptr_array_t *get_or_create_edge_array(CBMHashTable *ht, const char *key) {
+static edge_ptr_array_t *get_or_create_edge_array(CtxHashTable *ht, const char *key) {
     edge_ptr_array_t *arr = ctx_ht_get(ht, key);
     if (!arr) {
         arr = calloc(CTX_ALLOC_ONE, sizeof(edge_ptr_array_t));
@@ -234,7 +234,7 @@ static void unindex_edge(ctx_gbuf_t *gb, const ctx_gbuf_edge_t *e) {
 }
 
 /* Cascade-delete all edges touching nodes in deleted_set. */
-static void cascade_delete_edges(ctx_gbuf_t *gb, CBMHashTable *deleted_set) {
+static void cascade_delete_edges(ctx_gbuf_t *gb, CtxHashTable *deleted_set) {
     int write_idx = 0;
     for (int i = 0; i < gb->edges.count; i++) {
         ctx_gbuf_edge_t *e = gb->edges.items[i];
@@ -282,7 +282,7 @@ static void edge_array_push(edge_ptr_array_t *arr, const ctx_gbuf_edge_t *edge) 
 }
 
 /* Index an edge by one key into a hash table bucket. */
-static void index_edge_by_key(CBMHashTable *ht, const char *key, ctx_gbuf_edge_t *edge) {
+static void index_edge_by_key(CtxHashTable *ht, const char *key, ctx_gbuf_edge_t *edge) {
     edge_ptr_array_t *arr = get_or_create_edge_array(ht, key);
     edge_array_push(arr, (const ctx_gbuf_edge_t *)edge);
 }
@@ -462,7 +462,7 @@ int ctx_gbuf_store_vector(ctx_gbuf_t *gb, int64_t node_id, const uint8_t *vector
     if (gb->dump_vector_count >= gb->dump_vector_cap) {
         int new_cap =
             gb->dump_vector_cap < VEC_INIT_CAP ? VEC_INIT_CAP : gb->dump_vector_cap * VEC_GROW;
-        CBMDumpVector *grown = realloc(gb->dump_vectors, (size_t)new_cap * sizeof(CBMDumpVector));
+        CtxDumpVector *grown = realloc(gb->dump_vectors, (size_t)new_cap * sizeof(CtxDumpVector));
         if (!grown) {
             return GB_ERR;
         }
@@ -476,7 +476,7 @@ int ctx_gbuf_store_vector(ctx_gbuf_t *gb, int64_t node_id, const uint8_t *vector
     }
     memcpy(vec_copy, vector, (size_t)vector_len);
 
-    gb->dump_vectors[gb->dump_vector_count++] = (CBMDumpVector){
+    gb->dump_vectors[gb->dump_vector_count++] = (CtxDumpVector){
         .node_id = node_id,
         .project = gb->project, /* borrowed — valid until gbuf_free */
         .vector = vec_copy,
@@ -494,8 +494,8 @@ int ctx_gbuf_store_token_vector(ctx_gbuf_t *gb, const char *token, const uint8_t
     if (gb->dump_token_vec_count >= gb->dump_token_vec_cap) {
         int new_cap =
             gb->dump_token_vec_cap < TV_INIT_CAP ? TV_INIT_CAP : gb->dump_token_vec_cap * TV_GROW;
-        CBMDumpTokenVec *grown =
-            realloc(gb->dump_token_vecs, (size_t)new_cap * sizeof(CBMDumpTokenVec));
+        CtxDumpTokenVec *grown =
+            realloc(gb->dump_token_vecs, (size_t)new_cap * sizeof(CtxDumpTokenVec));
         if (!grown) {
             return GB_ERR;
         }
@@ -509,7 +509,7 @@ int ctx_gbuf_store_token_vector(ctx_gbuf_t *gb, const char *token, const uint8_t
     memcpy(vec_copy, vector, (size_t)vector_len);
 
     int idx = gb->dump_token_vec_count;
-    gb->dump_token_vecs[idx] = (CBMDumpTokenVec){
+    gb->dump_token_vecs[idx] = (CtxDumpTokenVec){
         .id = idx + SKIP_ONE, /* 1-based sequential ID */
         .project = gb->project,
         .token = strdup(token),
@@ -661,7 +661,7 @@ int ctx_gbuf_delete_by_label(ctx_gbuf_t *gb, const char *label) {
     }
 
     /* Build hash set of deleted node IDs for O(1) lookup */
-    CBMHashTable *deleted_set = ctx_ht_create(arr->count);
+    CtxHashTable *deleted_set = ctx_ht_create(arr->count);
     for (int i = 0; i < arr->count; i++) {
         const ctx_gbuf_node_t *n = arr->items[i];
 
@@ -693,7 +693,7 @@ int ctx_gbuf_delete_by_file(ctx_gbuf_t *gb, const char *file_path) {
     }
 
     /* Collect IDs of nodes in this file */
-    CBMHashTable *deleted_set = ctx_ht_create(CTX_SZ_64);
+    CtxHashTable *deleted_set = ctx_ht_create(CTX_SZ_64);
     int deleted_count = 0;
     int scanned = 0;
 
@@ -1032,7 +1032,7 @@ static void free_remap_entry(const char *key, void *val, void *ud) {
 
 /* Handle QN collision: update dst node fields (src wins), record remap if IDs differ. */
 static void merge_update_existing(ctx_gbuf_node_t *existing, const ctx_gbuf_node_t *sn,
-                                  CBMHashTable **remap) {
+                                  CtxHashTable **remap) {
     free(existing->label);
     existing->label = heap_strdup(sn->label);
     free(existing->name);
@@ -1084,7 +1084,7 @@ static void merge_copy_new_node(ctx_gbuf_t *dst, const ctx_gbuf_node_t *sn) {
 }
 
 /* Remap edge IDs using the collision remap table and insert into dst. */
-static void merge_remap_edges(ctx_gbuf_t *dst, ctx_gbuf_t *src, CBMHashTable *remap) {
+static void merge_remap_edges(ctx_gbuf_t *dst, ctx_gbuf_t *src, CtxHashTable *remap) {
     for (int i = 0; i < src->edges.count; i++) {
         ctx_gbuf_edge_t *se = src->edges.items[i];
 
@@ -1120,7 +1120,7 @@ int ctx_gbuf_merge(ctx_gbuf_t *dst, ctx_gbuf_t *src) {
 
     /* ID remap for QN-colliding nodes: "src_id" → (int64_t*) dst_id.
      * Only populated when a src node's QN already exists in dst. */
-    CBMHashTable *remap = NULL;
+    CtxHashTable *remap = NULL;
 
     for (int i = 0; i < src->nodes.count; i++) {
         ctx_gbuf_node_t *sn = src->nodes.items[i];
@@ -1179,15 +1179,15 @@ static int64_t remap_id(const int64_t *temp_to_final, int64_t max_temp_id, int64
 
 /* Build dump-ready node array with sequential IDs. Populates temp_to_final mapping. */
 static int cmp_dump_vectors_by_id(const void *a, const void *b) {
-    int64_t da = ((const CBMDumpVector *)a)->node_id;
-    int64_t db = ((const CBMDumpVector *)b)->node_id;
+    int64_t da = ((const CtxDumpVector *)a)->node_id;
+    int64_t db = ((const CtxDumpVector *)b)->node_id;
     return (da > db) - (da < db);
 }
 
-static CBMDumpNode *build_dump_nodes(ctx_gbuf_t *gb, int live_count, int64_t *temp_to_final,
+static CtxDumpNode *build_dump_nodes(ctx_gbuf_t *gb, int live_count, int64_t *temp_to_final,
                                      int64_t max_temp_id, int *out_count) {
-    CBMDumpNode *dump_nodes =
-        malloc((size_t)(live_count > 0 ? live_count : SKIP_ONE) * sizeof(CBMDumpNode));
+    CtxDumpNode *dump_nodes =
+        malloc((size_t)(live_count > 0 ? live_count : SKIP_ONE) * sizeof(CtxDumpNode));
     int idx = 0;
 
     for (int i = 0; i < gb->nodes.count; i++) {
@@ -1203,7 +1203,7 @@ static CBMDumpNode *build_dump_nodes(ctx_gbuf_t *gb, int live_count, int64_t *te
 
         const char *fp = n->file_path ? n->file_path : "";
         const char *props = n->properties_json ? n->properties_json : "{}";
-        dump_nodes[idx] = (CBMDumpNode){
+        dump_nodes[idx] = (CtxDumpNode){
             .id = final_id,
             .project = gb->project,
             .label = n->label,
@@ -1222,7 +1222,7 @@ static CBMDumpNode *build_dump_nodes(ctx_gbuf_t *gb, int live_count, int64_t *te
 }
 
 /* Build dump-ready edge array with remapped IDs. Returns url_paths via out param. */
-static CBMDumpEdge *build_dump_edges(ctx_gbuf_t *gb, const int64_t *temp_to_final,
+static CtxDumpEdge *build_dump_edges(ctx_gbuf_t *gb, const int64_t *temp_to_final,
                                      int64_t max_temp_id, int *out_count, char ***out_url_paths) {
     /* Count valid edges (both endpoints resolved) */
     int valid_edges = 0;
@@ -1234,8 +1234,8 @@ static CBMDumpEdge *build_dump_edges(ctx_gbuf_t *gb, const int64_t *temp_to_fina
         }
     }
 
-    CBMDumpEdge *dump_edges =
-        malloc((size_t)(valid_edges > 0 ? valid_edges : SKIP_ONE) * sizeof(CBMDumpEdge));
+    CtxDumpEdge *dump_edges =
+        malloc((size_t)(valid_edges > 0 ? valid_edges : SKIP_ONE) * sizeof(CtxDumpEdge));
     char **url_paths = calloc((size_t)(valid_edges > 0 ? valid_edges : SKIP_ONE), sizeof(char *));
     int idx = 0;
 
@@ -1251,7 +1251,7 @@ static CBMDumpEdge *build_dump_edges(ctx_gbuf_t *gb, const int64_t *temp_to_fina
         url_paths[idx] = url_path;
 
         const char *props = e->properties_json ? e->properties_json : "{}";
-        dump_edges[idx] = (CBMDumpEdge){
+        dump_edges[idx] = (CtxDumpEdge){
             .id = idx + SKIP_ONE,
             .project = gb->project,
             .source_id = src,
@@ -1294,7 +1294,7 @@ static void remap_sort_dedup_vectors(ctx_gbuf_t *gb, const int64_t *temp_to_fina
     gb->dump_vector_count = remapped;
 
     if (gb->dump_vector_count >= GB_MIN_FOR_DEDUP) {
-        qsort(gb->dump_vectors, (size_t)gb->dump_vector_count, sizeof(CBMDumpVector),
+        qsort(gb->dump_vectors, (size_t)gb->dump_vector_count, sizeof(CtxDumpVector),
               cmp_dump_vectors_by_id);
         int deduped = 0;
         for (int i = 0; i < gb->dump_vector_count; i++) {
@@ -1316,8 +1316,8 @@ static void log_dump_summary(int node_count, int edge_count) {
     ctx_log_info("gbuf.dump", "nodes", b1, "edges", b2);
 }
 
-static void free_dump_resources(char **url_paths, int edge_count, CBMDumpEdge *dump_edges,
-                                CBMDumpNode *dump_nodes, int64_t *temp_to_final) {
+static void free_dump_resources(char **url_paths, int edge_count, CtxDumpEdge *dump_edges,
+                                CtxDumpNode *dump_nodes, int64_t *temp_to_final) {
     for (int i = 0; i < edge_count; i++) {
         free(url_paths[i]);
     }
@@ -1376,14 +1376,14 @@ int ctx_gbuf_dump_to_sqlite(ctx_gbuf_t *gb, const char *path) {
     }
 
     int node_idx = 0;
-    CBMDumpNode *dump_nodes =
+    CtxDumpNode *dump_nodes =
         build_dump_nodes(gb, live_count, temp_to_final, max_temp_id, &node_idx);
     CTX_PROF_END_N("dump", "2_build_dump_nodes", t_build_nodes, node_idx);
 
     CTX_PROF_START(t_build_edges);
     int edge_idx = 0;
     char **url_paths = NULL;
-    CBMDumpEdge *dump_edges =
+    CtxDumpEdge *dump_edges =
         build_dump_edges(gb, temp_to_final, max_temp_id, &edge_idx, &url_paths);
     CTX_PROF_END_N("dump", "3_build_dump_edges", t_build_edges, edge_idx);
 
