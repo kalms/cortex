@@ -1,0 +1,89 @@
+{
+  "generated_at": "2026-05-11T13:50:38.148Z",
+  "indexer_version": "cortex-indexer 0.1.0",
+  "repos": [
+    {
+      "slug": "millionco/react-doctor",
+      "url": "https://github.com/millionco/react-doctor",
+      "archetype": "ts-tooling",
+      "notes": "small TS focused React linter (trending 2026-05-11)",
+      "commit_sha": "052cd20aa4a4a6a8caa47ea3348aedbca95f2222",
+      "tree_sha": "737dacbe08cb9fcc4c5c3bbf85979f477ea45e48",
+      "indexed_at": "2026-05-11T13:50:39.524Z",
+      "index_duration_ms": 492,
+      "stats": {
+        "entity_count": 2589,
+        "edge_count": 4179,
+        "edge_density": 1.61,
+        "file_count": 332,
+        "directory_depth_max": 8,
+        "directory_depth_p50": 4,
+        "language_mix": {
+          "ts": 0.509,
+          "<none>": 0.1717,
+          "tsx": 0.1446,
+          "md": 0.1355,
+          "json": 0.012,
+          "yaml": 0.012,
+          "yml": 0.009,
+          "js": 0.003,
+          "css": 0.003
+        },
+        "kind_mix": {
+          "function": 792,
+          "variable": 744,
+          "section": 316,
+          "file": 275,
+          "module": 275,
+          "interface": 110,
+          "folder": 56,
+          "type": 6,
+          "class": 5,
+          "method": 5,
+          "route": 4,
+          "project": 1
+        }
+      }
+    },
+    {
+      "slug": "rasbt/LLMs-from-scratch",
+      "url": "https://github.com/rasbt/LLMs-from-scratch",
+      "archetype": "research-notebook",
+      "notes": "matches spec's research/notebook archetype",
+      "commit_sha": "d12a5da5d26faf8013259ed44dc09ed180c154af",
+      "tree_sha": "714933de2f7851130b5650db0a6ceef818f01100",
+      "indexed_at": "2026-05-11T13:50:41.268Z",
+      "index_duration_ms": 582,
+      "stats": {
+        "entity_count": 2451,
+        "edge_count": 6238,
+        "edge_density": 2.55,
+        "file_count": 318,
+        "directory_depth_max": 4,
+        "directory_depth_p50": 2,
+        "language_mix": {
+          "5": 0.0031,
+          "py": 0.4245,
+          "<none>": 0.2736,
+          "md": 0.2201,
+          "yml": 0.0377,
+          "json": 0.0314,
+          "toml": 0.0063,
+          "yaml": 0.0031
+        },
+        "kind_mix": {
+          "function": 605,
+          "method": 573,
+          "section": 269,
+          "class": 265,
+          "file": 231,
+          "module": 231,
+          "variable": 189,
+          "folder": 86,
+          "project": 1,
+          "route": 1
+        }
+      }
+    }
+  ]
+}
