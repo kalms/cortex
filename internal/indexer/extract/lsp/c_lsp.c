@@ -301,8 +301,17 @@ static void c_resolve_pending_template_calls(CLSPContext* ctx,
     // Match call arg types against function param types to deduce type params
     if (callee->signature && callee->signature->kind == CTX_TYPE_FUNC &&
         callee->signature->data.func.param_types) {
-        for (int i = 0; i < call_arg_count; i++) {
-            const CtxType* formal = callee->signature->data.func.param_types[i];
+        // param_types is a NULL-terminated array. Without bounding the loop by
+        // its length, variadic templates or overload mismatches read past the
+        // end into arbitrary memory (caught by ASan/UBSan as a misaligned
+        // CtxType access — typically picks up neighbouring path strings).
+        int param_types_count = 0;
+        const CtxType** pts = callee->signature->data.func.param_types;
+        while (pts[param_types_count]) param_types_count++;
+        int iter_count = call_arg_count < param_types_count ? call_arg_count
+                                                            : param_types_count;
+        for (int i = 0; i < iter_count; i++) {
+            const CtxType* formal = pts[i];
             if (!formal || !call_arg_types[i]) continue;
             // Unwrap references/pointers
             while (formal && (formal->kind == CTX_TYPE_REFERENCE ||
@@ -1774,10 +1783,15 @@ static const CtxType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 }
             }
 
-            // Unwrap references in return type
+            // Unwrap references in return type. `ret` may be NULL here:
+            // ctx_type_substitute can return NULL when called with a NULL
+            // ret (e.g. function return_types[0] was empty for a void-returning
+            // template); and return_types[0] itself may be NULL even before
+            // substitution. Fall back to unknown rather than dereferencing.
+            if (!ret) return ctx_type_unknown();
             if (ret->kind == CTX_TYPE_REFERENCE || ret->kind == CTX_TYPE_RVALUE_REF)
                 ret = ret->data.reference.elem;
-            return ret;
+            return ret ? ret : ctx_type_unknown();
         }
 
         // Constructor call: Type(args) — if func_node resolves to a named type
@@ -1831,6 +1845,7 @@ static const CtxType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
                 op->signature->data.func.return_types && op->signature->data.func.return_types[0]) {
                 const CtxType* ret = op->signature->data.func.return_types[0];
                 if (ret->kind == CTX_TYPE_REFERENCE) ret = ret->data.reference.elem;
+                if (!ret) return ctx_type_unknown();
 
                 // Substitute template params
                 if (ret->kind == CTX_TYPE_TYPE_PARAM && arr_type->kind == CTX_TYPE_TEMPLATE) {
@@ -2213,8 +2228,17 @@ static const CtxType* c_eval_expr_type_inner(CLSPContext* ctx, TSNode node) {
 // c_lookup_member: method/field lookup with base class traversal
 // ============================================================================
 
-const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name) {
+/* c_lookup_member walks alias chains + base classes, recursing into itself
+ * at three points. Tensorflow's XLA codebase triggers stack overflows here
+ * — likely a cycle (A inherits from B, B inherits from A, or A is alias of
+ * itself transitively). Match the depth limit used by the sibling
+ * c_lookup_field_type. */
+enum { CTX_LOOKUP_MEMBER_MAX_DEPTH = 16 };
+
+static const CtxRegisteredFunc* c_lookup_member_at(CLSPContext* ctx, const char* type_qn,
+                                                   const char* member_name, int depth) {
     if (!type_qn || !member_name) return NULL;
+    if (depth > CTX_LOOKUP_MEMBER_MAX_DEPTH) return NULL;
 
     // Direct method lookup
     const CtxRegisteredFunc* f = ctx_registry_lookup_method(ctx->registry, type_qn, member_name);
@@ -2236,7 +2260,7 @@ const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
             if (underlying && !ctx_type_is_unknown(underlying)) {
                 const char* alias_target_qn = type_to_qn(underlying);
                 if (alias_target_qn) {
-                    f = c_lookup_member(ctx, alias_target_qn, member_name);
+                    f = c_lookup_member_at(ctx, alias_target_qn, member_name, depth + 1);
                     if (f) return f;
                 }
             }
@@ -2252,20 +2276,24 @@ const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, 
     if (rt) {
         // Alias chain
         if (rt->alias_of) {
-            f = c_lookup_member(ctx, rt->alias_of, member_name);
+            f = c_lookup_member_at(ctx, rt->alias_of, member_name, depth + 1);
             if (f) return f;
         }
 
         // Base classes (embedded_types stores base class QNs)
         if (rt->embedded_types) {
             for (int i = 0; rt->embedded_types[i]; i++) {
-                f = c_lookup_member(ctx, rt->embedded_types[i], member_name);
+                f = c_lookup_member_at(ctx, rt->embedded_types[i], member_name, depth + 1);
                 if (f) return f;
             }
         }
     }
 
     return NULL;
+}
+
+const CtxRegisteredFunc* c_lookup_member(CLSPContext* ctx, const char* type_qn, const char* member_name) {
+    return c_lookup_member_at(ctx, type_qn, member_name, 0);
 }
 
 // Field type lookup

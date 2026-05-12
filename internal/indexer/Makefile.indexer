@@ -469,6 +469,22 @@ indexer: $(BUILD_DIR)/cortex-indexer
 # (e.g. older copies of scripts/build-indexer.sh) may still invoke `cbm`.
 cbm: indexer
 
+# ── ASan-instrumented indexer (diagnostic) ──────────────────────────
+# Builds the production binary with AddressSanitizer + UBSan. Same
+# entry point as the production indexer, but everything is recompiled
+# with -fsanitize=address,undefined (including vendored deps via
+# OBJS_VENDORED_TEST). Slower at runtime (~2-5x); intended for tracking
+# down memory corruption like the c_resolve_pending_template_calls bug.
+$(BUILD_DIR)/cortex-indexer-asan: $(MAIN_SRC) $(PROD_SRCS) $(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) $(OBJS_VENDORED_TEST) | $(BUILD_DIR)
+	$(CC) $(CFLAGS_TEST) -o $@ \
+		$(MAIN_SRC) $(PROD_SRCS) \
+		$(EXTRACTION_SRCS) $(AC_LZ4_SRCS) $(SQLITE_WRITER_SRC) \
+		$(OBJS_VENDORED_TEST) \
+		$(LDFLAGS_TEST)
+
+indexer-asan: $(BUILD_DIR)/cortex-indexer-asan
+	@echo "Built: $(BUILD_DIR)/cortex-indexer-asan"
+
 clean-c:
 	rm -rf $(BUILD_DIR)
 
