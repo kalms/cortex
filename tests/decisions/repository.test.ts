@@ -70,3 +70,46 @@ describe("DecisionsRepository", () => {
     expect(repo.get("missing")).toBeNull();
   });
 });
+
+describe("DecisionsRepository search", () => {
+  let root: string;
+  let db: Database.Database;
+  let repo: DecisionsRepository;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "cortex-test-"));
+    db = openDecisionsDb(join(root, "decisions.db"));
+    repo = new DecisionsRepository(db);
+    repo.insert({
+      id: "d1", title: "Use vitest", description: "vitest is fast.",
+      rationale: "Single runner across packages.",
+      problem: "Mixed jest/mocha.", resolution: "Convert.",
+      alternatives: null, tier: "personal", status: "active",
+      superseded_by: null, author: null,
+      created_at: "2026-05-14T10:00:00Z", updated_at: "2026-05-14T10:00:00Z",
+    });
+    repo.insert({
+      id: "d2", title: "Use mimalloc", description: "Replace system malloc.",
+      rationale: "Lower RSS, better fragmentation behavior.",
+      problem: null, resolution: null,
+      alternatives: null, tier: "personal", status: "active",
+      superseded_by: null, author: null,
+      created_at: "2026-05-14T11:00:00Z", updated_at: "2026-05-14T11:00:00Z",
+    });
+  });
+  afterEach(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  it("search matches against title", () => {
+    const hits = repo.search("vitest");
+    expect(hits.map((h) => h.id)).toEqual(["d1"]);
+  });
+
+  it("search matches against rationale text", () => {
+    const hits = repo.search("fragmentation");
+    expect(hits.map((h) => h.id)).toEqual(["d2"]);
+  });
+
+  it("search returns empty array on no match", () => {
+    expect(repo.search("zzz_no_match")).toEqual([]);
+  });
+});

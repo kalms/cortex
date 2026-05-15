@@ -27,27 +27,51 @@ export class DecisionsRepository {
   constructor(private db: Database.Database) {}
 
   insert(rec: DecisionRecord): void {
-    this.db
-      .prepare(
-        `INSERT INTO decisions (${SELECT_COLS}) VALUES
-         (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
-          @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
-      )
-      .run(rec);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO decisions (${SELECT_COLS}) VALUES
+           (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
+            @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
+        )
+        .run(rec);
+      this.db
+        .prepare(
+          `INSERT INTO decisions_fts (rowid, title, description, rationale, problem, resolution)
+           SELECT rowid, title, description, rationale, problem, resolution FROM decisions WHERE id = ?`,
+        )
+        .run(rec.id);
+    })();
   }
 
   update(id: string, patch: DecisionUpdate): void {
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
     const setClause = keys.map((k) => `${k} = @${k}`).join(", ");
-    this.db
-      .prepare(`UPDATE decisions SET ${setClause} WHERE id = @id`)
-      .run({ ...patch, id });
+    this.db.transaction(() => {
+      this.db
+        .prepare(`UPDATE decisions SET ${setClause} WHERE id = @id`)
+        .run({ ...patch, id });
+      this.db
+        .prepare(`DELETE FROM decisions_fts WHERE rowid = (SELECT rowid FROM decisions WHERE id = ?)`)
+        .run(id);
+      this.db
+        .prepare(
+          `INSERT INTO decisions_fts (rowid, title, description, rationale, problem, resolution)
+           SELECT rowid, title, description, rationale, problem, resolution FROM decisions WHERE id = ?`,
+        )
+        .run(id);
+    })();
   }
 
   delete(id: string): boolean {
-    const info = this.db.prepare("DELETE FROM decisions WHERE id = ?").run(id);
-    return info.changes > 0;
+    return this.db.transaction(() => {
+      this.db
+        .prepare(`DELETE FROM decisions_fts WHERE rowid = (SELECT rowid FROM decisions WHERE id = ?)`)
+        .run(id);
+      const info = this.db.prepare("DELETE FROM decisions WHERE id = ?").run(id);
+      return info.changes > 0;
+    })();
   }
 
   get(id: string): DecisionRecord | null {
@@ -61,5 +85,18 @@ export class DecisionsRepository {
     return this.db
       .prepare(`SELECT ${SELECT_COLS} FROM decisions ORDER BY created_at DESC`)
       .all() as DecisionRecord[];
+  }
+
+  search(query: string): DecisionRecord[] {
+    if (!query.trim()) return [];
+    return this.db
+      .prepare(
+        `SELECT ${SELECT_COLS.split(", ").map((c) => "d." + c).join(", ")}
+         FROM decisions d
+         JOIN decisions_fts f ON f.rowid = d.rowid
+         WHERE decisions_fts MATCH ?
+         ORDER BY rank`,
+      )
+      .all(query) as DecisionRecord[];
   }
 }
