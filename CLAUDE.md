@@ -1,38 +1,70 @@
 # Cortex — Agent Instructions
 
-## Code Search
+## First thing every session
 
-When searching source code, prefer `search_code` over Grep — it returns the same matches but annotates each one with the function, class, or module it belongs to. This gives you immediate structural context without needing a follow-up read.
+1. Run `index_status` against the cwd. If the repo is not indexed, run
+   `index_repository` before any code exploration. Without an index,
+   `search_graph` / `get_code_snippet` / `trace_path` return empty and
+   you'll be forced back to `Grep`/`Read` — which loses all the structural
+   context Cortex provides.
+2. After a non-trivial commit on a code file, run `detect_changes` and
+   then incremental `index_repository` to keep the graph current.
 
-Use Grep when searching non-code files (configs, docs, JSON), or when you need regex features that `search_code` doesn't support.
+The plugin's SessionStart hook (`hooks/check-index.sh`) will tell you the
+current index state; act on it.
 
-## Decision Awareness
+## Tool routing — read this before reaching for Grep or Read
 
-Before modifying code, check if architectural decisions govern that area:
+| If you want to… | Use | Not |
+|---|---|---|
+| Find a function/class/route by name | `search_graph(name_pattern="…")` | `Grep`, `Glob` |
+| Read source for a known symbol | `get_code_snippet(qualified_name="…")` | `Read`, `cat`, `head` |
+| Find who calls X / what X calls | `trace_path(function_name, mode="callers"\|"calls")` | `Grep` for call sites |
+| Understand project shape | `get_architecture(aspects=…)` | manual `ls`/`find` |
+| Text search across code with structural annotation | `search_code(pattern="…")` | `Grep` |
+| Complex graph query | `query_graph(query=Cypher)` | grep + manual joins |
+| Check why code looks the way it does | `why_was_this_built(qualified_name="…")` | guessing |
+
+Fall back to `Grep`/`Glob`/`Read` only when:
+- the target is a non-code file (config, JSON, Markdown, log)
+- you need a regex feature `search_code` doesn't support
+- the Cortex tool returned empty AND you've confirmed the index is current
+
+## Decision capture — when to use it
+
+Capture a decision **proactively** when:
+- You picked one library / pattern / approach over another and the choice wasn't obvious
+- You introduced or changed a public API contract
+- You merged a non-trivial branch (anything not pure docs/typo)
+- You found a latent bug and chose a specific fix shape over alternatives
+- You changed a default that affects behavior on real workloads
+
+The shape:
+
+```
+search_decisions({ query: "relevant keywords" })   # Check for duplicates first
+create_decision({ title, description, rationale, alternatives, governs: ["path/or/qn"] })
+link_decision({ decision_id: "…", target: "…", relation: "GOVERNS" })
+```
+
+Before modifying existing code, check whether an existing decision governs
+that area:
 
 ```
 why_was_this_built({ qualified_name: "src/path/to/file.ts::functionName" })
 ```
 
-If a decision exists, consider whether your changes align with the rationale. If they don't, that may be intentional (the decision should be updated) or a signal to reconsider the approach.
-
-## Capturing Decisions
-
-When you make or discover an architectural choice — a technology pick, a pattern decision, a trade-off — capture it:
-
-```
-search_decisions({ query: "relevant keywords" })   # Check for duplicates first
-create_decision({ name: "...", description: "...", rationale: "...", alternatives: [...] })
-link_decision({ decision_id: "...", target: "...", relation: "GOVERNS" })
-```
+If a decision exists and your change contradicts it, that's a signal to
+either update the decision (with reasoning for the new direction) or
+reconsider the change.
 
 ## Tools Available
 
 ### Decision tools
-`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `link_decision`, `promote_decision`
+`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`
 
 ### Code tools
-`search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
+`search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
 
 ## Viewer
 
