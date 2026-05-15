@@ -10,6 +10,10 @@ import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionSearch } from "../../src/decisions/search.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
 import { PRService } from "../../src/prs/service.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { migrateDecisionsFromGraphDb } from "../../src/decisions/migration.js";
+import { DecisionsRepository } from "../../src/decisions/repository.js";
+import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -49,8 +53,21 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const store = new GraphStore(cortexDbPath);
 
-  const service = new DecisionService(store);
-  const search = new DecisionSearch(store);
+  // Sidecar decisions DB lives next to the per-test cortex.db copy so the
+  // tests are fully isolated. We run the migration against the graph DB so
+  // any pre-existing decisions in the fixture come along.
+  const decisionsDbPath = join(harnessDir, "decisions.db");
+  const decisionsDb = openDecisionsDb(decisionsDbPath);
+  migrateDecisionsFromGraphDb(decisionsDb, cortexDbPath);
+  const decisionsRepo = new DecisionsRepository(decisionsDb);
+  const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+
+  const service = new DecisionService({
+    decisions: decisionsRepo,
+    links: decisionLinksRepo,
+    project_id: project,
+  });
+  const search = new DecisionSearch(decisionsRepo, decisionLinksRepo);
   const promotion = new DecisionPromotion(store);
   const prService = new PRService(store, {
     default_actor: "tester",
@@ -60,7 +77,7 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project);
-  registerDecisionTools(server, service, search);
+  registerDecisionTools(server, service, search, decisionLinksRepo);
   registerPromotionTools(server, promotion);
   registerPRTools(server, prService);
 
@@ -81,6 +98,7 @@ export async function createHarness(): Promise<HarnessContext> {
       await client.close();
       await server.close();
       store.close();
+      try { decisionsDb.close(); } catch { /* ignore */ }
       try { rmSync(harnessDir, { recursive: true }); } catch { /* ignore */ }
     },
   };
