@@ -130,10 +130,7 @@ export class DecisionService {
 }
 
 function classifyTarget(target: string): TargetKind {
-  if (target.includes("::") || target.includes(".")) {
-    return target.includes("/") ? "path" : "qn";
-  }
-  return "qn";
+  return target.includes("/") ? "path" : "qn";
 }
 
 function toDecision(rec: DecisionRecord): Decision {
