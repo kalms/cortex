@@ -234,6 +234,12 @@ const BATCH: RepoSpec[] = [
     archetype: "ts-electron-app",
     notes: "privacy-focused browser shell — Electron + TS",
   },
+  {
+    slug: "tensorflow/tensorflow",
+    url: "https://github.com/tensorflow/tensorflow",
+    archetype: "cpp-large-ml",
+    notes: "scale test — large C++/Python ML framework, ~3M LOC, deep XLA templates",
+  },
 ];
 
 function main(): void {
