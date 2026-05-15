@@ -117,6 +117,96 @@ export class DecisionService {
     this.addLink(decisionId, classifyTarget(target), target, "REFERENCES", new Date().toISOString());
   }
 
+  supersede(input: SupersedeDecisionInput): Decision {
+    const replacement = this.create({
+      title: input.title,
+      description: input.resolution ?? "",
+      rationale: input.rationale,
+      alternatives: input.alternatives,
+      governs: input.governs,
+      references: input.references,
+      author: input.author,
+      problem: input.problem,
+      resolution: input.resolution,
+    });
+    this.update(input.old_decision_id, {
+      status: "superseded",
+      superseded_by: replacement.id,
+      author: input.author,
+    });
+    this.links.add({
+      decision_id: replacement.id,
+      target_kind: "decision",
+      target_ref: input.old_decision_id,
+      relation: "SUPERSEDES",
+      created_at: new Date().toISOString(),
+    });
+    this.emit({
+      id: newUlid(),
+      kind: "decision.superseded",
+      actor: input.author ?? "claude",
+      created_at: Date.now(),
+      project_id: this.projectId,
+      payload: { old_id: input.old_decision_id, new_id: replacement.id, reason: "" },
+    });
+    return replacement;
+  }
+
+  propose(input: ProposeDecisionInput): Decision {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const rec: DecisionRecord = {
+      id,
+      title: input.title,
+      description: input.resolution ?? null,
+      rationale: input.rationale,
+      problem: input.problem ?? null,
+      resolution: input.resolution ?? null,
+      alternatives: input.alternatives ? JSON.stringify(input.alternatives) : null,
+      tier: "personal",
+      status: "proposed",
+      superseded_by: null,
+      author: input.author ?? "claude",
+      created_at: now,
+      updated_at: now,
+    };
+    this.decisions.insert(rec);
+    for (const target of input.governs ?? []) this.linkGoverns(id, target);
+    for (const ref of input.references ?? []) this.linkReference(id, ref);
+    if (input.pr_number != null) {
+      this.links.add({
+        decision_id: id,
+        target_kind: "pr",
+        target_ref: String(input.pr_number),
+        relation: "PR_INTRODUCES_DECISION",
+        created_at: now,
+      });
+    }
+    this.emit({
+      id: newUlid(),
+      kind: "decision.proposed",
+      actor: rec.author ?? "claude",
+      project_id: this.projectId,
+      created_at: Date.now(),
+      payload: { decision_id: id, title: input.title, pr_number: input.pr_number ?? null },
+    });
+    return toDecision(rec);
+  }
+
+  linkRelatedTo(fromId: string, toId: string): void {
+    this.links.add({
+      decision_id: fromId, target_kind: "decision", target_ref: toId,
+      relation: "DECISION_RELATED_TO", created_at: new Date().toISOString(),
+    });
+  }
+
+  linkDependsOn(fromId: string, toId: string): void {
+    this.links.add({
+      decision_id: fromId, target_kind: "decision", target_ref: toId,
+      relation: "DECISION_DEPENDS_ON", created_at: new Date().toISOString(),
+    });
+  }
+
   private addLink(
     decisionId: string, kind: TargetKind, ref: string, relation: Relation, createdAt: string,
   ): void {
