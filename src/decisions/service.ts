@@ -193,6 +193,25 @@ export class DecisionService {
     return toDecision(rec);
   }
 
+  /**
+   * Transition a proposed decision into 'active'. Called by the PR service
+   * when a PR that introduced the decision is merged. Idempotent: no-op if
+   * the decision doesn't exist or isn't currently 'proposed'.
+   */
+  ratify(decisionId: string, viaPrNumber: number): void {
+    const existing = this.decisions.get(decisionId);
+    if (!existing || existing.status !== "proposed") return;
+    this.update(decisionId, { status: "active" });
+    this.emit({
+      id: newUlid(),
+      kind: "decision.ratified",
+      actor: existing.author ?? "claude",
+      project_id: this.projectId,
+      created_at: Date.now(),
+      payload: { decision_id: decisionId, via_pr_number: viaPrNumber },
+    });
+  }
+
   linkRelatedTo(fromId: string, toId: string): void {
     this.links.add({
       decision_id: fromId, target_kind: "decision", target_ref: toId,
