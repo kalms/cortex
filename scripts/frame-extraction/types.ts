@@ -60,3 +60,23 @@ export interface SurveyResult {
   /** Wall-clock seconds for the (clone + index + stats) pipeline. */
   elapsed_seconds: number;
 }
+
+/** Options controlling framework-aware path tokenization.
+ *  Defaults are baked into `tokenizePath`; callers override only when
+ *  exercising the service-suffix edge case (see frame-extraction.md
+ *  §Path tokenization). */
+export interface PathTokenizeOptions {
+  /** Strip role suffixes only when the prefix is itself a domain token
+   *  (i.e. not a member of `STRIP_SEGMENTS`). Defaults to true. */
+  service_suffix_aware: boolean;
+}
+
+/** Output of tokenizing a file path. `path_tokens` come from the stripped
+ *  path + filename stem; `symbol_tokens` come from the bare filename stem
+ *  only (after extension + role-suffix removal). Returned as ordered sets
+ *  (string[]) so callers can compute Jaccard, cosine, etc. without
+ *  re-sorting. */
+export interface PathTokens {
+  path_tokens: string[];
+  symbol_tokens: string[];
+}
