@@ -33,9 +33,14 @@ const DEFAULT_OPTS: PathTokenizeOptions = {
 };
 
 /** Split an identifier into lowercase word parts, handling camelCase,
- *  snake_case, kebab-case, and dotted (`foo.bar`) names uniformly. */
+ *  consecutive-uppercase runs (URLParser, XMLHttpRequest), snake_case,
+ *  kebab-case, and dotted (`foo.bar`) names uniformly. */
 function splitWords(s: string): string[] {
   return s
+    // First pass: insert space inside an uppercase run that's about to
+    // transition to a CamelCase word. URLParser → URL Parser; XMLHttp → XML Http.
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    // Second pass: lowercase→uppercase boundary. invoiceList → invoice List.
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(/[\s._\-/]+/)
     .map((w) => w.toLowerCase())

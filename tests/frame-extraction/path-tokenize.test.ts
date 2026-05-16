@@ -67,6 +67,14 @@ describe("tokenizePath — camel/snake/kebab splitting", () => {
     expect(tokenizePath("src/use-billing-state.ts").symbol_tokens).toEqual(["use", "billing", "state"]);
   });
 
+  it("splits consecutive-uppercase runs (acronyms)", () => {
+    // Regression: a regex that only handles lower→upper boundaries would
+    // leave URLParser as one token and only partially split XMLHttpRequest.
+    // Both should fully split.
+    expect(tokenizePath("src/URLParser.ts").symbol_tokens).toEqual(["url", "parser"]);
+    expect(tokenizePath("src/XMLHttpRequest.ts").symbol_tokens).toEqual(["xml", "http", "request"]);
+  });
+
   it("deduplicates within each token list (preserves first occurrence order)", () => {
     const { path_tokens } = tokenizePath("billing/billing/invoice.ts");
     expect(path_tokens).toEqual(["billing", "invoice"]);
