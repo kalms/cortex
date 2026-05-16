@@ -1,6 +1,7 @@
 import type { GraphStore } from "../graph/store.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
+import type { DecisionLinksRepository } from "../decisions/links-repository.js";
 import type {
   PullRequest,
   OpenPRInput,
@@ -18,6 +19,7 @@ export interface PRServiceDeps {
   default_actor?: string;
   project_id?: string;
   decisions?: import("../decisions/service.js").DecisionService;
+  links?: DecisionLinksRepository;
 }
 
 export class PRService {
@@ -25,12 +27,14 @@ export class PRService {
   private defaultActor: string;
   private projectId: string;
   private decisions?: import("../decisions/service.js").DecisionService;
+  private links?: DecisionLinksRepository;
 
   constructor(private store: GraphStore, deps: PRServiceDeps = {}) {
     this.bus = deps.bus;
     this.defaultActor = deps.default_actor ?? "system";
     this.projectId = deps.project_id ?? "";
     this.decisions = deps.decisions;
+    this.links = deps.links;
   }
 
   open(input: OpenPRInput): PullRequest {
@@ -125,19 +129,22 @@ export class PRService {
       data.last_activity_at = nowIso;
       this.store.updateNode(node.id, { data: JSON.stringify(data) });
 
-      // find introduced decisions still proposed
-      const introEdges = this.store
-        .findEdges({ source_id: node.id })
-        .filter((e) => e.relation === "PR_INTRODUCES_DECISION");
-
+      // find introduced decisions still proposed — links live in the
+      // decisions sidecar's decision_links table keyed by (pr, number).
       const ratified: string[] = [];
-      for (const e of introEdges) {
-        const dec = this.store.getNode(e.target_id);
-        if (!dec || dec.kind !== "decision") continue;
-        const dd = JSON.parse(dec.data || "{}");
-        if (dd.status === "proposed" && this.decisions) {
-          this.decisions.ratify(e.target_id, number);
-          ratified.push(e.target_id);
+      if (this.links && this.decisions) {
+        const introLinks = this.links.findByTarget(
+          "pr",
+          String(number),
+          "PR_INTRODUCES_DECISION",
+        );
+        for (const link of introLinks) {
+          const dec = this.decisions.get(link.decision_id);
+          if (!dec) continue;
+          if (dec.status === "proposed") {
+            this.decisions.ratify(link.decision_id, number);
+            ratified.push(link.decision_id);
+          }
         }
       }
 
@@ -158,8 +165,15 @@ export class PRService {
     if (!base) return null;
     const outEdges = this.store.findEdges({ source_id: base.id });
 
-    const pick = (relation: string): string[] =>
-      outEdges.filter((e) => e.relation === relation).map((e) => e.target_id);
+    // PR <-> decision links now live in the decisions sidecar's
+    // decision_links table, keyed by target_kind='pr' and target_ref=String(number).
+    const decisionLinks = this.links
+      ? this.links.findByTarget("pr", String(number))
+      : [];
+    const pickDecisions = (relation: string): string[] =>
+      decisionLinks
+        .filter((l) => l.relation === relation)
+        .map((l) => l.decision_id);
 
     const linkedPrs = outEdges
       .filter((e) => e.relation === "PR_LINK_DEPENDS_ON" || e.relation === "PR_LINK_RELATED_TO")
@@ -176,10 +190,10 @@ export class PRService {
 
     return {
       ...base,
-      introduces_decisions: pick("PR_INTRODUCES_DECISION"),
-      implements_decisions: pick("PR_IMPLEMENTS_DECISION"),
-      challenges_decisions: pick("PR_CHALLENGES_DECISION"),
-      discusses_decisions: pick("PR_DISCUSSES_DECISION"),
+      introduces_decisions: pickDecisions("PR_INTRODUCES_DECISION"),
+      implements_decisions: pickDecisions("PR_IMPLEMENTS_DECISION"),
+      challenges_decisions: pickDecisions("PR_CHALLENGES_DECISION"),
+      discusses_decisions: pickDecisions("PR_DISCUSSES_DECISION"),
       linked_prs: linkedPrs,
     };
   }

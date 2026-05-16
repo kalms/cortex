@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
+import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 
 const AlternativeSchema = z.object({
@@ -12,7 +13,8 @@ const AlternativeSchema = z.object({
 export function registerDecisionTools(
   server: McpServer,
   service: DecisionService,
-  search: DecisionSearch
+  search: DecisionSearch,
+  links: DecisionLinksRepository,
 ): void {
   server.tool(
     "create_decision",
@@ -132,14 +134,53 @@ export function registerDecisionTools(
 
   server.tool(
     "get_decision",
-    "Get a decision with all resolved relationships: governs (code nodes), references (external nodes), related_decisions, depends_on, and PR back-refs (introduced_in, implemented_by, challenged_by, discussed_in)",
+    "Get a decision with all resolved relationships: governs, references, related_decisions, depends_on, and PR back-refs (introduced_in, implemented_by, challenged_by, discussed_in)",
     {
       id: z.string().describe("Decision node ID"),
     },
     async ({ id }) => {
-      const d = service.getWithRefs(id);
-      if (!d) return empty(`get_decision(${id})`);
-      return ok(JSON.stringify(d, null, 2));
+      const dec = service.get(id);
+      if (!dec) return empty(`get_decision(${id})`);
+
+      // Compose the "with refs" shape from the sidecar links table. The legacy
+      // shape included full NodeRow objects for governs/references and full
+      // Decision objects for related_decisions/depends_on; in the sidecar model
+      // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
+      // surface those as `{ target_kind, target_ref }` and let the caller
+      // resolve full node info via search_graph / get_decision as needed.
+      const all = links.findByDecision(id);
+      const pick = (relation: string) =>
+        all
+          .filter((l) => l.relation === relation)
+          .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
+
+      // Decision-typed back-refs resolve to full Decision objects so callers
+      // can read `.id`, `.title`, etc. directly (legacy contract).
+      const pickDecisions = (relation: string) =>
+        all
+          .filter((l) => l.relation === relation && l.target_kind === "decision")
+          .map((l) => service.get(l.target_ref))
+          .filter((d): d is NonNullable<typeof d> => d !== null);
+
+      // PR back-refs: in the sidecar model, PR <-> decision relations live on
+      // decision_links where target_kind="pr" (target_ref = PR number as string).
+      const prLinks = (relation: string) =>
+        all
+          .filter((l) => l.relation === relation && l.target_kind === "pr")
+          .map((l) => ({ pr_number: Number(l.target_ref) }));
+
+      const withRefs = {
+        ...dec,
+        governs: pick("GOVERNS"),
+        references: pick("REFERENCES"),
+        related_decisions: pickDecisions("DECISION_RELATED_TO"),
+        depends_on: pickDecisions("DECISION_DEPENDS_ON"),
+        introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
+        implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
+        challenged_by: prLinks("PR_CHALLENGES_DECISION"),
+        discussed_in: prLinks("PR_DISCUSSES_DECISION"),
+      };
+      return ok(JSON.stringify(withRefs, null, 2));
     }
   );
 
@@ -152,7 +193,16 @@ export function registerDecisionTools(
     },
     async ({ query, scope }) => {
       try {
-        const results = search.search(query, scope);
+        let results = service.search(query);
+        if (scope) {
+          // Filter to decisions whose links table mentions `scope` as a governs
+          // target (qn or path). This preserves the old MCP contract without
+          // re-implementing the directory walk that DecisionSearch.findGoverning
+          // does — `scope` here is a literal match filter.
+          const governing = search.findGoverning(scope);
+          const allowed = new Set(governing.map((d) => d.id));
+          results = results.filter((d) => allowed.has(d.id));
+        }
         if (results.length === 0) return empty(`search_decisions(${query})`);
         return ok(JSON.stringify(results, null, 2));
       } catch (e) {
@@ -170,8 +220,8 @@ export function registerDecisionTools(
     },
     async ({ qualified_name }) => {
       try {
-        const results = search.whyWasThisBuilt(qualified_name);
-        if (!results || (Array.isArray(results) && results.length === 0)) {
+        const results = search.findGoverning(qualified_name);
+        if (!results || results.length === 0) {
           return empty(`why_was_this_built(${qualified_name})`);
         }
         return ok(JSON.stringify(results, null, 2));

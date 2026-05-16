@@ -53,20 +53,12 @@ describe("decision extensions contract", () => {
     expect(view.depends_on.map((d: any) => d.id)).toContain(c.id);
   });
 
-  it("legacy decision (no problem/resolution) remains readable with null fields", async () => {
-    // write directly via store to simulate legacy row
-    const { store } = h;
-    const node = store.createNode({
-      kind: "decision",
-      name: "Old",
-      data: { description: "d", rationale: "r" },
-    });
-
-    const g = JSON.parse((await callTool(h, "get_decision", { id: node.id })).content[0].text);
-    expect(g.problem).toBeNull();
-    expect(g.resolution).toBeNull();
-    expect(g.description).toBe("d");
-  });
+  // The "legacy decision" test was removed when decisions moved out of the
+  // graph DB into a sibling .cortex/decisions.db (commit af983d8 + later).
+  // Writing a node with kind='decision' directly into the graph store no
+  // longer surfaces in get_decision because that path now reads from the
+  // sidecar exclusively. Migration of legacy rows is handled at server
+  // startup via migrateDecisionsFromGraphDb().
 
   it("search_decisions finds matches on new problem field", async () => {
     await callTool(h, "propose_decision", {

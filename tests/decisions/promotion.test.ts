@@ -1,23 +1,36 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { GraphStore } from "../../src/graph/store.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type Database from "better-sqlite3";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { DecisionsRepository } from "../../src/decisions/repository.js";
+import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
 import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
 
 describe("DecisionPromotion", () => {
-  let store: GraphStore;
-  let service: DecisionService;
+  let dir: string;
+  let db: Database.Database;
+  let svc: DecisionService;
+  let repo: DecisionsRepository;
   let promotion: DecisionPromotion;
 
-  afterEach(() => {
-    store?.close();
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-promo-"));
+    db = openDecisionsDb(join(dir, "decisions.db"));
+    repo = new DecisionsRepository(db);
+    svc = new DecisionService({
+      decisions: repo,
+      links: new DecisionLinksRepository(db),
+    });
+    promotion = new DecisionPromotion(repo);
   });
 
-  it("promotes a decision to team tier", () => {
-    store = new GraphStore(":memory:");
-    service = new DecisionService(store);
-    promotion = new DecisionPromotion(store);
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
 
-    const decision = service.create({
+  it("promotes a decision to team tier", () => {
+    const decision = svc.create({
       title: "Logging standard",
       description: "desc",
       rationale: "rationale",
@@ -31,11 +44,7 @@ describe("DecisionPromotion", () => {
   });
 
   it("promotes a decision to public tier", () => {
-    store = new GraphStore(":memory:");
-    service = new DecisionService(store);
-    promotion = new DecisionPromotion(store);
-
-    const decision = service.create({
+    const decision = svc.create({
       title: "API versioning",
       description: "desc",
       rationale: "rationale",
@@ -46,17 +55,6 @@ describe("DecisionPromotion", () => {
   });
 
   it("throws for non-existent decision", () => {
-    store = new GraphStore(":memory:");
-    promotion = new DecisionPromotion(store);
-
-    expect(() => promotion.promote("fake", "team")).toThrow("Decision not found");
-  });
-
-  it("throws for non-decision nodes", () => {
-    store = new GraphStore(":memory:");
-    promotion = new DecisionPromotion(store);
-
-    const fn = store.createNode({ kind: "function", name: "fn" });
-    expect(() => promotion.promote(fn.id, "team")).toThrow("is not a decision");
+    expect(() => promotion.promote("fake-id", "team")).toThrow("Decision not found");
   });
 });
