@@ -59,6 +59,14 @@ const char *ctx_pipeline_project_name(const ctx_pipeline_t *p);
 /* Get the index mode (CTX_MODE_FULL, CTX_MODE_MODERATE, CTX_MODE_FAST). */
 int ctx_pipeline_get_mode(const ctx_pipeline_t *p);
 
+/* Returns the phase ("discover", "cancelled", "incremental",
+ * "extraction", "post", "dump", "cache_alloc") at which the last
+ * run failed, or NULL if no run has been started or the last run
+ * succeeded. The returned pointer is always a string literal with
+ * static storage duration — safe to use after ctx_pipeline_free
+ * and across ctx_pipeline_run calls. */
+const char *ctx_pipeline_last_error_phase(const ctx_pipeline_t *p);
+
 /* ── Index lock (prevents concurrent pipeline runs on same DB) ──── */
 
 /* Try to acquire the global index lock. Returns true if acquired,

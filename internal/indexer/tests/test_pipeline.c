@@ -4772,6 +4772,71 @@ TEST(pipeline_cancel_sets_flag) {
     PASS();
 }
 
+TEST(pipeline_last_error_phase_discover) {
+    /* Running against a nonexistent path should fail at the discover phase
+     * and surface "discover" via the public getter. */
+    ctx_pipeline_t *p =
+        ctx_pipeline_new("/tmp/cortex-nonexistent-xyz", NULL, CTX_MODE_FULL);
+    ASSERT_NOT_NULL(p);
+    int rc = ctx_pipeline_run(p);
+    ASSERT_NEQ(rc, 0);
+    const char *phase = ctx_pipeline_last_error_phase(p);
+    ASSERT_NOT_NULL(phase);
+    ASSERT_STR_EQ(phase, "discover");
+    ctx_pipeline_free(p);
+    PASS();
+}
+
+TEST(pipeline_last_error_phase_null_on_success) {
+    /* Before any run starts, the getter must return NULL — there is no
+     * prior failure to report. (Running a full successful pipeline from
+     * a unit test requires a fixture repo; the runtime path is covered
+     * by integration tests.) */
+    ctx_pipeline_t *p =
+        ctx_pipeline_new("/tmp/cortex-nonexistent-xyz", NULL, CTX_MODE_FULL);
+    ASSERT_NOT_NULL(p);
+    ASSERT_NULL(ctx_pipeline_last_error_phase(p));
+    ctx_pipeline_free(p);
+    PASS();
+}
+
+TEST(pipeline_last_error_phase_incremental_skipped) {
+    /* Ideally this would force ctx_pipeline_run_incremental to fail and
+     * then assert ctx_pipeline_last_error_phase(p) == "incremental".
+     *
+     * In practice the only failure paths inside the incremental runner are
+     * (1) ctx_store_open_path() returning NULL, and (2) ctx_gbuf_load_from_db
+     * failing — both internal to subsystems that already passed the integrity
+     * check in try_incremental_or_delete_db (otherwise we'd fall through to a
+     * full reindex). Reaching them deterministically requires either a race
+     * (corruption between integrity check and reopen) or mocking the store
+     * layer, neither of which the unit-test harness supports today.
+     *
+     * The code-side guarantee is verified by reading pipeline.c:
+     * try_incremental_or_delete_db now returns INCR_RAN_FAILED on any
+     * non-zero rc from ctx_pipeline_run_incremental, and ctx_pipeline_run
+     * calls set_error_phase(p, "incremental") on exactly that branch before
+     * propagating rc. */
+    SKIP("requires injectable failure in ctx_pipeline_run_incremental");
+}
+
+TEST(pipeline_last_error_phase_survives_pipeline_free) {
+    /* Regression test for the static-string refactor: the getter returns a
+     * pointer that must remain valid after ctx_pipeline_free, because it
+     * points to a string literal rather than heap-owned memory. */
+    ctx_pipeline_t *p =
+        ctx_pipeline_new("/tmp/cortex-nonexistent-xyz", NULL, CTX_MODE_FULL);
+    ASSERT_NOT_NULL(p);
+    ASSERT_NEQ(ctx_pipeline_run(p), 0);
+    const char *phase = ctx_pipeline_last_error_phase(p);
+    ASSERT_NOT_NULL(phase);
+    ASSERT_STR_EQ(phase, "discover");
+    ctx_pipeline_free(p);
+    /* Pointer still valid — string literal outlives the pipeline. */
+    ASSERT_STR_EQ(phase, "discover");
+    PASS();
+}
+
 TEST(pipeline_double_cancel) {
     /* Calling cancel twice should not crash */
     ctx_pipeline_t *p = ctx_pipeline_new("/tmp/nonexistent", NULL, CTX_MODE_FULL);
@@ -5360,6 +5425,10 @@ SUITE(pipeline) {
     RUN_TEST(pipeline_empty_path);
     RUN_TEST(pipeline_project_name_content);
     RUN_TEST(pipeline_cancel_sets_flag);
+    RUN_TEST(pipeline_last_error_phase_discover);
+    RUN_TEST(pipeline_last_error_phase_null_on_success);
+    RUN_TEST(pipeline_last_error_phase_incremental_skipped);
+    RUN_TEST(pipeline_last_error_phase_survives_pipeline_free);
     RUN_TEST(pipeline_double_cancel);
     RUN_TEST(pipeline_double_free_prevention);
     /* Trackable file tests */

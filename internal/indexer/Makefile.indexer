@@ -270,8 +270,9 @@ TEST_STORE_SRCS = \
 TEST_CYPHER_SRCS = \
     tests/test_cypher.c
 
-TEST_MCP_SRCS = \
-    tests/test_mcp.c
+# tests/test_mcp.c does not exist (file was removed but reference left dangling).
+# Empty for now so the test runner can be built.
+TEST_MCP_SRCS =
 
 TEST_DISCOVER_SRCS = \
     tests/test_language.c \

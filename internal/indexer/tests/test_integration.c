@@ -524,6 +524,39 @@ TEST(integ_store_bfs_traversal) {
     PASS();
 }
 
+/* ── Error envelope coverage ──────────────────────────────────── */
+
+/* Calling index_repository on a nonexistent path should produce a structured
+ * JSON envelope with status=error, error_phase=validate (the early-exit
+ * validation gate catches it before the pipeline runs), and a non-empty
+ * human-readable error message. This is the contract the upcoming survey
+ * script depends on for per-repo failure diagnostics.
+ *
+ * Note: ctx_mcp_text_result wraps the inner JSON as a string value inside
+ * the outer envelope, so quotes inside the inner JSON appear escaped as
+ * backslash-quote in the response. We search for the escaped form. */
+TEST(index_repository_error_envelope_has_phase) {
+    ASSERT_NOT_NULL(g_srv);
+    char *resp = ctx_mcp_handle_tool(
+        g_srv, "index_repository",
+        "{\"repo_path\":\"/tmp/cortex-nonexistent-xyz\"}");
+    ASSERT_NOT_NULL(resp);
+    /* Inner JSON appears with escaped quotes inside the outer envelope. */
+    ASSERT_TRUE(strstr(resp, "\\\"status\\\":\\\"error\\\"") != NULL);
+    ASSERT_TRUE(strstr(resp, "\\\"error_phase\\\":\\\"validate\\\"") != NULL);
+    /* "error" field must be present and non-empty: look for the key + opening
+     * escaped-quote, then verify the next char isn't another backslash (which
+     * would indicate an empty string, i.e. \\"\\"). */
+    const char *errf = strstr(resp, "\\\"error\\\":\\\"");
+    ASSERT_NOT_NULL(errf);
+    const char *val_start = errf + strlen("\\\"error\\\":\\\"");
+    ASSERT_TRUE(*val_start != '\\');
+    /* Outer envelope should mark this as an error. */
+    ASSERT_TRUE(strstr(resp, "\"isError\":true") != NULL);
+    free(resp);
+    PASS();
+}
+
 /* ══════════════════════════════════════════════════════════════════
  *  SUITE
  * ══════════════════════════════════════════════════════════════════ */
@@ -533,7 +566,7 @@ SUITE(integration) {
     if (integration_setup() != 0) {
         printf("  %-50s", "integration_setup");
         printf("SKIP (setup failed)\n");
-        tf_skip_count += 16; /* skip all integration tests */
+        tf_skip_count += 17; /* skip all integration tests (match RUN_TEST count below) */
         integration_teardown();
         return;
     }
@@ -560,6 +593,9 @@ SUITE(integration) {
     RUN_TEST(integ_store_search_by_degree);
     RUN_TEST(integ_store_find_by_file);
     RUN_TEST(integ_store_bfs_traversal);
+
+    /* Error envelope coverage (no side effects on g_srv) */
+    RUN_TEST(index_repository_error_envelope_has_phase);
 
     /* Pipeline API tests (no db needed) */
     RUN_TEST(integ_pipeline_fqn_compute);
