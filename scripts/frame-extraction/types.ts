@@ -80,3 +80,25 @@ export interface PathTokens {
   path_tokens: string[];
   symbol_tokens: string[];
 }
+
+/** A single co-change observation: files `a` and `b` appeared together in
+ *  `count` commits over the analysis window. Stored sorted by `a < b` to
+ *  avoid double-counting symmetric pairs. */
+export interface FilePair {
+  a: string;
+  b: string;
+  count: number;
+}
+
+export interface CoChangeOptions {
+  /** Repo to analyse. */
+  repo_path: string;
+  /** Co-change window. The spec uses 180 days from HEAD's committer date. */
+  since_days: number;
+  /** Drop commits with this many or more files (format passes, bulk renames,
+   *  initial imports). Spec starter: 50. */
+  big_commit_threshold: number;
+  /** Drop pairs with `count` below this. Defaults to 2 so single co-occurrences
+   *  don't dominate downstream noise. */
+  min_count: number;
+}
