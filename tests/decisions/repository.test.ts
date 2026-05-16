@@ -69,6 +69,33 @@ describe("DecisionsRepository", () => {
   it("get returns null for missing id", () => {
     expect(repo.get("missing")).toBeNull();
   });
+
+  it("survives updates to indexed columns with non-trivial content", () => {
+    // Regression for the FTS5 external-content corruption bug
+    // (cortex#2): updating problem/resolution/description/rationale with
+    // 3+ token text would corrupt the FTS index, with subsequent ops
+    // failing as "database disk image is malformed".
+    repo.insert(sample());
+
+    repo.update("d1", { problem: "Prior decision framed the calibration finding as a binary choice" });
+    repo.update("d1", { resolution: "drop the complexity gate and the ACDC step entirely" });
+    repo.update("d1", { description: "The gate's whole reason for existing - gating ACDC step 3 - is gone." });
+    repo.update("d1", {
+      rationale: "ACDC's three patterns reviewed individually: dominator, fan, orphan-adoption.",
+    });
+    repo.update("d1", { title: "Drop the complexity gate and ACDC refinement" });
+
+    const got = repo.get("d1");
+    expect(got?.title).toBe("Drop the complexity gate and ACDC refinement");
+    expect(got?.problem).toMatch(/calibration finding/);
+    expect(got?.resolution).toMatch(/complexity gate/);
+
+    // FTS search must still work on every indexed column after the updates.
+    expect(repo.search("calibration").map((d) => d.id)).toEqual(["d1"]);
+    expect(repo.search("entirely").map((d) => d.id)).toEqual(["d1"]);
+    expect(repo.search("dominator").map((d) => d.id)).toEqual(["d1"]);
+    expect(repo.search("refinement").map((d) => d.id)).toEqual(["d1"]);
+  });
 });
 
 describe("DecisionsRepository search", () => {
