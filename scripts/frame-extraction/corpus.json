@@ -1,0 +1,63 @@
+{
+  "$schema_version": 1,
+  "comment": "Phase 1 calibration corpus. Mix of archetypes per docs/specs/cortex-v0.3/frame-extraction.md Verification §Phase 1. Indexer language support gates inclusion: TS/JS/Python/Go are first-class; Swift and others may be limited. Adjust before running.",
+  "repos": [
+    {
+      "slug": "self/cortex",
+      "git": null,
+      "local_path": ".",
+      "archetype": "ts-monorepo",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "vueuse/vueuse",
+      "git": "https://github.com/vueuse/vueuse.git",
+      "archetype": "vue-library",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "TanStack/table",
+      "git": "https://github.com/TanStack/table.git",
+      "archetype": "react-library",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "trpc/trpc",
+      "git": "https://github.com/trpc/trpc.git",
+      "archetype": "ts-monorepo",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "nuxt/ui",
+      "git": "https://github.com/nuxt/ui.git",
+      "archetype": "nuxt-app",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "spf13/cobra",
+      "git": "https://github.com/spf13/cobra.git",
+      "archetype": "go-cli",
+      "size_hint": "small",
+      "primary_language": "go"
+    },
+    {
+      "slug": "pallets/click",
+      "git": "https://github.com/pallets/click.git",
+      "archetype": "python-library",
+      "size_hint": "small",
+      "primary_language": "python"
+    },
+    {
+      "slug": "huggingface/peft",
+      "git": "https://github.com/huggingface/peft.git",
+      "archetype": "python-ml",
+      "size_hint": "medium",
+      "primary_language": "python"
+    }
+  ]
+}
