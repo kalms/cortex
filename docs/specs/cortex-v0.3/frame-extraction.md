@@ -414,6 +414,38 @@ complexity threshold empirically rather than by guess. Starter target
 `entity_count > 300 OR edge_density > 0.05` gets calibrated against
 real distributions.
 
+Run on 2026-05-16 over an 8-repo corpus (Cortex itself + vueuse, TanStack
+table, trpc, nuxt/ui, cobra, click, peft); script + corpus in
+`scripts/frame-extraction/`, raw results in
+[phase-1-results.md](./phase-1-results.md). Distribution observations:
+
+| stat | min | p25 | median | p75 | max |
+|---|---:|---:|---:|---:|---:|
+| entity_count | 621 | 1222 | 2441 | 3701 | 9879 |
+| edge_density | 1.346 | 1.448 | 1.713 | 3.005 | 4.588 |
+
+Finding: the starter threshold (`entity_count > 300 OR edge_density >
+0.05`) is two orders of magnitude below the corpus floor. Every active
+project blows past it, so the gate as written is effectively
+always-on — ACDC refinement runs on every repo. Recalibration anchor:
+the corpus p25 (`entity_count > 1222 OR edge_density > 1.448`). Two
+defensible directions for v1:
+
+- **Drop the gate.** If ACDC refinement is cheap enough on cortex
+  (~10k entities, 46k edges), the case for a complexity gate is weak.
+  Run it on every repo and skip the gate logic entirely. Reduces
+  branching, removes one tunable.
+- **Raise the threshold to a real signal.** If ACDC is expensive on
+  large repos, set the gate to gate *expensive* repos out of the
+  *cheap* refinement, not the other way around — i.e. invert the
+  predicate: only run ACDC for `entity_count < 5000` (say), with a
+  cheaper labelling fallback above that. This is a different design;
+  the spec's current intent does not match it.
+
+The starter threshold from the original spec text is preserved for
+historical reference but should not be used as-is. Phase 2 picks one
+of the two directions.
+
 **Phase 2 — Algorithm selection (3-way comparison).** Build all three
 candidate primary clustering algorithms (Leiden community detection,
 TF-IDF + HDBSCAN, pinned-embedding + HDBSCAN). Run each over the same
