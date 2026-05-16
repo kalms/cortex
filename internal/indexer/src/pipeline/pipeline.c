@@ -110,9 +110,10 @@ struct ctx_pipeline {
     ctx_userconfig_t *userconfig;
 
     /* Error reporting: phase name at which the last run failed,
-     * or NULL if no run started or last run succeeded. Owned by
-     * the pipeline; freed in ctx_pipeline_free. */
-    char *last_error_phase;
+     * or NULL if no run started or last run succeeded. Always
+     * points to a string literal with static storage duration —
+     * no allocation, no free, safe to use after pipeline teardown. */
+    const char *last_error_phase;
 };
 
 /* ── Timing helper ──────────────────────────────────────────────── */
@@ -135,13 +136,16 @@ static const char *itoa_buf(int val) {
 }
 
 /* Record the phase at which the pipeline failed. Pass NULL to clear.
- * Frees any prior value. Safe to call with p == NULL (no-op). */
+ * The phase argument MUST be a string literal (or other static-storage
+ * pointer) — the field is stored by reference, not copied. This means
+ * no allocation / no free-path and the value remains valid for the
+ * lifetime of the program (no OOM-during-diagnostic failure mode).
+ * Safe to call with p == NULL (no-op). */
 static void set_error_phase(ctx_pipeline_t *p, const char *phase) {
     if (!p) {
         return;
     }
-    free(p->last_error_phase);
-    p->last_error_phase = phase ? strdup(phase) : NULL;
+    p->last_error_phase = phase;
 }
 
 /* ── Lifecycle ──────────────────────────────────────────────────── */
@@ -173,7 +177,7 @@ void ctx_pipeline_free(ctx_pipeline_t *p) {
     free(p->repo_path);
     free(p->db_path);
     free(p->project_name);
-    free(p->last_error_phase);
+    /* last_error_phase points to a string literal — no free needed. */
     /* gbuf, store, registry freed during/after run */
     /* Defensively free userconfig in case run() was never called or panicked */
     if (p->userconfig) {
@@ -598,17 +602,28 @@ static int run_parallel_pipeline(ctx_pipeline_t *p, ctx_pipeline_ctx_t *ctx,
     return check_cancel(p) ? CTX_NOT_FOUND : 0;
 }
 
+/* Return values for try_incremental_or_delete_db (distinguishes incremental
+ * outcomes from "fall through to full reindex" — the previous overloaded
+ * CTX_NOT_FOUND sentinel collided with incremental failure). */
+enum {
+    INCR_RAN_OK = 0,          /* incremental ran successfully → return 0 from caller */
+    INCR_FALL_THROUGH = 1,    /* no incremental possible → proceed with full reindex */
+    INCR_RAN_FAILED = -1,     /* incremental ran but failed → caller sets phase + propagates */
+};
+
 /* Try incremental pipeline or delete old DB for reindex.
- * Returns >= 0 if incremental was used (the return code), or -1 to proceed with full. */
+ * Returns INCR_RAN_OK on incremental success, INCR_RAN_FAILED on incremental
+ * failure (caller must label phase), or INCR_FALL_THROUGH to proceed with a
+ * full reindex (no existing DB, integrity failed, or mode-change reindex). */
 static int try_incremental_or_delete_db(ctx_pipeline_t *p, ctx_file_info_t *files, int file_count) {
     char *db_path = resolve_db_path(p);
     if (!db_path) {
-        return CTX_NOT_FOUND;
+        return INCR_FALL_THROUGH;
     }
     struct stat db_st;
     if (stat(db_path, &db_st) != 0) {
         free(db_path);
-        return CTX_NOT_FOUND;
+        return INCR_FALL_THROUGH;
     }
     ctx_store_t *check_store = ctx_store_open_path(db_path);
     if (check_store && ctx_store_check_integrity(check_store)) {
@@ -622,7 +637,9 @@ static int try_incremental_or_delete_db(ctx_pipeline_t *p, ctx_file_info_t *file
                          itoa_buf(hash_count));
             int rc = ctx_pipeline_run_incremental(p, db_path, files, file_count);
             free(db_path);
-            return rc;
+            /* Map any non-zero rc to INCR_RAN_FAILED so the caller knows the
+             * incremental path was actually attempted (vs. fall-through). */
+            return rc == 0 ? INCR_RAN_OK : INCR_RAN_FAILED;
         }
         if (hash_count > 0) {
             ctx_log_info("pipeline.route", "path", "mode_change_reindex", "stored_hashes",
@@ -640,7 +657,7 @@ static int try_incremental_or_delete_db(ctx_pipeline_t *p, ctx_file_info_t *file
     ctx_unlink(wal);
     ctx_unlink(shm);
     free(db_path);
-    return CTX_NOT_FOUND;
+    return INCR_FALL_THROUGH;
 }
 
 /* Get platform-specific mtime in nanoseconds. */
@@ -859,17 +876,35 @@ int ctx_pipeline_run(ctx_pipeline_t *p) {
     CTX_PROF_END_N("pipeline", "1_discover", t_discover, file_count);
     ctx_log_info("pipeline.discover", "files", itoa_buf(file_count), "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t0)));
-    if (rc != 0 || check_cancel(p)) {
+    if (rc != 0) {
+        rc = CTX_NOT_FOUND;
+        goto cleanup;
+    }
+    if (check_cancel(p)) {
+        /* Cancellation between discover-success and the next phase has no
+         * natural phase label — surface it as "cancelled" so the diagnostic
+         * doesn't degrade to "unknown" in the MCP envelope. */
+        set_error_phase(p, "cancelled");
         rc = CTX_NOT_FOUND;
         goto cleanup;
     }
 
-    /* Check for existing DB → try incremental or delete for reindex */
+    /* Check for existing DB → try incremental or delete for reindex.
+     * The incremental path is its own failure domain (separate registry
+     * + DB load + reparse), so we label any failure here as "incremental"
+     * rather than falling through to a phase set later or "unknown". */
     rc = try_incremental_or_delete_db(p, files, file_count);
-    if (rc >= 0) {
+    if (rc == INCR_RAN_OK) {
+        ctx_discover_free(files, file_count);
+        return 0;
+    }
+    if (rc == INCR_RAN_FAILED) {
+        set_error_phase(p, "incremental");
+        ctx_log_error("pipeline.err", "phase", "incremental", "rc", itoa_buf(rc));
         ctx_discover_free(files, file_count);
         return rc;
     }
+    /* rc == INCR_FALL_THROUGH: no existing DB / mode change / integrity miss */
     ctx_log_info("pipeline.route", "path", "full");
 
     /* Phase 2: Create graph buffer and registry */

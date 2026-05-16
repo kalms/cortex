@@ -566,7 +566,7 @@ SUITE(integration) {
     if (integration_setup() != 0) {
         printf("  %-50s", "integration_setup");
         printf("SKIP (setup failed)\n");
-        tf_skip_count += 16; /* skip all integration tests */
+        tf_skip_count += 17; /* skip all integration tests (match RUN_TEST count below) */
         integration_teardown();
         return;
     }

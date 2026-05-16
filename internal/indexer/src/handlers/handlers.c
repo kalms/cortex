@@ -1561,13 +1561,10 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
     int rc = ctx_pipeline_run(p);
     ctx_pipeline_unlock();
 
-    /* Capture the failure phase BEFORE freeing the pipeline — getter returns
-     * a borrowed pointer that is invalid after ctx_pipeline_free. */
-    char *failure_phase = NULL;
-    if (rc != 0) {
-        const char *phase = ctx_pipeline_last_error_phase(p);
-        failure_phase = phase ? heap_strdup(phase) : NULL;
-    }
+    /* Snapshot the failure phase. The getter returns a string literal with
+     * static storage duration, so it stays valid after ctx_pipeline_free —
+     * no defensive copy needed. */
+    const char *failure_phase = (rc != 0) ? ctx_pipeline_last_error_phase(p) : NULL;
 
     ctx_pipeline_free(p);
     ctx_mem_collect(); /* return mimalloc pages to OS after large indexing */
@@ -1625,7 +1622,8 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
     yyjson_mut_doc_free(doc);
     free(project_name);
     free(repo_path);
-    free(failure_phase);
+    /* failure_phase points to a static string literal owned by the pipeline
+     * module — nothing to free. */
 
     char *result = ctx_mcp_text_result(json, rc != 0);
     free(json);
