@@ -60,3 +60,45 @@ export interface SurveyResult {
   /** Wall-clock seconds for the (clone + index + stats) pipeline. */
   elapsed_seconds: number;
 }
+
+/** Options controlling framework-aware path tokenization.
+ *  Defaults are baked into `tokenizePath`; callers override only when
+ *  exercising the service-suffix edge case (see frame-extraction.md
+ *  §Path tokenization). */
+export interface PathTokenizeOptions {
+  /** Strip role suffixes only when the prefix is itself a domain token
+   *  (i.e. not a member of `STRIP_SEGMENTS`). Defaults to true. */
+  service_suffix_aware: boolean;
+}
+
+/** Output of tokenizing a file path. `path_tokens` come from the stripped
+ *  path + filename stem; `symbol_tokens` come from the bare filename stem
+ *  only (after extension + role-suffix removal). Returned as ordered sets
+ *  (string[]) so callers can compute Jaccard, cosine, etc. without
+ *  re-sorting. */
+export interface PathTokens {
+  path_tokens: string[];
+  symbol_tokens: string[];
+}
+
+/** A single co-change observation: files `a` and `b` appeared together in
+ *  `count` commits over the analysis window. Stored sorted by `a < b` to
+ *  avoid double-counting symmetric pairs. */
+export interface FilePair {
+  a: string;
+  b: string;
+  count: number;
+}
+
+export interface CoChangeOptions {
+  /** Repo to analyse. */
+  repo_path: string;
+  /** Co-change window. The spec uses 180 days from HEAD's committer date. */
+  since_days: number;
+  /** Drop commits with this many or more files (format passes, bulk renames,
+   *  initial imports). Spec starter: 50. */
+  big_commit_threshold: number;
+  /** Drop pairs with `count` below this. Defaults to 2 so single co-occurrences
+   *  don't dominate downstream noise. */
+  min_count: number;
+}
