@@ -108,6 +108,11 @@ struct ctx_pipeline {
 
     /* User-defined extension overrides (loaded once per run) */
     ctx_userconfig_t *userconfig;
+
+    /* Error reporting: phase name at which the last run failed,
+     * or NULL if no run started or last run succeeded. Owned by
+     * the pipeline; freed in ctx_pipeline_free. */
+    char *last_error_phase;
 };
 
 /* ── Timing helper ──────────────────────────────────────────────── */
@@ -127,6 +132,16 @@ static const char *itoa_buf(int val) {
     idx = (idx + SKIP_ONE) & PL_RING_MASK;
     snprintf(bufs[i], sizeof(bufs[i]), "%d", val);
     return bufs[i];
+}
+
+/* Record the phase at which the pipeline failed. Pass NULL to clear.
+ * Frees any prior value. Safe to call with p == NULL (no-op). */
+static void set_error_phase(ctx_pipeline_t *p, const char *phase) {
+    if (!p) {
+        return;
+    }
+    free(p->last_error_phase);
+    p->last_error_phase = phase ? strdup(phase) : NULL;
 }
 
 /* ── Lifecycle ──────────────────────────────────────────────────── */
@@ -158,6 +173,7 @@ void ctx_pipeline_free(ctx_pipeline_t *p) {
     free(p->repo_path);
     free(p->db_path);
     free(p->project_name);
+    free(p->last_error_phase);
     /* gbuf, store, registry freed during/after run */
     /* Defensively free userconfig in case run() was never called or panicked */
     if (p->userconfig) {
@@ -534,6 +550,7 @@ static int run_parallel_pipeline(ctx_pipeline_t *p, ctx_pipeline_ctx_t *ctx,
     atomic_init(&shared_ids, ctx_gbuf_next_id(p->gbuf));
     CtxFileResult **cache = (CtxFileResult **)calloc(file_count, sizeof(CtxFileResult *));
     if (!cache) {
+        set_error_phase(p, "cache_alloc");
         ctx_log_error("pipeline.err", "phase", "cache_alloc");
         return CTX_NOT_FOUND;
     }
@@ -657,6 +674,7 @@ static int dump_and_persist_hashes(ctx_pipeline_t *p, const ctx_file_info_t *fil
     }
     int rc = ctx_gbuf_dump_to_sqlite(p->gbuf, db_path);
     if (rc != 0) {
+        set_error_phase(p, "dump");
         ctx_log_error("pipeline.err", "phase", "dump");
         return rc;
     }
@@ -811,6 +829,9 @@ int ctx_pipeline_run(ctx_pipeline_t *p) {
         return CTX_NOT_FOUND;
     }
 
+    /* Reset prior error state so we report only this run's failure (if any). */
+    set_error_phase(p, NULL);
+
     CTX_PROF_START(t_pipeline_total);
     struct timespec t0;
     ctx_clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -832,6 +853,7 @@ int ctx_pipeline_run(ctx_pipeline_t *p) {
     int file_count = 0;
     int rc = ctx_discover(p->repo_path, &opts, &files, &file_count);
     if (rc != 0) {
+        set_error_phase(p, "discover");
         ctx_log_error("pipeline.err", "phase", "discover", "rc", itoa_buf(rc));
     }
     CTX_PROF_END_N("pipeline", "1_discover", t_discover, file_count);
@@ -866,11 +888,13 @@ int ctx_pipeline_run(ctx_pipeline_t *p) {
 
     rc = run_extraction_phase(p, &ctx, files, file_count);
     if (rc != 0) {
+        set_error_phase(p, "extraction");
         goto cleanup;
     }
 
     rc = run_post_extraction(p, &ctx, files, file_count);
     if (rc != 0) {
+        set_error_phase(p, "post");
         goto cleanup;
     }
 
@@ -890,4 +914,8 @@ cleanup:
     ctx_userconfig_free(p->userconfig);
     p->userconfig = NULL;
     return rc;
+}
+
+const char *ctx_pipeline_last_error_phase(const ctx_pipeline_t *p) {
+    return p ? p->last_error_phase : NULL;
 }

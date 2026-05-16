@@ -1506,6 +1506,32 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
         return ctx_mcp_text_result("repo_path is required", true);
     }
 
+    /* Early validation: repo_path must exist and be a directory. Build a
+     * structured error envelope so callers (incl. survey scripts iterating
+     * over many repos) can diagnose without parsing free-form messages. */
+    struct stat repo_st;
+    if (stat(repo_path, &repo_st) != 0 || !S_ISDIR(repo_st.st_mode)) {
+        char *project_name = ctx_project_name_from_path(repo_path);
+        yyjson_mut_doc *vdoc = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *vroot = yyjson_mut_obj(vdoc);
+        yyjson_mut_doc_set_root(vdoc, vroot);
+        yyjson_mut_obj_add_str(vdoc, vroot, "project", project_name ? project_name : "");
+        yyjson_mut_obj_add_str(vdoc, vroot, "status", "error");
+        yyjson_mut_obj_add_str(vdoc, vroot, "error_phase", "validate");
+        char msg[CTX_SZ_1K];
+        snprintf(msg, sizeof(msg),
+                 "repo_path does not exist or is not a directory: %s", repo_path);
+        yyjson_mut_obj_add_strcpy(vdoc, vroot, "error", msg);
+        char *vjson = yy_doc_to_str(vdoc);
+        yyjson_mut_doc_free(vdoc);
+        free(project_name);
+        free(mode_str);
+        free(repo_path);
+        char *vresult = ctx_mcp_text_result(vjson, true);
+        free(vjson);
+        return vresult;
+    }
+
     ctx_index_mode_t mode = CTX_MODE_FULL;
     if (mode_str && strcmp(mode_str, "fast") == 0) {
         mode = CTX_MODE_FAST;
@@ -1535,6 +1561,14 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
     int rc = ctx_pipeline_run(p);
     ctx_pipeline_unlock();
 
+    /* Capture the failure phase BEFORE freeing the pipeline — getter returns
+     * a borrowed pointer that is invalid after ctx_pipeline_free. */
+    char *failure_phase = NULL;
+    if (rc != 0) {
+        const char *phase = ctx_pipeline_last_error_phase(p);
+        failure_phase = phase ? heap_strdup(phase) : NULL;
+    }
+
     ctx_pipeline_free(p);
     ctx_mem_collect(); /* return mimalloc pages to OS after large indexing */
 
@@ -1552,6 +1586,16 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
 
     yyjson_mut_obj_add_str(doc, root, "project", project_name);
     yyjson_mut_obj_add_str(doc, root, "status", rc == 0 ? "indexed" : "error");
+
+    if (rc != 0) {
+        const char *phase = failure_phase ? failure_phase : "unknown";
+        yyjson_mut_obj_add_strcpy(doc, root, "error_phase", phase);
+        char emsg[CTX_SZ_1K];
+        snprintf(emsg, sizeof(emsg),
+                 "indexing failed at phase '%s' (rc=%d). Check stderr for pipeline.err logs.",
+                 phase, rc);
+        yyjson_mut_obj_add_strcpy(doc, root, "error", emsg);
+    }
 
     if (rc == 0) {
         ctx_store_t *store = resolve_store(srv, project_name);
@@ -1581,6 +1625,7 @@ static char *handle_index_repository(ctx_mcp_server_t *srv, const char *args) {
     yyjson_mut_doc_free(doc);
     free(project_name);
     free(repo_path);
+    free(failure_phase);
 
     char *result = ctx_mcp_text_result(json, rc != 0);
     free(json);

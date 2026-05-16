@@ -4772,6 +4772,34 @@ TEST(pipeline_cancel_sets_flag) {
     PASS();
 }
 
+TEST(pipeline_last_error_phase_discover) {
+    /* Running against a nonexistent path should fail at the discover phase
+     * and surface "discover" via the public getter. */
+    ctx_pipeline_t *p =
+        ctx_pipeline_new("/tmp/cortex-nonexistent-xyz", NULL, CTX_MODE_FULL);
+    ASSERT_NOT_NULL(p);
+    int rc = ctx_pipeline_run(p);
+    ASSERT_NEQ(rc, 0);
+    const char *phase = ctx_pipeline_last_error_phase(p);
+    ASSERT_NOT_NULL(phase);
+    ASSERT_STR_EQ(phase, "discover");
+    ctx_pipeline_free(p);
+    PASS();
+}
+
+TEST(pipeline_last_error_phase_null_on_success) {
+    /* Before any run starts, the getter must return NULL — there is no
+     * prior failure to report. (Running a full successful pipeline from
+     * a unit test requires a fixture repo; the runtime path is covered
+     * by integration tests.) */
+    ctx_pipeline_t *p =
+        ctx_pipeline_new("/tmp/cortex-nonexistent-xyz", NULL, CTX_MODE_FULL);
+    ASSERT_NOT_NULL(p);
+    ASSERT_NULL(ctx_pipeline_last_error_phase(p));
+    ctx_pipeline_free(p);
+    PASS();
+}
+
 TEST(pipeline_double_cancel) {
     /* Calling cancel twice should not crash */
     ctx_pipeline_t *p = ctx_pipeline_new("/tmp/nonexistent", NULL, CTX_MODE_FULL);
@@ -5360,6 +5388,8 @@ SUITE(pipeline) {
     RUN_TEST(pipeline_empty_path);
     RUN_TEST(pipeline_project_name_content);
     RUN_TEST(pipeline_cancel_sets_flag);
+    RUN_TEST(pipeline_last_error_phase_discover);
+    RUN_TEST(pipeline_last_error_phase_null_on_success);
     RUN_TEST(pipeline_double_cancel);
     RUN_TEST(pipeline_double_free_prevention);
     /* Trackable file tests */
