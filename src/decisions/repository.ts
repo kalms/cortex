@@ -26,52 +26,31 @@ const SELECT_COLS =
 export class DecisionsRepository {
   constructor(private db: Database.Database) {}
 
+  // FTS sync is handled by the decisions_ai/au/ad triggers defined in
+  // src/decisions/db.ts. Repository methods write only to the content table.
+
   insert(rec: DecisionRecord): void {
-    this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO decisions (${SELECT_COLS}) VALUES
-           (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
-            @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
-        )
-        .run(rec);
-      this.db
-        .prepare(
-          `INSERT INTO decisions_fts (rowid, title, description, rationale, problem, resolution)
-           SELECT rowid, title, description, rationale, problem, resolution FROM decisions WHERE id = ?`,
-        )
-        .run(rec.id);
-    })();
+    this.db
+      .prepare(
+        `INSERT INTO decisions (${SELECT_COLS}) VALUES
+         (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
+          @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
+      )
+      .run(rec);
   }
 
   update(id: string, patch: DecisionUpdate): void {
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
     const setClause = keys.map((k) => `${k} = @${k}`).join(", ");
-    this.db.transaction(() => {
-      this.db
-        .prepare(`UPDATE decisions SET ${setClause} WHERE id = @id`)
-        .run({ ...patch, id });
-      this.db
-        .prepare(`DELETE FROM decisions_fts WHERE rowid = (SELECT rowid FROM decisions WHERE id = ?)`)
-        .run(id);
-      this.db
-        .prepare(
-          `INSERT INTO decisions_fts (rowid, title, description, rationale, problem, resolution)
-           SELECT rowid, title, description, rationale, problem, resolution FROM decisions WHERE id = ?`,
-        )
-        .run(id);
-    })();
+    this.db
+      .prepare(`UPDATE decisions SET ${setClause} WHERE id = @id`)
+      .run({ ...patch, id });
   }
 
   delete(id: string): boolean {
-    return this.db.transaction(() => {
-      this.db
-        .prepare(`DELETE FROM decisions_fts WHERE rowid = (SELECT rowid FROM decisions WHERE id = ?)`)
-        .run(id);
-      const info = this.db.prepare("DELETE FROM decisions WHERE id = ?").run(id);
-      return info.changes > 0;
-    })();
+    const info = this.db.prepare("DELETE FROM decisions WHERE id = ?").run(id);
+    return info.changes > 0;
   }
 
   get(id: string): DecisionRecord | null {
