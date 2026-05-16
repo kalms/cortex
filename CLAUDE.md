@@ -58,6 +58,30 @@ If a decision exists and your change contradicts it, that's a signal to
 either update the decision (with reasoning for the new direction) or
 reconsider the change.
 
+## Decision storage
+
+Decisions live in `.cortex/decisions.db`, a sibling of the graph DB
+(`.cortex/graph.db`). The graph DB is a fully replaceable derived artifact —
+`index_repository` cache imports and full reindexes copy or recreate it
+freely. The decisions DB is durable: it survives every indexing operation.
+
+Decision links to code use **string qualified-names or file paths**, not
+graph node IDs. `DecisionSearch.findGoverning(target)` walks up the qn/path
+hierarchy when no direct link matches. PR ↔ decision links key on PR number
+(stable across re-indexes) rather than graph node id.
+
+If you find yourself working in `src/decisions/`, the schema and repositories
+live in:
+- `src/decisions/db.ts` — schema + idempotent open
+- `src/decisions/repository.ts` — `DecisionsRepository` (CRUD + FTS)
+- `src/decisions/links-repository.ts` — `DecisionLinksRepository` (governance, supersession, PR links)
+- `src/decisions/migration.ts` — one-shot migration from legacy graph-DB decisions,
+  runs idempotently at server startup AND defensively at the top of
+  `index_repository`.
+
+See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md)
+for the full architecture rationale.
+
 ## Tools Available
 
 ### Decision tools

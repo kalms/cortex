@@ -1,81 +1,68 @@
-import { GraphStore, NodeRow } from "../graph/store.js";
-import type { Decision } from "./types.js";
-import { nodeToDecision } from "./types.js";
 import { dirname } from "node:path";
+import type { Decision } from "./types.js";
+import { DecisionsRepository, DecisionRecord } from "./repository.js";
+import { DecisionLinksRepository } from "./links-repository.js";
 
 export class DecisionSearch {
-  constructor(private store: GraphStore) {}
+  constructor(
+    private decisions: DecisionsRepository,
+    private links: DecisionLinksRepository,
+  ) {}
 
-  search(query: string, scope?: string): Decision[] {
-    const ftsResults = this.store.searchDecisionContent(query);
-    const nodeIds = ftsResults.map((r) => r.node_id);
+  /** Return all decisions whose GOVERNS link matches `target` or any of its
+   *  ancestor paths. Walks up '/' separators in `target` until a hit lands. */
+  findGoverning(target: string): Decision[] {
+    // 1. Exact match as qn.
+    let hits = this.links.findByTarget("qn", target, "GOVERNS");
 
-    if (!scope) {
-      return nodeIds
-        .map((id) => this.store.getNode(id))
-        .filter((n): n is NodeRow => n !== undefined)
-        .map((n) => nodeToDecision(n));
+    // 2. Exact match as path.
+    if (hits.length === 0) hits = this.links.findByTarget("path", target, "GOVERNS");
+
+    // 3. Strip the trailing "::member" if present and try the file portion.
+    if (hits.length === 0 && target.includes("::")) {
+      const file = target.slice(0, target.indexOf("::"));
+      hits = this.links.findByTarget("path", file, "GOVERNS");
     }
 
-    return nodeIds
-      .filter((id) => this.governsScope(id, scope))
-      .map((id) => this.store.getNode(id))
-      .filter((n): n is NodeRow => n !== undefined)
-      .map((n) => nodeToDecision(n));
-  }
-
-  whyWasThisBuilt(qualifiedName: string): Decision[] {
-    // 1. Try qualified_name match
-    const qnNodes = this.store.findNodes({ qualified_name: qualifiedName });
-    if (qnNodes.length > 0) {
-      const decisions = this.findGoverningDecisions(qnNodes[0].id);
-      if (decisions.length > 0) return decisions;
-    }
-
-    // 2. Try file_path match
-    const fileNodes = this.store.findNodes({ file_path: qualifiedName });
-    for (const fileNode of fileNodes) {
-      const decisions = this.findGoverningDecisions(fileNode.id);
-      if (decisions.length > 0) return decisions;
-    }
-
-    // 3. Walk up directory hierarchy via path nodes
-    let currentPath = qualifiedName;
-    while (currentPath.includes("/")) {
-      currentPath = dirname(currentPath);
-      if (currentPath === ".") break;
-      const trailingSlash = currentPath + "/";
-
-      // Check both with and without trailing slash
-      for (const searchPath of [currentPath, trailingSlash]) {
-        const dirNodes = this.store.findNodes({ file_path: searchPath });
-        for (const dirNode of dirNodes) {
-          const decisions = this.findGoverningDecisions(dirNode.id);
-          if (decisions.length > 0) return decisions;
-        }
+    // 4. Walk up directories.
+    if (hits.length === 0) {
+      let dir = dirname(stripQnMember(target));
+      while (dir && dir !== "." && dir !== "/") {
+        const dirHits = this.links.findByTarget("path", dir, "GOVERNS");
+        if (dirHits.length > 0) { hits = dirHits; break; }
+        const next = dirname(dir);
+        if (next === dir) break;
+        dir = next;
       }
     }
 
-    return [];
+    if (hits.length === 0) return [];
+    return hits
+      .map((h) => this.decisions.get(h.decision_id))
+      .filter((r): r is DecisionRecord => r !== null)
+      .map(toDecision);
   }
+}
 
-  private findGoverningDecisions(nodeId: string): Decision[] {
-    const edges = this.store.findEdges({ target_id: nodeId, relation: "GOVERNS" });
-    return edges
-      .map((e) => this.store.getNode(e.source_id))
-      .filter((n): n is NodeRow => n !== undefined && n.kind === "decision")
-      .map((n) => nodeToDecision(n));
-  }
+function stripQnMember(target: string): string {
+  const i = target.indexOf("::");
+  return i === -1 ? target : target.slice(0, i);
+}
 
-  private governsScope(decisionId: string, scope: string): boolean {
-    const edges = this.store.findEdges({ source_id: decisionId, relation: "GOVERNS" });
-    for (const edge of edges) {
-      const target = this.store.getNode(edge.target_id);
-      if (!target) continue;
-      if (target.qualified_name === scope) return true;
-      if (target.file_path === scope) return true;
-      if (target.file_path && scope.startsWith(target.file_path)) return true;
-    }
-    return false;
-  }
+function toDecision(rec: DecisionRecord): Decision {
+  return {
+    id: rec.id,
+    title: rec.title,
+    description: rec.description ?? "",
+    rationale: rec.rationale ?? "",
+    alternatives: rec.alternatives ? JSON.parse(rec.alternatives) : [],
+    tier: rec.tier as Decision["tier"],
+    status: rec.status as Decision["status"],
+    superseded_by: rec.superseded_by,
+    author: rec.author ?? "claude",
+    created_at: rec.created_at,
+    updated_at: rec.updated_at,
+    problem: rec.problem,
+    resolution: rec.resolution,
+  };
 }

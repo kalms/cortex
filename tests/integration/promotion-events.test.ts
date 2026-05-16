@@ -1,19 +1,38 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { GraphStore } from '../../src/graph/store.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type Database from "better-sqlite3";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { DecisionsRepository } from "../../src/decisions/repository.js";
+import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
 import { DecisionService } from '../../src/decisions/service.js';
 import { DecisionPromotion } from '../../src/decisions/promotion.js';
 import { EventBus } from '../../src/events/bus.js';
 import type { Event } from '../../src/events/types.js';
 
 describe('DecisionPromotion event emission', () => {
-  let store: GraphStore;
-  afterEach(() => store?.close());
+  let dir: string;
+  let db: Database.Database;
+  let repo: DecisionsRepository;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-promoev-"));
+    db = openDecisionsDb(join(dir, "decisions.db"));
+    repo = new DecisionsRepository(db);
+  });
+
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
 
   it('emits decision.promoted on promote() with from_tier and to_tier', () => {
-    store = new GraphStore(':memory:');
     const bus = new EventBus();
-    const service = new DecisionService(store, { bus, project_id: 'test' });
-    const promotion = new DecisionPromotion(store, { bus, project_id: 'test' });
+    const service = new DecisionService({
+      decisions: repo,
+      links: new DecisionLinksRepository(db),
+      bus,
+      project_id: 'test',
+    });
+    const promotion = new DecisionPromotion(repo, { bus, project_id: 'test' });
 
     const d = service.create({
       title: 'Logging standard',
@@ -39,9 +58,11 @@ describe('DecisionPromotion event emission', () => {
   });
 
   it('no bus is allowed — promote() still works', () => {
-    store = new GraphStore(':memory:');
-    const service = new DecisionService(store);
-    const promotion = new DecisionPromotion(store); // no bus — backwards compatible
+    const service = new DecisionService({
+      decisions: repo,
+      links: new DecisionLinksRepository(db),
+    });
+    const promotion = new DecisionPromotion(repo); // no bus — backwards compatible
 
     const d = service.create({ title: 't', description: '', rationale: '' });
     expect(() => promotion.promote(d.id, 'team')).not.toThrow();

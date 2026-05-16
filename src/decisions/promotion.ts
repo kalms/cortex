@@ -1,8 +1,7 @@
-import { GraphStore } from "../graph/store.js";
 import type { Decision } from "./types.js";
-import { nodeToDecision } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import { newUlid } from "../events/ulid.js";
+import { DecisionsRepository } from "./repository.js";
 
 /**
  * Optional dependencies for DecisionPromotion.
@@ -20,19 +19,20 @@ export class DecisionPromotion {
   private bus: EventBus | undefined;
   private projectId: string;
 
-  constructor(private store: GraphStore, deps: DecisionPromotionDeps = {}) {
+  constructor(private decisions: DecisionsRepository, deps: DecisionPromotionDeps = {}) {
     this.bus = deps.bus;
     this.projectId = deps.project_id ?? '';
   }
 
   promote(id: string, tier: "team" | "public"): Decision {
-    const node = this.store.getNode(id);
-    if (!node) throw new Error(`Decision not found: ${id}`);
-    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
+    const rec = this.decisions.get(id);
+    if (!rec) throw new Error(`Decision not found: ${id}`);
 
-    const fromTier = node.tier ?? 'personal';
-    const updatedNode = this.store.updateNode(id, { tier });
-    const decision = nodeToDecision(updatedNode);
+    const fromTier = rec.tier;
+    const now = new Date().toISOString();
+    this.decisions.update(id, { tier, updated_at: now });
+    const updated = this.decisions.get(id);
+    if (!updated) throw new Error(`Decision disappeared after promote: ${id}`);
 
     this.bus?.emit({
       id: newUlid(),
@@ -43,6 +43,24 @@ export class DecisionPromotion {
       payload: { decision_id: id, from_tier: fromTier, to_tier: tier },
     });
 
-    return decision;
+    return toDecision(updated);
   }
+}
+
+function toDecision(rec: import("./repository.js").DecisionRecord): Decision {
+  return {
+    id: rec.id,
+    title: rec.title,
+    description: rec.description ?? "",
+    rationale: rec.rationale ?? "",
+    alternatives: rec.alternatives ? JSON.parse(rec.alternatives) : [],
+    tier: rec.tier as Decision["tier"],
+    status: rec.status as Decision["status"],
+    superseded_by: rec.superseded_by,
+    author: rec.author ?? "claude",
+    created_at: rec.created_at,
+    updated_at: rec.updated_at,
+    problem: rec.problem,
+    resolution: rec.resolution,
+  };
 }

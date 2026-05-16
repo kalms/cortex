@@ -17,7 +17,9 @@ import {
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
-import { resolveCortexDbPath } from "../../db/resolve-path.js";
+import { resolveCortexDbPath, resolveDecisionsDbPath } from "../../db/resolve-path.js";
+import { openDecisionsDb } from "../../decisions/db.js";
+import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
 
 const execFileAsync = promisify(execFile);
@@ -81,6 +83,28 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
     async ({ path }) => {
       const repoPath = path || process.cwd();
       const dbPath = resolveCortexDbPath(repoPath);
+
+      // Defensive: before we touch the graph DB (which a cache import will
+      // OVERWRITE), make sure any decisions still living in graph.db have
+      // been migrated into the sidecar decisions.db. The migration is
+      // idempotent (gated by schema_meta) so this is a no-op after the
+      // first run. Open the sidecar locally and close immediately; the
+      // server-level handle is also fine because writes are serialized.
+      try {
+        const decisionsDbPath = resolveDecisionsDbPath(repoPath);
+        const decDb = openDecisionsDb(decisionsDbPath);
+        try {
+          migrateDecisionsFromGraphDb(decDb, dbPath);
+        } finally {
+          decDb.close();
+        }
+      } catch (e) {
+        // Migration failure must not block indexing. Surface to stderr so
+        // a regression here is visible without breaking the user's flow.
+        process.stderr.write(
+          `Cortex: defensive decisions migration failed: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
 
       // Cache requires a git tree to key on. Without it, computeCacheKey()
       // returns the same value for every non-git directory — which would let
