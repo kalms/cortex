@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event } from "../../src/events/types.js";
 import { DecisionService } from "../../src/decisions/service.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { DecisionsRepository } from "../../src/decisions/repository.js";
+import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
+import type Database from "better-sqlite3";
 
 describe("PRService.open", () => {
   let dir: string;
@@ -99,6 +103,8 @@ describe("PRService.addTouch", () => {
 describe("PRService.merge", () => {
   let dir: string;
   let store: GraphStore;
+  let decisionsDb: Database.Database;
+  let linksRepo: DecisionLinksRepository;
   let prs: PRService;
   let decisions: DecisionService;
   let events: Event[];
@@ -106,12 +112,18 @@ describe("PRService.merge", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "cortex-pr-merge-"));
     store = new GraphStore(join(dir, "g.db"));
+    decisionsDb = openDecisionsDb(join(dir, "decisions.db"));
+    linksRepo = new DecisionLinksRepository(decisionsDb);
     events = [];
     const bus = { emit: (e: Event) => events.push(e) };
-    decisions = new DecisionService(store, { bus });
-    prs = new PRService(store, { bus, decisions });
+    decisions = new DecisionService({
+      decisions: new DecisionsRepository(decisionsDb),
+      links: linksRepo,
+      bus,
+    });
+    prs = new PRService(store, { bus, decisions, links: linksRepo });
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => { decisionsDb.close(); rmSync(dir, { recursive: true, force: true }); });
 
   it("ratifies introduced proposed decisions on merge", () => {
     const pr = prs.open({ title: "add temporal", author: "mira", introduces_frame: "src/temporal" });
@@ -162,12 +174,13 @@ describe("PRService.merge", () => {
     const active = decisions.create({
       title: "already", description: "d", rationale: "r", problem: "p", resolution: "r",
     });
-    // link via PR_INTRODUCES_DECISION manually
-    store.createEdge({
-      source_id: prs.get(pr.number)!.id,
-      target_id: active.id,
+    // link via PR_INTRODUCES_DECISION manually (now in sidecar)
+    linksRepo.add({
+      decision_id: active.id,
+      target_kind: "pr",
+      target_ref: String(pr.number),
       relation: "PR_INTRODUCES_DECISION",
-      data: {},
+      created_at: new Date().toISOString(),
     });
     const result = prs.merge(pr.number);
     expect(result.ratified_decisions).not.toContain(active.id);
@@ -195,17 +208,25 @@ describe("PRService.merge", () => {
 describe("PRService.getWithRefs", () => {
   let dir: string;
   let store: GraphStore;
+  let decisionsDb: Database.Database;
+  let linksRepo: DecisionLinksRepository;
   let prs: PRService;
   let decisions: DecisionService;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "cortex-pr-refs-"));
     store = new GraphStore(join(dir, "g.db"));
+    decisionsDb = openDecisionsDb(join(dir, "decisions.db"));
+    linksRepo = new DecisionLinksRepository(decisionsDb);
     const bus = { emit: () => {} };
-    decisions = new DecisionService(store, { bus });
-    prs = new PRService(store, { bus, decisions });
+    decisions = new DecisionService({
+      decisions: new DecisionsRepository(decisionsDb),
+      links: linksRepo,
+      bus,
+    });
+    prs = new PRService(store, { bus, decisions, links: linksRepo });
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => { decisionsDb.close(); rmSync(dir, { recursive: true, force: true }); });
 
   it("resolves introduces / implements groups", () => {
     const pr = prs.open({ title: "x", author: "m" });
@@ -213,7 +234,15 @@ describe("PRService.getWithRefs", () => {
       title: "a", problem: "p", resolution: "r", rationale: "w", pr_number: pr.number,
     });
     const impl = decisions.create({ title: "b", description: "d", rationale: "r", problem: "p", resolution: "r" });
-    store.createEdge({ source_id: prs.get(pr.number)!.id, target_id: impl.id, relation: "PR_IMPLEMENTS_DECISION", data: {} });
+    // PR ↔ decision relationships live in the sidecar's decision_links table,
+    // keyed by PR number (stable across re-indexes), not by graph node id.
+    linksRepo.add({
+      decision_id: impl.id,
+      target_kind: "pr",
+      target_ref: String(pr.number),
+      relation: "PR_IMPLEMENTS_DECISION",
+      created_at: new Date().toISOString(),
+    });
 
     const view = prs.getWithRefs(pr.number)!;
     expect(view.introduces_decisions).toContain(intro.id);

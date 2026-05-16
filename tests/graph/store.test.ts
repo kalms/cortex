@@ -15,7 +15,6 @@ describe("GraphStore", () => {
     expect(tables).toContain("nodes");
     expect(tables).toContain("edges");
     expect(tables).toContain("edge_annotations");
-    expect(tables).toContain("decisions_fts");
   });
 
   it("creates indexes on initialization", () => {

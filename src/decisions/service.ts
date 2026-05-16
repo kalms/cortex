@@ -1,432 +1,301 @@
-import { GraphStore, NodeRow } from "../graph/store.js";
-import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs, PRRef } from "./types.js";
-import { nodeToDecision } from "./types.js";
+import { randomUUID } from "node:crypto";
+import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
+import { DecisionsRepository, DecisionRecord } from "./repository.js";
+import { DecisionLinksRepository, TargetKind, Relation } from "./links-repository.js";
 
 export interface DecisionServiceDeps {
+  decisions: DecisionsRepository;
+  links: DecisionLinksRepository;
   bus?: EventBus;
   project_id?: string;
 }
 
-/**
- * DecisionService — CRUD over decisions with event emission.
- *
- * Each mutation emits exactly one event on the bus AFTER the SQLite write
- * succeeds. This ordering matters: a listener may assume the state reflected
- * by the event is already queryable via the graph store. If the write fails,
- * no event is emitted.
- *
- * `bus` is optional so existing call sites (tests, one-off scripts) continue
- * to work without backwards-incompatible changes.
- */
 export class DecisionService {
+  private decisions: DecisionsRepository;
+  private links: DecisionLinksRepository;
   private bus: EventBus | undefined;
   private projectId: string;
 
-  constructor(private store: GraphStore, deps: DecisionServiceDeps = {}) {
+  constructor(deps: DecisionServiceDeps) {
+    this.decisions = deps.decisions;
+    this.links = deps.links;
     this.bus = deps.bus;
-    this.projectId = deps.project_id ?? '';
+    this.projectId = deps.project_id ?? "";
   }
 
   create(input: CreateDecisionInput): Decision {
-    const data = {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const rec: DecisionRecord = {
+      id,
       title: input.title,
-      description: input.description,
+      description: input.description ?? null,
       rationale: input.rationale,
-      alternatives: input.alternatives ?? [],
-      status: "active" as const,
-      author: input.author ?? 'claude',
       problem: input.problem ?? null,
       resolution: input.resolution ?? null,
-    };
-
-    const node = this.store.createNode({
-      kind: "decision",
-      name: input.title,
-      data,
+      alternatives: input.alternatives ? JSON.stringify(input.alternatives) : null,
       tier: "personal",
-    });
+      status: "active",
+      superseded_by: null,
+      author: input.author ?? "claude",
+      created_at: now,
+      updated_at: now,
+    };
+    this.decisions.insert(rec);
 
-    this.store.indexDecisionContent(node.id, input.title, {
-      description: data.description,
-      rationale: data.rationale,
-      problem: data.problem,
-      resolution: data.resolution,
-    });
-
-    const governedIds: string[] = [];
     if (input.governs) {
       for (const target of input.governs) {
-        const id = this.linkGovernsReturningTarget(node.id, target);
-        governedIds.push(id);
+        this.addLink(id, classifyTarget(target), target, "GOVERNS", now);
       }
     }
-
     if (input.references) {
       for (const ref of input.references) {
-        this.store.createEdge({
-          source_id: node.id,
-          target_id: ref,
-          relation: "REFERENCES",
-        });
+        this.addLink(id, classifyTarget(ref), ref, "REFERENCES", now);
       }
     }
 
     this.emit({
       id: newUlid(),
-      kind: 'decision.created',
-      actor: data.author,
+      kind: "decision.created",
+      actor: rec.author ?? "claude",
       created_at: Date.now(),
       project_id: this.projectId,
-      payload: {
-        decision_id: node.id,
-        title: input.title,
-        rationale: input.rationale,
-        governed_file_ids: governedIds,
-        tags: [],
-      },
+      payload: { decision_id: id, title: input.title, rationale: input.rationale, governed_file_ids: input.governs ?? [], tags: [] },
     });
 
-    return nodeToDecision(node);
+    return toDecision(rec);
   }
 
-  /**
-   * Same as linkGoverns but returns the target node id (resolving path-to-node
-   * if necessary). Used by create() to build the governed_file_ids payload.
-   */
-  private linkGovernsReturningTarget(decisionId: string, target: string): string {
-    const existingNode = this.store.getNode(target);
-    if (existingNode) {
-      this.store.createEdge({
-        source_id: decisionId,
-        target_id: target,
-        relation: "GOVERNS",
-      });
-      return target;
+  get(id: string): Decision | null {
+    const rec = this.decisions.get(id);
+    return rec ? toDecision(rec) : null;
+  }
+
+  update(id: string, input: UpdateDecisionInput, opts: { emit?: boolean } = { emit: true }): Decision {
+    const existing = this.decisions.get(id);
+    if (!existing) throw new Error(`Decision not found: ${id}`);
+    const now = new Date().toISOString();
+    const patch: Partial<DecisionRecord> = { updated_at: now };
+    const changedFields: string[] = [];
+    if (input.title !== undefined) { patch.title = input.title; changedFields.push("title"); }
+    if (input.description !== undefined) { patch.description = input.description; changedFields.push("description"); }
+    if (input.rationale !== undefined) { patch.rationale = input.rationale; changedFields.push("rationale"); }
+    if (input.alternatives !== undefined) {
+      patch.alternatives = JSON.stringify(input.alternatives);
+      changedFields.push("alternatives");
     }
-
-    const pathNodes = this.store.findNodes({ file_path: target, kind: "path" });
-    let pathNode: NodeRow;
-    if (pathNodes.length > 0) {
-      pathNode = pathNodes[0];
-    } else {
-      pathNode = this.store.createNode({
-        kind: "path",
-        name: target.split("/").pop() || target,
-        file_path: target,
-        tier: "public",
-      });
+    if (input.status !== undefined) { patch.status = input.status; changedFields.push("status"); }
+    if (input.superseded_by !== undefined) {
+      patch.superseded_by = input.superseded_by;
+      changedFields.push("superseded_by");
     }
-    this.store.createEdge({
-      source_id: decisionId,
-      target_id: pathNode.id,
-      relation: "GOVERNS",
-    });
-    return pathNode.id;
-  }
+    if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
+    if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
+    if (input.author !== undefined) patch.author = input.author;
+    this.decisions.update(id, patch);
 
-  linkGoverns(decisionId: string, target: string): void {
-    this.linkGovernsReturningTarget(decisionId, target);
-  }
-
-  linkReference(decisionId: string, targetId: string): void {
-    this.store.createEdge({
-      source_id: decisionId,
-      target_id: targetId,
-      relation: "REFERENCES",
-    });
-  }
-
-  update(id: string, input: UpdateDecisionInput): Decision {
-    const node = this.store.getNode(id);
-    if (!node) throw new Error(`Decision not found: ${id}`);
-    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
-
-    const existingData = JSON.parse(node.data);
-    const newData = { ...existingData };
-    const changed: string[] = [];
-
-    if (input.title !== undefined && input.title !== existingData.title) { newData.title = input.title; changed.push('title'); }
-    if (input.description !== undefined && input.description !== existingData.description) { newData.description = input.description; changed.push('description'); }
-    if (input.rationale !== undefined && input.rationale !== existingData.rationale) { newData.rationale = input.rationale; changed.push('rationale'); }
-    if (input.alternatives !== undefined) { newData.alternatives = input.alternatives; changed.push('alternatives'); }
-    if (input.status !== undefined && input.status !== existingData.status) { newData.status = input.status; changed.push('status'); }
-    if (input.superseded_by !== undefined) { newData.superseded_by = input.superseded_by; changed.push('superseded_by'); }
-    if (input.problem !== undefined) { newData.problem = input.problem; changed.push('problem'); }
-    if (input.resolution !== undefined) { newData.resolution = input.resolution; changed.push('resolution'); }
-    if (input.author !== undefined) { newData.author = input.author; changed.push('author'); }
-
-    const updatedNode = this.store.updateNode(id, {
-      name: newData.title,
-      data: JSON.stringify(newData),
-    });
-
-    this.store.updateDecisionContent(id, newData.title, {
-      description: newData.description,
-      rationale: newData.rationale,
-      problem: newData.problem,
-      resolution: newData.resolution,
-    });
-
-    if (input.superseded_by) {
-      const existing = this.store.findEdges({ source_id: input.superseded_by, target_id: id, relation: "SUPERSEDES" });
-      if (existing.length === 0) {
-        this.store.createEdge({
-          source_id: input.superseded_by,
-          target_id: id,
-          relation: "SUPERSEDES",
+    if (opts.emit !== false) {
+      // If the update marked the decision superseded, prefer the
+      // decision.superseded signal over decision.updated (legacy contract).
+      const becameSuperseded =
+        patch.status === "superseded" && patch.superseded_by != null;
+      if (becameSuperseded) {
+        this.emit({
+          id: newUlid(),
+          kind: "decision.superseded",
+          actor: patch.author ?? existing.author ?? "claude",
+          created_at: Date.now(),
+          project_id: this.projectId,
+          payload: { old_id: id, new_id: patch.superseded_by!, reason: "" },
+        });
+      } else {
+        this.emit({
+          id: newUlid(),
+          kind: "decision.updated",
+          actor: patch.author ?? existing.author ?? "claude",
+          created_at: Date.now(),
+          project_id: this.projectId,
+          payload: { decision_id: id, changed_fields: changedFields },
         });
       }
-      this.emit({
-        id: newUlid(),
-        kind: 'decision.superseded',
-        actor: newData.author ?? 'claude',
-        created_at: Date.now(),
-        project_id: this.projectId,
-        payload: { old_id: id, new_id: input.superseded_by, reason: input.reason ?? '' },
-      });
-    } else if (changed.length > 0) {
-      this.emit({
-        id: newUlid(),
-        kind: 'decision.updated',
-        actor: newData.author ?? 'claude',
-        created_at: Date.now(),
-        project_id: this.projectId,
-        payload: { decision_id: id, changed_fields: changed },
-      });
     }
 
-    return nodeToDecision(updatedNode);
+    return toDecision({ ...existing, ...patch } as DecisionRecord);
   }
 
   delete(id: string): void {
-    const node = this.store.getNode(id);
-    if (!node) throw new Error(`Decision not found: ${id}`);
-    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
-
-    const titleSnapshot = JSON.parse(node.data).title as string;
-
-    this.store.removeDecisionContent(id);
-    this.store.deleteNode(id);
-
+    const existing = this.decisions.get(id);
+    if (!existing) return; // idempotent: missing decision is a no-op
+    this.decisions.delete(id);
     this.emit({
       id: newUlid(),
-      kind: 'decision.deleted',
-      actor: 'claude',
+      kind: "decision.deleted",
+      actor: existing.author ?? "claude",
       created_at: Date.now(),
       project_id: this.projectId,
-      payload: { decision_id: id, title: titleSnapshot },
+      payload: { decision_id: id, title: existing.title },
     });
   }
 
-  get(id: string): Decision & { governs: NodeRow[]; references: NodeRow[] } {
-    const node = this.store.getNode(id);
-    if (!node) throw new Error(`Decision not found: ${id}`);
-    if (node.kind !== "decision") throw new Error(`Node ${id} is not a decision`);
+  search(query: string): Decision[] {
+    return this.decisions.search(query).map(toDecision);
+  }
 
-    const decision = nodeToDecision(node);
+  linkGoverns(decisionId: string, target: string): void {
+    this.addLink(decisionId, classifyTarget(target), target, "GOVERNS", new Date().toISOString());
+  }
 
-    const governsEdges = this.store.findEdges({ source_id: id, relation: "GOVERNS" });
-    const governs = governsEdges
-      .map((e) => this.store.getNode(e.target_id))
-      .filter((n): n is NodeRow => n !== undefined);
-
-    const referencesEdges = this.store.findEdges({ source_id: id, relation: "REFERENCES" });
-    const references = referencesEdges
-      .map((e) => this.store.getNode(e.target_id))
-      .filter((n): n is NodeRow => n !== undefined);
-
-    return { ...decision, governs, references };
+  linkReference(decisionId: string, target: string): void {
+    this.addLink(decisionId, classifyTarget(target), target, "REFERENCES", new Date().toISOString());
   }
 
   supersede(input: SupersedeDecisionInput): Decision {
-    return this.store.transaction(() => {
-      const oldNode = this.store.getNode(input.old_decision_id);
-      if (!oldNode || oldNode.kind !== "decision") {
-        throw new Error(`Decision not found: ${input.old_decision_id}`);
-      }
-      const created = this.create({
-        title: input.title,
-        description: input.resolution,
-        rationale: input.rationale,
-        alternatives: input.alternatives,
-        governs: input.governs,
-        references: input.references,
-        author: input.author,
-        problem: input.problem,
-        resolution: input.resolution,
-      });
-      this.update(input.old_decision_id, {
-        status: "superseded",
-        superseded_by: created.id,
-        author: input.author,
-      });
-      return created;
+    // Validate the target exists BEFORE creating the replacement, so we don't
+    // leave an orphan if old_decision_id is bogus.
+    if (!this.decisions.get(input.old_decision_id)) {
+      throw new Error(`Decision not found: ${input.old_decision_id}`);
+    }
+    const replacement = this.create({
+      title: input.title,
+      description: input.resolution ?? "",
+      rationale: input.rationale,
+      alternatives: input.alternatives,
+      governs: input.governs,
+      references: input.references,
+      author: input.author,
+      problem: input.problem,
+      resolution: input.resolution,
     });
+    this.update(input.old_decision_id, {
+      status: "superseded",
+      superseded_by: replacement.id,
+      author: input.author,
+    }, { emit: false });
+    this.links.add({
+      decision_id: replacement.id,
+      target_kind: "decision",
+      target_ref: input.old_decision_id,
+      relation: "SUPERSEDES",
+      created_at: new Date().toISOString(),
+    });
+    this.emit({
+      id: newUlid(),
+      kind: "decision.superseded",
+      actor: input.author ?? "claude",
+      created_at: Date.now(),
+      project_id: this.projectId,
+      payload: { old_id: input.old_decision_id, new_id: replacement.id, reason: "" },
+    });
+    return replacement;
   }
 
   propose(input: ProposeDecisionInput): Decision {
-    const data: Record<string, unknown> = {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const rec: DecisionRecord = {
+      id,
       title: input.title,
-      description: input.resolution,
+      description: input.resolution ?? null,
       rationale: input.rationale,
-      alternatives: input.alternatives ?? [],
-      author: input.author ?? 'claude',
+      problem: input.problem ?? null,
+      resolution: input.resolution ?? null,
+      alternatives: input.alternatives ? JSON.stringify(input.alternatives) : null,
+      tier: "personal",
       status: "proposed",
       superseded_by: null,
-      problem: input.problem,
-      resolution: input.resolution,
+      author: input.author ?? "claude",
+      created_at: now,
+      updated_at: now,
     };
-    const node = this.store.createNode({ kind: "decision", name: input.title, data, tier: "personal" });
-    this.store.indexDecisionContent(node.id, input.title, {
-      description: input.resolution,
-      rationale: input.rationale,
-      problem: input.problem,
-      resolution: input.resolution,
-    });
-    for (const target of input.governs ?? []) this.linkGoverns(node.id, target);
-    for (const ref of input.references ?? []) this.linkReference(node.id, ref);
+    this.decisions.insert(rec);
+    for (const target of input.governs ?? []) this.linkGoverns(id, target);
+    for (const ref of input.references ?? []) this.linkReference(id, ref);
     if (input.pr_number != null) {
-      const prNode = this.findPrByNumber(input.pr_number);
-      if (prNode) {
-        this.store.createEdge({
-          source_id: prNode.id,
-          target_id: node.id,
-          relation: "PR_INTRODUCES_DECISION",
-        });
-      }
+      this.links.add({
+        decision_id: id,
+        target_kind: "pr",
+        target_ref: String(input.pr_number),
+        relation: "PR_INTRODUCES_DECISION",
+        created_at: now,
+      });
     }
     this.emit({
       id: newUlid(),
-      kind: 'decision.proposed',
-      actor: (data.author as string),
+      kind: "decision.proposed",
+      actor: rec.author ?? "claude",
       project_id: this.projectId,
       created_at: Date.now(),
-      payload: {
-        decision_id: node.id,
-        title: input.title,
-        pr_number: input.pr_number ?? null,
-      },
+      payload: { decision_id: id, title: input.title, pr_number: input.pr_number ?? null },
     });
-    return nodeToDecision(node);
+    return toDecision(rec);
   }
 
-  linkRelatedTo(fromId: string, toId: string): void {
-    this.requireDecisions(fromId, toId);
-    this.store.createEdge({ source_id: fromId, target_id: toId, relation: "DECISION_RELATED_TO" });
-  }
-
-  linkDependsOn(fromId: string, toId: string): void {
-    this.requireDecisions(fromId, toId);
-    this.store.createEdge({ source_id: fromId, target_id: toId, relation: "DECISION_DEPENDS_ON" });
-  }
-
-  private requireDecisions(...ids: string[]): void {
-    for (const id of ids) {
-      const n = this.store.getNode(id);
-      if (!n || n.kind !== "decision") throw new Error(`Decision not found: ${id}`);
-    }
-  }
-
-  getWithRefs(id: string): DecisionWithRefs | null {
-    const node = this.store.getNode(id);
-    if (!node || node.kind !== "decision") return null;
-    const base = nodeToDecision(node);
-
-    const outgoing = this.store.findEdges({ source_id: id });
-    const incoming = this.store.findEdges({ target_id: id });
-
-    const related = [
-      ...outgoing.filter((e) => e.relation === "DECISION_RELATED_TO"),
-      ...incoming.filter((e) => e.relation === "DECISION_RELATED_TO"),
-    ];
-    const deps = outgoing.filter((e) => e.relation === "DECISION_DEPENDS_ON");
-    const prIntro = incoming.filter((e) => e.relation === "PR_INTRODUCES_DECISION");
-    const prImpl = incoming.filter((e) => e.relation === "PR_IMPLEMENTS_DECISION");
-    const prChal = incoming.filter((e) => e.relation === "PR_CHALLENGES_DECISION");
-    const prDisc = incoming.filter((e) => e.relation === "PR_DISCUSSES_DECISION");
-
-    const governs = outgoing
-      .filter((e) => e.relation === "GOVERNS")
-      .map((e) => this.store.getNode(e.target_id))
-      .filter((n): n is NodeRow => n !== undefined);
-
-    const references = outgoing
-      .filter((e) => e.relation === "REFERENCES")
-      .map((e) => this.store.getNode(e.target_id))
-      .filter((n): n is NodeRow => n !== undefined);
-
-    return {
-      ...base,
-      governs,
-      references,
-      related_decisions: related
-        .map((e) => (e.source_id === id ? e.target_id : e.source_id))
-        .map((otherId) => this.store.getNode(otherId))
-        .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "decision")
-        .map((n) => nodeToDecision(n)),
-      depends_on: deps
-        .map((e) => this.store.getNode(e.target_id))
-        .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "decision")
-        .map((n) => nodeToDecision(n)),
-      introduced_in: this.firstPrRef(prIntro),
-      implemented_by: this.prRefsFromEdges(prImpl),
-      challenged_by: this.prRefsFromEdges(prChal),
-      discussed_in: this.prRefsFromEdges(prDisc),
-    };
-  }
-
-  private firstPrRef(edges: Array<{ source_id: string }>): PRRef | null {
-    const refs = this.prRefsFromEdges(edges);
-    return refs[0] ?? null;
-  }
-
-  private prRefsFromEdges(edges: Array<{ source_id: string }>): PRRef[] {
-    return edges
-      .map((e) => this.store.getNode(e.source_id))
-      .filter((n): n is NonNullable<typeof n> => !!n && n.kind === "pull_request")
-      .map((n) => {
-        const data = JSON.parse(n.data || "{}");
-        return { number: data.number, title: n.name, state: data.state };
-      });
-  }
-
+  /**
+   * Transition a proposed decision into 'active'. Called by the PR service
+   * when a PR that introduced the decision is merged. Idempotent: no-op if
+   * the decision doesn't exist or isn't currently 'proposed'.
+   */
   ratify(decisionId: string, viaPrNumber: number): void {
-    const node = this.store.getNode(decisionId);
-    if (!node || node.kind !== "decision") throw new Error(`Decision not found: ${decisionId}`);
-    const data = typeof node.data === "string" ? JSON.parse(node.data || "{}") : node.data;
-    if (data.status !== "proposed") return;
-    data.status = "active";
-    this.store.updateNode(decisionId, { data: JSON.stringify(data) });
-    this.store.updateDecisionContent(decisionId, node.name, {
-      description: data.description,
-      rationale: data.rationale,
-      problem: data.problem,
-      resolution: data.resolution,
-    });
+    const existing = this.decisions.get(decisionId);
+    if (!existing || existing.status !== "proposed") return;
+    this.update(decisionId, { status: "active" }, { emit: false });
     this.emit({
       id: newUlid(),
       kind: "decision.ratified",
-      actor: data.author ?? "claude",
+      actor: existing.author ?? "claude",
       project_id: this.projectId,
       created_at: Date.now(),
       payload: { decision_id: decisionId, via_pr_number: viaPrNumber },
     });
   }
 
-  private findPrByNumber(num: number): { id: string } | null {
-    const row = (this.store as any).db
-      .prepare(
-        `SELECT id FROM nodes WHERE kind = 'pull_request'
-         AND CAST(json_extract(data, '$.number') AS INTEGER) = ?`
-      )
-      .get(num) as { id: string } | undefined;
-    return row ?? null;
+  linkRelatedTo(fromId: string, toId: string): void {
+    this.links.add({
+      decision_id: fromId, target_kind: "decision", target_ref: toId,
+      relation: "DECISION_RELATED_TO", created_at: new Date().toISOString(),
+    });
   }
 
-  private emit(event: Event): void {
-    this.bus?.emit(event);
+  linkDependsOn(fromId: string, toId: string): void {
+    this.links.add({
+      decision_id: fromId, target_kind: "decision", target_ref: toId,
+      relation: "DECISION_DEPENDS_ON", created_at: new Date().toISOString(),
+    });
   }
+
+  private addLink(
+    decisionId: string, kind: TargetKind, ref: string, relation: Relation, createdAt: string,
+  ): void {
+    this.links.add({
+      decision_id: decisionId, target_kind: kind, target_ref: ref,
+      relation, created_at: createdAt,
+    });
+  }
+
+  private emit(event: Event): void { this.bus?.emit(event); }
+}
+
+function classifyTarget(target: string): TargetKind {
+  return target.includes("/") ? "path" : "qn";
+}
+
+function toDecision(rec: DecisionRecord): Decision {
+  return {
+    id: rec.id,
+    title: rec.title,
+    description: rec.description ?? "",
+    rationale: rec.rationale ?? "",
+    alternatives: rec.alternatives ? JSON.parse(rec.alternatives) : [],
+    tier: rec.tier as Decision["tier"],
+    status: rec.status as Decision["status"],
+    superseded_by: rec.superseded_by,
+    author: rec.author ?? "claude",
+    created_at: rec.created_at,
+    updated_at: rec.updated_at,
+    problem: rec.problem,
+    resolution: rec.resolution,
+  };
 }
