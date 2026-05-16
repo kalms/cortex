@@ -41,14 +41,19 @@ beforeAll(() => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
+// Test fixtures use full 40-char SHAs because parseCoChangeLog requires
+// exactly that length — git log --pretty=format:%H always emits the full SHA.
+const SHA_A = "0000000000000000000000000000000000000001";
+const SHA_B = "0000000000000000000000000000000000000002";
+
 describe("parseCoChangeLog (pure)", () => {
   it("yields one pair per file-pair per commit", () => {
     const log =
-      "abc123\n" +
+      `${SHA_A}\n` +
       "src/auth.ts\n" +
       "src/middleware.ts\n" +
       "\n" +
-      "def456\n" +
+      `${SHA_B}\n` +
       "src/auth.ts\n" +
       "src/middleware.ts\n";
     const pairs = [...parseCoChangeLog(log, { big_commit_threshold: 50 })];
@@ -61,22 +66,35 @@ describe("parseCoChangeLog (pure)", () => {
 
   it("drops commits with >= big_commit_threshold files", () => {
     const files = Array.from({ length: 60 }, (_, i) => `big/f${i}.txt`).join("\n");
-    const log = `abc123\n${files}\n\ndef456\nsrc/auth.ts\nsrc/middleware.ts\n`;
+    const log = `${SHA_A}\n${files}\n\n${SHA_B}\nsrc/auth.ts\nsrc/middleware.ts\n`;
     const pairs = [...parseCoChangeLog(log, { big_commit_threshold: 50 })];
     // Only the small commit's pair survives.
     expect(pairs).toEqual([{ a: "src/auth.ts", b: "src/middleware.ts", count: 1 }]);
   });
 
   it("sorts pair endpoints so (a, b) and (b, a) collapse", () => {
-    const log = "abc123\nz.ts\na.ts\n";
+    const log = `${SHA_A}\nz.ts\na.ts\n`;
     const pairs = [...parseCoChangeLog(log, { big_commit_threshold: 50 })];
     expect(pairs[0]).toEqual({ a: "a.ts", b: "z.ts", count: 1 });
   });
 
   it("skips commits with fewer than 2 files (no pair possible)", () => {
-    const log = "abc123\nonly.ts\n\ndef456\na.ts\nb.ts\n";
+    const log = `${SHA_A}\nonly.ts\n\n${SHA_B}\na.ts\nb.ts\n`;
     const pairs = [...parseCoChangeLog(log, { big_commit_threshold: 50 })];
     expect(pairs).toEqual([{ a: "a.ts", b: "b.ts", count: 1 }]);
+  });
+
+  it("does not mis-detect hex-only filenames as SHA lines", () => {
+    // Regression: an earlier 6-40 char regex would swallow files like
+    // `assets/cafe.png` as a "second SHA", silently dropping them.
+    const log = `${SHA_A}\nassets/cafe.png\nassets/deadbeef.bin\nsrc/loader.ts\n`;
+    const pairs = [...parseCoChangeLog(log, { big_commit_threshold: 50 })];
+    // 3 files → C(3,2) = 3 pairs, all present.
+    expect(pairs).toHaveLength(3);
+    const files = new Set(pairs.flatMap((p) => [p.a, p.b]));
+    expect(files).toEqual(new Set([
+      "assets/cafe.png", "assets/deadbeef.bin", "src/loader.ts",
+    ]));
   });
 });
 
