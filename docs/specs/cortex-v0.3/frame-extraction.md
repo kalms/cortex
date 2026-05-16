@@ -270,10 +270,10 @@ All tiers intrinsic and deterministic.
 
 Read from the existing CBM index. Entity count, edge density, degree
 distribution skew, directory depth and breadth, language/type
-heterogeneity. Compute a complexity score. The score gates step 3
-(ACDC refinement) — fan and orphan-adoption patterns skip on
-low-complexity repos. The primary clustering algorithm in step 2 runs
-on every repo regardless of complexity.
+heterogeneity. Compute a complexity score for observability and
+reporting only — it does NOT gate any downstream step. Earlier drafts
+gated "ACDC refinement" on the complexity score; both the gate and
+the ACDC step were dropped on 2026-05-16 — see §Status.
 
 ### 2. Primary clustering (algorithm selected in Phase 2)
 
@@ -292,47 +292,72 @@ Phase 2 selects the winner. Until then the cascade is parametric over
 "primary clustering" — downstream steps don't care which algorithm
 produced the clusters.
 
-### 3. ACDC refinement (regardless of which clustering wins)
+Per-algorithm noise handling: HDBSCAN naturally produces noise points
+the clustering wasn't confident enough to assign. The HDBSCAN pipelines
+post-process noise via nearest-cluster assignment (formerly framed as
+"orphan-adoption"; now an internal step of the HDBSCAN candidates).
+Leiden doesn't produce noise the same way — singletons become bare
+nodes per step 4 below.
 
-Three ACDC patterns provide labelling and refinement that's useful
-over any clustering algorithm:
+### 3. Directory grouping (floor)
 
-| Pattern | Purpose |
-|---|---|
-| Dominator | For each cluster, identify the file/entity that dominates it. Provides the label anchor (highest-priority labelling source per labeling priority below) |
-| Fan (support-library / dispatcher) | Identify high fan-in / fan-out entities and exile them from anchoring labels. `types.ts`, `index.ts` re-exports, dispatchers — they may legitimately fall in a cluster but they shouldn't *name* it |
-| Orphan-adoption | Files marked as noise by the primary clustering get adopted into the cluster they're most coupled with (imports + co-change) |
+Code entities no clustering algorithm claimed. Labels from directory
+name. This is the genuine answer for genuinely ungrouped entities, not
+a fallback for a failed cascade.
 
-Body-header conglomeration is skipped in v1 (C-era pattern, low value
-for JS/TS/Python/Go).
-
-### 4. Directory grouping (floor)
-
-Code entities no clustering algorithm claimed (and that orphan-adoption
-couldn't place). Labels from directory name. This is the genuine answer
-for genuinely ungrouped entities, not a fallback for a failed cascade.
-
-### 5. Bare-node computation
+### 4. Bare-node computation
 
 Code entities whose domain loyalty splits across clusters become bare
 nodes. The split loyalty is recorded as inter-frame affinity.
 
 ---
 
-## Labeling priority (v1)
+## Labeling
 
-First match wins:
+A label-source pipeline runs after primary clustering. Step 1
+identifies the **anchorable** member set; steps 2–4 select a label
+from that set. First match wins on steps 2–4.
 
-1. Dominator symbol name (from ACDC dominator pattern) — highest
-   narrative quality.
-2. Frequency-dominant name-token across cluster members. Penalised for
-   generic tokens (`util`, `helper`, `common`, `core`, `misc`,
-   `shared`, `service`, `manager`, `handler`).
-3. Directory name.
-4. Markdown-section match — if the repo's README has a section heading
-   referencing ≥2 files all in the same frame, the heading becomes the
-   label. Novel signal from the research brief. Bonus when it fires;
-   unreliable as primary.
+### 1. Anchorable filter (apply to every cluster member)
+
+Exclude from labeling consideration:
+
+- **Infra-node deny-list:** files whose stripped basename matches
+  `index|types|errors|utils|constants|deps`, or whose name ends in
+  `.test|.spec|.stories|.d`. They may belong to the cluster but should
+  not name it.
+- **High-degree exclusion:** files whose in-degree exceeds the cluster's
+  P90 in-degree by ≥2×. Catches dispatchers / re-export hubs that the
+  deny-list missed.
+
+This subsumes the original "fan" pattern from earlier drafts.
+
+### 2. Frequency-dominant name-token across anchorable members
+
+Tokenise file paths and symbol names after the framework-aware
+stripping pass; pick the highest-frequency token across the cluster.
+Penalised for generic tokens (`util`, `helper`, `common`, `core`,
+`misc`, `shared`, `service`, `manager`, `handler`).
+
+### 3. Dominator symbol name (Phase-2 candidate)
+
+For each cluster, identify the entity that dominates it (graph-theoretic
+dominator over the CALLS/IMPORTS subgraph). Use its bare name as the
+label. Phase 2 A/B-tests this against #2 via eyeball check; if it
+clearly wins on multiple archetypes it replaces #2 as the primary
+label source. Until then, #2 is the v1 default and dominator is the
+candidate alternative.
+
+### 4. Directory name
+
+The cluster's modal parent directory after framework-aware stripping.
+Fallback when name-token frequency produces only generic-token hits.
+
+### 5. Markdown-section match
+
+If the repo's README has a section heading referencing ≥2 files all in
+the same frame, the heading becomes the label. Novel signal from the
+research brief. Bonus when it fires; unreliable as primary.
 
 ---
 
@@ -426,25 +451,19 @@ table, trpc, nuxt/ui, cobra, click, peft); script + corpus in
 
 Finding: the starter threshold (`entity_count > 300 OR edge_density >
 0.05`) is two orders of magnitude below the corpus floor. Every active
-project blows past it, so the gate as written is effectively
-always-on — ACDC refinement runs on every repo. Recalibration anchor:
-the corpus p25 (`entity_count > 1222 OR edge_density > 1.448`). Two
-defensible directions for v1:
+project blows past it, so the gate as written would have been
+effectively always-on. Combined with a cost re-check on ACDC's three
+patterns (near-linear dominator, O(V) fan, O(N·K) orphan-adoption with
+K small), neither the cost argument nor the data motivates a gate.
 
-- **Drop the gate.** If ACDC refinement is cheap enough on cortex
-  (~10k entities, 46k edges), the case for a complexity gate is weak.
-  Run it on every repo and skip the gate logic entirely. Reduces
-  branching, removes one tunable.
-- **Raise the threshold to a real signal.** If ACDC is expensive on
-  large repos, set the gate to gate *expensive* repos out of the
-  *cheap* refinement, not the other way around — i.e. invert the
-  predicate: only run ACDC for `entity_count < 5000` (say), with a
-  cheaper labelling fallback above that. This is a different design;
-  the spec's current intent does not match it.
-
-The starter threshold from the original spec text is preserved for
-historical reference but should not be used as-is. Phase 2 picks one
-of the two directions.
+**Resolution (2026-05-16):** the complexity gate is dropped, and ACDC
+refinement is dropped as a cascade step entirely — see §Extraction
+cascade and §Status. The valuable bits of ACDC are absorbed:
+fan-pattern becomes the anchorable-filter at §Labeling step 1;
+orphan-adoption becomes internal noise-handling in the HDBSCAN
+pipelines; dominator becomes a Phase-2 candidate label source A/B'd
+against name-token frequency. The meta-metrics pass still runs for
+observability — the complexity score is reported, just not gated on.
 
 **Phase 2 — Algorithm selection (3-way comparison).** Build all three
 candidate primary clustering algorithms (Leiden community detection,
@@ -465,7 +484,8 @@ For each (algorithm, repo) pair, measure:
 - **Import agreement** — fraction of strongly-importing pairs landing
   in the same cluster
 - **Noise rate** — fraction of files unclassified by the primary
-  clustering (before orphan-adoption)
+  clustering. Reported pre- and post- HDBSCAN's nearest-cluster
+  noise-handling so both signals are visible
 - **Cluster count** — should land in 4–15 range; runaway counts (>30)
   or collapse (<3) are failure signals
 - **Determinism** — re-run, expect byte-identical output. All three
@@ -519,13 +539,15 @@ intrinsic data plus maintainer judgement.
    community detection, TF-IDF + HDBSCAN, pinned-embedding + HDBSCAN)
    tested empirically in Phase 2. Decision is data-driven, not
    pre-committed.
-2. **Which ACDC refinement patterns are complexity-gated?** Starter:
-   fan + orphan-adoption skip on low-complexity repos. Verify with
-   Phase-1 data.
-3. **Entity granularity on large repos.** On a 10k-entity repo, running
-   ACDC over every function may be slow. Candidate two-pass approach:
-   files as initial nodes; refine to function-level when a cluster's
-   internal fragmentation suggests it.
+2. **Dominator vs. token-frequency as primary label source.** Phase 2
+   eyeball-check runs both per (algorithm, repo) pair and picks. If
+   dominator clearly wins on multiple archetypes it replaces #2 as the
+   default; otherwise token-frequency stays and dominator remains a
+   candidate worth revisiting.
+3. **Entity granularity on large repos.** On a 10k-entity repo,
+   running primary clustering over every function may be slow.
+   Candidate two-pass approach: files as initial nodes; refine to
+   function-level when a cluster's internal fragmentation suggests it.
 4. **Auxiliary detection thresholds.** Starter (no empirical basis):
    ≥20 entities AND ≥80% extension dominance AND CV(size) < 0.3 AND
    zero outbound imports. All four for confidence; calibrate on
@@ -599,3 +621,15 @@ combined-distance formula split into per-pipeline forms (edge weights
 for Leiden, distance metric for HDBSCAN); auxiliary detection logic
 specified as A-or-all-of-B; aggregate visual specs moved to
 `frame-ranking.md` where rendering decisions live.
+
+2026-05-16 simplification, post-Phase-1: dropped the complexity gate
+and ACDC refinement as a cascade step. Phase 1 data showed the gate
+never fires on the corpus and the cost case for skipping ACDC on
+small repos didn't survive a complexity re-check. The three ACDC
+patterns were absorbed where they were actually load-bearing —
+fan-as-anchorable-filter into the labeling step, orphan-adoption into
+HDBSCAN's internal noise-handling, dominator demoted to a Phase-2
+A/B candidate against token-frequency labeling. Cascade goes from 5
+steps to 4. Recorded as decision
+`fa6aedaf-479b-4a40-96b7-1500a1973428` (superseded; new decision links
+to this entry).
