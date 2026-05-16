@@ -9,7 +9,7 @@ export default defineConfig({
       "**/dist/**",
       // Survey corpus checkouts under .tmp/frame-extraction/corpus/ carry
       // their own test suites which vitest must not pick up.
-      ".tmp/**",
+      "**/.tmp/**",
     ],
   },
 });

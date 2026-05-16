@@ -135,14 +135,25 @@ static const char *itoa_buf(int val) {
     return bufs[i];
 }
 
-/* Record the phase at which the pipeline failed. Pass NULL to clear.
+/* Record the phase at which the pipeline failed. First non-NULL set wins:
+ * inner phases ("cache_alloc", "dump") would otherwise be overwritten by
+ * the coarser "extraction"/"post" labels at the outer goto-cleanup sites,
+ * leaving the finer-grained labels documented on pipeline.h unreachable.
+ * Pass NULL to clear (used at run entry to reset state).
+ *
  * The phase argument MUST be a string literal (or other static-storage
- * pointer) — the field is stored by reference, not copied. This means
- * no allocation / no free-path and the value remains valid for the
- * lifetime of the program (no OOM-during-diagnostic failure mode).
- * Safe to call with p == NULL (no-op). */
+ * pointer) — the field is stored by reference, not copied. No allocation,
+ * no free path, no OOM-during-diagnostic failure mode. Safe to call with
+ * p == NULL (no-op). */
 static void set_error_phase(ctx_pipeline_t *p, const char *phase) {
     if (!p) {
+        return;
+    }
+    if (phase == NULL) {
+        p->last_error_phase = NULL;
+        return;
+    }
+    if (p->last_error_phase != NULL) {
         return;
     }
     p->last_error_phase = phase;

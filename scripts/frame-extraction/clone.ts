@@ -15,8 +15,9 @@ export interface CloneResult {
   error?: string;
 }
 
-/** Idempotent: if the repo is already cloned, fetch + reset to current HEAD
- *  of the remote default branch. Returns the absolute path + commit sha. */
+/** Idempotent: if the destination already exists, leave it untouched and
+ *  return its current HEAD sha — deterministic within a single survey run.
+ *  Wipe the destination manually for a fresh clone. */
 export function ensureClone(repo: RepoSpec): CloneResult {
   if (repo.git === null) {
     const path = repo.local_path
