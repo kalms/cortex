@@ -26,15 +26,13 @@ export function collectFsStats(root: string): FsStats {
       return;
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") && IGNORE_DIRS.has(entry.name)) continue;
       if (IGNORE_DIRS.has(entry.name)) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         const rel = relative(root, full);
         const segments = rel === "" ? [] : rel.split(sep);
-        if (segments.some(s => AUXILIARY_PATH_PATTERNS.includes(s))) {
-          aux.add(segments[0]);
-        }
+        const match = segments.find(s => AUXILIARY_PATH_PATTERNS.includes(s));
+        if (match) aux.add(match);
         walk(full, depthFromRoot + 1);
       } else if (entry.isFile()) {
         fileCount += 1;
