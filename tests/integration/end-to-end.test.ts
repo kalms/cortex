@@ -1,8 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { createServer } from 'node:http';
 import { Worker } from 'node:worker_threads';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import { GraphStore } from '../../src/graph/store.js';
+import { openDecisionsDb } from '../../src/decisions/db.js';
+import { DecisionsRepository } from '../../src/decisions/repository.js';
+import { DecisionLinksRepository } from '../../src/decisions/links-repository.js';
 import { DecisionService } from '../../src/decisions/service.js';
 import { EventBus } from '../../src/events/bus.js';
 import { EventPersister } from '../../src/events/worker/persister.js';
@@ -47,11 +53,17 @@ afterEach(async () => {
 
 describe('end-to-end: decision → event + mutations over WS', () => {
   it('client receives event after a decision is created', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'cortex-e2e-'));
+    closers.push(() => rmSync(tmpDir, { recursive: true, force: true }));
+
     const store = new GraphStore(':memory:');
     closers.push(() => store.close());
 
     const persister = new EventPersister(':memory:');
     closers.push(() => persister.close());
+
+    const decisionsDb = openDecisionsDb(join(tmpDir, 'decisions.db'));
+    closers.push(() => decisionsDb.close());
 
     const bus = new EventBus();
 
@@ -102,7 +114,12 @@ describe('end-to-end: decision → event + mutations over WS', () => {
     // Wire bus → worker.
     bus.onEvent((e) => worker.postMessage({ type: 'event', event: e }));
 
-    const service = new DecisionService(store, { bus, project_id: 'test' });
+    const service = new DecisionService({
+      decisions: new DecisionsRepository(decisionsDb),
+      links: new DecisionLinksRepository(decisionsDb),
+      bus,
+      project_id: 'test',
+    });
 
     // Connect WS client and capture messages.
     const ws = new WebSocket(`ws://localhost:${port}/ws`);

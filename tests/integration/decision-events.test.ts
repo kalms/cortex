@@ -1,20 +1,42 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { GraphStore } from '../../src/graph/store.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type Database from "better-sqlite3";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { DecisionsRepository } from "../../src/decisions/repository.js";
+import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
 import { DecisionService } from '../../src/decisions/service.js';
 import { EventBus } from '../../src/events/bus.js';
 import type { Event } from '../../src/events/types.js';
 
 describe('DecisionService event emission', () => {
-  let store: GraphStore;
-  afterEach(() => store?.close());
+  let dir: string;
+  let db: Database.Database;
+  let bus: EventBus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-decevents-"));
+    db = openDecisionsDb(join(dir, "decisions.db"));
+    bus = new EventBus();
+  });
+
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  function makeService(): DecisionService {
+    return new DecisionService({
+      decisions: new DecisionsRepository(db),
+      links: new DecisionLinksRepository(db),
+      bus,
+      project_id: 'test',
+    });
+  }
 
   it('emits decision.created on create()', () => {
-    store = new GraphStore(':memory:');
-    const bus = new EventBus();
     const emitted: Event[] = [];
     bus.onEvent((e) => emitted.push(e));
 
-    const service = new DecisionService(store, { bus, project_id: 'test' });
+    const service = makeService();
     const d = service.create({
       title: 'Use WAL',
       description: '',
@@ -31,9 +53,7 @@ describe('DecisionService event emission', () => {
   });
 
   it('emits decision.updated on update()', () => {
-    store = new GraphStore(':memory:');
-    const bus = new EventBus();
-    const service = new DecisionService(store, { bus, project_id: 'test' });
+    const service = makeService();
     const d = service.create({ title: 't', description: '', rationale: '' });
 
     const emitted: Event[] = [];
@@ -47,9 +67,7 @@ describe('DecisionService event emission', () => {
   });
 
   it('emits decision.superseded when update supplies superseded_by', () => {
-    store = new GraphStore(':memory:');
-    const bus = new EventBus();
-    const service = new DecisionService(store, { bus, project_id: 'test' });
+    const service = makeService();
     const old = service.create({ title: 'old', description: '', rationale: '' });
     const nxt = service.create({ title: 'new', description: '', rationale: '' });
 
@@ -65,9 +83,7 @@ describe('DecisionService event emission', () => {
   });
 
   it('emits decision.deleted on delete() with title snapshot', () => {
-    store = new GraphStore(':memory:');
-    const bus = new EventBus();
-    const service = new DecisionService(store, { bus, project_id: 'test' });
+    const service = makeService();
     const d = service.create({ title: 'gone', description: '', rationale: '' });
 
     const emitted: Event[] = [];
@@ -80,8 +96,10 @@ describe('DecisionService event emission', () => {
   });
 
   it('no bus is allowed — emissions silently skipped', () => {
-    store = new GraphStore(':memory:');
-    const service = new DecisionService(store); // no bus — backwards compatible
+    const service = new DecisionService({
+      decisions: new DecisionsRepository(db),
+      links: new DecisionLinksRepository(db),
+    });
     expect(() =>
       service.create({ title: 't', description: '', rationale: '' }),
     ).not.toThrow();

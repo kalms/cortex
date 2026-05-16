@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { CREATE_TABLES, CREATE_INDEXES, CREATE_FTS } from "./schema.js";
+import { CREATE_TABLES, CREATE_INDEXES } from "./schema.js";
 
 export interface NodeRow {
   id: string;
@@ -30,13 +30,6 @@ export interface EdgeAnnotationRow {
   created_at: string;
 }
 
-export interface DecisionContent {
-  description?: string;
-  rationale?: string;
-  problem?: string | null;
-  resolution?: string | null;
-}
-
 export class GraphStore {
   private db: Database.Database;
 
@@ -50,51 +43,9 @@ export class GraphStore {
   private migrate(): void {
     this.db.exec(CREATE_TABLES);
     this.db.exec(CREATE_INDEXES);
-    this.migrateFts();
-    this.db.exec(CREATE_FTS);
-  }
-
-  private migrateFts(): void {
-    // Detect whether decisions_fts exists and lacks the new columns.
-    const existing = this.db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decisions_fts'")
-      .get() as { name?: string } | undefined;
-    if (!existing?.name) return; // fresh DB — CREATE_FTS will build the new shape
-
-    const cols = (this.db
-      .prepare("PRAGMA table_info(decisions_fts)")
-      .all() as Array<{ name: string }>)
-      .map((r) => r.name);
-    if (cols.includes("problem") && cols.includes("resolution")) return;
-
-    // Drop and repopulate atomically.
-    const repopulate = this.db.transaction(() => {
-      this.db.exec("DROP TABLE decisions_fts;");
-      this.db.exec(`
-        CREATE VIRTUAL TABLE decisions_fts USING fts5(
-          title, description, rationale, problem, resolution,
-          node_id UNINDEXED
-        );
-      `);
-      const rows = this.db
-        .prepare("SELECT id, name, data FROM nodes WHERE kind = 'decision'")
-        .all() as { id: string; name: string; data: string }[];
-      const insert = this.db.prepare(
-        "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
-      );
-      for (const row of rows) {
-        const data = JSON.parse(row.data || "{}");
-        insert.run(
-          row.name ?? "",
-          data.description ?? "",
-          data.rationale ?? "",
-          data.problem ?? "",
-          data.resolution ?? "",
-          row.id
-        );
-      }
-    });
-    repopulate();
+    // decisions_fts moved to the decisions sidecar DB. Existing graph DBs may
+    // still carry the table from earlier versions; we leave it in place to
+    // avoid breaking the file format and just stop writing to it.
   }
 
   listTables(): string[] {
@@ -279,43 +230,6 @@ export class GraphStore {
 
   getAllEdges(): EdgeRow[] {
     return this.db.prepare("SELECT * FROM edges").all() as EdgeRow[];
-  }
-
-  // --- FTS ---
-
-  indexDecisionContent(id: string, name: string, data: DecisionContent): void {
-    this.db
-      .prepare(
-        "INSERT INTO decisions_fts (title, description, rationale, problem, resolution, node_id) VALUES (?, ?, ?, ?, ?, ?)"
-      )
-      .run(
-        name,
-        data.description ?? "",
-        data.rationale ?? "",
-        data.problem ?? "",
-        data.resolution ?? "",
-        id
-      );
-  }
-
-  updateDecisionContent(id: string, name: string, data: DecisionContent): void {
-    this.removeDecisionContent(id);
-    this.indexDecisionContent(id, name, data);
-  }
-
-  removeDecisionContent(nodeId: string): void {
-    this.db.prepare("DELETE FROM decisions_fts WHERE node_id = ?").run(nodeId);
-  }
-
-  searchDecisionContent(query: string): Array<{ node_id: string; rank: number }> {
-    return this.db
-      .prepare(
-        `SELECT node_id, rank
-         FROM decisions_fts
-         WHERE decisions_fts MATCH ?
-         ORDER BY rank`
-      )
-      .all(query) as Array<{ node_id: string; rank: number }>;
   }
 
   close(): void {
