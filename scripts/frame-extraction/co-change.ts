@@ -38,10 +38,13 @@ export function* parseCoChangeLog(
       i += 1;
       continue;
     }
-    // A SHA line is 6–40 hex chars. Anything else is a file path. We treat
-    // the FIRST non-empty line after a blank (or start-of-input) as the
-    // SHA; subsequent non-empty lines are paths.
-    if (files.length === 0 && /^[0-9a-f]{6,40}$/.test(line)) {
+    // A SHA line is exactly 40 hex chars — git log --pretty=format:%H always
+    // emits full SHAs. We treat the FIRST non-empty line after a blank (or
+    // start-of-input) as the SHA; subsequent non-empty lines are paths.
+    // Tightening to /^[0-9a-f]{40}$/ avoids swallowing hex-only filenames
+    // like `assets/cafe.png` or `assets/deadbeef.bin`, which a looser regex
+    // would silently consume as a "second SHA".
+    if (files.length === 0 && /^[0-9a-f]{40}$/.test(line)) {
       // SHA line — discard, we don't need it.
       i += 1;
       continue;
