@@ -46,7 +46,7 @@ export function createServer(
   });
   const decisionSearch = new DecisionSearch(decisionsRepo, decisionLinksRepo);
   const decisionPromotion = new DecisionPromotion(
-    store,
+    decisionsRepo,
     bus ? { bus, project_id: indexerProject ?? "" } : {},
   );
   const prService = new PRService(store, {
@@ -54,6 +54,7 @@ export function createServer(
     default_actor: "system",
     project_id: indexerProject ?? "",
     decisions: decisionService,
+    links: decisionLinksRepo,
   });
 
   registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo);

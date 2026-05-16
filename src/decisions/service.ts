@@ -74,34 +74,69 @@ export class DecisionService {
     return rec ? toDecision(rec) : null;
   }
 
-  update(id: string, input: UpdateDecisionInput): Decision {
+  update(id: string, input: UpdateDecisionInput, opts: { emit?: boolean } = { emit: true }): Decision {
     const existing = this.decisions.get(id);
     if (!existing) throw new Error(`Decision not found: ${id}`);
     const now = new Date().toISOString();
     const patch: Partial<DecisionRecord> = { updated_at: now };
-    if (input.title !== undefined) patch.title = input.title;
-    if (input.description !== undefined) patch.description = input.description;
-    if (input.rationale !== undefined) patch.rationale = input.rationale;
-    if (input.alternatives !== undefined)
+    const changedFields: string[] = [];
+    if (input.title !== undefined) { patch.title = input.title; changedFields.push("title"); }
+    if (input.description !== undefined) { patch.description = input.description; changedFields.push("description"); }
+    if (input.rationale !== undefined) { patch.rationale = input.rationale; changedFields.push("rationale"); }
+    if (input.alternatives !== undefined) {
       patch.alternatives = JSON.stringify(input.alternatives);
-    if (input.status !== undefined) patch.status = input.status;
-    if (input.superseded_by !== undefined) patch.superseded_by = input.superseded_by;
-    if (input.problem !== undefined) patch.problem = input.problem;
-    if (input.resolution !== undefined) patch.resolution = input.resolution;
+      changedFields.push("alternatives");
+    }
+    if (input.status !== undefined) { patch.status = input.status; changedFields.push("status"); }
+    if (input.superseded_by !== undefined) {
+      patch.superseded_by = input.superseded_by;
+      changedFields.push("superseded_by");
+    }
+    if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
+    if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
     this.decisions.update(id, patch);
+
+    if (opts.emit !== false) {
+      // If the update marked the decision superseded, prefer the
+      // decision.superseded signal over decision.updated (legacy contract).
+      const becameSuperseded =
+        patch.status === "superseded" && patch.superseded_by != null;
+      if (becameSuperseded) {
+        this.emit({
+          id: newUlid(),
+          kind: "decision.superseded",
+          actor: patch.author ?? existing.author ?? "claude",
+          created_at: Date.now(),
+          project_id: this.projectId,
+          payload: { old_id: id, new_id: patch.superseded_by!, reason: "" },
+        });
+      } else {
+        this.emit({
+          id: newUlid(),
+          kind: "decision.updated",
+          actor: patch.author ?? existing.author ?? "claude",
+          created_at: Date.now(),
+          project_id: this.projectId,
+          payload: { decision_id: id, changed_fields: changedFields },
+        });
+      }
+    }
+
     return toDecision({ ...existing, ...patch } as DecisionRecord);
   }
 
   delete(id: string): void {
-    if (!this.decisions.delete(id)) throw new Error(`Decision not found: ${id}`);
+    const existing = this.decisions.get(id);
+    if (!existing) return; // idempotent: missing decision is a no-op
+    this.decisions.delete(id);
     this.emit({
       id: newUlid(),
       kind: "decision.deleted",
-      actor: "claude",
+      actor: existing.author ?? "claude",
       created_at: Date.now(),
       project_id: this.projectId,
-      payload: { decision_id: id, title: "" },
+      payload: { decision_id: id, title: existing.title },
     });
   }
 
@@ -118,6 +153,11 @@ export class DecisionService {
   }
 
   supersede(input: SupersedeDecisionInput): Decision {
+    // Validate the target exists BEFORE creating the replacement, so we don't
+    // leave an orphan if old_decision_id is bogus.
+    if (!this.decisions.get(input.old_decision_id)) {
+      throw new Error(`Decision not found: ${input.old_decision_id}`);
+    }
     const replacement = this.create({
       title: input.title,
       description: input.resolution ?? "",
@@ -133,7 +173,7 @@ export class DecisionService {
       status: "superseded",
       superseded_by: replacement.id,
       author: input.author,
-    });
+    }, { emit: false });
     this.links.add({
       decision_id: replacement.id,
       target_kind: "decision",
@@ -201,7 +241,7 @@ export class DecisionService {
   ratify(decisionId: string, viaPrNumber: number): void {
     const existing = this.decisions.get(decisionId);
     if (!existing || existing.status !== "proposed") return;
-    this.update(decisionId, { status: "active" });
+    this.update(decisionId, { status: "active" }, { emit: false });
     this.emit({
       id: newUlid(),
       kind: "decision.ratified",

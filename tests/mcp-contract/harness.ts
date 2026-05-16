@@ -68,11 +68,12 @@ export async function createHarness(): Promise<HarnessContext> {
     project_id: project,
   });
   const search = new DecisionSearch(decisionsRepo, decisionLinksRepo);
-  const promotion = new DecisionPromotion(store);
+  const promotion = new DecisionPromotion(decisionsRepo);
   const prService = new PRService(store, {
     default_actor: "tester",
     project_id: project,
     decisions: service,
+    links: decisionLinksRepo,
   });
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
