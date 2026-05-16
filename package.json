@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "survey:phase1": "tsx scripts/frame-extraction/survey.ts",
-    "survey:report": "tsx scripts/frame-extraction/report.ts"
+    "survey:report": "tsx scripts/frame-extraction/report.ts",
+    "co-change": "tsx scripts/frame-extraction/co-change.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
