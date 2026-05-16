@@ -46,9 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_nodes_kind_file ON nodes(kind, file_path);
 CREATE INDEX IF NOT EXISTS idx_edges_project_relation ON edges(project, relation);
 `;
 
-export const CREATE_FTS = `
-CREATE VIRTUAL TABLE IF NOT EXISTS decisions_fts USING fts5(
-  title, description, rationale, problem, resolution,
-  node_id UNINDEXED
-);
-`;
+// Note: decisions_fts has moved to the decisions sidecar DB. New graph DBs
+// no longer carry the table; existing graph DBs that have it are left in
+// place (we just stop writing to it).
+export const CREATE_FTS = ``;
