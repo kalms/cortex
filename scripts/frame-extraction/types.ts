@@ -102,3 +102,36 @@ export interface CoChangeOptions {
    *  don't dominate downstream noise. */
   min_count: number;
 }
+
+/** Per-file text blob handed to a clustering algorithm. `path` is the
+ *  file's path relative to the repo root. `text` is a single string
+ *  with path tokens + symbol identifiers, space-separated. Used directly
+ *  as input to TF-IDF / embedding pipelines. */
+export interface FileBlob {
+  path: string;
+  text: string;
+}
+
+/** One cluster assignment from the algorithm output. */
+export interface ClusterAssignment {
+  /** Cluster id. -1 means HDBSCAN noise (file not confidently assigned). */
+  cluster_id: number;
+  /** File paths in this cluster, relative to the repo root. Sorted. */
+  member_paths: string[];
+}
+
+/** Output of one clustering run. Algorithm name + parameters are stamped
+ *  for reproducibility — re-running with the same input + parameters must
+ *  produce byte-identical output (determinism is required per the spec). */
+export interface ClusterResult {
+  algorithm: "tfidf+hdbscan" | "embedding+hdbscan" | "leiden";
+  parameters: Record<string, string | number>;
+  /** All clusters, sorted by member_count desc then by cluster_id asc.
+   *  The noise cluster (cluster_id = -1) is included if non-empty. */
+  clusters: ClusterAssignment[];
+  /** Total file count = sum of all clusters' member counts. */
+  total_files: number;
+  /** Number of files in the noise cluster (HDBSCAN-specific; 0 for
+   *  algorithms that don't produce noise). */
+  noise_count: number;
+}
