@@ -12,9 +12,9 @@
  *     --cluster <path-to-cluster.json> --project <name> [--db <path>]
  */
 import { existsSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { resolve, join } from "node:path";
+import { resolve } from "node:path";
 import Database from "better-sqlite3";
+import { resolveCortexDbPath } from "../../src/db/resolve-path.js";
 import type { ClusterResult } from "./types.js";
 
 /** Stop-list of generic tokens we skip when picking a label. Lowercase. */
@@ -60,12 +60,6 @@ export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[]
   return out;
 }
 
-/** Resolves the central cortex.db path: <git-root>/.cortex/db/cortex.db. */
-function defaultDbPath(): string {
-  const root = execSync("git rev-parse --show-toplevel", { encoding: "utf-8" }).trim();
-  return join(root, ".cortex", "db", "cortex.db");
-}
-
 function parseArgs(argv: string[]): { cluster: string; project: string; db?: string } {
   const out: Partial<{ cluster: string; project: string; db: string }> = {};
   for (let i = 0; i < argv.length; i++) {
@@ -87,7 +81,7 @@ function main() {
     console.error(`Cluster JSON not found: ${clusterPath}`);
     process.exit(2);
   }
-  const dbPath = args.db ?? defaultDbPath();
+  const dbPath = args.db ?? resolveCortexDbPath();
   if (!existsSync(dbPath)) {
     console.error(`Cortex DB not found: ${dbPath}`);
     process.exit(2);
