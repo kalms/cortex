@@ -85,6 +85,13 @@ def main() -> int:
                         help="TF-IDF max document frequency")
     parser.add_argument("--min-cluster-size", type=int, default=5,
                         help="HDBSCAN min_cluster_size")
+    parser.add_argument("--co-change", dest="co_change", type=Path, default=None,
+                        help="Optional co-change JSONL (pair_count records). "
+                             "When provided, combined with topical distance via --gamma.")
+    parser.add_argument("--gamma", type=float, default=0.0,
+                        help="Weight on co-change distance in [0, 1]. "
+                             "Combined distance = (1-γ)·topical + γ·co_change. "
+                             "Ignored when --co-change is not provided.")
     args = parser.parse_args()
 
     # Read blobs. Sort by path for determinism — JSONL writers may not
@@ -138,7 +145,26 @@ def main() -> int:
     norms[norms == 0] = 1.0  # avoid div by zero for empty docs
     normed = dense / norms
     sim = normed @ normed.T
-    dist = 1.0 - sim
+    topical_dist = 1.0 - sim
+    np.clip(topical_dist, 0.0, 2.0, out=topical_dist)
+
+    # Optional co-change distance term. Cold-start (no --co-change) means
+    # gamma is effectively 0 — the pipeline is identical to pure topical.
+    co_change_pairs_loaded = 0
+    if args.co_change is not None and args.gamma > 0:
+        pairs = []
+        if args.co_change.exists():
+            with args.co_change.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    pairs.append(json.loads(line))
+        co_change_pairs_loaded = len(pairs)
+        co_change_dist = build_co_change_distance(paths, pairs)
+        dist = (1.0 - args.gamma) * topical_dist + args.gamma * co_change_dist
+    else:
+        dist = topical_dist
     np.clip(dist, 0.0, 2.0, out=dist)
 
     clusterer = hdbscan.HDBSCAN(
@@ -205,6 +231,8 @@ def main() -> int:
             "vocabulary_size": len(vectorizer.vocabulary_),
             "silhouette_score": silhouette,
             "top_tokens_per_cluster": top_tokens_per_cluster,
+            "gamma": args.gamma,
+            "co_change_pairs_loaded": co_change_pairs_loaded,
         },
     )
     return 0
