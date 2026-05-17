@@ -6,8 +6,9 @@ import {
 } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
+import { listProjects } from "../graph/code-queries.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -40,9 +41,12 @@ export function startViewerServer(
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
 
-      if (url === "/api/graph") {
-        const nodes = store.getAllNodesUnified(indexerProject ?? undefined);
-        const rawEdges = store.getAllEdgesUnified(indexerProject ?? undefined);
+      if (url.startsWith("/api/graph")) {
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const nodes = store.getAllNodesUnified(project ?? undefined);
+        const rawEdges = store.getAllEdgesUnified(project ?? undefined);
         const edges = rawEdges.map((e) => ({
           ...e,
           source: e.source_id,
@@ -52,7 +56,25 @@ export function startViewerServer(
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
         });
-        res.end(JSON.stringify({ nodes, edges }));
+        res.end(JSON.stringify({ nodes, edges, project: project ?? null }));
+        return;
+      }
+
+      if (url === "/api/projects") {
+        let projects: ReturnType<typeof listProjects> = [];
+        try {
+          projects = listProjects(store);
+        } catch {
+          // No ctx_projects table yet — return empty.
+        }
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          projects,
+          active: indexerProject ?? null,
+        }));
         return;
       }
 
