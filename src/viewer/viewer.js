@@ -1,3 +1,7 @@
+import { fetchProjects, fetchGraph, fetchDecisions } from '/viewer/data-fetch.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance } from '/viewer/adapters.js';
+import { gridLayout } from '/viewer/layout.js';
+
 (() => {
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
@@ -28,32 +32,9 @@
   function prTextRGB()            { return isLight() ? [79, 70, 229]   : [165, 180, 252]; }
   function amberRGB()             { return [245, 158, 11]; }
 
-  const FRAMES = [
-    { id: 'viewer',    name: 'src/viewer',     x: 0.16, y: 0.30, w: 190, h: 140, count: 142 },
-    { id: 'graph',     name: 'src/graph',      x: 0.40, y: 0.18, w: 170, h: 120, count: 87 },
-    { id: 'events',    name: 'src/events',     x: 0.62, y: 0.42, w: 170, h: 135, count: 64 },
-    { id: 'mcp',       name: 'src/mcp-server', x: 0.80, y: 0.70, w: 180, h: 115, count: 53 },
-    { id: 'ws',        name: 'src/ws',         x: 0.51, y: 0.78, w: 140, h: 95,  count: 28 },
-    { id: 'temporal',  name: 'src/temporal',   x: 0.38, y: 0.62, w: 165, h: 105, count: 0 },
-  ];
-
-  const NODE_CFG = {
-    viewer:    { count: 8 },
-    graph:     { count: 6 },
-    events:    { count: 5 },
-    mcp:       { count: 4 },
-    ws:        { count: 3 },
-    temporal:  { count: 4 },
-  };
-
-  const FILE_NAMES = {
-    viewer: ['graph-viewer-2d.js','projection.js','layout.js','groups.js','colors.js','camera.js','transitions.js','shapes.js'],
-    graph:  ['schema.ts','store.ts','query.ts','index.ts','migrate.ts','types.ts'],
-    events: ['emitter.ts','dispatch.ts','capture.ts','stream.ts','types.ts'],
-    mcp:    ['server.ts','tools.ts','handlers.ts','index.ts'],
-    ws:     ['client.ts','session.ts','protocol.ts'],
-    temporal: ['timeline.ts','ordering.ts','causality.ts','index.ts'],
-  };
+  let FRAMES = [];
+  let NODE_CFG = {};
+  let FILE_NAMES = {};
 
   const nodes = [];
   const edges = [];
@@ -64,215 +45,96 @@
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  const DECISIONS = {
-    'D-142': {
-      id: 'D-142',
-      summary: 'LOD band projection',
-      state: 'active',
-      problem: 'At high zoom the graph becomes unreadable — hundreds of nodes overlap, labels collide, structure is hard to scan. A naïve "show everything always" approach does not scale past ~50 nodes.',
-      resolution: 'Introduce a banded LOD projection: below zoom 0.4, show only decisions and depth-2 directory supernodes. Below 1.0, add depth-3 directories. Below 2.0, files appear. Beyond that, everything renders. Aggregation rules collapse edges when endpoints are hidden.',
-      rationale: 'Matches established canon of zoomable map viz (Google Maps, d3 force-collapse patterns). Keeps information density roughly constant across zoom levels — the canvas feels dense but never overwhelming.',
-      alternatives: [
-        { title: 'Semantic zoom only',   reason: 'Too complex — requires NLP clustering we do not have' },
-        { title: 'Fish-eye lens',        reason: 'Disorienting, poor fit for exploratory navigation' },
-        { title: 'Always show everything', reason: 'Confirmed unreadable at scale during pilot' },
-      ],
-      proposedBy: 'kai',
-      proposedAt: '2026-03-14',
-      governs: [
-        { kind: 'frame',    id: 'viewer', label: 'src/viewer' },
-        { kind: 'file',     path: 'src/viewer/projection.js' },
-        { kind: 'function', path: 'src/viewer/projection.js', name: 'computeBand' },
-        { kind: 'symbol',   path: 'src/viewer/projection.js', name: 'BAND_TABLE' },
-      ],
-      supersedes: null,
-      supersededBy: null,
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: { number: 389, title: 'Introduce LOD projection for zoom viewer', state: 'merged' },
-      implementedBy: [
-        { number: 389, title: 'Introduce LOD projection for zoom viewer', state: 'merged' },
-        { number: 401, title: 'LOD band threshold tuning', state: 'merged' },
-      ],
-      challengedBy: [],
-      discussedIn: [{ number: 389, title: 'Introduce LOD projection for zoom viewer', state: 'merged' }],
-    },
-    'D-087': {
-      id: 'D-087',
-      summary: 'territory hull overlay',
-      state: 'superseded',
-      problem: 'Governed regions of code needed a visual language — showing which nodes fall under which decision.',
-      resolution: 'Draw convex hulls around nodes governed by the same decision. Tint faintly with a per-decision color.',
-      rationale: 'Hulls make the governance territory visible at a glance without needing to trace edges.',
-      alternatives: [
-        { title: 'Per-node colored borders', reason: 'Too noisy when many decisions overlap' },
-      ],
-      proposedBy: 'rasmus',
-      proposedAt: '2026-02-22',
-      governs: [
-        { kind: 'frame', id: 'viewer', label: 'src/viewer' },
-        { kind: 'file',  path: 'src/viewer/groups.js' },
-        { kind: 'function', path: 'src/viewer/groups.js', name: 'deriveTerritories' },
-      ],
-      supersedes: null,
-      supersededBy: 'D-156',
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: { number: 198, title: 'Territory hulls for governance visualization', state: 'merged' },
-      implementedBy: [{ number: 198, title: 'Territory hulls for governance visualization', state: 'merged' }],
-      challengedBy: [],
-      discussedIn: [],
-    },
-    'D-156': {
-      id: 'D-156',
-      summary: 'governance as marginalia',
-      state: 'active',
-      problem: 'Territory hulls (D-087) became visually noisy at scale — overlapping hulls made it hard to see what governs what when decisions span many nodes.',
-      resolution: 'Replace hulls with marginalia pills attached to the right edge of focused frames. Each decision that governs nodes in the frame appears as a small pill, with faint leader lines to the specific governed nodes.',
-      rationale: 'Marginalia respects the document metaphor — annotations live at the edge, not on top of the content. Less visual overlap, more readable at scale.',
-      alternatives: [
-        { title: 'Keep hulls but dim them', reason: 'Did not solve the overlap problem at scale' },
-        { title: 'Icon badges on each governed node', reason: 'Node-level chrome too small to be legible' },
-      ],
-      proposedBy: 'kai',
-      proposedAt: '2026-04-02',
-      governs: [
-        { kind: 'frame',    id: 'viewer', label: 'src/viewer' },
-        { kind: 'function', path: 'src/viewer/graph-viewer-2d.js', name: 'drawMarginaliaForFrame' },
-      ],
-      supersedes: 'D-087',
-      supersededBy: null,
-      relatedTo: ['D-142'],
-      dependsOn: [],
-      introducedIn: { number: 412, title: 'Replace territory hulls with marginalia', state: 'merged' },
-      implementedBy: [{ number: 412, title: 'Replace territory hulls with marginalia', state: 'merged' }],
-      challengedBy: [],
-      discussedIn: [{ number: 412, title: 'Replace territory hulls with marginalia', state: 'merged' }],
-    },
-    'D-094': {
-      id: 'D-094',
-      summary: 'sqlite as graph store',
-      state: 'active',
-      problem: 'Needed a persistent store for the knowledge graph — nodes, edges, decisions, provenance — accessible to multiple agents.',
-      resolution: 'SQLite via better-sqlite3, attached read-only from codebase-memory-mcp for structural code data, native tables for decisions and events.',
-      rationale: 'Single-file, no server, cross-platform, fast for the workload. Attaching CBM read-only keeps code-structural data authoritative to that system while Cortex owns the decision graph.',
-      alternatives: [
-        { title: 'Neo4j',    reason: 'Operationally heavy for a personal MCP server' },
-        { title: 'Postgres', reason: 'Overkill for single-user; server process required' },
-        { title: 'DuckDB',   reason: 'Better at analytics, worse at graph-y queries' },
-      ],
-      proposedBy: 'rasmus',
-      proposedAt: '2026-03-05',
-      governs: [
-        { kind: 'frame', id: 'graph', label: 'src/graph' },
-        { kind: 'file',  path: 'src/graph/store.ts' },
-        { kind: 'file',  path: 'src/graph/schema.ts' },
-      ],
-      supersedes: null,
-      supersededBy: null,
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: { number: 302, title: 'Graph storage on SQLite', state: 'merged' },
-      implementedBy: [{ number: 302, title: 'Graph storage on SQLite', state: 'merged' }],
-      challengedBy: [],
-      discussedIn: [],
-    },
-    'D-103': {
-      id: 'D-103',
-      summary: 'ws event stream',
-      state: 'stale',
-      problem: 'Viewer needed to receive agent activity in real time — synapse firings, decision creations, presence updates.',
-      resolution: 'WebSocket connection from viewer to MCP server. JSON events on a single channel. Reconnect with exponential backoff.',
-      rationale: 'Bidirectional, low-latency, browser-native. Simpler than SSE + separate POST for client-to-server messages.',
-      alternatives: [
-        { title: 'Server-sent events', reason: 'One-way only, needed bidirectional' },
-        { title: 'Polling', reason: 'Too slow for synapse animations' },
-      ],
-      proposedBy: 'kai',
-      proposedAt: '2026-03-20',
-      governs: [
-        { kind: 'frame', id: 'events', label: 'src/events' },
-        { kind: 'frame', id: 'ws',     label: 'src/ws' },
-        { kind: 'file',  path: 'src/ws/client.ts' },
-        { kind: 'file',  path: 'src/events/stream.ts' },
-      ],
-      supersedes: null,
-      supersededBy: null,
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: { number: 356, title: 'Initial ws event stream', state: 'merged' },
-      implementedBy: [{ number: 356, title: 'Initial ws event stream', state: 'merged' }],
-      challengedBy: [],
-      discussedIn: [],
-    },
-    'D-167': {
-      id: 'D-167',
-      summary: 'causal ordering',
-      state: 'proposed',
-      problem: 'Decisions and synapses need a clear temporal order — when multiple agents act in overlapping code, we need to know what happened before what, not just wall-clock.',
-      resolution: '(draft) Use Lamport timestamps per agent, combined with server receipt time as tiebreaker. Store both the logical clock and the wall-clock for every event.',
-      rationale: '(draft) Lamport gives causal consistency without needing clock sync across agents. Wall-clock tiebreaker is honest about the fact that some events are genuinely concurrent.',
-      alternatives: [
-        { title: 'Vector clocks', reason: 'More precise but heavier per-event overhead' },
-        { title: 'Wall clock only', reason: 'Breaks down when agents run on different machines' },
-      ],
-      proposedBy: 'mira',
-      proposedAt: '2026-04-18',
-      governs: [
-        { kind: 'frame', id: 'temporal', label: 'src/temporal' },
-      ],
-      supersedes: null,
-      supersededBy: null,
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: null,
-      implementedBy: [],
-      challengedBy: [],
-      discussedIn: [],
-    },
-    'D-201': {
-      id: 'D-201',
-      summary: 'structured logging across subsystems',
-      state: 'active',
-      problem: 'Debugging multi-agent sessions required correlating log entries across disparate subsystems (graph store, event bus, MCP transport). Plaintext console logging made cross-system causality hard to reconstruct after the fact.',
-      resolution: 'All internal log events are emitted as structured JSON with required fields: ts, agent, subsystem, event, correlationId. Subsystems adopt a shared logger module that enforces the schema.',
-      rationale: 'Shared schema lets tooling stitch multi-subsystem flows together. Correlation ID plumbed through MCP request context unifies traces from plugin invocation through graph write to event emission.',
-      alternatives: [
-        { title: 'OpenTelemetry', reason: 'Too heavy for a single-user MCP server; dependency footprint not justified yet' },
-        { title: 'Per-subsystem logging', reason: 'What we had — correlation across systems was the exact pain point' },
-      ],
-      proposedBy: 'rasmus',
-      proposedAt: '2026-03-28',
-      governs: [
-        { kind: 'frame', id: 'graph',  label: 'src/graph' },
-        { kind: 'frame', id: 'events', label: 'src/events' },
-        { kind: 'frame', id: 'mcp',    label: 'src/mcp-server' },
-        { kind: 'file',  path: 'src/graph/store.ts' },
-        { kind: 'file',  path: 'src/events/emitter.ts' },
-        { kind: 'file',  path: 'src/mcp-server/handlers.ts' },
-      ],
-      supersedes: null,
-      supersededBy: null,
-      relatedTo: [],
-      dependsOn: [],
-      introducedIn: { number: 405, title: 'Structured logging rollout', state: 'merged' },
-      implementedBy: [{ number: 405, title: 'Structured logging rollout', state: 'merged' }],
-      challengedBy: [],
-      discussedIn: [],
-    },
-  };
-
-  const FRAME_GOVERNANCE = {
-    viewer:    ['D-142', 'D-087', 'D-156'],
-    graph:     ['D-094', 'D-201'],
-    events:    ['D-103', 'D-201'],
-    mcp:       ['D-201'],
-    temporal:  ['D-167'],
-  };
+  let DECISIONS = {};
+  let FRAME_GOVERNANCE = {};
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
     return (FRAME_GOVERNANCE[frameId] || []).map(getDecision).filter(Boolean);
+  }
+
+  let currentProject = null;
+
+  async function loadGraph(projectName) {
+    currentProject = projectName;
+    const [graph, decs] = await Promise.all([
+      fetchGraph(projectName),
+      fetchDecisions(projectName),
+    ]);
+
+    // 1. Build frame summaries from the graph.
+    const summaries = groupNodesIntoFrames(graph.nodes);
+
+    // 2. Position via grid layout.
+    const stageW = canvas.clientWidth;
+    const stageH = canvas.clientHeight;
+    const positioned = gridLayout(
+      summaries.map((s) => ({
+        frame_id: s.frame_id,
+        frame_label: s.frame_label,
+        member_count: s.member_count,
+      })),
+      stageW, stageH,
+    );
+
+    // 3. Replace FRAMES with positioned frames (string id matches the rest of
+    // the file's expectation that id is a string).
+    FRAMES = positioned.map((p) => ({
+      id: String(p.id),
+      name: p.name,
+      x: p.x / stageW,
+      y: p.y / stageH,
+      w: p.w,
+      h: p.h,
+      count: p.count,
+    }));
+
+    // 4. NODE_CFG.count = how many file basenames to show per frame (cap at 16).
+    NODE_CFG = {};
+    FILE_NAMES = {};
+    for (const s of summaries) {
+      const sid = String(s.frame_id);
+      NODE_CFG[sid] = { count: Math.min(s.member_count, 16) };
+      FILE_NAMES[sid] = basenames(s.members, 16);
+    }
+
+    // 5. Decisions → DECISIONS map + FRAME_GOVERNANCE rollup.
+    DECISIONS = {};
+    for (const d of decs.decisions) {
+      DECISIONS[d.id] = d;
+    }
+    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+
+    // 6. Rebuild the in-canvas graph (re-uses existing buildGraph; that fn
+    // already reads from FRAMES/NODE_CFG/FILE_NAMES/FRAME_GOVERNANCE/DECISIONS).
+    buildGraph();
+    focusedFrameId = null;
+    previousFocusId = null;
+  }
+
+  async function initToolbar() {
+    const select = document.getElementById('project-select');
+    const themeToggle = document.getElementById('theme-toggle');
+    const { projects, active } = await fetchProjects();
+    select.innerHTML = '';
+    if (projects.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(no projects)';
+      opt.disabled = true;
+      select.appendChild(opt);
+    }
+    for (const p of projects) {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      if (p.name === active) opt.selected = true;
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', () => loadGraph(select.value || null));
+    themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
+
+    await loadGraph(active);
   }
 
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -1638,8 +1500,9 @@
     }
   });
 
-  resize();
-  buildGraph();
-
-  requestAnimationFrame(mainLoop);
+  window.addEventListener('load', async () => {
+    resize();
+    await initToolbar();
+    requestAnimationFrame(mainLoop);
+  });
 })();

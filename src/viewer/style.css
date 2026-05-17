@@ -424,3 +424,28 @@
     color: var(--text-5);
     font-size: 11px;
   }
+
+  .toolbar {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 30;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .toolbar select,
+  .toolbar button {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 8px;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .toolbar select:hover,
+  .toolbar button:hover {
+    border-color: var(--border-3);
+  }
