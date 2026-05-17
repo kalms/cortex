@@ -92,7 +92,7 @@ for the full architecture rationale.
 
 ## Viewer
 
-The 2D graph viewer (default) runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin. The legacy 3D viewer is at `/viewer/3d`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md#2d-viewer) for module layout and extension recipes.
+The frames viewer runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin. The viewer is derived from [docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html) and wired to live data via `/api/graph`, `/api/projects`, `/api/decisions`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md#frames-viewer) for module layout.
 
 ## Architecture docs
 
