@@ -194,13 +194,13 @@ Nothing else changes — the event flows through the pipeline automatically.
 
 1. Add the op variant to `GraphMutation` in `src/events/types.ts`.
 2. Handle it in `deriveMutations()`.
-3. Handle it in the viewer's mutation applier (Plan C, `src/viewer/shared/websocket.js`).
+3. Handle it in the viewer's mutation applier (Plan C, a future `src/viewer/websocket.js` — WS integration is parked in the current iteration).
 
 The wire protocol (`ServerMsg`) already carries `GraphMutation` as-is; no protocol change needed.
 
 ### Adding a new stream event renderer (Plan C — browser side)
 
-Stream rendering lives in the viewer (`src/viewer/`). The backend emits events unchanged. Add a renderer branch in the activity-stream component keyed on `event.kind`. The stream receives raw `Event` objects — no backend change needed for new display-only formatting.
+Stream rendering is parked alongside the viewer's WebSocket integration in the current iteration. When it returns, it will live in the viewer (`src/viewer/`). The backend emits events unchanged; a renderer branch in the activity-stream component will key on `event.kind`. No backend change needed for new display-only formatting.
 
 ## Deferred / future work
 
@@ -237,91 +237,90 @@ Stream rendering lives in the viewer (`src/viewer/`). The backend emits events u
 
 **`tests/integration/worker.test.ts`** (and related) — covers the full worker message loop: `init` → `event` → `broadcast` round-trip using a real worker thread spawned via the bootstrap.
 
-## 2D viewer
+## Frames viewer
 
-### Entry point
-
-[src/viewer/graph-viewer-2d.js](../../src/viewer/graph-viewer-2d.js) — the single
-entry module served at `/viewer/graph-viewer-2d.js`. It wires all `shared/`
-modules together, opens the WebSocket, and runs the render loop.
+The viewer is derived from the visual prototype at
+[docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](../specs/cortex-v0.3/cortex-frames-prototype-v5.html).
+Frames come from cluster output (`data.frame_id`/`frame_label` on file
+nodes, written by `scripts/frame-extraction/inject-frames.ts`). Decisions
+come from the sidecar `.cortex/decisions.db` via the `/api/decisions`
+adapter. The viewer is static-load: it fetches all data once on page load
+and on project switch. WebSocket integration with the event stream is not
+wired in this iteration.
 
 ### Module layout
 
 | Module | Owns | Pure? |
 |---|---|---|
-| `shared/state.js` | graph state + `applyMutation` | yes |
-| `shared/colors.js` | palette + `lerpRGB` + `rgbString` | yes |
-| `shared/shapes.js` | Canvas 2D shape primitives incl. rounded-rect + hull | yes (over a ctx) |
-| `shared/sizing.js` | per-kind `{ world, min_px, max_px }` + `sizeAt(kind, zoom)` + edge stroke | yes |
-| `shared/groups.js` | path + territory group derivation | yes |
-| `shared/projection.js` | `project(state, inputs)` — LOD, aggregation, force-visible | yes |
-| `shared/transitions.js` | projection-diff → enter/exit transition state | yes |
-| `shared/layout.js` | d3-force config (reads sizing) | yes |
-| `shared/animation.js` | hover + synapse state machine | yes |
-| `shared/websocket.js` | reconnecting WS client | yes (over `WebSocket`) |
-| `graph-viewer-2d.js` | DOM wiring + render loop + interaction | no (side-effectful entry) |
+| `index.html` | DOM scaffold (canvas + toolbar) | n/a |
+| `style.css` | CSS variables + theme + toolbar styling | n/a |
+| `viewer.js` | canvas draw loop, frame focus, hover, decision card | no (side-effectful) |
+| `data-fetch.js` | `fetchProjects/fetchGraph/fetchDecisions` | yes |
+| `adapters.js` | `groupNodesIntoFrames`, `basenames`, `buildFrameGovernance`, `edgesInternalIndex` | yes |
+| `layout.js` | `gridLayout(frames, stageW, stageH) → positioned` | yes |
 
-Every `shared/` module is unit-tested in Vitest. The entry file is
-hand-verified against the running dev server (canvas rendering and animation
-timing are not testable headlessly in v1).
+Pure modules are unit-tested in vitest. `viewer.js` is hand-verified
+against the running dev server (canvas rendering and animation timing
+are not testable headlessly).
+
+The simulation features in the prototype (multi-agent demo, synapse
+animations, PR floating nodes, auto-loop, presence avatars, merge
+animation, cursor traversal) are not in this iteration — explicit
+non-goals per [docs/superpowers/specs/2026-05-17-frames-viewer-design.md](../superpowers/specs/2026-05-17-frames-viewer-design.md).
 
 ### Render loop
 
-Per frame (requestAnimationFrame):
+`mainLoop` runs once per `requestAnimationFrame`:
 
-1. `simulation.tick()` — d3-force integrates positions
-2. `applyBreathing(t)` — sinusoidal velocity nudge per node
-3. `advance(anim, 1)` — lerp hover + colorMix, age synapses, prune expired
-4. `draw()` — clear, edges, nodes, synapse overlay (ordered for z-behavior)
+1. clear canvas, ease focus transition
+2. `drawFrames(now)` — frame boxes + labels with focus-state styling
+3. `drawEdges()` — intra- and inter-frame edges
+4. `drawNodes(now)` — file nodes inside frames
+5. `drawMarginaliaForFrame(focused, alpha)` when a frame is focused — decision pills
+6. `drawFloatingDecisionNodes(now)` — ambient decision dots
+7. `drawHoverPill(now)` / `drawCompactHoverBadge(now)` — hover affordances
 
-### Projection pipeline
+`buildGraph()` (called from `loadGraph`) rebuilds the in-memory `nodes`
+and `edges` arrays from `FRAMES`/`NODE_CFG`/`FILE_NAMES`. Edges are
+currently generated by the prototype's random algorithm — wiring real
+graph edges is a follow-up.
 
-The render loop does not read from `shared/state.js` directly. It reads from
-the output of `project(state, { zoom, focus, filters, search })`, which
-returns:
+### Data flow
 
-- `visibleNodes` — the leaves and synthesized group representatives to render + simulate
-- `visibleEdges` — raw edges + aggregate edges for folded endpoints
-- `groups` — emitted path groups + visible territory specs (for hull rendering)
-
-`reproject(reason)` is the single choke point. It runs the projection,
-checks whether the visible set changed (`projectionDeltaIsInteresting`),
-and if so: feeds the sim, reheats alpha, and registers enter/exit
-transitions for the deltas.
-
-**Reheat triggers:**
-
-| Event | `reason` | Alpha |
-|---|---|---|
-| Graph mutation | `mutation` | 0.3 |
-| Kind filter toggle | `filter` | 0.3 |
-| Search input (debounced 200ms) | `search` | 0.2 |
-| Zoom crossing BAND_TABLE threshold | `band-cross` | 0.4 |
-| Focus enter/exit | `focus-*` | 0.5 |
-
-Pan, hover, selection, and intra-band zoom do *not* reheat.
-
-**New-node positioning** inherits from parent: an entering leaf starts at
-its path-group's centroid, an entering supernode starts at the centroid of
-its (now-leaving) children. This turns what would be "positions re-rolled
-by d3-force" into "emerging from where they belong."
+1. `initToolbar()` fetches `/api/projects`, populates the dropdown
+2. `loadGraph(project)` fetches `/api/graph?project=<name>` and
+   `/api/decisions?project=<name>` in parallel
+3. `groupNodesIntoFrames` buckets nodes by `data.frame_id`
+4. `gridLayout` positions frames deterministically
+5. Globals `FRAMES`, `NODE_CFG`, `FILE_NAMES`, `DECISIONS`,
+   `FRAME_GOVERNANCE` are populated; `buildGraph()` rebuilds
+6. `mainLoop` runs the draw loop using those globals
 
 ### Extending the viewer
 
-**Adding a new node kind** — extend `PALETTE_REST`, `PALETTE_HOVER`,
-`SIZE`, `CHARGE`, `SHAPE_FOR_KIND`. Reuse an existing shape or add one to
-`shapes.js`.
+**Adding real edges** — replace the random-edge loop in `buildGraph` with
+a filter over `/api/graph` edges keyed to clustered nodes. Add a
+`buildEdgesByFrame` helper to `adapters.js`.
 
-**Adding a new mutation op** — extend `state.js::applyMutation`, extend the
-`onMutation` dispatcher in `graph-viewer-2d.js` to trigger any associated
-synapse.
+**Adding new frame visuals** — drawing happens in `viewer.js`. Add a
+helper near `drawFrames`; reference `frameBorderRGB()`/`frameFillRGB()`
+for theme awareness.
 
-**Adding a new event-driven animation** — handle in `onEvent` callback,
-sequence `triggerSynapse` calls with `setTimeout` for staggered choreography.
+**Re-introducing WebSocket** — the WS server still emits at `/ws`. A
+follow-up can add a reconnecting client in `data-fetch.js` (or a new
+`websocket.js`) and apply mutations to a state map. Removed in this
+iteration to keep the diff focused.
 
 ### Routes
 
-- `/viewer` — 2D viewer (default).
-- `/viewer/3d` — the original 3D viewer.
+- `/viewer` — frames viewer (default).
 - `/viewer/<asset>` — static asset serving from `src/viewer/`; supports
-  nested paths like `/viewer/shared/state.js` and `/viewer/3d/graph-viewer.js`.
+  files like `/viewer/style.css`, `/viewer/viewer.js`,
+  `/viewer/layout.js`, etc.
+
+### API
+
+- `GET /api/graph?project=<name>` — `{ nodes, edges, project }`.
+- `GET /api/projects` — `{ projects, active }`.
+- `GET /api/decisions?project=<name>` — `{ decisions: AdaptedDecision[] }`.
+- `GET /api/decisions/:id` — `AdaptedDecision`.
