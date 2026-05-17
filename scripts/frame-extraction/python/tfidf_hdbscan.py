@@ -94,6 +94,14 @@ def main() -> int:
                              "Ignored when --co-change is not provided.")
     args = parser.parse_args()
 
+    if not 0.0 <= args.gamma <= 1.0:
+        parser.error(f"--gamma must be in [0, 1], got {args.gamma}")
+    if args.co_change is not None and not args.co_change.exists():
+        # Fail loudly. Silently treating a typo'd path as "no co-change"
+        # would produce an all-1.0 co-change matrix, which at γ>0 silently
+        # poisons the combined distance.
+        parser.error(f"--co-change path does not exist: {args.co_change}")
+
     # Read blobs. Sort by path for determinism — JSONL writers may not
     # guarantee order across runs.
     blobs = []
@@ -148,24 +156,24 @@ def main() -> int:
     topical_dist = 1.0 - sim
     np.clip(topical_dist, 0.0, 2.0, out=topical_dist)
 
-    # Optional co-change distance term. Cold-start (no --co-change) means
-    # gamma is effectively 0 — the pipeline is identical to pure topical.
+    # Optional co-change distance term. Cold-start (no --co-change or
+    # γ == 0) skips loading entirely — the pipeline is identical to
+    # pure topical.
     co_change_pairs_loaded = 0
     if args.co_change is not None and args.gamma > 0:
         pairs = []
-        if args.co_change.exists():
-            with args.co_change.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    pairs.append(json.loads(line))
+        with args.co_change.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                pairs.append(json.loads(line))
         co_change_pairs_loaded = len(pairs)
         co_change_dist = build_co_change_distance(paths, pairs)
         dist = (1.0 - args.gamma) * topical_dist + args.gamma * co_change_dist
+        np.clip(dist, 0.0, 2.0, out=dist)
     else:
         dist = topical_dist
-    np.clip(dist, 0.0, 2.0, out=dist)
 
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=args.min_cluster_size,
