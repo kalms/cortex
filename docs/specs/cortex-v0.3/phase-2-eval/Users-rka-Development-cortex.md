@@ -1,6 +1,6 @@
 # Phase 2 Eval — `tfidf+hdbscan` on `self/cortex`
 
-Generated: 2026-05-17T14:05:14.241Z
+Generated: 2026-05-17T14:19:14.054Z
 
 ## Cross-signal + sanity metrics
 
@@ -9,9 +9,18 @@ Generated: 2026-05-17T14:05:14.241Z
 | total_files | 544 |
 | cluster_count | 14 |
 | noise_rate | 0.528 |
-| co_change_agreement | 1.000 |
-| import_agreement | 0.610 |
+| co_change_agreement_strict | 1.000 |
+| co_change_agreement_lenient | 0.108 |
+| import_agreement_strict | 0.610 |
+| import_agreement_lenient | 0.043 |
 | cluster_elapsed_seconds | — |
+
+> **Strict vs. lenient agreement.** Strict drops pairs touching the noise
+> cluster from both numerator and denominator — it answers "of the pairs
+> the algorithm was confident about, how many agreed?". Lenient counts
+> noise-touching pairs in the denominator but never as agreement — closer
+> to the spec's plain reading of "fraction of frequently-co-changing pairs
+> landing in the same cluster". When `noise_rate` is high, the two diverge.
 
 ## Algorithm-internal metrics
 
