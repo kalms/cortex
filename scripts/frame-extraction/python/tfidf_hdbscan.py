@@ -18,12 +18,61 @@ CLI:
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 import hdbscan
+
+
+def build_co_change_distance(
+    paths: list[str], pairs: list[dict]
+) -> np.ndarray:
+    """Build an (n, n) symmetric co-change DISTANCE matrix.
+
+    Aligned with `paths` row order. Observed pair distance:
+        sim = log(1 + count) / log(1 + max_count_in_corpus)
+        dist = 1 - sim
+    Unobserved pair: dist = 1.0. Diagonal: 0.0.
+    Pairs whose endpoints aren't in `paths` are dropped silently.
+    """
+    n = len(paths)
+    # 1.0 off-diagonal; zero out the diagonal at the end.
+    dist = np.ones((n, n), dtype=np.float64)
+    np.fill_diagonal(dist, 0.0)
+    if not pairs:
+        return dist
+
+    path_to_idx = {p: i for i, p in enumerate(paths)}
+    # First pass: filter to in-corpus pairs and find max_count.
+    filtered: list[tuple[int, int, int]] = []
+    max_count = 0
+    for pair in pairs:
+        a = pair.get("a")
+        b = pair.get("b")
+        count = pair.get("count", 0)
+        if a is None or b is None or count <= 0:
+            continue
+        ia = path_to_idx.get(a)
+        ib = path_to_idx.get(b)
+        if ia is None or ib is None or ia == ib:
+            continue
+        filtered.append((ia, ib, int(count)))
+        if count > max_count:
+            max_count = count
+
+    if max_count == 0:
+        return dist  # no usable observations
+
+    denom = math.log1p(max_count)  # log(1 + max_count); > 0 since max_count >= 1
+    for ia, ib, count in filtered:
+        sim = math.log1p(count) / denom
+        d = 1.0 - sim
+        dist[ia, ib] = d
+        dist[ib, ia] = d
+    return dist
 
 
 def main() -> int:
@@ -36,7 +85,22 @@ def main() -> int:
                         help="TF-IDF max document frequency")
     parser.add_argument("--min-cluster-size", type=int, default=5,
                         help="HDBSCAN min_cluster_size")
+    parser.add_argument("--co-change", dest="co_change", type=Path, default=None,
+                        help="Optional co-change JSONL (pair_count records). "
+                             "When provided, combined with topical distance via --gamma.")
+    parser.add_argument("--gamma", type=float, default=0.0,
+                        help="Weight on co-change distance in [0, 1]. "
+                             "Combined distance = (1-γ)·topical + γ·co_change. "
+                             "Ignored when --co-change is not provided.")
     args = parser.parse_args()
+
+    if not 0.0 <= args.gamma <= 1.0:
+        parser.error(f"--gamma must be in [0, 1], got {args.gamma}")
+    if args.co_change is not None and not args.co_change.exists():
+        # Fail loudly. Silently treating a typo'd path as "no co-change"
+        # would produce an all-1.0 co-change matrix, which at γ>0 silently
+        # poisons the combined distance.
+        parser.error(f"--co-change path does not exist: {args.co_change}")
 
     # Read blobs. Sort by path for determinism — JSONL writers may not
     # guarantee order across runs.
@@ -89,8 +153,27 @@ def main() -> int:
     norms[norms == 0] = 1.0  # avoid div by zero for empty docs
     normed = dense / norms
     sim = normed @ normed.T
-    dist = 1.0 - sim
-    np.clip(dist, 0.0, 2.0, out=dist)
+    topical_dist = 1.0 - sim
+    np.clip(topical_dist, 0.0, 2.0, out=topical_dist)
+
+    # Optional co-change distance term. Cold-start (no --co-change or
+    # γ == 0) skips loading entirely — the pipeline is identical to
+    # pure topical.
+    co_change_pairs_loaded = 0
+    if args.co_change is not None and args.gamma > 0:
+        pairs = []
+        with args.co_change.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                pairs.append(json.loads(line))
+        co_change_pairs_loaded = len(pairs)
+        co_change_dist = build_co_change_distance(paths, pairs)
+        dist = (1.0 - args.gamma) * topical_dist + args.gamma * co_change_dist
+        np.clip(dist, 0.0, 2.0, out=dist)
+    else:
+        dist = topical_dist
 
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=args.min_cluster_size,
@@ -156,6 +239,8 @@ def main() -> int:
             "vocabulary_size": len(vectorizer.vocabulary_),
             "silhouette_score": silhouette,
             "top_tokens_per_cluster": top_tokens_per_cluster,
+            "gamma": args.gamma,
+            "co_change_pairs_loaded": co_change_pairs_loaded,
         },
     )
     return 0
