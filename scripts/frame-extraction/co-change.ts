@@ -16,44 +16,94 @@ interface ParseOptions {
   big_commit_threshold: number;
 }
 
-/** Stream individual `FilePair` events from a `git log` block. Each event
- *  has `count: 1`; the caller aggregates. Pair endpoints are sorted so
- *  `(b, a)` collapses to `(a, b)`. Pure function — fully testable. */
+/** Stream individual `FilePair` events from a `git log --name-status` block.
+ *  Each event has `count: 1`; the caller aggregates. Pair endpoints are
+ *  sorted so `(b, a)` collapses to `(a, b)`.
+ *
+ *  Renames are resolved: an R-status line registers the old path as an
+ *  alias for the new path. Because git emits commits newest-first, older
+ *  commits referencing the pre-rename name are processed AFTER the rename
+ *  is recorded, and their paths resolve to the current name. A new file
+ *  created at a previously-renamed-away path is NOT aliased — its commit
+ *  was processed before the rename was seen, so the alias map was empty
+ *  for that path at emit time.
+ *
+ *  Pure function — fully testable. */
 export function* parseCoChangeLog(
   log: string,
   opts: ParseOptions,
 ): Iterable<FilePair> {
-  // Format: each commit is a line with the SHA, followed by N lines of
-  // touched paths, followed by a blank line. (`--pretty=format:%H` does
-  // not emit a trailing newline, so the last commit has no terminator.)
+  // Format (with --name-status --pretty=format:%H):
+  //   <40-char SHA>\n
+  //   <status>\t<path> | R<sim>\t<old>\t<new>\n   (repeated)
+  //   \n   (commit boundary; absent on the last commit)
+  //
+  // Walk newest-first (git log's default order). Maintain a transitive
+  // alias map historical → current. Resolve every emitted path through
+  // it; re-resolve at end-of-commit to handle chained renames inside one
+  // commit (rare but possible).
   const lines = log.split("\n");
+  const aliasMap = new Map<string, string>();
   let files: string[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
     if (line === "") {
-      // Commit boundary.
-      yield* pairsForCommit(files, opts);
+      yield* flushCommit(files, aliasMap, opts);
       files = [];
       i += 1;
       continue;
     }
-    // A SHA line is exactly 40 hex chars — git log --pretty=format:%H always
-    // emits full SHAs. We treat the FIRST non-empty line after a blank (or
-    // start-of-input) as the SHA; subsequent non-empty lines are paths.
-    // Tightening to /^[0-9a-f]{40}$/ avoids swallowing hex-only filenames
-    // like `assets/cafe.png` or `assets/deadbeef.bin`, which a looser regex
-    // would silently consume as a "second SHA".
+    // A SHA line is exactly 40 hex chars. Tightening to {40} avoids
+    // swallowing hex-only filenames as if they were second SHAs.
     if (files.length === 0 && /^[0-9a-f]{40}$/.test(line)) {
-      // SHA line — discard, we don't need it.
       i += 1;
       continue;
     }
-    files.push(line);
+    const parts = line.split("\t");
+    const status = parts[0] ?? "";
+    if (status.startsWith("R") || status.startsWith("C")) {
+      // Rename or copy: STATUS\tOLD\tNEW
+      const oldPath = parts[1] ?? "";
+      const newPath = parts[2] ?? "";
+      if (status.startsWith("R")) {
+        // Register the rename. Resolve newPath through the existing map
+        // first so chained renames register against the head of the chain.
+        aliasMap.set(oldPath, resolveAlias(aliasMap, newPath));
+      }
+      // The commit touched the new path. Resolve through the (possibly
+      // just-updated) map. Copy semantics: both old and new exist in HEAD,
+      // so we record the new path's touch; the old path isn't aliased.
+      files.push(resolveAlias(aliasMap, newPath));
+    } else {
+      // A | M | D | T : STATUS\tPATH
+      const path = parts[1] ?? "";
+      if (path !== "") files.push(resolveAlias(aliasMap, path));
+    }
     i += 1;
   }
-  // Flush trailing commit.
-  if (files.length > 0) yield* pairsForCommit(files, opts);
+  if (files.length > 0) yield* flushCommit(files, aliasMap, opts);
+}
+
+/** Walk the alias chain. Loops are defensively prevented by the seen set. */
+function resolveAlias(map: Map<string, string>, path: string): string {
+  const seen = new Set<string>();
+  while (map.has(path) && !seen.has(path)) {
+    seen.add(path);
+    path = map.get(path)!;
+  }
+  return path;
+}
+
+function* flushCommit(
+  files: string[],
+  aliasMap: Map<string, string>,
+  opts: ParseOptions,
+): Iterable<FilePair> {
+  // Re-resolve in case a chain extended after this commit's earlier lines
+  // emitted (e.g. multiple renames inside one commit).
+  const resolved = files.map((f) => resolveAlias(aliasMap, f));
+  yield* pairsForCommit(resolved, opts);
 }
 
 function* pairsForCommit(
@@ -61,26 +111,28 @@ function* pairsForCommit(
   opts: ParseOptions,
 ): Iterable<FilePair> {
   if (files.length < 2 || files.length >= opts.big_commit_threshold) return;
-  // Dedupe within a commit (in case the same path appears twice for any
-  // reason) and sort for stable iteration.
+  // Dedupe (post-resolution two paths can collapse to the same current
+  // name) and sort lexically. Sorting is the deduplication step that
+  // collapses (b, a) and (a, b) into a single canonical pair.
   const unique = Array.from(new Set(files)).sort();
   for (let i = 0; i < unique.length; i++) {
     for (let j = i + 1; j < unique.length; j++) {
-      const a = unique[i]!;
-      const b = unique[j]!;
-      // Endpoints already in sorted order from the outer sort.
-      yield { a, b, count: 1 };
+      yield { a: unique[i]!, b: unique[j]!, count: 1 };
     }
   }
 }
 
 /** Run `git log` against the repo and aggregate raw pair events into
  *  a single `FilePair[]` sorted descending by count. Filter by
- *  `min_count` to drop singletons. */
+ *  `min_count` to drop singletons.
+ *
+ *  Uses `--name-status -M` (rather than `--name-only -M`) so we can
+ *  detect rename markers and unify pre/post-rename references to the
+ *  same file under its current name. See `parseCoChangeLog` for details. */
 export function collectCoChange(opts: CoChangeOptions): FilePair[] {
   const args = [
     "log",
-    "--name-only",
+    "--name-status",
     "--pretty=format:%H",
     `--since=${opts.since_days}.days.ago`,
     "-M",
