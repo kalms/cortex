@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "survey:phase1": "tsx scripts/frame-extraction/survey.ts",
     "survey:report": "tsx scripts/frame-extraction/report.ts",
-    "co-change": "tsx scripts/frame-extraction/co-change.ts"
+    "co-change": "tsx scripts/frame-extraction/co-change.ts",
+    "cluster:tfidf": "tsx scripts/frame-extraction/cluster-tfidf-hdbscan.ts",
+    "setup-python": "bash scripts/frame-extraction/python/setup-venv.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
