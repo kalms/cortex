@@ -15,6 +15,7 @@
     "survey:report": "tsx scripts/frame-extraction/report.ts",
     "co-change": "tsx scripts/frame-extraction/co-change.ts",
     "cluster:tfidf": "tsx scripts/frame-extraction/cluster-tfidf-hdbscan.ts",
+    "eval:phase2": "tsx scripts/frame-extraction/eval.ts",
     "setup-python": "bash scripts/frame-extraction/python/setup-venv.sh"
   },
   "dependencies": {
