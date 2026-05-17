@@ -1,0 +1,5 @@
+# Pinned for reproducibility — sklearn API has had subtle changes across
+# 1.x releases, and hdbscan's API is small but particular.
+scikit-learn==1.4.2
+hdbscan==0.8.40
+numpy==1.26.4
