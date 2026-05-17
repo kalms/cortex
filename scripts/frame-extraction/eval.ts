@@ -27,7 +27,6 @@ import {
   agreementScore,
   buildFileToClusterMap,
   clusterCount,
-  noiseRate,
 } from "./eval-metrics.js";
 import { collectCallsEdges } from "./eval-edges.js";
 import { renderEvalReport } from "./eval-report.js";
