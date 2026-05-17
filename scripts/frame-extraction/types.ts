@@ -135,3 +135,58 @@ export interface ClusterResult {
    *  algorithms that don't produce noise). */
   noise_count: number;
 }
+
+/** A single CALLS edge from the Cortex graph, in file-path form. Both ends
+ *  are file paths relative to the repo root, sorted so `a <= b` to dedupe. */
+export interface ImportEdge {
+  a: string;
+  b: string;
+  weight: number;
+}
+
+/** All cross-signal + sanity metrics for one (algorithm, repo) pair.
+ *  Algorithm-internal metrics (silhouette, top tokens) live on the
+ *  ClusterResult's `parameters` field — this struct holds only what the
+ *  eval harness produces. */
+export interface EvalMetrics {
+  /** Number of non-noise clusters. */
+  cluster_count: number;
+  /** Fraction of files in the noise cluster (0..1). */
+  noise_rate: number;
+  /** Total number of files in the input. */
+  total_files: number;
+  /** Fraction of frequently-co-changing file pairs that landed in the
+   *  same cluster (0..1). `null` if the co-change matrix has no pairs. */
+  co_change_agreement: number | null;
+  /** Fraction of CALLS-coupled file pairs that landed in the same
+   *  cluster (0..1). `null` if there are no CALLS edges. */
+  import_agreement: number | null;
+  /** Wall-clock seconds the cluster step took (read from cluster JSON's
+   *  parameters or measured separately). */
+  cluster_elapsed_seconds: number | null;
+}
+
+export interface EvalReport {
+  /** Identifier for the (algorithm, repo) pair this report covers. */
+  algorithm: string;
+  repo_slug: string;
+  generated_at: string;
+  metrics: EvalMetrics;
+  /** Internal metrics passed through from the algorithm's output so the
+   *  report can render them alongside cross-signal metrics. */
+  internal: {
+    silhouette_score: number | null;
+    vocabulary_size: number | null;
+    top_tokens_per_cluster: Record<string, string[]>;
+  };
+  /** Cluster summary table: per-cluster id, member count, dominant
+   *  path prefix (heuristic — the longest common left-prefix of paths),
+   *  top tokens. */
+  cluster_summary: Array<{
+    cluster_id: number;
+    member_count: number;
+    path_prefix: string;
+    top_tokens: string[];
+    sample_paths: string[];
+  }>;
+}
