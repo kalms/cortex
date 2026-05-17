@@ -21,6 +21,7 @@ const PYTHON_BIN = join(REPO_ROOT, "scripts", "frame-extraction", "python", ".ve
 const PYTHON_SCRIPT = join(REPO_ROOT, "scripts", "frame-extraction", "python", "tfidf_hdbscan.py");
 const DEFAULT_OUT_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "clusters");
 const BLOBS_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "blobs");
+const DEFAULT_CO_CHANGE_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "co-change");
 
 export interface RunOptions {
   /** Absolute path to a repo containing .cortex/graph.db. */
@@ -34,6 +35,14 @@ export interface RunOptions {
   min_df?: number;
   max_df?: number;
   min_cluster_size?: number;
+  /** Path to a co-change JSONL ({a, b, count} per line). If undefined,
+   *  the orchestrator looks under .tmp/frame-extraction/co-change/<slug>.jsonl
+   *  and uses that if it exists. Pass explicit null to opt out of the
+   *  default lookup. */
+  co_change_path?: string | null;
+  /** Weight on co-change distance in [0, 1]. Default 0 (pure topical).
+   *  Ignored when no co-change file is found. */
+  gamma?: number;
 }
 
 export interface RunResult {
@@ -88,7 +97,19 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
   mkdirSync(DEFAULT_OUT_DIR, { recursive: true });
   const outPath = opts.out_path ?? join(DEFAULT_OUT_DIR, `${slug}.json`);
 
-  // 4. Spawn Python.
+  // 4. Resolve co-change path. Undefined → look for default; explicit
+  //    null → opt out; explicit string → use it. Empty/missing file at
+  //    the resolved path means cold-start (γ effectively 0).
+  let resolvedCoChange: string | null = null;
+  if (opts.co_change_path === undefined) {
+    const guess = join(DEFAULT_CO_CHANGE_DIR, `${slug}.jsonl`);
+    if (existsSync(guess)) resolvedCoChange = guess;
+  } else if (opts.co_change_path !== null) {
+    resolvedCoChange = opts.co_change_path;
+  }
+  const gamma = opts.gamma ?? 0;
+
+  // 5. Spawn Python.
   const args = [
     PYTHON_SCRIPT,
     "--in", blobsPath,
@@ -96,7 +117,11 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     "--min-df", String(opts.min_df ?? 2),
     "--max-df", String(opts.max_df ?? 0.8),
     "--min-cluster-size", String(opts.min_cluster_size ?? 5),
+    "--gamma", String(gamma),
   ];
+  if (resolvedCoChange !== null) {
+    args.push("--co-change", resolvedCoChange);
+  }
   const proc = spawnSync(PYTHON_BIN, args, { encoding: "utf-8" });
   if (proc.error) {
     throw new Error(`Python spawn failed: ${proc.error.message}`);
@@ -109,7 +134,7 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     );
   }
 
-  // 5. Parse output.
+  // 6. Parse output.
   const result = JSON.parse(readFileSync(outPath, "utf-8")) as ClusterResult;
   return { result, out_path: outPath, blobs_path: blobsPath };
 }
@@ -140,7 +165,7 @@ export function deriveProjectName(absPath: string): string {
 function main() {
   const args = process.argv.slice(2);
   if (args.length < 1) {
-    console.error("usage: tsx cluster-tfidf-hdbscan.ts <repo-path> [--out <path>] [--project <name>] [--min-df N] [--max-df F] [--min-cluster-size N]");
+    console.error("usage: tsx cluster-tfidf-hdbscan.ts <repo-path> [--out <path>] [--project <name>] [--min-df N] [--max-df F] [--min-cluster-size N] [--co-change <path> | --no-co-change] [--gamma F]");
     process.exit(2);
   }
   const opts: RunOptions = { repo_path: resolve(args[0]!) };
@@ -150,6 +175,9 @@ function main() {
     else if (args[i] === "--min-df") opts.min_df = Number(args[++i]);
     else if (args[i] === "--max-df") opts.max_df = Number(args[++i]);
     else if (args[i] === "--min-cluster-size") opts.min_cluster_size = Number(args[++i]);
+    else if (args[i] === "--co-change") opts.co_change_path = args[++i]!;
+    else if (args[i] === "--no-co-change") opts.co_change_path = null;
+    else if (args[i] === "--gamma") opts.gamma = Number(args[++i]);
   }
   const { result, out_path } = runTfIdfHdbscan(opts);
   const nonNoiseCount = result.clusters.filter((c) => c.cluster_id !== -1).length;
