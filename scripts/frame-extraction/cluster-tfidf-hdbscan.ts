@@ -10,7 +10,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { collectBlobsFromGraph } from "./text-blob.js";
@@ -50,7 +50,7 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
   if (!existsSync(PYTHON_BIN)) {
     throw new Error(
       `Python venv not found at ${PYTHON_BIN}. ` +
-      `Run scripts/frame-extraction/python/setup-venv.sh first.`,
+      `Run \`npm run setup-python\` first.`,
     );
   }
   const graphDbPath = join(opts.repo_path, ".cortex", "graph.db");
@@ -60,7 +60,9 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
       `Index the repo with cortex-indexer first.`,
     );
   }
-  const project = opts.project_name ?? deriveProjectName(opts.repo_path);
+  // deriveProjectName is byte-equivalent to the C indexer when given an
+  // absolute path — resolve first so programmatic callers don't need to.
+  const project = opts.project_name ?? deriveProjectName(resolve(opts.repo_path));
   const slug = project.replace(/[^A-Za-z0-9._-]/g, "_");
 
   // 1. Extract blobs from the graph DB.
@@ -72,7 +74,9 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     db.close();
   }
 
-  // 2. Write blob JSONL.
+  // 2. Write blob JSONL. Intentionally not cleaned up on Python failure —
+  //    inspecting the blob input is the first debugging step, and the file
+  //    is overwritten on the next successful run keyed on the same slug.
   mkdirSync(BLOBS_DIR, { recursive: true });
   const blobsPath = join(BLOBS_DIR, `${slug}.jsonl`);
   writeFileSync(
@@ -110,18 +114,27 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
   return { result, out_path: outPath, blobs_path: blobsPath };
 }
 
-function deriveProjectName(repoPath: string): string {
-  // Match the indexer's convention exactly (see
-  // ctx_project_name_from_path in internal/indexer/src/pipeline/pipeline.c):
-  // take the absolute path, replace / and : with -, collapse --, trim
-  // leading -. So /Users/rka/Development/cortex →
-  // "Users-rka-Development-cortex" — the same string the C indexer
-  // wrote into the `project` column on every node.
-  const abs = resolve(repoPath);
-  return abs
+export function deriveProjectName(absPath: string): string {
+  // Byte-equivalent port of ctx_project_name_from_path from
+  // internal/indexer/src/pipeline/fqn.c (verified against
+  // internal/indexer/tests/test_fqn.c). Steps, in order:
+  //   1. Empty / null input → "root"
+  //   2. Normalize separators: \ → /
+  //   3. Replace / and : with -
+  //   4. Collapse consecutive dashes
+  //   5. Trim leading AND trailing dashes
+  //   6. If the result is empty (e.g. input was "///"), → "root"
+  //
+  // The C function processes the input string as-is — no path resolution.
+  // Callers must pass an absolute path; the CLI's `main` already does this
+  // via `resolve(args[0])`.
+  if (!absPath) return "root";
+  const result = absPath
+    .replace(/\\/g, "/")
     .replace(/[/:]/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-+/, "");
+    .replace(/^-+|-+$/g, "");
+  return result || "root";
 }
 
 function main() {
@@ -139,7 +152,8 @@ function main() {
     else if (args[i] === "--min-cluster-size") opts.min_cluster_size = Number(args[++i]);
   }
   const { result, out_path } = runTfIdfHdbscan(opts);
-  console.log(`[tfidf-hdbscan] ${result.total_files} files, ${result.clusters.length - (result.noise_count > 0 ? 1 : 0)} clusters, ${result.noise_count} noise`);
+  const nonNoiseCount = result.clusters.filter((c) => c.cluster_id !== -1).length;
+  console.log(`[tfidf-hdbscan] ${result.total_files} files, ${nonNoiseCount} clusters, ${result.noise_count} noise`);
   console.log(`[tfidf-hdbscan] wrote ${out_path}`);
 }
 
