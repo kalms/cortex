@@ -156,11 +156,20 @@ export interface EvalMetrics {
   /** Total number of files in the input. */
   total_files: number;
   /** Fraction of frequently-co-changing file pairs that landed in the
-   *  same cluster (0..1). `null` if the co-change matrix has no pairs. */
-  co_change_agreement: number | null;
-  /** Fraction of CALLS-coupled file pairs that landed in the same
-   *  cluster (0..1). `null` if there are no CALLS edges. */
-  import_agreement: number | null;
+   *  same non-noise cluster, EXCLUDING pairs that touch the noise cluster
+   *  (strict definition). `null` if no scorable pair exists. Pair this
+   *  with `noise_rate` — a high strict score on a high-noise output
+   *  means the clustered core is coherent but most files were unclustered. */
+  co_change_agreement_strict: number | null;
+  /** Same as `co_change_agreement_strict` but counts noise-touching pairs
+   *  in the denominator (they never agree since a noise file isn't IN any
+   *  cluster). Closer to the spec's plain reading; high noise drags this
+   *  down. `null` if no pair exists at all. */
+  co_change_agreement_lenient: number | null;
+  /** Strict-mode import agreement over CALLS edges. */
+  import_agreement_strict: number | null;
+  /** Lenient-mode import agreement over CALLS edges. */
+  import_agreement_lenient: number | null;
   /** Wall-clock seconds the cluster step took (read from cluster JSON's
    *  parameters or measured separately). */
   cluster_elapsed_seconds: number | null;

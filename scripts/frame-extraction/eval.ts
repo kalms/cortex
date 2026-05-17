@@ -129,8 +129,10 @@ function main() {
     cluster_count: clusterCount(cluster.clusters),
     noise_rate: cluster.noise_count / Math.max(totalFiles, 1),
     total_files: totalFiles,
-    co_change_agreement: agreementScore(pairs, fileToCluster),
-    import_agreement: agreementScore(edges, fileToCluster),
+    co_change_agreement_strict: agreementScore(pairs, fileToCluster, "strict"),
+    co_change_agreement_lenient: agreementScore(pairs, fileToCluster, "lenient"),
+    import_agreement_strict: agreementScore(edges, fileToCluster, "strict"),
+    import_agreement_lenient: agreementScore(edges, fileToCluster, "lenient"),
     cluster_elapsed_seconds: null, // not yet plumbed through from the algorithm
   };
 
@@ -158,7 +160,8 @@ function main() {
 
   console.log(`[eval] ${cluster.algorithm} / ${repoSlug}`);
   console.log(`[eval]   files=${metrics.total_files} clusters=${metrics.cluster_count} noise=${metrics.noise_rate.toFixed(3)}`);
-  console.log(`[eval]   co_change_agreement=${metrics.co_change_agreement?.toFixed(3) ?? "—"} import_agreement=${metrics.import_agreement?.toFixed(3) ?? "—"}`);
+  console.log(`[eval]   co_change   strict=${metrics.co_change_agreement_strict?.toFixed(3) ?? "—"} lenient=${metrics.co_change_agreement_lenient?.toFixed(3) ?? "—"}`);
+  console.log(`[eval]   import      strict=${metrics.import_agreement_strict?.toFixed(3) ?? "—"} lenient=${metrics.import_agreement_lenient?.toFixed(3) ?? "—"}`);
   console.log(`[eval]   silhouette=${silhouette?.toFixed(3) ?? "—"} vocab=${vocab ?? "—"}`);
   console.log(`[eval] wrote ${outPath}`);
 }
