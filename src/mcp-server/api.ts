@@ -83,13 +83,14 @@ export function startViewerServer(
         return;
       }
 
-      if (url.startsWith("/api/decisions/") && !url.includes("?")) {
+      if (url.startsWith("/api/decisions/")) {
         if (!decisionsRepo || !decisionLinksRepo) {
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "decisions repos unavailable" }));
           return;
         }
-        const id = decodeURIComponent(url.slice("/api/decisions/".length));
+        const pathname = new NodeURL(url, "http://localhost").pathname;
+        const id = decodeURIComponent(pathname.slice("/api/decisions/".length));
         const rec = decisionsRepo.get(id);
         if (!rec) {
           res.writeHead(404, { "Content-Type": "application/json" });
