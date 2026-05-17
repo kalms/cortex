@@ -17,12 +17,14 @@ beforeAll(() => {
   if (!PYTHON_AVAILABLE) return;
   // Build a minimal cortex-indexed-looking repo: just the graph DB in
   // .cortex/, populated with two obvious clusters of files (auth + billing).
-  // The directory basename becomes the project name via deriveProjectName,
-  // so we name the dir with the project we INSERT under.
-  const projectName = `cortex_cluster_test_${Date.now()}`;
-  root = join(tmpdir(), projectName);
+  // The orchestrator's deriveProjectName takes the absolute repo path,
+  // replaces / with -, and trims leading -. We mirror that here so the
+  // INSERTed project name matches what the orchestrator will query for.
+  const tag = `cortex_cluster_test_${Date.now()}`;
+  root = join(tmpdir(), tag);
   // Clean up if a previous run left it behind.
   if (existsSync(root)) rmSync(root, { recursive: true, force: true });
+  const projectName = root.replace(/[/:]/g, "-").replace(/-+/g, "-").replace(/^-+/, "");
   mkdirSync(join(root, ".cortex"), { recursive: true });
   const db = new Database(join(root, ".cortex", "graph.db"));
   db.exec(`
