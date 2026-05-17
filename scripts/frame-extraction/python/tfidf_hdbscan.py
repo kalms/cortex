@@ -98,6 +98,35 @@ def main() -> int:
     )
     labels = clusterer.fit_predict(dist.astype(np.float64))
 
+    # Algorithm-internal metrics. These live with the algorithm because
+    # they're defined in its own feature space — silhouette is over the
+    # cosine-distance matrix; top tokens are over the TF-IDF vocabulary.
+    # The eval harness reads them as opaque numbers/strings.
+    silhouette: float | None = None
+    non_noise_mask = labels != -1
+    distinct_non_noise = set(int(l) for l in labels if l != -1)
+    if len(distinct_non_noise) >= 2 and int(non_noise_mask.sum()) >= 2:
+        from sklearn.metrics import silhouette_score as _silhouette
+        # Pass only non-noise rows so noise points don't inflate the score.
+        silhouette = float(_silhouette(
+            dist[non_noise_mask][:, non_noise_mask],
+            labels[non_noise_mask],
+            metric="precomputed",
+        ))
+
+    top_tokens_per_cluster: dict[str, list[str]] = {}
+    if distinct_non_noise:
+        feature_names = vectorizer.get_feature_names_out()
+        for cid in sorted(distinct_non_noise):
+            mask = labels == cid
+            # Mean TF-IDF weight per feature within this cluster.
+            cluster_mat = matrix[mask]
+            mean_weights = np.asarray(cluster_mat.mean(axis=0)).flatten()
+            top_indices = np.argsort(-mean_weights)[:10]
+            top_tokens_per_cluster[str(cid)] = [
+                str(feature_names[i]) for i in top_indices if mean_weights[i] > 0
+            ]
+
     # Build clusters dict: id → [paths]. HDBSCAN returns -1 for noise.
     clusters_by_id: dict[int, list[str]] = {}
     for path, label in zip(paths, labels):
@@ -125,6 +154,8 @@ def main() -> int:
             "max_df": args.max_df,
             "min_cluster_size": args.min_cluster_size,
             "vocabulary_size": len(vectorizer.vocabulary_),
+            "silhouette_score": silhouette,
+            "top_tokens_per_cluster": top_tokens_per_cluster,
         },
     )
     return 0
