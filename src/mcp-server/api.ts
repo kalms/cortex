@@ -6,8 +6,12 @@ import {
 } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
+import { listProjects } from "../graph/code-queries.js";
+import { DecisionsRepository } from "../decisions/repository.js";
+import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -35,14 +39,19 @@ export interface ViewerServerHandle {
 export function startViewerServer(
   store: GraphStore,
   indexerProject?: string | null,
+  decisionsRepo?: DecisionsRepository,
+  decisionLinksRepo?: DecisionLinksRepository,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
 
-      if (url === "/api/graph") {
-        const nodes = store.getAllNodesUnified(indexerProject ?? undefined);
-        const rawEdges = store.getAllEdgesUnified(indexerProject ?? undefined);
+      if (url.startsWith("/api/graph")) {
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const nodes = store.getAllNodesUnified(project ?? undefined);
+        const rawEdges = store.getAllEdgesUnified(project ?? undefined);
         const edges = rawEdges.map((e) => ({
           ...e,
           source: e.source_id,
@@ -52,23 +61,87 @@ export function startViewerServer(
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
         });
-        res.end(JSON.stringify({ nodes, edges }));
+        res.end(JSON.stringify({ nodes, edges, project: project ?? null }));
+        return;
+      }
+
+      if (url === "/api/projects") {
+        let projects: ReturnType<typeof listProjects> = [];
+        try {
+          projects = listProjects(store);
+        } catch {
+          // No ctx_projects table yet — return empty.
+        }
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          projects,
+          active: indexerProject ?? null,
+        }));
+        return;
+      }
+
+      if (url.startsWith("/api/decisions/")) {
+        if (!decisionsRepo || !decisionLinksRepo) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
+          return;
+        }
+        const pathname = new NodeURL(url, "http://localhost").pathname;
+        const id = decodeURIComponent(pathname.slice("/api/decisions/".length));
+        const rec = decisionsRepo.get(id);
+        if (!rec) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decision not found" }));
+          return;
+        }
+        const links = decisionLinksRepo.findByDecision(id);
+        const { nodesByPath, framesByPath } = buildPathIndices(
+          store.getAllNodesUnified(indexerProject ?? undefined),
+        );
+        const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify(adapted));
+        return;
+      }
+
+      if (url.startsWith("/api/decisions")) {
+        if (!decisionsRepo || !decisionLinksRepo) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
+          return;
+        }
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const records = decisionsRepo.list();
+        const allLinks = records.flatMap((r) => decisionLinksRepo.findByDecision(r.id));
+        const { nodesByPath, framesByPath } = buildPathIndices(
+          store.getAllNodesUnified(project ?? undefined),
+        );
+        const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({ decisions }));
         return;
       }
 
       if (url === "/" || url.startsWith("/viewer")) {
         // Map URL → disk file under VIEWER_DIR.
-        // /            → index.html (2D viewer, the new default)
+        // /            → index.html
         // /viewer      → index.html
         // /viewer/     → index.html
-        // /viewer/3d   → 3d/index.html
-        // /viewer/3d/  → 3d/index.html
-        // /viewer/<p>  → <p>  (e.g., /viewer/graph-viewer-2d.js, /viewer/shared/state.js, /viewer/style.css, /viewer/3d/graph-viewer.js)
+        // /viewer/<p>  → <p>  (e.g., /viewer/viewer.js, /viewer/style.css)
         let rel: string;
         if (url === "/" || url === "/viewer" || url === "/viewer/") {
           rel = "index.html";
-        } else if (url === "/viewer/3d" || url === "/viewer/3d/") {
-          rel = "3d/index.html";
         } else {
           rel = url.replace(/^\/viewer\//, "");
         }
@@ -100,4 +173,26 @@ export function startViewerServer(
       resolve({ port, httpServer });
     });
   });
+}
+
+function buildPathIndices(nodes: ReturnType<GraphStore["getAllNodesUnified"]>): {
+  nodesByPath: Map<string, ReturnType<GraphStore["getAllNodesUnified"]>[number]>;
+  framesByPath: Map<string, FrameInfo>;
+} {
+  const nodesByPath = new Map<string, ReturnType<GraphStore["getAllNodesUnified"]>[number]>();
+  const framesByPath = new Map<string, FrameInfo>();
+  for (const n of nodes) {
+    if (n.kind !== "file" || !n.file_path) continue;
+    nodesByPath.set(n.file_path, n);
+    if (!n.data) continue;
+    try {
+      const data = JSON.parse(n.data) as { frame_id?: number; frame_label?: string };
+      if (typeof data.frame_id === "number" && typeof data.frame_label === "string") {
+        framesByPath.set(n.file_path, { frame_id: data.frame_id, frame_label: data.frame_label });
+      }
+    } catch {
+      /* ignore parse failures */
+    }
+  }
+  return { nodesByPath, framesByPath };
 }
