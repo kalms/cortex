@@ -111,10 +111,17 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
 }
 
 function deriveProjectName(repoPath: string): string {
-  // Match the indexer's convention: directory basename, with separators
-  // replaced (see ctx_project_name_from_path in the C indexer). For most
-  // repos this gives the repo dir name.
-  return basename(resolve(repoPath));
+  // Match the indexer's convention exactly (see
+  // ctx_project_name_from_path in internal/indexer/src/pipeline/pipeline.c):
+  // take the absolute path, replace / and : with -, collapse --, trim
+  // leading -. So /Users/rka/Development/cortex →
+  // "Users-rka-Development-cortex" — the same string the C indexer
+  // wrote into the `project` column on every node.
+  const abs = resolve(repoPath);
+  return abs
+    .replace(/[/:]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "");
 }
 
 function main() {
