@@ -33,12 +33,29 @@ export function noiseRate(clusters: ClusterAssignment[]): number {
   return total === 0 ? 0 : noise / total;
 }
 
-/** Fraction of `pairs` (where both endpoints appear in the clustering
- *  AND are non-noise) that landed in the same non-noise cluster.
- *  Returns null if no scorable pair exists. */
+/** Two scoring rules for the agreement metric — both supported because
+ *  they answer different questions:
+ *
+ *  - "strict" — drop pairs where either endpoint is in the noise cluster.
+ *    The denominator is "of the pairs the algorithm was confident about,
+ *    how many agreed?" Scores well on small clean cores even when most
+ *    files are noise. Combine with `noise_rate` to interpret.
+ *
+ *  - "lenient" — count noise-touching pairs in the denominator but never
+ *    in the numerator. The denominator is "of all frequently-coupled
+ *    pairs, how many agreed?" A high `noise_rate` drags this down even
+ *    if the clustered cores are clean. Closer to the spec's plain reading
+ *    of "fraction of frequently-co-changing pairs landing in the same
+ *    cluster" (a noise file does NOT land in a cluster). */
+export type AgreementMode = "strict" | "lenient";
+
+/** Fraction of `pairs` that landed in the same non-noise cluster.
+ *  See `AgreementMode` for the two interpretations. Returns null if no
+ *  scorable pair exists. */
 export function agreementScore(
   pairs: readonly WeightedPair[],
   fileToCluster: Map<string, number>,
+  mode: AgreementMode = "strict",
 ): number | null {
   let scorable = 0;
   let agree = 0;
@@ -46,7 +63,10 @@ export function agreementScore(
     const ca = fileToCluster.get(p.a);
     const cb = fileToCluster.get(p.b);
     if (ca === undefined || cb === undefined) continue;
-    if (ca === -1 || cb === -1) continue;
+    if (ca === -1 || cb === -1) {
+      if (mode === "lenient") scorable += 1;
+      continue;
+    }
     scorable += 1;
     if (ca === cb) agree += 1;
   }

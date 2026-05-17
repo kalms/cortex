@@ -11,8 +11,10 @@ const report: EvalReport = {
     cluster_count: 14,
     noise_rate: 0.527,
     total_files: 544,
-    co_change_agreement: 0.32,
-    import_agreement: 0.41,
+    co_change_agreement_strict: 0.92,
+    co_change_agreement_lenient: 0.32,
+    import_agreement_strict: 0.68,
+    import_agreement_lenient: 0.41,
     cluster_elapsed_seconds: 3.7,
   },
   internal: {
@@ -38,11 +40,13 @@ describe("renderEvalReport", () => {
     expect(md).toMatch(/self\/cortex/);
   });
 
-  it("renders the metrics table with all keys", () => {
+  it("renders the metrics table with all keys (strict + lenient agreements)", () => {
     const md = renderEvalReport(report);
     for (const key of [
       "cluster_count", "noise_rate", "total_files",
-      "co_change_agreement", "import_agreement", "cluster_elapsed_seconds",
+      "co_change_agreement_strict", "co_change_agreement_lenient",
+      "import_agreement_strict", "import_agreement_lenient",
+      "cluster_elapsed_seconds",
     ]) {
       expect(md).toContain(key);
     }
@@ -65,9 +69,17 @@ describe("renderEvalReport", () => {
   it("handles null cross-signal metrics gracefully (renders as —)", () => {
     const md = renderEvalReport({
       ...report,
-      metrics: { ...report.metrics, co_change_agreement: null, import_agreement: null },
+      metrics: {
+        ...report.metrics,
+        co_change_agreement_strict: null,
+        co_change_agreement_lenient: null,
+        import_agreement_strict: null,
+        import_agreement_lenient: null,
+      },
     });
-    expect(md).toMatch(/co_change_agreement.*—/);
-    expect(md).toMatch(/import_agreement.*—/);
+    expect(md).toMatch(/co_change_agreement_strict.*—/);
+    expect(md).toMatch(/co_change_agreement_lenient.*—/);
+    expect(md).toMatch(/import_agreement_strict.*—/);
+    expect(md).toMatch(/import_agreement_lenient.*—/);
   });
 });

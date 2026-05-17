@@ -82,4 +82,23 @@ describe("agreementScore", () => {
     ];
     expect(agreementScore(edges, m)).toBe(0.5);
   });
+
+  it("lenient mode counts noise-touching pairs in the denominator", () => {
+    const m = buildFileToClusterMap(clusters);
+    const pairs: FilePair[] = [
+      { a: "a.ts", b: "b.ts", count: 1 },     // intra-cluster agree
+      { a: "a.ts", b: "noise.ts", count: 1 }, // strict drops, lenient counts as disagreement
+    ];
+    expect(agreementScore(pairs, m, "strict")).toBe(1);    // 1/1
+    expect(agreementScore(pairs, m, "lenient")).toBe(0.5); // 1/2
+  });
+
+  it("lenient mode treats a pure-noise pair as scored 0", () => {
+    const m = buildFileToClusterMap([
+      { cluster_id: -1, member_paths: ["x.ts", "y.ts"] },
+    ]);
+    const pairs: FilePair[] = [{ a: "x.ts", b: "y.ts", count: 5 }];
+    expect(agreementScore(pairs, m, "strict")).toBeNull();
+    expect(agreementScore(pairs, m, "lenient")).toBe(0);
+  });
 });

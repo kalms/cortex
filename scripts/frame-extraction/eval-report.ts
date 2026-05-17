@@ -19,9 +19,18 @@ export function renderEvalReport(r: EvalReport): string {
   lines.push(`| total_files | ${r.metrics.total_files} |`);
   lines.push(`| cluster_count | ${r.metrics.cluster_count} |`);
   lines.push(`| noise_rate | ${fmt(r.metrics.noise_rate, 3)} |`);
-  lines.push(`| co_change_agreement | ${fmt(r.metrics.co_change_agreement)} |`);
-  lines.push(`| import_agreement | ${fmt(r.metrics.import_agreement)} |`);
+  lines.push(`| co_change_agreement_strict | ${fmt(r.metrics.co_change_agreement_strict)} |`);
+  lines.push(`| co_change_agreement_lenient | ${fmt(r.metrics.co_change_agreement_lenient)} |`);
+  lines.push(`| import_agreement_strict | ${fmt(r.metrics.import_agreement_strict)} |`);
+  lines.push(`| import_agreement_lenient | ${fmt(r.metrics.import_agreement_lenient)} |`);
   lines.push(`| cluster_elapsed_seconds | ${fmt(r.metrics.cluster_elapsed_seconds, 1)} |`);
+  lines.push("");
+  lines.push(`> **Strict vs. lenient agreement.** Strict drops pairs touching the noise`);
+  lines.push(`> cluster from both numerator and denominator — it answers "of the pairs`);
+  lines.push(`> the algorithm was confident about, how many agreed?". Lenient counts`);
+  lines.push(`> noise-touching pairs in the denominator but never as agreement — closer`);
+  lines.push(`> to the spec's plain reading of "fraction of frequently-co-changing pairs`);
+  lines.push(`> landing in the same cluster". When \`noise_rate\` is high, the two diverge.`);
   lines.push("");
 
   lines.push(`## Algorithm-internal metrics`);
