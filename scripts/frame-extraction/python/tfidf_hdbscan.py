@@ -26,6 +26,55 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import hdbscan
 
 
+def build_co_change_distance(
+    paths: list[str], pairs: list[dict]
+) -> np.ndarray:
+    """Build an (n, n) symmetric co-change DISTANCE matrix.
+
+    Aligned with `paths` row order. Observed pair distance:
+        sim = log(1 + count) / log(1 + max_count_in_corpus)
+        dist = 1 - sim
+    Unobserved pair: dist = 1.0. Diagonal: 0.0.
+    Pairs whose endpoints aren't in `paths` are dropped silently.
+    """
+    import math
+    n = len(paths)
+    # 1.0 off-diagonal; zero out the diagonal at the end.
+    dist = np.ones((n, n), dtype=np.float64)
+    np.fill_diagonal(dist, 0.0)
+    if not pairs:
+        return dist
+
+    path_to_idx = {p: i for i, p in enumerate(paths)}
+    # First pass: filter to in-corpus pairs and find max_count.
+    filtered: list[tuple[int, int, int]] = []
+    max_count = 0
+    for p in pairs:
+        a = p.get("a")
+        b = p.get("b")
+        count = p.get("count", 0)
+        if a is None or b is None or count <= 0:
+            continue
+        ia = path_to_idx.get(a)
+        ib = path_to_idx.get(b)
+        if ia is None or ib is None or ia == ib:
+            continue
+        filtered.append((ia, ib, int(count)))
+        if count > max_count:
+            max_count = count
+
+    if max_count == 0:
+        return dist  # no usable observations
+
+    denom = math.log1p(max_count)  # log(1 + max_count); > 0 since max_count >= 1
+    for ia, ib, count in filtered:
+        sim = math.log1p(count) / denom
+        d = 1.0 - sim
+        dist[ia, ib] = d
+        dist[ib, ia] = d
+    return dist
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--in", dest="inp", required=True, type=Path)
