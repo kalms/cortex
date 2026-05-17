@@ -144,12 +144,12 @@ import { gridLayout } from '/viewer/layout.js';
     Object.keys(adjacency).forEach(k => delete adjacency[k]);
 
     FRAMES.forEach(frame => {
-      const cfg = NODE_CFG[frame.id];
+      const cfg = NODE_CFG[frame.id] || { count: 0 };
       for (let i = 0; i < cfg.count; i++) {
         nodes.push({
           id: frame.id + '-' + i,
           frameId: frame.id,
-          kind: i < cfg.decisions ? 'decision' : 'file',
+          kind: 'file',
           rx: rand(0.16, 0.84),
           ry: rand(0.22, 0.78),
           name: (FILE_NAMES[frame.id] || [])[i % (FILE_NAMES[frame.id]?.length || 1)] || 'n-' + i,
