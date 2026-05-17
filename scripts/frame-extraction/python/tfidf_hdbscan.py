@@ -18,6 +18,7 @@ CLI:
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -37,7 +38,6 @@ def build_co_change_distance(
     Unobserved pair: dist = 1.0. Diagonal: 0.0.
     Pairs whose endpoints aren't in `paths` are dropped silently.
     """
-    import math
     n = len(paths)
     # 1.0 off-diagonal; zero out the diagonal at the end.
     dist = np.ones((n, n), dtype=np.float64)
@@ -49,10 +49,10 @@ def build_co_change_distance(
     # First pass: filter to in-corpus pairs and find max_count.
     filtered: list[tuple[int, int, int]] = []
     max_count = 0
-    for p in pairs:
-        a = p.get("a")
-        b = p.get("b")
-        count = p.get("count", 0)
+    for pair in pairs:
+        a = pair.get("a")
+        b = pair.get("b")
+        count = pair.get("count", 0)
         if a is None or b is None or count <= 0:
             continue
         ia = path_to_idx.get(a)
