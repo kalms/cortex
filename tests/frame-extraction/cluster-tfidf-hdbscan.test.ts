@@ -1,6 +1,6 @@
 // tests/frame-extraction/cluster-tfidf-hdbscan.test.ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { rmSync, mkdirSync, existsSync } from "node:fs";
+import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
@@ -92,5 +92,71 @@ describe.skipIf(!PYTHON_AVAILABLE)("runTfIdfHdbscan (requires Python venv)", () 
     // too (derived from project name) so equality on the full RunResult would
     // also pass, but result is the load-bearing assertion.
     expect(a.result).toEqual(b.result);
+  });
+
+  it("co-change pulls cross-domain files together when gamma is high", () => {
+    // Use a fresh corpus that's deliberately topically split: 4 auth + 4
+    // billing files. Without co-change, they cluster cleanly by domain.
+    // With a heavy co-change signal saying ONE specific auth file and ONE
+    // specific billing file co-change together a lot, γ should pull them
+    // into the same cluster (or at minimum, change the assignment so that
+    // they are no longer split cleanly by directory).
+    const baseline = runTfIdfHdbscan({
+      repo_path: root,
+      min_cluster_size: 3,
+      gamma: 0,
+    });
+    // Confirm baseline split.
+    const baselineForA = baseline.result.clusters.find((c) =>
+      c.member_paths.includes("src/auth/middleware_0.ts"),
+    );
+    const baselineForI = baseline.result.clusters.find((c) =>
+      c.member_paths.includes("src/billing/invoice_0.ts"),
+    );
+    expect(baselineForA).toBeTruthy();
+    expect(baselineForI).toBeTruthy();
+    expect(baselineForA!.cluster_id).not.toBe(baselineForI!.cluster_id);
+
+    // Now make a one-off co-change file linking one auth file and one
+    // billing file with a very heavy co-occurrence count.
+    const ccPath = join(root, ".cortex", "test-cochange.jsonl");
+    writeFileSync(
+      ccPath,
+      JSON.stringify({
+        a: "src/auth/middleware_0.ts",
+        b: "src/billing/invoice_0.ts",
+        count: 999,
+      }) + "\n",
+    );
+
+    const pulled = runTfIdfHdbscan({
+      repo_path: root,
+      min_cluster_size: 3,
+      co_change_path: ccPath,
+      gamma: 0.9, // heavy weight: dominate topical signal
+    });
+
+    // The result should have gamma and co_change_pairs_loaded in
+    // parameters for traceability.
+    expect(pulled.result.parameters.gamma).toBe(0.9);
+    expect(pulled.result.parameters.co_change_pairs_loaded).toBe(1);
+
+    // And the assignments differ from the gamma=0 case. We don't assert
+    // exact same-cluster (HDBSCAN density semantics can make a forced
+    // pair noise or split) but we assert membership *shifted* somewhere.
+    const baselineMembers = new Set(
+      baseline.result.clusters.flatMap((c) =>
+        c.member_paths.map((p) => `${c.cluster_id}:${p}`),
+      ),
+    );
+    const pulledMembers = new Set(
+      pulled.result.clusters.flatMap((c) =>
+        c.member_paths.map((p) => `${c.cluster_id}:${p}`),
+      ),
+    );
+    // Distance between the two assignments — at least one file moved.
+    let diff = 0;
+    for (const m of baselineMembers) if (!pulledMembers.has(m)) diff += 1;
+    expect(diff).toBeGreaterThan(0);
   });
 });
