@@ -51,6 +51,22 @@ body {
   border-color: #444;
 }
 
+#project-select {
+  background: #0a0a0a;
+  border: 1px solid #222;
+  color: #ccc;
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+#project-select:focus {
+  outline: none;
+  border-color: #444;
+}
+
 #filters {
   display: flex;
   gap: 12px;

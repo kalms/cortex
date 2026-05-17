@@ -123,7 +123,51 @@ function recenter() {
   );
 }
 
-const graph = await fetch('/api/graph').then(r => r.json());
+async function fetchProjects() {
+  try {
+    const r = await fetch('/api/projects');
+    if (!r.ok) return { projects: [], active: null };
+    return await r.json();
+  } catch {
+    return { projects: [], active: null };
+  }
+}
+
+function populateProjectSelect(projects, active) {
+  const select = document.getElementById('project-select');
+  if (!select) return;
+  select.innerHTML = '';
+  if (!projects || projects.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(no projects)';
+    opt.disabled = true;
+    opt.selected = true;
+    select.appendChild(opt);
+    return;
+  }
+  for (const p of projects) {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    if (p.name === active) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
+function graphUrlFor(projectName) {
+  return projectName
+    ? `/api/graph?project=${encodeURIComponent(projectName)}`
+    : '/api/graph';
+}
+
+// Fetch projects + populate selector before the initial graph fetch so the
+// dropdown shows real options as soon as the canvas paints.
+const __projectsResp = await fetchProjects();
+populateProjectSelect(__projectsResp.projects, __projectsResp.active);
+const __initialProject = __projectsResp.active ?? null;
+
+const graph = await fetch(graphUrlFor(__initialProject)).then(r => r.json());
 hydrate(state, graph);
 
 const simulation = createSimulation().on('tick', () => {
@@ -314,6 +358,38 @@ function rebuildNeighbors() {
   }
 }
 rebuildNeighbors();
+
+/**
+ * Re-load the graph for a different project. Replaces state.nodes/edges with
+ * a fresh fetch, then re-runs the same hydrate → neighbors → reproject path
+ * the initial bootstrap does. The simulation, render loop, and DOM subscriptions
+ * stay set up; only the data changes.
+ */
+async function loadGraph(projectName) {
+  let nextGraph;
+  try {
+    const r = await fetch(graphUrlFor(projectName));
+    if (!r.ok) {
+      console.warn('loadGraph: /api/graph returned', r.status);
+      return;
+    }
+    nextGraph = await r.json();
+  } catch (err) {
+    console.warn('loadGraph: fetch failed', err);
+    return;
+  }
+  state.nodes = new Map();
+  state.edges = new Map();
+  hydrate(state, nextGraph);
+  rebuildNeighbors();
+  hasInitiallyFit = false;     // re-frame the new graph once the sim settles
+  reproject('mutation');
+}
+
+document.getElementById('project-select')?.addEventListener('change', (ev) => {
+  const value = ev.target.value || null;
+  loadGraph(value);
+});
 
 // --- WebSocket live updates ---
 createWsClient({
