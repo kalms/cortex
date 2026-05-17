@@ -12,3 +12,4 @@ qa-*.png
 qa2-*.png
 .tmp/
 .playwright-mcp/
+scripts/frame-extraction/python/.venv/
