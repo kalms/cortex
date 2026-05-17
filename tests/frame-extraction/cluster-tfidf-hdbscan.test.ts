@@ -1,6 +1,6 @@
 // tests/frame-extraction/cluster-tfidf-hdbscan.test.ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, renameSync } from "node:fs";
+import { rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
