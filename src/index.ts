@@ -9,7 +9,10 @@ import { startWsServer, type WsServerHandle } from "./ws/server.js";
 import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
-import { resolveCortexDbPath } from "./db/resolve-path.js";
+import { resolveCortexDbPath, resolveDecisionsDbPath } from "./db/resolve-path.js";
+import { openDecisionsDb } from "./decisions/db.js";
+import { DecisionsRepository } from "./decisions/repository.js";
+import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import type { WireNode } from "./events/types.js";
 
 const dbPath = resolveCortexDbPath();
@@ -151,7 +154,17 @@ bus.onEvent((event) => {
 
 const server = createServer(store, indexerProject, bus);
 
-const { port, httpServer } = await startViewerServer(store, indexerProject);
+const decisionsDbPath = resolveDecisionsDbPath(cwd);
+const decisionsDb = openDecisionsDb(decisionsDbPath);
+const decisionsRepo = new DecisionsRepository(decisionsDb);
+const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+
+const { port, httpServer } = await startViewerServer(
+  store,
+  indexerProject,
+  decisionsRepo,
+  decisionLinksRepo,
+);
 if (port > 0 && httpServer) {
   wsHandle = startWsServer({
     httpServer,

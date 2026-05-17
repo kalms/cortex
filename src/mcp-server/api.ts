@@ -9,6 +9,9 @@ import { join, extname } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
 import { listProjects } from "../graph/code-queries.js";
+import { DecisionsRepository } from "../decisions/repository.js";
+import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -36,6 +39,8 @@ export interface ViewerServerHandle {
 export function startViewerServer(
   store: GraphStore,
   indexerProject?: string | null,
+  decisionsRepo?: DecisionsRepository,
+  decisionLinksRepo?: DecisionLinksRepository,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -75,6 +80,55 @@ export function startViewerServer(
           projects,
           active: indexerProject ?? null,
         }));
+        return;
+      }
+
+      if (url.startsWith("/api/decisions/") && !url.includes("?")) {
+        if (!decisionsRepo || !decisionLinksRepo) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
+          return;
+        }
+        const id = decodeURIComponent(url.slice("/api/decisions/".length));
+        const rec = decisionsRepo.get(id);
+        if (!rec) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decision not found" }));
+          return;
+        }
+        const links = decisionLinksRepo.findByDecision(id);
+        const { nodesByPath, framesByPath } = buildPathIndices(
+          store.getAllNodesUnified(indexerProject ?? undefined),
+        );
+        const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify(adapted));
+        return;
+      }
+
+      if (url.startsWith("/api/decisions")) {
+        if (!decisionsRepo || !decisionLinksRepo) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
+          return;
+        }
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const records = decisionsRepo.list();
+        const allLinks = records.flatMap((r) => decisionLinksRepo.findByDecision(r.id));
+        const { nodesByPath, framesByPath } = buildPathIndices(
+          store.getAllNodesUnified(project ?? undefined),
+        );
+        const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({ decisions }));
         return;
       }
 
@@ -122,4 +176,26 @@ export function startViewerServer(
       resolve({ port, httpServer });
     });
   });
+}
+
+function buildPathIndices(nodes: ReturnType<GraphStore["getAllNodesUnified"]>): {
+  nodesByPath: Map<string, ReturnType<GraphStore["getAllNodesUnified"]>[number]>;
+  framesByPath: Map<string, FrameInfo>;
+} {
+  const nodesByPath = new Map<string, ReturnType<GraphStore["getAllNodesUnified"]>[number]>();
+  const framesByPath = new Map<string, FrameInfo>();
+  for (const n of nodes) {
+    if (n.kind !== "file" || !n.file_path) continue;
+    nodesByPath.set(n.file_path, n);
+    if (!n.data) continue;
+    try {
+      const data = JSON.parse(n.data) as { frame_id?: number; frame_label?: string };
+      if (typeof data.frame_id === "number" && typeof data.frame_label === "string") {
+        framesByPath.set(n.file_path, { frame_id: data.frame_id, frame_label: data.frame_label });
+      }
+    } catch {
+      /* ignore parse failures */
+    }
+  }
+  return { nodesByPath, framesByPath };
 }
