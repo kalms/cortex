@@ -134,17 +134,13 @@ export function startViewerServer(
 
       if (url === "/" || url.startsWith("/viewer")) {
         // Map URL → disk file under VIEWER_DIR.
-        // /            → index.html (2D viewer, the new default)
+        // /            → index.html
         // /viewer      → index.html
         // /viewer/     → index.html
-        // /viewer/3d   → 3d/index.html
-        // /viewer/3d/  → 3d/index.html
-        // /viewer/<p>  → <p>  (e.g., /viewer/graph-viewer-2d.js, /viewer/shared/state.js, /viewer/style.css, /viewer/3d/graph-viewer.js)
+        // /viewer/<p>  → <p>  (e.g., /viewer/viewer.js, /viewer/style.css)
         let rel: string;
         if (url === "/" || url === "/viewer" || url === "/viewer/") {
           rel = "index.html";
-        } else if (url === "/viewer/3d" || url === "/viewer/3d/") {
-          rel = "3d/index.html";
         } else {
           rel = url.replace(/^\/viewer\//, "");
         }
