@@ -1,53 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cortex — Graph</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/viewer/style.css">
-  <script type="importmap">
-    {
-      "imports": {
-        "d3-force": "https://esm.sh/d3-force@3.0.0"
-      }
-    }
-  </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cortex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/viewer/style.css">
 </head>
 <body>
-  <div id="toolbar">
-    <span id="logo">cortex</span>
-    <div id="search-group">
-      <input type="text" id="search" placeholder="Search nodes...">
-      <span id="search-count"></span>
-      <button id="search-chip" class="search-chip" hidden>
-        <span id="search-chip-count">0</span> matches
-        <span class="chevron">▾</span>
-      </button>
-      <ul id="search-chip-menu" class="search-chip-menu" hidden></ul>
-    </div>
-    <button id="recenter-btn" title="Recenter (F)" aria-label="Recenter view">⤢</button>
-    <div id="mode-indicator" class="mode-indicator mode-overview">OVERVIEW</div>
-    <div id="filters">
-      <label><input type="checkbox" data-kind="decision" checked> decisions</label>
-      <label><input type="checkbox" data-kind="file" checked> files</label>
-      <label><input type="checkbox" data-kind="function" checked> functions</label>
-      <label><input type="checkbox" data-kind="component" checked> components</label>
-      <label><input type="checkbox" data-kind="reference" checked> references</label>
-      <label><input type="checkbox" data-kind="path" checked> paths</label>
-      <label><input type="checkbox" data-kind="variable" checked> variables</label>
-      <label><input type="checkbox" data-kind="section" checked> sections</label>
-      <label><input type="checkbox" data-kind="type" checked> types</label>
-      <label><input type="checkbox" data-kind="project" checked> projects</label>
-    </div>
-  </div>
-  <canvas id="graph"></canvas>
-  <div id="tooltip"></div>
-  <script type="module" src="/viewer/graph-viewer-2d.js"></script>
-<div id="detail-panel" class="hidden">
-  <button id="close-panel">&times;</button>
-  <div id="detail-content"></div>
+
+<canvas id="stage"></canvas>
+
+<div class="toolbar">
+  <select id="project-select" title="Project">
+    <option value="">(loading…)</option>
+  </select>
+  <button id="theme-toggle" title="Toggle light/dark">◐</button>
 </div>
+
+<div class="logo-mark">
+  <div class="word">cortex</div>
+</div>
+
+<div class="card-scrim" id="card-scrim"></div>
+<div class="decision-card" id="decision-card"></div>
+
+<script type="module" src="/viewer/viewer.js"></script>
+
 </body>
 </html>
