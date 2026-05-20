@@ -24,3 +24,12 @@ export async function fetchDecisions(project) {
   if (!r.ok) return { decisions: [] };
   return r.json();
 }
+
+export async function fetchAggregates(project) {
+  const url = project
+    ? `/api/aggregates?project=${encodeURIComponent(project)}`
+    : "/api/aggregates";
+  const r = await fetch(url);
+  if (!r.ok) return { aggregates: [] };
+  return r.json();
+}

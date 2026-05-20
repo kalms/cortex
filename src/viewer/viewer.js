@@ -1,4 +1,4 @@
-import { fetchProjects, fetchGraph, fetchDecisions } from '/viewer/data-fetch.js';
+import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates } from '/viewer/data-fetch.js';
 import { groupNodesIntoFrames, basenames, buildFrameGovernance } from '/viewer/adapters.js';
 import { gridLayout } from '/viewer/layout.js';
 
@@ -47,6 +47,7 @@ import { gridLayout } from '/viewer/layout.js';
 
   let DECISIONS = {};
   let FRAME_GOVERNANCE = {};
+  let AGGREGATES = [];
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
@@ -57,24 +58,29 @@ import { gridLayout } from '/viewer/layout.js';
 
   async function loadGraph(projectName) {
     currentProject = projectName;
-    const [graph, decs] = await Promise.all([
+    const [graph, decs, aggs] = await Promise.all([
       fetchGraph(projectName),
       fetchDecisions(projectName),
+      fetchAggregates(projectName),
     ]);
+    AGGREGATES = aggs.aggregates || [];
 
     // 1. Build frame summaries from the graph.
     const summaries = groupNodesIntoFrames(graph.nodes);
 
-    // 2. Position via grid layout.
+    // 2. Position via grid layout. Reserve 90px at the bottom for the
+    // aggregate strip so frames never overlap auxiliary aggregate dots.
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
+    const AGGREGATE_STRIP_H = AGGREGATES.length > 0 ? 90 : 0;
+    const layoutH = stageH - AGGREGATE_STRIP_H;
     const positioned = gridLayout(
       summaries.map((s) => ({
         frame_id: s.frame_id,
         frame_label: s.frame_label,
         member_count: s.member_count,
       })),
-      stageW, stageH,
+      stageW, layoutH,
     );
 
     // 3. Replace FRAMES with positioned frames (string id matches the rest of
@@ -1323,6 +1329,54 @@ import { gridLayout } from '/viewer/layout.js';
     return ell;
   }
 
+  /**
+   * Draw auxiliary aggregates as bare dots in a bottom strip — spec
+   * §"Two content streams": each aggregate is a peer entity to frames,
+   * one dot with a count badge. Dots scale by sqrt(count).
+   */
+  function drawAggregates(now) {
+    if (!AGGREGATES || AGGREGATES.length === 0) return;
+    const stageW = canvas.clientWidth;
+    const stageH = canvas.clientHeight;
+    const stripTop = stageH - 90;
+    const slotW = stageW / Math.max(AGGREGATES.length, 1);
+    let maxCount = 1;
+    for (const a of AGGREGATES) {
+      if (a.member_count > maxCount) maxCount = a.member_count;
+    }
+
+    ctx.save();
+    for (let i = 0; i < AGGREGATES.length; i++) {
+      const agg = AGGREGATES[i];
+      const cx = slotW * (i + 0.5);
+      const cy = stripTop + 28;
+      const dotR = 5 + 10 * Math.sqrt(agg.member_count / maxCount);
+
+      const baseRgb = nodeBaseRGB();
+      ctx.beginPath();
+      ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.55)`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.9)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const labelRgb = subLabelRGB();
+      ctx.fillStyle = `rgba(${labelRgb[0]},${labelRgb[1]},${labelRgb[2]},0.95)`;
+      ctx.font = '10px "Geist Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const labelMax = slotW - 6;
+      ctx.fillText(truncateMiddle(ctx, agg.label, labelMax), cx, cy + dotR + 6);
+
+      const countRgb = countIdleRGB();
+      ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;
+      ctx.font = '500 9px "Geist Mono", monospace';
+      ctx.fillText(String(agg.member_count), cx, cy + dotR + 20);
+    }
+    ctx.restore();
+  }
+
   function mainLoop() {
     const now = performance.now();
     updateDecisionCardVisibility();
@@ -1332,6 +1386,7 @@ import { gridLayout } from '/viewer/layout.js';
     drawEdges();
     drawNodes(now);
     drawFloatingDecisionNodes(now);
+    drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
 
