@@ -12,6 +12,7 @@ import { listProjects } from "../graph/code-queries.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
+import { groupAuxiliaryPaths } from "../frame-extraction/auxiliary-detection.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -130,6 +131,24 @@ export function startViewerServer(
           "Access-Control-Allow-Origin": "*",
         });
         res.end(JSON.stringify({ decisions }));
+        return;
+      }
+
+      if (url.startsWith("/api/aggregates")) {
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const nodes = store.getAllNodesUnified(project ?? undefined);
+        const paths: string[] = [];
+        for (const n of nodes) {
+          if (n.kind === "file" && n.file_path) paths.push(n.file_path);
+        }
+        const aggregates = groupAuxiliaryPaths(paths);
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({ aggregates }));
         return;
       }
 
