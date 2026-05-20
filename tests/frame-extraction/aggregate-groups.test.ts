@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   groupAuxiliaryPaths,
   type Aggregate,
-} from "../../scripts/frame-extraction/auxiliary-detection.js";
+} from "../../src/frame-extraction/auxiliary-detection.js";
 
 describe("groupAuxiliaryPaths", () => {
   it("groups paths by the segment immediately after the auxiliary segment", () => {
