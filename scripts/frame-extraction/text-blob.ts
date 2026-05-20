@@ -4,7 +4,7 @@ import { tokenizePath } from "./path-tokenize.js";
 import {
   DEFAULT_AUXILIARY_SEGMENTS,
   isAuxiliaryPath,
-} from "./auxiliary-detection.js";
+} from "../../src/frame-extraction/auxiliary-detection.js";
 import type { FileBlob } from "./types.js";
 
 /** Split an identifier into lowercase word parts using the same rules as
