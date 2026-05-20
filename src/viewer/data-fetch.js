@@ -33,3 +33,12 @@ export async function fetchAggregates(project) {
   if (!r.ok) return { aggregates: [] };
   return r.json();
 }
+
+export async function fetchFileEdges(project) {
+  const url = project
+    ? `/api/file-edges?project=${encodeURIComponent(project)}`
+    : "/api/file-edges";
+  const r = await fetch(url);
+  if (!r.ok) return { file_edges: [] };
+  return r.json();
+}
