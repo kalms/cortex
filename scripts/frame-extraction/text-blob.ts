@@ -1,6 +1,10 @@
 // scripts/frame-extraction/text-blob.ts
 import type Database from "better-sqlite3";
 import { tokenizePath } from "./path-tokenize.js";
+import {
+  DEFAULT_AUXILIARY_SEGMENTS,
+  isAuxiliaryPath,
+} from "./auxiliary-detection.js";
 import type { FileBlob } from "./types.js";
 
 /** Split an identifier into lowercase word parts using the same rules as
@@ -32,11 +36,21 @@ export const DEFAULT_ENTITY_KINDS = [
  *  Performance: one SQL query for the entire project, grouped in memory.
  *  Tested against a synthetic fixture so it does not require a real
  *  indexed repo to run. */
+export interface CollectBlobsOptions {
+  /** Skip files whose path contains any of these segments (spec
+   *  §"Two content streams" Group A — auxiliary content bypass).
+   *  Defaults to `DEFAULT_AUXILIARY_SEGMENTS` (vendor/dist/build/etc.).
+   *  Pass an empty set to disable the filter entirely. */
+  auxiliary_segments?: ReadonlySet<string>;
+}
+
 export function collectBlobsFromGraph(
   db: Database.Database,
   project: string,
   entity_kinds: readonly string[] = DEFAULT_ENTITY_KINDS,
+  options: CollectBlobsOptions = {},
 ): FileBlob[] {
+  const auxSegments = options.auxiliary_segments ?? DEFAULT_AUXILIARY_SEGMENTS;
   const placeholders = entity_kinds.map(() => "?").join(", ");
   const rows = db
     .prepare(
@@ -51,6 +65,7 @@ export function collectBlobsFromGraph(
 
   const byFile = new Map<string, Set<string>>();
   for (const row of rows) {
+    if (isAuxiliaryPath(row.file_path, auxSegments)) continue;
     let tokens = byFile.get(row.file_path);
     if (!tokens) {
       tokens = new Set<string>();
