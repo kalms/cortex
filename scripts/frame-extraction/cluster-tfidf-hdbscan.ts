@@ -62,10 +62,17 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
       `Run \`npm run setup-python\` first.`,
     );
   }
-  const graphDbPath = join(opts.repo_path, ".cortex", "graph.db");
-  if (!existsSync(graphDbPath)) {
+  // Prefer the path resolveCortexDbPath() returns today (`<repo>/.cortex/db`,
+  // no extension). Fall back to the legacy `<repo>/.cortex/graph.db` so
+  // pre-existing repos keep working.
+  const dbCandidates = [
+    join(opts.repo_path, ".cortex", "db"),
+    join(opts.repo_path, ".cortex", "graph.db"),
+  ];
+  const graphDbPath = dbCandidates.find((p) => existsSync(p));
+  if (!graphDbPath) {
     throw new Error(
-      `No graph DB at ${graphDbPath}. ` +
+      `No graph DB at ${dbCandidates.join(" or ")}. ` +
       `Index the repo with cortex-indexer first.`,
     );
   }
