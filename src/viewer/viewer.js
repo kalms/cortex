@@ -1,4 +1,4 @@
-import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates } from '/viewer/data-fetch.js';
+import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges } from '/viewer/data-fetch.js';
 import { groupNodesIntoFrames, basenames, buildFrameGovernance } from '/viewer/adapters.js';
 import { gridLayout } from '/viewer/layout.js';
 
@@ -35,6 +35,7 @@ import { gridLayout } from '/viewer/layout.js';
   let FRAMES = [];
   let NODE_CFG = {};
   let FILE_NAMES = {};
+  let FRAME_FILE_PATHS = {};
 
   const nodes = [];
   const edges = [];
@@ -48,6 +49,7 @@ import { gridLayout } from '/viewer/layout.js';
   let DECISIONS = {};
   let FRAME_GOVERNANCE = {};
   let AGGREGATES = [];
+  let FILE_EDGES = [];
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
@@ -58,12 +60,14 @@ import { gridLayout } from '/viewer/layout.js';
 
   async function loadGraph(projectName) {
     currentProject = projectName;
-    const [graph, decs, aggs] = await Promise.all([
+    const [graph, decs, aggs, fileEdges] = await Promise.all([
       fetchGraph(projectName),
       fetchDecisions(projectName),
       fetchAggregates(projectName),
+      fetchFileEdges(projectName),
     ]);
     AGGREGATES = aggs.aggregates || [];
+    FILE_EDGES = fileEdges.file_edges || [];
 
     // 1. Build frame summaries from the graph.
     const summaries = groupNodesIntoFrames(graph.nodes);
@@ -96,12 +100,17 @@ import { gridLayout } from '/viewer/layout.js';
     }));
 
     // 4. NODE_CFG.count = how many file basenames to show per frame (cap at 16).
+    //    Track the canonical file_path alongside the basename so edge lookups
+    //    don't have to disambiguate by basename alone.
     NODE_CFG = {};
     FILE_NAMES = {};
+    FRAME_FILE_PATHS = {};
     for (const s of summaries) {
       const sid = String(s.frame_id);
-      NODE_CFG[sid] = { count: Math.min(s.member_count, 16) };
-      FILE_NAMES[sid] = basenames(s.members, 16);
+      const visibleMembers = s.members.slice(0, 16);
+      NODE_CFG[sid] = { count: visibleMembers.length };
+      FILE_NAMES[sid] = basenames(visibleMembers, 16);
+      FRAME_FILE_PATHS[sid] = visibleMembers.map((m) => m.file_path || null);
     }
 
     // 5. Decisions → DECISIONS map + FRAME_GOVERNANCE rollup.
@@ -151,54 +160,46 @@ import { gridLayout } from '/viewer/layout.js';
 
     FRAMES.forEach(frame => {
       const cfg = NODE_CFG[frame.id] || { count: 0 };
+      const paths = FRAME_FILE_PATHS[frame.id] || [];
+      const names = FILE_NAMES[frame.id] || [];
       for (let i = 0; i < cfg.count; i++) {
         nodes.push({
           id: frame.id + '-' + i,
           frameId: frame.id,
           kind: 'file',
+          file_path: paths[i] || null,
           rx: rand(0.16, 0.84),
           ry: rand(0.22, 0.78),
-          name: (FILE_NAMES[frame.id] || [])[i % (FILE_NAMES[frame.id]?.length || 1)] || 'n-' + i,
+          name: names[i] || 'n-' + i,
         });
         adjacency[nodes.length - 1] = [];
       }
     });
 
-    function addEdge(a, b, interFrame) {
-      const edge = { a, b, intensity: 0, interFrame };
+    function addEdge(a, b, interFrame, weight) {
+      const edge = { a, b, intensity: 0, interFrame, weight: weight || 1 };
       edges.push(edge);
       adjacency[a].push({ to: b, edge: edges.length - 1 });
       adjacency[b].push({ to: a, edge: edges.length - 1 });
     }
 
+    // Build path → canvas-index lookup for the visible (capped) nodes.
+    const pathToIdx = new Map();
     for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (nodes[i].frameId === nodes[j].frameId && Math.random() < 0.45) {
-          addEdge(i, j, false);
-        }
-      }
+      const p = nodes[i].file_path;
+      if (p) pathToIdx.set(p, i);
     }
 
-    const byFrame = {};
-    nodes.forEach((n, i) => { (byFrame[n.frameId] ||= []).push(i); });
-    const frameIds = Object.keys(byFrame);
-    for (let a = 0; a < frameIds.length; a++) {
-      for (let b = a + 1; b < frameIds.length; b++) {
-        if (Math.random() < 0.6) {
-          const p1 = byFrame[frameIds[a]];
-          const p2 = byFrame[frameIds[b]];
-          addEdge(p1[Math.floor(Math.random() * p1.length)], p2[Math.floor(Math.random() * p2.length)], true);
-        }
-      }
+    // Real edges from /api/file-edges. Each FileEdge already has a weight
+    // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
+    // Edges where either endpoint isn't on canvas (file beyond the 16-per-
+    // frame cap, or in noise / auxiliary content) are silently dropped.
+    for (const fe of FILE_EDGES) {
+      const a = pathToIdx.get(fe.from_path);
+      const b = pathToIdx.get(fe.to_path);
+      if (a === undefined || b === undefined) continue;
+      addEdge(a, b, nodes[a].frameId !== nodes[b].frameId, fe.weight);
     }
-
-    Object.keys(adjacency).forEach(i => {
-      if (adjacency[i].length === 0) {
-        const cands = nodes.map((_, j) => j).filter(j => j != i);
-        const pick = cands[Math.floor(Math.random() * cands.length)];
-        addEdge(+i, pick, nodes[i].frameId !== nodes[pick].frameId);
-      }
-    });
 
     for (const frameId in FRAME_GOVERNANCE) {
       const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
@@ -1051,13 +1052,24 @@ import { gridLayout } from '/viewer/layout.js';
   }
 
   function drawEdges() {
+    // Compute the max weight once so we can scale opacity. Falls back to 1
+    // when all edges have unit weight (or none).
+    let maxW = 1;
+    for (const e of edges) {
+      if (e.weight && e.weight > maxW) maxW = e.weight;
+    }
     edges.forEach((e) => {
       const a = nodePx(nodes[e.a]);
       const b = nodePx(nodes[e.b]);
-      const restAlpha = e.interFrame ? 0.09 : 0.15;
+      // Inter-frame edges read at lower base alpha so they don't drown out
+      // the local connectivity inside each frame. Then scale by sqrt(weight)
+      // so a heavy CALLS relationship reads visibly heavier than a single
+      // shared method.
+      const baseAlpha = e.interFrame ? 0.09 : 0.15;
+      const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
+      const alpha = baseAlpha * wScale * (isLight() ? 2.2 : 1);
 
       ctx.save();
-      const alpha = restAlpha * (isLight() ? 2.2 : 1);
       const eb = frameBorderRGB();
       ctx.strokeStyle = `rgba(${eb[0]}, ${eb[1]}, ${eb[2]}, ${alpha})`;
       ctx.lineWidth = 0.6;
