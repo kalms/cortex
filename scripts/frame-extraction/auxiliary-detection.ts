@@ -48,3 +48,75 @@ export function isAuxiliaryPath(
   }
   return false;
 }
+
+/** One aggregate node, representing a group of auxiliary files. Per
+ *  spec §"Two content streams": auxiliary content renders as aggregate
+ *  bare nodes outside frames, one dot per group with a count badge. */
+export interface Aggregate {
+  /** Stable identifier of the form `aux:<segment>:<label>`. */
+  id: string;
+  /** Human-readable label — the sub-directory under the auxiliary
+   *  segment, or the segment itself when there's no sub-directory
+   *  (e.g. `dist/bundle.js` → label `dist`). */
+  label: string;
+  /** The matched auxiliary segment (`vendor`, `vendored`, `dist`, …). */
+  aux_segment: string;
+  /** Total number of files in this aggregate. */
+  member_count: number;
+  /** First 5 paths from the input (insertion order). Used for drill-in
+   *  previews on hover or in a drawer surface. */
+  sample_paths: string[];
+}
+
+/** Group an arbitrary list of paths into aggregates by their auxiliary
+ *  segment and the segment immediately after it. Non-auxiliary paths
+ *  are silently skipped. Sorted by `member_count` desc, then `label`
+ *  asc. Input order within each group is preserved for `sample_paths`,
+ *  so the function is deterministic on a deterministic input. */
+export function groupAuxiliaryPaths(
+  paths: readonly string[],
+  segments: ReadonlySet<string> = DEFAULT_AUXILIARY_SEGMENTS,
+): Aggregate[] {
+  const buckets = new Map<string, Aggregate>();
+  for (const path of paths) {
+    if (!path) continue;
+    const parts = path.split("/");
+    let auxIdx = -1;
+    for (let i = 0; i < parts.length; i++) {
+      if (segments.has(parts[i]!)) {
+        auxIdx = i;
+        break;
+      }
+    }
+    if (auxIdx === -1) continue;
+    const auxSegment = parts[auxIdx]!;
+    // The label is the directory immediately under the aux segment —
+    // present only when there's at least one more segment beyond it
+    // (which means the path is `<aux>/<subdir>/.../<file>`). Otherwise
+    // the path is `<aux>/<file>` and the aux segment itself becomes the
+    // label (e.g. `dist/bundle.js` → label `dist`).
+    const label = auxIdx + 2 < parts.length ? parts[auxIdx + 1]! : auxSegment;
+    const key = `aux:${auxSegment}:${label}`;
+    let agg = buckets.get(key);
+    if (!agg) {
+      agg = {
+        id: key,
+        label,
+        aux_segment: auxSegment,
+        member_count: 0,
+        sample_paths: [],
+      };
+      buckets.set(key, agg);
+    }
+    agg.member_count += 1;
+    if (agg.sample_paths.length < 5) {
+      agg.sample_paths.push(path);
+    }
+  }
+  const out = [...buckets.values()];
+  out.sort((a, b) => {
+    if (b.member_count !== a.member_count) return b.member_count - a.member_count;
+    return a.label.localeCompare(b.label);
+  });
+  return out;
+}
