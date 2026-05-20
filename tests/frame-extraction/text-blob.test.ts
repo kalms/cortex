@@ -40,6 +40,10 @@ beforeAll(() => {
   insert.run("function", "ignored", "src/x.ts", "other_project");
   // wrong kind — must be ignored
   insert.run("section", "## intro", "README.md", "p");
+  // auxiliary paths (spec §"Two content streams" Group A) — skipped by default
+  insert.run("function", "ts_array_grow", "internal/indexer/vendored/grammars/c/array.h", "p");
+  insert.run("function", "lz4_compress", "internal/indexer/vendored/lz4/compress.c", "p");
+  insert.run("function", "bundleEntry", "dist/bundle.js", "p");
 });
 afterAll(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
 
@@ -87,5 +91,36 @@ describe("collectBlobsFromGraph", () => {
     // Paths sorted lexically.
     const paths = a.map((b) => b.path);
     expect([...paths]).toEqual([...paths].sort());
+  });
+
+  it("excludes auxiliary paths by default (vendored, dist, etc.)", () => {
+    const blobs = collectBlobsFromGraph(db, "p", ENTITY_KINDS);
+    const paths = blobs.map((b) => b.path);
+    expect(paths).not.toContain("internal/indexer/vendored/grammars/c/array.h");
+    expect(paths).not.toContain("internal/indexer/vendored/lz4/compress.c");
+    expect(paths).not.toContain("dist/bundle.js");
+    // Non-auxiliary paths still present:
+    expect(paths).toContain("src/auth/middleware.ts");
+    expect(paths).toContain("src/billing/invoice.ts");
+  });
+
+  it("includes auxiliary paths when the filter is empty (opt-out)", () => {
+    const blobs = collectBlobsFromGraph(db, "p", ENTITY_KINDS, {
+      auxiliary_segments: new Set(),
+    });
+    const paths = blobs.map((b) => b.path);
+    expect(paths).toContain("internal/indexer/vendored/grammars/c/array.h");
+    expect(paths).toContain("dist/bundle.js");
+  });
+
+  it("accepts a custom auxiliary segments set", () => {
+    const blobs = collectBlobsFromGraph(db, "p", ENTITY_KINDS, {
+      auxiliary_segments: new Set(["billing"]),
+    });
+    const paths = blobs.map((b) => b.path);
+    // 'billing' is now treated as auxiliary → invoice.ts dropped
+    expect(paths).not.toContain("src/billing/invoice.ts");
+    // 'vendored' no longer in the set → previously-dropped files come back
+    expect(paths).toContain("internal/indexer/vendored/grammars/c/array.h");
   });
 });
