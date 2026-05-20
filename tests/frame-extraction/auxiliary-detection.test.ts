@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_AUXILIARY_SEGMENTS,
   isAuxiliaryPath,
-} from "../../scripts/frame-extraction/auxiliary-detection.js";
+} from "../../src/frame-extraction/auxiliary-detection.js";
 
 describe("isAuxiliaryPath", () => {
   it("matches a top-level auxiliary segment", () => {
