@@ -13,3 +13,7 @@ qa2-*.png
 .tmp/
 .playwright-mcp/
 scripts/frame-extraction/python/.venv/
+
+# Eval harness output and cache
+/evals/reports/
+/evals/cache/
