@@ -123,10 +123,18 @@ references: z.array(z.string()).optional()
 1. Compute `to_add = new − current` and `to_remove = current − new`.
 2. Call `DecisionLinksRepository.add` for each addition and `.remove`
    for each removal.
-3. Wrap in a transaction so partial failure does not corrupt state.
 
 This matches the create-time semantics (governs is a full list) and
 gives callers an explicit clearing path (`governs: []`).
+
+**Transactional wrapping is intentionally deferred.** The existing
+`DecisionService` doesn't hold a `db` handle, and the rest of the
+codebase's link-write operations (`create()` makes multiple
+`addLink` calls without a transaction) are non-transactional in the
+same way. Introducing transactions here alone would be an
+inconsistent local fix; a proper pass would refactor the whole
+link-write surface. Filed as
+[open question](#open-questions) for a follow-up.
 
 **Why replacement, not merge:** the recovery scenario the field report
 describes is "the governs list was set wrong, fix it." A merge
@@ -217,3 +225,9 @@ assertions already cover the user-visible behavior end-to-end.
   `governs_remove` pair as a more surgical surface? My current answer
   is no (replacement is simpler; the marshalling-safety story is the
   same). Worth a brief revisit when writing the plan.
+- **Transactional safety on link writes.** The `DecisionService` link
+  operations (both `create` and the new replacement path on `update`)
+  call `add`/`remove` in sequence with no transactional wrapping. A
+  proper fix touches every link-write site and likely requires
+  threading a `db` handle through `DecisionServiceDeps`. Deferred from
+  this spec; should be done as a single consistent pass.
