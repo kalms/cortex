@@ -1,0 +1,20 @@
+{
+  "targets": [
+    {
+      "name": "nuxt-ui",
+      "repo_url": "https://github.com/nuxt/ui.git",
+      "sha": "main",
+      "default_branch": "main"
+    },
+    {
+      "name": "nuxthub-starter",
+      "repo_url": "https://github.com/nuxt-hub/starter.git",
+      "sha": "main",
+      "default_branch": "main"
+    },
+    {
+      "name": "anthill-cloud",
+      "local_path": "/Users/rka/Development/anthill-cloud"
+    }
+  ]
+}
