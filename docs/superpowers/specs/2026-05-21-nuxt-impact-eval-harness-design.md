@@ -177,7 +177,9 @@ feed assertions.
 ## Assertion catalog
 
 All assertions have `baseline_expected: "fail"` unless marked **(baseline:
-pass)** — those are regression guards. 15 assertions across 6 fixes.
+pass)** — those are regression guards. 20 assertions across 6 fixes, of
+which 4 (in Fix #4) and 1 (in Fix #8) are tool-behavior assertions that
+exercise the MCP tool layer rather than reading the graph directly.
 
 ### Fix #2 — `$fetch` / `useFetch` → `HTTP_CALLS`
 
@@ -196,10 +198,37 @@ pass)** — those are regression guards. 15 assertions across 6 fixes.
 
 ### Fix #4 — Vue SFC functions surface
 
+Graph-content assertions (read from `graph.db` directly):
+
 - `vue_function_node_count_nonzero` — `count(function nodes with file_path ENDS WITH '.vue')` > 10
 - `vue_function_has_high_degree` — at least one such function with `degree > 5`
 - `sfc_qn_well_formed` — sample 5 Vue functions; none have
   `qualified_name` containing literal `<script setup>` or null/empty
+
+Tool-behavior assertions (exercise the MCP tool layer — see
+[Tool-behavior assertion category](#tool-behavior-assertion-category)):
+
+- `vue_file_is_module_node` — `MATCH (m:module) WHERE m.file_path ENDS WITH '.vue' RETURN count(m)` > 0.
+  Encodes the "weaker MVP" from the
+  [2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md):
+  even without parsing, a `.vue` file should at minimum be a module node
+  so `governs` linking and `get_code_snippet` can target it.
+- `get_code_snippet_returns_vue_content` — calling
+  `get_code_snippet(qualified_name=<path to .vue file>)` returns
+  non-empty content. The path is picked from a target-specific fixture
+  listing one known `.vue` path per target.
+- `governs_link_to_vue_path_persists` — create a temporary decision via
+  `create_decision(governs=[<.vue path>])`, immediately read it back via
+  `get_decision`, assert `governs` array is non-empty. Decision is
+  deleted after the assertion regardless of outcome.
+- `search_graph_finds_vue_component` — `search_graph(name_pattern=<vue component basename without extension>)`
+  returns at least one result.
+
+These four catch the failure mode the follow-up field report
+documented: graph-content fixes that don't propagate to tool-layer
+behavior. Without them, a fix that registers Vue function nodes but
+leaves `get_code_snippet` unable to resolve `.vue` paths would look like
+a green Fix #4 in our harness while still being unusable in practice.
 
 ### Fix #5 — Nitro handlers extracted
 
@@ -221,6 +250,51 @@ them loudly in the surprises block.
 
 - `decision_node_count_nonzero` — `count(Decision)` > 0
 - `decision_governs_edges_exist` — `count(:Decision-[:GOVERNS]->(*))` > 0
+- `decision_rationale_no_xml_leakage` **(baseline: pass)** —
+  `MATCH (d:Decision) WHERE d.rationale CONTAINS '</rationale>' OR d.rationale CONTAINS '<problem>' OR d.rationale CONTAINS '</invoke>' RETURN count(d)` == 0.
+  Regression guard for the silent-bad-write failure mode described in
+  Issue 2 of the
+  [2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md):
+  XML-namespace marshalling errors on the caller side previously
+  concatenated structured fields into `rationale` and persisted with no
+  warning. The robustness fix to `create_decision` (see
+  [companion spec](2026-05-21-mcp-tool-robustness-design.md)) lands
+  alongside this guard.
+
+## Tool-behavior assertion category
+
+Most assertions are pure graph reads — they open `graph.db` via
+`GraphStore` and run a query. Five assertions (`vue_file_is_module_node`,
+`get_code_snippet_returns_vue_content`,
+`governs_link_to_vue_path_persists`, `search_graph_finds_vue_component`,
+plus the existing fixture probe) require calling MCP tool functions
+end-to-end: they exist because the
+[2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md)
+demonstrated that a graph-content fix can leave the tool layer broken.
+
+The `Assertion` query shape gains a fourth kind:
+
+```ts
+| { kind: "tool_call"; tool: string; args: Record<string, unknown>; expect: ToolResultPredicate }
+```
+
+`tool_call` assertions invoke the actual MCP tool handler in-process
+(not over JSON-RPC — same module the server registers). The handler
+runs against the same target's `graph.db`. `ToolResultPredicate` shapes
+mirror the existing predicate ops but operate on the tool's response
+content rather than a count.
+
+Target-specific fixtures live alongside `evals/baselines/<target>.json`
+in `evals/fixtures/<target>.json`. Each fixture provides the inputs the
+tool-behavior assertions need (one known `.vue` path, one known
+component basename). These are checked in and reviewed when targets
+change.
+
+The decision to call tools in-process rather than spawn a server: keeps
+the harness single-process, avoids transport flakiness, but loses
+coverage of the JSON-RPC layer itself. The
+[companion robustness spec](2026-05-21-mcp-tool-robustness-design.md)
+addresses transport-layer concerns separately.
 
 ## Baselines
 
@@ -305,6 +379,29 @@ against a working tree.
 
 Each module's public interface is one function. Internals are private to
 the file. This is enforced by review, not by tooling.
+
+## Sibling work — not in this harness
+
+The
+[2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md)
+identified two MCP tool robustness issues this harness does not cover.
+Both are deemed critical ("without it, Cortex is borderline useless"):
+
+1. **`create_decision` silently persists malformed rationale.**
+   Caller-side XML marshalling errors concatenate structured fields
+   into `rationale`. No input validation, no warning. Recovery requires
+   delete + recreate because `governs` is not settable on update.
+2. **`search_code` errors on common patterns in large monorepos.** The
+   tool prefers `rg` but falls back to bare `grep -rn` with no path
+   exclusions, which times out or overflows buffer on common short
+   patterns in any monorepo with `node_modules`.
+
+Both are covered by the
+[MCP Tool Robustness companion spec](2026-05-21-mcp-tool-robustness-design.md).
+The harness encodes one regression guard related to Issue 1
+(`decision_rationale_no_xml_leakage`), but the actual fixes — input
+validation, `governs` on update, ripgrep-with-excludes — live in that
+sibling spec, not here. The two specs land as parallel work streams.
 
 ## Open questions
 
