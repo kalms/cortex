@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectProjectState, deriveProjectName } from "../../src/cli/context.js";
+import { detectProjectState, deriveProjectName, loadContext } from "../../src/cli/context.js";
 
 describe("context — project state detection", () => {
   let tmp: string;
@@ -26,9 +26,12 @@ describe("context — project state detection", () => {
       .toBe("Users-rka-Development-anthill-cloud");
   });
 
-  it("derives project name from relative path by resolving first", () => {
-    // Just verify the format — exact value depends on cwd
-    const derived = deriveProjectName("/some/path");
-    expect(derived).toBe("some-path");
+  it("detects 'indexed' when .cortex/graph.db exists alongside .git", () => {
+    mkdirSync(join(tmp, ".git"));
+    mkdirSync(join(tmp, ".cortex"));
+    writeFileSync(join(tmp, ".cortex/graph.db"), ""); // empty file is enough — existsSync only
+    const ctx = loadContext(tmp);
+    expect(ctx.state).toBe("indexed");
+    expect(ctx.graphDbPath).toBe(join(tmp, ".cortex/graph.db"));
   });
 });
