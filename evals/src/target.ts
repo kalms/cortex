@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { Target } from "./assertions/types.js";
 
 export type AcquiredTarget = {
   name: string;
   workdir: string;             // absolute path to the source tree
-  graphDbPath: string;         // absolute path to .cortex/graph.db
+  graphDbPath: string;         // absolute path to the graph.db this harness writes (under evals/cache/<name>/)
   source_sha?: string;
   indexer_seconds: number | null;
 };
@@ -15,6 +15,8 @@ const CACHE_ROOT = resolve(process.cwd(), "evals/cache");
 const INDEXER_BIN = resolve(process.cwd(), "bin/cortex-indexer");
 
 export function acquireTarget(target: Target, pathOverride?: string): AcquiredTarget {
+  const graphDbPath = join(CACHE_ROOT, target.name, "graph.db");
+
   if (target.local_path || pathOverride) {
     const workdir = resolve(pathOverride ?? target.local_path!);
     if (!existsSync(workdir)) {
@@ -23,8 +25,8 @@ export function acquireTarget(target: Target, pathOverride?: string): AcquiredTa
     return {
       name: target.name,
       workdir,
-      graphDbPath: join(workdir, ".cortex/graph.db"),
-      indexer_seconds: maybeReindex(workdir, target.name),
+      graphDbPath,
+      indexer_seconds: maybeReindex(workdir, graphDbPath),
     };
   }
 
@@ -32,8 +34,9 @@ export function acquireTarget(target: Target, pathOverride?: string): AcquiredTa
     throw new Error(`Target ${target.name}: requires either local_path or repo_url+sha`);
   }
 
-  const workdir = join(CACHE_ROOT, target.name);
+  const workdir = join(CACHE_ROOT, target.name, "src");
   if (!existsSync(workdir)) {
+    mkdirSync(dirname(workdir), { recursive: true });
     execFileSync("git", ["clone", "--depth", "50", target.repo_url, workdir], { stdio: "inherit" });
   }
   execFileSync("git", ["-C", workdir, "fetch", "--depth", "50", "origin", target.sha], { stdio: "inherit" });
@@ -43,27 +46,33 @@ export function acquireTarget(target: Target, pathOverride?: string): AcquiredTa
   return {
     name: target.name,
     workdir,
-    graphDbPath: join(workdir, ".cortex/graph.db"),
+    graphDbPath,
     source_sha: head,
-    indexer_seconds: maybeReindex(workdir, target.name),
+    indexer_seconds: maybeReindex(workdir, graphDbPath),
   };
 }
 
-function maybeReindex(workdir: string, projectName: string): number | null {
-  // Skip indexing if .cortex/graph.db exists and is newer than the workdir's
-  // newest tracked file. Cheap heuristic — pessimistic skip; user can blow
-  // away evals/cache/<name>/.cortex/ to force a rebuild.
-  const graphDb = join(workdir, ".cortex/graph.db");
-  if (existsSync(graphDb)) {
-    const graphMtime = statSync(graphDb).mtimeMs;
-    const headMtime = existsSync(join(workdir, ".git/HEAD"))
-      ? statSync(join(workdir, ".git/HEAD")).mtimeMs
-      : 0;
-    if (graphMtime >= headMtime) return null;
+function maybeReindex(workdir: string, graphDbPath: string): number | null {
+  // Skip indexing if the graph.db exists and is newer than the workdir's git HEAD.
+  // For local_path targets without .git, treat as always-stale (always reindex).
+  if (existsSync(graphDbPath)) {
+    const graphMtime = statSync(graphDbPath).mtimeMs;
+    const headFile = join(workdir, ".git/HEAD");
+    if (existsSync(headFile)) {
+      const headMtime = statSync(headFile).mtimeMs;
+      if (graphMtime >= headMtime) return null;
+    }
   }
+
+  mkdirSync(dirname(graphDbPath), { recursive: true });
   const start = Date.now();
-  execFileSync(INDEXER_BIN, ["index_repository", "--path", workdir, "--project", projectName], {
-    stdio: "inherit",
-  });
+  execFileSync(
+    INDEXER_BIN,
+    ["cli", "index_repository", JSON.stringify({ repo_path: workdir })],
+    {
+      stdio: "inherit",
+      env: { ...process.env, CORTEX_DB: graphDbPath },
+    },
+  );
   return (Date.now() - start) / 1000;
 }
