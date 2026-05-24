@@ -63,5 +63,5 @@ export type Baseline = {
   source_sha?: string;                  // for cloned targets; null for local_path
   nodes_by_label: Record<string, number>;
   edges_by_type: Record<string, number>;
-  per_assertion: Record<string, number | string[]>; // assertion name -> observed value
+  per_assertion: Record<string, number | string[] | string>; // assertion name -> observed value
 };
