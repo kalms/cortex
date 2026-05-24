@@ -1,6 +1,6 @@
 # Cortex
 
-Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 3D WebGL graph viewer. The indexer is bundled in-tree under `internal/indexer/` and writes directly to Cortex's SQLite database — there is no separate codebase-memory subprocess or external dependency. (Indexer lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04.)
+Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 2D canvas graph viewer that renders code as semantic *frames* (clusters). The indexer is bundled in-tree under `internal/indexer/` and writes directly to Cortex's SQLite database — there is no separate codebase-memory subprocess or external dependency. (Indexer lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04.)
 
 Cortex answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
 
@@ -12,7 +12,7 @@ Cortex answers the question agents can't today: **"why was this built this way?"
 claude plugin add github:kalms/cortex
 ```
 
-This gives you all 18 MCP tools, 3 skills, and 2 hooks automatically.
+This registers the MCP server, skills, and hooks automatically.
 
 ### Manual Setup
 
@@ -56,7 +56,7 @@ If you'd rather invoke a built bundle, run `npm run build` then point at it:
 npm run dev
 ```
 
-Starts the MCP server (stdio) and the 2D graph viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer) (the legacy 3D viewer is at `/viewer/3d`). Port 3333 is reserved for the MCP plugin instance.
+Starts the MCP server (stdio) and the 2D frames viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer). Port 3333 is reserved for the MCP plugin instance.
 
 ### Troubleshooting
 
@@ -79,92 +79,174 @@ cd ~/.claude/plugins/cache/cortex-local/cortex/<ver>
 npm rebuild better-sqlite3
 ```
 
-## Graph UI
-
-Cortex emits structured events for every decision change and git commit, persists them to an append-only SQLite log at `.cortex/events.db`, and broadcasts them + derived graph mutations over a WebSocket at `ws://localhost:3333/ws`. The 2D browser viewer and activity stream (Plans B and C) will consume this stream. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) for the two-thread event pipeline, the WebSocket protocol, and extension recipes.
-
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│              MCP Server (stdio)               │
-│                                               │
-│  Decision Tools (8)      Code Tools (10)      │
-│  create, update,         search_graph,        │
-│  delete, get,            trace_path,          │
-│  search, why_built,      get_snippet,         │
-│  link, promote           get_schema,          │
-│                          search_code,         │
-│                          list/status/index,   │
-│                          detect_changes,      │
-│                          delete_project       │
-├──────────────────────────────────────────────┤
-│  DecisionService  │  Code Queries (SQL)       │
-│  DecisionSearch   │  SELECT FROM nodes/edges  │
-│  DecisionPromotion│  WHERE kind != decision   │
-├──────────────────────────────────────────────┤
-│  Cortex GraphStore (SQLite/WAL)               │
-│  Single file: <install>/.cortex/graph.db      │
-│   ├─ nodes   (decisions + code, kind disc.)   │
-│   ├─ edges   (governance + code-graph)        │
-│   ├─ edge_annotations                         │
-│   ├─ decisions_fts                            │
-│   └─ ctx_*  (indexer bookkeeping —            │
-│              projects, file_hashes,           │
-│              project_summaries, nodes_fts,    │
-│              node_vectors, token_vectors)     │
-└──────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│  HTTP Server     │
-│  :3333/api/graph │  ← unified nodes/edges (MCP plugin)
-│  :3333/viewer    │  ← 2D canvas graph (dev: :3334; 3D at /viewer/3d)
-└─────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                MCP Server (stdio, main thread)            │
+│                                                           │
+│  Code (13)    Decisions (10)   PRs (4)   Promotion (1)    │
+│  ──────────   ─────────────   ───────    ──────────       │
+│  index_*       create, get,    open_pr   promote          │
+│  search_*      update, delete, add_pr_   _decision        │
+│  trace_path    search,         touch,                     │
+│  query_graph,  why_was_this_   merge_pr,                  │
+│  get_*         built, link,    get_pr                     │
+│                propose,                                   │
+│                supersede                                  │
+├──────────────────────────────────────────────────────────┤
+│ GraphStore  │ DecisionService │ PRService │ EventBus      │
+├──────────────────────────────────────────────────────────┤
+│  .cortex/db          .cortex/decisions.db   .cortex/      │
+│  (graph: nodes,      (sidecar — durable,    events.db     │
+│   edges, ctx_*       outlives reindex)      (append log,  │
+│   bookkeeping)                              worker-owned) │
+└──────────────────────────────────────────────────────────┘
+       │                                            │
+       │                       ┌────────────────────┘
+       ▼                       ▼
+┌─────────────────────────────────────────┐
+│ HTTP :3333 (plugin) / :3334 (dev)        │
+│   /viewer        2D frames viewer         │
+│   /api/graph     unified nodes+edges      │
+│   /api/projects  list indexed projects    │
+│   /api/decisions adapted decision payload │
+│   /api/aggregates auxiliary-path groups   │
+│   /ws            event stream + mutations │
+└─────────────────────────────────────────┘
 ```
 
-The indexer subprocess writes directly into Cortex's `nodes`/`edges` tables (post-Phase-4 schema fold) using `'ctx-<int>'` text IDs and lowercase `kind` values. SQLite ATTACH is no longer used; both the indexer and Cortex's TS layer operate on the same single `cortex.db` file with WAL concurrency.
+**Three SQLite files, three lifecycles.** `.cortex/db` is the indexer-owned graph (derived, can be wiped and rebuilt). `.cortex/decisions.db` is the user-authored sidecar (durable, survives every reindex). `.cortex/events.db` is the append-only event log (worker-owned, drives the WebSocket stream). The three are coupled at query time by stable string keys (qualified names, file paths, PR numbers) — never by graph node IDs, which the indexer regenerates per run.
 
-**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, @modelcontextprotocol/sdk, zod, d3-force + Canvas 2D (viewer), 3d-force-graph + Three.js (legacy 3D viewer)
+**Two threads.** MCP tool handlers run on the main thread and write to `.cortex/db` / `.cortex/decisions.db`. A worker thread owns `.cortex/events.db` and the WebSocket fan-out: each `DecisionService` / `PRService` write emits an `Event` on the bus, the worker persists it, derives `GraphMutation`s, and broadcasts both over `/ws`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) for the full event pipeline.
 
-## MCP Tools (18)
+**Tech stack:** TypeScript, Node.js 20+, better-sqlite3, `@modelcontextprotocol/sdk`, zod, `ulid`, `ws`, chokidar (git watcher), Canvas 2D (viewer). Frame extraction adds a Python 3.9+ venv with scikit-learn + hdbscan.
 
-### Decision Tools (8)
+## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `create_decision` | Create a decision with rationale, alternatives, and governed code links |
-| `update_decision` | Update decision fields (title, description, rationale, status) |
-| `delete_decision` | Delete a decision and cascade-delete its edges |
-| `get_decision` | Get a decision with resolved GOVERNS and REFERENCES links |
-| `search_decisions` | FTS5 search over decision content, optionally scoped to a code path |
-| `why_was_this_built` | Find decisions governing a code entity — walks up file/directory hierarchy |
-| `link_decision` | Attach GOVERNS or REFERENCES edges to an existing decision |
-| `promote_decision` | Promote a decision to team or public visibility tier |
+### Code tools (13)
 
-### Code Tools — SQL (7)
-
-These query the unified `nodes`/`edges` tables directly (no subprocess, millisecond response). Code-entity rows are distinguished from decision/PR/TODO rows by `kind`:
+These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 
 | Tool | Description |
 |------|-------------|
 | `search_graph` | Find code entities by name, label, or qualified name pattern |
-| `trace_path` | Trace call chains via recursive CTE (mode: calls or callers) |
+| `trace_path` | Trace call chains via recursive CTE (mode: `calls` or `callers`) |
 | `get_code_snippet` | Read source code for a fully qualified name |
 | `get_graph_schema` | List node labels and edge types with counts |
 | `search_code` | Grep with graph enrichment — annotates matches with enclosing function/class |
+| `query_graph` | Run a Cypher-flavoured query against the unified graph |
+| `get_architecture` | One-shot architectural histogram (label/edge counts) |
 | `list_projects` | List all indexed projects |
-| `index_status` | Check if a repository is indexed |
+| `index_status` | Check if the current repository is indexed |
+| `ingest_traces` | Bulk-ingest runtime traces (experimental) |
 
-### Code Tools — Subprocess (3)
-
-These spawn the `bin/cortex-indexer` binary (write operations):
+These spawn `bin/cortex-indexer` (write operations):
 
 | Tool | Description |
 |------|-------------|
 | `index_repository` | Run the 7-pass indexing pipeline |
 | `detect_changes` | Map git diff to affected symbols |
 | `delete_project` | Remove a project from the index |
+
+### Decision tools (10)
+
+| Tool | Description |
+|------|-------------|
+| `create_decision` | Create a decision with rationale, alternatives, and governed code links |
+| `propose_decision` | Create a `proposed`-status decision pending review |
+| `supersede_decision` | Mark one decision as superseded by another |
+| `update_decision` | Update decision fields (title, description, rationale, status) |
+| `delete_decision` | Delete a decision and cascade-delete its links |
+| `get_decision` | Get a decision with resolved GOVERNS and REFERENCES links |
+| `search_decisions` | FTS5 search over decision content, optionally scoped to a code path |
+| `why_was_this_built` | Find decisions governing a code entity — walks up file/directory hierarchy |
+| `link_decision` | Attach GOVERNS, REFERENCES, or SUPERSEDES links to an existing decision |
+| `promote_decision` | Promote a decision to team or public visibility tier |
+
+### PR tools (4)
+
+| Tool | Description |
+|------|-------------|
+| `open_pr` | Create a PR entity in the graph (state: draft/open/merged/closed) |
+| `add_pr_touch` | Record that a PR adds or modifies a file inside a frame |
+| `merge_pr` | Transition a PR to `merged` state |
+| `get_pr` | Get a PR with its decision links and touches |
+
+## Frames viewer
+
+The viewer at `/viewer` renders the codebase as semantic *frames* — clusters of files that belong together by topic and co-change behaviour. It's derived from the visual prototype at [docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html), wired to live data, and reduced to a static-fetch model (no WebSocket consumption in this iteration).
+
+- **Frames** come from cluster output (`data.frame_id` / `data.frame_label` on file nodes, written by `scripts/frame-extraction/inject-frames.ts`).
+- **Decisions** come from `.cortex/decisions.db` via `/api/decisions`, surfaced as governance pills attached to the focused frame.
+- **Edges** are real CALLS edges from the indexer, filtered to intra- and inter-frame pairs.
+- **Aggregates** (auxiliary content like `locales/`, `vendored/`, `__snapshots__/`) are rendered as bare dots in a bottom strip — present but visually de-emphasised.
+- **Project switcher** in the toolbar reads `/api/projects` and re-fetches `/api/graph?project=<name>` on change.
+
+Pure modules (`adapters.js`, `layout.js`, `data-fetch.js`) are unit-tested in vitest. The render loop in `viewer.js` is hand-verified against the running dev server.
+
+The simulation features in the prototype (multi-agent demo, synapse animations, PR floating nodes, presence avatars, merge animation, cursor traversal) are explicit non-goals in this iteration. See [docs/architecture/graph-ui.md#frames-viewer](docs/architecture/graph-ui.md#frames-viewer) for the module layout and extension recipes.
+
+## Native indexer
+
+Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/indexer/`. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download and no separate codebase-memory process.
+
+The indexer and Cortex's TypeScript layer share a single SQLite file (`.cortex/db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); PRs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
+
+- **Single-file architecture:** no SQLite ATTACH, no separate cache file. The indexer and TS layer operate on the same DB with WAL concurrency.
+- **Bulk-write fast path:** `internal/indexer/extract/sqlite_writer.c` constructs the SQLite file via raw B-tree page writes for full-index runs. Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
+- **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` pointing at the same SQLite file.
+
+There is **no decision data in `.cortex/db`** — decisions live in the sidecar `.cortex/decisions.db` and are never overwritten by reindexing. See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md) for the rationale.
+
+### Known limitations
+
+The C indexer has two open issues that affect multi-project workflows: the dump pass replaces the entire `nodes`/`edges` tables (not project-scoped), and IDs collide across DBs because they restart at `ctx-1` for each indexed repo. See [docs/architecture/known-limitations.md](docs/architecture/known-limitations.md) for the canonical multi-project workflow using `scripts/frame-extraction/merge-indexed-db.ts`.
+
+## Frame extraction pipeline
+
+A multi-phase pipeline that derives *frames* (semantic file clusters) from an indexed repo and writes them back into `nodes.data` for the viewer. Lives under `scripts/frame-extraction/` (TS orchestrators) and `scripts/frame-extraction/python/` (Python ML).
+
+Pipeline stages:
+
+```
+indexed repo (.cortex/db)
+   │
+   ├──► co-change.ts       — 180-day git log → file-pair counts (JSONL)
+   │
+   ├──► text-blob.ts       — per-file path tokens + symbol names → blob JSONL
+   │
+   ├──► tfidf_hdbscan.py   — TF-IDF + HDBSCAN with combined topical + co-change
+   │                         distance (γ-weighted). Emits cluster JSON +
+   │                         silhouette + top tokens per cluster.
+   │
+   ├──► eval.ts            — co-change agreement, import agreement, cluster
+   │                         count, noise rate → markdown report
+   │
+   └──► inject-frames.ts   — writes frame_id / frame_label / frame_confidence
+                             into nodes.data for the viewer
+```
+
+NPM scripts:
+
+| Script | What it runs |
+|--------|--------------|
+| `npm run survey:phase1` | Phase 1 corpus survey: clone N repos, index, collect index-size stats |
+| `npm run survey:report` | Generate `phase-1-results.md` from the survey JSONL |
+| `npm run co-change` | Build co-change JSONL from the local repo's git log |
+| `npm run cluster:tfidf` | TF-IDF + HDBSCAN clustering (optionally `--gamma <0..1>` to mix in co-change) |
+| `npm run eval:phase2` | Evaluate a cluster output against co-change + CALLS edges |
+| `npm run setup-python` | Bootstrap the Python venv (`scripts/frame-extraction/python/.venv/`) |
+
+Cluster outputs land in `.tmp/frame-extraction/clusters/<repo-slug>.json`; eval reports in `docs/specs/cortex-v0.3/phase-2-eval/<repo-slug>.md`. See [docs/architecture/frame-extraction.md](docs/architecture/frame-extraction.md) for the full data flow and design rationale.
+
+## Eval harness
+
+A separate eval harness lives under `evals/` and is invoked via `npm run eval`. Unlike the frame-extraction eval (which scores cluster quality), this harness scores Cortex's tool surface against real-world target repos defined in [`evals/targets.json`](evals/targets.json) (currently Nuxt UI, NuxtHub starter, anthill-cloud).
+
+The harness produces a **scorecard** per target: `nodes_by_label` + `edges_by_type` + a fixed list of "killer queries" exercising the queries that the [field assessment](docs/architecture/field-assessment-nuxt-monorepo.md) showed Cortex falling short on (high-degree functions in Vue/Nuxt repos, `HTTP_CALLS` edges, composables called, Nitro handlers, etc.). Each query has a baseline_expected `pass`/`fail` and the harness reports anything surprising relative to the baseline.
+
+The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a stub. See [docs/architecture/eval-harness.md](docs/architecture/eval-harness.md) for the design.
 
 ## Skills
 
@@ -180,127 +262,168 @@ These spawn the `bin/cortex-indexer` binary (write operations):
 |------|---------|-------------|
 | Grep → search_code nudge | PreToolUse on Grep (code files only) | Suggests using `search_code` for graph-enriched results |
 | Suggest capture | PostToolUse on git commit | Reminds agents to capture architectural decisions |
+| Check index | SessionStart | Prints `Repo`, `Index state` so the agent knows whether to reindex |
 
-## Graph Viewer
+## Testing
 
-The 3D viewer at `/viewer` renders the unified knowledge graph in WebGL using [3d-force-graph](https://github.com/vasturiano/3d-force-graph).
+```bash
+npm test                                          # full vitest suite
+npm run test:watch                                # watch mode
+npx vitest run tests/graph/code-queries.test.ts   # single file
+```
 
-- **Node shapes by kind:** octahedrons (decisions), cubes (references), spheres (functions/components/paths)
-- **Neon color palette:** amber decisions, teal functions, mint components, grey paths, violet references
-- **Edge colors by relation:** grey (CALLS/IMPORTS), amber (GOVERNS), pink (SUPERSEDES), violet (REFERENCES)
-- **Interactions:** orbit rotate, Cmd+drag pan, scroll zoom, click-to-focus camera, node drag
-- **Detail panel:** click a node to see metadata; connections are clickable to fly to linked nodes
-- **Search & filters:** real-time text search, kind filter checkboxes
-- **Mobile:** responsive bottom half-sheet panel, collapsed toolbar toggles at < 768px
+Major suites:
 
-## Native Indexer
+| Suite | Covers |
+|-------|--------|
+| `tests/graph/` | Schema, node/edge CRUD, annotations, FTS, code queries |
+| `tests/decisions/` | Decision CRUD + GOVERNS/REFERENCES, search, promotion, sidecar migration |
+| `tests/prs/` | PR open/touch/merge with decision link side-effects |
+| `tests/events/` | EventBus, persister, mutation deriver, git log parser, ULID monotonicity |
+| `tests/ws/` | Client registry, protocol encode/decode |
+| `tests/db/` | Path resolution, cache helpers |
+| `tests/api/` | HTTP routes (`/api/graph`, `/api/projects`, `/api/decisions`, `/api/aggregates`) |
+| `tests/viewer/` | Layout, projection, adapter pure functions |
+| `tests/integration/` | Worker thread, git watcher, full WS server roundtrip |
+| `tests/mcp-contract/` | MCP tool-input/-output contracts for every registered tool |
+| `tests/frame-extraction/` | Path tokenisation, co-change, TF-IDF orchestrator, inject, eval metrics |
+| `tests/evals/` | Scorecard + assertion runner |
 
-Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/indexer/` (lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04). `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download, no separate install, and no longer any separate codebase-memory-mcp process.
+## Environment variables
 
-The indexer and Cortex share a single SQLite file (`<install>/.cortex/graph.db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); decisions/PRs/TODOs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_DB_PATH` | `<git-root>/.cortex/db` | Graph DB path (TS connection string and indexer target) |
+| `CORTEX_DECISIONS_DB` | `<git-root>/.cortex/decisions.db` | Sidecar decisions DB path |
+| `CORTEX_EVENTS_DB_PATH` | `.cortex/events.db` | Event log path (worker-owned) |
+| `CORTEX_VIEWER_PORT` | `3333` (plugin), `3334` (dev) | HTTP viewer port |
+| `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary |
+| `CORTEX_DB` | _(set by Cortex)_ | Same as `CORTEX_DB_PATH`, passed to the indexer subprocess |
+| `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
 
-- **Single-file architecture:** no SQLite ATTACH, no separate cache file. The indexer and Cortex's TS layer operate on the same `cortex.db` with WAL concurrency.
-- **Bulk-write fast path:** `internal/indexer/extract/sqlite_writer.c` constructs the SQLite file via raw B-tree page writes for full-index runs. Schema-aware after Phase 4 (writes Cortex's `nodes`/`edges` directly). Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
-- **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` env pointing at the same SQLite file.
-
-The historical `~/.cache/codebase-memory-mcp/` cache directory (from pre-absorption versions) is gone (Phase 3a/3b/4). Migration paths for v0.2/v0.3 legacy DBs were dropped under a "break-away" decision — there is no automatic upgrade. Delete your existing `cortex.db` and re-run `index_repository` to pick up the new schema.
-
-## Seeding Test Data
+## Seeding test data
 
 ```bash
 npx tsx scripts/seed.ts
 ```
 
-Seeds 6 code entities, 5 decisions (with supersession + promotions), and 1 reference.
+Seeds a small set of code entities + decisions for development.
 
-## Testing
-
-```bash
-npm test                                          # 360 tests, 48 files
-npm run test:watch                                # Watch mode
-npx vitest run tests/graph/code-queries.test.ts   # Single file
-```
-
-Major suites:
-
-| Suite | Tests | Covers |
-|-------|-------|--------|
-| `tests/graph/store.test.ts` | 15 | Schema, node/edge CRUD, annotations, FTS |
-| `tests/graph/code-queries.test.ts` | 6 | End-to-end: indexer → unified `nodes`/`edges` → query |
-| `tests/decisions/service.test.ts` | 14 | Decision CRUD with GOVERNS/REFERENCES edges |
-| `tests/mcp-contract/code-tools.test.ts` | 19 | All 10 code-tool MCP contract scenarios |
-| `tests/mcp-contract/decision-tools.test.ts` | 11 | All 8 decision-tool MCP contracts |
-| `tests/viewer/*.test.ts` | ~120 | Viewer layout, projection, sizing, camera, etc. |
-| `tests/events/*.test.ts` | ~40 | Event pipeline + mutation derivation |
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CORTEX_DB_PATH` | `.cortex/graph.db` | Cortex SQLite database (TS-side connection string) |
-| `CORTEX_DB` | _(set by Cortex)_ | Same path, passed to the indexer subprocess so it writes to the same file |
-| `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
-| `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary (for index/detect_changes/delete) |
-| `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
-
-## License & Attribution
+## License & attribution
 
 Cortex is split into two licensing zones:
 
-- **`internal/indexer/`** — derivative of
-  [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
-  Governed by the **MIT License** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)).
-- **Everything else** — Cortex's TypeScript code, viewer, MCP server, decision
-  tooling, build scripts, plugin manifest, and documentation. **Proprietary,
-  all rights reserved** (see the root [`LICENSE`](./LICENSE)).
+- **`internal/indexer/`** — derivative of [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp). Governed by the **MIT License** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)).
+- **Everything else** — Cortex's TypeScript code, viewer, MCP server, decision tooling, build scripts, plugin manifest, and documentation. **Proprietary, all rights reserved** (see the root [`LICENSE`](./LICENSE)).
 
-The indexer additionally vendors several C libraries (mimalloc, SQLite, TRE,
-xxHash, yyjson, tree-sitter runtime + grammars, LZ4, simplecpp, nomic
-embedding vocabulary), each retaining its own upstream license. Full
-attribution, upstream licenses, and per-component sources are documented in
-[`THIRD_PARTY.md`](./THIRD_PARTY.md).
+The indexer additionally vendors several C libraries (mimalloc, SQLite, TRE, xxHash, yyjson, tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary), each retaining its own upstream license. Full attribution, upstream licenses, and per-component sources are documented in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
 
-## Project Structure
+## Project structure
 
 ```
 plugin.json                         # Claude Code plugin manifest
 .mcp.json                           # MCP server configuration
-CLAUDE.md                           # Agent instructions
-skills/
-  search-decisions/SKILL.md         # Find existing decisions
-  capture-decision/SKILL.md         # Record new decisions
-  explain-architecture/SKILL.md     # Narrative architecture explanations
-hooks/
-  hooks.json                        # Hook configuration (Grep nudge + commit capture)
-  suggest-capture.sh                # Post-commit decision capture reminder
+CLAUDE.md                           # Agent instructions (cortex-routing rules)
+.claude/rules/workflow.md           # Branching + review + QA gates
+
+bin/                                # cortex-indexer binary + MCP-launch wrapper
+internal/indexer/                   # Native C indexer (MIT-licensed subtree)
+
 src/
-  index.ts                          # Entry point — MCP + HTTP servers, project resolution
+  index.ts                          # Entry: MCP server, viewer HTTP, event worker boot
   graph/
-    schema.ts                       # SQL DDL (tables, indexes, FTS5) — single-file schema
-    store.ts                        # GraphStore — CRUD, unified getAllNodes/Edges
+    schema.ts                       # SQL DDL for nodes / edges / ctx_* / FTS5
+    store.ts                        # GraphStore — CRUD + unified getAllNodes/Edges
     query.ts                        # Traversal helpers (getConnected, findPath)
     code-queries.ts                 # SQL queries against the unified nodes/edges
   decisions/
-    types.ts                        # Decision interfaces
-    service.ts                      # Decision CRUD + link operations
-    search.ts                       # FTS search + whyWasThisBuilt
+    db.ts                           # Sidecar schema + idempotent open
+    repository.ts                   # DecisionsRepository (CRUD + FTS)
+    links-repository.ts             # DecisionLinksRepository (governance, supersession, PR links)
+    service.ts                      # DecisionService (uses both repositories + EventBus)
+    search.ts                       # FTS search + whyWasThisBuilt walking
     promotion.ts                    # Tier promotion
+    migration.ts                    # One-shot legacy graph-DB → sidecar migration
+  prs/
+    types.ts                        # PullRequest, PRTouch, etc.
+    service.ts                      # open / add_pr_touch / merge / get with decision links
+  events/
+    bus.ts                          # In-process EventBus (sync dispatch)
+    types.ts                        # Event + GraphMutation union
+    ulid.ts                         # Monotonic ULID factory
+    worker.ts                       # Worker entry — persist + derive + broadcast loop
+    worker-supervisor.ts            # Worker lifecycle + restart with backoff
+    worker-bootstrap.mjs            # Worker thread bootstrap (tsx loader)
+    worker/
+      persister.ts                  # events.db SQLite writer + backfill reader
+      mutation-deriver.ts           # event → GraphMutation[] (pure)
+      git-watcher.ts                # chokidar on .git/logs/HEAD → commit events
+      git-log-parser.ts             # Parses `git log --name-status` output
+  ws/
+    server.ts                       # /ws upgrade, hello, ping, backfill
+    client-registry.ts              # Connected-client set + broadcast fan-out
+    protocol.ts                     # ServerMsg / ClientMsg encode/decode
+    types.ts                        # Wire types
+  db/
+    resolve-path.ts                 # CORTEX_DB_PATH / decisions DB path resolution
+    cache.ts                        # Read-side helpers
+  frame-extraction/
+    auxiliary-detection.ts          # Path-pattern auxiliary-content detection
   mcp-server/
-    server.ts                       # MCP server factory
-    api.ts                          # HTTP server for viewer + /api/graph
+    server.ts                       # MCP server factory + tool wiring
+    api.ts                          # HTTP server: /viewer, /api/graph, /api/projects,
+    api-decisions.ts                #   /api/decisions, /api/aggregates
+    api-edges.ts
+    response.ts                     # MCP tool response helpers
     tools/
-      decision-tools.ts             # 8 decision MCP tools
-      promotion-tools.ts            # promote_decision tool
-      code-tools.ts                 # 10 code tools (6 SQL, 1 file read, 3 subprocess)
-  connectors/
-    types.ts                        # External connector interface (stub)
+      code-tools.ts                 # 13 code MCP tools
+      decision-tools.ts             # 9 decision MCP tools
+      promotion-tools.ts            # promote_decision
+      pr-tools.ts                   # 4 PR tools
   viewer/
-    index.html                      # 3D viewer (Three.js + 3d-force-graph)
-    style.css                       # Neon theme, responsive mobile
-    graph-viewer.js                 # WebGL graph — shapes, labels, camera, interactions
+    index.html                      # Frames viewer scaffold
+    style.css                       # Toolbar + canvas theme (dark + light)
+    viewer.js                       # Canvas render loop + interactions (side-effectful)
+    data-fetch.js                   # /api/* fetchers (pure)
+    adapters.js                     # groupNodesIntoFrames, basenames, governance (pure)
+    layout.js                       # gridLayout(frames, w, h) (pure)
+
 scripts/
-  seed.ts                           # Seeds sample data for development
-tests/
-  graph/                            # Store, FTS, query, code-query tests
-  decisions/                        # Service, search, promotion tests
+  build-indexer.sh                  # Postinstall: builds bin/cortex-indexer
+  seed.ts                           # Seeds development data
+  corpus/
+    run-survey.ts                   # Phase 1 corpus survey driver (high-level wrapper)
+  frame-extraction/
+    corpus.json / phase2-corpus.json  # Repo lists for Phase 1 / Phase 2
+    clone.ts / indexer.ts             # Cloning + indexer-CLI envelope wrappers
+    survey.ts / report.ts             # Phase 1 survey runner + markdown reporter
+    fs-stats.ts / graph-stats.ts      # Per-repo filesystem and graph stats
+    co-change.ts                      # 180-day git log → file-pair JSONL
+    path-tokenize.ts                  # Framework-aware path/symbol tokeniser
+    text-blob.ts                      # Per-file blob: path tokens + symbol names
+    cluster-tfidf-hdbscan.ts          # TS orchestrator — spawns Python
+    inject-frames.ts                  # Write frame_id back into nodes.data
+    merge-indexed-db.ts               # Multi-project merge (re-keys ctx-N IDs)
+    eval-edges.ts / eval-metrics.ts   # Cross-signal eval over CALLS + co-change
+    eval-report.ts / eval.ts          # Markdown reporter + CLI orchestrator
+    python/
+      requirements.txt                # scikit-learn + hdbscan + numpy (pinned)
+      setup-venv.sh                   # Idempotent venv bootstrap
+      tfidf_hdbscan.py                # TF-IDF + HDBSCAN, combined distance, top tokens
+
+evals/                                # Tool-surface eval harness (npm run eval)
+  targets.json                        # Real-world target repos
+  src/cli.ts                          # CLI entry (stub)
+  src/scorecard.ts                    # Bulk counts + killer queries
+  src/queries.ts                      # Killer-query SQL definitions
+  src/assertions/                     # Assertion type + runner
+  baselines/ fixtures/                # Captured baseline scorecards
+
+docs/
+  architecture/                       # Living architecture docs (read these first)
+  specs/cortex-v0.3/                  # Authoritative v0.3 design notes + prototype
+  superpowers/                        # Implementation plans (executed task lists)
+  corpus/                             # Phase 1 corpus survey results
+
+tests/                                # vitest — see "Testing" above
 ```
