@@ -22,29 +22,29 @@ cd cortex
 npm install
 ```
 
-Add to your project's `.mcp.json`:
+Register Cortex in your `.mcp.json` (project-level) or `~/.claude.json` (user-level):
 
 ```json
 {
   "mcpServers": {
     "cortex": {
-      "command": "npx",
-      "args": ["tsx", "src/index.ts"],
-      "cwd": "/path/to/cortex"
+      "command": "bash",
+      "args": ["/path/to/cortex/bin/cortex-mcp.sh"]
     }
   }
 }
 ```
 
-Or for a built version:
+The `bin/cortex-mcp.sh` wrapper resolves its own install path and `cd`s into it before exec'ing `npx tsx src/index.ts`. It exists because Claude Code's MCP spawn does not reliably honor the `cwd` field — child processes inherit the host session's working directory, which usually has no `tsx` and no `src/index.ts`. The wrapper sidesteps that with a single line of bash.
+
+If you'd rather invoke a built bundle, run `npm run build` then point at it:
 
 ```json
 {
   "mcpServers": {
     "cortex": {
       "command": "node",
-      "args": ["dist/index.js"],
-      "cwd": "/path/to/cortex"
+      "args": ["/path/to/cortex/dist/index.js"]
     }
   }
 }
@@ -57,6 +57,27 @@ npm run dev
 ```
 
 Starts the MCP server (stdio) and the 2D graph viewer at [http://localhost:3334/viewer](http://localhost:3334/viewer) (the legacy 3D viewer is at `/viewer/3d`). Port 3333 is reserved for the MCP plugin instance.
+
+### Troubleshooting
+
+**`/mcp` shows `cortex` as `✘ failed` with `-32000 connection closed`**
+
+Check three locations for stale `cortex` entries in this order — the first match wins and silently overrides everything below it:
+
+1. `<your-project>/.mcp.json` — project-level override
+2. `~/.claude.json` under `projects["<your-project>"].mcpServers` — per-project user config (added by `claude mcp add`)
+3. `~/.claude/plugins/cache/cortex-local/cortex/<ver>/.mcp.json` — the canonical plugin config
+
+`/mcp` displays which file it loaded under `Config location`. If a stale `cwd: "/path/to/cortex"` entry is being read instead of the wrapper-based config, remove it and re-open the Claude Code window.
+
+**`Error: Could not locate the bindings file` (better-sqlite3)**
+
+The native addon wasn't compiled in the plugin cache. Rebuild it in place:
+
+```bash
+cd ~/.claude/plugins/cache/cortex-local/cortex/<ver>
+npm rebuild better-sqlite3
+```
 
 ## Graph UI
 
