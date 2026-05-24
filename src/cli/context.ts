@@ -27,12 +27,13 @@ function findGitRoot(start: string): string | null {
   }
 }
 
-/** Check if a graph.db exists for this project in the indexer's cache. */
-function findIndexedDb(projectName: string): string | null {
-  // Indexer writes to ~/.cache/cortex-indexer/<projectName>.db when CORTEX_DB
-  // is not set. (cortex itself may set CORTEX_DB to a project-local file but
-  // we don't depend on that here.)
-  const cachePath = join(homedir(), ".cache/cortex-indexer", `${projectName}.db`);
+/** Check if a graph.db exists for this project, probing both known locations. */
+function findIndexedDb(projectName: string, gitRoot: string): string | null {
+  // MCP server convention: index_repository writes to <gitRoot>/.cortex/graph.db
+  const localPath = join(gitRoot, ".cortex", "graph.db");
+  if (existsSync(localPath)) return localPath;
+  // Standalone indexer cache: ~/.cache/cortex-indexer/<projectName>.db
+  const cachePath = join(homedir(), ".cache", "cortex-indexer", `${projectName}.db`);
   if (existsSync(cachePath)) return cachePath;
   return null;
 }
@@ -48,7 +49,7 @@ export function loadContext(cwd: string): ProjectContext {
     return { state: "no-project", cwd: absCwd, projectName: null, graphDbPath: null };
   }
   const projectName = deriveProjectName(gitRoot);
-  const graphDbPath = findIndexedDb(projectName);
+  const graphDbPath = findIndexedDb(projectName, gitRoot);
   if (!graphDbPath) {
     return { state: "unindexed-repo", cwd: absCwd, projectName, graphDbPath: null };
   }
