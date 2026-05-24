@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { resolve as resolvePath } from "node:path";
 import type { ProjectContext } from "../context.js";
 import { UsageError } from "../errors.js";
+import { indexerBinPath } from "../paths.js";
 
-const INDEXER_BIN = resolvePath(process.cwd(), "bin/cortex-indexer");
+const INDEXER_BIN = indexerBinPath();
 
 export type IndexCommand = {
   command: string | null;

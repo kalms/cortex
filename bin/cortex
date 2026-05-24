@@ -2,9 +2,18 @@
 # bin/cortex — launcher for the cortex CLI.
 # Dev (uncompiled): runs via tsx.
 # Built (dist/ present): runs the compiled JS.
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Resolve symlinks so $ROOT points at the real repo when invoked via
+# ~/.local/bin/cortex or other PATH-installed symlinks.
+SRC="$0"
+while [ -L "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  [[ "$SRC" != /* ]] && SRC="$DIR/$SRC"
+done
+ROOT="$(cd -P "$(dirname "$SRC")/.." && pwd)"
+export CORTEX_REPO_ROOT="$ROOT"
 if [ -f "$ROOT/dist/cli/main.js" ]; then
   exec node "$ROOT/dist/cli/main.js" "$@"
 else
-  exec npx tsx "$ROOT/src/cli/main.ts" "$@"
+  exec npx --prefix "$ROOT" tsx "$ROOT/src/cli/main.ts" "$@"
 fi

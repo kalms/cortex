@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
 import { GraphStore } from "../../graph/store.js";
 import { searchGraph, getGraphSchema, tracePath } from "../../graph/code-queries.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { resolveInput, type Disambiguation } from "../resolve-input.js";
 import { formatRows, chooseFormat } from "../format.js";
+import { indexerBinPath } from "../paths.js";
 
-const INDEXER_BIN = resolve(process.cwd(), "bin/cortex-indexer");
+const INDEXER_BIN = indexerBinPath();
 
 export type CodeCommand = {
   command: string;
