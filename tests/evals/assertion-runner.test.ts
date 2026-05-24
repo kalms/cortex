@@ -83,6 +83,38 @@ describe("assertion runner — graph queries", () => {
     expect(result.observed).toEqual(["/api/orders", "/api/users"]);
   });
 
+  it("sql COUNT(*) with numeric predicate uses the count value, not rows.length", () => {
+    store.createNode({ kind: "function", name: "a" });
+    store.createNode({ kind: "function", name: "b" });
+    store.createNode({ kind: "function", name: "c" });
+    const a: Assertion = {
+      fix_id: 4,
+      name: "test_count_aggregate",
+      description: "count(*) > 1 should observe 3, not 1",
+      query: { kind: "sql", sql: "SELECT COUNT(*) AS n FROM nodes WHERE kind = 'function'" },
+      predicate: { op: "gt", value: 1 },
+      baseline_expected: "fail",
+    };
+    const result = runAssertion(a, { dbPath });
+    expect(result.observed).toBe(3);
+    expect(result.passed).toBe(true);
+  });
+
+  it("sql query returning multiple rows still uses rows.length for numeric predicates", () => {
+    store.createNode({ kind: "Route", name: "/api/orders" });
+    store.createNode({ kind: "Route", name: "/api/users" });
+    const a: Assertion = {
+      fix_id: 2,
+      name: "test_multi_row",
+      description: "multi-row result uses rows.length",
+      query: { kind: "sql", sql: "SELECT name FROM nodes WHERE kind = 'Route'" },
+      predicate: { op: "gt", value: 1 },
+      baseline_expected: "fail",
+    };
+    const result = runAssertion(a, { dbPath });
+    expect(result.observed).toBe(2);
+  });
+
   it("'no_match' predicate fails when any row matches", () => {
     store.createNode({ kind: "Route", name: "https://codeartifact.example.com/foo.tgz" });
     store.createNode({ kind: "Route", name: "/api/orders" });

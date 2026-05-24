@@ -28,12 +28,17 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
     }
     case "sql": {
       const rows = store.queryRaw<Record<string, unknown>>(a.query.sql);
-      // For matches/no_match predicates, return list of stringified first column.
-      // For numeric predicates (gt/gte/eq), return row count.
       if (a.predicate.op === "matches" || a.predicate.op === "no_match") {
         observed = rows.map((r) => String(Object.values(r)[0] ?? ""));
       } else {
-        observed = rows.length;
+        // Numeric predicate. If the SQL returns a single row whose first column
+        // is a number (e.g. SELECT COUNT(*) AS n), use that value. Otherwise
+        // fall back to row count.
+        const first = rows[0];
+        const firstVal = first ? Object.values(first)[0] : undefined;
+        observed = typeof firstVal === "number" && rows.length === 1
+          ? firstVal
+          : rows.length;
       }
       break;
     }
