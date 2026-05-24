@@ -4,6 +4,9 @@
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "cortex": "bin/cortex"
+  },
   "scripts": {
     "postinstall": "bash scripts/build-indexer.sh",
     "build": "tsc",

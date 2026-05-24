@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# bin/cortex — launcher for the cortex CLI.
+# Dev (uncompiled): runs via tsx.
+# Built (dist/ present): runs the compiled JS.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "$ROOT/dist/cli/main.js" ]; then
+  exec node "$ROOT/dist/cli/main.js" "$@"
+else
+  exec npx tsx "$ROOT/src/cli/main.ts" "$@"
+fi
