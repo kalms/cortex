@@ -1,6 +1,6 @@
 {
   "target": "anthill-cloud",
-  "captured_at": "2026-05-24T20:28:41.212Z",
+  "captured_at": "2026-05-24T20:42:56.263Z",
   "nodes_by_label": {
     "file": 442,
     "folder": 155,
@@ -27,12 +27,12 @@
   },
   "per_assertion": {
     "http_calls_edge_count_nonzero": 0,
-    "http_calls_to_api_route": 1,
-    "route_node_named_api_path": 1,
+    "http_calls_to_api_route": 0,
+    "route_node_named_api_path": 0,
     "composable_has_callers": 22,
-    "pinia_store_node_exists": 1,
-    "vue_function_node_count_nonzero": 1,
-    "vue_function_has_high_degree": 1,
+    "pinia_store_node_exists": 0,
+    "vue_function_node_count_nonzero": 148,
+    "vue_function_has_high_degree": 13,
     "sfc_qn_well_formed": [
       "Users-rka-Development-anthill-cloud.apps.arcane.app.components.ArcaneChatMarkdown.getSourceForId",
       "Users-rka-Development-anthill-cloud.apps.arcane.app.components.ArcaneChatMarkdown.showTooltip",
@@ -40,16 +40,16 @@
       "Users-rka-Development-anthill-cloud.apps.arcane.app.components.ArcaneChatMarkdown.cancelHide",
       "Users-rka-Development-anthill-cloud.apps.arcane.app.components.ArcaneChatMarkdown.handleMouseOver"
     ],
-    "vue_file_is_module_node": 1,
+    "vue_file_is_module_node": 103,
     "get_code_snippet_returns_vue_content": "Node found: app.vue",
     "governs_link_to_vue_path_persists": "governs persisted: 1",
     "search_graph_finds_vue_component": "Found 450 matches",
-    "nitro_handler_function_exists": 1,
+    "nitro_handler_function_exists": 6,
     "nitro_route_handles_edge": 0,
     "no_tarball_routes": [],
     "no_codeartifact_routes": [],
     "decision_node_count_nonzero": 0,
-    "decision_governs_edges_exist": 1,
+    "decision_governs_edges_exist": 0,
     "decision_rationale_no_xml_leakage": []
   }
 }
