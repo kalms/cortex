@@ -92,7 +92,7 @@ function captureBaseline(target: Target, pathOverride?: string): void {
           : (r.observed as number | string[]);
         return [r.assertion.name, obs];
       }),
-    ) as Record<string, number | string[]>,
+    ),
   };
   mkdirSync(resolve("evals/baselines"), { recursive: true });
   writeFileSync(resolve("evals/baselines", `${target.name}.json`), JSON.stringify(baseline, null, 2));
