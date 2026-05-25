@@ -112,7 +112,7 @@ export function registerDecisionTools(
 
   server.tool(
     "update_decision",
-    "Update an existing decision's fields",
+    "Update an existing decision's fields (governs and references are full-set replacements when provided)",
     {
       id: z.string().describe("Decision node ID"),
       title: z.string().optional(),
@@ -123,6 +123,8 @@ export function registerDecisionTools(
       superseded_by: z.string().optional().describe("ID of the superseding decision"),
       problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
       resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
+      governs: z.array(z.string()).optional().describe("Full set replacement of GOVERNS targets. [] clears all."),
+      references: z.array(z.string()).optional().describe("Full set replacement of REFERENCES targets. [] clears all."),
     },
     async (params) => {
       const bad = validateDecisionFields(params as Record<string, unknown>);
