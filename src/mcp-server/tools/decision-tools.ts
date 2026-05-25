@@ -4,6 +4,7 @@ import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
+import { validateDecisionFields } from "./decision-input-validation.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -30,6 +31,13 @@ export function registerDecisionTools(
       resolution: z.string().optional().describe("Narrative: what was decided"),
     },
     async (params) => {
+      const bad = validateDecisionFields(params as Record<string, unknown>);
+      if (bad) {
+        return errorResponse(
+          "malformed_input",
+          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+        );
+      }
       try {
         const decision = service.create(params);
         return ok(JSON.stringify(decision, null, 2));
@@ -54,6 +62,13 @@ export function registerDecisionTools(
       pr_number: z.number().int().optional(),
     },
     async (params) => {
+      const bad = validateDecisionFields(params as Record<string, unknown>);
+      if (bad) {
+        return errorResponse(
+          "malformed_input",
+          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+        );
+      }
       try {
         const d = service.propose(params);
         return ok(JSON.stringify(d, null, 2));
@@ -77,6 +92,13 @@ export function registerDecisionTools(
       references: z.array(z.string()).optional(),
     },
     async (params) => {
+      const bad = validateDecisionFields(params as Record<string, unknown>);
+      if (bad) {
+        return errorResponse(
+          "malformed_input",
+          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+        );
+      }
       try {
         const d = service.supersede(params);
         return ok(JSON.stringify(d, null, 2));
@@ -102,7 +124,15 @@ export function registerDecisionTools(
       problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
       resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
     },
-    async ({ id, ...updates }) => {
+    async (params) => {
+      const bad = validateDecisionFields(params as Record<string, unknown>);
+      if (bad) {
+        return errorResponse(
+          "malformed_input",
+          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+        );
+      }
+      const { id, ...updates } = params;
       try {
         const decision = service.update(id, updates);
         return ok(JSON.stringify(decision, null, 2));
