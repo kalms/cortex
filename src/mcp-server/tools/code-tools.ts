@@ -275,7 +275,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
   // 5H: trace_path with {node, depth}[] shape and max_depth param
   server.tool(
     "trace_path",
-    "Trace call chains from a function (mode: calls, callers)",
+    "Trace call chains from a function. function_name accepts a bare name, qualified name, file path, or dotted suffix. mode: calls (outbound) or callers (inbound). Returns ambiguous_input with candidates if multiple symbols match.",
     {
       function_name: z.string(),
       mode: z.enum(["calls", "callers"]).describe("Trace mode: calls (outbound) or callers (inbound)"),
@@ -285,7 +285,27 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
       if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const results = tracePath(store, indexerProject, params);
+      // Resolve function_name through the shared resolver so file paths,
+      // qns, and dotted suffixes work — not just exact bare names.
+      let fnName = params.function_name;
+      if (dbPath) {
+        const resolved = resolveInput(params.function_name, indexerProject, dbPath);
+        if (resolved.kind === "none") {
+          return empty(`trace_path(${JSON.stringify(params)})`);
+        }
+        if (resolved.kind === "multi") {
+          const candidatesList = resolved.candidates
+            .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+            .join("\n");
+          return errorResponse(
+            "ambiguous_input",
+            `Multiple matches for '${params.function_name}'. Pick one and re-call:\n${candidatesList}`,
+          );
+        }
+        // tracePath wants the bare name; pull it from the resolved qn
+        fnName = resolved.symbol.qn.split(".").pop() ?? params.function_name;
+      }
+      const results = tracePath(store, indexerProject, { ...params, function_name: fnName });
       if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
       const lines = results.map((r) =>
         `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
