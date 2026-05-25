@@ -30,7 +30,32 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
 // CBM_BINARY_PATH retained as deprecated alias; remove in Phase 9.
 const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
-const RG_MAX_BUFFER = 64 * 1024 * 1024;
+const RG_MAX_BUFFER = 16 * 1024 * 1024;
+
+export function buildRgArgs(pattern: string): string[] {
+  return [
+    "--no-heading",
+    "--line-number",
+    "--color=never",
+    "--max-count", "200",
+    pattern,
+    ".",
+  ];
+}
+
+export function buildGrepFallbackArgs(pattern: string): string[] {
+  return [
+    "-rn",
+    "--exclude-dir=node_modules",
+    "--exclude-dir=.git",
+    "--exclude-dir=dist",
+    "--exclude-dir=build",
+    "--exclude-dir=.cache",
+    "--exclude-dir=vendored",
+    pattern,
+    ".",
+  ];
+}
 
 // 5B: callIndexer now handles binary in-stdout errors and returns structured responses
 type IndexerCallResult = {
@@ -372,14 +397,12 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
     async ({ pattern }) => {
       let grepOutput = "";
       try {
-        const { stdout } = await execFileAsync("rg", [
-          "--no-heading", "--line-number", "--color=never", pattern, ".",
-        ], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
+        const { stdout } = await execFileAsync("rg", buildRgArgs(pattern), { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
         grepOutput = stdout;
       } catch (err: any) {
         if (err.code === "ENOENT") {
           try {
-            const { stdout } = await execFileAsync("grep", ["-rn", pattern, "."], { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
+            const { stdout } = await execFileAsync("grep", buildGrepFallbackArgs(pattern), { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
             grepOutput = stdout;
           } catch (err2: any) {
             if (err2.code === "ENOENT") {
