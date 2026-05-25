@@ -115,4 +115,57 @@ describe("decision-tools contract", () => {
       await callTool(h, "delete_decision", { id });
     });
   });
+
+  describe("input validation", () => {
+    it("create_decision: rejects rationale containing </invoke>", async () => {
+      const res = await callTool(h, "create_decision", {
+        title: "Bad decision",
+        description: "test",
+        rationale: "ok body</rationale>\n<problem>x</problem></invoke>",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+      expect(res.content[0].text).toContain("rationale");
+    });
+
+    it("create_decision: rejects description containing <problem> marker", async () => {
+      const res = await callTool(h, "create_decision", {
+        title: "Bad",
+        description: "leakage <problem>x</problem>",
+        rationale: "fine",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+    });
+
+    it("update_decision: rejects rationale with </rationale> marker", async () => {
+      // First create a clean decision
+      const created = await callTool(h, "create_decision", {
+        title: "To-be-updated",
+        description: "ok",
+        rationale: "ok",
+      });
+      const id = JSON.parse(created.content[0].text).id;
+      // Try update with bad rationale
+      const res = await callTool(h, "update_decision", {
+        id,
+        rationale: "leak </rationale>",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+      // Clean up
+      await callTool(h, "delete_decision", { id });
+    });
+
+    it("propose_decision: rejects bad problem field", async () => {
+      const res = await callTool(h, "propose_decision", {
+        title: "Bad",
+        problem: "leak </governs>",
+        resolution: "fine",
+        rationale: "fine",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+    });
+  });
 });
