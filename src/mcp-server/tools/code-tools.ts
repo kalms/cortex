@@ -30,7 +30,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
 // CBM_BINARY_PATH retained as deprecated alias; remove in Phase 9.
 const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
-const RG_MAX_BUFFER = 16 * 1024 * 1024;
+const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 export function buildRgArgs(pattern: string): string[] {
   return [
