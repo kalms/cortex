@@ -116,6 +116,45 @@ describe("decision-tools contract", () => {
     });
   });
 
+  describe("update_decision governs replacement", () => {
+    it("sets governs on update when create-time governs was empty", async () => {
+      const created = await callTool(h, "create_decision", {
+        title: "Governs-on-update test",
+        description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text).id;
+
+      const updated = await callTool(h, "update_decision", {
+        id, governs: ["src/foo.ts", "src/bar.ts"],
+      });
+      expect(updated.isError).toBeFalsy();
+
+      const fetched = await callTool(h, "get_decision", { id });
+      const parsed = JSON.parse(fetched.content[0].text);
+      const governsTargets = (parsed.governs ?? []).map((n: any) => n.target_ref ?? n.file_path ?? n.name);
+      expect(governsTargets).toEqual(expect.arrayContaining(["src/foo.ts", "src/bar.ts"]));
+
+      // Clean up
+      await callTool(h, "delete_decision", { id });
+    });
+
+    it("clears governs when governs: [] is passed", async () => {
+      const created = await callTool(h, "create_decision", {
+        title: "Clear-governs test",
+        description: "d", rationale: "r",
+        governs: ["src/x.ts"],
+      });
+      const id = JSON.parse(created.content[0].text).id;
+
+      await callTool(h, "update_decision", { id, governs: [] });
+      const fetched = await callTool(h, "get_decision", { id });
+      const parsed = JSON.parse(fetched.content[0].text);
+      expect(parsed.governs ?? []).toEqual([]);
+
+      await callTool(h, "delete_decision", { id });
+    });
+  });
+
   describe("input validation", () => {
     it("create_decision: rejects rationale containing </invoke>", async () => {
       const res = await callTool(h, "create_decision", {
