@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
 import type { ProjectContext } from "../context.js";
 import { UsageError } from "../errors.js";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { repoRoot } from "../paths.js";
 
-const EVAL_CLI = resolve(process.cwd(), "evals/src/cli.ts");
+const EVAL_CLI = join(repoRoot(), "evals/src/cli.ts");
 
 export type EvalCommand = {
   command: string | null;
@@ -19,7 +19,7 @@ export async function runEvalCommand(cmd: EvalCommand, _ctx: ProjectContext): Pr
     const args: string[] = [];
     if (cmd.positionals[0]) args.push(`--target=${cmd.positionals[0]}`);
     if (typeof cmd.flags.path === "string") args.push(`--path=${cmd.flags.path}`);
-    execFileSync("npx", ["tsx", EVAL_CLI, ...args], { stdio: "inherit" });
+    execFileSync("npx", ["tsx", EVAL_CLI, ...args], { stdio: "inherit", cwd: repoRoot() });
     return;
   }
   if (subcommand === "baseline") {
@@ -27,11 +27,11 @@ export async function runEvalCommand(cmd: EvalCommand, _ctx: ProjectContext): Pr
     if (!target) throw new UsageError("missing <target>", "Usage: cortex eval baseline <target> [--path=...]");
     const args = [`--capture-baseline=${target}`];
     if (typeof cmd.flags.path === "string") args.push(`--path=${cmd.flags.path}`);
-    execFileSync("npx", ["tsx", EVAL_CLI, ...args], { stdio: "inherit" });
+    execFileSync("npx", ["tsx", EVAL_CLI, ...args], { stdio: "inherit", cwd: repoRoot() });
     return;
   }
   if (subcommand === "report") {
-    const reportsDir = resolve(process.cwd(), "evals/reports");
+    const reportsDir = join(repoRoot(), "evals/reports");
     if (!existsSync(reportsDir)) throw new UsageError("no reports yet", "Run: cortex eval [target]");
     let chosen: string | undefined;
     if (cmd.flags.at && typeof cmd.flags.at === "string") chosen = join(reportsDir, cmd.flags.at);
