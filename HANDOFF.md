@@ -1,252 +1,221 @@
-# Cortex — Session Handoff (2026-05-10)
+# Cortex — Session Handoff (2026-05-25)
 
 ## TL;DR
 
-Cortex v0.3 is a **multi-track release**. Track 1 (CBM absorption) is the most active workstream and just shipped Phase 4 of 8. Several other tracks from the v0.3 design corpus are spec'd but unimplemented (frame extraction, TODO entity, reconciliation engine, multiplayer test mode). The PR-entity track shipped earlier and is merged. **The actual question for the next session is which track to advance** — not just "what's next in CBM absorption."
+Three back-to-back workstreams shipped to `main` this session: the user-friendly `cortex` CLI, an MCP tool robustness pass, and an MCP-side input resolver that lets agentic callers use the same file-path/bare-name shapes the CLI does. A second independent review by Opus surfaced five real issues that the in-flight reviews missed; all fixed and merged.
 
-- **Branch:** `main`, synced with `origin/main` at `4219921`
-- **Tags:** `phase-1-subtree-merged` → `phase-4-schema-fold` (5 phase tags pushed)
-- **Tests:** 48 files / 360 passed / 1 skipped / 0 failed
-- **Build:** `bin/cortex-indexer` clean
-- **Schema:** single-file `<install>/.cortex/graph.db`; no ATTACH; no `cbm_*` tables
+Next-up is **HTTP_CALLS / HANDLES extraction**, which on investigation turned out to be three separate indexer-C bugs rather than the "biggest single feature on the table" the older handoffs framed it as. Direction note: that work needs its own focused C-indexer session.
 
-## What's been done — the actual picture
+- **Branch:** `main`, pushed to `origin/main` at `e13982d`
+- **Tests:** 79 files / 487 passed / 1 skipped / 1 failed
+  - The 1 failure is the long-documented Python-venv timing flake in `tests/frame-extraction/cluster-tfidf-hdbscan.test.ts:62` — unrelated to recent work
+- **Build:** `bin/cortex-indexer` clean, `npx tsc --noEmit` clean
+- **`cortex` CLI:** installed at `~/.local/bin/cortex` (symlinked to `bin/cortex` in this repo)
 
-### Recently shipped (this session: Phase 4 of CBM absorption)
+## What shipped this session
 
-[CBM absorption spec §3 Step 4](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md) — schema fold. Code entities now live in Cortex's `nodes`/`edges` tables alongside decisions, distinguished by `kind`. Indexer's bulk-write fast path (`sqlite_writer.c`) rewritten to produce the unified schema directly via raw B-tree pages. Perf overhead **+3%** on a 45k LOC C corpus → extrapolates to ~160s for Linux 180k LOC, well under the 3-min budget. 12 commits, merged + pushed. Full detail in §"Phase 4 detail" below.
+### 1. User-friendly `cortex` CLI (16 commits)
 
-### Shipped pre-this-session (still v0.3)
+Merge: `d3159c4` + QA fix merges `d61d596`, `e4c4010`.
 
-| Track | Status | Where |
-|---|---|---|
-| **CBM absorption Phase 1** — vendor CBM into `internal/indexer/` via subtree | ✅ tagged `phase-1-subtree-merged` | merged 2026-05-04 |
-| **CBM absorption Phase 2** — `npm install` builds indexer locally; remove GitHub release download path | ✅ tagged `phase-2-build-pipeline` | merged 2026-05-04 |
-| **CBM absorption Phase 3a** — indexer honors `CORTEX_DB`; `cbm_*` table prefix | ✅ tagged `phase-3a-storage-retarget` | merged 2026-05-04 |
-| **CBM absorption Phase 3b** — TS query layer drops ATTACH; queries `cbm_*` directly | ✅ tagged `phase-3b-ts-side` | merged 2026-05-04 |
-| **CBM absorption Phase 4** — schema fold (this session) | ✅ tagged `phase-4-schema-fold` | merged 2026-05-10 |
-| **PR entity + decision narrative extensions** ("Spec A") | ✅ merged in `3d72f93` | `src/prs/`, `src/mcp-server/tools/pr-tools.ts`, `propose_decision`, `supersede_decision`, narrative fields on `Decision` |
-| **2D graph viewer** (Plan B, post-LOD redesign) | ✅ shipped | `src/viewer/graph-viewer-2d.js` + `src/viewer/shared/` modules; default at `/viewer`; legacy 3D at `/viewer/3d` |
-| **WebSocket event pipeline + mutation derivation** | ✅ shipped | `src/events/`, `src/ws/server.ts`, derives mutations for `pr.*` / `decision.ratified` |
-| **MCP tool contract repair** | ✅ merged 2026-04-20 | All tools return structured responses |
-| **Decision tools, hooks, skills** | ✅ shipped | `create_decision`, `why_was_this_built`, `link_decision`, `promote_decision`, `search_decisions`, etc. |
+A polished command-line front door wrapping the existing TS MCP helpers and the native indexer behind a namespaced verb-object surface. Five namespaces — `code`, `decision`, `graph`, `index`, `eval` — plus meta (`tour`, `install`, `help`).
 
-### v0.3 tracks spec'd but **NOT yet implemented**
+- `bin/cortex` launcher that resolves symlinks (so the install symlink works from any cwd), exports `CORTEX_REPO_ROOT`, prefers `dist/cli/main.js`, falls back to `npx tsx`.
+- `src/cli/` package: `main.ts`, `router.ts`, `context.ts`, `resolve-input.ts`, `paths.ts`, `format.ts`, `help.ts`, `tour.ts`, `install.ts`, `errors.ts`, `indexer-output.ts` plus a `commands/` directory.
+- Smart input resolution at [src/shared/resolve-input.ts](src/shared/resolve-input.ts) (extracted in the resolver workstream below): file paths, canonical qns, dotted suffixes, bare names.
+- 48 unit + 5 integration tests under [tests/cli/](tests/cli/), all green.
+- Smoke-verified from `/Users/rka/Development/cortex` and `/Users/rka/Development/anthill-cloud` and `/tmp`.
 
-These all have authoritative design docs in `docs/specs/cortex-v0.3/`:
+Two QA passes happened post-merge. The second one (driven by an independent Opus review) fixed:
+- `install.ts` + `eval.ts` were still resolving via `process.cwd()` — `cortex eval` broke from any non-cortex dir. Now use `repoRoot()`.
+- `install.ts` uninstall over-matched on bare `alias cortex=` substring (clobbered user aliases); install didn't handle existing non-symlink at target.
+- `context.ts dbHasProjectData` opened write-mode `GraphStore` (`CREATE TABLE IF NOT EXISTS` side-effect, didn't close, race with concurrent indexer). Now opens better-sqlite3 read-only with `fileMustExist`, closes in `finally`.
+- `decision` commands created `.cortex/` under random dirs. Now requires git context (`state !== "no-project"`).
+- `decision why` exited 0 on no-match; now throws `DomainError` → exit 3 (consistent with `cmdShow`).
 
-| Track | Spec | Status |
-|---|---|---|
-| **CBM absorption Phase 6** — strip CBM's MCP shell + bridge `query_graph` / `get_architecture` / `ingest_traces` | [`2026-05-03-native-indexer-cbm-absorption-design.md`](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md) §3 Step 6 | Not started |
-| **CBM absorption Phase 7** — repo-root `cortex.db` + content-addressed cache at `~/.cache/cortex/<key>.db` | Same spec §3 Step 7 | Not started |
-| **CBM absorption Phase 8** — final cleanup; rename `Cbm*` TS symbols → `Code*` / `IndexerNode` | Same spec §3 Step 8 | Not started |
-| **Phase 1 corpus survey** — Node script that runs CBM index across N curated GitHub repos, computes `(entity_count, edge_density, directory_depth, language_mix)` per repo. **Calibration data for frame extraction.** | [`docs/specs/cortex-v0.3/README.md`](docs/specs/cortex-v0.3/README.md) §"First build target" | Not started; user agreed to take this on |
-| **TODO entity** — new entity type (`kind='todo'`), state machine, MCP tools (`propose_todo`, etc.), drawer surface, optional external-system bridge (Linear/JIRA/etc.) | [`todo-entity.md`](docs/specs/cortex-v0.3/todo-entity.md) | Not started; ~289 lines of spec |
-| **Frame extraction** — semantic-first clustering (Leiden vs TF-IDF+HDBSCAN vs pinned-embedding+HDBSCAN, three-pipeline empirical comparison); aggregate nodes for auxiliary content | [`frame-extraction.md`](docs/specs/cortex-v0.3/frame-extraction.md) — 569 lines | Not started; depends on Phase 1 corpus survey |
-| **Frame ranking** — `FrameKind` taxonomy, gravity model, ambient information-density target | [`frame-ranking.md`](docs/specs/cortex-v0.3/frame-ranking.md) — 395 lines | Not started; depends on extraction |
-| **Frame layout** — D3-force layout with mulberry32 PRNG, 300-iteration deterministic seeding | [`frame-layout.md`](docs/specs/cortex-v0.3/frame-layout.md) — 307 lines | Not started; depends on extraction + ranking |
-| **Reconciliation engine v1** — input: decision text + governed-files content; output: `match` / `partial-match` / `drift`; crude string matching, feature-flagged | [`cortex-multiplayer-spec.md`](docs/specs/cortex-v0.3/cortex-multiplayer-spec.md) §10.3 | Not started |
-| **Multiplayer test mode** — TS DSL scenario runner so design stays playable without real multiplayer infra | Same spec §9 | Not started |
-| **Frame canvas in viewer** — port the prototype's frame visual language (frames as regions, decisions/PRs as 4px dots, hover pills, selection rings + leader lines, drawer surface, merge animation) into the live 2D viewer | Same spec §1, §5, §6 | Live viewer is graph-style, not frame-style; gap is large |
-| **Feed surface** — chronological surface for past events (merges, decisions, PRs, agent arrivals) | Same spec §10.1 | Design only |
-| **PR authoring interface** — writing side of PRs (vs. reading side already in drawer) | Same spec §10.2 | Design only |
+Plan + spec: [docs/superpowers/plans/2026-05-24-user-friendly-cli.md](docs/superpowers/plans/2026-05-24-user-friendly-cli.md), [docs/superpowers/specs/2026-05-24-user-friendly-cli-design.md](docs/superpowers/specs/2026-05-24-user-friendly-cli-design.md).
 
-### Tracks deferred / dropped
+### 2. MCP tool robustness (9 commits)
 
-- **CBM absorption Phase 5** (v0.2 cross-file migration shim) — **dropped** under break-away policy. User is the only consumer; no migrate-from-legacy path needed.
-- **Onboarding gap** — agents (including this session) shipping significant architectural work without `create_decision` calls. `SELECT COUNT(*) FROM nodes WHERE kind='decision'` returns 0 in the live DB. Decision capture conventions exist in CLAUDE.md and workflow.md but aren't producing decisions in practice. Open question: hook-based prompt? `/review-recent-commits` skill? Mid-session triggers? Not yet investigated.
+Merge: `4519415`. Plan: [docs/superpowers/plans/2026-05-21-mcp-tool-robustness.md](docs/superpowers/plans/2026-05-21-mcp-tool-robustness.md).
 
-## Phase 4 detail (this session)
+Three fixes from the 2026-05-21 field report. 6 TDD tasks, 25 new tests:
 
-**TS-side**
-- `nodes` gains nullable `start_line`, `end_line`, `project`; `edges` gains `project`. Three new compound indexes (`idx_nodes_kind_project`, `idx_nodes_kind_file`, `idx_edges_project_relation`).
-- `CBM_LABEL_MAP` deleted — kinds are granular (`function`, `class`, `method`, `interface`, `enum`, `module`, `route`, ...) instead of the previous collapse to `function`/`component`/`path`.
-- `getAllNodesUnified` / `getAllEdgesUnified` simplify to single SELECT with optional `project: string | string[]` filter.
-- `code-queries.ts` queries `nodes WHERE project = ? AND kind NOT IN ('decision','pr','todo')`.
+- **`search_code` argv hardening** — extracted rg/grep argv into `buildRgArgs`/`buildGrepFallbackArgs` helpers; added `--max-count 200` and `--exclude-dir=node_modules,.git,dist,build,.cache,vendored` so common patterns no longer time out on monorepos.
+- **Decision input validator** — new `src/mcp-server/tools/decision-input-validation.ts` rejects writes whose `title`/`description`/`rationale`/`problem`/`resolution` fields contain XML marshalling leakage markers (`</invoke>`, `</rationale>`, etc.). Wired into all four write tools.
+- **`governs` on `update_decision`** — `DecisionService.update` now accepts `governs` and `references` arrays with full-set-replacement semantics. Closes the recovery gap when governance was set wrong at create time (no more delete+recreate).
 
-**C-side**
-- `internal/indexer/internal/cbm/sqlite_writer.c` (the hot bulk-write path) rewritten to produce the new schema via raw B-tree pages. Record builders, comparators (sort by formatted text id to match SQLite BINARY collation), index B-trees, and `sqlite_autoindex_*_1` autoindexes for TEXT PRIMARY KEY all updated.
-- `cbm_store_t.upsert_node` / `insert_edge` SQL-API path also writes the new schema. In-process `next_node_id` / `next_edge_id` counters seeded on store-open from `MAX(SUBSTR(id, 5))`.
-- Bookkeeping tables renamed `cbm_*` → `ctx_*` (`ctx_projects`, `ctx_file_hashes`, `ctx_project_summaries`, `ctx_nodes_fts`, `ctx_node_vectors`, `ctx_token_vectors`).
-- `init_schema` no longer creates `nodes`/`edges` (Cortex owns them).
+### 3. MCP tool input resolver (5 commits)
 
-**Break-away cleanup**
-- `migrateSchemaFold()`, `cbm-discovery.ts`, `schema-fold-migration.test.ts`, `fts-migration.test.ts` deleted. No legacy-DB migration path ships.
+Merge: `e13982d`. Plan: [docs/superpowers/plans/2026-05-25-mcp-tool-input-resolver.md](docs/superpowers/plans/2026-05-25-mcp-tool-input-resolver.md).
 
-**Verification**
-| Stage | Result |
-|---|---|
-| Build | clean |
-| `PRAGMA integrity_check` on smoke DB | `ok` |
-| Full test suite | 48 files / 360 passed / 1 skipped / 0 failed |
-| Perf on 45k LOC C corpus | 39.88s vs 38.68s pre-Phase-4 = **+3%** |
+Lifted the CLI's `resolveInput` heuristic into a new `src/shared/resolve-input.ts` returning a tagged result (`single | multi | none`). Wired into three MCP tools:
+- `get_code_snippet` — accepts raw file paths and bare names
+- `trace_path` — accepts file paths and bare names for `function_name`
+- `why_was_this_built` — accepts bare names (file paths and qns already worked via `findGoverning`'s own walk)
 
-## What to pick up next — decision space
+Multi-match returns `ambiguous_input` with a numbered candidate list (new ErrorReason). 9 new tests. Closes the agentic-MCP-side of the field-report friction.
 
-There's no single "right next thing." Five reasonable options, each with a different shape:
+## What's next — actual current queue
 
-### Option A — Continue Track 1 (CBM absorption)
+### Item 1 — HTTP_CALLS / HANDLES extraction gaps
 
-**Phase 6 (strip CBM's MCP shell + bridge missing tools).** Smallest scope of the remaining absorption phases. Files to delete: `internal/indexer/src/mcp/`, MCP entry in `internal/indexer/src/main.c`, `internal/indexer/graph-ui/`, `internal/indexer/vendored/mongoose`. New CLI subcommands (`query_graph`, `get_architecture`, `ingest_traces`) lifted from `mcp.c` to `cli/`, then bridged via Cortex's `code-tools.ts`. `manage_adr` deliberately not bridged.
+The earlier handoff framed this as "biggest single feature, no spec, indexer C work, ~4-8 weeks." Investigation at the end of this session changed that framing — it's **three separate bugs in already-implemented infrastructure**, each independently fixable.
 
-**When to pick this:** if completing the absorption story matters more than other tracks. Phase 6 is mostly mechanical deletion + handler-lifting.
+Diagnostic counts taken this session (`~/.cache/cortex-indexer/*.db`):
 
-### Option B — Phase 1 corpus survey (the v0.3 README's explicit recommendation)
+| Project | HTTP_CALLS | HANDLES | route nodes |
+|---|---:|---:|---:|
+| cortex | 76 (mostly false-positive — see below) | 0 | 41 |
+| anthill-cloud | **0** | 0 | 170 |
+| trpc | 5 | 0 | 35 |
+| nuxt/ui | 2 | 0 | 130 |
+| vueuse | 2 | 0 | 14 |
+| pallets/click | 5 | 0 | 16 |
 
-A standalone Node script that clones ~25 active GitHub repos (target archetypes: Nuxt, React, Vue, CommonJS, Go, Swift, Python), runs `bin/cortex-indexer cli index_repository` against each, and computes `(entity_count, edge_density, directory_depth, language_mix)`. Output is a CSV/JSON calibration dataset.
+The three bugs:
 
-**Why this matters:** frame extraction (Track 3) needs this calibration to validate cluster-quality across diverse codebases. Without it, we'd be tuning extraction parameters against synthetic / single-repo data.
+1. **anthill-cloud has zero HTTP_CALLS despite 50+ real `$fetch("/api/...")` calls.** Nuxt's `$fetch`, `useFetch`, `useLazyFetch`, and native browser `fetch` aren't in the http_libraries registry at [internal/indexer/extract/service_patterns.c](internal/indexer/extract/service_patterns.c). Smallest fix: add them. Estimated effort: small — one C-file edit, rebuild via `scripts/build-indexer.sh`, reindex.
 
-**When to pick this:** if you want to unblock the frame-extraction work that comes after. Self-contained, ~1-2 sessions of scripting + analysis.
+2. **cortex has 76 false-positive HTTP_CALLS.** Sample edge: `url_path: "/src/main.go", via: "arg_url"`. The URL detection logic in [internal/indexer/src/pipeline/pass_calls.c](internal/indexer/src/pipeline/pass_calls.c) treats any first-string-arg starting with `/` as a URL. Needs a discriminator (e.g., reject if extension suggests source file: `.go`, `.ts`, `.c`, `.py`, …). Estimated effort: small.
 
-### Option C — TODO entity
+3. **HANDLES = 0 universally** across every project — even cortex's 41 route nodes have zero HANDLES. The pipeline pass exists at [internal/indexer/src/pipeline/pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) ("ensure_decorator_routes" + "match_infra_routes") but emits nothing in any indexed project. Either route-decorator extraction isn't populating the `route_path` property on function nodes, or `match_one_infra_route` is silently failing. Estimated effort: medium — requires reading the pass thoroughly and tracing why no edges are produced.
 
-Smallest functional addition. Spec is concrete ([`todo-entity.md`](docs/specs/cortex-v0.3/todo-entity.md)): schema, state machine (open → in_progress → blocked → done / cancelled), MCP tools (`propose_todo`, `update_todo`, `start_todo`, `block_todo`, `complete_todo`, `cancel_todo`, `link_todo`), `kind='todo'` rows on the existing `nodes` table.
+**Why this stalled out at the end of this session:** these are C-indexer changes with a separate build cycle (`scripts/build-indexer.sh` → `make -f Makefile.indexer`), separate test framework ([internal/indexer/tests/](internal/indexer/tests/), 42 C test files), and each fix needs reindexing real corpora to verify. None of the TS/Node tooling used for this session's other workstreams applies.
 
-**When to pick this:** if you want a useful user-facing feature delivered quickly. Spec is well-scoped; mostly TS work; mirrors the Decision/PR pattern that already exists.
+**Suggested handling next session:**
+- Start with bug #1 (Nuxt fetch registry expansion) — cheapest, validates the C-side dev loop is working before attempting the harder ones.
+- Then bug #2 (false-positive discriminator) — also small.
+- Bug #3 (HANDLES universal zero) — own session; read `pass_route_nodes.c` carefully first, possibly trace with a real fixture before writing changes.
 
-### Option D — Reconciliation engine v1
+### Item 2 — Decision-capture process gap
 
-Crude string-matching version: input is a decision's narrative text + the current source of governed files; output is `match` / `partial-match` / `drift` plus optional list of nonconformant nodes. Lazy invocation (decisions reconcile on demand, not continuously). Feature-flagged. Behind the flag, the UI doesn't read from it yet — it's plumbing for the spec §3 ratification story.
+`SELECT COUNT(*) FROM .cortex/decisions.db decisions` = 3, but architectural decisions made in recent sessions weren't captured. Decisions worth capturing retroactively (from this session alone):
 
-**When to pick this:** if you want to make decision state real without UI dependencies. Smaller than frame extraction, larger than TODO.
+- "Extract CLI `resolveInput` into `src/shared/` rather than letting MCP reach into `src/cli/`" — captured in the input-resolver plan but not as a decision row.
+- "Probe local `.cortex/graph.db` for project data before using it; fall back to indexer cache" — captured in the QA-followups commit but not as a decision row.
+- "Indexer-output unwrapper lives in `src/cli/`, not in the indexer or as a shared module — only the CLI is a human consumer of the raw output" — implicit in the QA pass.
+- "`cortex` CLI launcher exports `CORTEX_REPO_ROOT`; modules resolve paths from that, not from `process.cwd()`" — surfaced by the Opus review.
 
-### Option E — Frame extraction / ranking / layout
+This same gap was noted in the older root HANDOFF.md too and hasn't been addressed. Open question: hook-based prompt at commit time? `/review-recent-commits` skill? Manual capture pass? Not investigated yet.
 
-The biggest piece. The three docs (`frame-extraction.md`, `frame-ranking.md`, `frame-layout.md`) define a full algorithm: three competing pipelines, framework-aware tokenization, co-change matrix, dominator analysis, mulberry32 deterministic D3-force layout, FrameKind taxonomy. Multi-week effort. Strict dependency on Option B (corpus survey) for calibration.
+### Item 3 — Polish items from the recent QA pass
 
-**When to pick this:** when you're ready to commit a multi-session effort *and* the corpus data is ready.
+Tracked but deliberately deferred:
+- **`get_code_snippet` source extraction has no unit-test coverage** ([src/cli/commands/code.ts:99-123](src/cli/commands/code.ts#L99-L123)) — the `.source` field extraction silently falls back to dumping JSON if the indexer's payload shape ever changes. Add a unit test that mocks `runIndexer` and asserts only the source is written.
+- **`router.ts` `--flag value` form eats positionals.** `cortex install --uninstall foo` parses `uninstall` as `"foo"` (truthy string), then the boolean check fails. Either special-case known-boolean flags or document `--uninstall` as bare-only.
+- **`decision promote` is unwired** — throws `UsageError` pointing at a bare `cortex-indexer cli` invocation. Either wire it or remove from the help table.
+- **`graph sql '<sql>'` is a footgun** — no read-only enforcement. Document or prepend `--readonly` to sqlite3 args.
+- **`tests/cli/context.test.ts:32`** — writes an empty file that the new read-only `dbHasProjectData` probe will happily open. Test passes by accident; should write valid sqlite header or skip the probe path explicitly.
+- **`pass_route_nodes.c`** comment claims governance edges aren't transactional; technically true for single-statement writes (atomic at SQLite level) but misleading for multi-statement bulk operations. Wrap in `db.transaction()` if you ever do bulk link writes.
 
-### My recommendation (with the caveat that I have no priority context)
+### Item 4 — Open items from the older Phase 4 handoff that are still real
 
-If you want to ship something user-facing quickly: **C (TODO entity)** — clean spec, mirrors existing patterns.
-
-If you want to set up the next major piece: **B (corpus survey)** — unblocks E.
-
-If you want to finish the absorption story: **A.6 (strip MCP shell)** — keeps that track moving and reduces dead code in `internal/indexer/`.
-
-## Project conventions (recap)
-
-From [`.claude/rules/workflow.md`](.claude/rules/workflow.md):
-- **Branch first.** Never commit to `main`. Naming: `feature/<scope>/<desc>` where scope ∈ `{component, page, api, store, config, layout, css, db}`.
-- **Atomic commits.** Format: `<type>(<scope>): <description>`.
-- **Merge protocol.** `git merge --no-ff <branch>` then `git branch -d <branch>`. Push only when explicitly asked.
-- **Gates.** Visual QA (Gate 0) for UI; `/review` (Gate 1) before marking tasks complete; `qa` agent (Gate 2) before merge. Backend-only / docs work may skip Gate 0.
-
-From [`CLAUDE.md`](CLAUDE.md):
-- Prefer `search_code` over Grep for code search.
-- Before modifying code, check `why_was_this_built({ qualified_name })`.
-
-From the brainstorm/spec/plan/execute pattern (used for Phase 4):
-- For non-trivial work: `superpowers:brainstorming` → spec doc → `superpowers:writing-plans` → `superpowers:subagent-driven-development` (for parallel-isolated tasks) or `superpowers:executing-plans` (for in-session sequential).
-
-From recent observation (this session):
-- **Subagent timeouts on large/complex C-side work.** Two implementer subagents timed out (~9 and ~93 min) when given the entire `sqlite_writer.c` rewrite. The second one made substantial progress before timeout but didn't commit. Lesson: split big C-side rewrites into smaller chunks, or use shorter scoped prompts. The B-tree page writer in particular is intricate enough that a fresh subagent can't ingest it cleanly in one pass.
-
-## Tech debt
-
-### Phase 4 follow-ups
-- **Viewer regression for granular kinds.** 2D viewer's color/shape map was tuned for the old `function`/`component`/`path` collapse. Post-Phase-4 kinds (`class`, `method`, `interface`, `enum`, etc.) render with default styling. Pick up in a small viewer-styling pass.
-- **CBM C tests broken.** `internal/indexer/tests/` (~2700 tests) still references `cbm_*` tables / old column names. `npm test` doesn't run them so it's not a CI issue, but if you ever want to run CBM's own test suite they need updating.
-- **`Cbm*` TS interface names.** `CbmNode`, `CbmEdge`, `CbmProject` kept for diff continuity. Phase 8 renames.
-- **Lean grammar parser ~100MB.** `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push. Future Git LFS consideration.
-- **`tests/mcp-contract/decision-tools.test.ts` 1 skipped test.** Pre-existing; investigate someday.
-
-### From earlier sessions
-- **`anim.nodes` grows unbounded** — `setHover` adds, `remove_node` doesn't evict.
-- **`syncSimulation()` reheats on attribute-only `update_node`** — visible twitch.
-- **`seen` Set in `websocket.js` unbounded** — ~26MB at 1M events.
+These survived multiple sessions; not deliberately ignored, just unprioritized:
+- **2D viewer color/shape regression for granular kinds** post-Phase 4 (`class`, `method`, `interface`, `enum` render with default styling).
+- **`anim.nodes` grows unbounded** in the viewer; `setHover` adds but `remove_node` doesn't evict.
+- **`seen` Set in `src/viewer/websocket.js` unbounded** — ~26MB at 1M events.
 - **WS reconnect drift** — mutations during outage aren't replayed.
-- **`src/ws/server.ts:~52`** — 5ms `setTimeout` workaround for same-process WS frame ordering.
-- **`tsconfig.json`** doesn't copy `.mjs` to `dist/` (matters for `npm run build` only).
-- **`feat/phase1-implementation` local branch** — dead, far behind main, predates much of the work. Safe to delete.
+- **Lean grammar parser ~100MB** at `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push.
 
-### Process
-- **Decision capture gap.** `SELECT COUNT(*) FROM nodes WHERE kind='decision'` = 0 in the live DB despite multiple sessions of architectural work. Decisions to-capture from this session alone:
-  - "Break-away policy: no v0.2/v0.3 legacy DB migration shim ships" (Phase 4)
-  - "Bulk-write fast path preserved via Option D rewrite" (Phase 4 — vs Option B SQL-flush which would have been ~33% slower)
-  - "TEXT PK with rowid = integer counter; FTS rowid alignment via SUBSTR(id, 5)" (Phase 4)
-  - "Indexer no longer creates `nodes`/`edges` — Cortex owns those tables" (Phase 4 ownership division)
+## What's in main right now
 
-## Quick start
+Top 10 commits:
+
+```
+e13982d Merge branch 'feature/mcp/input-resolver'      (queue item complete: MCP input resolver)
+1b9f31c feat(mcp): why_was_this_built accepts bare symbol names
+c29172a feat(mcp): trace_path accepts file paths and bare names
+62b524f feat(mcp): get_code_snippet accepts raw file paths and bare names
+e6efacc refactor(resolve-input): extract heuristic into src/shared
+e4c4010 Merge branch 'fix/cli/qa-followups-2'          (queue item complete: second QA pass)
+606fc93 fix(cli): second QA pass — repo-root resolution, install hardening, db probe safety
+4519415 Merge branch 'feature/mcp/tool-robustness'     (queue item complete: MCP robustness)
+271ef01 feat(mcp): governs on update_decision
+…
+d3159c4 Merge branch 'feature/cli/user-friendly'       (queue item complete: user-friendly CLI)
+```
+
+Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
+
+## How to start the next session
 
 ```bash
 cd ~/Development/cortex
-git pull                              # should be clean
-npm install                           # postinstall builds bin/cortex-indexer
-npm test                              # expect 48 files / 360 passed / 1 skipped
-bash scripts/build-indexer.sh         # rebuild indexer if you've touched C
-npm run dev                           # MCP + 2D viewer + WS on :3334
+git pull --ff-only origin main          # should already be in sync
+npm install                              # postinstall builds bin/cortex-indexer + installs cortex CLI
+
+# Sanity smoke
+cortex tour                              # confirm CLI works from cortex repo
+npm test                                 # expect 487 passed / 1 skipped / 1 documented flake
 ```
 
-Pick a track from §"What to pick up next" above. Then:
+### If picking up HTTP_CALLS / HANDLES (Item 1):
+
+Don't dive into the C indexer cold. Start with diagnostics to confirm the bug list is still current, then pick the smallest:
+
+```bash
+# Re-confirm the bug list before touching code
+for db in ~/.cache/cortex-indexer/*.db; do
+  name=$(basename "$db" .db)
+  http=$(sqlite3 "$db" "SELECT COUNT(*) FROM edges WHERE relation = 'HTTP_CALLS'" 2>/dev/null)
+  handles=$(sqlite3 "$db" "SELECT COUNT(*) FROM edges WHERE relation = 'HANDLES'" 2>/dev/null)
+  echo "http=$http handles=$handles  $name"
+done | sort -k1,1 -k2,2 -r | head -10
+
+# For Bug 1 (Nuxt fetch registry expansion):
+$EDITOR internal/indexer/extract/service_patterns.c     # add $fetch / useFetch / useLazyFetch to http_libraries[]
+bash scripts/build-indexer.sh                            # rebuild bin/cortex-indexer
+cortex index .                                           # reindex cortex
+cd ~/Development/anthill-cloud && cortex index .         # reindex anthill-cloud
+sqlite3 ~/.cache/cortex-indexer/Users-rka-Development-anthill-cloud.db \
+  "SELECT COUNT(*) FROM edges WHERE relation = 'HTTP_CALLS'"  # expect > 0
+```
+
+For Bug 2 / Bug 3, read the spec section in this doc and the listed C files before writing changes. Both are smaller than they look but deserve a fresh session that's set up for C-side debugging (gdb/lldb, the existing C test framework).
+
+### If picking up Item 2 (decision capture):
+
+This is a meta-improvement, not feature work. Probably needs a brainstorm before any code lands. Open with:
 
 ```
-# For Option A.6 (strip CBM MCP shell):
-/brainstorm Phase 6 of CBM absorption: strip CBM's MCP shell + bridge query_graph / get_architecture / ingest_traces. Spec is at docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md §3 Step 6.
-
-# For Option B (corpus survey):
-/brainstorm Phase 1 corpus survey for frame extraction calibration. Spec is at docs/specs/cortex-v0.3/README.md §"First build target". Output: a Node script that clones ~25 GitHub repos and produces a CSV of (entity_count, edge_density, directory_depth, language_mix) per repo.
-
-# For Option C (TODO entity):
-/brainstorm TODO entity implementation. Spec is at docs/specs/cortex-v0.3/todo-entity.md.
-
-# For Option D (reconciliation engine v1):
-/brainstorm decision reconciliation engine v1. Spec is at docs/specs/cortex-v0.3/cortex-multiplayer-spec.md §10.3.
-
-# For Option E (frame extraction):
-/brainstorm frame extraction algorithm. Spec is at docs/specs/cortex-v0.3/frame-extraction.md (and ranking + layout companions). Note: this depends on Option B corpus data for calibration.
+/brainstorm decision-capture process gap. SELECT COUNT(*) FROM decisions = 3 after many architectural sessions. The CLAUDE.md guidance to "capture a decision proactively" isn't actually producing decisions. Investigate hook-based prompts, mid-session triggers, or a /review-recent-commits skill.
 ```
 
-## Key artifacts
+### If picking up an Item 3 polish item:
 
-### v0.3 design corpus
-| File | What it is |
+Most are small enough to do without ceremony. Use the file:line refs in this doc.
+
+## Quick reference — current modules added this session
+
+| File | What it does |
 |---|---|
-| [`docs/specs/cortex-v0.3/README.md`](docs/specs/cortex-v0.3/README.md) | v0.3 entry point — file index, reading order, status snapshot, promotion plan |
-| [`cortex-multiplayer-spec.md`](docs/specs/cortex-v0.3/cortex-multiplayer-spec.md) | Original spec (~919 lines). Sections 1-7 + 9-11 still authoritative. §8 superseded by frame-* notes. |
-| [`frame-extraction.md`](docs/specs/cortex-v0.3/frame-extraction.md) | Authoritative frame extraction algorithm |
-| [`frame-ranking.md`](docs/specs/cortex-v0.3/frame-ranking.md) | Ranking + FrameKind taxonomy |
-| [`frame-layout.md`](docs/specs/cortex-v0.3/frame-layout.md) | D3-force layout, mulberry32, deterministic seeding |
-| [`todo-entity.md`](docs/specs/cortex-v0.3/todo-entity.md) | TODO entity spec |
-| [`cortex-frames-prototype-v5.html`](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html) | Canonical 2D prototype (open in browser) |
-| [`cortex-backlog.md`](docs/specs/cortex-v0.3/cortex-backlog.md) | Historical design backlog |
+| [bin/cortex](bin/cortex) | Launcher; resolves symlinks; exports `CORTEX_REPO_ROOT`; prefers `dist/cli/main.js` |
+| [src/cli/main.ts](src/cli/main.ts) | argv dispatch + meta (`--help`, `--version`, `tour`, `install`) |
+| [src/cli/router.ts](src/cli/router.ts) | parseArgv + Levenshtein "did you mean" |
+| [src/cli/context.ts](src/cli/context.ts) | Detects indexed/unindexed-repo/no-project; resolves graphDbPath with read-only probe |
+| [src/cli/paths.ts](src/cli/paths.ts) | `repoRoot()` from `CORTEX_REPO_ROOT` env or import.meta.url fallback |
+| [src/cli/format.ts](src/cli/format.ts) | `formatRows` + `writeRows(rows, fmt, emptyMessage)` |
+| [src/cli/indexer-output.ts](src/cli/indexer-output.ts) | `unwrapIndexerResult` + `renderIndexerResult` (strips MCP envelope + log lines, surfaces isError) |
+| [src/cli/install.ts](src/cli/install.ts) | symlink → ~/.local/bin/cortex, fall back to shell alias |
+| [src/cli/tour.ts](src/cli/tour.ts) | Context-aware tour; pickSampleFunction filters by current project |
+| [src/cli/commands/code.ts](src/cli/commands/code.ts) | find / search / show / where / calls / arch / schema |
+| [src/cli/commands/decision.ts](src/cli/commands/decision.ts) | list / show / why / create / update / delete / link / propose / supersede |
+| [src/cli/commands/graph.ts](src/cli/commands/graph.ts) | query (Cypher) / sql (raw SQLite) |
+| [src/cli/commands/index.ts](src/cli/commands/index.ts) | run / status / changes / list / delete |
+| [src/cli/commands/eval.ts](src/cli/commands/eval.ts) | Delegates to `evals/src/cli.ts` |
+| [src/shared/resolve-input.ts](src/shared/resolve-input.ts) | `resolveInput(input, project, dbPath): ResolveResult` — tagged single/multi/none |
+| [src/mcp-server/tools/decision-input-validation.ts](src/mcp-server/tools/decision-input-validation.ts) | `validateDecisionFields` — rejects XML marshalling leakage |
 
-### CBM absorption (Track 1)
-| File | What it is |
-|---|---|
-| [`docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md`](docs/superpowers/specs/2026-05-03-native-indexer-cbm-absorption-design.md) | Parent spec — 8-step implementation order |
-| [`docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md`](docs/superpowers/specs/2026-05-04-native-indexer-schema-fold-design.md) | Phase 4 spec |
-| [`docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md`](docs/superpowers/plans/2026-05-05-native-indexer-schema-fold.md) | Phase 4 implementation plan |
-| [`docs/superpowers/plans/2026-05-04-native-indexer-bootstrap.md`](docs/superpowers/plans/2026-05-04-native-indexer-bootstrap.md) | Phase 1+2 plan (subtree + build pipeline) |
-| [`docs/superpowers/plans/2026-05-04-native-indexer-storage-retarget-c-side.md`](docs/superpowers/plans/2026-05-04-native-indexer-storage-retarget-c-side.md) | Phase 3a plan |
-| [`docs/superpowers/plans/2026-05-04-native-indexer-storage-retarget-ts-side.md`](docs/superpowers/plans/2026-05-04-native-indexer-storage-retarget-ts-side.md) | Phase 3b plan |
+## Project conventions (recap, unchanged)
 
-### Project rules
-| File | What it is |
-|---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Cortex project instructions for agents |
-| [`.claude/rules/workflow.md`](.claude/rules/workflow.md) | Branching, commit, review, merge protocol |
-| [`README.md`](README.md) | User-facing docs (now reflects post-Phase-4 architecture) |
+- **Branch first.** Never commit to `main`. Naming: `feature/<scope>/<desc>` or `fix/<scope>/<desc>`. Scope ∈ `{component, page, api, store, config, layout, css, db, cli, mcp, decisions, ...}`.
+- **Atomic commits.** Format: `<type>(<scope>): <description>`.
+- **Merge protocol.** `git merge --no-ff <branch>` then `git branch -d <branch>`. Push only when explicitly asked.
+- **Gates.** Visual QA (Gate 0) for UI; `/review` (Gate 1) before marking tasks complete; `qa` agent (Gate 2) before merge.
+- **Decision tools.** Prefer `search_decisions` → `create_decision` / `propose_decision` for any non-trivial choice. (See Item 2 — practice is lagging this rule.)
 
-## Key files (modified this session)
+## Historical handoffs (for cross-reference)
 
-| File | Change |
-|---|---|
-| [`src/graph/schema.ts`](src/graph/schema.ts) | New columns + 3 compound indexes |
-| [`src/graph/store.ts`](src/graph/store.ts) | `CBM_LABEL_MAP` deleted; `getAll*Unified` simplified |
-| [`src/graph/code-queries.ts`](src/graph/code-queries.ts) | All SQL targets unified `nodes`/`edges` |
-| [`src/index.ts`](src/index.ts) | `cbm_projects` → `ctx_projects` |
-| [`src/mcp-server/tools/code-tools.ts`](src/mcp-server/tools/code-tools.ts) | Inline SQL + formatters use `kind` |
-| [`internal/indexer/src/store/store.c`](internal/indexer/src/store/store.c) | New schema in `init_schema`, INSERTs, SELECTs |
-| [`internal/indexer/internal/cbm/sqlite_writer.c`](internal/indexer/internal/cbm/sqlite_writer.c) | Bulk-write path full rewrite |
-| [`internal/indexer/src/pipeline/pipeline.c`](internal/indexer/src/pipeline/pipeline.c) | FTS backfill uses `nodes.rowid` |
-| [`tests/mcp-contract/globalSetup.ts`](tests/mcp-contract/globalSetup.ts) | Queries new schema |
-| [`tests/graph/code-queries.test.ts`](tests/graph/code-queries.test.ts) | `ctx-` prefix; `ctx_projects` |
-| [`tests/mcp-contract/code-tools.test.ts`](tests/mcp-contract/code-tools.test.ts) | Lowercase kind regex |
-| [`tests/mcp-contract/smoke.test.ts`](tests/mcp-contract/smoke.test.ts) | Lowercase kind regex |
-| [`README.md`](README.md) | Architecture, native-indexer, env vars all reflect single-file Phase-4 layout |
-| [`HANDOFF.md`](HANDOFF.md) | This file — comprehensive v0.3 track overview |
-| (deleted) `src/graph/cbm-discovery.ts` | Phase 5 migration shim — no longer needed |
-| (deleted) `tests/graph/schema-fold-migration.test.ts` | Tested deleted migration |
-| (deleted) `tests/graph/fts-migration.test.ts` | Tested pre-Phase-4 legacy upgrade |
+- [docs/HANDOFF-2026-05-24.md](docs/HANDOFF-2026-05-24.md) — 2026-05-24 (one session before this one). Covered the eval harness work and the field-assessment investigation.
+- The earlier 2026-05-10 root HANDOFF.md (now replaced by this file) covered the CBM absorption Phase 1-4 work. Phases 6-9 also shipped (see tags `phase-6-mcp-strip` through `phase-9-c-rename`) — CBM absorption is complete.
