@@ -51,8 +51,8 @@ To check status:
 
 The graph.db lives at one of two paths (in order of preference):
 
-  • <repo>/.cortex/db                              (when CORTEX_DB is set)
-  • ~/.cache/cortex-indexer/<project-name>.db     (fallback)
+  • <repo>/.cortex/graph.db                       (MCP server convention)
+  • ~/.cache/cortex-indexer/<project-name>.db    (standalone indexer cache)
 `,
   decisions: `decisions — what they are and how to capture them
 
