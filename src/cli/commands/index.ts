@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { ProjectContext } from "../context.js";
 import { UsageError } from "../errors.js";
 import { indexerBinPath } from "../paths.js";
+import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -15,12 +16,12 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
   // 'cortex index' with no subcommand → index the cwd (or given path)
   if (cmd.command === null || cmd.command === undefined || cmd.command === ".") {
     const repoPath = cmd.positionals[0] ?? ctx.cwd;
-    const out = execFileSync(
+    const raw = execFileSync(
       INDEXER_BIN,
       ["cli", "index_repository", JSON.stringify({ repo_path: repoPath })],
       { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] },
     );
-    process.stdout.write(out);
+    process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
     return;
   }
   switch (cmd.command) {
@@ -45,10 +46,13 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
 }
 
 function shell(tool: string, args: Record<string, unknown>): void {
-  const out = execFileSync(
+  const raw = execFileSync(
     INDEXER_BIN,
     ["cli", tool, JSON.stringify(args)],
-    { encoding: "utf-8" },
+    {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", process.env.CORTEX_CLI_DEBUG === "1" ? "inherit" : "ignore"],
+    },
   );
-  process.stdout.write(out);
+  process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
 }
