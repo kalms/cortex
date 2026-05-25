@@ -78,7 +78,7 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project, cortexDbPath);
-  registerDecisionTools(server, service, search, decisionLinksRepo);
+  registerDecisionTools(server, service, search, decisionLinksRepo, project, cortexDbPath);
   registerPromotionTools(server, promotion);
   registerPRTools(server, prService);
 

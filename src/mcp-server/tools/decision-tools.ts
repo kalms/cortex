@@ -5,6 +5,7 @@ import { DecisionSearch } from "../../decisions/search.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
+import { resolveInput } from "../../shared/resolve-input.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -16,6 +17,8 @@ export function registerDecisionTools(
   service: DecisionService,
   search: DecisionSearch,
   links: DecisionLinksRepository,
+  indexerProject?: string | null,
+  dbPath?: string,
 ): void {
   server.tool(
     "create_decision",
@@ -246,13 +249,43 @@ export function registerDecisionTools(
 
   server.tool(
     "why_was_this_built",
-    "Find decisions governing a code entity — walks up file/directory hierarchy if no direct match",
+    "Find decisions governing a code entity. Input accepts qualified names, file paths, or bare symbol names. Walks up file/directory hierarchy if no direct match. Returns ambiguous_input with candidates if multiple symbols match.",
     {
-      qualified_name: z.string().describe("Qualified name or file path of the code entity"),
+      qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
     },
     async ({ qualified_name }) => {
       try {
-        const results = search.findGoverning(qualified_name);
+        // Resolve bare names → concrete qn/path before calling findGoverning.
+        // findGoverning already handles file paths and qns via its own walk;
+        // the resolver fills the bare-name gap.
+        //
+        // Skip the resolver for inputs that already look like file paths (contain
+        // '/' or end in a source extension) or qn separators ('::') — those are
+        // passed directly to findGoverning for its own path/hierarchy walk.
+        const SOURCE_EXT = /\.(vue|tsx?|jsx?|py|go|rs|java|cs|cpp|c|h|rb|php|swift|kt)$/;
+        const looksLikeFilePath = qualified_name.includes("/") || SOURCE_EXT.test(qualified_name);
+        const looksLikeQn = qualified_name.includes("::");
+
+        let target = qualified_name;
+        if (indexerProject && dbPath && !looksLikeFilePath && !looksLikeQn) {
+          const resolved = resolveInput(qualified_name, indexerProject, dbPath);
+          if (resolved.kind === "multi") {
+            const candidatesList = resolved.candidates
+              .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+              .join("\n");
+            return errorResponse(
+              "ambiguous_input",
+              `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+            );
+          }
+          if (resolved.kind === "single") {
+            // Prefer file_path for path-walk semantics; fall back to qn.
+            target = resolved.symbol.file_path || resolved.symbol.qn;
+          }
+          // 'none' falls through to findGoverning with the original input,
+          // preserving back-compat for non-symbol inputs.
+        }
+        const results = search.findGoverning(target);
         if (!results || results.length === 0) {
           return empty(`why_was_this_built(${qualified_name})`);
         }
