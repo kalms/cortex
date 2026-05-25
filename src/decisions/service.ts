@@ -303,7 +303,7 @@ export class DecisionService {
     const newRefs = new Set(newTargets);
 
     const toRemove = current.filter((l) => !newRefs.has(l.target_ref));
-    const toAdd = newTargets.filter((t) => !currentRefs.has(t));
+    const toAdd = [...newRefs].filter((t) => !currentRefs.has(t));
 
     for (const link of toRemove) {
       this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
