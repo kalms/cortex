@@ -17,6 +17,7 @@ import {
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
+import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
@@ -98,7 +99,7 @@ function formatNodes(nodes: IndexerNode[]): string {
     .join("\n");
 }
 
-export function registerCodeTools(server: McpServer, store: GraphStore, indexerProject: string | null): void {
+export function registerCodeTools(server: McpServer, store: GraphStore, indexerProject: string | null, dbPath?: string): void {
   // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
   server.tool(
@@ -274,7 +275,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
   // 5H: trace_path with {node, depth}[] shape and max_depth param
   server.tool(
     "trace_path",
-    "Trace call chains from a function (mode: calls, callers)",
+    "Trace call chains from a function. function_name accepts a bare name, qualified name, file path, or dotted suffix. mode: calls (outbound) or callers (inbound). Returns ambiguous_input with candidates if multiple symbols match.",
     {
       function_name: z.string(),
       mode: z.enum(["calls", "callers"]).describe("Trace mode: calls (outbound) or callers (inbound)"),
@@ -284,7 +285,27 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
       if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
-      const results = tracePath(store, indexerProject, params);
+      // Resolve function_name through the shared resolver so file paths,
+      // qns, and dotted suffixes work — not just exact bare names.
+      let fnName = params.function_name;
+      if (dbPath) {
+        const resolved = resolveInput(params.function_name, indexerProject, dbPath);
+        if (resolved.kind === "none") {
+          return empty(`trace_path(${JSON.stringify(params)})`);
+        }
+        if (resolved.kind === "multi") {
+          const candidatesList = resolved.candidates
+            .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+            .join("\n");
+          return errorResponse(
+            "ambiguous_input",
+            `Multiple matches for '${params.function_name}'. Pick one and re-call:\n${candidatesList}`,
+          );
+        }
+        // tracePath wants the bare name; pull it from the resolved qn
+        fnName = resolved.symbol.qn.split(".").pop() ?? params.function_name;
+      }
+      const results = tracePath(store, indexerProject, { ...params, function_name: fnName });
       if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
       const lines = results.map((r) =>
         `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
@@ -296,7 +317,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
   // 5F: get_code_snippet with normalize/denormalize
   server.tool(
     "get_code_snippet",
-    "Get source code for a fully qualified name",
+    "Get source code for a symbol. Input can be a qualified name, file path, dotted suffix, or bare symbol name. Returns ambiguous_input with candidates if multiple symbols match.",
     {
       qualified_name: z.string().min(1, "qualified_name must not be empty"),
     },
@@ -304,6 +325,46 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
       if (!indexerProject) {
         return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
       }
+      if (dbPath && !qualified_name.includes("::")) {
+        const resolved = resolveInput(qualified_name, indexerProject, dbPath);
+        if (resolved.kind === "none") {
+          return empty(`get_code_snippet(${qualified_name})`);
+        }
+        if (resolved.kind === "multi") {
+          const candidatesList = resolved.candidates
+            .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+            .join("\n");
+          return errorResponse(
+            "ambiguous_input",
+            `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+          );
+        }
+        const nodes = searchGraph(store, indexerProject, { qn_pattern: resolved.symbol.qn });
+        if (nodes.length === 0) {
+          return empty(`get_code_snippet(${qualified_name})`);
+        }
+        const node = nodes[0];
+        try {
+          const projectRow = store.queryRaw<{ root_path: string }>(
+            "SELECT root_path FROM ctx_projects WHERE name = ?",
+            [indexerProject]
+          );
+          if (projectRow.length === 0) {
+            return errorResponse("project_not_found", `Project ${indexerProject} not found in indexer DB`);
+          }
+          const fullPath = join(projectRow[0].root_path, node.file_path);
+          const content = await readFile(fullPath, "utf-8");
+          const lines = content.split("\n");
+          const start = Math.max(0, node.start_line - 1);
+          const end = Math.min(lines.length, node.end_line);
+          const snippet = lines.slice(start, end).join("\n");
+          const display = denormalize(node.qualified_name, node.file_path);
+          return ok(`// ${display} (${node.file_path}:${node.start_line}-${node.end_line})\n${snippet}`);
+        } catch (e) {
+          return errorResponse("fs_error", e instanceof Error ? e.message : String(e));
+        }
+      }
+      // Fallback: no dbPath supplied (legacy callers without resolver support)
       const qn = normalize(qualified_name, indexerProject);
       const nodes = searchGraph(store, indexerProject, { qn_pattern: qn });
       if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
