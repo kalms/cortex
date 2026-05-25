@@ -1,7 +1,8 @@
-import { existsSync, symlinkSync, unlinkSync, lstatSync, readFileSync, appendFileSync, writeFileSync } from "node:fs";
+import { existsSync, symlinkSync, unlinkSync, lstatSync, readFileSync, readlinkSync, appendFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { EnvironmentError } from "./errors.js";
+import { repoRoot } from "./paths.js";
 
 export type InstallTarget = "symlink" | "alias";
 
@@ -27,13 +28,17 @@ function shellRcPath(): string {
 
 const ALIAS_MARKER = "# Added by `cortex install`";
 
+function readlinkSafe(path: string): string | null {
+  try { return readlinkSync(path); } catch { return null; }
+}
+
 export function runInstall(opts: { quiet?: boolean; uninstall?: boolean }): void {
-  const repoRoot = resolve(process.cwd());
-  const cortexBin = join(repoRoot, "bin/cortex");
+  const root = repoRoot();
+  const cortexBin = join(root, "bin/cortex");
   if (!existsSync(cortexBin)) {
     throw new EnvironmentError(
       `bin/cortex not found at ${cortexBin}`,
-      "Run this from the cortex repo root.",
+      "CORTEX_REPO_ROOT or the launcher path resolves outside the cortex repo.",
     );
   }
 
@@ -54,9 +59,11 @@ export function runInstall(opts: { quiet?: boolean; uninstall?: boolean }): void
     const rc = shellRcPath();
     if (existsSync(rc)) {
       const content = readFileSync(rc, "utf-8");
+      // Only remove lines that carry OUR marker; matching on bare
+      // `alias cortex=` would clobber unrelated user-managed aliases.
       const cleaned = content
         .split("\n")
-        .filter((line) => !line.includes(ALIAS_MARKER) && !line.includes(`alias cortex=`))
+        .filter((line) => !line.includes(ALIAS_MARKER))
         .join("\n");
       if (cleaned !== content) {
         writeFileSync(rc, cleaned);
@@ -68,8 +75,24 @@ export function runInstall(opts: { quiet?: boolean; uninstall?: boolean }): void
 
   if (target === "symlink") {
     const symlink = join(localBin, "cortex");
-    if (existsSync(symlink) && lstatSync(symlink).isSymbolicLink()) {
-      if (!opts.quiet) process.stdout.write(`already installed: ${symlink}\n`);
+    if (existsSync(symlink)) {
+      const stat = lstatSync(symlink);
+      if (!stat.isSymbolicLink()) {
+        throw new EnvironmentError(
+          `${symlink} exists but is not a symlink`,
+          `Remove it manually (rm ${symlink}) then re-run \`cortex install\`.`,
+        );
+      }
+      // It's a symlink; if it already points where we want, no-op.
+      // Otherwise re-point it to the current repo.
+      const current = readlinkSafe(symlink);
+      if (current === cortexBin) {
+        if (!opts.quiet) process.stdout.write(`already installed: ${symlink}\n`);
+        return;
+      }
+      unlinkSync(symlink);
+      symlinkSync(cortexBin, symlink);
+      if (!opts.quiet) process.stdout.write(`re-pointed ${symlink} → ${cortexBin}\n`);
       return;
     }
     symlinkSync(cortexBin, symlink);

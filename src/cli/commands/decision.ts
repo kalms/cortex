@@ -5,7 +5,7 @@ import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import type { ProjectContext } from "../context.js";
-import { UsageError, DomainError } from "../errors.js";
+import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { writeRows, chooseFormat } from "../format.js";
 
 export type DecisionCommand = {
@@ -15,8 +15,15 @@ export type DecisionCommand = {
 };
 
 function openService(ctx: ProjectContext) {
-  // Decisions db sits next to the graph db. If no indexed project, fall back
-  // to a cwd-local file at .cortex/decisions.db.
+  // Decisions db sits next to the graph db. Require a git repo so we don't
+  // scatter .cortex/ directories under random working dirs (e.g. when the
+  // user runs `cortex decision list` from $HOME).
+  if (ctx.state === "no-project") {
+    throw new EnvironmentError(
+      "decisions require a git repository — cd into a repo first",
+      "cortex tour    to see what's available without a project",
+    );
+  }
   const dbPath = join(ctx.cwd, ".cortex", "decisions.db");
   const db = openDecisionsDb(dbPath);
   const links = new DecisionLinksRepository(db);
@@ -110,8 +117,10 @@ function cmdWhy(cmd: DecisionCommand, ctx: ProjectContext): void {
     );
     const hits = search.findGoverning(input);
     if (hits.length === 0) {
-      process.stderr.write(`no decisions govern '${input}'\n`);
-      return;
+      throw new DomainError(
+        `no decisions govern '${input}'`,
+        "Try: cortex decision list",
+      );
     }
     process.stdout.write(JSON.stringify(hits, null, 2) + "\n");
   } finally {
