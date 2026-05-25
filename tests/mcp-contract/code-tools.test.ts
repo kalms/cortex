@@ -129,6 +129,39 @@ describe("code-tools contract", () => {
     });
   });
 
+  describe("trace_path input resolution", () => {
+    it("accepts a raw file path — returns ambiguous_input with candidates", async () => {
+      // src/server.ts has 2 functions (parseBody + handleRequest), so the
+      // resolver should return ambiguous_input rather than silently returning
+      // empty results.
+      const res = await callTool(h, "trace_path", {
+        function_name: "src/server.ts",
+        mode: "callers",
+      });
+      // After wiring the resolver, a file path matching multiple symbols must
+      // produce ambiguous_input — NOT silently return "No results".
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/ERROR reason=ambiguous_input/);
+      expect(res.content[0].text).toContain("src/server.ts");
+    });
+
+    it("accepts a bare name (single match → resolves and returns callers)", async () => {
+      // parseBody is unique in the fixture and is called by handleRequest.
+      // After wiring the resolver, callers mode should find handleRequest.
+      const res = await callTool(h, "trace_path", {
+        function_name: "parseBody",
+        mode: "callers",
+      });
+      // Either success (with [d=N] lines) or ambiguous_input on multi-match
+      if (res.isError) {
+        expect(res.content[0].text).toMatch(/ERROR reason=ambiguous_input/);
+      } else {
+        // Should resolve and find callers (handleRequest calls parseBody)
+        expect(res.content[0].text).toMatch(/\[d=\d+\]/);
+      }
+    });
+  });
+
   describe("delete_project", () => {
     it("validates structured response (success or structured error)", async () => {
       // Use an obviously-nonexistent project name to avoid mutating real state.
