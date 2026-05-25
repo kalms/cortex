@@ -43,6 +43,17 @@ const char *ctx_service_pattern_http_method(const char *callee_name);
  * Returns true on exact full-callee match. */
 bool ctx_service_pattern_is_global_http(const char *callee_name);
 
+/* Heuristic: does this string look like an HTTP URL/path rather than a
+ * filesystem path or a source-file path? Used to gate "first-string-arg
+ * starts with /" detections in pass_calls. Rejects:
+ *   - filesystem prefixes (/tmp/, /Users/, /usr/, /var/, /etc/, …)
+ *   - source-file extensions (.ts, .go, .py, .c, …)
+ *   - empty / NULL input
+ * Accepts everything else that starts with "/" or contains "://".
+ * False-positive resistant, false-negative tolerant — when in doubt
+ * about a generic-looking path, the caller can apply tighter rules. */
+bool ctx_service_pattern_looks_like_http_url(const char *path);
+
 /* Get the HTTP method from a route registration callee name suffix
  * (e.g., "router.GET" → "GET", "app.post" → "POST").
  * Returns NULL if not a known route registration method. */
