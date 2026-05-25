@@ -83,4 +83,10 @@ describe("DecisionService.update — governs replacement", () => {
     svc.update(d.id, { references: ["doc/other.md"] });
     expect(targetsFor(d.id, "REFERENCES")).toEqual(["doc/other.md"]);
   });
+
+  it("deduplicates within newTargets so duplicates don't cause double-inserts", () => {
+    const d = svc.create({ title: "T", description: "D", rationale: "R" });
+    svc.update(d.id, { governs: ["src/a.ts", "src/a.ts", "src/b.ts"] });
+    expect(targetsFor(d.id, "GOVERNS")).toEqual(["src/a.ts", "src/b.ts"]);
+  });
 });
