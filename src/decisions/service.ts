@@ -97,6 +97,19 @@ export class DecisionService {
     if (input.author !== undefined) patch.author = input.author;
     this.decisions.update(id, patch);
 
+    // Governance replacement — full set semantics.
+    // Not wrapped in a transaction because the existing service layer
+    // doesn't take a db handle, and the rest of the codebase's link
+    // operations are not transactional either. If transactional safety
+    // becomes a requirement, refactor the whole link-write surface in one
+    // pass.
+    if (input.governs !== undefined) {
+      this.replaceLinks(id, "GOVERNS", input.governs, now);
+    }
+    if (input.references !== undefined) {
+      this.replaceLinks(id, "REFERENCES", input.references, now);
+    }
+
     if (opts.emit !== false) {
       // If the update marked the decision superseded, prefer the
       // decision.superseded signal over decision.updated (legacy contract).
@@ -277,6 +290,27 @@ export class DecisionService {
       decision_id: decisionId, target_kind: kind, target_ref: ref,
       relation, created_at: createdAt,
     });
+  }
+
+  private replaceLinks(
+    decisionId: string,
+    relation: "GOVERNS" | "REFERENCES",
+    newTargets: string[],
+    now: string,
+  ): void {
+    const current = this.links.findByDecision(decisionId).filter((l) => l.relation === relation);
+    const currentRefs = new Set(current.map((l) => l.target_ref));
+    const newRefs = new Set(newTargets);
+
+    const toRemove = current.filter((l) => !newRefs.has(l.target_ref));
+    const toAdd = [...newRefs].filter((t) => !currentRefs.has(t));
+
+    for (const link of toRemove) {
+      this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
+    }
+    for (const target of toAdd) {
+      this.addLink(decisionId, classifyTarget(target), target, relation, now);
+    }
   }
 
   private emit(event: Event): void { this.bus?.emit(event); }
