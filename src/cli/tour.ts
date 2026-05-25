@@ -1,27 +1,44 @@
 import { GraphStore } from "../graph/store.js";
 import type { ProjectContext } from "./context.js";
 
-function pickSampleFunction(dbPath: string, project: string): string {
+function pickSampleFunction(dbPath: string, project: string): string | null {
   try {
     const store = new GraphStore(dbPath);
+    // Prefer a short, non-anonymous name so the worked example reads well.
+    // `project IS NULL` lets test fixtures without a project column populated
+    // still surface a sample; production data always has project set.
     const rows = store.queryRaw<{ name: string }>(
-      "SELECT name FROM nodes WHERE kind = 'function' AND project = ? LIMIT 1",
+      `SELECT name FROM nodes
+       WHERE kind = 'function' AND (project = ? OR project IS NULL)
+         AND name NOT LIKE '<%' AND length(name) BETWEEN 3 AND 30
+       ORDER BY length(name) LIMIT 1`,
       [project],
     );
-    if (rows[0]?.name) return rows[0].name;
-    // Fallback when 'project' column is empty.
-    const any = store.queryRaw<{ name: string }>(
-      "SELECT name FROM nodes WHERE kind = 'function' LIMIT 1",
-    );
-    return any[0]?.name ?? "handleRequest";
+    return rows[0]?.name ?? null;
   } catch {
-    return "handleRequest";
+    return null;
   }
 }
 
 export function renderTour(ctx: ProjectContext): string {
   if (ctx.state === "indexed" && ctx.graphDbPath && ctx.projectName) {
     const sample = pickSampleFunction(ctx.graphDbPath, ctx.projectName);
+    if (!sample) {
+      return [
+        `Hi — cortex indexes your codebase into a graph and tracks decisions about it.`,
+        ``,
+        `You're in a project (${ctx.projectName}) that's recognized but appears to`,
+        `have no function nodes indexed yet (or the wrong graph.db is in use).`,
+        ``,
+        `Quickest fix:`,
+        `  cortex index .                refresh the index for the current repo`,
+        `  cortex index status           confirm node/edge counts`,
+        ``,
+        `Or just explore what's in the graph today:`,
+        `  cortex code schema            see node labels + counts`,
+        `  cortex code search '<text>'   full-text search`,
+      ].join("\n");
+    }
     return [
       `Hi — cortex indexes your codebase into a graph and tracks decisions about it.`,
       ``,
