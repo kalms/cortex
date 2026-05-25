@@ -49,6 +49,10 @@ export interface UpdateDecisionInput {
   problem?: string | null;
   resolution?: string | null;
   author?: string;
+  // NEW — full-replacement semantics: if provided, this set replaces the current GOVERNS edges
+  governs?: string[];
+  // NEW — full-replacement semantics for REFERENCES edges
+  references?: string[];
 }
 
 export interface ProposeDecisionInput {
