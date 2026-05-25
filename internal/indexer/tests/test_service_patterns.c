@@ -121,6 +121,78 @@ TEST(global_http_rejects_empty_and_null) {
     PASS();
 }
 
+/* ── ctx_service_pattern_looks_like_http_url ────────────────────── */
+
+TEST(http_url_accepts_api_path) {
+    ASSERT(ctx_service_pattern_looks_like_http_url("/api/orgs"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/api/decisions/"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/api/v1/users/42"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/auth/login"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/graphql"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/health"));
+    PASS();
+}
+
+TEST(http_url_accepts_absolute_urls) {
+    ASSERT(ctx_service_pattern_looks_like_http_url("https://api.example.com/v1/users"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("http://localhost:3000/api"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("ws://localhost:9000/socket"));
+    PASS();
+}
+
+TEST(http_url_rejects_filesystem_prefixes) {
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/tmp/test"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/tmp/empty"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/Users/dev/my-project"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/usr/local/bin/cortex-indexer"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/usr/bin/fish"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/home/user/my-project"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/var/log/system.log"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/etc/hosts"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/opt/homebrew/bin"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/private/tmp/x"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/Volumes/Backup"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/proc/self/cmdline"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/bin/zsh"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/bin/bash"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/sbin/init"));
+    PASS();
+}
+
+TEST(http_url_rejects_source_file_paths) {
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/src/main.go"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/src/extract.c"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/app/handler.ts"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/app/page.vue"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/scripts/build.sh"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/pkg/lib.py"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/Cargo.lock"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/config.toml"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/data.json"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/static/logo.svg"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/README.md"));
+    PASS();
+}
+
+TEST(http_url_rejects_non_url) {
+    ASSERT(!ctx_service_pattern_looks_like_http_url("bare-string"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url("not-a-path"));
+    ASSERT(!ctx_service_pattern_looks_like_http_url(""));
+    ASSERT(!ctx_service_pattern_looks_like_http_url(NULL));
+    PASS();
+}
+
+TEST(http_url_borderline_paths) {
+    /* Paths without filesystem prefix or source extension still accepted.
+     * Some may be false positives in indexed test fixtures, but the goal
+     * is high precision on clear filesystem paths, not perfect recall. */
+    ASSERT(ctx_service_pattern_looks_like_http_url("/foo/bar/"));
+    ASSERT(ctx_service_pattern_looks_like_http_url("/a/b/c/d/e"));
+    /* But /tmp at root is unambiguously a fs prefix */
+    ASSERT(!ctx_service_pattern_looks_like_http_url("/tmp/anything"));
+    PASS();
+}
+
 /* ── ctx_service_pattern_match (QN-substring matching) ──────────── */
 
 TEST(svc_match_requests_qn) {
@@ -178,6 +250,12 @@ SUITE(service_patterns) {
     RUN_TEST(global_http_rejects_member_form);
     RUN_TEST(global_http_rejects_unrelated);
     RUN_TEST(global_http_rejects_empty_and_null);
+    RUN_TEST(http_url_accepts_api_path);
+    RUN_TEST(http_url_accepts_absolute_urls);
+    RUN_TEST(http_url_rejects_filesystem_prefixes);
+    RUN_TEST(http_url_rejects_source_file_paths);
+    RUN_TEST(http_url_rejects_non_url);
+    RUN_TEST(http_url_borderline_paths);
     RUN_TEST(svc_match_requests_qn);
     RUN_TEST(svc_match_axios_qn);
     RUN_TEST(svc_match_express_is_route_reg);

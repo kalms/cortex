@@ -334,11 +334,7 @@ static int try_emit_global_http_call(ctx_pipeline_ctx_t *ctx, const CtxCall *cal
         return 0;
     }
     const char *url = call->first_string_arg;
-    if (!url || url[0] == '\0') {
-        return 0;
-    }
-    bool is_url = (url[0] == '/' || strstr(url, "://") != NULL);
-    if (!is_url) {
+    if (!ctx_service_pattern_looks_like_http_url(url)) {
         return 0;
     }
     int64_t route_id = create_svc_route_node(ctx, url, CTX_SVC_HTTP, NULL, NULL);

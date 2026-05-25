@@ -1125,7 +1125,10 @@ static bool normalize_url_arg(const char *url, char *norm, int norm_sz) {
     if (ni < MIN_URL_LEN || !strchr(norm + SKIP_ONE, '/')) {
         return false;
     }
-    return !is_junk_url(norm);
+    if (is_junk_url(norm)) {
+        return false;
+    }
+    return ctx_service_pattern_looks_like_http_url(norm);
 }
 
 /* Emit HTTP_CALLS edge for an unresolved global-HTTP callee (Nuxt $fetch /
@@ -1138,10 +1141,7 @@ static int try_emit_global_http_call_parallel(ctx_gbuf_t *gbuf, const ctx_gbuf_n
         return 0;
     }
     const char *url = call->first_string_arg;
-    if (!url || url[0] == '\0') {
-        return 0;
-    }
-    if (url[0] != '/' && strstr(url, "://") == NULL) {
+    if (!ctx_service_pattern_looks_like_http_url(url)) {
         return 0;
     }
     int64_t route_id = build_service_route(gbuf, url, NULL, NULL, CTX_SVC_HTTP);

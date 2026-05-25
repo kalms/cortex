@@ -518,6 +518,60 @@ const char *ctx_service_pattern_route_method(const char *callee_name) {
     return NULL;
 }
 
+/* Filesystem prefixes that disqualify a string from being treated as a URL.
+ * Case-sensitive on purpose — real API paths don't start with /Users etc. */
+static const char *const fs_prefixes[] = {
+    "/tmp/",  "/Users/", "/usr/",         "/var/",   "/etc/",  "/opt/",
+    "/home/", "/private/", "/dev/",       "/mnt/",   "/Volumes/", "/Library/",
+    "/Applications/", "/root/", "/proc/", "/sys/",   "/media/", "/srv/",
+    "/run/",  "/boot/",  "/cygdrive/",    "/bin/",   "/sbin/",
+    NULL,
+};
+
+/* Source-file / asset extensions that disqualify a string from being a URL. */
+static const char *const source_file_extensions[] = {
+    /* code */
+    ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx",
+    ".go", ".rs", ".py", ".rb", ".java", ".kt", ".kts", ".scala",
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte",
+    ".swift", ".m", ".mm", ".cs", ".fs", ".clj", ".cljs", ".cljc",
+    ".ex", ".exs", ".erl", ".hs", ".ml", ".mli", ".lua",
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+    ".pl", ".php", ".r", ".jl",
+    /* config / data */
+    ".json", ".toml", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".env",
+    ".lock", ".log", ".sql", ".db", ".sqlite", ".sqlite3",
+    /* docs / web assets */
+    ".md", ".txt", ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    /* images / fonts */
+    ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    NULL,
+};
+
+bool ctx_service_pattern_looks_like_http_url(const char *path) {
+    if (!path || !path[0]) {
+        return false;
+    }
+    if (path[0] != '/' && strstr(path, "://") == NULL) {
+        return false;
+    }
+    for (int i = 0; fs_prefixes[i]; i++) {
+        size_t plen = strlen(fs_prefixes[i]);
+        if (strncmp(path, fs_prefixes[i], plen) == 0) {
+            return false;
+        }
+    }
+    size_t slen = strlen(path);
+    for (int i = 0; source_file_extensions[i]; i++) {
+        size_t elen = strlen(source_file_extensions[i]);
+        if (slen >= elen && strcmp(path + slen - elen, source_file_extensions[i]) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool ctx_service_pattern_is_global_http(const char *callee_name) {
     if (!callee_name || !callee_name[0]) {
         return false;
