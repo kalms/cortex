@@ -4,8 +4,9 @@ import { searchGraph, getGraphSchema, tracePath } from "../../graph/code-queries
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { resolveInput, type Disambiguation } from "../resolve-input.js";
-import { formatRows, chooseFormat } from "../format.js";
+import { writeRows, chooseFormat } from "../format.js";
 import { indexerBinPath } from "../paths.js";
+import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -57,16 +58,26 @@ export async function runCodeCommand(cmd: CodeCommand, ctx: ProjectContext): Pro
   }
 }
 
+function runIndexer(tool: string, payload: object, ctx: ProjectContext & { graphDbPath: string }): string {
+  const raw = execFileSync(
+    INDEXER_BIN,
+    ["cli", tool, JSON.stringify(payload)],
+    {
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_DB: ctx.graphDbPath },
+      // Silence the indexer's level=info startup logs unless --debug. They're
+      // not useful to CLI users and pollute the terminal between commands.
+      stdio: ["ignore", "pipe", process.env.CORTEX_CLI_DEBUG === "1" ? "inherit" : "ignore"],
+    },
+  );
+  return renderIndexerResult(unwrapIndexerResult(raw));
+}
+
 function cmdSearch(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
   const pattern = cmd.positionals[0];
   if (!pattern) throw new UsageError("missing <pattern>", "Usage: cortex code search <pattern>");
-  const out = execFileSync(
-    INDEXER_BIN,
-    ["cli", "search_code", JSON.stringify({ pattern, project: ctx.projectName })],
-    { encoding: "utf-8", env: { ...process.env, CORTEX_DB: ctx.graphDbPath } },
-  );
-  process.stdout.write(out);
+  process.stdout.write(runIndexer("search_code", { pattern, project: ctx.projectName }, ctx) + "\n");
 }
 
 function cmdFind(cmd: CodeCommand, ctx: ProjectContext): void {
@@ -82,7 +93,7 @@ function cmdFind(cmd: CodeCommand, ctx: ProjectContext): void {
     file_path: r.file_path,
   }));
   const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
-  process.stdout.write(formatRows(rows, fmt) + "\n");
+  writeRows(rows, fmt, `no symbols matched '${pattern}' in ${ctx.projectName}`);
 }
 
 function cmdShow(cmd: CodeCommand, ctx: ProjectContext): void {
@@ -91,13 +102,24 @@ function cmdShow(cmd: CodeCommand, ctx: ProjectContext): void {
   if (!input) throw new UsageError("missing <input>", "Usage: cortex code show <input>");
   const resolved = resolveInput(input, ctx.projectName, ctx.graphDbPath);
   if ("candidates" in resolved) renderDisambiguation(resolved);
-  // Shell out to indexer for snippet retrieval — it has the file-read + content logic.
-  const out = execFileSync(
-    INDEXER_BIN,
-    ["cli", "get_code_snippet", JSON.stringify({ qualified_name: resolved.qn, project: ctx.projectName })],
-    { encoding: "utf-8", env: { ...process.env, CORTEX_DB: ctx.graphDbPath } },
+  const rendered = runIndexer(
+    "get_code_snippet",
+    { qualified_name: resolved.qn, project: ctx.projectName },
+    ctx,
   );
-  process.stdout.write(out);
+  // The indexer returns a JSON node payload; surface the .source field if
+  // present so the user sees source code, not a JSON wrapper.
+  try {
+    const parsed = JSON.parse(rendered);
+    if (parsed && typeof parsed === "object" && typeof parsed.source === "string") {
+      process.stdout.write(parsed.source);
+      if (!parsed.source.endsWith("\n")) process.stdout.write("\n");
+      return;
+    }
+  } catch {
+    // not JSON, fall through
+  }
+  process.stdout.write(rendered + "\n");
 }
 
 function cmdTrace(cmd: CodeCommand, ctx: ProjectContext, mode: "calls" | "callers"): void {
@@ -121,18 +143,14 @@ function cmdTrace(cmd: CodeCommand, ctx: ProjectContext, mode: "calls" | "caller
     file_path: r.node.file_path,
   }));
   const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
-  process.stdout.write(formatRows(rows, fmt) + "\n");
+  const verb = mode === "callers" ? "callers" : "callees";
+  writeRows(rows, fmt, `no ${verb} found for '${fnName}'`);
 }
 
 function cmdArch(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
   const aspects = (cmd.flags.aspects as string | undefined)?.split(",") ?? ["all"];
-  const out = execFileSync(
-    INDEXER_BIN,
-    ["cli", "get_architecture", JSON.stringify({ aspects, project: ctx.projectName })],
-    { encoding: "utf-8", env: { ...process.env, CORTEX_DB: ctx.graphDbPath } },
-  );
-  process.stdout.write(out);
+  process.stdout.write(runIndexer("get_architecture", { aspects, project: ctx.projectName }, ctx) + "\n");
 }
 
 function cmdSchema(cmd: CodeCommand, ctx: ProjectContext): void {
@@ -140,7 +158,6 @@ function cmdSchema(cmd: CodeCommand, ctx: ProjectContext): void {
   const store = new GraphStore(ctx.graphDbPath);
   const schema = getGraphSchema(store, ctx.projectName);
   const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
-  // getGraphSchema returns { labels: [{name, count}], edgeTypes: [{name, count}] }
   const rows = schema.labels.map((l) => ({ label: l.name, count: l.count }));
-  process.stdout.write(formatRows(rows, fmt) + "\n");
+  writeRows(rows, fmt, `no nodes indexed for ${ctx.projectName}`);
 }
