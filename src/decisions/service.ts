@@ -144,6 +144,10 @@ export class DecisionService {
     return this.decisions.search(query).map(toDecision);
   }
 
+  list(): Decision[] {
+    return this.decisions.list().map(toDecision);
+  }
+
   linkGoverns(decisionId: string, target: string): void {
     this.addLink(decisionId, classifyTarget(target), target, "GOVERNS", new Date().toISOString());
   }

@@ -23,3 +23,21 @@ export function formatRows(rows: Row[], format: Format): string {
   const body = rows.map((r) => keys.map((k, i) => pad(String(r[k] ?? ""), widths[i])).join(sep)).join("\n");
   return `${header}\n${body}`;
 }
+
+/**
+ * Write rows to stdout, or a short "no results" message to stderr if empty.
+ * Use this from every command that renders a row list — silent empty stdout
+ * is a confusing UX (looks indistinguishable from a hung/broken command).
+ * Empty hints go to stderr so pipe consumers still see clean empty stdout.
+ */
+export function writeRows(rows: Row[], format: Format, emptyMessage: string): void {
+  if (rows.length === 0) {
+    if (format === "json") {
+      process.stdout.write("[]\n");
+    } else {
+      process.stderr.write(emptyMessage + "\n");
+    }
+    return;
+  }
+  process.stdout.write(formatRows(rows, format) + "\n");
+}
