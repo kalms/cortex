@@ -94,6 +94,41 @@ describe("code-tools contract", () => {
     // response contract (either results or "No results"), so the empty case is covered.
   });
 
+  describe("get_code_snippet input resolution", () => {
+    it("accepts a raw file path — returns snippet or ambiguous_input with candidates", async () => {
+      const res = await callTool(h, "get_code_snippet", {
+        qualified_name: "src/server.ts",
+      });
+      // A file path matching multiple symbols → ambiguous_input listing candidates
+      // A file path matching exactly one symbol → snippet
+      if (res.isError) {
+        expect(res.content[0].text).toMatch(/ERROR reason=ambiguous_input/);
+        // Candidates must reference the file
+        expect(res.content[0].text).toContain("src/server.ts");
+      } else {
+        expect(res.content[0].text).toContain("handleRequest");
+      }
+    });
+
+    it("returns ambiguous_input or single result for bare name", async () => {
+      const res = await callTool(h, "get_code_snippet", {
+        qualified_name: "handleRequest",
+      });
+      if (res.isError) {
+        expect(res.content[0].text).toMatch(/ERROR reason=ambiguous_input/);
+      } else {
+        expect(res.content[0].text.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("returns empty for zero matches", async () => {
+      const res = await callTool(h, "get_code_snippet", {
+        qualified_name: "totallymadeup_function_xyzzy",
+      });
+      expect(res.content[0].text).toMatch(/^No results: /);
+    });
+  });
+
   describe("delete_project", () => {
     it("validates structured response (success or structured error)", async () => {
       // Use an obviously-nonexistent project name to avoid mutating real state.

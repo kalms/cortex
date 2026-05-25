@@ -59,7 +59,7 @@ export function createServer(
 
   registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo);
   registerPromotionTools(server, decisionPromotion);
-  registerCodeTools(server, store, indexerProject);
+  registerCodeTools(server, store, indexerProject, graphDbPath);
   registerPRTools(server, prService);
 
   return server;
