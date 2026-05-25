@@ -29,7 +29,7 @@ describe("validateDecisionFields", () => {
     const result = validateDecisionFields({
       rationale: "Body <problem>nested</problem>",
     });
-    expect(result?.marker).toBe("<problem>");
+    expect(result?.marker).toBe("</problem>");
     expect(result?.field).toBe("rationale");
   });
 
