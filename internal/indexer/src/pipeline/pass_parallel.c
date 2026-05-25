@@ -1128,6 +1128,34 @@ static bool normalize_url_arg(const char *url, char *norm, int norm_sz) {
     return !is_junk_url(norm);
 }
 
+/* Emit HTTP_CALLS edge for an unresolved global-HTTP callee (Nuxt $fetch /
+ * useFetch / useLazyFetch / platform fetch). These callees never appear in an
+ * IMPORTS edge, so call resolution returns nothing — without this fallback the
+ * call would be dropped silently. Returns 1 if an edge was emitted, 0 otherwise. */
+static int try_emit_global_http_call_parallel(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
+                                              const CtxCall *call) {
+    if (!ctx_service_pattern_is_global_http(call->callee_name)) {
+        return 0;
+    }
+    const char *url = call->first_string_arg;
+    if (!url || url[0] == '\0') {
+        return 0;
+    }
+    if (url[0] != '/' && strstr(url, "://") == NULL) {
+        return 0;
+    }
+    int64_t route_id = build_service_route(gbuf, url, NULL, NULL, CTX_SVC_HTTP);
+    char esc_c[CTX_SZ_256];
+    char esc_u[CTX_SZ_256];
+    ctx_json_escape(esc_c, sizeof(esc_c), call->callee_name);
+    ctx_json_escape(esc_u, sizeof(esc_u), url);
+    char props[CTX_SZ_512];
+    snprintf(props, sizeof(props),
+             "{\"callee\":\"%s\",\"url_path\":\"%s\",\"via\":\"global_http\"}", esc_c, esc_u);
+    ctx_gbuf_insert_edge(gbuf, source->id, route_id, "HTTP_CALLS", props);
+    return 1;
+}
+
 /* Detect API paths in call arguments and create HTTP_CALLS edges. */
 static void detect_url_in_args(ctx_gbuf_t *gbuf, const ctx_gbuf_node_t *source,
                                const CtxCall *call) {
@@ -1236,6 +1264,8 @@ static void resolve_file_calls(resolve_ctx_t *rc, resolve_worker_state_t *ws, Ct
                 emit_service_edge(ws->local_edge_buf, source_node, source_node, call, &fake_res,
                                   module_qn, rc->registry, rc->main_gbuf, imp_keys, imp_vals,
                                   imp_count);
+            } else {
+                try_emit_global_http_call_parallel(ws->local_edge_buf, source_node, call);
             }
             continue;
         }

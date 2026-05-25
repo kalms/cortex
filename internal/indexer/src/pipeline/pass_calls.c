@@ -322,6 +322,37 @@ static const ctx_gbuf_node_t *calls_find_source(ctx_pipeline_ctx_t *ctx, const c
     return src;
 }
 
+/* Emit an HTTP_CALLS edge for a global HTTP callee (Nuxt $fetch / useFetch /
+ * useLazyFetch / platform fetch). These callees never resolve via registry
+ * because they have no IMPORTS edge — they're auto-imports or platform
+ * globals. The edge has no resolved target function; it points directly
+ * from the enclosing function to the Route node identified by the URL.
+ * Returns 1 if an edge was emitted, 0 otherwise. */
+static int try_emit_global_http_call(ctx_pipeline_ctx_t *ctx, const CtxCall *call,
+                                     const ctx_gbuf_node_t *source) {
+    if (!ctx_service_pattern_is_global_http(call->callee_name)) {
+        return 0;
+    }
+    const char *url = call->first_string_arg;
+    if (!url || url[0] == '\0') {
+        return 0;
+    }
+    bool is_url = (url[0] == '/' || strstr(url, "://") != NULL);
+    if (!is_url) {
+        return 0;
+    }
+    int64_t route_id = create_svc_route_node(ctx, url, CTX_SVC_HTTP, NULL, NULL);
+    char esc_callee[CTX_SZ_256];
+    char esc_url[CTX_SZ_256];
+    ctx_json_escape(esc_callee, sizeof(esc_callee), call->callee_name);
+    ctx_json_escape(esc_url, sizeof(esc_url), url);
+    char props[CTX_SZ_512];
+    snprintf(props, sizeof(props),
+             "{\"callee\":\"%s\",\"url_path\":\"%s\",\"via\":\"global_http\"}", esc_callee, esc_url);
+    ctx_gbuf_insert_edge(ctx->gbuf, source->id, route_id, "HTTP_CALLS", props);
+    return SKIP_ONE;
+}
+
 /* Resolve one call and emit the appropriate edge. Returns 1 if resolved, 0 if not. */
 static int resolve_single_call(ctx_pipeline_ctx_t *ctx, CtxCall *call, const char *rel,
                                const char *module_qn, const char **imp_keys, const char **imp_vals,
@@ -333,11 +364,11 @@ static int resolve_single_call(ctx_pipeline_ctx_t *ctx, CtxCall *call, const cha
     ctx_resolution_t res = ctx_registry_resolve(ctx->registry, call->callee_name, module_qn,
                                                 imp_keys, imp_vals, imp_count);
     if (!res.qualified_name || res.qualified_name[0] == '\0') {
-        return 0;
+        return try_emit_global_http_call(ctx, call, source_node);
     }
     const ctx_gbuf_node_t *target_node = ctx_gbuf_find_by_qn(ctx->gbuf, res.qualified_name);
     if (!target_node || source_node->id == target_node->id) {
-        return 0;
+        return try_emit_global_http_call(ctx, call, source_node);
     }
     emit_classified_edge(ctx, call, source_node, target_node, &res, module_qn, imp_keys, imp_vals,
                          imp_count);

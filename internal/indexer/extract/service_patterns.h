@@ -11,6 +11,8 @@
 #ifndef CTX_SERVICE_PATTERNS_H
 #define CTX_SERVICE_PATTERNS_H
 
+#include <stdbool.h>
+
 /* Edge type returned by pattern match. */
 typedef enum {
     CTX_SVC_NONE = 0,      /* Not a service pattern — use normal CALLS */
@@ -32,6 +34,14 @@ ctx_svc_kind_t ctx_service_pattern_match(const char *resolved_qn);
 /* Get the HTTP method from the callee name suffix (e.g., ".get" → "GET").
  * Returns NULL if method cannot be inferred. */
 const char *ctx_service_pattern_http_method(const char *callee_name);
+
+/* Check if a bare callee name is a known global HTTP-client function.
+ * These are auto-imported (Nuxt $fetch / useFetch / useLazyFetch) or
+ * platform globals (browser/Node fetch) that never appear in an
+ * IMPORTS edge, so call resolution can't reach them via QN substring
+ * matching. Use this in the unresolved-call branch of pass_calls.
+ * Returns true on exact full-callee match. */
+bool ctx_service_pattern_is_global_http(const char *callee_name);
 
 /* Get the HTTP method from a route registration callee name suffix
  * (e.g., "router.GET" → "GET", "app.post" → "POST").
