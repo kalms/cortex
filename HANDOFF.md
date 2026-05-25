@@ -1,18 +1,55 @@
-# Cortex — Session Handoff (2026-05-25)
+# Cortex — Session Handoff (2026-05-26)
 
 ## TL;DR
 
-Three back-to-back workstreams shipped to `main` this session: the user-friendly `cortex` CLI, an MCP tool robustness pass, and an MCP-side input resolver that lets agentic callers use the same file-path/bare-name shapes the CLI does. A second independent review by Opus surfaced five real issues that the in-flight reviews missed; all fixed and merged.
+Picked up the C-indexer HTTP_CALLS / HANDLES queue from yesterday. Shipped Bug 1 (Nuxt fetch family detection: anthill-cloud 0→23 HTTP_CALLS) and Bug 2 (URL-arg discriminator: cortex 76→25 HTTP_CALLS, 51 false positives eliminated). Investigated Bug 3 and refined the diagnosis: it's not a pass_route_nodes.c bug — `extract_route_from_decorators` simply doesn't match the routing patterns used in any of the indexed projects (Nuxt file-based, tRPC procedures, Hono call-arg). That's new-extractor work, deferred to a focused next session.
 
-Next-up is **HTTP_CALLS / HANDLES extraction**, which on investigation turned out to be three separate indexer-C bugs rather than the "biggest single feature on the table" the older handoffs framed it as. Direction note: that work needs its own focused C-indexer session.
-
-- **Branch:** `main`, pushed to `origin/main` at `e13982d`
-- **Tests:** 79 files / 487 passed / 1 skipped / 1 failed
-  - The 1 failure is the long-documented Python-venv timing flake in `tests/frame-extraction/cluster-tfidf-hdbscan.test.ts:62` — unrelated to recent work
+- **Branch:** `main`, 4 commits ahead of `origin/main` (Bug 1 + Bug 2 + their merge commits — not pushed)
+- **C tests:** new `service_patterns` suite passes 24/24. Pre-existing store/cypher/pipeline test failures are sanitizer-build issues unrelated to this work.
 - **Build:** `bin/cortex-indexer` clean, `npx tsc --noEmit` clean
-- **`cortex` CLI:** installed at `~/.local/bin/cortex` (symlinked to `bin/cortex` in this repo)
+- **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
 
-## What shipped this session
+## What shipped this session (2026-05-26)
+
+### Bug 1 — Nuxt fetch family HTTP_CALLS detection (merged: 5700759)
+
+Adds `ctx_service_pattern_is_global_http()` allowlist covering `$fetch`, `useFetch`, `useLazyFetch`, and platform `fetch`. Wires a fallback in the unresolved-call branch of both `pass_calls.c` AND `pass_parallel.c` (the latter is the production path for repos >100 files — yesterday's plan only mentioned pass_calls.c). For unresolved calls whose bare callee matches the allowlist AND whose first string arg is URL-shaped, emits an HTTP_CALLS edge pointing to a Route node.
+
+- **Why the original plan ("just add them to http_libraries[]") didn't work:** that table is a SUBSTRING match on the resolved QN. Nuxt's `$fetch` etc. are auto-imports — they never appear in an IMPORTS edge, so call resolution returns nothing and the call gets dropped before classification can run. The substring-match path is unreachable for them.
+- **Impact:** anthill-cloud 0 → 23 HTTP_CALLS (all `via: global_http`, all real Nuxt fetches). cortex +1 legit fetch. No regressions elsewhere.
+- **Known gap:** 47 of anthill-cloud's 57 `$fetch` calls use template-literal URLs (`` $fetch(`/api/${id}`) ``). `extract_positional_url` only accepts `string`/`string_literal`/`interpreted_string_literal` tree-sitter node kinds — `template_string` isn't in `is_string_like()` in [internal/indexer/extract/extract_calls.c:40-44](internal/indexer/extract/extract_calls.c#L40-L44). Adding it would recover ~80% more anthill HTTP_CALLS. Small follow-up.
+
+### Bug 2 — URL-arg discriminator (merged: fe92f5c)
+
+Adds `ctx_service_pattern_looks_like_http_url()` that rejects paths starting with filesystem prefixes (`/tmp/`, `/Users/`, `/usr/`, `/var/`, `/etc/`, `/opt/`, `/home/`, `/bin/`, `/sbin/`, `/private/`, `/dev/`, `/mnt/`, `/Volumes/`, `/Library/`, `/Applications/`, `/root/`, `/proc/`, `/sys/`, `/media/`, `/srv/`, `/run/`, `/boot/`, `/cygdrive/`) and paths ending with source-file/asset extensions (44 in the list: `.ts .go .py .c .rs .vue .json .yaml .md .png .woff2 …`).
+
+Wired into `normalize_url_arg` (pass_parallel's detect_url_in_args), `try_emit_global_http_call`, and `try_emit_global_http_call_parallel`.
+
+- **Impact:** cortex 76 → 25 HTTP_CALLS (51 FPs gone). The 25 remaining: 19 are legitimate `/api/...` paths from `src/mcp-server/api.ts` (Hono routes) + test fixtures, 6 are `/foo/bar/`, `/a/b/c/d/e` — generic-looking test data that the discriminator can't safely reject. No regressions in other indexes.
+
+### Bug 3 — HANDLES = 0 universally (diagnosed, deferred)
+
+**Refined diagnosis** after reading [pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) carefully: the emission logic is correct. `ensure_decorator_routes` scans Function/Method nodes for a `route_path` property and emits Route + HANDLES; `connect_prefix_to_decorators` and `match_infra_routes` are also working. Confirmed by counting: ZERO functions in ANY of the 9 indexed projects have a `"route_path":"..."` property in their JSON. The bug is upstream in extraction.
+
+`extract_route_from_decorators` at [extract_defs.c:780-810](internal/indexer/extract/extract_defs.c#L780-L810) only matches Python/Java-style decorator syntax (`@app.get("/path")` over a function definition). The indexed corpora don't use that pattern:
+
+| Project | Routing pattern | Why decorator extractor misses |
+|---|---|---|
+| anthill-cloud (Nuxt 3) | File-based: `server/api/orgs/index.get.ts` | No decorator. Route derives from filename + path |
+| cortex (Hono) | Call-arg: `app.get('/api/x', handler)` | URL is in a CALL arg, not a decorator |
+| trpc | `t.procedure.query(...)` | Procedure-based, no path string anywhere |
+| pallets/click | CLI library | No routes |
+| nuxt/ui, vueuse, TanStack/table | UI/utility libs | No routes |
+
+To get HANDLES > 0, this needs a NEW route extractor per pattern. Highest-leverage target: **Nuxt file-based routing**, which would recover ~170 routes for anthill-cloud alone. Sketch of work:
+
+1. In extract_defs.c (or a new extract_nuxt_routes.c): detect file paths matching `server/api/**/*.{get,post,put,delete,patch}.ts` and `server/api/**/index.{get,…}.ts`.
+2. Derive the URL pattern from the path (translate `[id]` → `:id`, drop the `.get.ts` suffix, etc.).
+3. Find the default-exported handler. In Nuxt these are `export default defineEventHandler(async (event) => { … })`. The arrow function inside isn't currently captured as a Function node — would need to either capture it OR attach `route_path`/`route_method` to the module/file node and adjust `ensure_decorator_routes` to scan those too.
+
+**Scope estimate:** medium for Nuxt alone (1 day). Hono and tRPC patterns would be follow-ups. Deferred from this session to give it the focused C-side fixture trace work it deserves.
+
+## What shipped 2026-05-25
 
 ### 1. User-friendly `cortex` CLI (16 commits)
 
@@ -58,35 +95,24 @@ Multi-match returns `ambiguous_input` with a numbered candidate list (new ErrorR
 
 ## What's next — actual current queue
 
-### Item 1 — HTTP_CALLS / HANDLES extraction gaps
+### Item 1 — HTTP_CALLS / HANDLES extraction (Bug 1+2 done; Bug 3 + template-literal follow-up remain)
 
-The earlier handoff framed this as "biggest single feature, no spec, indexer C work, ~4-8 weeks." Investigation at the end of this session changed that framing — it's **three separate bugs in already-implemented infrastructure**, each independently fixable.
+Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
 
-Diagnostic counts taken this session (`~/.cache/cortex-indexer/*.db`):
+| Project | HTTP_CALLS | HANDLES | route nodes | Notes |
+|---|---:|---:|---:|---|
+| cortex | 25 | 0 | 20 | was 76 — Bug 2 removed 51 FPs |
+| anthill-cloud | **23** | 0 | 183 | was 0 — Bug 1 added Nuxt fetch detection |
+| trpc | 5 | 0 | 35 | unchanged |
+| nuxt/ui | 2 | 0 | 130 | unchanged |
+| vueuse | 2 | 0 | 14 | unchanged |
+| pallets/click | 5 | 0 | 16 | unchanged |
 
-| Project | HTTP_CALLS | HANDLES | route nodes |
-|---|---:|---:|---:|
-| cortex | 76 (mostly false-positive — see below) | 0 | 41 |
-| anthill-cloud | **0** | 0 | 170 |
-| trpc | 5 | 0 | 35 |
-| nuxt/ui | 2 | 0 | 130 |
-| vueuse | 2 | 0 | 14 |
-| pallets/click | 5 | 0 | 16 |
+**Remaining work:**
 
-The three bugs:
+3. **HANDLES = 0 universally** — see "Bug 3" section above for the refined diagnosis. Next session should pick a single routing pattern (recommended: Nuxt file-based) and implement a new route extractor end-to-end with a real fixture trace. Estimated effort: medium for Nuxt alone (1 day).
 
-1. **anthill-cloud has zero HTTP_CALLS despite 50+ real `$fetch("/api/...")` calls.** Nuxt's `$fetch`, `useFetch`, `useLazyFetch`, and native browser `fetch` aren't in the http_libraries registry at [internal/indexer/extract/service_patterns.c](internal/indexer/extract/service_patterns.c). Smallest fix: add them. Estimated effort: small — one C-file edit, rebuild via `scripts/build-indexer.sh`, reindex.
-
-2. **cortex has 76 false-positive HTTP_CALLS.** Sample edge: `url_path: "/src/main.go", via: "arg_url"`. The URL detection logic in [internal/indexer/src/pipeline/pass_calls.c](internal/indexer/src/pipeline/pass_calls.c) treats any first-string-arg starting with `/` as a URL. Needs a discriminator (e.g., reject if extension suggests source file: `.go`, `.ts`, `.c`, `.py`, …). Estimated effort: small.
-
-3. **HANDLES = 0 universally** across every project — even cortex's 41 route nodes have zero HANDLES. The pipeline pass exists at [internal/indexer/src/pipeline/pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) ("ensure_decorator_routes" + "match_infra_routes") but emits nothing in any indexed project. Either route-decorator extraction isn't populating the `route_path` property on function nodes, or `match_one_infra_route` is silently failing. Estimated effort: medium — requires reading the pass thoroughly and tracing why no edges are produced.
-
-**Why this stalled out at the end of this session:** these are C-indexer changes with a separate build cycle (`scripts/build-indexer.sh` → `make -f Makefile.indexer`), separate test framework ([internal/indexer/tests/](internal/indexer/tests/), 42 C test files), and each fix needs reindexing real corpora to verify. None of the TS/Node tooling used for this session's other workstreams applies.
-
-**Suggested handling next session:**
-- Start with bug #1 (Nuxt fetch registry expansion) — cheapest, validates the C-side dev loop is working before attempting the harder ones.
-- Then bug #2 (false-positive discriminator) — also small.
-- Bug #3 (HANDLES universal zero) — own session; read `pass_route_nodes.c` carefully first, possibly trace with a real fixture before writing changes.
+4. **Template-literal URL arg extraction** (new follow-up to Bug 1). `extract_positional_url` in [extract_calls.c:531-545](internal/indexer/extract/extract_calls.c#L531-L545) only accepts simple string node kinds. Adding `template_string` (TS) and `formatted_string` (Python) would recover ~47 more anthill-cloud `$fetch` calls plus similar in other Nuxt/Python projects. Need to handle interpolations carefully — convert `` `/api/${id}` `` to `/api/:id` (the normalize_url_arg already has logic for this in pass_parallel.c). Estimated effort: small.
 
 ### Item 2 — Decision-capture process gap
 
@@ -120,20 +146,19 @@ These survived multiple sessions; not deliberately ignored, just unprioritized:
 
 ## What's in main right now
 
-Top 10 commits:
+Top commits (4 ahead of `origin/main`, not pushed):
 
 ```
-e13982d Merge branch 'feature/mcp/input-resolver'      (queue item complete: MCP input resolver)
+fe92f5c Merge branch 'fix/indexer/url-arg-discriminator'  (Bug 2: cortex 76→25 HTTP_CALLS)
+1949eab fix(indexer): reject filesystem-path strings in URL-arg HTTP_CALLS detection
+5700759 Merge branch 'fix/indexer/nuxt-fetch-registry'    (Bug 1: anthill 0→23 HTTP_CALLS)
+945056f fix(indexer): emit HTTP_CALLS for unresolved global HTTP callees
+ed90450 docs(handoff): refresh for 2026-05-25 — CLI, MCP robustness, input resolver shipped
+e13982d Merge branch 'feature/mcp/input-resolver'         (queue item complete: MCP input resolver)
 1b9f31c feat(mcp): why_was_this_built accepts bare symbol names
 c29172a feat(mcp): trace_path accepts file paths and bare names
 62b524f feat(mcp): get_code_snippet accepts raw file paths and bare names
 e6efacc refactor(resolve-input): extract heuristic into src/shared
-e4c4010 Merge branch 'fix/cli/qa-followups-2'          (queue item complete: second QA pass)
-606fc93 fix(cli): second QA pass — repo-root resolution, install hardening, db probe safety
-4519415 Merge branch 'feature/mcp/tool-robustness'     (queue item complete: MCP robustness)
-271ef01 feat(mcp): governs on update_decision
-…
-d3159c4 Merge branch 'feature/cli/user-friendly'       (queue item complete: user-friendly CLI)
 ```
 
 Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
@@ -150,29 +175,42 @@ cortex tour                              # confirm CLI works from cortex repo
 npm test                                 # expect 487 passed / 1 skipped / 1 documented flake
 ```
 
-### If picking up HTTP_CALLS / HANDLES (Item 1):
+### If picking up the template-literal follow-up (smallest remaining piece):
 
-Don't dive into the C indexer cold. Start with diagnostics to confirm the bug list is still current, then pick the smallest:
+Goal: add `template_string` (TS) to `is_string_like()` in [extract_calls.c:40-44](internal/indexer/extract/extract_calls.c#L40-L44) so calls like `` $fetch(`/api/${id}`) `` get their URL captured. The URL normalizer in pass_parallel.c already handles `${...}` → `:varname` (see `normalize_url_arg`), so the rest of the pipeline is ready.
 
 ```bash
-# Re-confirm the bug list before touching code
-for db in ~/.cache/cortex-indexer/*.db; do
-  name=$(basename "$db" .db)
-  http=$(sqlite3 "$db" "SELECT COUNT(*) FROM edges WHERE relation = 'HTTP_CALLS'" 2>/dev/null)
-  handles=$(sqlite3 "$db" "SELECT COUNT(*) FROM edges WHERE relation = 'HANDLES'" 2>/dev/null)
-  echo "http=$http handles=$handles  $name"
-done | sort -k1,1 -k2,2 -r | head -10
-
-# For Bug 1 (Nuxt fetch registry expansion):
-$EDITOR internal/indexer/extract/service_patterns.c     # add $fetch / useFetch / useLazyFetch to http_libraries[]
-bash scripts/build-indexer.sh                            # rebuild bin/cortex-indexer
-cortex index .                                           # reindex cortex
-cd ~/Development/anthill-cloud && cortex index .         # reindex anthill-cloud
+# Reindex anthill-cloud first to baseline:
+cortex index delete Users-rka-Development-anthill-cloud
+cd ~/Development/anthill-cloud && /Users/rka/Development/cortex/bin/cortex-indexer cli index_repository '{"repo_path":"/Users/rka/Development/anthill-cloud"}'
 sqlite3 ~/.cache/cortex-indexer/Users-rka-Development-anthill-cloud.db \
-  "SELECT COUNT(*) FROM edges WHERE relation = 'HTTP_CALLS'"  # expect > 0
+  "SELECT COUNT(*) FROM edges WHERE relation='HTTP_CALLS'"   # expect 23 baseline
+# After fix, expect ~70 (the ~47 template-literal $fetch + the 23 plain-string ones)
 ```
 
-For Bug 2 / Bug 3, read the spec section in this doc and the listed C files before writing changes. Both are smaller than they look but deserve a fresh session that's set up for C-side debugging (gdb/lldb, the existing C test framework).
+After is_string_like is widened, also ensure the strip_and_validate_string_arg path handles backtick stripping correctly — it currently checks `text[0] == '"' || text[0] == '\''` only.
+
+### If picking up Bug 3 (HANDLES, Nuxt file-based routing):
+
+This needs its own focused session. Read order: [pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) (the emission logic — already correct), then [extract_defs.c:780-810](internal/indexer/extract/extract_defs.c#L780-L810) (where decorator routes get extracted), then look at how Nuxt routes are structured:
+
+```bash
+# Trace a real Nuxt route file
+ls ~/Development/anthill-cloud/apps/activator/server/api/orgs/
+# index.get.ts, index.post.ts, [id].get.ts, [id].patch.ts, …
+
+# The file's default export is the handler — find it in the index:
+sqlite3 ~/.cache/cortex-indexer/Users-rka-Development-anthill-cloud.db \
+  "SELECT id, kind, name, qualified_name FROM nodes WHERE file_path = 'apps/activator/server/api/orgs/index.get.ts'"
+# Currently: only file + module nodes. The handler arrow function inside defineEventHandler isn't captured as a Function.
+```
+
+Suggested approach: add a new pass (or extend pass_definitions) that:
+1. Walks `result->defs` and for each module-level `export default defineEventHandler(...)`, captures the inner arrow function as a Function node.
+2. Computes `route_path` from the file path (translate `[id]` → `:id`, strip `.get.ts` etc.).
+3. Sets `route_method` from the filename suffix (`.get.ts` → GET).
+
+Existing pass_route_nodes.c will then pick those functions up via `ensure_decorator_routes` and emit HANDLES.
 
 ### If picking up Item 2 (decision capture):
 
