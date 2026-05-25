@@ -57,9 +57,9 @@ export function createServer(
     links: decisionLinksRepo,
   });
 
-  registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo);
+  registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo, indexerProject, graphDbPath);
   registerPromotionTools(server, decisionPromotion);
-  registerCodeTools(server, store, indexerProject);
+  registerCodeTools(server, store, indexerProject, graphDbPath);
   registerPRTools(server, prService);
 
   return server;

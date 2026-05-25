@@ -33,7 +33,8 @@ export type ErrorReason =
   | "binary_failed"
   | "malformed_input"
   | "internal_error"
-  | "fs_error";
+  | "fs_error"
+  | "ambiguous_input";
 
 export function ok(text: string) {
   return { content: [{ type: "text" as const, text }] };
