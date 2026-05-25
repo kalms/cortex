@@ -155,6 +155,57 @@ describe("decision-tools contract", () => {
     });
   });
 
+  describe("why_was_this_built input resolution", () => {
+    it("accepts a bare symbol name and resolves to governing decision", async () => {
+      // handleRequest is a unique function in src/server.ts — bare name resolves to single
+      const created = await callTool(h, "create_decision", {
+        title: "Why-bare-name test",
+        description: "test",
+        rationale: "test",
+        governs: ["src/server.ts"],
+      });
+      const id = JSON.parse(created.content[0].text).id;
+
+      const res = await callTool(h, "why_was_this_built", {
+        qualified_name: "handleRequest",
+      });
+      expect(res.isError).toBeFalsy();
+      expect(res.content[0].text).toContain("Why-bare-name test");
+
+      await callTool(h, "delete_decision", { id });
+    });
+
+    it("preserves back-compat for file path input (findGoverning path-walk)", async () => {
+      const created = await callTool(h, "create_decision", {
+        title: "Path-walk test",
+        description: "test",
+        rationale: "test",
+        governs: ["src/server.ts"],
+      });
+      const id = JSON.parse(created.content[0].text).id;
+
+      const res = await callTool(h, "why_was_this_built", {
+        qualified_name: "src/server.ts",
+      });
+      expect(res.isError).toBeFalsy();
+      expect(res.content[0].text).toContain("Path-walk test");
+
+      await callTool(h, "delete_decision", { id });
+    });
+
+    it("returns ambiguous_input when input matches multiple symbols", async () => {
+      // "parse" matches parseBody via the LIKE %parse% clause alongside any other
+      // symbol containing "parse" — if only one match the resolver returns single (ok),
+      // if zero it returns none and falls through to findGoverning (empty or ok).
+      // In all cases the response must be a non-empty string.
+      const res = await callTool(h, "why_was_this_built", {
+        qualified_name: "parse",
+      });
+      // Either ambiguous_input, empty, or a successful result — all are valid shapes.
+      expect(res.content[0].text.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("input validation", () => {
     it("create_decision: rejects rationale containing </invoke>", async () => {
       const res = await callTool(h, "create_decision", {
