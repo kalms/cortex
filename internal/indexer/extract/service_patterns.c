@@ -406,6 +406,21 @@ static const method_suffix_t route_reg_suffixes[] = {
     {NULL, NULL},
 };
 
+/* Globally-available HTTP client callees — matched on the bare callee name.
+ * These are functions that never appear in an IMPORTS edge:
+ *   - Nuxt 3 auto-imports: $fetch, useFetch, useLazyFetch
+ *   - Browser / Node 18+ global: fetch
+ * Substring matching on the resolved QN (the http_libraries path) misses
+ * them because resolution returns nothing. Match these exactly on the
+ * full callee_name string in the unresolved-call branch of pass_calls. */
+static const char *const global_http_callees[] = {
+    "$fetch",
+    "useFetch",
+    "useLazyFetch",
+    "fetch",
+    NULL,
+};
+
 /* ── HTTP method inference from function/method name suffix ───── */
 
 static const method_suffix_t method_suffixes[] = {
@@ -501,6 +516,18 @@ const char *ctx_service_pattern_route_method(const char *callee_name) {
         }
     }
     return NULL;
+}
+
+bool ctx_service_pattern_is_global_http(const char *callee_name) {
+    if (!callee_name || !callee_name[0]) {
+        return false;
+    }
+    for (int i = 0; global_http_callees[i] != NULL; i++) {
+        if (strcmp(callee_name, global_http_callees[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 const char *ctx_service_pattern_broker(const char *resolved_qn) {

@@ -21,6 +21,7 @@ extern void suite_str_util(void);
 extern void suite_platform(void);
 extern void suite_extraction(void);
 extern void suite_ac(void);
+extern void suite_service_patterns(void);
 extern void suite_store_nodes(void);
 extern void suite_store_edges(void);
 extern void suite_store_search(void);
@@ -69,6 +70,7 @@ int main(void) {
     /* Existing C code regression tests */
     RUN_SUITE(ac);
     RUN_SUITE(extraction);
+    RUN_SUITE(service_patterns);
 
     /* Store (M5) */
     RUN_SUITE(store_nodes);
