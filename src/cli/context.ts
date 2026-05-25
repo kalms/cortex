@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { GraphStore } from "../graph/store.js";
+import Database from "better-sqlite3";
 
 export type ProjectState = "indexed" | "unindexed-repo" | "no-project";
 
@@ -32,18 +32,32 @@ function findGitRoot(start: string): string | null {
  * Cheap probe: does this graph.db contain at least one node for the given
  * project? Used to discard a graph.db that physically exists but holds data
  * for a different project (a common state when .cortex/graph.db is reused
- * by another repo's MCP session). Returns false on any error.
+ * by another repo's MCP session).
+ *
+ * Opens read-only — never mutates the file via CREATE TABLE IF NOT EXISTS,
+ * which is what a default better-sqlite3 / GraphStore open would do. That
+ * matters when an active indexer holds the write lock: a write-mode open
+ * would throw 'database is locked' and the catch would falsely report
+ * 'no data' even though the local db is the right one.
  */
 function dbHasProjectData(dbPath: string, projectName: string): boolean {
+  let db: Database.Database | null = null;
   try {
-    const store = new GraphStore(dbPath);
-    const rows = store.queryRaw<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM nodes WHERE project = ?",
-      [projectName],
-    );
-    return (rows[0]?.n ?? 0) > 0;
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    // The file may exist but not be a graph.db yet (e.g. an empty placeholder
+    // created by a test); guard the table-existence check before counting.
+    const hasNodes = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'")
+      .get();
+    if (!hasNodes) return false;
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM nodes WHERE project = ?")
+      .get(projectName) as { n: number } | undefined;
+    return (row?.n ?? 0) > 0;
   } catch {
     return false;
+  } finally {
+    db?.close();
   }
 }
 
