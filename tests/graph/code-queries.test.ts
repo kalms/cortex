@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { GraphStore } from "../../src/graph/store.js";
-import { searchGraph, tracePath, getGraphSchema, listProjects, indexStatus } from "../../src/graph/code-queries.js";
+import { searchGraph, tracePath, getGraphSchema, listProjects, listProjectsUnified, indexStatus } from "../../src/graph/code-queries.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -82,5 +82,26 @@ describe("code-queries against unified cortex.db", () => {
     const all = store.getAllNodesUnified(project);
     const hasIndexerRows = all.some((n) => n.id.startsWith("ctx-"));
     expect(hasIndexerRows).toBe(true);
+  });
+
+  it("listProjectsUnified includes bound-store projects + cache-resident projects", () => {
+    // listProjects on the bound store knows about exactly this fixture project.
+    const bound = listProjects(store);
+    expect(bound.find((p) => p.name === project)).toBeDefined();
+
+    // listProjectsUnified must include it too (passthrough) AND ideally surface
+    // every other cache-resident project so the viewer / project-switcher can
+    // see across the indexer's full registry. We can't assert cache size here
+    // (the test machine may have an empty cache), but we can verify the bound
+    // project is still present and that the function doesn't throw when the
+    // cache dir is missing or has unreadable .db files.
+    const unified = listProjectsUnified(store);
+    expect(unified.find((p) => p.name === project)).toBeDefined();
+    expect(unified.length).toBeGreaterThanOrEqual(bound.length);
+
+    // Bound store wins on name conflict — the fixture project's root_path
+    // must match the bound row, not be overwritten by any stale cache entry.
+    const fixtureRow = unified.find((p) => p.name === project)!;
+    expect(fixtureRow.root_path).toBe(bound.find((p) => p.name === project)!.root_path);
   });
 });
