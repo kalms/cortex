@@ -29,7 +29,7 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       shell("index_status", { project: ctx.projectName ?? "" });
       return;
     case "changes":
-      shell("detect_changes", { repo_path: ctx.cwd });
+      shell("detect_changes", { project: ctx.projectName ?? "" });
       return;
     case "list":
       shell("list_projects", {});
