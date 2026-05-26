@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
-import { listProjects, listProjectsUnified } from "../graph/code-queries.js";
+import { listProjects, listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
@@ -52,18 +52,31 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const nodes = store.getAllNodesUnified(project ?? undefined);
-        const rawEdges = store.getAllEdgesUnified(project ?? undefined);
-        const edges = rawEdges.map((e) => ({
-          ...e,
-          source: e.source_id,
-          target: e.target_id,
-        }));
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({ nodes, edges, project: project ?? null }));
+        const resolved = openProjectStore(store, indexerProject, project);
+        if (!resolved) {
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ nodes: [], edges: [], project: project ?? null }));
+          return;
+        }
+        try {
+          const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
+          const rawEdges = resolved.store.getAllEdgesUnified(project ?? undefined);
+          const edges = rawEdges.map((e) => ({
+            ...e,
+            source: e.source_id,
+            target: e.target_id,
+          }));
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ nodes, edges, project: project ?? null }));
+        } finally {
+          if (resolved.owned) resolved.store.close();
+        }
         return;
       }
 
@@ -104,15 +117,19 @@ export function startViewerServer(
           return;
         }
         const links = decisionLinksRepo.findByDecision(id);
-        const { nodesByPath, framesByPath } = buildPathIndices(
-          store.getAllNodesUnified(indexerProject ?? undefined),
-        );
-        const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify(adapted));
+        const resolved = openProjectStore(store, indexerProject, indexerProject);
+        const nodes = resolved ? resolved.store.getAllNodesUnified(indexerProject ?? undefined) : [];
+        try {
+          const { nodesByPath, framesByPath } = buildPathIndices(nodes);
+          const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify(adapted));
+        } finally {
+          if (resolved?.owned) resolved.store.close();
+        }
         return;
       }
 
@@ -127,15 +144,19 @@ export function startViewerServer(
         const project = projectParam ?? indexerProject ?? undefined;
         const records = decisionsRepo.list();
         const allLinks = records.flatMap((r) => decisionLinksRepo.findByDecision(r.id));
-        const { nodesByPath, framesByPath } = buildPathIndices(
-          store.getAllNodesUnified(project ?? undefined),
-        );
-        const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({ decisions }));
+        const resolved = openProjectStore(store, indexerProject, project);
+        const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
+        try {
+          const { nodesByPath, framesByPath } = buildPathIndices(nodes);
+          const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ decisions }));
+        } finally {
+          if (resolved?.owned) resolved.store.close();
+        }
         return;
       }
 
@@ -143,17 +164,22 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const nodes = store.getAllNodesUnified(project ?? undefined);
-        const paths: string[] = [];
-        for (const n of nodes) {
-          if (n.kind === "file" && n.file_path) paths.push(n.file_path);
+        const resolved = openProjectStore(store, indexerProject, project);
+        const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
+        try {
+          const paths: string[] = [];
+          for (const n of nodes) {
+            if (n.kind === "file" && n.file_path) paths.push(n.file_path);
+          }
+          const aggregates = groupAuxiliaryPaths(paths);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ aggregates }));
+        } finally {
+          if (resolved?.owned) resolved.store.close();
         }
-        const aggregates = groupAuxiliaryPaths(paths);
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({ aggregates }));
         return;
       }
 
@@ -161,14 +187,27 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const nodes = store.getAllNodesUnified(project ?? undefined);
-        const edges = store.getAllEdgesUnified(project ?? undefined);
-        const file_edges = buildFileEdges(nodes, edges);
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({ file_edges }));
+        const resolved = openProjectStore(store, indexerProject, project);
+        if (!resolved) {
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ file_edges: [] }));
+          return;
+        }
+        try {
+          const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
+          const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
+          const file_edges = buildFileEdges(nodes, edges);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ file_edges }));
+        } finally {
+          if (resolved.owned) resolved.store.close();
+        }
         return;
       }
 
