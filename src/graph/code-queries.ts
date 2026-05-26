@@ -1,8 +1,7 @@
 import { GraphStore } from "./store.js";
-import { readdirSync } from "node:fs";
+import { readdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 
 /**
  * After Phase 4, code-entity rows live in `nodes` with `kind` as discriminator.
@@ -159,22 +158,51 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
     if (out.has(projectName)) continue;
 
     const dbPath = join(cacheDir, name);
-    let db: Database.Database | null = null;
+    let cacheStore: GraphStore | null = null;
     try {
-      // readonly + fileMustExist: don't mutate cache schemas, don't auto-create.
-      db = new Database(dbPath, { readonly: true, fileMustExist: true });
-      const row = db
-        .prepare("SELECT name, indexed_at, root_path FROM ctx_projects WHERE name = ?")
-        .get(projectName) as IndexerProject | undefined;
-      if (row) out.set(projectName, row);
+      cacheStore = new GraphStore(dbPath, { readonly: true });
+      const rows = cacheStore.queryRaw<IndexerProject>(
+        "SELECT name, indexed_at, root_path FROM ctx_projects WHERE name = ?",
+        [projectName],
+      );
+      if (rows[0]) out.set(projectName, rows[0]);
     } catch {
       // Skip unreadable / empty / pre-migration cache DBs.
     } finally {
-      db?.close();
+      cacheStore?.close();
     }
   }
 
   return Array.from(out.values());
+}
+
+/* Resolve which GraphStore to read from for a given project request.
+ *
+ * Returns:
+ *  - { store: boundStore, owned: false }  when the request is for the bound
+ *    project (or no project specified) — caller must NOT close.
+ *  - { store: <fresh read-only>, owned: true }  when the request is for a
+ *    cache-resident project — caller MUST close in `finally`.
+ *  - null when the requested project isn't in the cache either.
+ *
+ * The /api/* HTTP endpoints use this to serve multi-project queries without
+ * the Cortex-Vue server needing to be restarted per-project. */
+export function openProjectStore(
+  boundStore: GraphStore,
+  boundProject: string | null | undefined,
+  requestedProject: string | null | undefined,
+): { store: GraphStore; owned: boolean } | null {
+  if (!requestedProject || requestedProject === boundProject) {
+    return { store: boundStore, owned: false };
+  }
+  const cachePath = join(homedir(), ".cache", "cortex-indexer", `${requestedProject}.db`);
+  if (!existsSync(cachePath)) return null;
+  try {
+    const store = new GraphStore(cachePath, { readonly: true });
+    return { store, owned: true };
+  } catch {
+    return null;
+  }
 }
 
 export function indexStatus(store: GraphStore, rootPath: string): IndexerProject | null {
