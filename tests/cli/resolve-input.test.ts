@@ -64,4 +64,47 @@ describe("resolveInput", () => {
     expect(() => resolveInput("apps/missing.vue", project, dbPath))
       .toThrow(DomainError);
   });
+
+  it("file:symbol form: resolves to the named symbol within the file", () => {
+    store.createNode({
+      kind: "function", name: "createFoundationStore",
+      file_path: "apps/activator/app/stores/_foundationFactory.ts",
+      qualified_name: "test-project.apps.activator.app.stores._foundationFactory.createFoundationStore",
+    });
+    store.createNode({
+      kind: "interface", name: "FoundationStoreConfig",
+      file_path: "apps/activator/app/stores/_foundationFactory.ts",
+      qualified_name: "test-project.apps.activator.app.stores._foundationFactory.FoundationStoreConfig",
+    });
+    const result = resolveInput(
+      "apps/activator/app/stores/_foundationFactory.ts:createFoundationStore",
+      project,
+      dbPath,
+    );
+    expect("qn" in result).toBe(true);
+    if ("qn" in result) {
+      expect(result.qn).toBe(
+        "test-project.apps.activator.app.stores._foundationFactory.createFoundationStore",
+      );
+    }
+  });
+
+  it("file:symbol form: tail-match file path is enough", () => {
+    store.createNode({
+      kind: "function", name: "render",
+      file_path: "src/components/Card.tsx",
+      qualified_name: "test-project.src.components.Card.render",
+    });
+    const result = resolveInput("Card.tsx:render", project, dbPath);
+    expect("qn" in result).toBe(true);
+  });
+
+  it("file:symbol form: unknown symbol throws DomainError, not silent file lookup", () => {
+    store.createNode({
+      kind: "function", name: "doThing",
+      file_path: "a.ts",
+      qualified_name: "test-project.a.doThing",
+    });
+    expect(() => resolveInput("a.ts:notHere", project, dbPath)).toThrow(DomainError);
+  });
 });
