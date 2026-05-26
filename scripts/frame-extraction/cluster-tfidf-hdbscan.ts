@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { collectBlobsFromGraph } from "./text-blob.js";
 import type { ClusterResult, FileBlob } from "./types.js";
+import { venvPythonBin } from "../../src/frame-extraction/venv.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
-const PYTHON_BIN = join(REPO_ROOT, "scripts", "frame-extraction", "python", ".venv", "bin", "python");
 const PYTHON_SCRIPT = join(REPO_ROOT, "scripts", "frame-extraction", "python", "tfidf_hdbscan.py");
 const DEFAULT_OUT_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "clusters");
 const BLOBS_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "blobs");
@@ -26,6 +26,10 @@ const DEFAULT_CO_CHANGE_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "co-ch
 export interface RunOptions {
   /** Absolute path to a repo containing .cortex/graph.db. */
   repo_path: string;
+  /** Explicit graph DB path. When set, overrides the <repo>/.cortex/db
+   *  lookup — the integrated post-index helper passes the exact DB the
+   *  indexer just wrote (cache DB or .cortex/db). */
+  db_path?: string;
   /** Project name (matches what cortex-indexer stored — usually derived
    *  from the repo path). If null, defaults to the directory basename. */
   project_name?: string | null;
@@ -56,23 +60,26 @@ export interface RunResult {
 /** Run the full pipeline: extract blobs, spawn Python, parse output.
  *  Throws on failure with a descriptive message. */
 export function runTfIdfHdbscan(opts: RunOptions): RunResult {
-  if (!existsSync(PYTHON_BIN)) {
+  const pythonBin = venvPythonBin();
+  if (!existsSync(pythonBin)) {
     throw new Error(
-      `Python venv not found at ${PYTHON_BIN}. ` +
-      `Run \`npm run setup-python\` first.`,
+      `Python venv not found at ${pythonBin}. Run \`cortex setup frames\` first.`,
     );
   }
-  // Prefer the path resolveCortexDbPath() returns today (`<repo>/.cortex/db`,
-  // no extension). Fall back to the legacy `<repo>/.cortex/graph.db` so
-  // pre-existing repos keep working.
-  const dbCandidates = [
-    join(opts.repo_path, ".cortex", "db"),
-    join(opts.repo_path, ".cortex", "graph.db"),
-  ];
-  const graphDbPath = dbCandidates.find((p) => existsSync(p));
+  // Explicit db_path wins; otherwise fall back to the in-repo .cortex DB
+  // (keeps the standalone `tsx cluster-tfidf-hdbscan.ts <repo>` CLI working).
+  let graphDbPath: string | undefined;
+  if (opts.db_path) {
+    graphDbPath = existsSync(opts.db_path) ? opts.db_path : undefined;
+  } else {
+    graphDbPath = [
+      join(opts.repo_path, ".cortex", "db"),
+      join(opts.repo_path, ".cortex", "graph.db"),
+    ].find((p) => existsSync(p));
+  }
   if (!graphDbPath) {
     throw new Error(
-      `No graph DB at ${dbCandidates.join(" or ")}. ` +
+      `No graph DB found (db_path=${opts.db_path ?? "<repo>/.cortex/db"}). ` +
       `Index the repo with cortex-indexer first.`,
     );
   }
@@ -129,7 +136,7 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
   if (resolvedCoChange !== null) {
     args.push("--co-change", resolvedCoChange);
   }
-  const proc = spawnSync(PYTHON_BIN, args, { encoding: "utf-8" });
+  const proc = spawnSync(pythonBin, args, { encoding: "utf-8" });
   if (proc.error) {
     throw new Error(`Python spawn failed: ${proc.error.message}`);
   }
