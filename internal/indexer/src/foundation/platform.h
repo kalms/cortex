@@ -114,6 +114,14 @@ const char *ctx_resolve_cache_dir(void);
  */
 const char *ctx_resolve_db_path(const char *project, char *buf, size_t bufsz);
 
+/* Resolve a project's .db path in the standalone-indexer cache, ignoring
+ * any CORTEX_DB env override. Use this for per-project query/admin tools
+ * (resolve_store, delete_project) that must address an explicitly-named
+ * project's stored data — not whatever DB the caller's env happens to
+ * point at. ctx_resolve_db_path() is still right for the pipeline write
+ * path, where CORTEX_DB legitimately redirects writes for embedders. */
+const char *ctx_cache_db_path(const char *project, char *buf, size_t bufsz);
+
 /* ── File system ───────────────────────────────────────────────── */
 
 /* Check if a path exists. */

@@ -109,6 +109,42 @@ TEST(resolve_db_path_returns_null_with_null_project_and_no_env) {
     PASS();
 }
 
+/* ── ctx_cache_db_path: deliberately ignores CORTEX_DB env ──────── */
+
+TEST(cache_db_path_ignores_cortex_db_env) {
+    /* The whole point of this helper is multi-project query routing:
+     * an explicit project name must always resolve to the cache, not
+     * whatever the caller's CORTEX_DB env happens to be. */
+    setenv("CORTEX_DB", "/tmp/should-be-ignored.db", 1);
+    char buf[1024];
+    const char *result = ctx_cache_db_path("rosalind", buf, sizeof(buf));
+    ASSERT_NOT_NULL(result);
+    /* Must end in "/rosalind.db" — must NOT be the env value */
+    size_t n = strlen(result);
+    ASSERT_TRUE(n > strlen("/rosalind.db"));
+    ASSERT_STR_EQ(result + n - strlen("/rosalind.db"), "/rosalind.db");
+    ASSERT_STR_NEQ(result, "/tmp/should-be-ignored.db");
+    unsetenv("CORTEX_DB");
+    PASS();
+}
+
+TEST(cache_db_path_works_without_env) {
+    unsetenv("CORTEX_DB");
+    char buf[1024];
+    const char *result = ctx_cache_db_path("myproj", buf, sizeof(buf));
+    ASSERT_NOT_NULL(result);
+    size_t n = strlen(result);
+    ASSERT_STR_EQ(result + n - strlen("/myproj.db"), "/myproj.db");
+    PASS();
+}
+
+TEST(cache_db_path_null_project_returns_null) {
+    char buf[1024];
+    ASSERT_NULL(ctx_cache_db_path(NULL, buf, sizeof(buf)));
+    ASSERT_NULL(ctx_cache_db_path("", buf, sizeof(buf)));
+    PASS();
+}
+
 SUITE(platform) {
     RUN_TEST(platform_now_ns);
     RUN_TEST(platform_now_ms);
@@ -122,4 +158,7 @@ SUITE(platform) {
     RUN_TEST(resolve_db_path_falls_back_to_cache_dir_when_env_unset);
     RUN_TEST(resolve_db_path_handles_null_project_in_env_mode);
     RUN_TEST(resolve_db_path_returns_null_with_null_project_and_no_env);
+    RUN_TEST(cache_db_path_ignores_cortex_db_env);
+    RUN_TEST(cache_db_path_works_without_env);
+    RUN_TEST(cache_db_path_null_project_returns_null);
 }

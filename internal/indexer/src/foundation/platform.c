@@ -395,3 +395,15 @@ const char *ctx_resolve_db_path(const char *project, char *buf, size_t bufsz) {
     snprintf(buf, bufsz, "%s/%s.db", cdir, project);
     return buf;
 }
+
+const char *ctx_cache_db_path(const char *project, char *buf, size_t bufsz) {
+    if (!buf || bufsz == 0 || !project || !project[0]) {
+        return NULL;
+    }
+    const char *cdir = ctx_resolve_cache_dir();
+    if (!cdir) {
+        cdir = ctx_tmpdir();
+    }
+    snprintf(buf, bufsz, "%s/%s.db", cdir, project);
+    return buf;
+}
