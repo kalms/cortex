@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
-import { listProjects } from "../graph/code-queries.js";
+import { listProjects, listProjectsUnified } from "../graph/code-queries.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
@@ -68,9 +68,13 @@ export function startViewerServer(
       }
 
       if (url === "/api/projects") {
+        // Union of bound store (Cortex-Vue's local .cortex/db) + indexer cache.
+        // Previously only the bound store was queried, so cache-resident
+        // projects (everything indexed via the cortex CLI from elsewhere)
+        // were invisible to the viewer's project switcher.
         let projects: ReturnType<typeof listProjects> = [];
         try {
-          projects = listProjects(store);
+          projects = listProjectsUnified(store);
         } catch {
           // No ctx_projects table yet — return empty.
         }
