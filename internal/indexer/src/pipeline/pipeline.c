@@ -432,10 +432,38 @@ static void ctx_pipeline_process_infra_bindings(ctx_gbuf_t *gbuf, const ctx_file
     }
 }
 
+/* Lockfile basenames that look like infra files (YAML/TOML) but contain only
+ * dependency-resolution noise — typically thousands of registry tarball URLs.
+ * Treating these as a source of infra routes pollutes the Route label (170 of
+ * anthill-cloud's 183 routes were pnpm-lock.yaml entries before this filter). */
+static bool is_lockfile_basename(const char *basename) {
+    if (!basename) {
+        return false;
+    }
+    static const char *const lockfiles[] = {
+        "pnpm-lock.yaml", "Cargo.lock", "Pipfile.lock", "poetry.lock", "uv.lock",
+        "Gemfile.lock",   "mix.lock",   "composer.lock", NULL,
+    };
+    for (int i = 0; lockfiles[i]; i++) {
+        if (strcmp(basename, lockfiles[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool is_infra_file(const char *fp) {
-    return fp != NULL &&
-           (strstr(fp, ".yaml") != NULL || strstr(fp, ".yml") != NULL ||
-            strstr(fp, ".tf") != NULL || strstr(fp, ".hcl") != NULL || strstr(fp, ".toml") != NULL);
+    if (fp == NULL) {
+        return false;
+    }
+    const char *basename = strrchr(fp, '/');
+    basename = basename ? basename + 1 : fp;
+    if (is_lockfile_basename(basename)) {
+        return false;
+    }
+    return strstr(fp, ".yaml") != NULL || strstr(fp, ".yml") != NULL ||
+           strstr(fp, ".tf") != NULL || strstr(fp, ".hcl") != NULL ||
+           strstr(fp, ".toml") != NULL;
 }
 
 /* Try to create an infra Route node from one string_ref. */
