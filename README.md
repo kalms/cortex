@@ -1,8 +1,12 @@
 # Cortex
 
-Knowledge graph MCP server with decision provenance. Combines a native structural code indexer with decision tracking on a unified SQLite knowledge graph, plus a 2D canvas graph viewer that renders code as semantic *frames* (clusters). The indexer is bundled in-tree under `internal/indexer/` and writes directly to Cortex's SQLite database — there is no separate codebase-memory subprocess or external dependency. (Indexer lineage: originally [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), absorbed via git subtree on 2026-05-04.)
+**The pre-frontal cortex for your codebase.**
 
-Cortex answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
+An agentic substrate — a knowledge graph of decisions, code, and the *why* behind both. Cortex lets agents and humans collaborate from shared understanding instead of constant re-explanation, with a native structural indexer, decision tracking on a unified SQLite graph, and a 2D canvas (Cortex) that renders code as semantic *frames*.
+
+Answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
+
+The indexer ships in-tree under `internal/indexer/` and writes directly to Cortex's SQLite database — no external dependency, no separate subprocess. Cortex is the substrate underneath **Mesh** — the IDE built to harness it.
 
 ## Installation
 
@@ -189,7 +193,7 @@ The simulation features in the prototype (multi-agent demo, synapse animations, 
 
 ## Native indexer
 
-Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/indexer/`. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download and no separate codebase-memory process.
+Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/indexer/`. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download and no separate subprocess.
 
 The indexer and Cortex's TypeScript layer share a single SQLite file (`.cortex/db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); PRs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
 
@@ -299,7 +303,6 @@ Major suites:
 | `CORTEX_VIEWER_PORT` | `3333` (plugin), `3334` (dev) | HTTP viewer port |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary |
 | `CORTEX_DB` | _(set by Cortex)_ | Same as `CORTEX_DB_PATH`, passed to the indexer subprocess |
-| `CBM_BINARY_PATH` | _(deprecated)_ | Backwards-compat fallback for `CORTEX_INDEXER_PATH` |
 
 ## Seeding test data
 
@@ -313,7 +316,7 @@ Seeds a small set of code entities + decisions for development.
 
 Cortex is split into two licensing zones:
 
-- **`internal/indexer/`** — derivative of [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp). Governed by the **MIT License** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)).
+- **`internal/indexer/`** — the native structural indexer. **MIT-licensed** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)); upstream attribution and full provenance in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
 - **Everything else** — Cortex's TypeScript code, viewer, MCP server, decision tooling, build scripts, plugin manifest, and documentation. **Proprietary, all rights reserved** (see the root [`LICENSE`](./LICENSE)).
 
 The indexer additionally vendors several C libraries (mimalloc, SQLite, TRE, xxHash, yyjson, tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary), each retaining its own upstream license. Full attribution, upstream licenses, and per-component sources are documented in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
