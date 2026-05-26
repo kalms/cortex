@@ -2,11 +2,12 @@
 
 ## TL;DR
 
-Picked up the C-indexer HTTP_CALLS / HANDLES queue from yesterday. Shipped Bug 1 (Nuxt fetch family detection: anthill-cloud 0→23 HTTP_CALLS) and Bug 2 (URL-arg discriminator: cortex 76→25 HTTP_CALLS, 51 false positives eliminated). Investigated Bug 3 and refined the diagnosis: it's not a pass_route_nodes.c bug — `extract_route_from_decorators` simply doesn't match the routing patterns used in any of the indexed projects (Nuxt file-based, tRPC procedures, Hono call-arg). That's new-extractor work, deferred to a focused next session.
+Two waves this session. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: a new field report from the agent in anthill-cloud landed mid-session ([docs/architecture/field reports/field-report-2026-05-26-cli-and-graph-coverage-followup.md](docs/architecture/field%20reports/field-report-2026-05-26-cli-and-graph-coverage-followup.md)). Triaged it and shipped the three small items immediately: lockfile-route noise (anthill-cloud 183→13 routes), `cortex index changes` bug fix, and `file:symbol` editor-jump form in resolveInput.
 
-- **Branch:** `main`, 4 commits ahead of `origin/main` (Bug 1 + Bug 2 + their merge commits — not pushed)
+- **Branch:** `main`, ~8 commits ahead of `origin/main` (Wave 1 + Wave 2 + their merge commits — not pushed)
 - **C tests:** new `service_patterns` suite passes 24/24. Pre-existing store/cypher/pipeline test failures are sanitizer-build issues unrelated to this work.
-- **Build:** `bin/cortex-indexer` clean, `npx tsc --noEmit` clean
+- **TS tests:** `resolve-input.test.ts` 8/8 pass (5 existing + 3 new for file:symbol form)
+- **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt)
 - **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
 
 ## What shipped this session (2026-05-26)
@@ -26,6 +27,20 @@ Adds `ctx_service_pattern_looks_like_http_url()` that rejects paths starting wit
 Wired into `normalize_url_arg` (pass_parallel's detect_url_in_args), `try_emit_global_http_call`, and `try_emit_global_http_call_parallel`.
 
 - **Impact:** cortex 76 → 25 HTTP_CALLS (51 FPs gone). The 25 remaining: 19 are legitimate `/api/...` paths from `src/mcp-server/api.ts` (Hono routes) + test fixtures, 6 are `/foo/bar/`, `/a/b/c/d/e` — generic-looking test data that the discriminator can't safely reject. No regressions in other indexes.
+
+### Field-report follow-ups (Wave 2, all merged)
+
+Triaged the 2026-05-26 field report and shipped the three small actionable items same session:
+
+- **Lockfile route noise** (merged: `fcde0e1` — `d85a746`): `is_infra_file` in [pipeline.c:435](internal/indexer/src/pipeline/pipeline.c#L435) accepted any `.yaml`/`.yml`/`.tf`/`.hcl`/`.toml` path, so pnpm-lock.yaml's thousands of tarball URLs were upserted as `__route__infra__` nodes. **anthill-cloud 183 → 13 Route nodes**, cortex 60 → 20, no other corpus affected. Filter is a small basename allowlist (pnpm-lock.yaml, Cargo.lock, Pipfile.lock, poetry.lock, uv.lock, Gemfile.lock, mix.lock, composer.lock).
+
+- **`cortex index changes` bug fix** (merged: `2a82a76` — `bd467cc`): one-line typo in [src/cli/commands/index.ts:32](src/cli/commands/index.ts#L32). The CLI passed `{ repo_path: ctx.cwd }` to `detect_changes` but the handler reads `{ project: ... }`. Now matches how `index status` is wired. SessionStart hook copy specifically points agents at this command — was a real usability hit.
+
+- **`file:symbol` editor-jump form in resolveInput** (merged: `5f29a16` — `4f89e77`): adds a pre-check for `path/to/file.ext:identifier` inputs (the natural form for jump-to-definition). Bare file paths and bare names still work as before. 3 new tests cover the editor-jump form, tail-match (`Card.tsx:render` works as well as the full path), and the negative case (unknown symbol throws DomainError instead of silently falling through to file lookup).
+
+**Field-report diagnoses that turned out to be wrong** (worth noting for the agent for next time):
+- Report said `.vue` files don't appear as `file` nodes. **Actually 99 are present.** The agent queried `WHERE f.qualified_name CONTAINS ".vue"` but file QNs strip the extension (`...pages.onboarding.__file__`). The data is there; the query was wrong. Worth a docs note or schema change to preserve the extension.
+- Report said Pinia stores aren't a node class because `useFoundationStore` returns zero. **Actually 16 other `use*Store` variables ARE indexed correctly** (useSlideLayoutsStore, useVariablesStore, …). The specific example uses a factory wrapper (`createFoundationStore()`) that hides the `defineStore` call, which IS a real gap — but the general pattern works.
 
 ### Bug 3 — HANDLES = 0 universally (diagnosed, deferred)
 
@@ -101,8 +116,8 @@ Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
 
 | Project | HTTP_CALLS | HANDLES | route nodes | Notes |
 |---|---:|---:|---:|---|
-| cortex | 25 | 0 | 20 | was 76 — Bug 2 removed 51 FPs |
-| anthill-cloud | **23** | 0 | 183 | was 0 — Bug 1 added Nuxt fetch detection |
+| cortex | 25 | 0 | 20 | was 76 HTTP_CALLS / 60 routes — Bug 2 + lockfile fix |
+| anthill-cloud | **23** | 0 | **13** | was 0 HTTP_CALLS / 183 routes — Bug 1 + lockfile fix |
 | trpc | 5 | 0 | 35 | unchanged |
 | nuxt/ui | 2 | 0 | 130 | unchanged |
 | vueuse | 2 | 0 | 14 | unchanged |
@@ -125,7 +140,7 @@ Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
 
 This same gap was noted in the older root HANDOFF.md too and hasn't been addressed. Open question: hook-based prompt at commit time? `/review-recent-commits` skill? Manual capture pass? Not investigated yet.
 
-### Item 3 — Polish items from the recent QA pass
+### Item 3 — Polish items from the recent QA pass + 2026-05-26 field report
 
 Tracked but deliberately deferred:
 - **`get_code_snippet` source extraction has no unit-test coverage** ([src/cli/commands/code.ts:99-123](src/cli/commands/code.ts#L99-L123)) — the `.source` field extraction silently falls back to dumping JSON if the indexer's payload shape ever changes. Add a unit test that mocks `runIndexer` and asserts only the source is written.
@@ -134,6 +149,12 @@ Tracked but deliberately deferred:
 - **`graph sql '<sql>'` is a footgun** — no read-only enforcement. Document or prepend `--readonly` to sqlite3 args.
 - **`tests/cli/context.test.ts:32`** — writes an empty file that the new read-only `dbHasProjectData` probe will happily open. Test passes by accident; should write valid sqlite header or skip the probe path explicitly.
 - **`pass_route_nodes.c`** comment claims governance edges aren't transactional; technically true for single-statement writes (atomic at SQLite level) but misleading for multi-statement bulk operations. Wrap in `db.transaction()` if you ever do bulk link writes.
+
+From the 2026-05-26 field report (after the three small items already shipped above):
+- **Preserve file extension in `file` node qualified-names** — file QNs end in `__file__` with no extension, so `WHERE qualified_name CONTAINS ".vue"` returns 0 even when 99 Vue file nodes exist. Either preserve the extension (small schema change, careful with downstream consumers) or document this convention prominently in `cortex help qualified-names`. Either way kills a whole class of agent false negatives.
+- **Recognize `defineStore` factory patterns** (Pinia) — direct `defineStore` calls already produce `use*Store` variable nodes. The factory pattern `createXxxStore(config)` that internally returns `defineStore(...)` produces only the factory function as a node, not the derived stores. Medium effort — needs to track call-site → defineStore returns through factory wrappers.
+- **Verify `governs` linking and `FILE_CHANGES_WITH` actually work against `.vue` file paths** — the field report claimed these were broken on the basis of the (wrong) "no .vue file nodes" diagnosis. Should be a verify-only task; if it works, just document.
+- **Investigate `<template>` references between components in `.vue` files** — `<ACardFooter />` template usage doesn't appear to create CALLS or USES edges. Unverified by the report; would close the last Vue-coverage gap.
 
 ### Item 4 — Open items from the older Phase 4 handoff that are still real
 
@@ -146,19 +167,21 @@ These survived multiple sessions; not deliberately ignored, just unprioritized:
 
 ## What's in main right now
 
-Top commits (4 ahead of `origin/main`, not pushed):
+Top commits (8 ahead of `origin/main` at handoff-update time, not yet pushed):
 
 ```
-fe92f5c Merge branch 'fix/indexer/url-arg-discriminator'  (Bug 2: cortex 76→25 HTTP_CALLS)
+61f1861 Merge branch 'fix/shared/resolve-input-file-symbol'   (Wave 2: editor-jump form)
+4f89e77 fix(shared/resolve-input): accept file:symbol editor-jump form
+2a82a76 Merge branch 'fix/cli/index-changes-resolution'       (Wave 2: index changes bug)
+bd467cc fix(cli): index changes uses 'project' arg, not 'repo_path'
+fcde0e1 Merge branch 'fix/indexer/lockfile-route-noise'       (Wave 2: lockfile routes)
+d85a746 fix(indexer): skip lockfile basenames in infra route extraction
+44263da docs(handoff): record Bug 1+2 shipped, refine Bug 3 diagnosis
+fe92f5c Merge branch 'fix/indexer/url-arg-discriminator'      (Bug 2: cortex 76→25 HTTP_CALLS)
 1949eab fix(indexer): reject filesystem-path strings in URL-arg HTTP_CALLS detection
-5700759 Merge branch 'fix/indexer/nuxt-fetch-registry'    (Bug 1: anthill 0→23 HTTP_CALLS)
+5700759 Merge branch 'fix/indexer/nuxt-fetch-registry'        (Bug 1: anthill 0→23 HTTP_CALLS)
 945056f fix(indexer): emit HTTP_CALLS for unresolved global HTTP callees
 ed90450 docs(handoff): refresh for 2026-05-25 — CLI, MCP robustness, input resolver shipped
-e13982d Merge branch 'feature/mcp/input-resolver'         (queue item complete: MCP input resolver)
-1b9f31c feat(mcp): why_was_this_built accepts bare symbol names
-c29172a feat(mcp): trace_path accepts file paths and bare names
-62b524f feat(mcp): get_code_snippet accepts raw file paths and bare names
-e6efacc refactor(resolve-input): extract heuristic into src/shared
 ```
 
 Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
