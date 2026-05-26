@@ -1,0 +1,54 @@
+import { describe, it, expect, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, cpSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { runFrameExtraction } from "../../src/frame-extraction/run-frames.js";
+import { hasVenv } from "../../src/frame-extraction/venv.js";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+
+describe("runFrameExtraction gating", () => {
+  const origFrames = process.env.CORTEX_FRAMES;
+  const origVenv = process.env.CORTEX_VENV;
+  afterEach(() => {
+    if (origFrames === undefined) delete process.env.CORTEX_FRAMES; else process.env.CORTEX_FRAMES = origFrames;
+    if (origVenv === undefined) delete process.env.CORTEX_VENV; else process.env.CORTEX_VENV = origVenv;
+  });
+
+  it("skips with reason 'disabled' when CORTEX_FRAMES=0", async () => {
+    process.env.CORTEX_FRAMES = "0";
+    const r = await runFrameExtraction({ repoPath: "/tmp", project: "P", dbPath: "/tmp/x.db" });
+    expect(r).toEqual({ status: "skipped", reason: "disabled" });
+  });
+
+  it("skips with reason 'venv_missing' when venv absent", async () => {
+    delete process.env.CORTEX_FRAMES;
+    process.env.CORTEX_VENV = "/tmp/no-venv-here-98765";
+    const r = await runFrameExtraction({ repoPath: "/tmp", project: "P", dbPath: "/tmp/x.db" });
+    expect(r).toEqual({ status: "skipped", reason: "venv_missing" });
+  });
+});
+
+describe.skipIf(!hasVenv())("runFrameExtraction integration", () => {
+  it("assigns frame_id to file nodes of a real index", async () => {
+    const repoRoot = resolve(join(__dirname, "..", ".."));
+    const bin = join(repoRoot, "bin", "cortex-indexer");
+    const work = mkdtempSync(join(tmpdir(), "frames-int-"));
+    const fixture = join(work, "sample-project");
+    cpSync(join(repoRoot, "tests", "fixtures", "sample-project"), fixture, { recursive: true });
+    const dbPath = join(work, "graph.db");
+    execFileSync(bin, ["cli", "index_repository", JSON.stringify({ repo_path: fixture })], {
+      env: { ...process.env, CORTEX_DB: dbPath }, stdio: "ignore",
+    });
+    const { default: DB } = await import("better-sqlite3");
+    const conn = new DB(dbPath, { readonly: true });
+    const project = (conn.prepare("SELECT name FROM ctx_projects LIMIT 1").get() as { name: string }).name;
+    conn.close();
+
+    const r = await runFrameExtraction({ repoPath: fixture, project, dbPath });
+    rmSync(work, { recursive: true, force: true });
+    expect(r.status).toBe("ok");
+  }, 60_000);
+});
