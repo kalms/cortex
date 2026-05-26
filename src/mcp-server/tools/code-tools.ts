@@ -69,6 +69,25 @@ async function callIndexer(tool: string, args: Record<string, unknown>, dbPath?:
   // Cortex would never see the data.
   const cortexDb = dbPath ?? resolveCortexDbPath();
   const subprocEnv = { ...process.env, CORTEX_DB: cortexDb };
+  return invokeIndexer(tool, args, subprocEnv);
+}
+
+// callIndexerCache — variant of callIndexer that DOES NOT set CORTEX_DB, so
+// the indexer resolves DB paths from the shared cache directory instead of
+// the bound Cortex DB. Use for tools that must address the indexer's full
+// project registry (list_projects, index_status) rather than just whatever
+// project this MCP server was started in.
+async function callIndexerCache(tool: string, args: Record<string, unknown>): Promise<IndexerCallResult> {
+  const subprocEnv = { ...process.env };
+  delete subprocEnv.CORTEX_DB;
+  return invokeIndexer(tool, args, subprocEnv);
+}
+
+async function invokeIndexer(
+  tool: string,
+  args: Record<string, unknown>,
+  subprocEnv: NodeJS.ProcessEnv,
+): Promise<IndexerCallResult> {
   try {
     const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,
@@ -408,26 +427,57 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
     }
   );
 
-  // 5L: list_projects with response helpers
+  // 5L: list_projects — union of (a) the bound store's ctx_projects table
+  // (covers Cortex-Vue's local .cortex/db case, where the indexer wrote via
+  // the CORTEX_DB env override) and (b) the standalone-indexer cache (covers
+  // every project indexed via the cortex CLI, regardless of cwd). Previously
+  // only (a) was returned, making 9 of 10 cache-indexed projects invisible
+  // to MCP callers — the 2026-05-26 multi-project-routing field report.
+  type ProjectRow = { name: string; root_path: string; nodes?: number; edges?: number; indexed_at?: string };
   server.tool(
     "list_projects",
     "List all indexed projects",
     {},
     async () => {
-      let projects;
+      const out = new Map<string, ProjectRow>();
+
+      // (a) bound store
       try {
-        projects = listProjects(store);
+        for (const p of listProjects(store)) {
+          out.set(p.name, p as ProjectRow);
+        }
       } catch (e) {
-        if (e instanceof Error && /no such table/i.test(e.message)) return empty("list_projects()");
-        throw e;
+        // ctx_projects may not exist on a freshly-initialised local DB
+        if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
       }
-      if (projects.length === 0) return empty("list_projects()");
-      const text = projects.map((p) => `${p.name} — ${p.root_path} (indexed: ${p.indexed_at})`).join("\n");
+
+      // (b) cache directory via indexer
+      const cacheResult = await callIndexerCache("list_projects", {});
+      if (!cacheResult.isError) {
+        try {
+          const parsed = JSON.parse(cacheResult.content[0]?.text ?? "{}");
+          for (const p of (parsed.projects ?? []) as ProjectRow[]) {
+            if (!out.has(p.name)) out.set(p.name, p);
+          }
+        } catch { /* ignore parse errors — bound store data already in out */ }
+      }
+
+      if (out.size === 0) return empty("list_projects()");
+      const text = Array.from(out.values())
+        .map((p) => {
+          const tail = p.nodes !== undefined
+            ? `  (${p.nodes} nodes, ${p.edges ?? 0} edges)`
+            : p.indexed_at ? ` (indexed: ${p.indexed_at})` : "";
+          return `${p.name} — ${p.root_path}${tail}`;
+        })
+        .join("\n");
       return ok(text);
     }
   );
 
-  // 5M: index_status with response helpers
+  // 5M: index_status — same union as list_projects. Check the bound store
+  // first (fast path, also covers MCP-server-only deployments), then fall
+  // through to the cache scan if no match. Both layers see the request.
   server.tool(
     "index_status",
     "Check if a repository is indexed",
@@ -436,15 +486,31 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
     },
     async ({ path }) => {
       const cwd = path || process.cwd();
-      let status;
+
+      // (a) bound store
       try {
-        status = indexStatus(store, cwd);
+        const status = indexStatus(store, cwd);
+        if (status) {
+          return ok(`Indexed: ${status.name} at ${status.root_path} (last: ${status.indexed_at})`);
+        }
       } catch (e) {
-        if (e instanceof Error && /no such table/i.test(e.message)) return empty(`index_status(${cwd})`);
-        throw e;
+        if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
       }
-      if (!status) return empty(`index_status(${cwd})`);
-      return ok(`Indexed: ${status.name} at ${status.root_path} (last: ${status.indexed_at})`);
+
+      // (b) cache directory
+      const listResult = await callIndexerCache("list_projects", {});
+      if (!listResult.isError) {
+        try {
+          const parsed = JSON.parse(listResult.content[0]?.text ?? "{}");
+          const projects: ProjectRow[] = parsed.projects ?? [];
+          const match = projects.find((p) => p.root_path === cwd);
+          if (match) {
+            return ok(`Indexed: ${match.name} at ${match.root_path} (${match.nodes ?? 0} nodes, ${match.edges ?? 0} edges)`);
+          }
+        } catch { /* fall through to empty */ }
+      }
+
+      return empty(`index_status(${cwd})`);
     }
   );
 

@@ -212,11 +212,18 @@ static const char *cache_dir(char *buf, size_t bufsz) {
     return buf;
 }
 
-/* Returns full .db path for a project: <cache_dir>/<project>.db
- * Honors CORTEX_DB env var via ctx_resolve_db_path; otherwise falls back
- * to the legacy per-project file under ~/.cache/cortex-indexer/. */
+/* Returns full .db path for an explicitly-named project: <cache_dir>/<project>.db.
+ * Deliberately bypasses CORTEX_DB env override — that override exists for
+ * embedders (Cortex Vue) to redirect the indexer's write path to a custom
+ * file, but it must NOT hijack per-project query routing. Without this
+ * separation, a tool call like `get_architecture(project="X")` issued from
+ * an MCP server that has CORTEX_DB set ends up opening the env-named DB
+ * (typically the bound project's local .cortex/db) and reports "project
+ * not found" for X — even when X is fully indexed in the cache. Pipeline
+ * writes still go through ctx_resolve_db_path so the env override holds
+ * where it's wanted. */
 static const char *project_db_path(const char *project, char *buf, size_t bufsz) {
-    return ctx_resolve_db_path(project, buf, bufsz);
+    return ctx_cache_db_path(project, buf, bufsz);
 }
 
 /* ── Store resolution ──────────────────────────────────────────── */
