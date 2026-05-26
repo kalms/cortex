@@ -1,4 +1,8 @@
 import { GraphStore } from "./store.js";
+import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
 
 /**
  * After Phase 4, code-entity rows live in `nodes` with `kind` as discriminator.
@@ -123,6 +127,54 @@ export function tracePath(
 
 export function listProjects(store: GraphStore): IndexerProject[] {
   return store.queryRaw<IndexerProject>("SELECT * FROM ctx_projects");
+}
+
+/* Union of (a) the bound store's ctx_projects (Cortex-Vue's local .cortex/db)
+ * and (b) every .db file in the standalone-indexer cache (~/.cache/cortex-indexer).
+ * The bound store wins on name conflict so embedder-fresher data takes precedence.
+ * Opens cache .db files briefly (read-only) to read their ctx_projects row;
+ * suitable for low-volume endpoints (project switcher, list_projects tool). */
+export function listProjectsUnified(store: GraphStore): IndexerProject[] {
+  const out = new Map<string, IndexerProject>();
+
+  try {
+    for (const p of listProjects(store)) {
+      out.set(p.name, p);
+    }
+  } catch (e) {
+    if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
+  }
+
+  const cacheDir = join(homedir(), ".cache", "cortex-indexer");
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(cacheDir);
+  } catch {
+    return Array.from(out.values());
+  }
+
+  for (const name of entries) {
+    if (!name.endsWith(".db") || name.startsWith("tmp-") || name.startsWith("_")) continue;
+    const projectName = name.slice(0, -3);
+    if (out.has(projectName)) continue;
+
+    const dbPath = join(cacheDir, name);
+    let db: Database.Database | null = null;
+    try {
+      // readonly + fileMustExist: don't mutate cache schemas, don't auto-create.
+      db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      const row = db
+        .prepare("SELECT name, indexed_at, root_path FROM ctx_projects WHERE name = ?")
+        .get(projectName) as IndexerProject | undefined;
+      if (row) out.set(projectName, row);
+    } catch {
+      // Skip unreadable / empty / pre-migration cache DBs.
+    } finally {
+      db?.close();
+    }
+  }
+
+  return Array.from(out.values());
 }
 
 export function indexStatus(store: GraphStore, rootPath: string): IndexerProject | null {
