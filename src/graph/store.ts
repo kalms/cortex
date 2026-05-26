@@ -30,10 +30,22 @@ export interface EdgeAnnotationRow {
   created_at: string;
 }
 
+export interface GraphStoreOptions {
+  /* Open the DB read-only and skip the migrate() call. Use for read-only
+   * access to indexer-owned cache DBs, where mutations could race with the
+   * writing process and TS-side schema additions (e.g., edge_annotations)
+   * don't belong. */
+  readonly?: boolean;
+}
+
 export class GraphStore {
   private db: Database.Database;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: GraphStoreOptions = {}) {
+    if (options.readonly) {
+      this.db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      return;
+    }
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
