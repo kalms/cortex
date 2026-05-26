@@ -2,11 +2,11 @@
 
 ## TL;DR
 
-Two waves this session. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: a new field report from the agent in anthill-cloud landed mid-session ([docs/architecture/field reports/field-report-2026-05-26-cli-and-graph-coverage-followup.md](docs/architecture/field%20reports/field-report-2026-05-26-cli-and-graph-coverage-followup.md)). Triaged it and shipped the three small items immediately: lockfile-route noise (anthill-cloud 183→13 routes), `cortex index changes` bug fix, and `file:symbol` editor-jump form in resolveInput.
+Three waves this session. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: triaged the first 2026-05-26 field report and shipped the three small items (lockfile-route noise 183→13, `cortex index changes` bug, `file:symbol` editor-jump form). **Wave 3**: a SECOND field report landed late-session ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) — investigated and shipped the root-cause fix: CORTEX_DB env was silently hijacking per-project query routing, so MCP tools could reach exactly one project even when 10 were indexed.
 
-- **Branch:** `main`, ~8 commits ahead of `origin/main` (Wave 1 + Wave 2 + their merge commits — not pushed)
-- **C tests:** new `service_patterns` suite passes 24/24. Pre-existing store/cypher/pipeline test failures are sanitizer-build issues unrelated to this work.
-- **TS tests:** `resolve-input.test.ts` 8/8 pass (5 existing + 3 new for file:symbol form)
+- **Branch:** `main`, 10 commits live on `origin/main` after Wave 1+2 push earlier in session; Wave 3 (2 commits) staged for push.
+- **C tests:** `service_patterns` 24/24 + `platform` 3 new (ctx_cache_db_path) all pass. Pre-existing store/cypher/pipeline sanitizer failures unchanged.
+- **TS tests:** 80 files / 490 passed / 1 skipped (1 documented Python-venv flake)
 - **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt)
 - **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
 
@@ -27,6 +27,22 @@ Adds `ctx_service_pattern_looks_like_http_url()` that rejects paths starting wit
 Wired into `normalize_url_arg` (pass_parallel's detect_url_in_args), `try_emit_global_http_call`, and `try_emit_global_http_call_parallel`.
 
 - **Impact:** cortex 76 → 25 HTTP_CALLS (51 FPs gone). The 25 remaining: 19 are legitimate `/api/...` paths from `src/mcp-server/api.ts` (Hono routes) + test fixtures, 6 are `/foo/bar/`, `/a/b/c/d/e` — generic-looking test data that the discriminator can't safely reject. No regressions in other indexes.
+
+### Multi-project routing fix (Wave 3, merged)
+
+Second 2026-05-26 field report ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) caught a hard failure mode: the indexer's cache had 10 projects; MCP tools could reach exactly 1 (the bound cwd's project). Self-contradictory payload — `get_architecture(project="X")` returned `"available_projects": [...X...]` in the SAME error that said X was "not found".
+
+**Root cause** (two layers, fixed together):
+
+- **C-side**: `ctx_resolve_db_path()` short-circuits to the `CORTEX_DB` env var when set, ignoring the `project` argument entirely. The TS MCP server's `callIndexer` always sets `CORTEX_DB=<bound .cortex/db>`, so every per-project query was silently routed to the bound DB and failed. The `available_projects` array on the error came from a separate code path (`build_project_list_error`) that scans the cache dir directly — hence the contradictory two-views payload.
+- **TS-side**: `list_projects` and `index_status` queried only the bound store's `ctx_projects` table, which has one row (the bound project's self-entry). 9 of 10 cache-resident projects were invisible.
+
+**Fix** (merged: pending — to be confirmed after push):
+- New `ctx_cache_db_path()` in platform.c that always resolves `<cache>/<project>.db`, env-agnostic. `handlers.c::project_db_path` rewired to use it; `ctx_resolve_db_path` left alone so pipeline writes still honor `CORTEX_DB` for embedders.
+- `callIndexerCache` variant in code-tools.ts that strips `CORTEX_DB` from the subprocess env.
+- `list_projects` and `index_status` now union the bound store's projects with the cache directory's. Bound store wins on conflict so fresher embedder data takes precedence.
+
+Verified end-to-end: with `CORTEX_DB=<cortex.db>` set, both `get_architecture(project="anthill-cloud")` (5378 nodes) AND `get_architecture(project="cortex")` (17444 nodes) now succeed in the same process. 3 new C tests cover `ctx_cache_db_path`. 80/80 JS tests pass.
 
 ### Field-report follow-ups (Wave 2, all merged)
 
@@ -167,9 +183,12 @@ These survived multiple sessions; not deliberately ignored, just unprioritized:
 
 ## What's in main right now
 
-Top commits (8 ahead of `origin/main` at handoff-update time, not yet pushed):
+Top commits (10 shipped to origin/main earlier in session; Wave 3 + this handoff pending push):
 
 ```
+091249f Merge branch 'fix/indexer/multi-project-routing'      (Wave 3: multi-project routing)
+1657817 fix: multi-project routing for MCP tools (per 2026-05-26 field report)
+329c947 docs(handoff): record Wave 2 field-report follow-ups
 61f1861 Merge branch 'fix/shared/resolve-input-file-symbol'   (Wave 2: editor-jump form)
 4f89e77 fix(shared/resolve-input): accept file:symbol editor-jump form
 2a82a76 Merge branch 'fix/cli/index-changes-resolution'       (Wave 2: index changes bug)
@@ -181,7 +200,6 @@ fe92f5c Merge branch 'fix/indexer/url-arg-discriminator'      (Bug 2: cortex 76�
 1949eab fix(indexer): reject filesystem-path strings in URL-arg HTTP_CALLS detection
 5700759 Merge branch 'fix/indexer/nuxt-fetch-registry'        (Bug 1: anthill 0→23 HTTP_CALLS)
 945056f fix(indexer): emit HTTP_CALLS for unresolved global HTTP callees
-ed90450 docs(handoff): refresh for 2026-05-25 — CLI, MCP robustness, input resolver shipped
 ```
 
 Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
