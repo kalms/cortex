@@ -35,7 +35,7 @@ Integrate frame extraction as an **additive TypeScript post-index step** that ru
 
 Four decisions locked during brainstorming:
 
-1. **Trigger:** every full reindex, default-on, opt-out via `CORTEX_FRAMES=0`.
+1. **Trigger:** recluster on **every successful index**, default-on, opt-out via `CORTEX_FRAMES=0`. Frames are a *global* property — changing even a few files can shift cluster boundaries — so reclustering only on full reindex would leave incremental updates with stale frames; partial/stale frames are worse than a ~1.8 s recluster. Always-recluster also keeps the C indexer untouched (no need for it to report a changed/unchanged signal) and is self-healing: if frames were skipped on an earlier index (e.g., venv not yet set up), the next index fills them in. The accepted cost is that a rare incremental-noop index (nothing changed) still pays ~1.8 s for an identical recluster — deemed acceptable since you only index when you expect a change.
 2. **Layer:** the TS orchestration layer (CLI `index` command + MCP `index_repository` tool), *not* the C indexer. The raw `cortex-indexer cli index_repository` C-binary path stays frame-less by design (it has no Python).
 3. **Venv setup:** created at install time, foreground (~170 s once, with a progress message). If `python3` is absent, warn and skip — **never fail install**.
 4. **Integration shape:** Approach A — a surgical shared helper called from both chokepoints, running the three stages **in-process** (importing the scripts' exported core functions rather than spawning three tsx subprocesses), which also reclaims the ~1.2 s tsx-startup tax (~3 s → ~1.8 s).
@@ -53,7 +53,7 @@ index_repository (CLI or MCP)
         ▼
   runFrameExtraction({ repoPath, project, dbPath, signal })   ← NEW, shared
         │
-        ├─ gate: CORTEX_FRAMES≠0  AND  venv present  → else return {status:"skipped"}
+        ├─ gate: CORTEX_FRAMES≠0  AND  venv present  → else {status:"skipped"}
         ├─ 1. co-change   (git log → file-pair weights)      [in-process]
         ├─ 2. cluster     (spawn venv python, HDBSCAN)       [1 subprocess]
         └─ 3. inject      (UPDATE nodes.data SET frame_id…)  [in-process, same dbPath]
@@ -148,14 +148,14 @@ A `failed` status logs the stderr first line but the index call still reports su
 
 **Positive.**
 - Viewer works out of the box after install + index — the original goal.
-- Frame data stays current: every full reindex refreshes it.
+- Frame data stays current: every index reclusters, so frames never drift from the codebase (incremental changes shift cluster boundaries, and that's reflected immediately).
 - C indexer stays pure C, fast, zero-runtime-dep.
 - Surgical blast radius — frames are additive; the proven index path is untouched.
 - ~1.8 s per index (down from ~3 s) by running stages in-process.
 
 **Negative / accepted costs.**
 - ~170 s one-time venv setup at install (mitigated: foreground, progress message, never blocks install).
-- ~1.8 s added to every full index (acceptable: comparable to the indexer pass; opt-out via `CORTEX_FRAMES=0`).
+- ~1.8 s added to every index, including rare incremental-noops where the recluster is identical (acceptable: comparable to the indexer pass; opt-out via `CORTEX_FRAMES=0`).
 - Two call sites both invoke the helper (one line each — minor duplication, deliberately preferred over the B refactor).
 - The raw `cortex-indexer cli index_repository` C-binary path produces no frames (acceptable — it has no Python; the user-facing CLI and MCP paths are covered).
 - HDBSCAN parameters are still under evaluation; integrating "bakes in" the current params. Mitigated: params remain configurable via the existing `cluster-tfidf-hdbscan.ts` options, and the eval harness stays available to retune.
@@ -166,4 +166,5 @@ A `failed` status logs the stderr first line but the index call still reports su
 
 1. **Plugin postinstall hook** — does `.claude-plugin/marketplace.json` support running a setup script on install? If not, design a once-per-machine SessionStart guard (marker file under `~/.cache/cortex-indexer/`).
 2. **Python version pinning** — `setup-venv.sh` should pin a minimum Python (≥ 3.9 to match HDBSCAN wheels) rather than assuming whatever `python3` resolves to.
-3. **Incremental vs full** — confirm the helper only runs on a *full* index (frame_ids survive incremental re-indexes since unchanged files keep their `data`); if incremental can partially rewrite `nodes`, decide whether to recluster or leave stale.
+
+*(Resolved during brainstorming — kept for the record: "incremental vs full" — the helper reclusters on **every** successful index, not just full reindexes, because frames are a global property and reclustering is cheap. No change-detection signal from the C indexer is needed.)*
