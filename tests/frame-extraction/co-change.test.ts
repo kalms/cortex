@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { collectCoChange, parseCoChangeLog } from "../../scripts/frame-extraction/co-change.js";
+import { collectCoChange, parseCoChangeLog } from "../../src/frame-extraction/co-change.js";
 
 let root: string;
 let renameRoot: string;

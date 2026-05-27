@@ -22,6 +22,8 @@ import { resolveCortexDbPath, resolveDecisionsDbPath } from "../../db/resolve-pa
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
+import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
+import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 
 const execFileAsync = promisify(execFile);
 import { join } from "node:path";
@@ -118,6 +120,24 @@ function formatNodes(nodes: IndexerNode[]): string {
     .join("\n");
 }
 
+/** Run frame extraction for an already-indexed repo and fold a structured
+ *  `frames` field into the tool's text response. The MCP envelope is text;
+ *  we append a machine-readable JSON line so agents can parse status. */
+async function withFrames(
+  baseText: string,
+  repoPath: string,
+  dbPath: string,
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const project = deriveProjectName(repoPath);
+  let frames: FrameResult;
+  try {
+    frames = await runFrameExtraction({ repoPath, project, dbPath });
+  } catch (e) {
+    frames = { status: "failed", reason: e instanceof Error ? e.message : String(e) };
+  }
+  return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}` }] };
+}
+
 export function registerCodeTools(server: McpServer, store: GraphStore, indexerProject: string | null, dbPath?: string): void {
   // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
@@ -178,7 +198,7 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
             try { unlinkSync(sidecar); } catch { /* non-fatal */ }
           }
         }
-        return ok(`imported from cache key ${cacheKey.slice(0, 12)}…`);
+        return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
       }
 
       const result = await callIndexer("index_repository", { repo_path: repoPath }, dbPath);
@@ -205,7 +225,9 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
           // Cache write failure is non-fatal.
         }
       }
-      return result;
+      if (result.isError) return result;
+      const baseText = result.content?.[0]?.text ?? "indexed";
+      return await withFrames(baseText, repoPath, dbPath);
     }
   );
 

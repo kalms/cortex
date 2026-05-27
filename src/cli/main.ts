@@ -13,9 +13,10 @@ import { renderTopic } from "./commands/help.js";
 import { renderTopLevelHelp, renderNamespaceHelp, renderCommandHelp } from "./help.js";
 import { renderTour } from "./tour.js";
 import { runInstall } from "./install.js";
+import { setupVenv } from "../frame-extraction/venv.js";
 
 const NAMESPACES = ["code", "decision", "graph", "index", "eval"];
-const META_COMMANDS = ["tour", "help", "install"];
+const META_COMMANDS = ["tour", "help", "install", "setup"];
 
 function getVersion(): string {
   try {
@@ -58,6 +59,21 @@ async function main(): Promise<void> {
   }
   if (argv.namespace === "install") {
     runInstall({ quiet: argv.flags.quiet === true, uninstall: argv.flags.uninstall === true });
+    return;
+  }
+  if (argv.namespace === "setup") {
+    if (argv.command !== "frames") {
+      throw new UsageError(
+        `unknown setup target '${argv.command ?? ""}'`,
+        "Run: cortex setup frames",
+      );
+    }
+    const venv = setupVenv({ quiet: argv.flags.quiet === true });
+    process.stdout.write(
+      venv.status === "ok" ? "frame extraction ready.\n"
+      : venv.status === "python_missing" ? "python3 not found — install it first.\n"
+      : `setup failed: ${venv.reason}\n`,
+    );
     return;
   }
 
