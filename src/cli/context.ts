@@ -17,6 +17,11 @@ export function deriveProjectName(absPath: string): string {
   return absPath.replace(/^\//, "").replace(/\//g, "-");
 }
 
+/** Standalone-indexer cache DB path for a project: ~/.cache/cortex-indexer/<project>.db */
+export function cachePathForProject(projectName: string): string {
+  return join(homedir(), ".cache", "cortex-indexer", `${projectName}.db`);
+}
+
 /** Walk up looking for a .git directory. Returns the first match or null. */
 function findGitRoot(start: string): string | null {
   let cur = resolve(start);
@@ -70,7 +75,7 @@ function dbHasProjectData(dbPath: string, projectName: string): boolean {
  */
 function findIndexedDb(projectName: string, gitRoot: string): string | null {
   const localPath = join(gitRoot, ".cortex", "graph.db");
-  const cachePath = join(homedir(), ".cache", "cortex-indexer", `${projectName}.db`);
+  const cachePath = cachePathForProject(projectName);
   const localOk = existsSync(localPath) && dbHasProjectData(localPath, projectName);
   if (localOk) return localPath;
   const cacheOk = existsSync(cachePath) && dbHasProjectData(cachePath, projectName);
