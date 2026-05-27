@@ -6,7 +6,7 @@
 // column than the indexer wrote into the graph DB, which silently produces
 // zero clusters.
 import { describe, it, expect } from "vitest";
-import { deriveProjectName } from "../../scripts/frame-extraction/cluster-tfidf-hdbscan.js";
+import { deriveProjectName } from "../../src/frame-extraction/cluster-tfidf-hdbscan.js";
 
 describe("deriveProjectName — C-indexer parity", () => {
   it("project_name_unix_path", () => {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { fileURLToPath } from "node:url";
-import { runTfIdfHdbscan } from "../../scripts/frame-extraction/cluster-tfidf-hdbscan.js";
+import { runTfIdfHdbscan } from "../../src/frame-extraction/cluster-tfidf-hdbscan.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const PYTHON_BIN = join(REPO_ROOT, "scripts", "frame-extraction", "python", ".venv", "bin", "python");

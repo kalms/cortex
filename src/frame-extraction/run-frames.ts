@@ -14,9 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { hasVenv } from "./venv.js";
-import { collectCoChange, writeCoChangeJsonl } from "../../scripts/frame-extraction/co-change.js";
-import { runTfIdfHdbscan } from "../../scripts/frame-extraction/cluster-tfidf-hdbscan.js";
-import { injectFrames } from "../../scripts/frame-extraction/inject-frames.js";
+import { collectCoChange, writeCoChangeJsonl } from "./co-change.js";
+import { runTfIdfHdbscan } from "./cluster-tfidf-hdbscan.js";
+import { injectFrames } from "./inject-frames.js";
 
 export type FrameResult =
   | { status: "ok"; framesAssigned: number; clusters: number; elapsedMs: number }

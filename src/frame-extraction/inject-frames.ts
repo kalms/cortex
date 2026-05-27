@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
-import { resolveCortexDbPath } from "../../src/db/resolve-path.js";
+import { resolveCortexDbPath } from "../db/resolve-path.js";
 import type { ClusterResult } from "./types.js";
 
 /** Stop-list of generic tokens we skip when picking a label. Lowercase.

@@ -1,5 +1,5 @@
 // scripts/frame-extraction/eval-metrics.ts
-import type { ClusterAssignment, FilePair, ImportEdge } from "./types.js";
+import type { ClusterAssignment, FilePair, ImportEdge } from "../../src/frame-extraction/types.js";
 
 /** A pair-shape that's compatible with both FilePair (co-change) and
  *  ImportEdge (CALLS). The agreementScore function consumes either. */

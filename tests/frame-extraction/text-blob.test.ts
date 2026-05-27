@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { collectBlobsFromGraph } from "../../scripts/frame-extraction/text-blob.js";
+import { collectBlobsFromGraph } from "../../src/frame-extraction/text-blob.js";
 
 let root: string;
 let db: Database.Database;
