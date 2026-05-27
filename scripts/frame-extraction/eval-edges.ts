@@ -1,6 +1,6 @@
 // scripts/frame-extraction/eval-edges.ts
 import type Database from "better-sqlite3";
-import type { ImportEdge } from "./types.js";
+import type { ImportEdge } from "../../src/frame-extraction/types.js";
 
 /** Read CALLS edges from a Cortex graph DB, join both endpoints to file
  *  paths, drop intra-file + null-path + cross-project, dedupe by sorted

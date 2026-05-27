@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RepoSpec } from "./types.js";
+import type { RepoSpec } from "../../src/frame-extraction/types.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const CORPUS_DIR = join(REPO_ROOT, ".tmp", "frame-extraction", "corpus");

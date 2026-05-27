@@ -1,7 +1,7 @@
 // scripts/frame-extraction/fs-stats.ts
 import { readdirSync } from "node:fs";
 import { join, extname, relative, sep } from "node:path";
-import type { FsStats } from "./types.js";
+import type { FsStats } from "../../src/frame-extraction/types.js";
 
 const IGNORE_DIRS = new Set([".git", "node_modules", "dist", "build", ".tmp"]);
 

@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { collectBlobsFromGraph } from "./text-blob.js";
 import type { ClusterResult, FileBlob } from "./types.js";
-import { venvPythonBin } from "../../src/frame-extraction/venv.js";
+import { venvPythonBin } from "./venv.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const PYTHON_SCRIPT = join(REPO_ROOT, "scripts", "frame-extraction", "python", "tfidf_hdbscan.py");
