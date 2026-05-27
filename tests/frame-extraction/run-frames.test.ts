@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, cpSync, rmSync } from "node:fs";
+import { mkdtempSync, cpSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -28,6 +28,24 @@ describe("runFrameExtraction gating", () => {
     process.env.CORTEX_VENV = "/tmp/no-venv-here-98765";
     const r = await runFrameExtraction({ repoPath: "/tmp", project: "P", dbPath: "/tmp/x.db" });
     expect(r).toEqual({ status: "skipped", reason: "venv_missing" });
+  });
+
+  it("skips with reason 'no_files' when the DB has no file nodes (past the venv gate)", async () => {
+    delete process.env.CORTEX_FRAMES;
+    // Stub a venv so hasVenv() passes deterministically regardless of the host.
+    const fakeVenv = mkdtempSync(join(tmpdir(), "fake-venv-"));
+    mkdirSync(join(fakeVenv, "bin"), { recursive: true });
+    writeFileSync(join(fakeVenv, "bin", "python"), "");
+    process.env.CORTEX_VENV = fakeVenv;
+    try {
+      // Non-existent DB → hasFileNodes() returns false → no_files (before any python spawn).
+      const r = await runFrameExtraction({
+        repoPath: "/tmp", project: "P", dbPath: join(fakeVenv, "does-not-exist.db"),
+      });
+      expect(r).toEqual({ status: "skipped", reason: "no_files" });
+    } finally {
+      rmSync(fakeVenv, { recursive: true, force: true });
+    }
   });
 });
 

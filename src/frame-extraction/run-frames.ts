@@ -50,8 +50,12 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
   if (!hasFileNodes(opts.dbPath, opts.project)) return { status: "skipped", reason: "no_files" };
 
   const start = Date.now();
-  const work = mkdtempSync(join(tmpdir(), "cortex-frames-"));
+  // `work` is created inside the try so even mkdtempSync failing (unwritable
+  // tmpdir) returns {failed} rather than throwing into the index path — the
+  // CLI caller has no outer guard, so the never-throw contract must hold here.
+  let work: string | undefined;
   try {
+    work = mkdtempSync(join(tmpdir(), "cortex-frames-"));
     // 1. co-change (best-effort — a repo with no git history yields no pairs).
     const ccPath = join(work, "co-change.jsonl");
     try {
@@ -80,6 +84,6 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
     const msg = e instanceof Error ? e.message : String(e);
     return { status: "failed", reason: msg.split("\n")[0]!.slice(0, 200) };
   } finally {
-    rmSync(work, { recursive: true, force: true });
+    if (work) rmSync(work, { recursive: true, force: true });
   }
 }
