@@ -22,7 +22,7 @@ import type {
   EvalReport,
   FilePair,
   ImportEdge,
-} from "./types.js";
+} from "../../src/frame-extraction/types.js";
 import {
   agreementScore,
   buildFileToClusterMap,
@@ -30,7 +30,7 @@ import {
 } from "./eval-metrics.js";
 import { collectCallsEdges } from "./eval-edges.js";
 import { renderEvalReport } from "./eval-report.js";
-import { deriveProjectName } from "./cluster-tfidf-hdbscan.js";
+import { deriveProjectName } from "../../src/frame-extraction/cluster-tfidf-hdbscan.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const DEFAULT_OUT_DIR = join(REPO_ROOT, "docs", "specs", "cortex-v0.3", "phase-2-eval");

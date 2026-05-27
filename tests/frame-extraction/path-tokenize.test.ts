@@ -1,6 +1,6 @@
 // tests/frame-extraction/path-tokenize.test.ts
 import { describe, it, expect } from "vitest";
-import { tokenizePath } from "../../scripts/frame-extraction/path-tokenize.js";
+import { tokenizePath } from "../../src/frame-extraction/path-tokenize.js";
 
 describe("tokenizePath — universal/frontend/backend segments are stripped", () => {
   it("strips src + app + components", () => {

@@ -1,7 +1,7 @@
 // tests/frame-extraction/eval-report.test.ts
 import { describe, it, expect } from "vitest";
 import { renderEvalReport } from "../../scripts/frame-extraction/eval-report.js";
-import type { EvalReport } from "../../scripts/frame-extraction/types.js";
+import type { EvalReport } from "../../src/frame-extraction/types.js";
 
 const report: EvalReport = {
   algorithm: "tfidf+hdbscan",

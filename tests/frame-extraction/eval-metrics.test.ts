@@ -6,7 +6,7 @@ import {
   noiseRate,
   buildFileToClusterMap,
 } from "../../scripts/frame-extraction/eval-metrics.js";
-import type { ClusterAssignment, FilePair, ImportEdge } from "../../scripts/frame-extraction/types.js";
+import type { ClusterAssignment, FilePair, ImportEdge } from "../../src/frame-extraction/types.js";
 
 const clusters: ClusterAssignment[] = [
   { cluster_id: 0, member_paths: ["a.ts", "b.ts", "c.ts"] },
