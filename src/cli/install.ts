@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { EnvironmentError } from "./errors.js";
 import { repoRoot } from "./paths.js";
+import { setupVenv } from "../frame-extraction/venv.js";
 
 export type InstallTarget = "symlink" | "alias";
 
@@ -73,44 +74,61 @@ export function runInstall(opts: { quiet?: boolean; uninstall?: boolean }): void
     return;
   }
 
-  if (target === "symlink") {
-    const symlink = join(localBin, "cortex");
-    if (existsSync(symlink)) {
-      const stat = lstatSync(symlink);
-      if (!stat.isSymbolicLink()) {
-        throw new EnvironmentError(
-          `${symlink} exists but is not a symlink`,
-          `Remove it manually (rm ${symlink}) then re-run \`cortex install\`.`,
-        );
-      }
-      // It's a symlink; if it already points where we want, no-op.
-      // Otherwise re-point it to the current repo.
-      const current = readlinkSafe(symlink);
-      if (current === cortexBin) {
-        if (!opts.quiet) process.stdout.write(`already installed: ${symlink}\n`);
+  // Install the launcher (symlink or shell alias). Wrapped so its several
+  // early-return paths all fall through to the venv setup step below.
+  const installLauncher = (): void => {
+    if (target === "symlink") {
+      const symlink = join(localBin, "cortex");
+      if (existsSync(symlink)) {
+        const stat = lstatSync(symlink);
+        if (!stat.isSymbolicLink()) {
+          throw new EnvironmentError(
+            `${symlink} exists but is not a symlink`,
+            `Remove it manually (rm ${symlink}) then re-run \`cortex install\`.`,
+          );
+        }
+        // It's a symlink; if it already points where we want, no-op.
+        // Otherwise re-point it to the current repo.
+        const current = readlinkSafe(symlink);
+        if (current === cortexBin) {
+          if (!opts.quiet) process.stdout.write(`already installed: ${symlink}\n`);
+          return;
+        }
+        unlinkSync(symlink);
+        symlinkSync(cortexBin, symlink);
+        if (!opts.quiet) process.stdout.write(`re-pointed ${symlink} → ${cortexBin}\n`);
         return;
       }
-      unlinkSync(symlink);
       symlinkSync(cortexBin, symlink);
-      if (!opts.quiet) process.stdout.write(`re-pointed ${symlink} → ${cortexBin}\n`);
+      if (!opts.quiet) process.stdout.write(`installed: ${symlink} → ${cortexBin}\n`);
       return;
     }
-    symlinkSync(cortexBin, symlink);
-    if (!opts.quiet) process.stdout.write(`installed: ${symlink} → ${cortexBin}\n`);
-    return;
-  }
 
-  // alias
-  const rc = shellRcPath();
-  const aliasLine = `alias cortex="${cortexBin}"  ${ALIAS_MARKER}`;
-  const existing = existsSync(rc) ? readFileSync(rc, "utf-8") : "";
-  if (existing.includes(`alias cortex=`)) {
-    if (!opts.quiet) process.stdout.write(`already installed in ${rc}\n`);
-    return;
-  }
-  appendFileSync(rc, `\n${aliasLine}\n`);
-  if (!opts.quiet) {
-    process.stdout.write(`installed: alias added to ${rc}\n`);
-    process.stdout.write(`Open a new terminal or run: source ${rc}\n`);
+    // alias
+    const rc = shellRcPath();
+    const aliasLine = `alias cortex="${cortexBin}"  ${ALIAS_MARKER}`;
+    const existing = existsSync(rc) ? readFileSync(rc, "utf-8") : "";
+    if (existing.includes(`alias cortex=`)) {
+      if (!opts.quiet) process.stdout.write(`already installed in ${rc}\n`);
+      return;
+    }
+    appendFileSync(rc, `\n${aliasLine}\n`);
+    if (!opts.quiet) {
+      process.stdout.write(`installed: alias added to ${rc}\n`);
+      process.stdout.write(`Open a new terminal or run: source ${rc}\n`);
+    }
+  };
+
+  installLauncher();
+
+  if (!opts.uninstall) {
+    if (!opts.quiet) process.stdout.write("setting up frame-extraction python venv (one-time, ~1-3 min)…\n");
+    const venv = setupVenv({ quiet: opts.quiet });
+    if (!opts.quiet) {
+      if (venv.status === "ok") process.stdout.write("frame extraction ready.\n");
+      else if (venv.status === "python_missing")
+        process.stdout.write("frame extraction unavailable: python3 not found. Install python3, then run 'cortex setup frames'.\n");
+      else process.stdout.write(`frame extraction venv setup failed (${venv.reason}). Run 'cortex setup frames' to retry.\n`);
+    }
   }
 }
