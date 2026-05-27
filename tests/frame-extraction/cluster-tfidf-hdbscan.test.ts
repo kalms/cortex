@@ -2,14 +2,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import Database from "better-sqlite3";
-import { fileURLToPath } from "node:url";
 import { runTfIdfHdbscan } from "../../src/frame-extraction/cluster-tfidf-hdbscan.js";
+import { hasVenv } from "../../src/frame-extraction/venv.js";
 
-const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
-const PYTHON_BIN = join(REPO_ROOT, "scripts", "frame-extraction", "python", ".venv", "bin", "python");
-const PYTHON_AVAILABLE = existsSync(PYTHON_BIN);
+// Skip guard tracks the real venv location (venv.ts::venvDir(), i.e.
+// ~/.cache/cortex-indexer/python-venv or $CORTEX_VENV) — NOT the legacy
+// in-repo path, which no longer exists after the venv was relocated.
+const PYTHON_AVAILABLE = hasVenv();
 
 let root: string;
 
