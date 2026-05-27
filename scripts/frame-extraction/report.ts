@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SurveyResult } from "./types.js";
+import type { SurveyResult } from "../../src/frame-extraction/types.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const INPUT_FILE = join(REPO_ROOT, ".tmp", "frame-extraction", "results.jsonl");

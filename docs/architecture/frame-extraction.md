@@ -98,13 +98,32 @@ or replace one without recomputing the rest.
 | Orchestration (cloning, IO, subprocess wiring) | TypeScript | matches the rest of the repo; reuses `better-sqlite3` for graph reads |
 | ML (TF-IDF, HDBSCAN, silhouette) | Python | mature ecosystem; sklearn + hdbscan are best-in-class |
 
-The Python venv lives at `scripts/frame-extraction/python/.venv/`
-(gitignored). `npm run setup-python` (calls `setup-venv.sh`)
-bootstraps it idempotently from `requirements.txt`. The TS
-orchestrator's integration test in
-`tests/frame-extraction/cluster-tfidf-hdbscan.test.ts` is skipped
-when the venv is absent — keeps `npm test` runnable on machines
-without Python configured.
+The Python venv lives at `~/.cache/cortex-indexer/python-venv/`
+(override with `CORTEX_VENV`). It is created at install time by
+`cortex install` (or on demand via `cortex setup frames`), which calls
+`scripts/frame-extraction/python/setup-venv.sh` and bootstraps it
+idempotently from `requirements.txt`. Moving it out of the repo (it
+historically lived at `scripts/frame-extraction/python/.venv/`) lets
+frame extraction work when Cortex is installed as a plugin, where the
+repo tree may be read-only. The TS orchestrator's integration test in
+`tests/frame-extraction/cluster-tfidf-hdbscan.test.ts` is skipped when
+the venv is absent — keeps `npm test` runnable on machines without
+Python configured.
+
+**Automatic extraction.** As of 2026-05-26, frame extraction runs
+automatically after every successful `index_repository` — both the CLI
+(`cortex index`) and the MCP tool — via `src/frame-extraction/run-frames.ts`.
+It reclusters on every index (frames are a global property: changing a few
+files can shift cluster boundaries). The C indexer is untouched; frames are
+an additive TypeScript post-step that reads the just-written graph DB and
+updates `nodes.data` in place. Gated by `CORTEX_FRAMES` (set `0` to opt
+out) and venv presence; never blocks or fails the index. The importable
+core (`co-change`, `cluster-tfidf-hdbscan`, `inject-frames`, `text-blob`,
+`path-tokenize`, `types`) now lives under `src/frame-extraction/` (promoted
+from `scripts/` since it is production code on the index path); the
+`scripts/frame-extraction/` directory retains the Python sources and the
+remaining CLI/eval tooling. See
+[`../superpowers/specs/2026-05-26-frame-extraction-auto-integration-design.md`](../superpowers/specs/2026-05-26-frame-extraction-auto-integration-design.md).
 
 ## Data on disk
 

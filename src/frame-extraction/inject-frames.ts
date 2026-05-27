@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
-import { resolveCortexDbPath } from "../../src/db/resolve-path.js";
+import { resolveCortexDbPath } from "../db/resolve-path.js";
 import type { ClusterResult } from "./types.js";
 
 /** Stop-list of generic tokens we skip when picking a label. Lowercase.
@@ -164,38 +164,13 @@ export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[]
   return out;
 }
 
-function parseArgs(argv: string[]): { cluster: string; project: string; db?: string } {
-  const out: Partial<{ cluster: string; project: string; db: string }> = {};
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--cluster") out.cluster = argv[++i];
-    else if (argv[i] === "--project") out.project = argv[++i];
-    else if (argv[i] === "--db") out.db = argv[++i];
-  }
-  if (!out.cluster || !out.project) {
-    console.error("usage: tsx inject-frames.ts --cluster <path> --project <name> [--db <path>]");
-    process.exit(2);
-  }
-  return out as { cluster: string; project: string; db?: string };
-}
-
-function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const clusterPath = resolve(args.cluster);
-  if (!existsSync(clusterPath)) {
-    console.error(`Cluster JSON not found: ${clusterPath}`);
-    process.exit(2);
-  }
-  const dbPath = args.db ?? resolveCortexDbPath();
-  if (!existsSync(dbPath)) {
-    console.error(`Cortex DB not found: ${dbPath}`);
-    process.exit(2);
-  }
-
-  const cluster = JSON.parse(readFileSync(clusterPath, "utf-8")) as ClusterResult;
-  const assignments = buildFrameAssignments(cluster);
-  const clusteredPaths = new Set(assignments.map((a) => a.file_path));
-
-  const db = new Database(dbPath);
+/** Apply a ClusterResult to the named project's file nodes in dbPath.
+ *  Sets frame_id/frame_label/frame_confidence on clustered files and clears
+ *  those keys on every other file node in the project. Idempotent.
+ *  Returns the number of file assignments applied. */
+export function injectFrames(args: { cluster: ClusterResult; project: string; dbPath: string }): number {
+  const assignments = buildFrameAssignments(args.cluster);
+  const db = new Database(args.dbPath);
   try {
     // 1. Apply assignments (UPDATE the data JSON for matching file nodes).
     const applyOne = db.prepare(`
@@ -242,10 +217,42 @@ function main() {
     });
     tx();
 
-    console.log(`[inject-frames] project=${args.project} assigned=${assignments.length} clustered_files=${clusteredPaths.size}`);
+    return assignments.length;
   } finally {
     db.close();
   }
+}
+
+function parseArgs(argv: string[]): { cluster: string; project: string; db?: string } {
+  const out: Partial<{ cluster: string; project: string; db: string }> = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--cluster") out.cluster = argv[++i];
+    else if (argv[i] === "--project") out.project = argv[++i];
+    else if (argv[i] === "--db") out.db = argv[++i];
+  }
+  if (!out.cluster || !out.project) {
+    console.error("usage: tsx inject-frames.ts --cluster <path> --project <name> [--db <path>]");
+    process.exit(2);
+  }
+  return out as { cluster: string; project: string; db?: string };
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const clusterPath = resolve(args.cluster);
+  if (!existsSync(clusterPath)) {
+    console.error(`Cluster JSON not found: ${clusterPath}`);
+    process.exit(2);
+  }
+  const dbPath = args.db ?? resolveCortexDbPath();
+  if (!existsSync(dbPath)) {
+    console.error(`Cortex DB not found: ${dbPath}`);
+    process.exit(2);
+  }
+
+  const cluster = JSON.parse(readFileSync(clusterPath, "utf-8")) as ClusterResult;
+  const assigned = injectFrames({ cluster, project: args.project, dbPath });
+  console.log(`[inject-frames] project=${args.project} assigned=${assigned}`);
 }
 
 const isDirect = import.meta.url === `file://${process.argv[1]}` ||

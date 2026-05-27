@@ -16,7 +16,7 @@ import { ensureClone } from "./clone.js";
 import { callIndexer } from "./indexer.js";
 import { deriveGraphStats } from "./graph-stats.js";
 import { collectFsStats } from "./fs-stats.js";
-import type { CorpusFile, SurveyResult, RepoStatus, RepoSpec } from "./types.js";
+import type { CorpusFile, SurveyResult, RepoStatus, RepoSpec } from "../../src/frame-extraction/types.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const OUTPUT_DIR = join(REPO_ROOT, ".tmp", "frame-extraction");
