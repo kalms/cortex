@@ -1,5 +1,5 @@
 // scripts/frame-extraction/eval-report.ts
-import type { EvalReport } from "./types.js";
+import type { EvalReport } from "../../src/frame-extraction/types.js";
 
 function fmt(n: number | null, decimals = 3): string {
   return n === null ? "—" : n.toFixed(decimals);
