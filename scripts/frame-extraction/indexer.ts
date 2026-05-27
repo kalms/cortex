@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { IndexerEnvelope } from "./types.js";
+import type { IndexerEnvelope } from "../../src/frame-extraction/types.js";
 
 const INDEXER_BIN = resolve(
   fileURLToPath(new URL(".", import.meta.url)),

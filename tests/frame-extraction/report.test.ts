@@ -1,7 +1,7 @@
 // tests/frame-extraction/report.test.ts
 import { describe, it, expect } from "vitest";
 import { renderReport } from "../../scripts/frame-extraction/report.js";
-import type { SurveyResult } from "../../scripts/frame-extraction/types.js";
+import type { SurveyResult } from "../../src/frame-extraction/types.js";
 
 const sample: SurveyResult[] = [
   {

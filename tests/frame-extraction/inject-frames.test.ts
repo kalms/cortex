@@ -8,8 +8,8 @@ import {
   pickFrameLabel,
   buildFrameAssignments,
   injectFrames,
-} from "../../scripts/frame-extraction/inject-frames.js";
-import type { ClusterResult } from "../../scripts/frame-extraction/types.js";
+} from "../../src/frame-extraction/inject-frames.js";
+import type { ClusterResult } from "../../src/frame-extraction/types.js";
 
 describe("pickFrameLabel — original behavior", () => {
   it("returns the first non-generic top token", () => {
