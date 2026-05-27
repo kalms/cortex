@@ -42,6 +42,14 @@ export async function createHarness(): Promise<HarnessContext> {
     throw new Error("Harness: globalSetup did not populate env vars (did it run?).");
   }
 
+  // Contract tests exercise the index_repository tool *contract*, not frame
+  // extraction. The server runs in-process here, so index_repository would
+  // otherwise trigger runFrameExtraction (spawning Python) — slow and flaky
+  // under parallel test load. Disable it for the harness lifetime; frame
+  // extraction has its own coverage in run-frames.test.ts.
+  const prevFrames = process.env.CORTEX_FRAMES;
+  process.env.CORTEX_FRAMES = "0";
+
   // Each test gets a per-test copy of the unified cortex.db so decision/PR
   // mutations from one test don't leak into the next. The indexer's
   // nodes/edges and ctx_* bookkeeping tables come along for the ride, so
@@ -101,6 +109,8 @@ export async function createHarness(): Promise<HarnessContext> {
       store.close();
       try { decisionsDb.close(); } catch { /* ignore */ }
       try { rmSync(harnessDir, { recursive: true }); } catch { /* ignore */ }
+      if (prevFrames === undefined) delete process.env.CORTEX_FRAMES;
+      else process.env.CORTEX_FRAMES = prevFrames;
     },
   };
 }
