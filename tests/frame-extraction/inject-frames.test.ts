@@ -1,10 +1,15 @@
 // tests/frame-extraction/inject-frames.test.ts
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import Database from "better-sqlite3";
 import {
   pickFrameLabel,
   buildFrameAssignments,
-} from "../../scripts/frame-extraction/inject-frames.js";
-import type { ClusterResult } from "../../scripts/frame-extraction/types.js";
+  injectFrames,
+} from "../../src/frame-extraction/inject-frames.js";
+import type { ClusterResult } from "../../src/frame-extraction/types.js";
 
 describe("pickFrameLabel — original behavior", () => {
   it("returns the first non-generic top token", () => {
@@ -185,5 +190,45 @@ describe("buildFrameAssignments", () => {
     const assignments = buildFrameAssignments(minimalCluster);
     // Path = src/x.ts → common prefix is src/ → src is generic → cluster:5
     expect(assignments[0]?.frame_label).toBe("cluster:5");
+  });
+});
+
+describe("injectFrames", () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "inject-frames-"));
+    dbPath = join(dir, "graph.db");
+    const db = new Database(dbPath);
+    db.exec(`CREATE TABLE nodes (id TEXT PRIMARY KEY, kind TEXT, name TEXT,
+      qualified_name TEXT, file_path TEXT, data TEXT, project TEXT)`);
+    db.prepare(`INSERT INTO nodes VALUES (?,?,?,?,?,?,?)`).run(
+      "n1", "file", "a.ts", "p.a", "src/auth/a.ts", "{}", "P");
+    db.prepare(`INSERT INTO nodes VALUES (?,?,?,?,?,?,?)`).run(
+      "n2", "file", "b.ts", "p.b", "src/auth/b.ts", "{}", "P");
+    db.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("writes frame_id into matching file nodes", () => {
+    const cluster: ClusterResult = {
+      total_files: 2,
+      noise_count: 0,
+      clusters: [{ cluster_id: 3, member_paths: ["src/auth/a.ts", "src/auth/b.ts"] }],
+      parameters: { top_tokens_per_cluster: { "3": ["auth"] } },
+    } as unknown as ClusterResult;
+
+    const assigned = injectFrames({ cluster, project: "P", dbPath });
+    expect(assigned).toBe(2);
+
+    const db = new Database(dbPath, { readonly: true });
+    const rows = db.prepare(
+      "SELECT json_extract(data,'$.frame_id') AS fid, json_extract(data,'$.frame_label') AS label FROM nodes WHERE kind='file'"
+    ).all() as Array<{ fid: number | null; label: string | null }>;
+    db.close();
+    expect(rows.every((r) => r.fid === 3)).toBe(true);
+    expect(rows.every((r) => r.label === "auth")).toBe(true);
   });
 });

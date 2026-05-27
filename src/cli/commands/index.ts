@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 import type { ProjectContext } from "../context.js";
+import { cachePathForProject } from "../context.js";
 import { UsageError } from "../errors.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
+import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
+import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -22,6 +26,11 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] },
     );
     process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
+    // Auto frame extraction (additive; never blocks the index result).
+    const project = deriveProjectName(resolve(repoPath));
+    const dbPath = cachePathForProject(project);
+    const frames = await runFrameExtraction({ repoPath: resolve(repoPath), project, dbPath });
+    process.stdout.write(renderFramesLine(frames) + "\n");
     return;
   }
   switch (cmd.command) {
@@ -55,4 +64,17 @@ function shell(tool: string, args: Record<string, unknown>): void {
     },
   );
   process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
+}
+
+function renderFramesLine(r: FrameResult): string {
+  switch (r.status) {
+    case "ok":
+      return `frames: ${r.framesAssigned} assigned across ${r.clusters} clusters (${(r.elapsedMs / 1000).toFixed(1)}s)`;
+    case "skipped":
+      return r.reason === "venv_missing"
+        ? "frames: skipped (python venv not set up — run 'cortex setup frames')"
+        : `frames: skipped (${r.reason})`;
+    case "failed":
+      return `frames: failed (${r.reason})`;
+  }
 }

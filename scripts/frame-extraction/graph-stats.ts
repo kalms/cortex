@@ -1,6 +1,6 @@
 // scripts/frame-extraction/graph-stats.ts
 import { callIndexer } from "./indexer.js";
-import type { GraphStats, IndexerEnvelope, NodeLabelCount } from "./types.js";
+import type { GraphStats, IndexerEnvelope, NodeLabelCount } from "../../src/frame-extraction/types.js";
 
 interface ArchitectureResponse {
   project: string;
