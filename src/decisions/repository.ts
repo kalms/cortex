@@ -12,7 +12,10 @@ export interface DecisionRecord {
   status: string;
   superseded_by: string | null;
   author: string | null;
-  provenance?: string | null; // JSON string; NULL for human-authored decisions
+  // JSON string holding a ProvenanceMeta. Optional only so pre-Task-2 inline
+  // literals typecheck; DB rows always carry the column. Use null (not
+  // omission) when constructing a record synthetically.
+  provenance?: string | null;
   created_at: string;
   updated_at: string;
 }
