@@ -1,6 +1,13 @@
 import type { NodeRow } from "../graph/store.js";
 import type { PRState } from "../prs/types.js";
 
+export interface ProvenanceMeta {
+  source: "adr" | "prose" | "commits";
+  doc_path?: string;
+  commit_shas?: string[];
+  confidence: "high" | "medium" | "low";
+}
+
 export interface Alternative {
   name: string;
   reason_rejected: string;
@@ -24,6 +31,7 @@ export interface Decision {
   // NEW — narrative split
   problem: string | null;
   resolution: string | null;
+  provenance: ProvenanceMeta | null;
 }
 
 export interface CreateDecisionInput {
@@ -36,6 +44,7 @@ export interface CreateDecisionInput {
   author?: string;
   problem?: string | null;
   resolution?: string | null;
+  provenance?: ProvenanceMeta;
 }
 
 export interface UpdateDecisionInput {
@@ -64,6 +73,7 @@ export interface ProposeDecisionInput {
   governs?: string[];
   references?: string[];
   author?: string;
+  provenance?: ProvenanceMeta;
   pr_number?: number;
 }
 
@@ -112,5 +122,6 @@ export function nodeToDecision(node: NodeRow): Decision {
     updated_at: node.updated_at,
     problem: data.problem ?? null,
     resolution: data.resolution ?? null,
+    provenance: data.provenance ?? null,
   };
 }
