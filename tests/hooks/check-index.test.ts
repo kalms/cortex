@@ -67,4 +67,19 @@ describe("check-index.sh cold-start prompt", () => {
       rmSync(emptyPlugin, { recursive: true, force: true });
     }
   });
+
+  it("does NOT error or prompt when CLAUDE_PLUGIN_ROOT is unset", () => {
+    const repo = indexedRepo();
+    try {
+      const out = execFileSync("bash", [HOOK], {
+        cwd: repo,
+        encoding: "utf-8",
+        env: { ...process.env, CLAUDE_PLUGIN_ROOT: "" },
+      });
+      expect(out).not.toMatch(/No decisions captured yet/i);
+      expect(out).toMatch(/Index state: indexed/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
