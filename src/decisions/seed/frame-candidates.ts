@@ -1,5 +1,6 @@
 import { discoverDocCandidates } from "./doc-discovery.js";
 import { clusterCommitCandidates } from "./commit-clustering.js";
+import { DEFAULT_MAX_CANDIDATES, DEFAULT_MAX_COMMITS } from "./types.js";
 import type { DecisionCandidate, FrameCandidatesOptions, Confidence } from "./types.js";
 
 const CONFIDENCE_RANK: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
@@ -16,8 +17,8 @@ function weight(c: DecisionCandidate): number {
  * carries the provenance forward verbatim.
  */
 export function frameCandidates(opts: FrameCandidatesOptions): DecisionCandidate[] {
-  const max = opts.max_candidates ?? 20;
-  const maxCommits = opts.max_commits ?? 500;
+  const max = opts.max_candidates ?? DEFAULT_MAX_CANDIDATES;
+  const maxCommits = opts.max_commits ?? DEFAULT_MAX_COMMITS;
 
   const all: DecisionCandidate[] = [
     ...discoverDocCandidates(opts.repo_path),

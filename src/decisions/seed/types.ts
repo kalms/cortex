@@ -15,8 +15,14 @@ export interface DecisionCandidate {
   raw_excerpt: string;
 }
 
+/** Default cap on candidates returned by frameCandidates(). */
+export const DEFAULT_MAX_CANDIDATES = 20;
+
+/** Default git-log depth for clusterCommitCandidates(). */
+export const DEFAULT_MAX_COMMITS = 500;
+
 export interface FrameCandidatesOptions {
   repo_path: string;
-  max_candidates?: number; // default 20
-  max_commits?: number;    // default 500
+  max_candidates?: number; // default DEFAULT_MAX_CANDIDATES
+  max_commits?: number;    // default DEFAULT_MAX_COMMITS
 }
