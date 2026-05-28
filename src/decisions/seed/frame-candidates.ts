@@ -1,0 +1,33 @@
+import { discoverDocCandidates } from "./doc-discovery.js";
+import { clusterCommitCandidates } from "./commit-clustering.js";
+import type { DecisionCandidate, FrameCandidatesOptions, Confidence } from "./types.js";
+
+const CONFIDENCE_RANK: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
+
+/** Cluster size proxy used to break ties within a confidence band. */
+function weight(c: DecisionCandidate): number {
+  return (c.provenance.commit_shas?.length ?? 0) + c.provenance.files_touched.length;
+}
+
+/**
+ * Build the cold-start candidate manifest: discover doc candidates + cluster
+ * commit history, rank by confidence then weight, and cap. This is the only
+ * machine-derived step — the skill turns these into proposed decisions and
+ * carries the provenance forward verbatim.
+ */
+export function frameCandidates(opts: FrameCandidatesOptions): DecisionCandidate[] {
+  const max = opts.max_candidates ?? 20;
+  const maxCommits = opts.max_commits ?? 500;
+
+  const all: DecisionCandidate[] = [
+    ...discoverDocCandidates(opts.repo_path),
+    ...clusterCommitCandidates(opts.repo_path, maxCommits),
+  ];
+
+  all.sort((a, b) => {
+    const byConf = CONFIDENCE_RANK[a.confidence] - CONFIDENCE_RANK[b.confidence];
+    return byConf !== 0 ? byConf : weight(b) - weight(a);
+  });
+
+  return all.slice(0, max);
+}
