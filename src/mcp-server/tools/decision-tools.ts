@@ -12,6 +12,13 @@ const AlternativeSchema = z.object({
   reason_rejected: z.string(),
 });
 
+const ProvenanceSchema = z.object({
+  source: z.enum(["adr", "prose", "commits"]),
+  doc_path: z.string().optional(),
+  commit_shas: z.array(z.string()).optional(),
+  confidence: z.enum(["high", "medium", "low"]),
+});
+
 export function registerDecisionTools(
   server: McpServer,
   service: DecisionService,
@@ -63,6 +70,8 @@ export function registerDecisionTools(
       governs: z.array(z.string()).optional(),
       references: z.array(z.string()).optional(),
       pr_number: z.number().int().optional(),
+      author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
+      provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
     },
     async (params) => {
       const bad = validateDecisionFields(params as Record<string, unknown>);
