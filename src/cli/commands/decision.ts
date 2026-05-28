@@ -45,8 +45,24 @@ function requireFlag(name: string, flags: Record<string, unknown>): string {
   return v;
 }
 
+function cmdCount(_cmd: DecisionCommand, ctx: ProjectContext): void {
+  // Cold-start probe for hooks/scripts. Print 0 (not an error) when the repo
+  // has no decisions yet, so the caller can branch on a clean integer.
+  if (ctx.state === "no-project") {
+    process.stdout.write("0\n");
+    return;
+  }
+  const { db, svc } = openService(ctx);
+  try {
+    process.stdout.write(`${svc.list().length}\n`);
+  } finally {
+    db.close();
+  }
+}
+
 export async function runDecisionCommand(cmd: DecisionCommand, ctx: ProjectContext): Promise<void> {
   switch (cmd.command) {
+    case "count":     return cmdCount(cmd, ctx);
     case "list":      return cmdList(cmd, ctx);
     case "show":      return cmdShow(cmd, ctx);
     case "why":       return cmdWhy(cmd, ctx);
