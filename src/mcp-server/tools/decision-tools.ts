@@ -1,11 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { resolve, dirname } from "node:path";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
+import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -328,6 +330,26 @@ export function registerDecisionTools(
         const msg = e instanceof Error ? e.message : String(e);
         if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
         return errorResponse("internal_error", msg);
+      }
+    }
+  );
+
+  server.tool(
+    "decision_candidates",
+    "Read-only: frame cold-start decision candidates from git history + docs. Returns a manifest the seed-decisions skill turns into proposed decisions. Writes nothing.",
+    {
+      max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+    },
+    async (params) => {
+      if (!dbPath) {
+        return errorResponse("internal_error", "decision_candidates requires a resolved decisions db path");
+      }
+      try {
+        const repoRoot = resolve(dirname(dbPath), "..");
+        const manifest = frameCandidates({ repo_path: repoRoot, max_candidates: params.max_candidates });
+        return ok(JSON.stringify(manifest, null, 2));
+      } catch (e) {
+        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
       }
     }
   );
