@@ -3,19 +3,34 @@ import { parseGitLogOutput, ParsedCommit } from "../../events/worker/git-log-par
 import type { DecisionCandidate } from "./types.js";
 
 const CONVENTIONAL = /^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/;
+// Enough subjects per cluster for the LLM to infer intent without burying signal.
 const EXCERPT_SUBJECTS = 12;
 
 /** Run git log in the NUL-delimited format parseGitLogOutput expects. */
 function readGitLog(repoPath: string, maxCommits: number): ParsedCommit[] {
+  // git log limit. Callers pass max_commits from FrameCandidatesOptions
+  // (default 500). We clamp here so a careless caller can't blow past the
+  // 64 MB maxBuffer below — at ~10 KB/commit average that ceiling is roughly
+  // 6k commits; 5k leaves headroom.
+  const cap = Math.min(Math.max(maxCommits, 0), 5000);
   let raw = "";
   try {
     raw = execFileSync(
       "git",
-      ["-C", repoPath, "log", `-n${maxCommits}`, "--format=%H%x00%s%x00%an%x00%at", "--name-status"],
+      ["-C", repoPath, "log", `-n${cap}`, "--format=%H%x00%s%x00%an%x00%at", "--name-status"],
       { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
     );
-  } catch {
-    return []; // no commits / not a git repo
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Genuinely-empty / not-a-git-repo cases: degrade silently.
+    if (/not a git repository|does not have any commits|No such file|ENOENT/i.test(msg)) {
+      return [];
+    }
+    // Anything else (maxBuffer overflow, OOM, corrupt repo) is data loss if we
+    // swallow it — surface it on stderr so the seed flow doesn't silently
+    // produce an empty manifest, then degrade.
+    process.stderr.write(`cortex: commit-clustering: git log failed (${msg})\n`);
+    return [];
   }
   return parseGitLogOutput(raw);
 }
