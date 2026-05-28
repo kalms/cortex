@@ -342,7 +342,7 @@ export function registerDecisionTools(
     },
     async (params) => {
       if (!dbPath) {
-        return errorResponse("internal_error", "decision_candidates requires a resolved decisions db path");
+        return errorResponse("project_not_found", "decision_candidates requires a resolved decisions db path");
       }
       try {
         const repoRoot = resolve(dirname(dbPath), "..");
