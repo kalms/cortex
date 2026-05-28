@@ -9,6 +9,7 @@ import { DecisionLinksRepository } from "../../src/decisions/links-repository.js
 import { DecisionService } from "../../src/decisions/service.js";
 
 const CLI = join(process.cwd(), "src/cli/main.ts");
+// Direct path to tsx — faster than `npx tsx` and avoids PATH dependency.
 const TSX = join(process.cwd(), "node_modules/.bin/tsx");
 
 function runCli(cwd: string): string {
@@ -39,6 +40,16 @@ describe("cortex decision count", () => {
       service.create({ title: "b", description: "d", rationale: "r" });
       db.close();
       expect(runCli(root)).toBe("2");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("prints 0 when there is no git repo (no-project safe)", () => {
+    // The SessionStart hook calls this command in any cwd; if the cwd has no
+    // .git ancestor, the handler must still print "0" without erroring so
+    // the hook can branch cleanly. /tmp has no git ancestor on macOS.
+    const root = mkdtempSync(join(tmpdir(), "cortex-count-norepo-"));
+    try {
+      expect(runCli(root)).toBe("0");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
