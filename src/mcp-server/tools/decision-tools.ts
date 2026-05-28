@@ -60,7 +60,7 @@ export function registerDecisionTools(
 
   server.tool(
     "propose_decision",
-    "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces'.",
+    "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces', or supply provenance + author for machine-seeded candidates (e.g. cortex:seed).",
     {
       title: z.string(),
       problem: z.string(),

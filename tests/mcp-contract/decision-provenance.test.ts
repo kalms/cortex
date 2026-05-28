@@ -1,28 +1,26 @@
-import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { openDecisionsDb } from "../../src/decisions/db.js";
-import { DecisionsRepository } from "../../src/decisions/repository.js";
-import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
-import { DecisionService } from "../../src/decisions/service.js";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createHarness, callTool, type HarnessContext } from "./harness.js";
 
 describe("propose_decision forwards provenance + author", () => {
-  it("stores provenance + cortex:seed author", () => {
-    const root = mkdtempSync(join(tmpdir(), "cortex-mcp-prov-"));
-    const db = openDecisionsDb(join(root, "decisions.db"));
-    const service = new DecisionService({
-      decisions: new DecisionsRepository(db),
-      links: new DecisionLinksRepository(db),
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  it("accepts provenance + cortex:seed author through the MCP tool boundary", async () => {
+    const res = await callTool(h, "propose_decision", {
+      title: "X",
+      problem: "p",
+      resolution: "r",
+      rationale: "why",
+      author: "cortex:seed",
+      provenance: { source: "adr", doc_path: "docs/adr/1.md", confidence: "high" },
     });
-    try {
-      const d = service.propose({
-        title: "X", problem: "p", resolution: "r", rationale: "why",
-        author: "cortex:seed",
-        provenance: { source: "adr", doc_path: "docs/adr/1.md", confidence: "high" },
-      });
-      expect(d.author).toBe("cortex:seed");
-      expect(d.provenance?.source).toBe("adr");
-    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+    expect(res.isError).toBeFalsy();
+    const parsed = JSON.parse(res.content[0].text);
+    expect(parsed.author).toBe("cortex:seed");
+    expect(parsed.provenance?.source).toBe("adr");
+    expect(parsed.provenance?.doc_path).toBe("docs/adr/1.md");
+    expect(parsed.provenance?.confidence).toBe("high");
+    expect(parsed.status).toBe("proposed");
   });
 });
