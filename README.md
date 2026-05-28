@@ -89,7 +89,7 @@ npm rebuild better-sqlite3
 ┌──────────────────────────────────────────────────────────┐
 │                MCP Server (stdio, main thread)            │
 │                                                           │
-│  Code (13)    Decisions (10)   PRs (4)   Promotion (1)    │
+│  Code (13)    Decisions (11)   PRs (4)   Promotion (1)    │
 │  ──────────   ─────────────   ───────    ──────────       │
 │  index_*       create, get,    open_pr   promote          │
 │  search_*      update, delete, add_pr_   _decision        │
@@ -153,11 +153,12 @@ These spawn `bin/cortex-indexer` (write operations):
 | `detect_changes` | Map git diff to affected symbols |
 | `delete_project` | Remove a project from the index |
 
-### Decision tools (10)
+### Decision tools (11)
 
 | Tool | Description |
 |------|-------------|
 | `create_decision` | Create a decision with rationale, alternatives, and governed code links |
+| `decision_candidates` | Read-only: frame cold-start decision candidates from git history + docs. |
 | `propose_decision` | Create a `proposed`-status decision pending review |
 | `supersede_decision` | Mark one decision as superseded by another |
 | `update_decision` | Update decision fields (title, description, rationale, status) |
@@ -385,7 +386,7 @@ src/
     response.ts                     # MCP tool response helpers
     tools/
       code-tools.ts                 # 13 code MCP tools
-      decision-tools.ts             # 9 decision MCP tools
+      decision-tools.ts             # 11 decision MCP tools
       promotion-tools.ts            # promote_decision
       pr-tools.ts                   # 4 PR tools
   viewer/
