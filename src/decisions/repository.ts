@@ -17,8 +17,10 @@ export interface DecisionRecord {
   updated_at: string;
 }
 
+// provenance is machine-derived and write-once: excluded from updates so it
+// cannot be silently overwritten by a spread of a full DecisionRecord.
 export type DecisionUpdate = Partial<
-  Omit<DecisionRecord, "id" | "created_at">
+  Omit<DecisionRecord, "id" | "created_at" | "provenance">
 >;
 
 const SELECT_COLS =
