@@ -12,6 +12,7 @@ export interface DecisionRecord {
   status: string;
   superseded_by: string | null;
   author: string | null;
+  provenance?: string | null; // JSON string; NULL for human-authored decisions
   created_at: string;
   updated_at: string;
 }
@@ -21,7 +22,7 @@ export type DecisionUpdate = Partial<
 >;
 
 const SELECT_COLS =
-  "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, created_at, updated_at";
+  "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
 
 export class DecisionsRepository {
   constructor(private db: Database.Database) {}
@@ -34,9 +35,9 @@ export class DecisionsRepository {
       .prepare(
         `INSERT INTO decisions (${SELECT_COLS}) VALUES
          (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
-          @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
+          @tier, @status, @superseded_by, @author, @provenance, @created_at, @updated_at)`,
       )
-      .run(rec);
+      .run({ ...rec, provenance: rec.provenance ?? null });
   }
 
   update(id: string, patch: DecisionUpdate): void {
