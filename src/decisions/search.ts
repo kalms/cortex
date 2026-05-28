@@ -64,5 +64,6 @@ function toDecision(rec: DecisionRecord): Decision {
     updated_at: rec.updated_at,
     problem: rec.problem,
     resolution: rec.resolution,
+    provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
   };
 }
