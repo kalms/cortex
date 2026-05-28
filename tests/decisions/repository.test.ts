@@ -31,6 +31,7 @@ describe("DecisionsRepository", () => {
       status: "active",
       superseded_by: null,
       author: "claude",
+      provenance: null,
       created_at: "2026-05-14T10:00:00Z",
       updated_at: "2026-05-14T10:00:00Z",
       ...overrides,
