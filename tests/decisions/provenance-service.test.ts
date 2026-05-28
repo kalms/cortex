@@ -33,11 +33,16 @@ describe("DecisionService provenance + author", () => {
     } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
-  it("create without provenance reads back null", () => {
+  it("create round-trips provenance and reads back null when omitted", () => {
     const { root, db, service } = svc();
     try {
-      const d = service.create({ title: "Manual", description: "d", rationale: "r" });
-      expect(d.provenance).toBeNull();
+      const dNull = service.create({ title: "Manual", description: "d", rationale: "r" });
+      expect(dNull.provenance).toBeNull();
+
+      const prov = { source: "adr" as const, doc_path: "docs/adr/1.md", confidence: "high" as const };
+      const dProv = service.create({ title: "Lifted", description: "d", rationale: "r", provenance: prov });
+      expect(dProv.provenance).toEqual(prov);
+      expect(service.get(dProv.id)?.provenance).toEqual(prov);
     } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
   });
 });

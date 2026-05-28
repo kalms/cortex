@@ -1,6 +1,12 @@
 import type { NodeRow } from "../graph/store.js";
 import type { PRState } from "../prs/types.js";
 
+/**
+ * Structured provenance for machine-authored decisions (e.g. those proposed by
+ * the seed-decisions skill with author "cortex:seed"). Stored as JSON TEXT in
+ * decisions.db; parsed back to this shape by every toDecision() mapper.
+ * Human-authored decisions carry null.
+ */
 export interface ProvenanceMeta {
   source: "adr" | "prose" | "commits";
   doc_path?: string;
