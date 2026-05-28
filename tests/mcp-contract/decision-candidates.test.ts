@@ -25,6 +25,7 @@ import { DecisionLinksRepository } from "../../src/decisions/links-repository.js
 import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionSearch } from "../../src/decisions/search.js";
 import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
+import { ResponseSchema } from "../../src/mcp-server/response.js";
 
 // ── Fixture layout ────────────────────────────────────────────────────────────
 //
@@ -136,6 +137,7 @@ describe("decision_candidates MCP tool", () => {
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
+    expect(ResponseSchema.safeParse(res).success).toBe(true);
     expect(res.isError).toBeFalsy();
 
     const candidates = JSON.parse(res.content[0].text);
@@ -157,6 +159,7 @@ describe("decision_candidates MCP tool", () => {
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
+    expect(ResponseSchema.safeParse(res).success).toBe(true);
     expect(res.isError).toBeFalsy();
     const candidates = JSON.parse(res.content[0].text);
     expect(Array.isArray(candidates)).toBe(true);
@@ -170,6 +173,7 @@ describe("decision_candidates MCP tool", () => {
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
+    expect(ResponseSchema.safeParse(res).success).toBe(true);
     expect(res.isError).toBeFalsy();
     const candidates = JSON.parse(res.content[0].text);
     expect(Array.isArray(candidates)).toBe(true);
