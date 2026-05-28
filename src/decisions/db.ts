@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   status       TEXT NOT NULL DEFAULT 'active',
   superseded_by TEXT,
   author       TEXT,
+  provenance   TEXT,
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
@@ -105,6 +106,14 @@ function migrateFtsToTriggers(db: Database.Database): void {
   })();
 }
 
+/** Additively add the provenance column to pre-existing DBs. Idempotent. */
+function ensureProvenanceColumn(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(decisions)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "provenance")) {
+    db.exec("ALTER TABLE decisions ADD COLUMN provenance TEXT");
+  }
+}
+
 /** Open (and create if missing) the decisions sidecar DB. */
 export function openDecisionsDb(path: string): Database.Database {
   mkdirSync(dirname(path), { recursive: true });
@@ -112,6 +121,7 @@ export function openDecisionsDb(path: string): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(BASE_SCHEMA);
+  ensureProvenanceColumn(db);
   if (readSchemaMeta(db, "fts_version") !== FTS_VERSION) {
     migrateFtsToTriggers(db);
   }
