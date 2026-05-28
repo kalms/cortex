@@ -10,6 +10,7 @@
 import type { DecisionRecord } from "../decisions/repository.js";
 import type { DecisionLink } from "../decisions/links-repository.js";
 import type { NodeRow } from "../graph/store.js";
+import type { ProvenanceMeta } from "../decisions/types.js";
 
 export type GovernsRef =
   | { kind: "frame"; id: string; label: string }
@@ -37,6 +38,7 @@ export interface AdaptedDecision {
   supersededBy: string | null;
   relatedTo: string[];
   dependsOn: string[];
+  provenance: ProvenanceMeta | null;
 }
 
 export interface FrameInfo {
@@ -94,6 +96,7 @@ export function buildAdaptedDecision(
     supersededBy: rec.superseded_by,
     relatedTo,
     dependsOn,
+    provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
   };
 }
 
