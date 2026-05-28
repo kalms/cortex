@@ -35,6 +35,8 @@ proposed.
 
 ## Step 3: Author proposed decisions
 
+The candidate `kind` maps to `provenance.source` as: `adr` → `"adr"`, `prose` → `"prose"`, `commit_cluster` → `"commits"`. The MCP tool's Zod schema accepts only those three source values.
+
 Use judgment: a candidate may be one decision or several; merge or split as the
 evidence warrants. Be conservative — do not invent alternatives the source
 doesn't support.
