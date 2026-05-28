@@ -54,4 +54,13 @@ describe("discoverDocCandidates", () => {
       expect(discoverDocCandidates(root)).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it("skips markdown files larger than 512 KB", () => {
+    const big = "x".repeat(513 * 1024);
+    const root = repoWith({ "docs/architecture/huge.md": big });
+    try {
+      // Even though it's under docs/, the size cap excludes it.
+      expect(discoverDocCandidates(root)).toHaveLength(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });

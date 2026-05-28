@@ -6,15 +6,23 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".cortex", "dist", "build", "
 const ADR_PATH = /(^|\/)(adr|decisions)(\/|$)/i;
 const ADR_FILE = /(^|\/)(adr-|\d{4}-).+\.md$/i;
 const DOC_ROOT = /(^|\/)docs(\/|$)/i;
+// One ADR heading is enough — prefer recall over precision; the seed skill re-evaluates.
 const ADR_HEADINGS = /^##\s+(context|decision|consequences)\b/im;
 const EXCERPT_CHARS = 1500;
 
 /** Recursively collect *.md paths, skipping vendored/derived dirs. */
 function walkMarkdown(root: string, dir: string, out: string[]): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") && entry.name !== ".") {
-      if (SKIP_DIRS.has(entry.name)) continue;
-    }
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // unreadable directory — skip silently
+  }
+  for (const entry of entries) {
+    // Skip all dot-prefixed entries (.git, .github, .vscode, .husky, etc).
+    // Hidden dirs in a repo almost never contain decision docs; PR templates
+    // matching ADR headings are a known false-positive source.
+    if (entry.name.startsWith(".")) continue;
     const abs = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
