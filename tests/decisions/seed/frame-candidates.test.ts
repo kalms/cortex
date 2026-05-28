@@ -23,7 +23,7 @@ describe("frameCandidates", () => {
     const root = repoWithDocsAndCommits();
     try {
       const out = frameCandidates({ repo_path: root });
-      expect(out.length).toBeGreaterThanOrEqual(2);
+      expect(out).toHaveLength(2);
       expect(out[0].kind).toBe("adr");          // high-confidence first
       expect(out.some((c) => c.kind === "commit_cluster")).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
