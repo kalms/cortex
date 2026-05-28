@@ -53,8 +53,17 @@ function cmdCandidates(cmd: DecisionCommand, ctx: ProjectContext): void {
       "cortex tour    to see what's available without a project",
     );
   }
-  const max = typeof cmd.flags["max"] === "string" ? Number(cmd.flags["max"]) : undefined;
-  const manifest = frameCandidates({ repo_path: ctx.cwd, max_candidates: max });
+  const rawMax = typeof cmd.flags["max"] === "string" ? Number(cmd.flags["max"]) : undefined;
+  if (rawMax !== undefined && !Number.isFinite(rawMax)) {
+    throw new UsageError(
+      `--max must be a positive integer (got: ${cmd.flags["max"]})`,
+      "Example: cortex decision candidates --max=10",
+    );
+  }
+  const max = rawMax;
+  // repo_path must be the git root, not the invocation cwd — otherwise running
+  // `cortex decision candidates` from a subdirectory misses docs/ ADRs.
+  const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max });
   // Always JSON — this is a machine manifest, not a human row list.
   process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
 }
