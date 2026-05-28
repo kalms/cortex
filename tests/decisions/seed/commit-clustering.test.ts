@@ -46,4 +46,21 @@ describe("clusterCommitCandidates", () => {
       expect(clusterCommitCandidates(root, 100)).toEqual([]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it("buckets non-conventional commits under 'misc'", () => {
+    const root = repo();
+    try {
+      commit(root, "a.ts", "feat(frames): add extraction");
+      commit(root, "b.ts", "wip refactoring without scope");
+      commit(root, "c.ts", "tweaks");
+      const cands = clusterCommitCandidates(root, 100);
+      const titles = cands.map((c) => c.title_hint);
+      // Conventional commit forms its own scope bucket.
+      expect(titles.some((t) => t.startsWith("frames:"))).toBe(true);
+      // Both non-conventional commits land together in 'misc'.
+      const misc = cands.find((c) => c.title_hint.startsWith("misc:"));
+      expect(misc).toBeDefined();
+      expect(misc!.provenance.commit_shas?.length).toBe(2);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
