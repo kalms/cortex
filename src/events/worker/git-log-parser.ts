@@ -42,6 +42,10 @@ export function parseGitLogOutput(raw: string): ParsedCommit[] {
       continue;
     }
     if (line.includes('\0')) {
+      // Flush the previous commit when a new header arrives immediately after
+      // name-status lines (real git log emits no blank line between the last
+      // file entry and the next commit's header).
+      if (current) commits.push(current);
       const [hash, message, author, tsStr] = line.split('\0');
       current = {
         hash,
