@@ -259,6 +259,11 @@ The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a s
 | `/search-decisions` | Find existing architectural decisions before making changes |
 | `/capture-decision` | Guided workflow for recording new decisions with rationale and alternatives |
 | `/explain-architecture` | Narrative explanation combining decisions, call chains, and code structure |
+| `/seed-decisions` | Bootstrap decisions for a freshly-indexed repo from git + docs (cold-start seeding) |
+
+- **Cold-start decision seeding** — fresh repos auto-detect zero decisions
+  and offer to bootstrap them from git + docs via the `seed-decisions` skill;
+  see [the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
 
 ## Hooks
 

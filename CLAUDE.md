@@ -82,10 +82,20 @@ live in:
 See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md)
 for the full architecture rationale.
 
+## Cold-start decision seeding
+
+A freshly-indexed repo has zero decisions. The `check-index` hook detects this
+(`cortex decision count == 0`) and prompts running the `seed-decisions` skill,
+which frames candidates from git + docs via the read-only `decision_candidates`
+MCP tool and proposes them with machine-derived provenance. Seeded decisions are
+`status: "proposed"`, `author: "cortex:seed"`, and never become `active` without
+explicit user ratification (`update_decision`). See
+[the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
+
 ## Tools Available
 
 ### Decision tools
-`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`
+`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`
 
 ### Code tools
 `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
