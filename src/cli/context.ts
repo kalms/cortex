@@ -8,6 +8,8 @@ export type ProjectState = "indexed" | "unindexed-repo" | "no-project";
 export type ProjectContext = {
   state: ProjectState;
   cwd: string;
+  /** Git repo root walked-up from cwd; null when state === "no-project". */
+  gitRoot: string | null;
   projectName: string | null;       // null when state === "no-project"
   graphDbPath: string | null;       // null when state !== "indexed"
 };
@@ -96,12 +98,12 @@ export function loadContext(cwd: string): ProjectContext {
   const absCwd = resolve(cwd);
   const gitRoot = findGitRoot(absCwd);
   if (!gitRoot) {
-    return { state: "no-project", cwd: absCwd, projectName: null, graphDbPath: null };
+    return { state: "no-project", cwd: absCwd, gitRoot: null, projectName: null, graphDbPath: null };
   }
   const projectName = deriveProjectName(gitRoot);
   const graphDbPath = findIndexedDb(projectName, gitRoot);
   if (!graphDbPath) {
-    return { state: "unindexed-repo", cwd: absCwd, projectName, graphDbPath: null };
+    return { state: "unindexed-repo", cwd: absCwd, gitRoot, projectName, graphDbPath: null };
   }
-  return { state: "indexed", cwd: absCwd, projectName, graphDbPath };
+  return { state: "indexed", cwd: absCwd, gitRoot, projectName, graphDbPath };
 }

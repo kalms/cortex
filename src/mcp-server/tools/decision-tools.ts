@@ -1,15 +1,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { resolve, dirname } from "node:path";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
+import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
   reason_rejected: z.string(),
+});
+
+const ProvenanceSchema = z.object({
+  source: z.enum(["adr", "prose", "commits"]),
+  doc_path: z.string().optional(),
+  commit_shas: z.array(z.string()).optional(),
+  confidence: z.enum(["high", "medium", "low"]),
 });
 
 export function registerDecisionTools(
@@ -53,7 +62,7 @@ export function registerDecisionTools(
 
   server.tool(
     "propose_decision",
-    "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces'.",
+    "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces', or supply provenance + author for machine-seeded candidates (e.g. cortex:seed).",
     {
       title: z.string(),
       problem: z.string(),
@@ -63,6 +72,8 @@ export function registerDecisionTools(
       governs: z.array(z.string()).optional(),
       references: z.array(z.string()).optional(),
       pr_number: z.number().int().optional(),
+      author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
+      provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
     },
     async (params) => {
       const bad = validateDecisionFields(params as Record<string, unknown>);
@@ -319,6 +330,26 @@ export function registerDecisionTools(
         const msg = e instanceof Error ? e.message : String(e);
         if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
         return errorResponse("internal_error", msg);
+      }
+    }
+  );
+
+  server.tool(
+    "decision_candidates",
+    "Read-only: frame cold-start decision candidates from git history + docs. Returns a manifest the seed-decisions skill turns into proposed decisions. Writes nothing.",
+    {
+      max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+    },
+    async (params) => {
+      if (!dbPath) {
+        return errorResponse("project_not_found", "decision_candidates requires a resolved decisions db path");
+      }
+      try {
+        const repoRoot = resolve(dirname(dbPath), "..");
+        const manifest = frameCandidates({ repo_path: repoRoot, max_candidates: params.max_candidates });
+        return ok(JSON.stringify(manifest, null, 2));
+      } catch (e) {
+        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
       }
     }
   );
