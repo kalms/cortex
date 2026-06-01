@@ -12,16 +12,22 @@ export interface DecisionRecord {
   status: string;
   superseded_by: string | null;
   author: string | null;
+  // JSON string holding a ProvenanceMeta. Optional only so pre-Task-2 inline
+  // literals typecheck; DB rows always carry the column. Use null (not
+  // omission) when constructing a record synthetically.
+  provenance?: string | null;
   created_at: string;
   updated_at: string;
 }
 
+// provenance is machine-derived and write-once: excluded from updates so it
+// cannot be silently overwritten by a spread of a full DecisionRecord.
 export type DecisionUpdate = Partial<
-  Omit<DecisionRecord, "id" | "created_at">
+  Omit<DecisionRecord, "id" | "created_at" | "provenance">
 >;
 
 const SELECT_COLS =
-  "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, created_at, updated_at";
+  "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
 
 export class DecisionsRepository {
   constructor(private db: Database.Database) {}
@@ -34,9 +40,9 @@ export class DecisionsRepository {
       .prepare(
         `INSERT INTO decisions (${SELECT_COLS}) VALUES
          (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
-          @tier, @status, @superseded_by, @author, @created_at, @updated_at)`,
+          @tier, @status, @superseded_by, @author, @provenance, @created_at, @updated_at)`,
       )
-      .run(rec);
+      .run({ ...rec, provenance: rec.provenance ?? null });
   }
 
   update(id: string, patch: DecisionUpdate): void {

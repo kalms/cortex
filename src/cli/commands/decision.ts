@@ -4,6 +4,7 @@ import { DecisionsRepository } from "../../decisions/repository.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
+import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { writeRows, chooseFormat } from "../format.js";
@@ -45,8 +46,47 @@ function requireFlag(name: string, flags: Record<string, unknown>): string {
   return v;
 }
 
+function cmdCandidates(cmd: DecisionCommand, ctx: ProjectContext): void {
+  if (ctx.state === "no-project") {
+    throw new EnvironmentError(
+      "decision candidates require a git repository — cd into a repo first",
+      "cortex tour    to see what's available without a project",
+    );
+  }
+  const rawMax = typeof cmd.flags["max"] === "string" ? Number(cmd.flags["max"]) : undefined;
+  if (rawMax !== undefined && !Number.isFinite(rawMax)) {
+    throw new UsageError(
+      `--max must be a positive integer (got: ${cmd.flags["max"]})`,
+      "Example: cortex decision candidates --max=10",
+    );
+  }
+  const max = rawMax;
+  // repo_path must be the git root, not the invocation cwd — otherwise running
+  // `cortex decision candidates` from a subdirectory misses docs/ ADRs.
+  const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max });
+  // Always JSON — this is a machine manifest, not a human row list.
+  process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function cmdCount(_cmd: DecisionCommand, ctx: ProjectContext): void {
+  // Cold-start probe for hooks/scripts. Print 0 (not an error) when the repo
+  // has no decisions yet, so the caller can branch on a clean integer.
+  if (ctx.state === "no-project") {
+    process.stdout.write("0\n");
+    return;
+  }
+  const { db, svc } = openService(ctx);
+  try {
+    process.stdout.write(`${svc.list().length}\n`);
+  } finally {
+    db.close();
+  }
+}
+
 export async function runDecisionCommand(cmd: DecisionCommand, ctx: ProjectContext): Promise<void> {
   switch (cmd.command) {
+    case "candidates": return cmdCandidates(cmd, ctx);
+    case "count":     return cmdCount(cmd, ctx);
     case "list":      return cmdList(cmd, ctx);
     case "show":      return cmdShow(cmd, ctx);
     case "why":       return cmdWhy(cmd, ctx);

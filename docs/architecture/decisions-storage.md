@@ -140,3 +140,46 @@ The regression is pinned by `tests/decisions/cache-survival.test.ts`:
 create a decision, overwrite `.cortex/graph.db` with garbage bytes
 (simulating any cache-import or pipeline-reindex), re-open
 `.cortex/decisions.db`, confirm the decision is still there.
+
+## Cold-start seeding (machine-proposed decisions)
+
+A freshly-indexed repo has no decisions, which makes `why_was_this_built`
+inert on day one. The cold-start seeding flow bootstraps the durable store
+from existing repo state without compromising its trust contract:
+
+1. **Detection** — `hooks/check-index.sh` probes `cortex decision count` and,
+   when zero, emits a one-time prompt inviting the agent to run the
+   `seed-decisions` skill.
+2. **Candidate framing** — The `decision_candidates` MCP tool (read-only)
+   walks `docs/` for ADR-shaped files, clusters recent conventional commits
+   by scope, and returns a compact manifest with **machine-derived
+   provenance** (commit SHAs / doc paths). The skill never reads raw `git log`
+   itself; the manifest is the trust anchor.
+3. **Authoring** — The skill calls `propose_decision` with `author:
+   "cortex:seed"` and a `provenance` payload carrying the source SHAs/doc
+   path + confidence tier (`high` for ADRs, `medium` for prose, `low` for
+   commit clusters).
+4. **Ratification** — The user reviews the proposed batch; approved entries
+   become `active` via `update_decision`, the rest are deleted.
+
+### Provenance column
+
+Seeded decisions carry their source on a nullable `provenance TEXT` column
+holding a JSON `ProvenanceMeta` (`{ source, doc_path?, commit_shas?,
+confidence }`). The column is added via an idempotent `ALTER TABLE ADD
+COLUMN provenance TEXT` guarded by a `PRAGMA table_info(decisions)` probe in
+`openDecisionsDb`, so pre-existing DBs upgrade in place without an FTS
+rebuild. The column is intentionally NOT indexed by `decisions_fts` —
+provenance is reviewer-verifiable metadata, not searchable prose.
+
+`DecisionUpdate` excludes `provenance` so the field is write-once: machine-
+derived provenance cannot be silently overwritten by a later update.
+
+### Conventions
+
+- Machine-seeded decisions carry `author: "cortex:seed"`. This makes them
+  identifiable in audit + review without parsing the provenance blob.
+- The candidate-framing module lives in `src/decisions/seed/` (doc discovery
+  + commit clustering + manifest aggregator). It is pure aside from
+  filesystem + `git` I/O; the same logic backs both the MCP tool and the
+  `cortex decision candidates` CLI command (the CLI is the human/debug path).
