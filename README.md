@@ -89,7 +89,7 @@ npm rebuild better-sqlite3
 ┌──────────────────────────────────────────────────────────┐
 │                MCP Server (stdio, main thread)            │
 │                                                           │
-│  Code (13)    Decisions (10)   PRs (4)   Promotion (1)    │
+│  Code (13)    Decisions (11)   PRs (4)   Promotion (1)    │
 │  ──────────   ─────────────   ───────    ──────────       │
 │  index_*       create, get,    open_pr   promote          │
 │  search_*      update, delete, add_pr_   _decision        │
@@ -153,11 +153,12 @@ These spawn `bin/cortex-indexer` (write operations):
 | `detect_changes` | Map git diff to affected symbols |
 | `delete_project` | Remove a project from the index |
 
-### Decision tools (10)
+### Decision tools (11)
 
 | Tool | Description |
 |------|-------------|
 | `create_decision` | Create a decision with rationale, alternatives, and governed code links |
+| `decision_candidates` | Read-only: frame cold-start decision candidates from git history + docs. |
 | `propose_decision` | Create a `proposed`-status decision pending review |
 | `supersede_decision` | Mark one decision as superseded by another |
 | `update_decision` | Update decision fields (title, description, rationale, status) |
@@ -259,6 +260,11 @@ The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a s
 | `/search-decisions` | Find existing architectural decisions before making changes |
 | `/capture-decision` | Guided workflow for recording new decisions with rationale and alternatives |
 | `/explain-architecture` | Narrative explanation combining decisions, call chains, and code structure |
+| `/seed-decisions` | Bootstrap decisions for a freshly-indexed repo from git + docs (cold-start seeding) |
+
+- **Cold-start decision seeding** — fresh repos auto-detect zero decisions
+  and offer to bootstrap them from git + docs via the `seed-decisions` skill;
+  see [the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
 
 ## Hooks
 
@@ -380,7 +386,7 @@ src/
     response.ts                     # MCP tool response helpers
     tools/
       code-tools.ts                 # 13 code MCP tools
-      decision-tools.ts             # 9 decision MCP tools
+      decision-tools.ts             # 11 decision MCP tools
       promotion-tools.ts            # promote_decision
       pr-tools.ts                   # 4 PR tools
   viewer/

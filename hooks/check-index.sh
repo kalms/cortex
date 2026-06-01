@@ -73,6 +73,30 @@ After any non-trivial commit, consider:
   - propose_decision / create_decision if an architectural choice was made
   - detect_changes + index_repository to keep the graph current
 EOF
+        # Cold-start decision seeding: if the durable decisions store is empty,
+        # nudge the agent to bootstrap it. Degrade-safe — never errors, and only
+        # prompts when we can confirm a zero count.
+        CORTEX_CLI=""
+        if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/cortex" ]; then
+            CORTEX_CLI="$CLAUDE_PLUGIN_ROOT/bin/cortex"
+        elif [ -x "$REPO/bin/cortex" ]; then
+            CORTEX_CLI="$REPO/bin/cortex"
+        fi
+        if [ -n "$CORTEX_CLI" ]; then
+            DECISION_COUNT="$(cd "$REPO" && "$CORTEX_CLI" decision count 2>/dev/null | tr -dc '0-9')"
+            if [ "$DECISION_COUNT" = "0" ]; then
+                cat <<'EOF'
+
+--- Cold-start: no decisions captured yet ---
+This repo is indexed but has zero decisions, so why_was_this_built and
+search_decisions are empty. Offer to bootstrap them:
+
+  Run the `seed-decisions` skill — it frames candidates from git history and
+  docs (via the decision_candidates MCP tool), writes them as `proposed`
+  decisions with provenance, and asks you to ratify a subset.
+EOF
+            fi
+        fi
         ;;
     not-indexed)
         cat <<'EOF'
