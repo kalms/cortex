@@ -41,6 +41,7 @@ export class DecisionService {
       status: "active",
       superseded_by: null,
       author: input.author ?? "claude",
+      provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
     };
@@ -224,6 +225,7 @@ export class DecisionService {
       status: "proposed",
       superseded_by: null,
       author: input.author ?? "claude",
+      provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
     };
@@ -335,5 +337,6 @@ function toDecision(rec: DecisionRecord): Decision {
     updated_at: rec.updated_at,
     problem: rec.problem,
     resolution: rec.resolution,
+    provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
   };
 }
