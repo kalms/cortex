@@ -43,7 +43,6 @@ export function createServer(
   // legacy startup binding above; Phases 2-5 migrate tools through it via
   // registerTool, and Phase 5 drains the startup-bound handles.
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
-  void resolver;
 
   const decisionService = new DecisionService({
     decisions: decisionsRepo,
@@ -64,7 +63,16 @@ export function createServer(
     links: decisionLinksRepo,
   });
 
-  registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo, indexerProject, graphDbPath);
+  registerDecisionTools(
+    server,
+    decisionService,
+    decisionSearch,
+    decisionLinksRepo,
+    resolver,
+    indexerProject,
+    graphDbPath,
+    bus,
+  );
   registerPromotionTools(server, decisionPromotion);
   registerCodeTools(server, store, indexerProject, graphDbPath);
   registerPRTools(server, prService);

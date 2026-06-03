@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, callTool, type HarnessContext } from "./harness.js";
+import { createHarness, callTool, makeIndexedRepoFixture, countDecisions, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
+import { rmSync } from "node:fs";
 
 describe("decision-tools contract", () => {
   let h: HarnessContext;
@@ -256,6 +257,62 @@ describe("decision-tools contract", () => {
       });
       expect(res.isError).toBe(true);
       expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-call repo routing — Task 2.1 (template for Tasks 2.2-2.11)
+  //
+  // Migrated tools route their reads/writes to the repo addressed by
+  // `repo_path`. The harness's `callTool` auto-injects the primary repo's
+  // path so legacy tests above don't need to change; these tests pass
+  // explicit `repo_path` values (or sentinel `undefined`) to verify the new
+  // routing contract.
+  // ---------------------------------------------------------------------------
+  describe("create_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      // `repo_path: undefined` is the harness sentinel that strips the
+      // field from the request entirely — without it the harness would
+      // auto-inject the primary repo's path.
+      const res = await callTool(h, "create_decision", {
+        repo_path: undefined,
+        title: "x",
+        description: "y",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      // The friendly MissingRepoPathError from registerTool's pre-check
+      // surfaces as the message "repo_path required for tool '<name>'".
+      // The Zod field is declared `.optional()` so the SDK's input
+      // validation does NOT pre-empt this error path.
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const before = countDecisions(repoB);
+        const res = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "scoped to B",
+          description: "x",
+          rationale: "y",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        // Write landed in repoB.
+        expect(countDecisions(repoB)).toBe(before + 1);
+        // And did NOT leak into the harness's primary repo. The harness's
+        // legacy DecisionService is bound to the primary repo's decisions.db;
+        // a get(id) against it returns null iff routing actually scoped the
+        // write to repoB. This is a stronger invariant than a count diff —
+        // earlier tests in this file write to the primary repo, so its
+        // absolute decision count is in flux.
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
     });
   });
 });

@@ -285,24 +285,24 @@ export class RepoContextResolver {
  *     return resolver.listKnownRepos();
  *   }, { resolver, crossRepo: true });
  */
-export function registerTool<A extends { repo_path?: string }>(
+export function registerTool<A extends { repo_path?: string }, R>(
   name: string,
   schema: ZodSchema<A>,
-  handler: (ctx: RepoContext, args: A) => Promise<unknown>,
+  handler: (ctx: RepoContext, args: A) => Promise<R>,
   options: { resolver: RepoContextResolver; crossRepo?: false },
-): (rawArgs: unknown) => Promise<unknown>;
-export function registerTool<A>(
+): (rawArgs: unknown) => Promise<R>;
+export function registerTool<A, R>(
   name: string,
   schema: ZodSchema<A>,
-  handler: (resolver: RepoContextResolver, args: A) => Promise<unknown>,
+  handler: (resolver: RepoContextResolver, args: A) => Promise<R>,
   options: { resolver: RepoContextResolver; crossRepo: true },
-): (rawArgs: unknown) => Promise<unknown>;
-export function registerTool<A>(
+): (rawArgs: unknown) => Promise<R>;
+export function registerTool<A, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: any,
   options: { resolver: RepoContextResolver; crossRepo?: boolean },
-): (rawArgs: unknown) => Promise<unknown> {
+): (rawArgs: unknown) => Promise<R> {
   return async (rawArgs: unknown) => {
     if (!options.crossRepo) {
       // Pre-check before schema.parse so MissingRepoPathError beats ZodError on the
