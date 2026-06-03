@@ -76,3 +76,41 @@ describe("RepoContextResolver.resolve — happy path", () => {
     }
   });
 });
+
+describe("RepoContextResolver.resolve — error paths", () => {
+  it("throws PathNotFoundError when path does not exist", () => {
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      expect(() => resolver.resolve("/nonexistent/path/abc")).toThrow(PathNotFoundError);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+
+  it("throws NotAGitRepoError when path is not a git root", () => {
+    const dir = mkdtempSync(join(tmpdir(), "not-a-repo-"));
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      expect(() => resolver.resolve(dir)).toThrow(NotAGitRepoError);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+
+  it("throws RepoNotIndexedError when .cortex/graph.db is missing", () => {
+    const root = mkdtempSync(join(tmpdir(), "unindexed-repo-"));
+    execSync(`git init -q "${root}"`);
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      try {
+        resolver.resolve(root);
+        throw new Error("should have thrown");
+      } catch (e) {
+        expect(e).toBeInstanceOf(RepoNotIndexedError);
+        expect((e as RepoNotIndexedError).availableProjects).toBeDefined();
+      }
+    } finally {
+      resolver.shutdown();
+    }
+  });
+});
