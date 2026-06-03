@@ -8,6 +8,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
+import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 
@@ -132,6 +133,12 @@ const proposeDecisionShape = {
   provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
 } as const;
 const proposeDecisionSchema = z.object(proposeDecisionShape);
+
+const whyWasThisBuiltShape = {
+  repo_path: RepoPathField,
+  qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
+} as const;
+const whyWasThisBuiltSchema = z.object(whyWasThisBuiltShape);
 
 export function registerDecisionTools(
   server: McpServer,
@@ -417,51 +424,66 @@ export function registerDecisionTools(
   server.tool(
     "why_was_this_built",
     "Find decisions governing a code entity. Input accepts qualified names, file paths, or bare symbol names. Walks up file/directory hierarchy if no direct match. Returns ambiguous_input with candidates if multiple symbols match.",
-    {
-      qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
-    },
-    async ({ qualified_name }) => {
-      try {
-        // Resolve bare names → concrete qn/path before calling findGoverning.
-        // findGoverning already handles file paths and qns via its own walk;
-        // the resolver fills the bare-name gap.
-        //
-        // Skip the resolver for inputs that already look like file paths (contain
-        // '/' or end in a source extension) or qn separators ('::') — those are
-        // passed directly to findGoverning for its own path/hierarchy walk.
-        const SOURCE_EXT = /\.(vue|tsx?|jsx?|py|go|rs|java|cs|cpp|c|h|rb|php|swift|kt)$/;
-        const looksLikeFilePath = qualified_name.includes("/") || SOURCE_EXT.test(qualified_name);
-        const looksLikeQn = qualified_name.includes("::");
+    whyWasThisBuiltShape,
+    registerTool(
+      "why_was_this_built",
+      whyWasThisBuiltSchema,
+      async (ctx, args) => {
+        const { qualified_name } = args;
+        try {
+          // Resolve bare names → concrete qn/path before calling findGoverning.
+          // findGoverning already handles file paths and qns via its own walk;
+          // the resolver fills the bare-name gap.
+          //
+          // Skip the resolver for inputs that already look like file paths (contain
+          // '/' or end in a source extension) or qn separators ('::') — those are
+          // passed directly to findGoverning for its own path/hierarchy walk.
+          const SOURCE_EXT = /\.(vue|tsx?|jsx?|py|go|rs|java|cs|cpp|c|h|rb|php|swift|kt)$/;
+          const looksLikeFilePath = qualified_name.includes("/") || SOURCE_EXT.test(qualified_name);
+          const looksLikeQn = qualified_name.includes("::");
 
-        let target = qualified_name;
-        if (indexerProject && dbPath && !looksLikeFilePath && !looksLikeQn) {
-          const resolved = resolveInput(qualified_name, indexerProject, dbPath);
-          if (resolved.kind === "multi") {
-            const candidatesList = resolved.candidates
-              .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
-              .join("\n");
-            return errorResponse(
-              "ambiguous_input",
-              `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
-            );
+          let target = qualified_name;
+          if (!looksLikeFilePath && !looksLikeQn) {
+            // resolveInput() needs (input, project, dbPath):
+            //   - project: a string used to match canonical qns of the form
+            //     `<project>.<rest>`. Per the spec's `listKnownRepos()` naming
+            //     convention, derive it from the absolute repo path by stripping
+            //     the leading slash and replacing path separators with dashes.
+            //     This is a heuristic for the dotted-qn branch (#2); other
+            //     branches (file path, bare name) ignore the project arg.
+            //   - dbPath: the graph DB file ('.cortex/db' under the repo). The
+            //     function opens its own GraphStore on this path.
+            const project = ctx.repoPath.replace(/^\//, "").replace(/\//g, "-");
+            const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+            const resolved = resolveInput(qualified_name, project, graphDbPath);
+            if (resolved.kind === "multi") {
+              const candidatesList = resolved.candidates
+                .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+                .join("\n");
+              return errorResponse(
+                "ambiguous_input",
+                `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+              );
+            }
+            if (resolved.kind === "single") {
+              // Prefer file_path for path-walk semantics; fall back to qn.
+              target = resolved.symbol.file_path || resolved.symbol.qn;
+            }
+            // 'none' falls through to findGoverning with the original input,
+            // preserving back-compat for non-symbol inputs.
           }
-          if (resolved.kind === "single") {
-            // Prefer file_path for path-walk semantics; fall back to qn.
-            target = resolved.symbol.file_path || resolved.symbol.qn;
+          const results = searchFor(ctx).findGoverning(target);
+          if (!results || results.length === 0) {
+            return empty(`why_was_this_built(${qualified_name})`);
           }
-          // 'none' falls through to findGoverning with the original input,
-          // preserving back-compat for non-symbol inputs.
+          return ok(JSON.stringify(results, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
         }
-        const results = search.findGoverning(target);
-        if (!results || results.length === 0) {
-          return empty(`why_was_this_built(${qualified_name})`);
-        }
-        return ok(JSON.stringify(results, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
