@@ -1,7 +1,14 @@
+import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
-import type { GraphStore } from "../graph/store.js";
-import type { DecisionsRepository } from "../decisions/repository.js";
-import type { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { execSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
+import { openDecisionsDb } from "../decisions/db.js";
+import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
+import { DecisionsRepository } from "../decisions/repository.js";
+import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { GraphStore } from "../graph/store.js";
 
 /**
  * Everything a tool needs to act on one repo. Constructed by
@@ -52,19 +59,31 @@ export class RepoContextPool {
       const oldest = this.map.keys().next().value as string;
       const evicted = this.map.get(oldest)!;
       this.map.delete(oldest);
-      evicted.graphDb.close();
-      evicted.decisionsDb.close();
+      closeAll(evicted);
     }
   }
 
   /** Closes every pooled DB handle and empties the cache. Idempotent. */
   shutdown(): void {
     for (const ctx of this.map.values()) {
-      ctx.graphDb.close();
-      ctx.decisionsDb.close();
+      closeAll(ctx);
     }
     this.map.clear();
   }
+}
+
+/**
+ * Close every owned handle on a context. The resolver opens both raw DB
+ * handles (`graphDb`, `decisionsDb`) AND a `GraphStore` that owns its own
+ * internal handle to the same graph DB file. All three are closed here so
+ * eviction doesn't leak the store's handle. Treated defensively so pool
+ * tests can use stubs that lack `store.close`.
+ */
+function closeAll(ctx: RepoContext): void {
+  ctx.graphDb.close();
+  ctx.decisionsDb.close();
+  const storeWithClose = ctx.store as { close?: () => void };
+  if (typeof storeWithClose.close === "function") storeWithClose.close();
 }
 
 /**
@@ -118,5 +137,105 @@ export class RepoNotIndexedError extends Error {
     super(`repo_path '${path}' has no .cortex/ — repo not indexed`);
     this.name = "RepoNotIndexedError";
     this.hint = `Run cortex index repository --path=${path} first.`;
+  }
+}
+
+/**
+ * The only entry point tool handlers use to obtain a {@link RepoContext}.
+ *
+ * Per-call resolution replaces the previous startup-time `repoPath` binding
+ * that pooled writes from all tool calls into the server's home repo
+ * (decisions DB) and made non-cwd projects unreachable (graph DB). See
+ * `docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`.
+ *
+ * Pool hits skip all I/O. Pool misses validate the path, open both DBs,
+ * run the (idempotent) decisions migration, and cache the result.
+ */
+export class RepoContextResolver {
+  private readonly pool: RepoContextPool;
+
+  constructor(options: { poolCapacity: number }) {
+    this.pool = new RepoContextPool({ capacity: options.poolCapacity });
+  }
+
+  /**
+   * Resolve a repo by path. Throws one of:
+   * {@link PathNotFoundError}, {@link NotAGitRepoError}, {@link RepoNotIndexedError}.
+   *
+   * The supplied path must be the git root itself — passing a subdirectory
+   * resolves the same git root via `git rev-parse --show-toplevel` and is
+   * rejected as {@link NotAGitRepoError} with the inferred root in the
+   * payload, so the caller can re-issue against the right repo without a
+   * second lookup.
+   */
+  resolve(repoPath: string): RepoContext {
+    const abs = resolvePath(repoPath);
+    const cached = this.pool.get(abs);
+    if (cached) return cached;
+
+    if (!existsSync(abs)) throw new PathNotFoundError(abs);
+
+    let gitRoot: string;
+    try {
+      gitRoot = execSync(`git -C "${abs}" rev-parse --show-toplevel`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      throw new NotAGitRepoError(abs);
+    }
+    // Symlink-tolerant comparison: macOS routinely surfaces `/tmp/foo` while
+    // git reports `/private/tmp/foo`. Both normalize to the same realpath
+    // when the supplied path IS the root; they diverge when the caller
+    // passed a subdir.
+    if (realpathSync(gitRoot) !== realpathSync(abs)) {
+      throw new NotAGitRepoError(abs, gitRoot);
+    }
+
+    const graphDbPath = resolveCortexDbPath(abs);
+    if (!existsSync(graphDbPath)) {
+      throw new RepoNotIndexedError(abs, this.listKnownRepos());
+    }
+    const decisionsDbPath = resolveDecisionsDbPath(abs);
+
+    // GraphStore opens its own handle to graphDbPath and runs schema
+    // migration (idempotent CREATE TABLE IF NOT EXISTS). Constructing it
+    // BEFORE the decisions migration ensures `nodes` exists, since the
+    // migration reads `SELECT FROM nodes WHERE kind='decision'`.
+    const store = new GraphStore(graphDbPath);
+    // Separate read-write handle exposed on RepoContext for callers that
+    // need raw SQL access (migrations, tools that bypass GraphStore). Same
+    // file, WAL-safe across handles in the same process.
+    const graphDb = new BetterSqlite3(graphDbPath);
+    const decisionsDb = openDecisionsDb(decisionsDbPath);
+    migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
+    const decisionsRepo = new DecisionsRepository(decisionsDb);
+    const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+
+    const ctx: RepoContext = Object.freeze({
+      repoPath: abs,
+      graphDb,
+      decisionsDb,
+      store,
+      decisionsRepo,
+      decisionLinksRepo,
+    });
+    this.pool.set(abs, ctx);
+    return ctx;
+  }
+
+  /**
+   * Returns repos this resolver knows about. Stub for now; the full
+   * project-discovery surface lands in Phase 4 (see the multi-project
+   * routing design spec). Returning `[]` keeps the error payload shape
+   * stable for callers without seeding it with stale data.
+   */
+  listKnownRepos(): AvailableProject[] {
+    return [];
+  }
+
+  /** Closes all pooled DB handles. Call on server shutdown. */
+  shutdown(): void {
+    this.pool.shutdown();
   }
 }
