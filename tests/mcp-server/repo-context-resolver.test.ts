@@ -114,3 +114,19 @@ describe("RepoContextResolver.resolve — error paths", () => {
     }
   });
 });
+
+describe("RepoContextResolver.listKnownRepos", () => {
+  it("returns pooled repos with indexed=true", () => {
+    const repo = makeIndexedRepo();
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      resolver.resolve(repo);
+      const list = resolver.listKnownRepos();
+      const entry = list.find((p) => p.path === resolver.resolve(repo).repoPath);
+      expect(entry).toBeDefined();
+      expect(entry!.indexed).toBe(true);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+});
