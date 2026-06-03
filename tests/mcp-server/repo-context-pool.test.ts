@@ -8,7 +8,7 @@ function makeStubContext(path: string): RepoContext {
     repoPath: path,
     graphDb: { close: () => {} } as any,
     decisionsDb: { close: () => {} } as any,
-    store: {} as any,
+    store: { close: () => {} } as any,
     decisionsRepo: {} as any,
     decisionLinksRepo: {} as any,
   };
@@ -33,7 +33,7 @@ describe("RepoContextPool", () => {
       repoPath: path,
       graphDb: { close: () => closed.push(`${path}:graph`) } as any,
       decisionsDb: { close: () => closed.push(`${path}:decisions`) } as any,
-      store: {} as any,
+      store: { close: () => {} } as any,
       decisionsRepo: {} as any,
       decisionLinksRepo: {} as any,
     });
@@ -56,7 +56,7 @@ describe("RepoContextPool", () => {
       repoPath: path,
       graphDb: { close: () => closed.push(`${path}:graph`) } as any,
       decisionsDb: { close: () => closed.push(`${path}:decisions`) } as any,
-      store: {} as any,
+      store: { close: () => {} } as any,
       decisionsRepo: {} as any,
       decisionLinksRepo: {} as any,
     });

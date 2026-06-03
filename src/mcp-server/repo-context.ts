@@ -86,21 +86,19 @@ export class RepoContextPool {
  * Close every owned handle on a context. The resolver opens both raw DB
  * handles (`graphDb`, `decisionsDb`) AND a `GraphStore` that owns its own
  * internal handle to the same graph DB file. All three are closed here so
- * eviction doesn't leak the store's handle. Treated defensively so pool
- * tests can use stubs that lack `store.close`.
+ * eviction doesn't leak the store's handle.
  */
 function closeAll(ctx: RepoContext): void {
   ctx.graphDb.close();
   ctx.decisionsDb.close();
-  const storeWithClose = ctx.store as { close?: () => void };
-  if (typeof storeWithClose.close === "function") storeWithClose.close();
+  ctx.store.close();
 }
 
 /**
  * Shape included in MissingRepoPathError and RepoNotIndexedError so an agent
  * that hit the wrong path can paste the right repo_path back without a
  * second tool call. `indexed: false` is for repos the resolver knows about
- * but whose `.cortex/graph.db` is missing — the Field Report's
+ * but whose `.cortex/db` is missing — the Field Report's
  * "indexed-but-unreachable" case made explicit.
  */
 export interface AvailableProject {
@@ -140,7 +138,7 @@ export class NotAGitRepoError extends Error {
   }
 }
 
-/** Thrown when the path is a git root but `.cortex/graph.db` is missing. */
+/** Thrown when the path is a git root but `.cortex/db` is missing. */
 export class RepoNotIndexedError extends Error {
   readonly hint: string;
   constructor(path: string, readonly availableProjects: AvailableProject[]) {
