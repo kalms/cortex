@@ -13,6 +13,7 @@ import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
 export function createServer(
@@ -37,6 +38,12 @@ export function createServer(
   migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
   const decisionsRepo = new DecisionsRepository(decisionsDb);
   const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+
+  // Per-call repo context resolver (multi-project routing). Coexists with the
+  // legacy startup binding above; Phases 2-5 migrate tools through it via
+  // registerTool, and Phase 5 drains the startup-bound handles.
+  const resolver = new RepoContextResolver({ poolCapacity: 8 });
+  void resolver;
 
   const decisionService = new DecisionService({
     decisions: decisionsRepo,
