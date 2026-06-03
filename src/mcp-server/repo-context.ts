@@ -56,4 +56,13 @@ export class RepoContextPool {
       evicted.decisionsDb.close();
     }
   }
+
+  /** Closes every pooled DB handle and empties the cache. Idempotent. */
+  shutdown(): void {
+    for (const ctx of this.map.values()) {
+      ctx.graphDb.close();
+      ctx.decisionsDb.close();
+    }
+    this.map.clear();
+  }
 }
