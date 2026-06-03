@@ -31,10 +31,11 @@ describe("registerTool — default (per-repo) mode", () => {
   });
 
   it("throws MissingRepoPathError when repo_path is absent", async () => {
-    // Schema declares repo_path optional so the wrapper's missing-path guard
-    // fires instead of a generic ZodError; the wrapper is the canonical place
-    // to surface friendly "you forgot repo_path" errors with project hints.
-    const schema = z.object({ repo_path: z.string().optional(), name: z.string() });
+    // Schema declares repo_path as required (the natural shape for per-repo
+    // tools). The wrapper pre-checks repo_path BEFORE schema.parse, so the
+    // friendly MissingRepoPathError with available_projects beats the raw
+    // ZodError that would otherwise fire on the missing required field.
+    const schema = z.object({ repo_path: z.string(), name: z.string() });
     const wrapped = registerTool("noop_tool", schema, async () => ({ ok: true }), { resolver });
     await expect(wrapped({ name: "hello" } as any)).rejects.toThrow(MissingRepoPathError);
   });
