@@ -73,7 +73,7 @@ export function createServer(
     graphDbPath,
     bus,
   );
-  registerPromotionTools(server, decisionPromotion);
+  registerPromotionTools(server, decisionPromotion, resolver, indexerProject, bus);
   registerCodeTools(server, store, indexerProject, graphDbPath);
   registerPRTools(server, prService);
 
