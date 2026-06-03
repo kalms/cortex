@@ -25,6 +25,7 @@ import { DecisionLinksRepository } from "../../src/decisions/links-repository.js
 import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionSearch } from "../../src/decisions/search.js";
 import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
+import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
 
 // ── Fixture layout ────────────────────────────────────────────────────────────
@@ -73,7 +74,12 @@ async function buildMinimalHarness(decisionsDbPath: string): Promise<MinimalHarn
   const search = new DecisionSearch(decisionsRepo, decisionLinksRepo);
 
   const server = new McpServer({ name: "cortex-candidates-test", version: "0.0.0" });
-  registerDecisionTools(server, service, search, decisionLinksRepo, "test-candidates", decisionsDbPath);
+  // Phase 2 added the per-call resolver as a required positional. This test
+  // exercises `decision_candidates`, which is not yet migrated to per-call
+  // routing — but registerDecisionTools needs the resolver to wire migrated
+  // tools (create_decision, etc) that share the same registration call.
+  const resolver = new RepoContextResolver({ poolCapacity: 1 });
+  registerDecisionTools(server, service, search, decisionLinksRepo, resolver, "test-candidates", decisionsDbPath);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
