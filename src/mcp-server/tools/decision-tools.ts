@@ -60,6 +60,22 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const updateDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  rationale: z.string().optional(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  status: z.enum(["active", "superseded", "deprecated"]).optional(),
+  superseded_by: z.string().optional().describe("ID of the superseding decision"),
+  problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
+  resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
+  governs: z.array(z.string()).optional().describe("Full set replacement of GOVERNS targets. [] clears all."),
+  references: z.array(z.string()).optional().describe("Full set replacement of REFERENCES targets. [] clears all."),
+} as const;
+const updateDecisionSchema = z.object(updateDecisionShape);
+
 const supersedeDecisionShape = {
   repo_path: RepoPathField,
   old_decision_id: z.string(),
@@ -222,37 +238,30 @@ export function registerDecisionTools(
   server.tool(
     "update_decision",
     "Update an existing decision's fields (governs and references are full-set replacements when provided)",
-    {
-      id: z.string().describe("Decision node ID"),
-      title: z.string().optional(),
-      description: z.string().optional(),
-      rationale: z.string().optional(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      status: z.enum(["active", "superseded", "deprecated"]).optional(),
-      superseded_by: z.string().optional().describe("ID of the superseding decision"),
-      problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
-      resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
-      governs: z.array(z.string()).optional().describe("Full set replacement of GOVERNS targets. [] clears all."),
-      references: z.array(z.string()).optional().describe("Full set replacement of REFERENCES targets. [] clears all."),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      const { id, ...updates } = params;
-      try {
-        const decision = service.update(id, updates);
-        return ok(JSON.stringify(decision, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    updateDecisionShape,
+    registerTool(
+      "update_decision",
+      updateDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        const { repo_path: _repoPath, id, ...updates } = args;
+        try {
+          const decision = serviceFor(ctx).update(id, updates);
+          return ok(JSON.stringify(decision, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(

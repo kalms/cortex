@@ -269,6 +269,47 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("update_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "update_decision", {
+        repo_path: undefined,
+        id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        title: "x",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB so we can update it.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "original",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Update must succeed against repoB even though the harness primary
+        // has no such decision.
+        const res = await callTool(h, "update_decision", {
+          repo_path: repoB,
+          id,
+          title: "updated in B",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.title).toBe("updated in B");
+        // The harness primary decision service does not know this id.
+        expect(h.service.get(id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("supersede_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "supersede_decision", {
