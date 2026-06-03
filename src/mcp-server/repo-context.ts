@@ -306,14 +306,19 @@ export function registerTool<A>(
   options: { resolver: RepoContextResolver; crossRepo?: boolean },
 ): (rawArgs: unknown) => Promise<unknown> {
   return async (rawArgs: unknown) => {
+    if (!options.crossRepo) {
+      // Pre-check before schema.parse so MissingRepoPathError beats ZodError on the
+      // missing-path case. Tool schemas can keep repo_path declared as required.
+      const probe = (rawArgs ?? {}) as Record<string, unknown>;
+      if (typeof probe.repo_path !== "string" || probe.repo_path === "") {
+        throw new MissingRepoPathError(name, options.resolver.listKnownRepos());
+      }
+    }
     const args = schema.parse(rawArgs) as A & { repo_path?: string };
     if (options.crossRepo) {
       return handler(options.resolver, args);
     }
-    if (!args.repo_path) {
-      throw new MissingRepoPathError(name, options.resolver.listKnownRepos());
-    }
-    const ctx = options.resolver.resolve(args.repo_path);
+    const ctx = options.resolver.resolve(args.repo_path!);
     return handler(ctx, args);
   };
 }
