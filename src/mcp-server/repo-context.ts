@@ -70,6 +70,15 @@ export class RepoContextPool {
     }
     this.map.clear();
   }
+
+  /**
+   * Iterates over every currently-pooled context in LRU order
+   * (oldest-touched first). Read-only view used by
+   * {@link RepoContextResolver.listKnownRepos}; does not promote entries.
+   */
+  values(): IterableIterator<RepoContext> {
+    return this.map.values();
+  }
 }
 
 /**
@@ -225,13 +234,24 @@ export class RepoContextResolver {
   }
 
   /**
-   * Returns repos this resolver knows about. Stub for now; the full
-   * project-discovery surface lands in Phase 4 (see the multi-project
-   * routing design spec). Returning `[]` keeps the error payload shape
-   * stable for callers without seeding it with stale data.
+   * Returns repos this resolver knows about. Phase 1 only emits pooled
+   * repos (those a tool call has touched in this server lifetime); Phase 4
+   * extends this to read from the indexer's master project registry so
+   * agents see every indexed repo, not just the active ones.
    */
   listKnownRepos(): AvailableProject[] {
-    return [];
+    // TODO(phase-4): merge in entries from the indexer's master project
+    // registry (cortex index list_projects) so callers see indexed repos
+    // that haven't been touched in this server lifetime yet.
+    const out: AvailableProject[] = [];
+    for (const ctx of this.pool.values()) {
+      out.push({
+        name: ctx.repoPath.replace(/^\//, "").replace(/\//g, "-"),
+        path: ctx.repoPath,
+        indexed: true,
+      });
+    }
+    return out;
   }
 
   /** Closes all pooled DB handles. Call on server shutdown. */
