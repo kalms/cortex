@@ -60,6 +60,21 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const proposeDecisionShape = {
+  repo_path: RepoPathField,
+  title: z.string(),
+  problem: z.string(),
+  resolution: z.string(),
+  rationale: z.string(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  governs: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional(),
+  pr_number: z.number().int().optional(),
+  author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
+  provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
+} as const;
+const proposeDecisionSchema = z.object(proposeDecisionShape);
+
 export function registerDecisionTools(
   server: McpServer,
   service: DecisionService,
@@ -138,33 +153,28 @@ export function registerDecisionTools(
   server.tool(
     "propose_decision",
     "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces', or supply provenance + author for machine-seeded candidates (e.g. cortex:seed).",
-    {
-      title: z.string(),
-      problem: z.string(),
-      resolution: z.string(),
-      rationale: z.string(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      governs: z.array(z.string()).optional(),
-      references: z.array(z.string()).optional(),
-      pr_number: z.number().int().optional(),
-      author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
-      provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const d = service.propose(params);
-        return ok(JSON.stringify(d, null, 2));
-      } catch (e) {
-        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-      }
-    }
+    proposeDecisionShape,
+    registerTool(
+      "propose_decision",
+      proposeDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          const { repo_path: _repoPath, ...proposeArgs } = args;
+          const d = serviceFor(ctx).propose(proposeArgs);
+          return ok(JSON.stringify(d, null, 2));
+        } catch (e) {
+          return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
