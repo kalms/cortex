@@ -27,6 +27,8 @@ export interface RepoContext {
  * is intentionally an internal detail and not pinned by contract tests.
  */
 export class RepoContextPool {
+  // Map preserves insertion order; we exploit that for LRU semantics:
+  // delete-and-re-set on access promotes to most-recently-used.
   private readonly map = new Map<string, RepoContext>();
   private readonly capacity: number;
 
@@ -35,10 +37,23 @@ export class RepoContextPool {
   }
 
   get(repoPath: string): RepoContext | undefined {
-    return this.map.get(repoPath);
+    const ctx = this.map.get(repoPath);
+    if (ctx) {
+      this.map.delete(repoPath);
+      this.map.set(repoPath, ctx);
+    }
+    return ctx;
   }
 
   set(repoPath: string, ctx: RepoContext): void {
+    if (this.map.has(repoPath)) this.map.delete(repoPath);
     this.map.set(repoPath, ctx);
+    while (this.map.size > this.capacity) {
+      const oldest = this.map.keys().next().value as string;
+      const evicted = this.map.get(oldest)!;
+      this.map.delete(oldest);
+      evicted.graphDb.close();
+      evicted.decisionsDb.close();
+    }
   }
 }
