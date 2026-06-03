@@ -269,6 +269,41 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("propose_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "propose_decision", {
+        repo_path: undefined,
+        title: "x",
+        problem: "p",
+        resolution: "r",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const before = countDecisions(repoB);
+        const res = await callTool(h, "propose_decision", {
+          repo_path: repoB,
+          title: "proposed in B",
+          problem: "p",
+          resolution: "r",
+          rationale: "y",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        expect(countDecisions(repoB)).toBe(before + 1);
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("create_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       // `repo_path: undefined` is the harness sentinel that strips the
