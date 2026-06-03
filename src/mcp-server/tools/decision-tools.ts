@@ -60,6 +60,16 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const linkDecisionShape = {
+  repo_path: RepoPathField,
+  decision_id: z.string().describe("Decision node ID"),
+  target: z.string().describe("Target node ID or file path"),
+  relation: z.enum(["GOVERNS", "REFERENCES", "RELATED_TO", "DEPENDS_ON"])
+    .optional()
+    .describe("Edge type (default: GOVERNS)"),
+} as const;
+const linkDecisionSchema = z.object(linkDecisionShape);
+
 const searchDecisionsShape = {
   repo_path: RepoPathField,
   query: z.string().describe("Search query (FTS5 syntax)"),
@@ -457,27 +467,28 @@ export function registerDecisionTools(
   server.tool(
     "link_decision",
     "Attach additional GOVERNS or REFERENCES edges to an existing decision",
-    {
-      decision_id: z.string().describe("Decision node ID"),
-      target: z.string().describe("Target node ID or file path"),
-      relation: z.enum(["GOVERNS", "REFERENCES", "RELATED_TO", "DEPENDS_ON"])
-        .optional()
-        .describe("Edge type (default: GOVERNS)"),
-    },
-    async ({ decision_id, target, relation }) => {
-      try {
-        const rel = relation ?? "GOVERNS";
-        if (rel === "GOVERNS") service.linkGoverns(decision_id, target);
-        else if (rel === "REFERENCES") service.linkReference(decision_id, target);
-        else if (rel === "RELATED_TO") service.linkRelatedTo(decision_id, target);
-        else if (rel === "DEPENDS_ON") service.linkDependsOn(decision_id, target);
-        return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    linkDecisionShape,
+    registerTool(
+      "link_decision",
+      linkDecisionSchema,
+      async (ctx, args) => {
+        const { decision_id, target, relation } = args;
+        try {
+          const rel = relation ?? "GOVERNS";
+          const scopedService = serviceFor(ctx);
+          if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target);
+          else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target);
+          else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target);
+          else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target);
+          return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
