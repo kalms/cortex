@@ -60,6 +60,12 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const deleteDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+} as const;
+const deleteDecisionSchema = z.object(deleteDecisionShape);
+
 const updateDecisionShape = {
   repo_path: RepoPathField,
   id: z.string().describe("Decision node ID"),
@@ -267,19 +273,23 @@ export function registerDecisionTools(
   server.tool(
     "delete_decision",
     "Delete a decision and all its edges",
-    {
-      id: z.string().describe("Decision node ID"),
-    },
-    async ({ id }) => {
-      try {
-        service.delete(id);
-        return ok(JSON.stringify({ deleted: id }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    deleteDecisionShape,
+    registerTool(
+      "delete_decision",
+      deleteDecisionSchema,
+      async (ctx, args) => {
+        const { id } = args;
+        try {
+          serviceFor(ctx).delete(id);
+          return ok(JSON.stringify({ deleted: id }));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
