@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
@@ -258,4 +259,61 @@ export class RepoContextResolver {
   shutdown(): void {
     this.pool.shutdown();
   }
+}
+
+/**
+ * Wraps a tool handler so it receives a validated {@link RepoContext} instead
+ * of doing its own per-call repo resolution. Two modes:
+ *
+ *   - Default (per-repo): handler signature `(ctx, args) => result`. The
+ *     wrapper extracts `args.repo_path`, calls `resolver.resolve`, and
+ *     passes `(ctx, args)` to the handler. If `repo_path` is missing,
+ *     throws {@link MissingRepoPathError} before the handler runs.
+ *
+ *   - `crossRepo: true`: handler signature `(resolver, args) => result`.
+ *     The wrapper skips resolution and hands the resolver to the handler
+ *     for cross-repo work (list_projects, delete_project). Schemas for
+ *     crossRepo tools should NOT include `repo_path`.
+ *
+ * If you're unsure which mode you want, the default is the right answer.
+ *
+ * @example default mode
+ *   registerTool("create_decision", schema, async (ctx, args) => {
+ *     return ctx.decisionsRepo.create(args);
+ *   }, { resolver });
+ *
+ * @example crossRepo mode
+ *   registerTool("list_projects", schema, async (resolver, _args) => {
+ *     return resolver.listKnownRepos();
+ *   }, { resolver, crossRepo: true });
+ */
+export function registerTool<A extends { repo_path?: string }>(
+  name: string,
+  schema: ZodSchema<A>,
+  handler: (ctx: RepoContext, args: A) => Promise<unknown>,
+  options: { resolver: RepoContextResolver; crossRepo?: false },
+): (rawArgs: unknown) => Promise<unknown>;
+export function registerTool<A>(
+  name: string,
+  schema: ZodSchema<A>,
+  handler: (resolver: RepoContextResolver, args: A) => Promise<unknown>,
+  options: { resolver: RepoContextResolver; crossRepo: true },
+): (rawArgs: unknown) => Promise<unknown>;
+export function registerTool<A>(
+  name: string,
+  schema: ZodSchema<A>,
+  handler: any,
+  options: { resolver: RepoContextResolver; crossRepo?: boolean },
+): (rawArgs: unknown) => Promise<unknown> {
+  return async (rawArgs: unknown) => {
+    const args = schema.parse(rawArgs) as A & { repo_path?: string };
+    if (options.crossRepo) {
+      return handler(options.resolver, args);
+    }
+    if (!args.repo_path) {
+      throw new MissingRepoPathError(name, options.resolver.listKnownRepos());
+    }
+    const ctx = options.resolver.resolve(args.repo_path);
+    return handler(ctx, args);
+  };
 }
