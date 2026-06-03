@@ -26,4 +26,27 @@ describe("RepoContextPool", () => {
     const pool = new RepoContextPool({ capacity: 8 });
     expect(pool.get("/repo/missing")).toBeUndefined();
   });
+
+  it("does not grow unbounded; closes DB handles on eviction", () => {
+    const closed: string[] = [];
+    const make = (path: string): RepoContext => ({
+      repoPath: path,
+      graphDb: { close: () => closed.push(`${path}:graph`) } as any,
+      decisionsDb: { close: () => closed.push(`${path}:decisions`) } as any,
+      store: {} as any,
+      decisionsRepo: {} as any,
+      decisionLinksRepo: {} as any,
+    });
+
+    const pool = new RepoContextPool({ capacity: 2 });
+    pool.set("/r/a", make("/r/a"));
+    pool.set("/r/b", make("/r/b"));
+    pool.set("/r/c", make("/r/c"));  // should evict /r/a
+
+    expect(pool.get("/r/a")).toBeUndefined();
+    expect(pool.get("/r/b")).toBeDefined();
+    expect(pool.get("/r/c")).toBeDefined();
+    expect(closed).toContain("/r/a:graph");
+    expect(closed).toContain("/r/a:decisions");
+  });
 });
