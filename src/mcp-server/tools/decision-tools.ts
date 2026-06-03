@@ -60,6 +60,19 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const supersedeDecisionShape = {
+  repo_path: RepoPathField,
+  old_decision_id: z.string(),
+  title: z.string(),
+  problem: z.string(),
+  resolution: z.string(),
+  rationale: z.string(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  governs: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional(),
+} as const;
+const supersedeDecisionSchema = z.object(supersedeDecisionShape);
+
 const proposeDecisionShape = {
   repo_path: RepoPathField,
   title: z.string(),
@@ -180,33 +193,30 @@ export function registerDecisionTools(
   server.tool(
     "supersede_decision",
     "Atomically create a new decision that supersedes an existing one.",
-    {
-      old_decision_id: z.string(),
-      title: z.string(),
-      problem: z.string(),
-      resolution: z.string(),
-      rationale: z.string(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      governs: z.array(z.string()).optional(),
-      references: z.array(z.string()).optional(),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const d = service.supersede(params);
-        return ok(JSON.stringify(d, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`supersede_decision(${params.old_decision_id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    supersedeDecisionShape,
+    registerTool(
+      "supersede_decision",
+      supersedeDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          const { repo_path: _repoPath, ...supersedeArgs } = args;
+          const d = serviceFor(ctx).supersede(supersedeArgs);
+          return ok(JSON.stringify(d, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`supersede_decision(${args.old_decision_id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
