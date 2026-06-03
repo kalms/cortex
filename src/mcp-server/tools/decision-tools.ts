@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolve, dirname } from "node:path";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
@@ -139,6 +138,12 @@ const whyWasThisBuiltShape = {
   qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
 } as const;
 const whyWasThisBuiltSchema = z.object(whyWasThisBuiltShape);
+
+const decisionCandidatesShape = {
+  repo_path: RepoPathField,
+  max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+} as const;
+const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 
 export function registerDecisionTools(
   server: McpServer,
@@ -516,20 +521,27 @@ export function registerDecisionTools(
   server.tool(
     "decision_candidates",
     "Read-only: frame cold-start decision candidates from git history + docs. Returns a manifest the seed-decisions skill turns into proposed decisions. Writes nothing.",
-    {
-      max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
-    },
-    async (params) => {
-      if (!dbPath) {
-        return errorResponse("project_not_found", "decision_candidates requires a resolved decisions db path");
-      }
-      try {
-        const repoRoot = resolve(dirname(dbPath), "..");
-        const manifest = frameCandidates({ repo_path: repoRoot, max_candidates: params.max_candidates });
-        return ok(JSON.stringify(manifest, null, 2));
-      } catch (e) {
-        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-      }
-    }
+    decisionCandidatesShape,
+    registerTool(
+      "decision_candidates",
+      decisionCandidatesSchema,
+      async (ctx, args) => {
+        try {
+          // frameCandidates walks `repo_path`'s git history + ADR docs. With
+          // per-call routing, `ctx.repoPath` IS the repo to scan — no more
+          // dbPath-to-repo-root inference required. The function is read-only:
+          // it never touches the decisions DB, just spawns `git log` under
+          // ctx.repoPath and reads files via the filesystem.
+          const manifest = frameCandidates({
+            repo_path: ctx.repoPath,
+            max_candidates: args.max_candidates,
+          });
+          return ok(JSON.stringify(manifest, null, 2));
+        } catch (e) {
+          return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+        }
+      },
+      { resolver },
+    ),
   );
 }

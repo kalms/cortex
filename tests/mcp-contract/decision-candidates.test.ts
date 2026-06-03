@@ -1,13 +1,14 @@
 /**
  * MCP contract test for the `decision_candidates` tool.
  *
- * This test cannot use the shared `createHarness()` because the harness places
- * decisions.db at `<tmpdir>/cortex-harness-XXXX/decisions.db` — a flat layout
- * where `resolve(dirname(dbPath), "..")` yields the OS temp dir (not a git
- * repo). The tool derives `repoRoot` from `dbPath`, so the fixture must use the
- * production layout: `<repo-root>/.cortex/decisions.db`.
+ * The tool walks `repo_path`'s git history + docs, so the fixture must be a
+ * real git repo with at least one conventional commit and an ADR-shaped doc.
+ * After the per-call routing migration the tool also requires `.cortex/db`
+ * to exist (the resolver's `RepoNotIndexedError` guard) — the fixture
+ * touches a zero-byte file at that path to satisfy the check without
+ * needing to populate a real graph DB.
  *
- * Instead, this test creates its own minimal in-process McpServer + Client over
+ * This test builds its own minimal in-process McpServer + Client over
  * InMemoryTransport — the same transport the harness uses — so the actual MCP
  * boundary is fully exercised.
  */
@@ -118,14 +119,15 @@ describe("decision_candidates MCP tool", () => {
     execFileSync("git", ["-C", repoRoot, "add", "."]);
     execFileSync("git", ["-C", repoRoot, "commit", "--no-gpg-sign", "-m", "feat(db): use SQLite for decision storage"]);
 
-    // 5. Create the sidecar decisions DB at the production location so the
-    //    tool's path math resolves to repoRoot.
-    //    dbPath = <repoRoot>/.cortex/decisions.db
-    //    dirname(dbPath) = <repoRoot>/.cortex
-    //    resolve(dirname, "..") = repoRoot  ✓
+    // 5. Create the sidecar decisions DB at the production location and a
+    //    zero-byte `.cortex/db` so the per-call resolver's existsSync check
+    //    passes. The graph DB isn't read by frameCandidates() — but the
+    //    resolver constructs a GraphStore from it (which runs idempotent
+    //    schema migrations on the empty file, producing a valid SQLite DB).
     const cortexDir = join(repoRoot, ".cortex");
     mkdirSync(cortexDir, { recursive: true });
     const decisionsDbPath = join(cortexDir, "decisions.db");
+    writeFileSync(join(cortexDir, "db"), "");
 
     // 6. Build the in-process MCP server with this dbPath (real MCP boundary).
     harness = await buildMinimalHarness(decisionsDbPath);
@@ -139,7 +141,7 @@ describe("decision_candidates MCP tool", () => {
   it("returns a non-empty array with at least one adr and one commit_cluster candidate", async () => {
     const result = await harness.client.callTool({
       name: "decision_candidates",
-      arguments: { max_candidates: 5 },
+      arguments: { repo_path: repoRoot, max_candidates: 5 },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -161,7 +163,7 @@ describe("decision_candidates MCP tool", () => {
   it("respects max_candidates cap", async () => {
     const result = await harness.client.callTool({
       name: "decision_candidates",
-      arguments: { max_candidates: 1 },
+      arguments: { repo_path: repoRoot, max_candidates: 1 },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -175,7 +177,7 @@ describe("decision_candidates MCP tool", () => {
   it("works with no max_candidates (uses default)", async () => {
     const result = await harness.client.callTool({
       name: "decision_candidates",
-      arguments: {},
+      arguments: { repo_path: repoRoot },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -183,5 +185,54 @@ describe("decision_candidates MCP tool", () => {
     expect(res.isError).toBeFalsy();
     const candidates = JSON.parse(res.content[0].text);
     expect(Array.isArray(candidates)).toBe(true);
+  });
+
+  it("rejects when repo_path is missing", async () => {
+    const result = await harness.client.callTool({
+      name: "decision_candidates",
+      arguments: {},
+    });
+    const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/repo_path required/);
+  });
+
+  it("routes to the addressed repo (a different repoB returns its own manifest)", async () => {
+    // Build a second fixture repo with a different ADR title so we can
+    // distinguish its manifest from `repoRoot`'s. Routing-correctness check:
+    // calling with repoB must NOT return content from repoRoot.
+    const repoB = mkdtempSync(join(tmpdir(), "cortex-candidates-fixture-B-"));
+    try {
+      execFileSync("git", ["init", "--initial-branch=main", repoB]);
+      execFileSync("git", ["-C", repoB, "config", "user.email", "test@example.com"]);
+      execFileSync("git", ["-C", repoB, "config", "user.name", "Test"]);
+
+      const bAdrDir = join(repoB, "docs", "adr");
+      mkdirSync(bAdrDir, { recursive: true });
+      writeFileSync(
+        join(bAdrDir, "0001-distinctive-b-title.md"),
+        "# ADR 0001: distinctive-b-title-marker\n\n## Context\n\nx\n\n## Decision\n\ny\n",
+      );
+      execFileSync("git", ["-C", repoB, "add", "."]);
+      execFileSync("git", ["-C", repoB, "commit", "--no-gpg-sign", "-m", "feat(b): seed distinctive ADR"]);
+      const bCortexDir = join(repoB, ".cortex");
+      mkdirSync(bCortexDir, { recursive: true });
+      writeFileSync(join(bCortexDir, "db"), "");
+
+      const result = await harness.client.callTool({
+        name: "decision_candidates",
+        arguments: { repo_path: repoB, max_candidates: 5 },
+      });
+      const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(res.isError).toBeFalsy();
+      const candidates = JSON.parse(res.content[0].text);
+      expect(Array.isArray(candidates)).toBe(true);
+      // The manifest must reference repoB's content, not repoRoot's.
+      const text = JSON.stringify(candidates);
+      expect(text).toContain("distinctive-b-title-marker");
+      expect(text).not.toContain("sqlite-decisions");
+    } finally {
+      try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+    }
   });
 });
