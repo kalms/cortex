@@ -8,6 +8,8 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
+import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import type { EventBus } from "../../events/bus.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -21,43 +23,116 @@ const ProvenanceSchema = z.object({
   confidence: z.enum(["high", "medium", "low"]),
 });
 
+// ---------------------------------------------------------------------------
+// Per-call repo routing schemas
+//
+// Each migrated tool exports both a raw-shape constant (consumed by
+// `server.tool(name, description, SHAPE, handler)` — the MCP SDK requires
+// raw shapes, not z.object instances) and a paired z.object wrapping the
+// same shape (consumed by `registerTool` which calls `.parse(rawArgs)`).
+//
+// `repo_path` is marked optional at the Zod layer so the SDK's input
+// validation does not fire before `registerTool`'s pre-check has a chance
+// to throw the friendly `MissingRepoPathError` (which carries the list of
+// available projects so an agent can self-correct). The .describe() text
+// makes the field's REQUIRED status explicit to LLM-facing tool listings.
+// ---------------------------------------------------------------------------
+
+const RepoPathField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "REQUIRED. Absolute path to the indexed git root this decision is about. " +
+      "If you don't know it, call list_projects first.",
+  );
+
+const createDecisionShape = {
+  repo_path: RepoPathField,
+  title: z.string().describe("Short name for the decision"),
+  description: z.string().describe("What was decided"),
+  rationale: z.string().describe("Why this decision was made"),
+  alternatives: z.array(AlternativeSchema).optional().describe("Rejected alternatives with reasons"),
+  governs: z.array(z.string()).optional().describe("Node IDs or file paths this decision governs"),
+  references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
+  problem: z.string().optional().describe("Narrative: what question this decision answers"),
+  resolution: z.string().optional().describe("Narrative: what was decided"),
+} as const;
+const createDecisionSchema = z.object(createDecisionShape);
+
 export function registerDecisionTools(
   server: McpServer,
   service: DecisionService,
   search: DecisionSearch,
   links: DecisionLinksRepository,
+  resolver: RepoContextResolver,
   indexerProject?: string | null,
   dbPath?: string,
+  bus?: EventBus,
 ): void {
+  // ---------------------------------------------------------------------------
+  // Per-call repo-scoped service construction.
+  //
+  // Build a fresh DecisionService anchored to the repo addressed by
+  // `ctx.repo_path` rather than the closure-bound `service` (which is still
+  // wired to the server's startup repo). Bus + project_id remain startup-
+  // bound because the event pipeline is server-scoped, not repo-scoped; that
+  // distinction is fine for now — Phase 5 revisits event routing.
+  //
+  // Each migrated tool follows this same pattern: derive `ctx.decisionsRepo`
+  // / `ctx.decisionLinksRepo` from the per-call context, then construct any
+  // service/search objects it needs locally. Do NOT close over the legacy
+  // `service` / `search` / `links` arguments inside per-call handlers.
+  // ---------------------------------------------------------------------------
+  const serviceFor = (ctx: RepoContext): DecisionService =>
+    new DecisionService({
+      decisions: ctx.decisionsRepo,
+      links: ctx.decisionLinksRepo,
+      bus,
+      project_id: indexerProject ?? "",
+    });
+
+  /**
+   * Create a new decision in the repo addressed by `args.repo_path`.
+   *
+   * Migrated to receive a {@link RepoContext} from registerTool — the legacy
+   * startup-bound module-scope repos are no longer used by this tool.
+   *
+   * This is the **template** for Tasks 2.2-2.11: per-call routing tools
+   * (a) take their schema from a paired raw-shape + z.object constant pair,
+   * (b) wrap the handler with `registerTool(name, schema, async (ctx, args) => …, { resolver })`,
+   * (c) derive a per-repo service via `serviceFor(ctx)` rather than closing
+   *     over the startup-bound `service`.
+   */
   server.tool(
     "create_decision",
     "Create a new decision node with rationale, alternatives, and links to governed code",
-    {
-      title: z.string().describe("Short name for the decision"),
-      description: z.string().describe("What was decided"),
-      rationale: z.string().describe("Why this decision was made"),
-      alternatives: z.array(AlternativeSchema).optional().describe("Rejected alternatives with reasons"),
-      governs: z.array(z.string()).optional().describe("Node IDs or file paths this decision governs"),
-      references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
-      problem: z.string().optional().describe("Narrative: what question this decision answers"),
-      resolution: z.string().optional().describe("Narrative: what was decided"),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const decision = service.create(params);
-        return ok(JSON.stringify(decision, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    createDecisionShape,
+    registerTool(
+      "create_decision",
+      createDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          // Strip repo_path before forwarding to the service — it's a routing
+          // concern, not a decision field. The remaining args shape is the
+          // legacy CreateDecisionInput contract.
+          const { repo_path: _repoPath, ...createArgs } = args;
+          const decision = serviceFor(ctx).create(createArgs);
+          return ok(JSON.stringify(decision, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
