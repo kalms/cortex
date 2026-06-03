@@ -269,6 +269,54 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("supersede_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "supersede_decision", {
+        repo_path: undefined,
+        old_decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        title: "x",
+        problem: "p",
+        resolution: "r",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed an "old" decision in repoB via propose_decision so we can supersede it.
+        const seed = await callTool(h, "propose_decision", {
+          repo_path: repoB,
+          title: "to be superseded",
+          problem: "p",
+          resolution: "r",
+          rationale: "y",
+        });
+        const oldId = JSON.parse(seed.content[0].text).id;
+        const before = countDecisions(repoB);
+
+        const res = await callTool(h, "supersede_decision", {
+          repo_path: repoB,
+          old_decision_id: oldId,
+          title: "replacement",
+          problem: "p2",
+          resolution: "r2",
+          rationale: "y2",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        // Supersede creates exactly one new decision in repoB.
+        expect(countDecisions(repoB)).toBe(before + 1);
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("propose_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "propose_decision", {
