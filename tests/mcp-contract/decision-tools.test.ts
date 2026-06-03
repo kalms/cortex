@@ -269,6 +269,49 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("link_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "link_decision", {
+        repo_path: undefined,
+        decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        target: "src/x.ts",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the link write to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "to be linked",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        const res = await callTool(h, "link_decision", {
+          repo_path: repoB,
+          decision_id: id,
+          target: "src/scoped/file.ts",
+          relation: "GOVERNS",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("linked");
+
+        // Verify the link landed in repoB by reading via get_decision.
+        const got = await callTool(h, "get_decision", { repo_path: repoB, id });
+        const parsed = JSON.parse(got.content[0].text);
+        const governsTargets = (parsed.governs ?? []).map((n: any) => n.target_ref);
+        expect(governsTargets).toContain("src/scoped/file.ts");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("search_decisions per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "search_decisions", {
