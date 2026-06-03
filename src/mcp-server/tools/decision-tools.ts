@@ -60,6 +60,12 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const getDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+} as const;
+const getDecisionSchema = z.object(getDecisionShape);
+
 const deleteDecisionShape = {
   repo_path: RepoPathField,
   id: z.string().describe("Decision node ID"),
@@ -295,53 +301,62 @@ export function registerDecisionTools(
   server.tool(
     "get_decision",
     "Get a decision with all resolved relationships: governs, references, related_decisions, depends_on, and PR back-refs (introduced_in, implemented_by, challenged_by, discussed_in)",
-    {
-      id: z.string().describe("Decision node ID"),
-    },
-    async ({ id }) => {
-      const dec = service.get(id);
-      if (!dec) return empty(`get_decision(${id})`);
+    getDecisionShape,
+    registerTool(
+      "get_decision",
+      getDecisionSchema,
+      async (ctx, args) => {
+        const { id } = args;
+        // Per-call repo-scoped service + links — read from the repo addressed
+        // by ctx.repo_path, not the server's startup-bound handles.
+        const scopedService = serviceFor(ctx);
+        const scopedLinks = ctx.decisionLinksRepo;
 
-      // Compose the "with refs" shape from the sidecar links table. The legacy
-      // shape included full NodeRow objects for governs/references and full
-      // Decision objects for related_decisions/depends_on; in the sidecar model
-      // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
-      // surface those as `{ target_kind, target_ref }` and let the caller
-      // resolve full node info via search_graph / get_decision as needed.
-      const all = links.findByDecision(id);
-      const pick = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation)
-          .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
+        const dec = scopedService.get(id);
+        if (!dec) return empty(`get_decision(${id})`);
 
-      // Decision-typed back-refs resolve to full Decision objects so callers
-      // can read `.id`, `.title`, etc. directly (legacy contract).
-      const pickDecisions = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation && l.target_kind === "decision")
-          .map((l) => service.get(l.target_ref))
-          .filter((d): d is NonNullable<typeof d> => d !== null);
+        // Compose the "with refs" shape from the sidecar links table. The legacy
+        // shape included full NodeRow objects for governs/references and full
+        // Decision objects for related_decisions/depends_on; in the sidecar model
+        // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
+        // surface those as `{ target_kind, target_ref }` and let the caller
+        // resolve full node info via search_graph / get_decision as needed.
+        const all = scopedLinks.findByDecision(id);
+        const pick = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation)
+            .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
 
-      // PR back-refs: in the sidecar model, PR <-> decision relations live on
-      // decision_links where target_kind="pr" (target_ref = PR number as string).
-      const prLinks = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation && l.target_kind === "pr")
-          .map((l) => ({ pr_number: Number(l.target_ref) }));
+        // Decision-typed back-refs resolve to full Decision objects so callers
+        // can read `.id`, `.title`, etc. directly (legacy contract).
+        const pickDecisions = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation && l.target_kind === "decision")
+            .map((l) => scopedService.get(l.target_ref))
+            .filter((d): d is NonNullable<typeof d> => d !== null);
 
-      const withRefs = {
-        ...dec,
-        governs: pick("GOVERNS"),
-        references: pick("REFERENCES"),
-        related_decisions: pickDecisions("DECISION_RELATED_TO"),
-        depends_on: pickDecisions("DECISION_DEPENDS_ON"),
-        introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
-        implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
-        challenged_by: prLinks("PR_CHALLENGES_DECISION"),
-        discussed_in: prLinks("PR_DISCUSSES_DECISION"),
-      };
-      return ok(JSON.stringify(withRefs, null, 2));
-    }
+        // PR back-refs: in the sidecar model, PR <-> decision relations live on
+        // decision_links where target_kind="pr" (target_ref = PR number as string).
+        const prLinks = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation && l.target_kind === "pr")
+            .map((l) => ({ pr_number: Number(l.target_ref) }));
+
+        const withRefs = {
+          ...dec,
+          governs: pick("GOVERNS"),
+          references: pick("REFERENCES"),
+          related_decisions: pickDecisions("DECISION_RELATED_TO"),
+          depends_on: pickDecisions("DECISION_DEPENDS_ON"),
+          introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
+          implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
+          challenged_by: prLinks("PR_CHALLENGES_DECISION"),
+          discussed_in: prLinks("PR_DISCUSSES_DECISION"),
+        };
+        return ok(JSON.stringify(withRefs, null, 2));
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
