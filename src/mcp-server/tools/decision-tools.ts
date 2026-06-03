@@ -60,6 +60,13 @@ const createDecisionShape = {
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
+const searchDecisionsShape = {
+  repo_path: RepoPathField,
+  query: z.string().describe("Search query (FTS5 syntax)"),
+  scope: z.string().optional().describe("Qualified name or file path to scope results"),
+} as const;
+const searchDecisionsSchema = z.object(searchDecisionsShape);
+
 const getDecisionShape = {
   repo_path: RepoPathField,
   id: z.string().describe("Decision node ID"),
@@ -147,6 +154,13 @@ export function registerDecisionTools(
       bus,
       project_id: indexerProject ?? "",
     });
+
+  // Mirrors serviceFor() for DecisionSearch — read-only path queries scoped
+  // to the per-call repo's links table. Used by search_decisions and (later)
+  // why_was_this_built. DecisionSearch is stateless apart from its repo
+  // handles, so constructing one per call is cheap.
+  const searchFor = (ctx: RepoContext): DecisionSearch =>
+    new DecisionSearch(ctx.decisionsRepo, ctx.decisionLinksRepo);
 
   /**
    * Create a new decision in the repo addressed by `args.repo_path`.
@@ -362,29 +376,32 @@ export function registerDecisionTools(
   server.tool(
     "search_decisions",
     "Full-text search over decision titles, descriptions, and rationale",
-    {
-      query: z.string().describe("Search query (FTS5 syntax)"),
-      scope: z.string().optional().describe("Qualified name or file path to scope results"),
-    },
-    async ({ query, scope }) => {
-      try {
-        let results = service.search(query);
-        if (scope) {
-          // Filter to decisions whose links table mentions `scope` as a governs
-          // target (qn or path). This preserves the old MCP contract without
-          // re-implementing the directory walk that DecisionSearch.findGoverning
-          // does — `scope` here is a literal match filter.
-          const governing = search.findGoverning(scope);
-          const allowed = new Set(governing.map((d) => d.id));
-          results = results.filter((d) => allowed.has(d.id));
+    searchDecisionsShape,
+    registerTool(
+      "search_decisions",
+      searchDecisionsSchema,
+      async (ctx, args) => {
+        const { query, scope } = args;
+        try {
+          let results = serviceFor(ctx).search(query);
+          if (scope) {
+            // Filter to decisions whose links table mentions `scope` as a governs
+            // target (qn or path). This preserves the old MCP contract without
+            // re-implementing the directory walk that DecisionSearch.findGoverning
+            // does — `scope` here is a literal match filter.
+            const governing = searchFor(ctx).findGoverning(scope);
+            const allowed = new Set(governing.map((d) => d.id));
+            results = results.filter((d) => allowed.has(d.id));
+          }
+          if (results.length === 0) return empty(`search_decisions(${query})`);
+          return ok(JSON.stringify(results, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
         }
-        if (results.length === 0) return empty(`search_decisions(${query})`);
-        return ok(JSON.stringify(results, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
