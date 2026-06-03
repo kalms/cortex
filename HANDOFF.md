@@ -161,7 +161,6 @@ This same gap was noted in the older root HANDOFF.md too and hasn't been address
 Tracked but deliberately deferred:
 - **`get_code_snippet` source extraction has no unit-test coverage** ([src/cli/commands/code.ts:99-123](src/cli/commands/code.ts#L99-L123)) — the `.source` field extraction silently falls back to dumping JSON if the indexer's payload shape ever changes. Add a unit test that mocks `runIndexer` and asserts only the source is written.
 - **`router.ts` `--flag value` form eats positionals.** `cortex install --uninstall foo` parses `uninstall` as `"foo"` (truthy string), then the boolean check fails. Either special-case known-boolean flags or document `--uninstall` as bare-only.
-- **`decision promote` is unwired** — throws `UsageError` pointing at a bare `cortex-indexer cli` invocation. Either wire it or remove from the help table.
 - **`graph sql '<sql>'` is a footgun** — no read-only enforcement. Document or prepend `--readonly` to sqlite3 args.
 - **`tests/cli/context.test.ts:32`** — writes an empty file that the new read-only `dbHasProjectData` probe will happily open. Test passes by accident; should write valid sqlite header or skip the probe path explicitly.
 - **`pass_route_nodes.c`** comment claims governance edges aren't transactional; technically true for single-statement writes (atomic at SQLite level) but misleading for multi-statement bulk operations. Wrap in `db.transaction()` if you ever do bulk link writes.
