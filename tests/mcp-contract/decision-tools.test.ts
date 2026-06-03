@@ -594,4 +594,51 @@ describe("decision-tools contract", () => {
       }
     });
   });
+
+  describe("why_was_this_built per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "why_was_this_built", {
+        repo_path: undefined,
+        qualified_name: "src/server.ts",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB that GOVERNS a path. why_was_this_built
+        // must find it via repoB's links table.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "uniqueDecisionInB",
+          description: "d",
+          rationale: "r",
+          governs: ["src/server.ts"],
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Querying repoB finds the decision via findGoverning's path-walk.
+        const res = await callTool(h, "why_was_this_built", {
+          repo_path: repoB,
+          qualified_name: "src/server.ts",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(id);
+        expect(res.content[0].text).toContain("uniqueDecisionInB");
+
+        // The harness primary repo has no such decision — same path returns empty.
+        const resPrimary = await callTool(h, "why_was_this_built", {
+          qualified_name: "src/server.ts",
+        });
+        // Either empty (no decision in primary) or — if earlier tests in this
+        // file leaked a "src/server.ts"-governing decision into the primary —
+        // does NOT contain repoB's distinctive title.
+        expect(resPrimary.content[0].text).not.toContain("uniqueDecisionInB");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
 });
