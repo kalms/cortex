@@ -269,6 +269,41 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("get_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_decision", {
+        repo_path: undefined,
+        id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "lives only in B",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+        // The harness primary service does not know this id.
+        expect(h.service.get(id)).toBeNull();
+
+        // get_decision against repoB must find it.
+        const res = await callTool(h, "get_decision", { repo_path: repoB, id });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.title).toBe("lives only in B");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("delete_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "delete_decision", {
