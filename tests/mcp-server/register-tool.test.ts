@@ -40,3 +40,25 @@ describe("registerTool — default (per-repo) mode", () => {
     await expect(wrapped({ name: "hello" } as any)).rejects.toThrow(MissingRepoPathError);
   });
 });
+
+describe("registerTool — crossRepo mode", () => {
+  const resolver = new RepoContextResolver({ poolCapacity: 8 });
+
+  it("passes the resolver (not a context) to the handler and ignores repo_path", async () => {
+    const schema = z.object({});
+    let receivedResolver: RepoContextResolver | null = null;
+    const wrapped = registerTool("list_projects", schema, async (r) => {
+      receivedResolver = r;
+      return [];
+    }, { resolver, crossRepo: true });
+
+    await wrapped({});
+    expect(receivedResolver).toBe(resolver);
+  });
+
+  it("does NOT throw MissingRepoPathError when repo_path is absent", async () => {
+    const schema = z.object({});
+    const wrapped = registerTool("list_projects", schema, async () => [], { resolver, crossRepo: true });
+    await expect(wrapped({})).resolves.toEqual([]);
+  });
+});
