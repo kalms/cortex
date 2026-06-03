@@ -147,7 +147,7 @@ export async function createHarness(): Promise<HarnessContext> {
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project, cortexDbPath);
   registerDecisionTools(server, service, search, decisionLinksRepo, resolver, project, cortexDbPath);
-  registerPromotionTools(server, promotion);
+  registerPromotionTools(server, promotion, resolver, project);
   registerPRTools(server, prService);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
