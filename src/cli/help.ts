@@ -64,7 +64,6 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
     delete:  { usage: "cortex decision delete <id>",                description: "Delete a decision.", examples: ["cortex decision delete abc-123"] },
     link:    { usage: "cortex decision link <id> <target> [--relation=GOVERNS]", description: "Link a decision to a file or symbol.", examples: ["cortex decision link abc-123 src/auth.ts"] },
     list:    { usage: "cortex decision list [--query=...]",   description: "List or search decisions.", examples: ["cortex decision list", "cortex decision list --query='auth'"] },
-    promote: { usage: "cortex decision promote <id>",               description: "Promote a proposed decision to active.", examples: ["cortex decision promote abc-123"] },
     propose: { usage: "cortex decision propose --title=... --problem=... --resolution=... --rationale=...", description: "Propose a decision (status=proposed).", examples: ["cortex decision propose --title=... ..."] },
     show:    { usage: "cortex decision show <id>",            description: "Show a decision by id.", examples: ["cortex decision show abc-123"] },
     supersede: { usage: "cortex decision supersede <old-id> --title=... --problem=... --resolution=... --rationale=...", description: "Atomically supersede an existing decision.", examples: ["cortex decision supersede abc-123 ..."] },
