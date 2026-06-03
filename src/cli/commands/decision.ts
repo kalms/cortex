@@ -95,9 +95,13 @@ export async function runDecisionCommand(cmd: DecisionCommand, ctx: ProjectConte
     case "delete":    return cmdDelete(cmd, ctx);
     case "link":      return cmdLink(cmd, ctx);
     case "promote":
+      // TODO: wire to DecisionsRepository.updateTier once the tier model is
+      // specced (personal → team semantics: who can promote, where a `team`
+      // decision physically lives, how it's surfaced). See HANDOFF_DECISIONS.md
+      // for the gap. Hidden from `cortex decision --help` until then.
       throw new UsageError(
-        "promote not yet wired up",
-        "Use bin/cortex-indexer cli promote_decision for now",
+        "promote is deferred until the tier model is specced",
+        "See HANDOFF_DECISIONS.md (Gap 1). For MCP sessions, use the promote_decision tool.",
       );
     case "propose":   return cmdPropose(cmd, ctx);
     case "supersede": return cmdSupersede(cmd, ctx);
