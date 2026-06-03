@@ -269,6 +269,47 @@ describe("decision-tools contract", () => {
   // explicit `repo_path` values (or sentinel `undefined`) to verify the new
   // routing contract.
   // ---------------------------------------------------------------------------
+  describe("search_decisions per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_decisions", {
+        repo_path: undefined,
+        query: "anything",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB with a distinctive title.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "uniqueSearchableInBRepo",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Search against repoB must find it.
+        const res = await callTool(h, "search_decisions", {
+          repo_path: repoB,
+          query: "uniqueSearchableInBRepo",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(id);
+
+        // The harness primary has no decisions with this title.
+        const resPrimary = await callTool(h, "search_decisions", {
+          query: "uniqueSearchableInBRepo",
+        });
+        expect(resPrimary.content[0].text).toMatch(/^No results: /);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("get_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "get_decision", {
