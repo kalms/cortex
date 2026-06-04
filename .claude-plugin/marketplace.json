@@ -1,0 +1,18 @@
+{
+  "name": "cortex-local",
+  "owner": {
+    "name": "Kalmsy",
+    "url": "https://github.com/kalms"
+  },
+  "metadata": {
+    "description": "Local marketplace wrapper for the cortex plugin"
+  },
+  "plugins": [
+    {
+      "name": "cortex",
+      "source": "./",
+      "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 3D viewer",
+      "version": "0.3.0"
+    }
+  ]
+}
