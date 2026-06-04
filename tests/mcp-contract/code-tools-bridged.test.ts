@@ -32,6 +32,31 @@ describe("Phase 6 bridged tools", () => {
     expect(res.isError).toBeFalsy();
   });
 
+  describe("get_architecture per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_architecture", {
+        repo_path: undefined,
+        aspects: ["all"],
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("returns architecture payload for the addressed repo", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "get_architecture", {
+          repo_path: repoB,
+          aspects: ["all"],
+        });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        expect(res.content[0].text.length).toBeGreaterThan(0);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("query_graph per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "query_graph", {
