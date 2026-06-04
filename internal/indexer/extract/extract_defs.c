@@ -1,5 +1,6 @@
 #include "extract.h"
 #include "arena.h" // CtxArena, ctx_arena_alloc/strdup/sprintf
+#include "extract_nuxt_routes.h" // ctx_try_extract_nuxt_handler
 #include "helpers.h"
 #include "lang_specs.h"
 #include "foundation/constants.h"
@@ -3294,6 +3295,17 @@ static void walk_defs(CtxExtractCtx *ctx, TSNode root, const CtxLangSpec *spec, 
             const char *new_enclosing = compute_class_qn(ctx, node, frame.enclosing_class_qn);
             push_class_body_children(node, spec, stack, &top, new_enclosing);
             continue;
+        }
+
+        // Nuxt file-based-route handler capture: when this export_statement is
+        // `export default defineEventHandler(arrow)` in a server/api route file,
+        // push a tagged Function def. Additive — we fall through to the normal
+        // child traversal below so the arrow body's inner calls (e.g. $fetch)
+        // are still extracted and attributed to the handler.
+        if ((ctx->language == CTX_LANG_TYPESCRIPT || ctx->language == CTX_LANG_TSX ||
+             ctx->language == CTX_LANG_JAVASCRIPT) &&
+            strcmp(kind, "export_statement") == 0) {
+            ctx_try_extract_nuxt_handler(ctx, node);
         }
 
         uint32_t count = ts_node_child_count(node);
