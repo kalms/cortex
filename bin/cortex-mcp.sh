@@ -20,13 +20,17 @@
 # project directory (which has no tsx/src/index.ts), so we must chdir into
 # PLUGIN_ROOT ourselves before exec'ing the server.
 #
-# Why the project .mcp.json uses `exec "$PWD/bin/cortex-mcp.sh"` rather than
-# `exec "$CLAUDE_PLUGIN_ROOT/bin/cortex-mcp.sh"`: $CLAUDE_PLUGIN_ROOT is only
-# set when Claude Code spawns plugin-scoped MCP servers; project-scoped
-# servers get an empty value, which expanded to `/bin/cortex-mcp.sh` and
-# silently failed with `MCP error -32000: Connection closed`. $PWD at spawn
-# time equals the repo root for a project-scoped .mcp.json that lives there,
-# so it resolves correctly without depending on plugin-only env.
+# Why .mcp.json uses `exec "${CLAUDE_PLUGIN_ROOT:-$PWD}/bin/cortex-mcp.sh"`
+# (a single expression that works in both contexts): $CLAUDE_PLUGIN_ROOT is
+# set only when Claude Code spawns plugin-scoped MCP servers; project-scoped
+# servers get an empty value. Bash's `${VAR:-fallback}` parameter expansion
+# evaluates to $CLAUDE_PLUGIN_ROOT when set (plugin context), or to $PWD
+# when unset/empty (project context — $PWD equals the repo root because
+# Claude Code spawns project servers from the repo containing .mcp.json).
+# One file works in both contexts, so the cache stays in sync with the repo
+# without per-context divergence. Earlier iterations used $PWD-only or
+# $CLAUDE_PLUGIN_ROOT-only forms, which each broke the *other* context with
+# `MCP error -32000: Connection closed`.
 set -euo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$PLUGIN_ROOT"
