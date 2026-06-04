@@ -24,6 +24,78 @@ import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
+import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+
+// ---------------------------------------------------------------------------
+// Per-call repo routing schemas
+//
+// Mirrors the pattern in decision-tools.ts (see that module's header for
+// the rationale). `RepoPathField` is duplicated here rather than imported —
+// the field is small and self-contained; hoist to a shared module if a third
+// consumer appears. See decision-tools.ts for the canonical declaration.
+// ---------------------------------------------------------------------------
+
+const RepoPathField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "REQUIRED. Absolute path to the indexed git root this query targets. " +
+      "If you don't know it, call list_projects first.",
+  );
+
+const searchGraphShape = {
+  repo_path: RepoPathField,
+  name_pattern: z.string().optional(),
+  label: z.string().optional(),
+  qn_pattern: z.string().optional(),
+} as const;
+const searchGraphSchema = z.object(searchGraphShape);
+
+const getCodeSnippetShape = {
+  repo_path: RepoPathField,
+  qualified_name: z.string().min(1, "qualified_name must not be empty"),
+} as const;
+const getCodeSnippetSchema = z.object(getCodeSnippetShape);
+
+const tracePathShape = {
+  repo_path: RepoPathField,
+  function_name: z.string(),
+  mode: z.enum(["calls", "callers"]).describe("Trace mode: calls (outbound) or callers (inbound)"),
+  max_depth: z.number().int().min(1).max(10).optional(),
+} as const;
+const tracePathSchema = z.object(tracePathShape);
+
+const detectChangesShape = {
+  repo_path: RepoPathField,
+} as const;
+const detectChangesSchema = z.object(detectChangesShape);
+
+const getGraphSchemaShape = {
+  repo_path: RepoPathField,
+} as const;
+const getGraphSchemaSchema = z.object(getGraphSchemaShape);
+
+/**
+ * Derive the project name from the addressed repo's graph DB.
+ *
+ * Each `.cortex/db` written by the indexer holds rows for exactly one project
+ * (its `ctx_projects` table). We pick the first row rather than filtering by
+ * `root_path` because the path stored at indexing time can diverge from the
+ * agent's current absolute path (symlinks, copied fixtures, moved trees) —
+ * but the DB always contains a single project, so LIMIT 1 is unambiguous.
+ * Returns null when the table is missing (pre-migration DB) or empty.
+ */
+function projectFromCtx(ctx: RepoContext): string | null {
+  try {
+    const rows = ctx.store.queryRaw<{ name: string }>(
+      "SELECT name FROM ctx_projects LIMIT 1",
+    );
+    return rows[0]?.name ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const execFileAsync = promisify(execFile);
 import { join } from "node:path";
@@ -138,7 +210,26 @@ async function withFrames(
   return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}` }] };
 }
 
-export function registerCodeTools(server: McpServer, store: GraphStore, indexerProject: string | null, dbPath?: string): void {
+/**
+ * Register code/graph tools on the MCP server.
+ *
+ * `store` and `indexerProject` are legacy startup-bound handles still used
+ * by the tools that have not yet migrated to per-call routing (Phase 3
+ * Group B: search_code, query_graph, get_architecture, index_status,
+ * index_repository, list_projects, ingest_traces, delete_project). After
+ * those migrate, both fields can be dropped.
+ *
+ * `resolver` powers per-call repo routing for the tools migrated in
+ * Phase 3 Group A: search_graph, get_code_snippet, trace_path,
+ * detect_changes, get_graph_schema.
+ */
+export function registerCodeTools(
+  server: McpServer,
+  store: GraphStore,
+  indexerProject: string | null,
+  resolver: RepoContextResolver,
+  dbPath?: string,
+): void {
   // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
   server.tool(
@@ -292,25 +383,28 @@ export function registerCodeTools(server: McpServer, store: GraphStore, indexerP
 
   // --- SQL-based tools (6) ---
 
-  // 5E: search_graph with normalize
+  // 5E: search_graph with normalize — migrated to per-call repo routing.
   server.tool(
     "search_graph",
     "Search the knowledge graph for code entities by name, label, or qualified name pattern",
-    {
-      name_pattern: z.string().optional(),
-      label: z.string().optional(),
-      qn_pattern: z.string().optional(),
-    },
-    async (params) => {
-      if (!indexerProject) {
-        return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
-      }
-      const qn = params.qn_pattern ? normalize(params.qn_pattern, indexerProject) : undefined;
-      const results = searchGraph(store, indexerProject, { ...params, qn_pattern: qn });
-      const text = formatNodes(results);
-      const queryDesc = `search_graph(${JSON.stringify(params)})`;
-      return text ? ok(text) : empty(queryDesc);
-    }
+    searchGraphShape,
+    registerTool(
+      "search_graph",
+      searchGraphSchema,
+      async (ctx, args) => {
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
+        }
+        const { repo_path: _repoPath, ...params } = args;
+        const qn = params.qn_pattern ? normalize(params.qn_pattern, project) : undefined;
+        const results = searchGraph(ctx.store, project, { ...params, qn_pattern: qn });
+        const text = formatNodes(results);
+        const queryDesc = `search_graph(${JSON.stringify(params)})`;
+        return text ? ok(text) : empty(queryDesc);
+      },
+      { resolver },
+    ),
   );
 
   // 5H: trace_path with {node, depth}[] shape and max_depth param
