@@ -33,13 +33,13 @@
 - Modify: `scripts/frame-extraction/corpus.json`
 - Test: `tests/frame-extraction/corpus-fixtures.test.ts` (Create)
 
-**Proposed fixtures (CONFIRM with the user before cloning — these are vetoable):**
+**Confirmed fixtures (user-approved 2026-06-04):**
 - **Next.js App Router:** `vercel/commerce` (MIT) — real App Router e-commerce app.
 - **Django:** `saleor/saleor` (BSD-3) — real Django app; `size_hint: large` (flag index cost).
-- **Rails:** `discourse/discourse` (GPL-2) — canonical real Rails MVC app. *License note:* we only clone+index locally for measurement; no redistribution/derivation, so copyleft is acceptable for an eval fixture. If you prefer permissive, swap to `gitlabhq/gitlabhq` (MIT-core).
+- **Rails:** `rubygems/rubygems.org` (MIT) — real mid-size Rails MVC app (standard `app/models|controllers|views`); chosen over discourse for permissive license + lighter index.
 - **anthill-cloud:** local-only (`git: null`, `local_path` to the absolute repo), `archetype: nuxt-app`. Marked local so portable/CI runs skip it.
 
-- [ ] **Step 1: CHECKPOINT — confirm the four repos with the user.** Do not proceed until the Next/Django/Rails picks (and the Rails license choice) are confirmed. Record the confirmed slugs.
+- [ ] **Step 1: CHECKPOINT — repos confirmed (done).** The four fixtures above are user-approved; proceed.
 
 - [ ] **Step 2: Write the failing schema test**
 
@@ -98,7 +98,7 @@ Append to `repos` (substitute the confirmed slugs/URLs from Step 1; `<ABS>` = th
 ,
 { "slug": "vercel/commerce",     "git": "https://github.com/vercel/commerce.git",     "archetype": "next-app",   "size_hint": "medium", "primary_language": "typescript" },
 { "slug": "saleor/saleor",       "git": "https://github.com/saleor/saleor.git",       "archetype": "django-app", "size_hint": "large",  "primary_language": "python" },
-{ "slug": "discourse/discourse", "git": "https://github.com/discourse/discourse.git", "archetype": "rails-app",  "size_hint": "large",  "primary_language": "ruby" },
+{ "slug": "rubygems/rubygems.org", "git": "https://github.com/rubygems/rubygems.org.git", "archetype": "rails-app", "size_hint": "medium", "primary_language": "ruby" },
 { "slug": "local/anthill-cloud", "git": null, "local_path": "<ABS>", "archetype": "nuxt-app", "size_hint": "medium", "primary_language": "typescript" }
 ```
 
@@ -110,7 +110,7 @@ Expected: PASS (all 3 cases).
 - [ ] **Step 6: Smoke-clone + index the new public fixtures (manual, network)**
 
 Run: `npx tsx scripts/frame-extraction/survey.ts --only vercel/commerce`
-Then repeat `--only saleor/saleor` and `--only discourse/discourse`.
+Then repeat `--only saleor/saleor` and `--only rubygems`.
 Expected: each prints `✓ entities=… edges=… files=…`. If any errors at `phase: index` (language/extraction gap), record it — that repo may need `size_hint`/exclusion tuning, and the §10 cross-language caveat applies. Do NOT block the plan on a single repo's index quality; note it and continue.
 
 - [ ] **Step 7: Commit**
