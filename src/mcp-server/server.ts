@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { GraphStore } from "../graph/store.js";
 import { DecisionService } from "../decisions/service.js";
-import { DecisionSearch } from "../decisions/search.js";
 import { DecisionPromotion } from "../decisions/promotion.js";
 import { PRService } from "../prs/service.js";
 import { registerDecisionTools } from "./tools/decision-tools.js";
@@ -50,7 +49,6 @@ export function createServer(
     bus,
     project_id: indexerProject ?? "",
   });
-  const decisionSearch = new DecisionSearch(decisionsRepo, decisionLinksRepo);
   const decisionPromotion = new DecisionPromotion(
     decisionsRepo,
     bus ? { bus, project_id: indexerProject ?? "" } : {},
@@ -63,16 +61,7 @@ export function createServer(
     links: decisionLinksRepo,
   });
 
-  registerDecisionTools(
-    server,
-    decisionService,
-    decisionSearch,
-    decisionLinksRepo,
-    resolver,
-    indexerProject,
-    graphDbPath,
-    bus,
-  );
+  registerDecisionTools(server, resolver, indexerProject, bus);
   registerPromotionTools(server, decisionPromotion, resolver, indexerProject, bus);
   registerCodeTools(server, store, indexerProject, graphDbPath);
   registerPRTools(server, prService);

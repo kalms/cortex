@@ -7,7 +7,6 @@ import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools
 import { registerPromotionTools } from "../../src/mcp-server/tools/promotion-tools.js";
 import { registerPRTools } from "../../src/mcp-server/tools/pr-tools.js";
 import { DecisionService } from "../../src/decisions/service.js";
-import { DecisionSearch } from "../../src/decisions/search.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
 import { PRService } from "../../src/prs/service.js";
 import { openDecisionsDb } from "../../src/decisions/db.js";
@@ -129,7 +128,6 @@ export async function createHarness(): Promise<HarnessContext> {
     links: decisionLinksRepo,
     project_id: project,
   });
-  const search = new DecisionSearch(decisionsRepo, decisionLinksRepo);
   const promotion = new DecisionPromotion(decisionsRepo);
   const prService = new PRService(store, {
     default_actor: "tester",
@@ -146,7 +144,7 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project, cortexDbPath);
-  registerDecisionTools(server, service, search, decisionLinksRepo, resolver, project, cortexDbPath);
+  registerDecisionTools(server, resolver, project);
   registerPromotionTools(server, promotion, resolver, project);
   registerPRTools(server, prService);
 
