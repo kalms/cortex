@@ -310,94 +310,100 @@ export function registerCodeTools(
 ): void {
   // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
+  // index_repository — migrated to per-call routing with allowUnindexed.
+  //
+  // This tool CREATES `.cortex/db`. Registered with allowUnindexed so the
+  // resolver doesn't throw RepoNotIndexedError on the very repo we're about
+  // to bring online. The handler validates the path itself (existsSync) and
+  // walks through cache-import → indexer-call → cache-write as before, just
+  // anchored to the addressed repo_path instead of process.cwd().
   server.tool(
     "index_repository",
     "Index a repository into the knowledge graph (uses content-hash build cache)",
-    { path: z.string().optional().describe("Repository path (default: current directory)") },
-    async ({ path }) => {
-      const repoPath = path || process.cwd();
-      const dbPath = resolveCortexDbPath(repoPath);
+    indexRepositoryShape,
+    registerTool(
+      "index_repository",
+      indexRepositorySchema,
+      async (_resolver, args) => {
+        const repoPath = args.repo_path!;
+        const dbPath = resolveCortexDbPath(repoPath);
 
-      // Defensive: before we touch the graph DB (which a cache import will
-      // OVERWRITE), make sure any decisions still living in graph.db have
-      // been migrated into the sidecar decisions.db. The migration is
-      // idempotent (gated by schema_meta) so this is a no-op after the
-      // first run. Open the sidecar locally and close immediately; the
-      // server-level handle is also fine because writes are serialized.
-      try {
-        const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-        const decDb = openDecisionsDb(decisionsDbPath);
+        // Defensive: before we touch the graph DB (which a cache import will
+        // OVERWRITE), make sure any decisions still living in graph.db have
+        // been migrated into the sidecar decisions.db. The migration is
+        // idempotent (gated by schema_meta) so this is a no-op after the
+        // first run.
         try {
-          migrateDecisionsFromGraphDb(decDb, dbPath);
-        } finally {
-          decDb.close();
-        }
-      } catch (e) {
-        // Migration failure must not block indexing. Surface to stderr so
-        // a regression here is visible without breaking the user's flow.
-        process.stderr.write(
-          `Cortex: defensive decisions migration failed: ${e instanceof Error ? e.message : String(e)}\n`,
-        );
-      }
-
-      // Cache requires a git tree to key on. Without it, computeCacheKey()
-      // returns the same value for every non-git directory — which would let
-      // an unrelated repo serve stale results. Skip cache entirely when there's
-      // no .git directory.
-      let cacheKey: string | null = null;
-      if (existsSync(join(repoPath, ".git"))) {
-        try {
-          cacheKey = computeCacheKey(repoPath);
-        } catch {
-          // Defensive: current cache module catches errors internally, but
-          // keep this so a future stricter implementation can't break
-          // index_repository.
-          cacheKey = null;
-        }
-      }
-
-      if (cacheKey && hasCacheEntry(cacheKey)) {
-        readCacheEntry(cacheKey, dbPath);
-        // Remove any stale WAL sidecars left over from a previous indexer run.
-        // Otherwise SQLite will replay them on top of the freshly restored
-        // main file and serve stale data.
-        for (const ext of ["-wal", "-shm"]) {
-          const sidecar = dbPath + ext;
-          if (existsSync(sidecar)) {
-            try { unlinkSync(sidecar); } catch { /* non-fatal */ }
-          }
-        }
-        return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
-      }
-
-      const result = await callIndexer("index_repository", { repo_path: repoPath }, dbPath);
-      if (!result.isError && cacheKey) {
-        // The indexer DB runs in WAL mode (see src/graph/store.ts). Checkpoint
-        // WAL into the main file before copying so the cached snapshot is
-        // self-contained — otherwise uncheckpointed pages would be missing.
-        let checkpointed = false;
-        try {
-          const conn = new Database(dbPath);
+          const decisionsDbPath = resolveDecisionsDbPath(repoPath);
+          const decDb = openDecisionsDb(decisionsDbPath);
           try {
-            conn.pragma("wal_checkpoint(TRUNCATE)");
-            checkpointed = true;
+            migrateDecisionsFromGraphDb(decDb, dbPath);
           } finally {
-            conn.close();
+            decDb.close();
           }
-        } catch { /* checkpoint failure is non-fatal; skip cache write */ }
-        if (!checkpointed) {
-          return result;
+        } catch (e) {
+          // Migration failure must not block indexing. Surface to stderr so
+          // a regression here is visible without breaking the user's flow.
+          process.stderr.write(
+            `Cortex: defensive decisions migration failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
         }
-        try {
-          writeCacheEntry(cacheKey, dbPath);
-        } catch {
-          // Cache write failure is non-fatal.
+
+        // Cache requires a git tree to key on. Without it, computeCacheKey()
+        // returns the same value for every non-git directory — which would
+        // let an unrelated repo serve stale results. Skip cache entirely when
+        // there's no .git directory.
+        let cacheKey: string | null = null;
+        if (existsSync(join(repoPath, ".git"))) {
+          try {
+            cacheKey = computeCacheKey(repoPath);
+          } catch {
+            cacheKey = null;
+          }
         }
-      }
-      if (result.isError) return result;
-      const baseText = result.content?.[0]?.text ?? "indexed";
-      return await withFrames(baseText, repoPath, dbPath);
-    }
+
+        if (cacheKey && hasCacheEntry(cacheKey)) {
+          readCacheEntry(cacheKey, dbPath);
+          // Remove any stale WAL sidecars left over from a previous indexer run.
+          for (const ext of ["-wal", "-shm"]) {
+            const sidecar = dbPath + ext;
+            if (existsSync(sidecar)) {
+              try { unlinkSync(sidecar); } catch { /* non-fatal */ }
+            }
+          }
+          return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
+        }
+
+        const result = await callIndexer("index_repository", { repo_path: repoPath }, dbPath);
+        if (!result.isError && cacheKey) {
+          // The indexer DB runs in WAL mode (see src/graph/store.ts).
+          // Checkpoint WAL into the main file before copying so the cached
+          // snapshot is self-contained.
+          let checkpointed = false;
+          try {
+            const conn = new Database(dbPath);
+            try {
+              conn.pragma("wal_checkpoint(TRUNCATE)");
+              checkpointed = true;
+            } finally {
+              conn.close();
+            }
+          } catch { /* non-fatal; skip cache write */ }
+          if (!checkpointed) {
+            return result;
+          }
+          try {
+            writeCacheEntry(cacheKey, dbPath);
+          } catch {
+            // Cache write failure is non-fatal.
+          }
+        }
+        if (result.isError) return result;
+        const baseText = result.content?.[0]?.text ?? "indexed";
+        return await withFrames(baseText, repoPath, dbPath);
+      },
+      { resolver, allowUnindexed: true },
+    ),
   );
 
   // detect_changes — migrated to per-call repo routing. Shells out via
