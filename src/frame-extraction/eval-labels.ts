@@ -25,8 +25,20 @@ export const STRUCTURAL_LABEL_TOKENS = new Set<string>([
 export function isStructuralLabelToken(token: string): boolean {
   const t = token.toLowerCase();
   if (/^\[.*\]$/.test(t) || /^\(.*\)$/.test(t)) return true;
-  if (t !== "id" && /^[a-z]+id$/.test(t)) return true; // orgid, dsid, userid… (route-param leakage)
   return STRUCTURAL_LABEL_TOKENS.has(t);
+}
+
+/** Lowercased route-param names appearing as bracketed segments in paths.
+ *  e.g. ".../[orgId]/..." -> "orgid", "[...slug]" -> "slug". */
+export function routeParamTokens(memberPaths: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of memberPaths) {
+    for (const seg of p.split("/")) {
+      const m = seg.match(/^\[\.{0,3}(.+?)\]$/); // [x], [...x]
+      if (m) out.add(m[1]!.toLowerCase());
+    }
+  }
+  return out;
 }
 
 export interface LabelViolation {
@@ -36,6 +48,14 @@ export interface LabelViolation {
   detail: string;
 }
 
+/**
+ * Fraction of member paths that contain `token` as a substring.
+ *
+ * Known limitations (acceptable for a measurement baseline):
+ * (a) Uses substring matching (`includes`), so "api" hits "capital" or "apiary".
+ * (b) Salience is checked per-word, so a legitimate bigram whose rarer half
+ *     appears in <50 % of paths can trigger a false `non_salient_label` hit.
+ */
 function pathSalience(token: string, memberPaths: readonly string[]): number {
   if (memberPaths.length === 0) return 0;
   const t = token.toLowerCase();
@@ -56,7 +76,8 @@ export function checkLabelQuality(
     const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id);
     const words = label.toLowerCase().split(/\s+/).filter(Boolean);
 
-    const bad = words.find((w) => isStructuralLabelToken(w));
+    const params = routeParamTokens(c.member_paths);
+    const bad = words.find((w) => isStructuralLabelToken(w) || params.has(w));
     if (bad) {
       out.push({ cluster_id: c.cluster_id, label, rule: "structural_token_in_label", detail: bad });
       continue;
