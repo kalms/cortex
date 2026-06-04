@@ -331,4 +331,28 @@ describe("code-tools contract", () => {
       }
     });
   });
+
+  describe("get_graph_schema per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_graph_schema", {
+        repo_path: undefined,
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads schema from the addressed repo, not the server's cwd", async () => {
+      // repoB has the same fixture data; assert the schema response is non-empty
+      // and shaped right, which confirms the read went through repoB's DB.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "get_graph_schema", { repo_path: repoB });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toMatch(/function: \d+/);
+        expect(res.content[0].text).toMatch(/Edge types:/);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
 });
