@@ -123,6 +123,16 @@ describe("pickFrameLabel — path-prefix fallback", () => {
     ];
     expect(pickFrameLabel(tokens, paths)).toBe("users");
   });
+
+  it("skips Next.js route-group segments like (marketing) in the path-prefix fallback", () => {
+    const paths = [
+      "app/(marketing)/index.tsx",
+      "app/(marketing)/page.tsx",
+    ];
+    // (marketing) is a route group (structural) → must be skipped; 'app' is
+    // generic → no informative segment → cluster:<id> fallback.
+    expect(pickFrameLabel([], paths, 9)).toBe("cluster:9");
+  });
 });
 
 describe("buildFrameAssignments — passes paths through to label", () => {
@@ -190,6 +200,57 @@ describe("buildFrameAssignments", () => {
     const assignments = buildFrameAssignments(minimalCluster);
     // Path = src/x.ts → common prefix is src/ → src is generic → cluster:5
     expect(assignments[0]?.frame_label).toBe("cluster:5");
+  });
+});
+
+describe("pickFrameLabel — salience gate + structural ineligibility (Phase 1)", () => {
+  const activatorPages = [
+    "apps/activator/app/pages/activator/banners.vue",
+    "apps/activator/app/pages/activator/briefs.vue",
+    "apps/activator/app/pages/activator/email.vue",
+    "apps/activator/app/pages/activator/index.vue",
+    "apps/activator/app/pages/activator/presentations.vue",
+    "apps/activator/app/pages/activator/slides.vue",
+    "apps/activator/app/pages/activator/modular-content.vue",
+  ];
+
+  it("rejects a non-salient leaf token and falls back to the path prefix", () => {
+    // 'email' names only 1/7 files → fails the >=50% gate → path-prefix → 'activator'.
+    expect(pickFrameLabel(["email", "pages"], activatorPages)).toBe("activator");
+  });
+
+  it("prefers a salient domain token over a non-salient one", () => {
+    // 'activator' is in 7/7 paths; 'email' in 1/7.
+    expect(pickFrameLabel(["email", "activator"], activatorPages)).toBe("activator");
+  });
+
+  it("rejects a route-param token even when it is the top token", () => {
+    const paths = [
+      "apps/x/pages/[orgId]/design-systems/colors.vue",
+      "apps/x/pages/[orgId]/design-systems/fonts.vue",
+    ];
+    expect(pickFrameLabel(["orgid", "design"], paths)).toBe("design");
+  });
+
+  it("rejects an MVC layer marker and picks the domain noun", () => {
+    const paths = [
+      "app/controllers/users_controller.rb",
+      "app/controllers/users/sessions_controller.rb",
+    ];
+    expect(pickFrameLabel(["users controller", "controller", "users"], paths)).toBe("users");
+  });
+
+  it("rejects a bare 'use' bigram and picks the salient store token", () => {
+    const paths = [
+      "packages/ui/stores/colors.ts",
+      "packages/ui/stores/fonts.ts",
+    ];
+    expect(pickFrameLabel(["use store", "store"], paths)).toBe("store");
+  });
+
+  it("does NOT gate on salience when memberPaths is empty (token-only callers)", () => {
+    // Regression guard: every existing token-only call must behave as before.
+    expect(pickFrameLabel(["email", "activator"], [])).toBe("email");
   });
 });
 

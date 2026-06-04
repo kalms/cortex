@@ -16,6 +16,12 @@ import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { resolveCortexDbPath } from "../db/resolve-path.js";
 import type { ClusterResult } from "./types.js";
+import {
+  isStructuralLabelToken,
+  isDynamicSegment,
+  routeParamTokens,
+  pathSalience,
+} from "./structural-tokens.js";
 
 /** Stop-list of generic tokens we skip when picking a label. Lowercase.
  *  Includes monorepo-convention dirs (`apps`, `packages`), framework/route
@@ -25,7 +31,7 @@ import type { ClusterResult } from "./types.js";
 const GENERIC_TOKENS = new Set([
   // Filesystem layout conventions
   "src", "lib", "common", "core", "main", "app", "apps", "packages",
-  "modules", "pkg", "pkgs", "components", "index",
+  "modules", "pkg", "pkgs", "components", "index", "pages",
   // Test infrastructure
   "test", "tests",
   // Generic utility nouns
@@ -53,12 +59,30 @@ function isGenericToken(token: string): boolean {
   return GENERIC_TOKENS.has(token);
 }
 
+/** A label word is eligible only if it is not generic, not structural
+ *  (route param / MVC marker / bracket), and — when member paths are
+ *  available — salient across ≥50% of them. The salience gate is skipped
+ *  when `memberPaths` is empty so token-only callers behave as before. */
+function isLabelEligibleWord(
+  word: string,
+  params: ReadonlySet<string>,
+  memberPaths: readonly string[],
+): boolean {
+  const w = word.toLowerCase();
+  if (isGenericToken(w)) return false;
+  if (isStructuralLabelToken(w)) return false;
+  if (params.has(w)) return false;
+  if (memberPaths.length > 0 && pathSalience(w, memberPaths) < 0.5) return false;
+  return true;
+}
+
 /** Pick a frame label, preferring informative tokens in this order:
  *
- *   1. First bigram (or longer) where ALL words are non-generic. Bigrams like
- *      "design system" or "mcp server" identify subsystems more clearly than
- *      either word alone.
- *   2. First non-generic unigram.
+ *   1. First bigram (or longer) where ALL words are label-eligible (non-generic,
+ *      non-structural, not a route param, and salient across ≥50% of member paths).
+ *      Bigrams like "design system" or "mcp server" identify subsystems more
+ *      clearly than either word alone.
+ *   2. First label-eligible unigram (same criteria).
  *   3. Path-prefix fallback: deepest non-generic segment of the longest
  *      common directory prefix of member paths. Catches clusters whose top
  *      tokens are all generic but whose files share a meaningful directory.
@@ -72,18 +96,20 @@ export function pickFrameLabel(
   memberPaths: readonly string[],
   clusterId?: number,
 ): string {
-  // Pass 1: first bigram (or n-gram) where every word is non-generic.
+  const params = routeParamTokens(memberPaths);
+
+  // Pass 1: first n-gram where every word is label-eligible.
   for (const token of topTokens) {
     const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
-    if (parts.length > 1 && parts.every((p) => !isGenericToken(p))) {
+    if (parts.length > 1 && parts.every((p) => isLabelEligibleWord(p, params, memberPaths))) {
       return token;
     }
   }
 
-  // Pass 2: first non-generic unigram.
+  // Pass 2: first label-eligible unigram.
   for (const token of topTokens) {
     const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
-    if (parts.length === 1 && !isGenericToken(parts[0]!)) {
+    if (parts.length === 1 && isLabelEligibleWord(parts[0]!, params, memberPaths)) {
       return token;
     }
   }
@@ -129,7 +155,7 @@ function commonPathSegmentLabel(paths: readonly string[]): string | null {
   // Treat bracketed segments ([id], [slug]) and generic tokens as skip-worthy.
   for (let i = commonDepth - 1; i >= 0; i--) {
     const seg = splits[0]![i]!;
-    if (/^\[.+\]$/.test(seg)) continue;
+    if (isDynamicSegment(seg)) continue;
     if (isGenericToken(seg.toLowerCase())) continue;
     return seg;
   }
