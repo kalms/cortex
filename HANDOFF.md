@@ -10,6 +10,23 @@ Three waves this session. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday 
 - **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt)
 - **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
 
+## What shipped 2026-06-04
+
+### MCP multi-project routing (the big one)
+
+Replaces the cortex MCP server's startup-time, single-repo binding with a per-call resolver middleware. Every routed tool now requires a `repo_path` argument (`list_projects` / `delete_project` opt out via `crossRepo: true`); the resolver opens per-repo DB handles, pools them, and surfaces structured `MissingRepoPathError` / `RepoNotIndexedError` payloads with an `available_projects` list when callers miss. Fixes the empirical bug where 14 of 26 decisions in cortex's `.cortex/decisions.db` actually governed `apps/cloud/` / `apps/activator/` paths from anthill-cloud — pooled there because cortex was the server's startup cwd. The fix is gated by `tests/regression/decisions-cross-repo-isolation.test.ts` which fails on pre-merge `main` and passes here.
+
+50 commits on `feature/mcp/multi-project-routing` (merged 491a569). Design: [`docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md). Plan: [`docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md`](docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md).
+
+Companion ships:
+- `cortex decision rehome <id> --to=<repo_path>` CLI verb for moving historical mis-routed decisions; the 14 anthill-owned decisions were rehomed via this verb the same day.
+- Master registry under `~/.cache/cortex-indexer/<slug>.db` powers `list_projects` and the friendly error payloads — closes Field Report 2026-05-26 rec #1.
+- Plugin bumped 0.2.0 → 0.3.0 (793733d); README install section rewritten to lead with the marketplace plugin path (3d94b62); `.mcp.json` unified to one expression that works in both plugin and project contexts via `${CLAUDE_PLUGIN_ROOT:-$PWD}` (b8ba817).
+
+### Resolver collapses worktrees to canonical (fc8ae84)
+
+Cortex's invariant — "one index per repo, shared across all worktrees" — is now structural. `git rev-parse --git-common-dir` returns the shared `.git/` from any worktree; the resolver routes to the canonical repo root regardless of whether the caller passed a canonical or a worktree path. `ctx.repoPath` is realpath-normalized so two worktrees of the same repo dedupe to one pooled `RepoContext`. Decisions captured from any worktree are immediately visible from every other worktree of the same repo. Sets up the "worktree as in-flight PR" model (Item 5 below).
+
 ## What shipped this session (2026-05-26)
 
 ### Bug 1 — Nuxt fetch family HTTP_CALLS detection (merged: 5700759)
@@ -170,6 +187,27 @@ From the 2026-05-26 field report (after the three small items already shipped ab
 - **Recognize `defineStore` factory patterns** (Pinia) — direct `defineStore` calls already produce `use*Store` variable nodes. The factory pattern `createXxxStore(config)` that internally returns `defineStore(...)` produces only the factory function as a node, not the derived stores. Medium effort — needs to track call-site → defineStore returns through factory wrappers.
 - **Verify `governs` linking and `FILE_CHANGES_WITH` actually work against `.vue` file paths** — the field report claimed these were broken on the basis of the (wrong) "no .vue file nodes" diagnosis. Should be a verify-only task; if it works, just document.
 - **Investigate `<template>` references between components in `.vue` files** — `<ACardFooter />` template usage doesn't appear to create CALLS or USES edges. Unverified by the report; would close the last Vue-coverage gap.
+
+### Item 5 — Worktrees as in-flight PRs (slice 2 + 3 from 2026-06-04 design conversation)
+
+The 2026-06-04 routing fix made cortex "one index per repo, all worktrees collapse to canonical" (commit fc8ae84 — "slice 1"). The deeper goal, articulated by user on the same day, is to make worktrees first-class in the data model:
+
+> Cortex's key feature is showing — transparently — the ongoing changes that other agents, developers, and their agents are making to the codebase. Worktrees usually represent a new feature / future PR. We need to capture and reflect that state.
+
+That points at two follow-on work streams. Neither has a spec yet; both want their own `/brainstorm`.
+
+**Slice 2 — Worktree↔PR auto-registration.** Detect worktree creation, open a synthetic PR keyed on the worktree's branch, write `pr_touches` against the canonical graph as files change. PR closes on worktree-remove / branch-merge / GitHub-PR-merge. Existing machinery: `pull_request` nodes + `pr_touches` table + the four PR tools (`open_pr` / `get_pr` / `add_pr_touch` / `merge_pr`) that were migrated in the routing fix. Open design questions:
+
+- **Trigger** — SessionStart hook detects "I'm in a worktree, no PR record yet, register one" vs. ambient `git worktree list` poller vs. explicit `cortex worktree register` verb.
+- **Identifier** — synthetic ID like `wt:feature/arcane-dsl` from branch name vs. mapping to actual GitHub PR number when one exists vs. both (synthetic at first, upgrades when the real PR opens).
+- **Touch flow** — fsevents watcher (real-time) vs. periodic `git diff <mainline>...HEAD` snapshot vs. git post-commit hook vs. on-demand `cortex worktree sync` verb. Touch-flow choice has long downstream consequences: real-time means a worker process; snapshot is simpler but stale; per-commit misses uncommitted state which is where SDD agents actually live.
+- **Lifecycle** — close on `git worktree remove` vs. branch-merge-detected vs. GitHub PR merged vs. explicit unregister.
+
+**Slice 3 — Multi-agent visibility query layer.** The actual UX payoff once slice 2's touch data exists. `why_was_this_built('src/auth.ts')` returning "the decision merged from `main` + 3 in-flight PRs proposing changes, here are their touches and rationales." `search_graph` returning canonical symbols + symbols proposed-but-unmerged from open PRs, flagged. This is the transparent multi-agent collaboration story — the thing cortex was always meant to do but doesn't fully today.
+
+Interesting reordering possibility: design slice 3 *first* (what do agents and humans want to see?) and let that constrain slice 2's touch-flow choice. Probably the right move — working backward from the UX narrows the mechanism choice better than picking a mechanism first.
+
+**Also still open: tier-model promotion** (migrated from the now-deleted `HANDOFF_DECISIONS.md` Gap 1). `cortex decision promote` was removed from the CLI in [ef0262c](src/cli/commands/decision.ts) with a "deferred until tier model specced" error. `DecisionPromotion` class + `promote_decision` MCP tool still exist (TS-side, repo-scoped per the routing fix). What promotion *means* (personal → team semantics, who can promote, where a `team` decision physically lives — same repo's `.cortex/decisions.db` with a tier flag, a shared store, synced, etc.) was never specced; the `tier` column is in the schema with `DEFAULT 'personal'` but has no design rationale. Either spec it or remove the dormant plumbing.
 
 ### Item 4 — Open items from the older Phase 4 handoff that are still real
 
