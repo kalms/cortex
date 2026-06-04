@@ -30,6 +30,50 @@ Fall back to `Grep`/`Glob`/`Read` only when:
 - you need a regex feature `search_code` doesn't support
 - the Cortex tool returned empty AND you've confirmed the index is current
 
+## MCP tool routing — always pass repo_path
+
+**Contract:** every Cortex MCP tool **requires an absolute `repo_path`**
+naming the git root the call is about. The two exceptions are
+`list_projects` and `delete_project` (`crossRepo: true`) — they operate
+on the master registry, not a single repo, and accept `project` instead.
+
+The SessionStart banner (`hooks/check-index.sh`) prints `Repo path:
+<abs>` so you have the current cwd's repo path ready to paste. **For
+multi-repo work, pass the path of the repo the call is actually about,
+not the cwd repo.** A `search_decisions` about `anthill-cloud-sales`
+should be `repo_path: "/Users/rka/Development/anthill-cloud-sales"`,
+even if your shell cwd is in `cortex`.
+
+### Error shapes you'll see if `repo_path` is wrong
+
+- **`MissingRepoPathError`** — tool called without `repo_path`. The
+  payload includes `available_projects: AvailableProject[]` where
+  `AvailableProject = { name: string; path: string; indexed: boolean }`
+  — every indexed repo this server knows about, so you can pick the
+  right one without a second `list_projects` round-trip.
+- **`RepoNotIndexedError`** — path is a real git root but
+  `.cortex/db` is missing. Same `available_projects` payload; the
+  message tells you to run `cortex index repository --path=<path>`
+  first.
+- **`PathNotFoundError`** / **`NotAGitRepoError`** — bad path or
+  subdirectory; the latter carries the inferred `gitRoot` so you can
+  re-issue without a second lookup.
+
+### Why this matters
+
+Before this contract, the MCP server pinned `repoPath` at startup, so
+every decision write from a cortex-plugin session pooled into the home
+repo's `.cortex/decisions.db` regardless of which project the agent was
+actually reasoning about. The historical 14+ mis-routed decisions in
+this repo are evidence; use `cortex decision rehome <id> --to=<path>`
+to move them to the right repo's DB when you spot one.
+
+See:
+- Design spec: [docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md)
+- Implementation plan: [docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md](docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md)
+- Field report: [docs/architecture/field reports/field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)
+- Regression test: [tests/regression/decisions-cross-repo-isolation.test.ts](tests/regression/decisions-cross-repo-isolation.test.ts)
+
 ## Decision capture — when to use it
 
 Capture a decision **proactively** when:
