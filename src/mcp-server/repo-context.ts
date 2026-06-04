@@ -5,7 +5,7 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
-import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
+import { resolveDecisionsDbPath, resolveGraphDbForRead } from "../db/resolve-path.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
@@ -20,6 +20,11 @@ import { GraphStore } from "../graph/store.js";
  */
 export interface RepoContext {
   readonly repoPath: string;
+  /** The resolved graph DB file this context reads from — the SINGLE source
+   *  of truth for the addressed repo's store (via resolveGraphDbForRead).
+   *  Read-path tools MUST use this rather than re-deriving a path, so every
+   *  reader hits the same populated store the resolver chose. */
+  readonly graphDbPath: string;
   readonly graphDb: Database.Database;
   readonly decisionsDb: Database.Database;
   readonly store: GraphStore;
@@ -249,8 +254,12 @@ export class RepoContextResolver {
     const cached = this.pool.get(canonical);
     if (cached) return cached;
 
-    const graphDbPath = resolveCortexDbPath(canonical);
-    if (!existsSync(graphDbPath)) {
+    // Read-path resolution: find the repo's POPULATED graph store across the
+    // .cortex/db, .cortex/graph.db, and ~/.cache slot conventions — repo-scoped
+    // and independent of any global CORTEX_DB_PATH override (which previously
+    // collapsed every repo to one relative DB and defeated routing).
+    const graphDbPath = resolveGraphDbForRead(canonical);
+    if (!graphDbPath) {
       throw new RepoNotIndexedError(canonical, this.listKnownRepos());
     }
     const decisionsDbPath = resolveDecisionsDbPath(canonical);
@@ -271,6 +280,7 @@ export class RepoContextResolver {
 
     const ctx: RepoContext = Object.freeze({
       repoPath: canonical,
+      graphDbPath,
       graphDb,
       decisionsDb,
       store,
