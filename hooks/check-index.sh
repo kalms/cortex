@@ -47,7 +47,13 @@ cat <<EOF
 === Cortex routing for this session ===
 
 Repo: $REPO
+Repo path: $REPO
 Index state: $INDEX_STATE
+
+Cortex MCP tools require an absolute repo_path argument (except
+list_projects / delete_project). Use the Repo path above when calling
+tools about this repo; for multi-repo work, pass the explicit path of
+the repo the call is about.
 
 EOF
 
