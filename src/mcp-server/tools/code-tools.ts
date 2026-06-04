@@ -356,11 +356,22 @@ export function registerCodeTools(
     }
   );
 
+  // detect_changes — migrated to per-call repo routing. Shells out via
+  // callIndexer, but we pin both CORTEX_DB and repo_path to the addressed
+  // repo so the indexer's git-diff walk runs against the right working tree.
   server.tool(
     "detect_changes",
     "Map git diff to affected symbols in the knowledge graph",
-    { path: z.string().optional().describe("Repository path") },
-    async ({ path }) => callIndexer("detect_changes", { repo_path: path || process.cwd() })
+    detectChangesShape,
+    registerTool(
+      "detect_changes",
+      detectChangesSchema,
+      async (ctx, _args) => {
+        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        return callIndexer("detect_changes", { repo_path: ctx.repoPath }, addressedDbPath);
+      },
+      { resolver },
+    ),
   );
 
   server.tool(

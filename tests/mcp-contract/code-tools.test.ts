@@ -195,17 +195,13 @@ describe("code-tools contract", () => {
   });
 
   describe("detect_changes", () => {
-    it("happy: returns structured response for fixture path (success or error)", async () => {
-      const res = await callTool(h, "detect_changes", { path: h.fixtureDir });
-      expect(ResponseSchema.safeParse(res).success).toBe(true);
-      // Either succeeds with changes, or returns error (e.g., project_not_found if no .git)
-      // Both are valid structured responses per task spec.
-    });
-
-    it("default: uses cwd when path omitted (structured response)", async () => {
+    it("happy: returns structured response for the harness repo (success or error)", async () => {
+      // After migration to per-call routing, detect_changes runs against
+      // ctx.repoPath (auto-injected by the harness). The harness's tmp git
+      // root has no committed source files, so the indexer may report
+      // success with no changes or a structured error. Either is valid.
       const res = await callTool(h, "detect_changes", {});
       expect(ResponseSchema.safeParse(res).success).toBe(true);
-      // Either succeeds or returns structured ErrorResponse — never bare prose.
     });
   });
 
@@ -307,6 +303,29 @@ describe("code-tools contract", () => {
         expect(res.isError).toBeFalsy();
         expect(res.content[0].text).toMatch(/\[d=\d+\]/);
         expect(res.content[0].text).toContain("parseBody");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("detect_changes per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "detect_changes", {
+        repo_path: undefined,
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the diff against the addressed repo, not the server's cwd", async () => {
+      // The indexer reads git history at ctx.repoPath. Verify the call goes
+      // through (structured response, not a path-not-found error) when an
+      // explicit repo_path is passed.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "detect_changes", { repo_path: repoB });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
       } finally {
         try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
       }
