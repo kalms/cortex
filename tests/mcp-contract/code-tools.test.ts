@@ -281,4 +281,35 @@ describe("code-tools contract", () => {
       }
     });
   });
+
+  describe("trace_path per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "trace_path", {
+        repo_path: undefined,
+        function_name: "handleRequest",
+        mode: "calls",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the trace to the addressed repo, not the server's cwd", async () => {
+      // Asserts both that the start-node lookup AND the CALLS-edge walk run
+      // through repoB's DB — handleRequest calls parseBody in the fixture, so
+      // a successful trace surfaces parseBody.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "trace_path", {
+          repo_path: repoB,
+          function_name: "handleRequest",
+          mode: "calls",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toMatch(/\[d=\d+\]/);
+        expect(res.content[0].text).toContain("parseBody");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
 });

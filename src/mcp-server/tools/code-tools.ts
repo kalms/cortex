@@ -441,24 +441,27 @@ export function registerCodeTools(
     ),
   );
 
-  // 5H: trace_path with {node, depth}[] shape and max_depth param
+  // 5H: trace_path with {node, depth}[] shape and max_depth param — migrated.
   server.tool(
     "trace_path",
     "Trace call chains from a function. function_name accepts a bare name, qualified name, file path, or dotted suffix. mode: calls (outbound) or callers (inbound). Returns ambiguous_input with candidates if multiple symbols match.",
-    {
-      function_name: z.string(),
-      mode: z.enum(["calls", "callers"]).describe("Trace mode: calls (outbound) or callers (inbound)"),
-      max_depth: z.number().int().min(1).max(10).optional(),
-    },
-    async (params) => {
-      if (!indexerProject) {
-        return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
-      }
-      // Resolve function_name through the shared resolver so file paths,
-      // qns, and dotted suffixes work — not just exact bare names.
-      let fnName = params.function_name;
-      if (dbPath) {
-        const resolved = resolveInput(params.function_name, indexerProject, dbPath);
+    tracePathShape,
+    registerTool(
+      "trace_path",
+      tracePathSchema,
+      async (ctx, args) => {
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
+        }
+        const { repo_path: _repoPath, ...params } = args;
+        // Resolve function_name through the shared resolver so file paths,
+        // qns, and dotted suffixes work — not just exact bare names. The
+        // resolver opens its own GraphStore handle, so point it at the
+        // addressed repo's graph DB rather than the server-bound one.
+        const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+        let fnName = params.function_name;
+        const resolved = resolveInput(params.function_name, project, graphDbPath);
         if (resolved.kind === "none") {
           return empty(`trace_path(${JSON.stringify(params)})`);
         }
@@ -473,14 +476,15 @@ export function registerCodeTools(
         }
         // tracePath wants the bare name; pull it from the resolved qn
         fnName = resolved.symbol.qn.split(".").pop() ?? params.function_name;
-      }
-      const results = tracePath(store, indexerProject, { ...params, function_name: fnName });
-      if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
-      const lines = results.map((r) =>
-        `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
-      );
-      return ok(lines.join("\n"));
-    }
+        const results = tracePath(ctx.store, project, { ...params, function_name: fnName });
+        if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
+        const lines = results.map((r) =>
+          `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
+        );
+        return ok(lines.join("\n"));
+      },
+      { resolver },
+    ),
   );
 
   // 5F: get_code_snippet with normalize/denormalize — migrated to per-call routing.
