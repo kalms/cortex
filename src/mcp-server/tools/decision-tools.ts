@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
-import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
@@ -147,27 +146,22 @@ const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 
 export function registerDecisionTools(
   server: McpServer,
-  service: DecisionService,
-  search: DecisionSearch,
-  links: DecisionLinksRepository,
   resolver: RepoContextResolver,
   indexerProject?: string | null,
-  dbPath?: string,
   bus?: EventBus,
 ): void {
   // ---------------------------------------------------------------------------
   // Per-call repo-scoped service construction.
   //
-  // Build a fresh DecisionService anchored to the repo addressed by
-  // `ctx.repo_path` rather than the closure-bound `service` (which is still
-  // wired to the server's startup repo). Bus + project_id remain startup-
-  // bound because the event pipeline is server-scoped, not repo-scoped; that
-  // distinction is fine for now — Phase 5 revisits event routing.
+  // Build a fresh DecisionService/DecisionSearch anchored to the repo
+  // addressed by `ctx.repo_path` rather than startup-bound handles. After
+  // Phase 2 every tool routes through `serviceFor` / `searchFor`, so the
+  // module no longer accepts pre-built `service` / `search` / `links` /
+  // `dbPath` arguments — those were Phase 1 scaffolding.
   //
-  // Each migrated tool follows this same pattern: derive `ctx.decisionsRepo`
-  // / `ctx.decisionLinksRepo` from the per-call context, then construct any
-  // service/search objects it needs locally. Do NOT close over the legacy
-  // `service` / `search` / `links` arguments inside per-call handlers.
+  // `bus` and `indexerProject` remain startup-bound because the event
+  // pipeline is server-scoped, not repo-scoped; Phase 5 revisits event
+  // routing.
   // ---------------------------------------------------------------------------
   const serviceFor = (ctx: RepoContext): DecisionService =>
     new DecisionService({
@@ -178,7 +172,7 @@ export function registerDecisionTools(
     });
 
   // Mirrors serviceFor() for DecisionSearch — read-only path queries scoped
-  // to the per-call repo's links table. Used by search_decisions and (later)
+  // to the per-call repo's links table. Used by search_decisions and
   // why_was_this_built. DecisionSearch is stateless apart from its repo
   // handles, so constructing one per call is cheap.
   const searchFor = (ctx: RepoContext): DecisionSearch =>
