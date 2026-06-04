@@ -152,7 +152,7 @@ bus.onEvent((event) => {
   supervisor.current()?.postMessage({ type: "event", event });
 });
 
-const server = createServer(store, indexerProject, bus);
+const server = createServer(indexerProject, bus);
 
 const decisionsDbPath = resolveDecisionsDbPath(cwd);
 const decisionsDb = openDecisionsDb(decisionsDbPath);

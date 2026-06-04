@@ -1,66 +1,53 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { GraphStore } from "../graph/store.js";
-import { DecisionService } from "../decisions/service.js";
-import { DecisionSearch } from "../decisions/search.js";
-import { DecisionPromotion } from "../decisions/promotion.js";
-import { PRService } from "../prs/service.js";
 import { registerDecisionTools } from "./tools/decision-tools.js";
 import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
 import { registerPRTools } from "./tools/pr-tools.js";
-import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
-import { openDecisionsDb } from "../decisions/db.js";
-import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
-import { DecisionsRepository } from "../decisions/repository.js";
-import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
+/**
+ * Build the MCP server. After Phase 5 the server holds no repo-scoped state
+ * — every tool routes per-call through {@link RepoContextResolver}, which
+ * opens DB handles and runs the idempotent decisions migration on first
+ * touch for each addressed repo.
+ *
+ * Retained server-scoped concerns:
+ *   - `indexerProject`: default in-graph project name stamped into events
+ *     emitted by event-bus-aware tools (decisions, PRs). The event pipeline
+ *     is server-scoped, not repo-scoped — a single subscriber wants a stable
+ *     id over the server's lifetime.
+ *   - `bus`: event bus used by decision/promotion/PR tools to broadcast.
+ *
+ * Dropped over Phases 2-5:
+ *   - `store`: per-tool handlers now own per-call `GraphStore` instances via
+ *     `RepoContext.store` (Phase 4).
+ *   - `repoPath`: the previous startup-time path served only to run an
+ *     eager defensive decisions migration. The resolver runs that same
+ *     migration on first touch per-repo, so a startup-time pass would only
+ *     ever apply to the home repo — exactly the cwd-binding this migration
+ *     set out to remove. The build of `index.ts` runs `index_repository`
+ *     and other tools by `repo_path`, so any consumer that expected the
+ *     legacy "open, migrate, close" sequencing for some specific repo
+ *     can call `resolver.resolve(path)` (or just invoke a tool against that
+ *     path) and get the same idempotent migration as a side effect.
+ */
 export function createServer(
-  store: GraphStore,
   indexerProject: string | null = null,
   bus?: EventBus,
-  repoPath: string = process.cwd(),
 ): McpServer {
   const server = new McpServer({
     name: "cortex",
     version: "0.1.0",
   });
 
-  // Sidecar decisions DB. Opened next to .cortex/db (the graph DB) — see
-  // src/db/resolve-path.ts. The migration is idempotent: it runs once per
-  // sidecar DB (gated by schema_meta) and pulls any pre-existing decisions
-  // out of the graph DB. After Task 12 cleans up writes to graph.db, this
-  // is the sole source of truth for decisions and their links.
-  const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-  const graphDbPath = resolveCortexDbPath(repoPath);
-  const decisionsDb = openDecisionsDb(decisionsDbPath);
-  migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
-  const decisionsRepo = new DecisionsRepository(decisionsDb);
-  const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+  // Per-call repo context resolver — every tool routes through this.
+  const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
-  const decisionService = new DecisionService({
-    decisions: decisionsRepo,
-    links: decisionLinksRepo,
-    bus,
-    project_id: indexerProject ?? "",
-  });
-  const decisionSearch = new DecisionSearch(decisionsRepo, decisionLinksRepo);
-  const decisionPromotion = new DecisionPromotion(
-    decisionsRepo,
-    bus ? { bus, project_id: indexerProject ?? "" } : {},
-  );
-  const prService = new PRService(store, {
-    bus: bus,
-    default_actor: "system",
-    project_id: indexerProject ?? "",
-    decisions: decisionService,
-    links: decisionLinksRepo,
-  });
-
-  registerDecisionTools(server, decisionService, decisionSearch, decisionLinksRepo, indexerProject, graphDbPath);
-  registerPromotionTools(server, decisionPromotion);
-  registerCodeTools(server, store, indexerProject, graphDbPath);
-  registerPRTools(server, prService);
+  registerDecisionTools(server, resolver, indexerProject, bus);
+  registerPromotionTools(server, resolver, indexerProject, bus);
+  registerCodeTools(server, resolver);
+  registerPRTools(server, resolver, indexerProject, bus);
 
   return server;
 }
