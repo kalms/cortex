@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, callTool, makeIndexedRepoFixture, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
-import { rmSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import BetterSqlite3 from "better-sqlite3";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 describe("code-tools contract", () => {
@@ -222,6 +223,57 @@ describe("code-tools contract", () => {
         expect(res.content[0].text).toContain(second);
       } finally {
         try { rmSync(second, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("delete_project", () => {
+    it("removes a project from the master registry; list_projects no longer surfaces it", async () => {
+      // delete_project operates on the indexer's master cache directory
+      // (~/.cache/cortex-indexer/<slug>.db). Seed two phantom entries
+      // directly there — using non-tmp-prefixed slugs so listKnownRepos
+      // surfaces them — then delete one and assert list_projects loses it
+      // while the other remains.
+      const cacheDir = join(homedir(), ".cache", "cortex-indexer");
+      mkdirSync(cacheDir, { recursive: true });
+      const stamp = Date.now();
+      const slugA = `cortex-test-delete-a-${stamp}`;
+      const slugB = `cortex-test-delete-b-${stamp}`;
+      const fileA = join(cacheDir, `${slugA}.db`);
+      const fileB = join(cacheDir, `${slugB}.db`);
+      const seed = (file: string, slug: string) => {
+        const db = new BetterSqlite3(file);
+        try {
+          db.exec("CREATE TABLE IF NOT EXISTS ctx_projects (name TEXT PRIMARY KEY, root_path TEXT, indexed_at TEXT)");
+          db.prepare("INSERT OR REPLACE INTO ctx_projects (name, root_path, indexed_at) VALUES (?, ?, ?)")
+            .run(slug, `/phantom/${slug}`, new Date().toISOString());
+        } finally { db.close(); }
+      };
+      seed(fileA, slugA);
+      seed(fileB, slugB);
+      try {
+        // Sanity: both visible before delete.
+        const before = await callTool(h, "list_projects", {});
+        expect(before.content[0].text).toContain(slugA);
+        expect(before.content[0].text).toContain(slugB);
+
+        // Delete A via the migrated crossRepo tool.
+        const del = await callTool(h, "delete_project", { project: slugA });
+        expect(del.isError).toBeFalsy();
+        expect(del.content[0].text).toContain("deleted");
+
+        // Cache file for A should be gone.
+        expect(existsSync(fileA)).toBe(false);
+
+        // list_projects no longer mentions A, but still mentions B.
+        const after = await callTool(h, "list_projects", {});
+        expect(after.content[0].text).not.toContain(slugA);
+        expect(after.content[0].text).toContain(slugB);
+      } finally {
+        // Teardown: best-effort cleanup of B and any sidecars.
+        for (const f of [fileA, fileB, `${fileA}-wal`, `${fileA}-shm`, `${fileB}-wal`, `${fileB}-shm`]) {
+          try { rmSync(f, { force: true }); } catch { /* ignore */ }
+        }
       }
     });
   });
