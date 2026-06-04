@@ -62,3 +62,50 @@ describe("registerTool — crossRepo mode", () => {
     await expect(wrapped({})).resolves.toEqual([]);
   });
 });
+
+describe("registerTool — allowUnindexed mode", () => {
+  const resolver = new RepoContextResolver({ poolCapacity: 8 });
+
+  it("hands the resolver to the handler WITHOUT calling resolve()", async () => {
+    // The path below has no .cortex/db. Default-mode tools would throw
+    // RepoNotIndexedError here; allowUnindexed tools (index_repository)
+    // must instead receive the raw path and run their own validation.
+    const unindexed = mkdtempSync(join(tmpdir(), "cortex-unindexed-"));
+    execSync(`git init -q "${unindexed}"`);
+
+    const schema = z.object({ repo_path: z.string() });
+    let received: { resolver: RepoContextResolver | null; repoPath: string | null } = {
+      resolver: null,
+      repoPath: null,
+    };
+    const wrapped = registerTool(
+      "index_repository",
+      schema,
+      async (r, args) => {
+        received = { resolver: r, repoPath: args.repo_path };
+        return { ok: true };
+      },
+      { resolver, allowUnindexed: true },
+    );
+
+    const result = await wrapped({ repo_path: unindexed });
+    expect(result).toEqual({ ok: true });
+    expect(received.resolver).toBe(resolver);
+    expect(received.repoPath).toBe(unindexed);
+  });
+
+  it("still throws MissingRepoPathError when repo_path is absent", async () => {
+    // allowUnindexed bypasses the *indexed* check, not the *required-path*
+    // check. An agent calling index_repository without telling us WHICH
+    // repo to index is just as broken as one calling search_graph without
+    // a target.
+    const schema = z.object({ repo_path: z.string() });
+    const wrapped = registerTool(
+      "index_repository",
+      schema,
+      async () => ({ ok: true }),
+      { resolver, allowUnindexed: true },
+    );
+    await expect(wrapped({} as any)).rejects.toThrow(MissingRepoPathError);
+  });
+});
