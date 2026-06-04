@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, type HarnessContext, callTool } from "./harness.js";
+import { createHarness, makeIndexedRepoFixture, type HarnessContext, callTool } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
+import { rmSync } from "node:fs";
 
 describe("PR tools contract — lifecycle", () => {
   let h: HarnessContext;
@@ -57,5 +58,84 @@ describe("PR tools contract — lifecycle", () => {
   it("get_pr on unknown number returns No results", async () => {
     const res = await callTool(h, "get_pr", { pr_number: 99999 });
     expect(res.content[0].text.startsWith("No results:")).toBe(true);
+  });
+});
+
+describe("PR tools per-call routing", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  it("rejects open_pr when repo_path is missing", async () => {
+    const res = await callTool(h, "open_pr", {
+      repo_path: undefined,
+      title: "x",
+      author: "a",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/repo_path required/);
+  });
+
+  it("rejects add_pr_touch when repo_path is missing", async () => {
+    const res = await callTool(h, "add_pr_touch", {
+      repo_path: undefined,
+      pr_number: 1,
+      frame_id: "f",
+      node_name: "n",
+      action: "added",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/repo_path required/);
+  });
+
+  it("rejects merge_pr when repo_path is missing", async () => {
+    const res = await callTool(h, "merge_pr", { repo_path: undefined, pr_number: 1 });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/repo_path required/);
+  });
+
+  it("rejects get_pr when repo_path is missing", async () => {
+    const res = await callTool(h, "get_pr", { repo_path: undefined, pr_number: 1 });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/repo_path required/);
+  });
+
+  it("PR lifecycle routes to addressed repo — open in repoB, get from repoB", async () => {
+    // PRs live in the addressed repo's graph DB (pull_request nodes).
+    // Open a PR in a second repo (repoB) and confirm get_pr against that
+    // same repo returns it. If routing were broken — i.e. PRs landing in
+    // the harness primary repo — get_pr against repoB would say "not found".
+    const repoB = makeIndexedRepoFixture();
+    try {
+      const openRes = await callTool(h, "open_pr", {
+        repo_path: repoB,
+        title: "routing-test",
+        author: "rka",
+      });
+      expect(openRes.isError).toBeFalsy();
+      const pr = JSON.parse(openRes.content[0].text);
+      expect(typeof pr.number).toBe("number");
+
+      // PR should be visible in repoB
+      const getRes = await callTool(h, "get_pr", { repo_path: repoB, pr_number: pr.number });
+      expect(getRes.isError).toBeFalsy();
+      const got = JSON.parse(getRes.content[0].text);
+      expect(got.title).toBe("routing-test");
+
+      // ...and NOT in the harness primary repo (because writes routed to repoB).
+      const getHarness = await callTool(h, "get_pr", {
+        repo_path: h.repoPath,
+        pr_number: pr.number,
+      });
+      // Either explicit "No results" or a record with a different title (if
+      // by coincidence the harness DB has a PR with that number from a
+      // previous test — but the title would differ).
+      if (!getHarness.content[0].text.startsWith("No results:")) {
+        const harnessPr = JSON.parse(getHarness.content[0].text);
+        expect(harnessPr.title).not.toBe("routing-test");
+      }
+    } finally {
+      try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+    }
   });
 });

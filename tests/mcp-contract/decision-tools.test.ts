@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, callTool, type HarnessContext } from "./harness.js";
+import { createHarness, callTool, makeIndexedRepoFixture, countDecisions, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
+import { rmSync } from "node:fs";
 
 describe("decision-tools contract", () => {
   let h: HarnessContext;
@@ -256,6 +257,388 @@ describe("decision-tools contract", () => {
       });
       expect(res.isError).toBe(true);
       expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-call repo routing — Task 2.1 (template for Tasks 2.2-2.11)
+  //
+  // Migrated tools route their reads/writes to the repo addressed by
+  // `repo_path`. The harness's `callTool` auto-injects the primary repo's
+  // path so legacy tests above don't need to change; these tests pass
+  // explicit `repo_path` values (or sentinel `undefined`) to verify the new
+  // routing contract.
+  // ---------------------------------------------------------------------------
+  describe("link_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "link_decision", {
+        repo_path: undefined,
+        decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        target: "src/x.ts",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the link write to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "to be linked",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        const res = await callTool(h, "link_decision", {
+          repo_path: repoB,
+          decision_id: id,
+          target: "src/scoped/file.ts",
+          relation: "GOVERNS",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("linked");
+
+        // Verify the link landed in repoB by reading via get_decision.
+        const got = await callTool(h, "get_decision", { repo_path: repoB, id });
+        const parsed = JSON.parse(got.content[0].text);
+        const governsTargets = (parsed.governs ?? []).map((n: any) => n.target_ref);
+        expect(governsTargets).toContain("src/scoped/file.ts");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("search_decisions per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_decisions", {
+        repo_path: undefined,
+        query: "anything",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB with a distinctive title.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "uniqueSearchableInBRepo",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Search against repoB must find it.
+        const res = await callTool(h, "search_decisions", {
+          repo_path: repoB,
+          query: "uniqueSearchableInBRepo",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(id);
+
+        // The harness primary has no decisions with this title.
+        const resPrimary = await callTool(h, "search_decisions", {
+          query: "uniqueSearchableInBRepo",
+        });
+        expect(resPrimary.content[0].text).toMatch(/^No results: /);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("get_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_decision", {
+        repo_path: undefined,
+        id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "lives only in B",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+        // The harness primary service does not know this id.
+        expect(h.service.get(id)).toBeNull();
+
+        // get_decision against repoB must find it.
+        const res = await callTool(h, "get_decision", { repo_path: repoB, id });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.title).toBe("lives only in B");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("delete_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "delete_decision", {
+        repo_path: undefined,
+        id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes deletes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "to be deleted in B",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+        const before = countDecisions(repoB);
+
+        const res = await callTool(h, "delete_decision", {
+          repo_path: repoB,
+          id,
+        });
+        expect(res.isError).toBeFalsy();
+        // Delete dropped exactly one decision from repoB.
+        expect(countDecisions(repoB)).toBe(before - 1);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("update_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "update_decision", {
+        repo_path: undefined,
+        id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        title: "x",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB so we can update it.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "original",
+          description: "d",
+          rationale: "r",
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Update must succeed against repoB even though the harness primary
+        // has no such decision.
+        const res = await callTool(h, "update_decision", {
+          repo_path: repoB,
+          id,
+          title: "updated in B",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.title).toBe("updated in B");
+        // The harness primary decision service does not know this id.
+        expect(h.service.get(id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("supersede_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "supersede_decision", {
+        repo_path: undefined,
+        old_decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
+        title: "x",
+        problem: "p",
+        resolution: "r",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed an "old" decision in repoB via propose_decision so we can supersede it.
+        const seed = await callTool(h, "propose_decision", {
+          repo_path: repoB,
+          title: "to be superseded",
+          problem: "p",
+          resolution: "r",
+          rationale: "y",
+        });
+        const oldId = JSON.parse(seed.content[0].text).id;
+        const before = countDecisions(repoB);
+
+        const res = await callTool(h, "supersede_decision", {
+          repo_path: repoB,
+          old_decision_id: oldId,
+          title: "replacement",
+          problem: "p2",
+          resolution: "r2",
+          rationale: "y2",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        // Supersede creates exactly one new decision in repoB.
+        expect(countDecisions(repoB)).toBe(before + 1);
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("propose_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "propose_decision", {
+        repo_path: undefined,
+        title: "x",
+        problem: "p",
+        resolution: "r",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const before = countDecisions(repoB);
+        const res = await callTool(h, "propose_decision", {
+          repo_path: repoB,
+          title: "proposed in B",
+          problem: "p",
+          resolution: "r",
+          rationale: "y",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        expect(countDecisions(repoB)).toBe(before + 1);
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("create_decision per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      // `repo_path: undefined` is the harness sentinel that strips the
+      // field from the request entirely — without it the harness would
+      // auto-inject the primary repo's path.
+      const res = await callTool(h, "create_decision", {
+        repo_path: undefined,
+        title: "x",
+        description: "y",
+        rationale: "z",
+      });
+      expect(res.isError).toBe(true);
+      // The friendly MissingRepoPathError from registerTool's pre-check
+      // surfaces as the message "repo_path required for tool '<name>'".
+      // The Zod field is declared `.optional()` so the SDK's input
+      // validation does NOT pre-empt this error path.
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes writes to the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const before = countDecisions(repoB);
+        const res = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "scoped to B",
+          description: "x",
+          rationale: "y",
+        });
+        expect(res.isError).toBeFalsy();
+        const parsed = JSON.parse(res.content[0].text);
+        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        // Write landed in repoB.
+        expect(countDecisions(repoB)).toBe(before + 1);
+        // And did NOT leak into the harness's primary repo. The harness's
+        // legacy DecisionService is bound to the primary repo's decisions.db;
+        // a get(id) against it returns null iff routing actually scoped the
+        // write to repoB. This is a stronger invariant than a count diff —
+        // earlier tests in this file write to the primary repo, so its
+        // absolute decision count is in flux.
+        expect(h.service.get(parsed.id)).toBeNull();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("why_was_this_built per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "why_was_this_built", {
+        repo_path: undefined,
+        qualified_name: "src/server.ts",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads from the addressed repo, not the harness primary", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        // Seed a decision in repoB that GOVERNS a path. why_was_this_built
+        // must find it via repoB's links table.
+        const seed = await callTool(h, "create_decision", {
+          repo_path: repoB,
+          title: "uniqueDecisionInB",
+          description: "d",
+          rationale: "r",
+          governs: ["src/server.ts"],
+        });
+        const id = JSON.parse(seed.content[0].text).id;
+
+        // Querying repoB finds the decision via findGoverning's path-walk.
+        const res = await callTool(h, "why_was_this_built", {
+          repo_path: repoB,
+          qualified_name: "src/server.ts",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(id);
+        expect(res.content[0].text).toContain("uniqueDecisionInB");
+
+        // The harness primary repo has no such decision — same path returns empty.
+        const resPrimary = await callTool(h, "why_was_this_built", {
+          qualified_name: "src/server.ts",
+        });
+        // Either empty (no decision in primary) or — if earlier tests in this
+        // file leaked a "src/server.ts"-governing decision into the primary —
+        // does NOT contain repoB's distinctive title.
+        expect(resPrimary.content[0].text).not.toContain("uniqueDecisionInB");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
     });
   });
 });
