@@ -291,24 +291,20 @@ async function withFrames(
 /**
  * Register code/graph tools on the MCP server.
  *
- * `store` and `indexerProject` are legacy startup-bound handles still used
- * by the tools that have not yet migrated to per-call routing (Phase 3
- * Group B: search_code, query_graph, get_architecture, index_status,
- * index_repository, list_projects, ingest_traces, delete_project). After
- * those migrate, both fields can be dropped.
+ * After Phase 3 Group B, 11 of the 13 code tools route per-call via
+ * `resolver` and never touch the startup-bound handles. The legacy `store`
+ * is retained ONLY for `list_projects` and `delete_project`, which still
+ * close over the startup-bound graph DB for their union-with-cache layer.
+ * Phase 4 will migrate those to crossRepo mode and drop `store` entirely.
  *
- * `resolver` powers per-call repo routing for the tools migrated in
- * Phase 3 Group A: search_graph, get_code_snippet, trace_path,
- * detect_changes, get_graph_schema.
+ * The previous `indexerProject` and `dbPath` params have been dropped —
+ * they were used by tools that have all since migrated to per-call routing.
  */
 export function registerCodeTools(
   server: McpServer,
   store: GraphStore,
-  indexerProject: string | null,
   resolver: RepoContextResolver,
-  dbPath?: string,
 ): void {
-  // --- Subprocess tools (3) --- 5C: use repo_path internally, keep public arg as `path`
 
   // index_repository — migrated to per-call routing with allowUnindexed.
   //
