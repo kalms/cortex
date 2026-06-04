@@ -153,3 +153,81 @@ describe("cortex decision rehome — happy path", () => {
     }
   });
 });
+
+describe("cortex decision rehome — error paths", () => {
+  it("errors when id is not in source repo", () => {
+    const source = makeIndexedRepoFixture();
+    const target = makeIndexedRepoFixture();
+    try {
+      const { stderr } = runRehome(
+        source,
+        ["nonexistent-id", `--to=${target}`],
+        { expectThrow: true },
+      );
+      expect(stderr).toMatch(/no decision 'nonexistent-id'/);
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when id already exists in target repo", () => {
+    const source = makeIndexedRepoFixture();
+    const target = makeIndexedRepoFixture();
+    try {
+      const id = createDecisionInRepo(source, {
+        title: "x", description: "y", rationale: "z",
+      });
+      createDecisionInRepo(
+        target,
+        { title: "preexisting", description: "y", rationale: "z" },
+        { id },
+      );
+      const { stderr } = runRehome(
+        source,
+        [id, `--to=${target}`],
+        { expectThrow: true },
+      );
+      expect(stderr).toMatch(/already exists in target/);
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when target repo is not indexed", () => {
+    const source = makeIndexedRepoFixture();
+    const unindexed = mkdtempSync(join(tmpdir(), "unindexed-"));
+    execFileSync("git", ["init", "-q"], { cwd: unindexed, stdio: "ignore" });
+    try {
+      const id = createDecisionInRepo(source, {
+        title: "x", description: "y", rationale: "z",
+      });
+      const { stderr } = runRehome(
+        source,
+        [id, `--to=${unindexed}`],
+        { expectThrow: true },
+      );
+      expect(stderr).toMatch(/isn't indexed/);
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      rmSync(unindexed, { recursive: true, force: true });
+    }
+  });
+
+  it("--dry-run prints the move plan without modifying either DB", () => {
+    const source = makeIndexedRepoFixture();
+    const target = makeIndexedRepoFixture();
+    try {
+      const id = createDecisionInRepo(source, {
+        title: "x", description: "y", rationale: "z",
+      });
+      runRehome(source, [id, `--to=${target}`, "--dry-run"]);
+      expect(getDecisionFromRepo(source, id)).toBeDefined();
+      expect(getDecisionFromRepo(target, id)).toBeUndefined();
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+});
