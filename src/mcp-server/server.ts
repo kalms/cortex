@@ -1,5 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { GraphStore } from "../graph/store.js";
 import { registerDecisionTools } from "./tools/decision-tools.js";
 import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
@@ -10,8 +9,17 @@ import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
+/**
+ * Build the MCP server. After Phase 4 every tool routes per-call through
+ * the resolver, so no startup-bound GraphStore is needed here — the previous
+ * `store` parameter has been dropped.
+ *
+ * `repoPath` is still useful for the one-shot defensive decisions migration
+ * (so a CLI consumer that expects the legacy startup behavior of "open
+ * decisions DB, migrate, close" still gets it), but no tool handler closes
+ * over it.
+ */
 export function createServer(
-  store: GraphStore,
   indexerProject: string | null = null,
   bus?: EventBus,
   repoPath: string = process.cwd(),
@@ -36,14 +44,12 @@ export function createServer(
     decisionsDb.close();
   }
 
-  // Per-call repo context resolver. All Phase 3 Group A + B tools route
-  // through this. Phase 4 will close out list_projects + delete_project as
-  // crossRepo, draining the last startup-bound handle (`store`).
+  // Per-call repo context resolver — every tool routes through this.
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
   registerDecisionTools(server, resolver, indexerProject, bus);
   registerPromotionTools(server, resolver, indexerProject, bus);
-  registerCodeTools(server, store, resolver);
+  registerCodeTools(server, resolver);
   registerPRTools(server, resolver, indexerProject, bus);
 
   return server;

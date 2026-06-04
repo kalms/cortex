@@ -5,13 +5,10 @@ import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
 import { existsSync, unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
-import { GraphStore } from "../../graph/store.js";
 import {
   searchGraph,
   tracePath,
   getGraphSchema,
-  listProjects,
-  indexStatus,
   IndexerNode,
 } from "../../graph/code-queries.js";
 // 5A: response helpers and qualified-name normalizer
@@ -318,18 +315,16 @@ async function withFrames(
 /**
  * Register code/graph tools on the MCP server.
  *
- * After Phase 3 Group B, 11 of the 13 code tools route per-call via
- * `resolver` and never touch the startup-bound handles. The legacy `store`
- * is retained ONLY for `list_projects` and `delete_project`, which still
- * close over the startup-bound graph DB for their union-with-cache layer.
- * Phase 4 will migrate those to crossRepo mode and drop `store` entirely.
+ * After Phase 4 every tool routes per-call through `resolver` — including
+ * the two crossRepo tools (list_projects, delete_project) that previously
+ * closed over the startup-bound graph DB. No tool retains a startup-bound
+ * handle, so the function takes only the resolver.
  *
- * The previous `indexerProject` and `dbPath` params have been dropped —
- * they were used by tools that have all since migrated to per-call routing.
+ * The previous `store`, `indexerProject`, and `dbPath` params have all
+ * been dropped over Phase 3 + 4 as their consumers migrated.
  */
 export function registerCodeTools(
   server: McpServer,
-  store: GraphStore,
   resolver: RepoContextResolver,
 ): void {
 
