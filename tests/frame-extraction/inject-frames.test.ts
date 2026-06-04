@@ -123,6 +123,16 @@ describe("pickFrameLabel — path-prefix fallback", () => {
     ];
     expect(pickFrameLabel(tokens, paths)).toBe("users");
   });
+
+  it("skips Next.js route-group segments like (marketing) in the path-prefix fallback", () => {
+    const paths = [
+      "app/(marketing)/index.tsx",
+      "app/(marketing)/page.tsx",
+    ];
+    // (marketing) is a route group (structural) → must be skipped; 'app' is
+    // generic → no informative segment → cluster:<id> fallback.
+    expect(pickFrameLabel([], paths, 9)).toBe("cluster:9");
+  });
 });
 
 describe("buildFrameAssignments — passes paths through to label", () => {

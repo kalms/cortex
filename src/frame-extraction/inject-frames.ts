@@ -18,6 +18,7 @@ import { resolveCortexDbPath } from "../db/resolve-path.js";
 import type { ClusterResult } from "./types.js";
 import {
   isStructuralLabelToken,
+  isDynamicSegment,
   routeParamTokens,
   pathSalience,
 } from "./structural-tokens.js";
@@ -154,7 +155,7 @@ function commonPathSegmentLabel(paths: readonly string[]): string | null {
   // Treat bracketed segments ([id], [slug]) and generic tokens as skip-worthy.
   for (let i = commonDepth - 1; i >= 0; i--) {
     const seg = splits[0]![i]!;
-    if (/^\[.+\]$/.test(seg)) continue;
+    if (isDynamicSegment(seg)) continue;
     if (isGenericToken(seg.toLowerCase())) continue;
     return seg;
   }
