@@ -447,11 +447,31 @@ export function registerCodeTools(
     ),
   );
 
+  // delete_project — Phase 4 migration to crossRepo mode.
+  //
+  // Identifier choice: `project` (slug name) rather than `repo_path`. The
+  // registry is keyed on the slug, and the cleanup case explicitly includes
+  // projects whose on-disk repo has moved / been deleted — routing by
+  // repo_path (which the resolver validates as a live git root) would falsely
+  // reject those. Keeping `project` also preserves the pre-Phase-4 CLI
+  // contract: `cortex index delete <project>` shells `delete_project` with
+  // the same arg shape.
+  //
+  // The underlying delete (cache file removal + cortex_db row drop) is
+  // performed by the standalone indexer subprocess; from there it propagates
+  // back to listKnownRepos automatically since the master registry IS the
+  // cache directory. No CORTEX_DB pinning here — by design the indexer
+  // resolves the cache slot from the slug.
   server.tool(
     "delete_project",
     "Remove a project from the code index",
-    { project: z.string().describe("Project name to delete") },
-    async ({ project }) => callIndexer("delete_project", { project })
+    deleteProjectShape,
+    registerTool(
+      "delete_project",
+      deleteProjectSchema,
+      async (_resolver, args) => callIndexer("delete_project", { project: args.project }),
+      { resolver, crossRepo: true },
+    ),
   );
 
   // query_graph — migrated to per-call routing.
