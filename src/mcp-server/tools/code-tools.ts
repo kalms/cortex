@@ -97,6 +97,40 @@ function projectFromCtx(ctx: RepoContext): string | null {
   }
 }
 
+/**
+ * Read a code snippet for a resolved node off disk.
+ *
+ * Honors the stored `ctx_projects.root_path` because the indexer wrote
+ * `file_path` relative to *that* root, not relative to the path the caller
+ * addressed (`ctx.repoPath`). The two can diverge when a fixture clones the
+ * graph DB into a tmp tree without copying the source files alongside.
+ */
+async function readSnippet(
+  ctx: RepoContext,
+  project: string,
+  node: IndexerNode,
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
+  try {
+    const projectRow = ctx.store.queryRaw<{ root_path: string }>(
+      "SELECT root_path FROM ctx_projects WHERE name = ?",
+      [project],
+    );
+    if (projectRow.length === 0) {
+      return errorResponse("project_not_found", `Project ${project} not found in indexer DB`);
+    }
+    const fullPath = join(projectRow[0].root_path, node.file_path);
+    const content = await readFile(fullPath, "utf-8");
+    const lines = content.split("\n");
+    const start = Math.max(0, node.start_line - 1);
+    const end = Math.min(lines.length, node.end_line);
+    const snippet = lines.slice(start, end).join("\n");
+    const display = denormalize(node.qualified_name, node.file_path);
+    return ok(`// ${display} (${node.file_path}:${node.start_line}-${node.end_line})\n${snippet}`);
+  } catch (e) {
+    return errorResponse("fs_error", e instanceof Error ? e.message : String(e));
+  }
+}
+
 const execFileAsync = promisify(execFile);
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -449,82 +483,53 @@ export function registerCodeTools(
     }
   );
 
-  // 5F: get_code_snippet with normalize/denormalize
+  // 5F: get_code_snippet with normalize/denormalize — migrated to per-call routing.
   server.tool(
     "get_code_snippet",
     "Get source code for a symbol. Input can be a qualified name, file path, dotted suffix, or bare symbol name. Returns ambiguous_input with candidates if multiple symbols match.",
-    {
-      qualified_name: z.string().min(1, "qualified_name must not be empty"),
-    },
-    async ({ qualified_name }) => {
-      if (!indexerProject) {
-        return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
-      }
-      if (dbPath && !qualified_name.includes("::")) {
-        const resolved = resolveInput(qualified_name, indexerProject, dbPath);
-        if (resolved.kind === "none") {
-          return empty(`get_code_snippet(${qualified_name})`);
+    getCodeSnippetShape,
+    registerTool(
+      "get_code_snippet",
+      getCodeSnippetSchema,
+      async (ctx, args) => {
+        const { qualified_name } = args;
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
         }
-        if (resolved.kind === "multi") {
-          const candidatesList = resolved.candidates
-            .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
-            .join("\n");
-          return errorResponse(
-            "ambiguous_input",
-            `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
-          );
-        }
-        const nodes = searchGraph(store, indexerProject, { qn_pattern: resolved.symbol.qn });
-        if (nodes.length === 0) {
-          return empty(`get_code_snippet(${qualified_name})`);
-        }
-        const node = nodes[0];
-        try {
-          const projectRow = store.queryRaw<{ root_path: string }>(
-            "SELECT root_path FROM ctx_projects WHERE name = ?",
-            [indexerProject]
-          );
-          if (projectRow.length === 0) {
-            return errorResponse("project_not_found", `Project ${indexerProject} not found in indexer DB`);
+        // resolveInput opens its own GraphStore handle on the supplied dbPath
+        // — point it at the addressed repo's graph DB, not the server-bound one.
+        const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+        if (!qualified_name.includes("::")) {
+          const resolved = resolveInput(qualified_name, project, graphDbPath);
+          if (resolved.kind === "none") {
+            return empty(`get_code_snippet(${qualified_name})`);
           }
-          const fullPath = join(projectRow[0].root_path, node.file_path);
-          const content = await readFile(fullPath, "utf-8");
-          const lines = content.split("\n");
-          const start = Math.max(0, node.start_line - 1);
-          const end = Math.min(lines.length, node.end_line);
-          const snippet = lines.slice(start, end).join("\n");
-          const display = denormalize(node.qualified_name, node.file_path);
-          return ok(`// ${display} (${node.file_path}:${node.start_line}-${node.end_line})\n${snippet}`);
-        } catch (e) {
-          return errorResponse("fs_error", e instanceof Error ? e.message : String(e));
+          if (resolved.kind === "multi") {
+            const candidatesList = resolved.candidates
+              .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+              .join("\n");
+            return errorResponse(
+              "ambiguous_input",
+              `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+            );
+          }
+          const nodes = searchGraph(ctx.store, project, { qn_pattern: resolved.symbol.qn });
+          if (nodes.length === 0) {
+            return empty(`get_code_snippet(${qualified_name})`);
+          }
+          const node = nodes[0];
+          return readSnippet(ctx, project, node);
         }
-      }
-      // Fallback: no dbPath supplied (legacy callers without resolver support)
-      const qn = normalize(qualified_name, indexerProject);
-      const nodes = searchGraph(store, indexerProject, { qn_pattern: qn });
-      if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
-      const node = nodes[0];
-      try {
-        // Resolve file_path: it's relative to project root, so prepend root_path
-        const projectRow = store.queryRaw<{ root_path: string }>(
-          "SELECT root_path FROM ctx_projects WHERE name = ?",
-          [indexerProject]
-        );
-        if (projectRow.length === 0) {
-          return errorResponse("project_not_found", `Project ${indexerProject} not found in indexer DB`);
-        }
-        const fullPath = join(projectRow[0].root_path, node.file_path);
-        const content = await readFile(fullPath, "utf-8");
-        const lines = content.split("\n");
-        const start = Math.max(0, node.start_line - 1);
-        const end = Math.min(lines.length, node.end_line);
-        const snippet = lines.slice(start, end).join("\n");
-        const display = denormalize(node.qualified_name, node.file_path);
-        return ok(`// ${display} (${node.file_path}:${node.start_line}-${node.end_line})\n${snippet}`);
-      } catch (e) {
-        return errorResponse("fs_error", e instanceof Error ? e.message : String(e));
-      }
-    }
+        // qn-shaped input (contains '::') — skip the resolver and pattern-match directly.
+        const qn = normalize(qualified_name, project);
+        const nodes = searchGraph(ctx.store, project, { qn_pattern: qn });
+        if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
+        const node = nodes[0];
+        return readSnippet(ctx, project, node);
+      },
+      { resolver },
+    ),
   );
 
   // 5J: get_graph_schema with counts
