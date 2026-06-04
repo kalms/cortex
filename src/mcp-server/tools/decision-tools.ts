@@ -6,7 +6,6 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
-import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 
@@ -453,8 +452,9 @@ export function registerDecisionTools(
             //   - dbPath: the graph DB file ('.cortex/db' under the repo). The
             //     function opens its own GraphStore on this path.
             const project = ctx.repoPath.replace(/^\//, "").replace(/\//g, "-");
-            const graphDbPath = resolveCortexDbPath(ctx.repoPath);
-            const resolved = resolveInput(qualified_name, project, graphDbPath);
+            // Use the resolver's chosen store (populated .cortex/db / graph.db /
+            // cache slot), not a re-derived .cortex/db that may be empty.
+            const resolved = resolveInput(qualified_name, project, ctx.graphDbPath);
             if (resolved.kind === "multi") {
               const candidatesList = resolved.candidates
                 .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
