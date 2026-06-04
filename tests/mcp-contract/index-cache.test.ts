@@ -40,11 +40,11 @@ describe("index_repository content-hash cache", () => {
     const key = computeCacheKey(repo);
     createdKeys.push(key);
 
-    const r1 = await callTool(h, "index_repository", { path: repo });
+    const r1 = await callTool(h, "index_repository", { repo_path: repo });
     expect(r1.isError).toBeFalsy();
     expect(r1.content[0].text).not.toMatch(/imported from cache key/);
 
-    const r2 = await callTool(h, "index_repository", { path: repo });
+    const r2 = await callTool(h, "index_repository", { repo_path: repo });
     expect(r2.isError).toBeFalsy();
     expect(r2.content[0].text).toMatch(/imported from cache key/);
   });

@@ -43,7 +43,7 @@ export function createServer(
 
   registerDecisionTools(server, resolver, indexerProject, bus);
   registerPromotionTools(server, resolver, indexerProject, bus);
-  registerCodeTools(server, store, indexerProject, resolver, graphDbPath);
+  registerCodeTools(server, store, resolver);
   registerPRTools(server, resolver, indexerProject, bus);
 
   return server;
