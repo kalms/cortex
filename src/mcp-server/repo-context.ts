@@ -261,7 +261,7 @@ export class RepoContextResolver {
 
 /**
  * Wraps a tool handler so it receives a validated {@link RepoContext} instead
- * of doing its own per-call repo resolution. Two modes:
+ * of doing its own per-call repo resolution. Three modes:
  *
  *   - Default (per-repo): handler signature `(ctx, args) => result`. The
  *     wrapper extracts `args.repo_path`, calls `resolver.resolve`, and
@@ -272,6 +272,15 @@ export class RepoContextResolver {
  *     The wrapper skips resolution and hands the resolver to the handler
  *     for cross-repo work (list_projects, delete_project). Schemas for
  *     crossRepo tools should NOT include `repo_path`.
+ *
+ *   - `allowUnindexed: true`: handler signature `(resolver, args) => result`.
+ *     The wrapper still requires `repo_path` (and throws MissingRepoPathError
+ *     when absent) but does NOT call `resolver.resolve` — instead it hands
+ *     the resolver to the handler. Used by tools that create or populate
+ *     `.cortex/db` (notably index_repository), since the resolver's default
+ *     path would throw {@link RepoNotIndexedError} on the very repo this
+ *     tool is meant to bring online. Handlers are expected to validate the
+ *     path themselves (existsSync, git root checks) before writing.
  *
  * If you're unsure which mode you want, the default is the right answer.
  *
@@ -284,12 +293,18 @@ export class RepoContextResolver {
  *   registerTool("list_projects", schema, async (resolver, _args) => {
  *     return resolver.listKnownRepos();
  *   }, { resolver, crossRepo: true });
+ *
+ * @example allowUnindexed mode
+ *   registerTool("index_repository", schema, async (resolver, args) => {
+ *     // args.repo_path is guaranteed non-empty here; handler creates .cortex/db
+ *     return runIndexer(args.repo_path);
+ *   }, { resolver, allowUnindexed: true });
  */
 export function registerTool<A extends { repo_path?: string }, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: (ctx: RepoContext, args: A) => Promise<R>,
-  options: { resolver: RepoContextResolver; crossRepo?: false },
+  options: { resolver: RepoContextResolver; crossRepo?: false; allowUnindexed?: false },
 ): (rawArgs: unknown) => Promise<R>;
 export function registerTool<A, R>(
   name: string,
@@ -297,16 +312,24 @@ export function registerTool<A, R>(
   handler: (resolver: RepoContextResolver, args: A) => Promise<R>,
   options: { resolver: RepoContextResolver; crossRepo: true },
 ): (rawArgs: unknown) => Promise<R>;
+export function registerTool<A extends { repo_path?: string }, R>(
+  name: string,
+  schema: ZodSchema<A>,
+  handler: (resolver: RepoContextResolver, args: A) => Promise<R>,
+  options: { resolver: RepoContextResolver; allowUnindexed: true },
+): (rawArgs: unknown) => Promise<R>;
 export function registerTool<A, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: any,
-  options: { resolver: RepoContextResolver; crossRepo?: boolean },
+  options: { resolver: RepoContextResolver; crossRepo?: boolean; allowUnindexed?: boolean },
 ): (rawArgs: unknown) => Promise<R> {
   return async (rawArgs: unknown) => {
+    // crossRepo skips the repo_path pre-check entirely (e.g. list_projects).
+    // Default and allowUnindexed both REQUIRE repo_path — the friendly
+    // MissingRepoPathError surfaces available_projects so the agent can
+    // self-correct without a second tool call.
     if (!options.crossRepo) {
-      // Pre-check before schema.parse so MissingRepoPathError beats ZodError on the
-      // missing-path case. Tool schemas can keep repo_path declared as required.
       const probe = (rawArgs ?? {}) as Record<string, unknown>;
       if (typeof probe.repo_path !== "string" || probe.repo_path === "") {
         throw new MissingRepoPathError(name, options.resolver.listKnownRepos());
@@ -314,6 +337,13 @@ export function registerTool<A, R>(
     }
     const args = schema.parse(rawArgs) as A & { repo_path?: string };
     if (options.crossRepo) {
+      return handler(options.resolver, args);
+    }
+    if (options.allowUnindexed) {
+      // Skip resolver.resolve — the handler is expected to validate the
+      // path itself and may create `.cortex/db` as part of its work. We
+      // still pass the resolver so the handler can opt back into a full
+      // RepoContext after it creates the DB (e.g. for read-after-write).
       return handler(options.resolver, args);
     }
     const ctx = options.resolver.resolve(args.repo_path!);
