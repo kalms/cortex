@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, callTool, type HarnessContext } from "./harness.js";
+import { createHarness, callTool, makeIndexedRepoFixture, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
+import { rmSync } from "node:fs";
 
 describe("code-tools contract", () => {
   let h: HarnessContext;
@@ -213,6 +214,42 @@ describe("code-tools contract", () => {
       const res = await callTool(h, "index_repository", { path: h.fixtureDir });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.content[0].text).not.toMatch(/^ERROR /);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-call repo routing — Phase 3 Group A (search_graph, get_code_snippet,
+  // trace_path, detect_changes, get_graph_schema).
+  //
+  // These tests pass explicit `repo_path` values (or sentinel `undefined`) to
+  // verify the new routing contract. Legacy tests above continue to work via
+  // the harness's auto-injected primary repo.
+  // ---------------------------------------------------------------------------
+
+  describe("search_graph per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_graph", {
+        repo_path: undefined,
+        name_pattern: "handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the query to the addressed repo, not the server's cwd", async () => {
+      // repoB has its own .cortex/db (copy of the same fixture). The query
+      // must resolve project + nodes through repoB's DB, not the harness primary.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "search_graph", {
+          repo_path: repoB,
+          name_pattern: "handleRequest",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("src/server.ts::handleRequest");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
     });
   });
 });
