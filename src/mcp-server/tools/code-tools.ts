@@ -106,6 +106,21 @@ const indexStatusShape = {
 } as const;
 const indexStatusSchema = z.object(indexStatusShape);
 
+// list_projects is a crossRepo tool — the caller is *asking which repos exist*,
+// so the schema intentionally omits repo_path. The handler reads from the
+// resolver's master registry (see `RepoContextResolver.listKnownRepos`).
+const listProjectsShape = {} as const;
+const listProjectsSchema = z.object(listProjectsShape);
+
+// delete_project is also crossRepo. It addresses a project by name (the
+// indexer's slug-form) rather than by path because the target repo may no
+// longer exist on disk — routing by repo_path (which the resolver validates
+// as a live git root) would falsely block legitimate cleanups of stale entries.
+const deleteProjectShape = {
+  project: z.string().min(1).describe("Project name to delete (slug-form, e.g. Users-rka-Development-cortex)"),
+} as const;
+const deleteProjectSchema = z.object(deleteProjectShape);
+
 // index_repository creates `.cortex/db` for `repo_path`. Registered with
 // `allowUnindexed: true` so the resolver's RepoNotIndexedError doesn't block
 // the very tool that brings the index online.
@@ -214,6 +229,18 @@ export function buildGrepFallbackArgs(pattern: string): string[] {
 type IndexerCallResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: true;
+};
+
+// Shape returned by the standalone-indexer's `list_projects` JSON. Used by
+// index_status as a fallback lookup when the addressed repo's .cortex/db
+// doesn't surface a match. (list_projects itself no longer uses this; it
+// reads from the resolver's master registry now.)
+type ProjectRow = {
+  name: string;
+  root_path: string;
+  nodes?: number;
+  edges?: number;
+  indexed_at?: string;
 };
 async function callIndexer(tool: string, args: Record<string, unknown>, dbPath?: string): Promise<IndexerCallResult> {
   // Make the indexer write to the same SQLite file Cortex uses. Without this
@@ -646,52 +673,34 @@ export function registerCodeTools(
     ),
   );
 
-  // 5L: list_projects — union of (a) the bound store's ctx_projects table
-  // (covers Cortex-Vue's local .cortex/db case, where the indexer wrote via
-  // the CORTEX_DB env override) and (b) the standalone-indexer cache (covers
-  // every project indexed via the cortex CLI, regardless of cwd). Previously
-  // only (a) was returned, making 9 of 10 cache-indexed projects invisible
-  // to MCP callers — the 2026-05-26 multi-project-routing field report.
-  type ProjectRow = { name: string; root_path: string; nodes?: number; edges?: number; indexed_at?: string };
+  // list_projects — Phase 4 migration to crossRepo mode.
+  //
+  // Previously closed over the startup-bound `store` to read its ctx_projects,
+  // then merged in the indexer's cache directory via a subprocess shell-out.
+  // After migration the resolver is the single source of truth: it walks
+  // ~/.cache/cortex-indexer/ in-process AND surfaces pooled local-DB repos.
+  // See `RepoContextResolver.listKnownRepos` for the registry rationale.
+  //
+  // Field Report rec #1: this contract guarantees list_projects returns every
+  // indexed repo the server can address, not just the one its process was
+  // started in.
   server.tool(
     "list_projects",
     "List all indexed projects",
-    {},
-    async () => {
-      const out = new Map<string, ProjectRow>();
-
-      // (a) bound store
-      try {
-        for (const p of listProjects(store)) {
-          out.set(p.name, p as ProjectRow);
-        }
-      } catch (e) {
-        // ctx_projects may not exist on a freshly-initialised local DB
-        if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
-      }
-
-      // (b) cache directory via indexer
-      const cacheResult = await callIndexerCache("list_projects", {});
-      if (!cacheResult.isError) {
-        try {
-          const parsed = JSON.parse(cacheResult.content[0]?.text ?? "{}");
-          for (const p of (parsed.projects ?? []) as ProjectRow[]) {
-            if (!out.has(p.name)) out.set(p.name, p);
-          }
-        } catch { /* ignore parse errors — bound store data already in out */ }
-      }
-
-      if (out.size === 0) return empty("list_projects()");
-      const text = Array.from(out.values())
-        .map((p) => {
-          const tail = p.nodes !== undefined
-            ? `  (${p.nodes} nodes, ${p.edges ?? 0} edges)`
-            : p.indexed_at ? ` (indexed: ${p.indexed_at})` : "";
-          return `${p.name} — ${p.root_path}${tail}`;
-        })
-        .join("\n");
-      return ok(text);
-    }
+    listProjectsShape,
+    registerTool(
+      "list_projects",
+      listProjectsSchema,
+      async (resolver, _args) => {
+        const repos = resolver.listKnownRepos();
+        if (repos.length === 0) return empty("list_projects()");
+        const text = repos
+          .map((p) => `${p.name} — ${p.path}${p.indexed ? "" : " (not indexed)"}`)
+          .join("\n");
+        return ok(text);
+      },
+      { resolver, crossRepo: true },
+    ),
   );
 
   // index_status — migrated to per-call routing with allowUnindexed.

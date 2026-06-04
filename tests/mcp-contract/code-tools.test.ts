@@ -195,9 +195,34 @@ describe("code-tools contract", () => {
   });
 
   describe("list_projects", () => {
-    it("happy: includes the fixture project", async () => {
+    it("happy: includes the fixture project once the resolver has touched it", async () => {
+      // list_projects now reads from `RepoContextResolver.listKnownRepos`.
+      // The harness's primary repo isn't in the master cache directory
+      // (it lives at `<harnessDir>/repo/.cortex/db`); it only becomes visible
+      // after the resolver pools it via a tool call. Pool it via any
+      // per-repo tool, then assert list_projects surfaces it.
+      await callTool(h, "search_graph", { name_pattern: "_does_not_exist_" });
       const res = await callTool(h, "list_projects", {});
-      expect(res.content[0].text).toContain(h.project);
+      expect(res.content[0].text).toContain(h.repoPath);
+    });
+
+    it("Field Report rec #1: returns every indexed repo the resolver can address", async () => {
+      // Contract guarantee: when an agent has indexed N repos, list_projects
+      // must return all N — not just the one the server was started in.
+      // The 2026-05-26 field report described a state where list_projects
+      // returned only the local-DB project and hid the other 9 cache repos.
+      const second = makeIndexedRepoFixture();
+      try {
+        // Pool both repos via per-repo tool calls.
+        await callTool(h, "search_graph", { name_pattern: "_does_not_exist_" });
+        await callTool(h, "search_graph", { repo_path: second, name_pattern: "_does_not_exist_" });
+        const res = await callTool(h, "list_projects", {});
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(h.repoPath);
+        expect(res.content[0].text).toContain(second);
+      } finally {
+        try { rmSync(second, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
     });
   });
 
