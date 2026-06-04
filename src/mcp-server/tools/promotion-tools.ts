@@ -5,6 +5,10 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 
+// The startup-bound `promotion` parameter is gone — promote() routes per-call
+// via promotionFor(ctx), so the wrapper builds a fresh DecisionPromotion from
+// the addressed repo's decisions DB on every call.
+
 const RepoPathField = z
   .string()
   .min(1)
@@ -23,7 +27,6 @@ const promoteDecisionSchema = z.object(promoteDecisionShape);
 
 export function registerPromotionTools(
   server: McpServer,
-  promotion: DecisionPromotion,
   resolver: RepoContextResolver,
   indexerProject?: string | null,
   bus?: EventBus,

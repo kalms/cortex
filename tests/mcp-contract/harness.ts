@@ -123,6 +123,10 @@ export async function createHarness(): Promise<HarnessContext> {
   const decisionsRepo = new DecisionsRepository(decisionsDb);
   const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 
+  // Legacy startup-bound services. After Phase 3 Group B, all tools route
+  // per-call through the resolver — but the harness still exposes these on
+  // HarnessContext for older tests that exercise the services directly
+  // (e.g. seeding decisions outside the MCP surface).
   const service = new DecisionService({
     decisions: decisionsRepo,
     links: decisionLinksRepo,
@@ -145,8 +149,8 @@ export async function createHarness(): Promise<HarnessContext> {
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, store, project, resolver, cortexDbPath);
   registerDecisionTools(server, resolver, project);
-  registerPromotionTools(server, promotion, resolver, project);
-  registerPRTools(server, prService);
+  registerPromotionTools(server, resolver, project);
+  registerPRTools(server, resolver, project);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
