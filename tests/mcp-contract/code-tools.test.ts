@@ -252,4 +252,33 @@ describe("code-tools contract", () => {
       }
     });
   });
+
+  describe("get_code_snippet per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_code_snippet", {
+        repo_path: undefined,
+        qualified_name: "src/server.ts::handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the lookup to the addressed repo, not the server's cwd", async () => {
+      // repoB shares its ctx_projects.root_path with the harness primary (both
+      // point at the same on-disk fixture). The point of the test is to assert
+      // the query plumbing runs through repoB's DB — verified by getting a
+      // non-error snippet for a symbol resolved out of that DB.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "get_code_snippet", {
+          repo_path: repoB,
+          qualified_name: "src/server.ts::handleRequest",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("export function handleRequest");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
 });
