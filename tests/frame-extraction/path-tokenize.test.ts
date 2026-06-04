@@ -63,8 +63,8 @@ describe("tokenizePath — camel/snake/kebab splitting", () => {
     expect(tokenizePath("src/auth/refresh_token.py").symbol_tokens).toEqual(["refresh", "token"]);
   });
 
-  it("splits kebab-case", () => {
-    expect(tokenizePath("src/use-billing-state.ts").symbol_tokens).toEqual(["use", "billing", "state"]);
+  it("splits kebab-case and strips a leading use prefix", () => {
+    expect(tokenizePath("src/use-billing-state.ts").symbol_tokens).toEqual(["billing", "state"]);
   });
 
   it("splits consecutive-uppercase runs (acronyms)", () => {
@@ -78,5 +78,50 @@ describe("tokenizePath — camel/snake/kebab splitting", () => {
   it("deduplicates within each token list (preserves first occurrence order)", () => {
     const { path_tokens } = tokenizePath("billing/billing/invoice.ts");
     expect(path_tokens).toEqual(["billing", "invoice"]);
+  });
+});
+
+describe("tokenizePath — convention-aware (Phase 1)", () => {
+  it("drops bracketed dynamic route segments from path tokens", () => {
+    const { path_tokens } = tokenizePath("apps/x/pages/[orgId]/colors.vue");
+    expect(path_tokens).not.toContain("orgid");
+    expect(path_tokens).toEqual(["apps", "x", "colors"]);
+  });
+
+  it("drops Next.js parenthesised route groups", () => {
+    const { path_tokens } = tokenizePath("app/(marketing)/about/page.tsx");
+    expect(path_tokens).not.toContain("marketing");
+    expect(path_tokens).toContain("about");
+  });
+
+  it("strips a leading use prefix from composable/store filenames", () => {
+    const { symbol_tokens } = tokenizePath("composables/useFoundationStore.ts");
+    expect(symbol_tokens).toEqual(["foundation", "store"]);
+  });
+
+  it("does NOT strip use when it is a substring (user, useful)", () => {
+    expect(tokenizePath("models/user.ts").symbol_tokens).toEqual(["user"]);
+    expect(tokenizePath("lib/useful.ts").symbol_tokens).toEqual(["useful"]);
+  });
+
+  it("keeps a lone use when it is the only token", () => {
+    expect(tokenizePath("lib/use.ts").symbol_tokens).toEqual(["use"]);
+  });
+
+  it("drops trailing route-method suffixes (Nuxt server/api)", () => {
+    const { symbol_tokens } = tokenizePath("server/api/users.get.ts");
+    expect(symbol_tokens).toEqual(["users"]);
+  });
+
+  it("contributes nothing for a fully-dynamic filename", () => {
+    const t = tokenizePath("pages/users/[id].vue");
+    expect(t.symbol_tokens).toEqual([]);
+    expect(t.path_tokens).toEqual(["users"]);
+  });
+
+  it("does not mangle dotted bracket segments like [...slug]", () => {
+    const t = tokenizePath("pages/[...slug].vue");
+    expect(t.symbol_tokens).toEqual([]);
+    expect(t.path_tokens).toEqual([]);
   });
 });

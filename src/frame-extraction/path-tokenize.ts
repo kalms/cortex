@@ -1,6 +1,7 @@
 // scripts/frame-extraction/path-tokenize.ts
 import { basename, dirname, extname, sep } from "node:path";
 import type { PathTokenizeOptions, PathTokens } from "./types.js";
+import { isDynamicSegment, ROUTE_METHOD_TOKENS } from "./structural-tokens.js";
 
 /**
  * Conventional path segments stripped before extracting domain tokens.
@@ -71,7 +72,7 @@ function stripFilename(filename: string, opts: PathTokenizeOptions): string {
   const lastDot = stem.lastIndexOf(".");
   if (lastDot === -1) return stem;
   const candidate = stem.slice(lastDot + 1).toLowerCase();
-  if (!ROLE_SUFFIXES.has(candidate)) return stem;
+  if (!ROLE_SUFFIXES.has(candidate) && !ROUTE_METHOD_TOKENS.has(candidate)) return stem;
   const prefix = stem.slice(0, lastDot);
   if (opts.service_suffix_aware) {
     // If the prefix is itself a STRIP_SEGMENTS token, the suffix is the
@@ -93,19 +94,40 @@ export function tokenizePath(
   const file = basename(filePath);
   const dir = dirname(filePath);
 
-  // Path tokens: split the directory by separator, lowercase, drop strip-list.
+  // Path tokens: split the directory by separator, lowercase, drop strip-list
+  // AND drop dynamic route segments ([id], [...slug], (group)) — these are
+  // structural, never domain signal.
   const dirSegments = dir
     .split(sep)
     .map((s) => s.toLowerCase())
-    .filter((s) => s !== "" && s !== "." && !STRIP_SEGMENTS.has(s));
+    .filter(
+      (s) =>
+        s !== "" &&
+        s !== "." &&
+        !STRIP_SEGMENTS.has(s) &&
+        !isDynamicSegment(s),
+    );
 
-  // Also tokenize the filename stem into path_tokens (the basename carries
-  // domain information just like its parent dirs). Strip role suffix first.
-  const stem = stripFilename(file, merged);
-  const stemWords = splitWords(stem).filter((w) => !STRIP_SEGMENTS.has(w));
+  // Tokenize the filename stem. A fully-dynamic filename ([id].vue,
+  // [...slug].ts) carries no domain signal, so it contributes nothing.
+  // (Guard on the RAW stem before splitWords, because splitWords treats the
+  //  dots in [...slug] as separators and would shatter it into junk tokens.)
+  const ext = extname(file);
+  const bareStem = ext ? file.slice(0, -ext.length) : file;
+  let stemWords: string[] = [];
+  if (!isDynamicSegment(bareStem)) {
+    const stem = stripFilename(file, merged);
+    stemWords = splitWords(stem).filter((w) => !STRIP_SEGMENTS.has(w));
+    // Strip a leading composable/store `use` prefix (useFoundationStore →
+    // foundation store). `use` is a convention marker, not a domain noun.
+    // Only when it is a distinct leading word and not the only token.
+    if (stemWords.length > 1 && stemWords[0] === "use") {
+      stemWords = stemWords.slice(1);
+    }
+  }
   const allPath = [...dirSegments.flatMap(splitWords), ...stemWords];
 
-  // Symbol tokens: only the stripped stem, split into words.
+  // Symbol tokens: only the stripped stem words.
   return {
     path_tokens: dedupePreserveOrder(allPath),
     symbol_tokens: dedupePreserveOrder(stemWords),
