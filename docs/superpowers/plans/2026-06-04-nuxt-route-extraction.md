@@ -531,7 +531,7 @@ No commit (verification only). If HANDLES is still 0, the failure is almost cert
 
 ## Task 6: Regression — full test suites + both pipelines
 
-**Files:** none — verification only. The parallel pipeline (`pass_parallel.c`, production path for repos > 100 files) shares the extraction layer and already serializes `route_path` (`pass_parallel.c:217`); anthill-cloud (>100 files) exercises it. Cortex (smaller) exercises the sequential path. Both are covered by Task 5's two reindexes — this task confirms nothing else broke.
+**Files:** none — verification only. The parallel pipeline (`pass_parallel.c`, production path for repos with more than `MIN_FILES_FOR_PARALLEL` = 50 files; see `pipeline.c:856`) shares the extraction layer and already serializes `route_path` (`pass_parallel.c:217`); anthill-cloud (>50 files) exercises it. Cortex (also >50 files) exercises it too — the sequential path is taken only for small repos / single-worker runs. Both are covered by Task 5's two reindexes — this task confirms nothing else broke.
 
 - [ ] **Step 1: Run the full C test suite**
 
