@@ -76,6 +76,50 @@ const getGraphSchemaShape = {
 } as const;
 const getGraphSchemaSchema = z.object(getGraphSchemaShape);
 
+const searchCodeShape = {
+  repo_path: RepoPathField,
+  pattern: z.string(),
+} as const;
+const searchCodeSchema = z.object(searchCodeShape);
+
+// query_graph keeps `project` as an IN-GRAPH filter (different concept from
+// repo_path, which selects which graph DB to open). `repo_path` addresses the
+// `.cortex/db` file; once inside it, `project` filters rows by ctx_projects
+// name (only meaningful when an indexer DB holds multiple projects, but the
+// arg is kept for backward compatibility with existing callers).
+const queryGraphShape = {
+  repo_path: RepoPathField,
+  query: z.string().describe("Cypher query string"),
+  project: z.string().optional().describe("In-graph project filter (default: the addressed repo's only project)"),
+  max_rows: z.number().int().optional().describe("Maximum rows to return"),
+} as const;
+const queryGraphSchema = z.object(queryGraphShape);
+
+const getArchitectureShape = {
+  repo_path: RepoPathField,
+  aspects: z.array(z.string()).optional().describe('Aspects to include, e.g. ["all"]'),
+} as const;
+const getArchitectureSchema = z.object(getArchitectureShape);
+
+const indexStatusShape = {
+  repo_path: RepoPathField,
+} as const;
+const indexStatusSchema = z.object(indexStatusShape);
+
+// index_repository creates `.cortex/db` for `repo_path`. Registered with
+// `allowUnindexed: true` so the resolver's RepoNotIndexedError doesn't block
+// the very tool that brings the index online.
+const indexRepositoryShape = {
+  repo_path: RepoPathField,
+} as const;
+const indexRepositorySchema = z.object(indexRepositoryShape);
+
+const ingestTracesShape = {
+  repo_path: RepoPathField,
+  traces: z.array(z.unknown()).describe("Array of trace records"),
+} as const;
+const ingestTracesSchema = z.object(ingestTracesShape);
+
 /**
  * Derive the project name from the addressed repo's graph DB.
  *
@@ -656,68 +700,93 @@ export function registerCodeTools(
     }
   );
 
-  // 5K: search_code with proper error discrimination
+  // 5K: search_code — migrated to per-call routing.
+  //
+  // Field Report rec #5: the previous implementation passed `.` as the
+  // search target and inherited the server's process.cwd() as the shell's
+  // working directory — so a Cortex instance launched from /a/repo would
+  // grep repo /a regardless of which project the caller meant. After
+  // migration the rg/grep subprocess is anchored to `ctx.repoPath` via the
+  // `cwd` option (the args still pass `.`, so the rg/grep tests don't need
+  // updating). The graph-enrichment lookup also runs through ctx.store.
   server.tool(
     "search_code",
     "Search source code with graph-enriched results (shows which function/class each match belongs to)",
-    {
-      pattern: z.string(),
-    },
-    async ({ pattern }) => {
-      let grepOutput = "";
-      try {
-        const { stdout } = await execFileAsync("rg", buildRgArgs(pattern), { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
-        grepOutput = stdout;
-      } catch (err: any) {
-        if (err.code === "ENOENT") {
-          try {
-            const { stdout } = await execFileAsync("grep", buildGrepFallbackArgs(pattern), { timeout: 10_000, maxBuffer: RG_MAX_BUFFER });
-            grepOutput = stdout;
-          } catch (err2: any) {
-            if (err2.code === "ENOENT") {
-              return errorResponse("internal_error", "Neither rg nor grep available on PATH.");
+    searchCodeShape,
+    registerTool(
+      "search_code",
+      searchCodeSchema,
+      async (ctx, args) => {
+        const { pattern } = args;
+        // Anchor the shell-out to the addressed repo so `.` resolves to
+        // ctx.repoPath instead of process.cwd(). This is the Field Report
+        // rec #5 fix.
+        const execOpts = {
+          timeout: 10_000,
+          maxBuffer: RG_MAX_BUFFER,
+          cwd: ctx.repoPath,
+        };
+        let grepOutput = "";
+        try {
+          const { stdout } = await execFileAsync("rg", buildRgArgs(pattern), execOpts);
+          grepOutput = stdout;
+        } catch (err: any) {
+          if (err.code === "ENOENT") {
+            try {
+              const { stdout } = await execFileAsync("grep", buildGrepFallbackArgs(pattern), execOpts);
+              grepOutput = stdout;
+            } catch (err2: any) {
+              if (err2.code === "ENOENT") {
+                return errorResponse("internal_error", "Neither rg nor grep available on PATH.");
+              }
+              if (err2.code !== 1) {
+                return errorResponse("internal_error", err2.message ?? String(err2));
+              }
+              if (!err2.stdout) return empty(`search_code(${pattern})`);
+              grepOutput = err2.stdout;
             }
-            if (err2.code !== 1) {
-              return errorResponse("internal_error", err2.message ?? String(err2));
-            }
-            if (!err2.stdout) return empty(`search_code(${pattern})`);
-            grepOutput = err2.stdout;
+          } else if (err.stdout) {
+            grepOutput = err.stdout;
+          } else if (err.code === 1) {
+            return empty(`search_code(${pattern})`);
+          } else {
+            return errorResponse("internal_error", err.message ?? String(err));
           }
-        } else if (err.stdout) {
-          grepOutput = err.stdout;
-        } else if (err.code === 1) {
-          return empty(`search_code(${pattern})`);
-        } else {
-          return errorResponse("internal_error", err.message ?? String(err));
         }
-      }
 
-      if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
+        if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
 
-      if (!indexerProject) {
-        return ok(grepOutput);
-      }
-
-      const lines = grepOutput.trim().split("\n").slice(0, 50);
-      const enriched = lines.map((line) => {
-        const match = line.match(/^\.\/(.+?):(\d+):/);
-        if (!match) return line;
-        const [, filePath, lineNum] = match;
-        const lineNumber = parseInt(lineNum, 10);
-        const enclosing = store.queryRaw<IndexerNode>(
-          `SELECT * FROM nodes
-           WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
-             AND kind NOT IN ('decision', 'pr', 'todo')
-           ORDER BY (end_line - start_line) ASC LIMIT 1`,
-          [indexerProject, filePath, lineNumber, lineNumber]
-        );
-        if (enclosing.length > 0) {
-          return `${line}  // in ${enclosing[0].kind} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;
+        // Graph enrichment uses the addressed repo's graph DB (ctx.store)
+        // and its in-graph project name. Without an indexed project, we
+        // surface the raw grep output rather than failing outright — the
+        // caller still gets file:line hits.
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return ok(grepOutput);
         }
-        return line;
-      });
 
-      return ok(enriched.join("\n"));
-    }
+        const lines = grepOutput.trim().split("\n").slice(0, 50);
+        const enriched = lines.map((line) => {
+          const match = line.match(/^\.\/(.+?):(\d+):/);
+          if (!match) return line;
+          const [, filePath, lineNum] = match;
+          const lineNumber = parseInt(lineNum, 10);
+          const enclosing = ctx.store.queryRaw<IndexerNode>(
+            `SELECT * FROM nodes
+             WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+               AND kind NOT IN ('decision', 'pr', 'todo')
+             ORDER BY (end_line - start_line) ASC LIMIT 1`,
+            [project, filePath, lineNumber, lineNumber]
+          );
+          if (enclosing.length > 0) {
+            return `${line}  // in ${enclosing[0].kind} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;
+          }
+          return line;
+        });
+
+        return ok(enriched.join("\n"));
+      },
+      { resolver },
+    ),
   );
 }
