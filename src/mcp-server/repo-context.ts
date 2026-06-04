@@ -233,15 +233,43 @@ export class RepoContextResolver {
   }
 
   /**
-   * Returns repos this resolver knows about. Phase 1 only emits pooled
-   * repos (those a tool call has touched in this server lifetime); Phase 4
-   * extends this to read from the indexer's master project registry so
-   * agents see every indexed repo, not just the active ones.
+   * Returns every indexed repo this server can address — the authoritative
+   * answer to "which repos exist?" used by both `list_projects` (the
+   * crossRepo tool) and the friendly error payloads on
+   * {@link MissingRepoPathError} / {@link RepoNotIndexedError}.
+   *
+   * Master registry source
+   * ----------------------
+   * The standalone indexer has no single "registry" table. Its registry IS
+   * the SET of `.db` files living in `~/.cache/cortex-indexer/`, one per
+   * project (filename = slug-form of the absolute path, e.g.
+   * `Users-rka-Development-cortex.db`). Each file's `ctx_projects` row
+   * carries the canonical `name` + `root_path` for that project. The
+   * indexer CLI's `list_projects` verb implements this same directory walk;
+   * Phase 4 reads it directly here (cheap, read-only) rather than fork a
+   * subprocess so the resolver stays in-process.
+   *
+   * In addition to the cache directory, this method also surfaces *pooled*
+   * repos — those a tool call has resolved in this server lifetime. Pooled
+   * entries cover the "local" `.cortex/db` convention used by Cortex-Vue
+   * and similar embeddings (where the DB lives next to the repo, not in
+   * the shared cache); the cache directory wouldn't otherwise know about
+   * those until indexing populates a cache slot.
+   *
+   * Phase 1 implementation (current): only emits pooled repos. Phase 4
+   * adds the cache-directory walk per the design spec at
+   * `docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md`.
+   *
+   * Returned shape: {@link AvailableProject}[] with `indexed: true` for
+   * every entry. `indexed: false` is reserved for a future version that
+   * surfaces registry-known repos whose .db has been deleted out from
+   * under us.
    */
   listKnownRepos(): AvailableProject[] {
-    // TODO(phase-4): merge in entries from the indexer's master project
-    // registry (cortex index list_projects) so callers see indexed repos
-    // that haven't been touched in this server lifetime yet.
+    // TODO(phase-4): merge in entries from ~/.cache/cortex-indexer/*.db so
+    // callers see indexed repos that haven't been touched in this server
+    // lifetime yet. The implementation lives just below this stub in the
+    // Phase 4 follow-up commit.
     const out: AvailableProject[] = [];
     for (const ctx of this.pool.values()) {
       out.push({
