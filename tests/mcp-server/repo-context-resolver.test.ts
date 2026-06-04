@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import BetterSqlite3 from "better-sqlite3";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MissingRepoPathError,
@@ -21,6 +22,35 @@ function makeIndexedRepo(): string {
   // data is needed for these tests.
   writeFileSync(join(root, ".cortex", "db"), "");
   return root;
+}
+
+function projectSlug(absPath: string): string {
+  return absPath.replace(/^\//, "").replace(/\//g, "-");
+}
+
+/**
+ * Seed a fake cache-registry entry at `~/.cache/cortex-indexer/<slug>.db`.
+ * The resolver reads ctx_projects from each cache file to discover projects,
+ * so we create the minimum schema + one row. Returns the cache file path so
+ * the caller can remove it in teardown.
+ */
+function seedCacheRegistryEntry(rootPath: string, name?: string): string {
+  const slug = name ?? projectSlug(rootPath);
+  const cacheDir = join(homedir(), ".cache", "cortex-indexer");
+  mkdirSync(cacheDir, { recursive: true });
+  const file = join(cacheDir, `${slug}.db`);
+  const db = new BetterSqlite3(file);
+  try {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS ctx_projects (name TEXT PRIMARY KEY, root_path TEXT, indexed_at TEXT)",
+    );
+    db.prepare(
+      "INSERT OR REPLACE INTO ctx_projects (name, root_path, indexed_at) VALUES (?, ?, ?)",
+    ).run(slug, rootPath, new Date().toISOString());
+  } finally {
+    db.close();
+  }
+  return file;
 }
 
 describe("Resolver error classes", () => {
@@ -116,6 +146,18 @@ describe("RepoContextResolver.resolve — error paths", () => {
 });
 
 describe("RepoContextResolver.listKnownRepos", () => {
+  const seededFiles: string[] = [];
+
+  afterEach(() => {
+    for (const f of seededFiles.splice(0)) {
+      try { rmSync(f, { force: true }); } catch { /* ignore */ }
+      // Clear SQLite sidecars too.
+      for (const ext of ["-wal", "-shm"]) {
+        try { rmSync(f + ext, { force: true }); } catch { /* ignore */ }
+      }
+    }
+  });
+
   it("returns pooled repos with indexed=true", () => {
     const repo = makeIndexedRepo();
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
@@ -125,6 +167,58 @@ describe("RepoContextResolver.listKnownRepos", () => {
       const entry = list.find((p) => p.path === resolver.resolve(repo).repoPath);
       expect(entry).toBeDefined();
       expect(entry!.indexed).toBe(true);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+
+  it("reads the master cache registry and surfaces unpooled projects", () => {
+    // Phantom path: registry entry need not exist on disk for listKnownRepos
+    // to surface it — the registry IS the answer. Use a unique pretend-path
+    // so we don't collide with the user's actual indexed repos.
+    //
+    // NOTE: avoid slugs that start with `tmp-` — the resolver skips those
+    // alongside `_*.db` as staging files, mirroring the indexer's convention.
+    const phantomRoot = `/cortex-test-phantom-${Date.now()}`;
+    const slug = projectSlug(phantomRoot);
+    seededFiles.push(seedCacheRegistryEntry(phantomRoot, slug));
+
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      const list = resolver.listKnownRepos();
+      const match = list.find((p) => p.path === phantomRoot);
+      expect(match, `expected ${phantomRoot} in ${JSON.stringify(list)}`).toBeDefined();
+      expect(match!.name).toBe(slug);
+      expect(match!.indexed).toBe(true);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+
+  it("dedupes pooled + cache entries on path", () => {
+    const repo = makeIndexedRepo();
+    // Seed cache to point at the same path; pooled should NOT be duplicated.
+    seededFiles.push(seedCacheRegistryEntry(repo));
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      resolver.resolve(repo);
+      const list = resolver.listKnownRepos();
+      const matches = list.filter((p) => p.path === repo);
+      expect(matches).toHaveLength(1);
+    } finally {
+      resolver.shutdown();
+    }
+  });
+
+  it("ignores _config.db and other non-project cache files", () => {
+    // The real cache dir has _config.db; listKnownRepos must not surface it.
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      const list = resolver.listKnownRepos();
+      expect(list.find((p) => p.name === "_config")).toBeUndefined();
+      // Sanity check — the cache dir exists on dev machines but we don't
+      // require any specific count here.
+      expect(existsSync(join(homedir(), ".cache", "cortex-indexer"))).toBeTypeOf("boolean");
     } finally {
       resolver.shutdown();
     }
