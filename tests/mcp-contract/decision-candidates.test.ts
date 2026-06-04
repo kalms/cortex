@@ -21,10 +21,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { openDecisionsDb } from "../../src/decisions/db.js";
-import { DecisionsRepository } from "../../src/decisions/repository.js";
-import { DecisionLinksRepository } from "../../src/decisions/links-repository.js";
-import { DecisionService } from "../../src/decisions/service.js";
-import { DecisionSearch } from "../../src/decisions/search.js";
 import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
 import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
@@ -64,23 +60,15 @@ let repoRoot: string;
 let harness: MinimalHarness;
 
 async function buildMinimalHarness(decisionsDbPath: string): Promise<MinimalHarness> {
+  // The sidecar decisions DB is opened so we can close it cleanly during
+  // teardown; the per-call resolver opens its own handle on demand.
   const decisionsDb = openDecisionsDb(decisionsDbPath);
-  const decisionsRepo = new DecisionsRepository(decisionsDb);
-  const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
-  const service = new DecisionService({
-    decisions: decisionsRepo,
-    links: decisionLinksRepo,
-    project_id: "test-candidates",
-  });
-  const search = new DecisionSearch(decisionsRepo, decisionLinksRepo);
 
   const server = new McpServer({ name: "cortex-candidates-test", version: "0.0.0" });
-  // Phase 2 added the per-call resolver as a required positional. This test
-  // exercises `decision_candidates`, which is not yet migrated to per-call
-  // routing — but registerDecisionTools needs the resolver to wire migrated
-  // tools (create_decision, etc) that share the same registration call.
+  // Phase 2 dropped the closure-bound service/search/links/dbPath params from
+  // registerDecisionTools — every tool routes through `resolver.resolve(ctx)`.
   const resolver = new RepoContextResolver({ poolCapacity: 1 });
-  registerDecisionTools(server, service, search, decisionLinksRepo, resolver, "test-candidates", decisionsDbPath);
+  registerDecisionTools(server, resolver, "test-candidates");
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
