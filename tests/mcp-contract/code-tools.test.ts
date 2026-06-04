@@ -202,14 +202,24 @@ describe("code-tools contract", () => {
   });
 
   describe("index_status", () => {
-    it("happy: returns indexed status for fixture dir", async () => {
-      const res = await callTool(h, "index_status", { path: h.fixtureDir });
+    it("happy: returns indexed status for the harness repo", async () => {
+      // After migration, index_status reads .cortex/db at repo_path.
+      // The harness sets up its own indexed git root; query it directly.
+      const res = await callTool(h, "index_status", { repo_path: h.repoPath });
       expect(res.content[0].text).toMatch(/^Indexed: /);
     });
 
     it("empty: unknown path returns No results", async () => {
-      const res = await callTool(h, "index_status", { path: "/nonexistent/path" });
+      // index_status is allowUnindexed — so a non-existent path doesn't
+      // throw RepoNotIndexedError, it returns the empty envelope.
+      const res = await callTool(h, "index_status", { repo_path: "/nonexistent/path" });
       expect(res.content[0].text).toMatch(/^No results: /);
+    });
+
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "index_status", { repo_path: undefined });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
     });
   });
 

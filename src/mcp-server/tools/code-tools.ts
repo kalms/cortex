@@ -683,43 +683,74 @@ export function registerCodeTools(
     }
   );
 
-  // 5M: index_status — same union as list_projects. Check the bound store
-  // first (fast path, also covers MCP-server-only deployments), then fall
-  // through to the cache scan if no match. Both layers see the request.
+  // index_status — migrated to per-call routing with allowUnindexed.
+  //
+  // index_status is the one tool whose normal use case INCLUDES checking a
+  // path that's not yet indexed (the answer is "no"). It's registered with
+  // allowUnindexed so the resolver doesn't throw RepoNotIndexedError on
+  // unindexed paths — the handler does its own .cortex/db check and falls
+  // through to the indexer-cache scan if no local DB matches.
+  //
+  // Public arg renamed `path` → `repo_path` for consistency with the rest of
+  // the per-call routing surface.
   server.tool(
     "index_status",
     "Check if a repository is indexed",
-    {
-      path: z.string().optional().describe("Repository path to check (default: current directory)"),
-    },
-    async ({ path }) => {
-      const cwd = path || process.cwd();
+    indexStatusShape,
+    registerTool(
+      "index_status",
+      indexStatusSchema,
+      async (_resolver, args) => {
+        const repoPath = args.repo_path!;
 
-      // (a) bound store
-      try {
-        const status = indexStatus(store, cwd);
-        if (status) {
-          return ok(`Indexed: ${status.name} at ${status.root_path} (last: ${status.indexed_at})`);
+        // (a) addressed repo's .cortex/db (fast path).
+        const addressedDbPath = resolveCortexDbPath(repoPath);
+        if (existsSync(addressedDbPath)) {
+          // Open a tiny read-only handle and inspect ctx_projects. Don't go
+          // through the resolver — we want to tolerate corrupt/empty DBs and
+          // fall through to cache, not throw.
+          try {
+            const probe = new Database(addressedDbPath, { readonly: true });
+            try {
+              const row = probe.prepare(
+                "SELECT name, root_path, indexed_at FROM ctx_projects WHERE root_path = ? LIMIT 1",
+              ).get(repoPath) as { name: string; root_path: string; indexed_at: string } | undefined;
+              if (row) {
+                return ok(`Indexed: ${row.name} at ${row.root_path} (last: ${row.indexed_at})`);
+              }
+              // ctx_projects may store a different root_path than the caller
+              // supplied (symlinks, fixtures). If the table has any row at
+              // all, this DB belongs to *some* project — report it.
+              const anyRow = probe.prepare(
+                "SELECT name, root_path, indexed_at FROM ctx_projects LIMIT 1",
+              ).get() as { name: string; root_path: string; indexed_at: string } | undefined;
+              if (anyRow) {
+                return ok(`Indexed: ${anyRow.name} at ${anyRow.root_path} (last: ${anyRow.indexed_at})`);
+              }
+            } finally {
+              probe.close();
+            }
+          } catch { /* fall through to cache */ }
         }
-      } catch (e) {
-        if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
-      }
 
-      // (b) cache directory
-      const listResult = await callIndexerCache("list_projects", {});
-      if (!listResult.isError) {
-        try {
-          const parsed = JSON.parse(listResult.content[0]?.text ?? "{}");
-          const projects: ProjectRow[] = parsed.projects ?? [];
-          const match = projects.find((p) => p.root_path === cwd);
-          if (match) {
-            return ok(`Indexed: ${match.name} at ${match.root_path} (${match.nodes ?? 0} nodes, ${match.edges ?? 0} edges)`);
-          }
-        } catch { /* fall through to empty */ }
-      }
+        // (b) shared indexer cache (covers repos indexed via the CLI from
+        // some other server lifetime).
+        const listResult = await callIndexerCache("list_projects", {});
+        if (!listResult.isError) {
+          try {
+            const parsed = JSON.parse(listResult.content[0]?.text ?? "{}");
+            const projects: ProjectRow[] = parsed.projects ?? [];
+            const match = projects.find((p) => p.root_path === repoPath);
+            if (match) {
+              return ok(`Indexed: ${match.name} at ${match.root_path} (${match.nodes ?? 0} nodes, ${match.edges ?? 0} edges)`);
+            }
+          } catch { /* fall through to empty */ }
+        }
 
-      return empty(`index_status(${cwd})`);
-    }
+        return empty(`index_status(${repoPath})`);
+      },
+      { resolver, allowUnindexed: true },
+    ),
   );
 
   // 5K: search_code — migrated to per-call routing.
