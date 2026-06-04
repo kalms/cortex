@@ -1,13 +1,27 @@
-# Cortex — Session Handoff (2026-05-26)
+# Cortex — Session Handoff (2026-06-04)
+
+> Supersedes the 2026-05-26 handoff content below. The 2026-06-04 MCP
+> multi-project routing + worktree-collapse work is the freshest material
+> (see "What shipped 2026-06-04"); the 2026-05-26 Wave 1/2/3 sections that
+> follow are retained for their root-cause writeups but predate this work.
 
 ## TL;DR
 
-Three waves this session. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: triaged the first 2026-05-26 field report and shipped the three small items (lockfile-route noise 183→13, `cortex index changes` bug, `file:symbol` editor-jump form). **Wave 3**: a SECOND field report landed late-session ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) — investigated and shipped the root-cause fix: CORTEX_DB env was silently hijacking per-project query routing, so MCP tools could reach exactly one project even when 10 were indexed.
+**2026-06-04:** shipped the MCP multi-project routing rework (per-call
+resolver replacing startup-time single-repo binding) plus the worktree→canonical
+collapse, the `.mcp.json` unification, and the plugin 0.3.0 bump. See
+"What shipped 2026-06-04" below. The deeper "worktrees as in-flight PRs"
+goal is scoped but unbuilt (Item 4).
 
-- **Branch:** `main`, 10 commits live on `origin/main` after Wave 1+2 push earlier in session; Wave 3 (2 commits) staged for push.
-- **C tests:** `service_patterns` 24/24 + `platform` 3 new (ctx_cache_db_path) all pass. Pre-existing store/cypher/pipeline sanitizer failures unchanged.
-- **TS tests:** 80 files / 490 passed / 1 skipped (1 documented Python-venv flake)
-- **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt)
+**2026-05-26 (retained below):** three waves. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: triaged the first 2026-05-26 field report and shipped the three small items (lockfile-route noise 183→13, `cortex index changes` bug, `file:symbol` editor-jump form). **Wave 3**: a SECOND field report landed late-session ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) — investigated and shipped the root-cause fix: CORTEX_DB env was silently hijacking per-project query routing, so MCP tools could reach exactly one project even when 10 were indexed.
+
+- **Branch:** `main`. All work below is committed locally (HEAD `ed220f2`).
+  **Sync state as of this handoff: local `main` is 107 commits ahead of
+  `origin/main` (`b0d1989`) — re-verify the push reached
+  `git@github.com:ruevu/cortex.git` `main` before relying on remote.**
+- **C tests** (last recorded 2026-05-26, not re-run for this handoff): `service_patterns` 24/24 + `platform` 3 new (ctx_cache_db_path) all pass. Pre-existing store/cypher/pipeline sanitizer failures unchanged.
+- **TS tests** (re-run 2026-06-04): 97 files / 612 passed / 1 skipped. The sole failure is the documented Python-venv flake (`tests/frame-extraction/cluster-tfidf-hdbscan.test.ts`, timed out at 5s) — pre-existing, environment-dependent, not a regression.
+- **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt) — last verified 2026-05-26.
 - **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
 
 ## What shipped 2026-06-04
@@ -54,7 +68,7 @@ Second 2026-05-26 field report ([field-report-2026-05-26-mcp-multi-project-routi
 - **C-side**: `ctx_resolve_db_path()` short-circuits to the `CORTEX_DB` env var when set, ignoring the `project` argument entirely. The TS MCP server's `callIndexer` always sets `CORTEX_DB=<bound .cortex/db>`, so every per-project query was silently routed to the bound DB and failed. The `available_projects` array on the error came from a separate code path (`build_project_list_error`) that scans the cache dir directly — hence the contradictory two-views payload.
 - **TS-side**: `list_projects` and `index_status` queried only the bound store's `ctx_projects` table, which has one row (the bound project's self-entry). 9 of 10 cache-resident projects were invisible.
 
-**Fix** (merged: pending — to be confirmed after push):
+**Fix** (merged: `491a569` — MCP multi-project routing merge):
 - New `ctx_cache_db_path()` in platform.c that always resolves `<cache>/<project>.db`, env-agnostic. `handlers.c::project_db_path` rewired to use it; `ctx_resolve_db_path` left alone so pipeline writes still honor `CORTEX_DB` for embedders.
 - `callIndexerCache` variant in code-tools.ts that strips `CORTEX_DB` from the subprocess env.
 - `list_projects` and `index_status` now union the bound store's projects with the cache directory's. Bound store wins on conflict so fresher embedder data takes precedence.
@@ -188,6 +202,15 @@ From the 2026-05-26 field report (after the three small items already shipped ab
 - **Verify `governs` linking and `FILE_CHANGES_WITH` actually work against `.vue` file paths** — the field report claimed these were broken on the basis of the (wrong) "no .vue file nodes" diagnosis. Should be a verify-only task; if it works, just document.
 - **Investigate `<template>` references between components in `.vue` files** — `<ACardFooter />` template usage doesn't appear to create CALLS or USES edges. Unverified by the report; would close the last Vue-coverage gap.
 
+### Item 4 — Open items from the older Phase 4 handoff that are still real
+
+These survived multiple sessions; not deliberately ignored, just unprioritized:
+- **2D viewer color/shape regression for granular kinds** post-Phase 4 (`class`, `method`, `interface`, `enum` render with default styling).
+- **`anim.nodes` grows unbounded** in the viewer; `setHover` adds but `remove_node` doesn't evict.
+- **`seen` Set in `src/viewer/websocket.js` unbounded** — ~26MB at 1M events.
+- **WS reconnect drift** — mutations during outage aren't replayed.
+- **Lean grammar parser ~100MB** at `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push.
+
 ### Item 5 — Worktrees as in-flight PRs (slice 2 + 3 from 2026-06-04 design conversation)
 
 The 2026-06-04 routing fix made cortex "one index per repo, all worktrees collapse to canonical" (commit fc8ae84 — "slice 1"). The deeper goal, articulated by user on the same day, is to make worktrees first-class in the data model:
@@ -209,35 +232,33 @@ Interesting reordering possibility: design slice 3 *first* (what do agents and h
 
 **Also still open: tier-model promotion** (migrated from the now-deleted `HANDOFF_DECISIONS.md` Gap 1). `cortex decision promote` was removed from the CLI in [ef0262c](src/cli/commands/decision.ts) with a "deferred until tier model specced" error. `DecisionPromotion` class + `promote_decision` MCP tool still exist (TS-side, repo-scoped per the routing fix). What promotion *means* (personal → team semantics, who can promote, where a `team` decision physically lives — same repo's `.cortex/decisions.db` with a tier flag, a shared store, synced, etc.) was never specced; the `tier` column is in the schema with `DEFAULT 'personal'` but has no design rationale. Either spec it or remove the dormant plumbing.
 
-### Item 4 — Open items from the older Phase 4 handoff that are still real
-
-These survived multiple sessions; not deliberately ignored, just unprioritized:
-- **2D viewer color/shape regression for granular kinds** post-Phase 4 (`class`, `method`, `interface`, `enum` render with default styling).
-- **`anim.nodes` grows unbounded** in the viewer; `setHover` adds but `remove_node` doesn't evict.
-- **`seen` Set in `src/viewer/websocket.js` unbounded** — ~26MB at 1M events.
-- **WS reconnect drift** — mutations during outage aren't replayed.
-- **Lean grammar parser ~100MB** at `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push.
-
 ## What's in main right now
 
-Top commits (10 shipped to origin/main earlier in session; Wave 3 + this handoff pending push):
+Top commits on local `main` (HEAD `ed220f2`). **`origin/main` is at `b0d1989`,
+107 commits behind — re-verify the push before treating remote as current.**
 
 ```
-091249f Merge branch 'fix/indexer/multi-project-routing'      (Wave 3: multi-project routing)
-1657817 fix: multi-project routing for MCP tools (per 2026-05-26 field report)
-329c947 docs(handoff): record Wave 2 field-report follow-ups
-61f1861 Merge branch 'fix/shared/resolve-input-file-symbol'   (Wave 2: editor-jump form)
-4f89e77 fix(shared/resolve-input): accept file:symbol editor-jump form
-2a82a76 Merge branch 'fix/cli/index-changes-resolution'       (Wave 2: index changes bug)
-bd467cc fix(cli): index changes uses 'project' arg, not 'repo_path'
-fcde0e1 Merge branch 'fix/indexer/lockfile-route-noise'       (Wave 2: lockfile routes)
-d85a746 fix(indexer): skip lockfile basenames in infra route extraction
-44263da docs(handoff): record Bug 1+2 shipped, refine Bug 3 diagnosis
-fe92f5c Merge branch 'fix/indexer/url-arg-discriminator'      (Bug 2: cortex 76→25 HTTP_CALLS)
-1949eab fix(indexer): reject filesystem-path strings in URL-arg HTTP_CALLS detection
-5700759 Merge branch 'fix/indexer/nuxt-fetch-registry'        (Bug 1: anthill 0→23 HTTP_CALLS)
-945056f fix(indexer): emit HTTP_CALLS for unresolved global HTTP callees
+ed220f2 Merge: track field reports + .DS_Store gitignore
+b716058 chore: track field reports + gitignore .DS_Store
+67058bd Merge: worktree collapse to canonical + HANDOFF updates
+c5f86eb docs(handoff): record 2026-06-04 shipped work + Item 5 worktrees-as-PRs
+fc8ae84 feat(mcp): collapse worktrees to canonical repo root in resolver
+6a3c463 Merge: unified .mcp.json invocation for both contexts
+b8ba817 fix(mcp): unify .mcp.json invocation for plugin + project contexts
+6fa84a7 Merge: marketplace install path + plugin 0.3.0
+3d94b62 docs(readme): lead install with plugin marketplace path
+793733d chore(plugin): bump cortex plugin 0.2.0 → 0.3.0
+491a569 Merge: MCP multi-project routing (per-call resolver + rehome CLI + regression test)
+579aaab feat(hooks): print repo absolute path in SessionStart banner
+565901d docs: agent-facing MCP routing contract
+4082577 test(cli): error-path coverage for decision rehome
+5b4d076 feat(cli): cortex decision rehome <id> --to=<repo_path>
+6938492 feat(mcp): remove startup repoPath binding — per-call routing is the only path
 ```
+
+The 2026-05-26 Wave 1/2/3 commits (Bug 1+2, lockfile-route noise, `index
+changes`, `file:symbol`, the first multi-project routing fix) are further down
+the same `main` history.
 
 Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
 
@@ -250,7 +271,7 @@ npm install                              # postinstall builds bin/cortex-indexer
 
 # Sanity smoke
 cortex tour                              # confirm CLI works from cortex repo
-npm test                                 # expect 487 passed / 1 skipped / 1 documented flake
+npm test                                 # expect ~612 passed / 1 skipped / 1 documented Python-venv flake
 ```
 
 ### If picking up the template-literal follow-up (smallest remaining piece):
