@@ -4,7 +4,7 @@ import { checkLabelQuality } from "../../src/frame-extraction/eval-labels.js";
 import type { ClusterAssignment } from "../../src/frame-extraction/types.js";
 
 function cl(id: number, paths: string[]): ClusterAssignment {
-  return { cluster_id: id, member_paths: paths, size: paths.length } as ClusterAssignment;
+  return { cluster_id: id, member_paths: paths };
 }
 
 describe("checkLabelQuality", () => {
@@ -37,5 +37,12 @@ describe("checkLabelQuality", () => {
     const topTokens = { "3": ["compiler", "dsl"] };
     const v = checkLabelQuality(clusters, topTokens);
     expect(v.filter((x) => x.cluster_id === 3)).toHaveLength(0);
+  });
+  it("does NOT flag a label word ending in 'id' that is not a bracketed route param", () => {
+    // "grid" ends in "id" but no [grid] segment exists in these paths — must pass clean
+    const clusters = [cl(4, ["app/grid/a.ts", "app/grid/b.ts"])];
+    const topTokens = { "4": ["grid"] };
+    const v = checkLabelQuality(clusters, topTokens);
+    expect(v.filter((x) => x.cluster_id === 4)).toHaveLength(0);
   });
 });
