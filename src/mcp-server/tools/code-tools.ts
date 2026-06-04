@@ -425,22 +425,37 @@ export function registerCodeTools(
     async ({ project }) => callIndexer("delete_project", { project })
   );
 
-  // 6.8: bridge three indexer tools that don't yet have TS registrations
+  // query_graph — migrated to per-call routing.
+  //
+  // `repo_path` selects which `.cortex/db` the indexer subprocess opens
+  // (via CORTEX_DB). `project` is preserved as a *separate* concern: it's
+  // an in-graph filter that scopes the Cypher query to a single
+  // ctx_projects row when an indexer DB happens to hold multiple projects.
+  // For the common case (one project per .cortex/db), we derive it from
+  // ctx so the caller doesn't have to know the in-graph name.
   server.tool(
     "query_graph",
     "Execute a Cypher-style query against the code graph",
-    {
-      query: z.string().describe("Cypher query string"),
-      project: z.string().optional().describe("Project name (default: active project)"),
-      max_rows: z.number().int().optional().describe("Maximum rows to return"),
-    },
-    async ({ query, project, max_rows }) => {
-      const args: Record<string, unknown> = { query };
-      if (project !== undefined) args.project = project;
-      else if (indexerProject) args.project = indexerProject;
-      if (max_rows !== undefined) args.max_rows = max_rows;
-      return callIndexer("query_graph", args);
-    }
+    queryGraphShape,
+    registerTool(
+      "query_graph",
+      queryGraphSchema,
+      async (ctx, args) => {
+        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const indexerArgs: Record<string, unknown> = { query: args.query };
+        // Caller-supplied project wins; otherwise derive from the addressed
+        // DB. Either way the project filter is applied INSIDE the graph DB
+        // selected by repo_path, never across repos.
+        if (args.project !== undefined) indexerArgs.project = args.project;
+        else {
+          const derived = projectFromCtx(ctx);
+          if (derived) indexerArgs.project = derived;
+        }
+        if (args.max_rows !== undefined) indexerArgs.max_rows = args.max_rows;
+        return callIndexer("query_graph", indexerArgs, addressedDbPath);
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
