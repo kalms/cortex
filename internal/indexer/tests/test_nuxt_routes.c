@@ -110,6 +110,36 @@ TEST(nuxt_route_rejects_non_route) {
     PASS();
 }
 
+/* Row 7: server/api/index.get.ts → /api, GET
+ * Exercises dir == "api" + stem == "index" (index-drop at api root). */
+TEST(nuxt_route_index_at_api_root) {
+    arena_setup();
+    const char *path = NULL, *method = NULL;
+    bool ok = ctx_nuxt_route_from_path(&test_arena,
+        "server/api/index.get.ts",
+        &path, &method);
+    ASSERT_TRUE(ok);
+    ASSERT_STR_EQ(path, "/api");
+    ASSERT_STR_EQ(method, "GET");
+    arena_teardown();
+    PASS();
+}
+
+/* Row 8: server/api/[org]/[repo]/info.get.ts → /api/:org/:repo/info, GET
+ * Exercises dynamic-segment translation in the directory walk. */
+TEST(nuxt_route_multiple_dynamic_segments) {
+    arena_setup();
+    const char *path = NULL, *method = NULL;
+    bool ok = ctx_nuxt_route_from_path(&test_arena,
+        "server/api/[org]/[repo]/info.get.ts",
+        &path, &method);
+    ASSERT_TRUE(ok);
+    ASSERT_STR_EQ(path, "/api/:org/:repo/info");
+    ASSERT_STR_EQ(method, "GET");
+    arena_teardown();
+    PASS();
+}
+
 /* ── Suite ───────────────────────────────────────────────────────── */
 
 SUITE(nuxt_routes) {
@@ -119,4 +149,6 @@ SUITE(nuxt_routes) {
     RUN_TEST(nuxt_route_catchall);
     RUN_TEST(nuxt_route_no_method_suffix);
     RUN_TEST(nuxt_route_rejects_non_route);
+    RUN_TEST(nuxt_route_index_at_api_root);
+    RUN_TEST(nuxt_route_multiple_dynamic_segments);
 }
