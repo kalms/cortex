@@ -45,7 +45,7 @@ Cortex's invariant — "one index per repo, shared across all worktrees" — is 
 
 ### Bug 1 — Nuxt fetch family HTTP_CALLS detection (merged: 5700759)
 
-Adds `ctx_service_pattern_is_global_http()` allowlist covering `$fetch`, `useFetch`, `useLazyFetch`, and platform `fetch`. Wires a fallback in the unresolved-call branch of both `pass_calls.c` AND `pass_parallel.c` (the latter is the production path for repos >100 files — yesterday's plan only mentioned pass_calls.c). For unresolved calls whose bare callee matches the allowlist AND whose first string arg is URL-shaped, emits an HTTP_CALLS edge pointing to a Route node.
+Adds `ctx_service_pattern_is_global_http()` allowlist covering `$fetch`, `useFetch`, `useLazyFetch`, and platform `fetch`. Wires a fallback in the unresolved-call branch of both `pass_calls.c` AND `pass_parallel.c` (the latter is the production path for repos with >50 files, per `MIN_FILES_FOR_PARALLEL` — yesterday's plan only mentioned pass_calls.c). For unresolved calls whose bare callee matches the allowlist AND whose first string arg is URL-shaped, emits an HTTP_CALLS edge pointing to a Route node.
 
 - **Why the original plan ("just add them to http_libraries[]") didn't work:** that table is a SUBSTRING match on the resolved QN. Nuxt's `$fetch` etc. are auto-imports — they never appear in an IMPORTS edge, so call resolution returns nothing and the call gets dropped before classification can run. The substring-match path is unreachable for them.
 - **Impact:** anthill-cloud 0 → 23 HTTP_CALLS (all `via: global_http`, all real Nuxt fetches). cortex +1 legit fetch. No regressions elsewhere.
