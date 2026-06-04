@@ -235,11 +235,38 @@ describe("code-tools contract", () => {
   });
 
   describe("index_repository", () => {
-    it("happy: re-indexes fixture without erroring", async () => {
-      const res = await callTool(h, "index_repository", { path: h.fixtureDir });
+    it("happy: re-indexes harness repo without erroring", async () => {
+      // After migration, index_repository takes repo_path. The harness
+      // primary repo is a real git root with .cortex/db already populated,
+      // so this should hit the cache path or run the indexer cleanly.
+      const res = await callTool(h, "index_repository", { repo_path: h.repoPath });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.content[0].text).not.toMatch(/^ERROR /);
     });
+
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "index_repository", { repo_path: undefined });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("indexes a fresh git root that has no prior .cortex/db", async () => {
+      // The point of allowUnindexed: a repo that doesn't have an index YET
+      // is exactly the input index_repository is meant to handle.
+      const fresh = mkdtempSync(join(tmpdir(), "cortex-fresh-"));
+      try {
+        execSync(`git init -q "${fresh}"`);
+        // No .cortex/db yet — default-mode routing would throw RepoNotIndexed.
+        const res = await callTool(h, "index_repository", { repo_path: fresh });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        // The indexer subprocess may report an error (empty repo, no files)
+        // but it must NOT be a routing error — i.e. we must have made it
+        // past the resolver.
+        expect(res.content[0].text).not.toMatch(/repo_path required/);
+      } finally {
+        try { rmSync(fresh, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 30_000);
   });
 
   // ---------------------------------------------------------------------------
