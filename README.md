@@ -10,15 +10,32 @@ The indexer ships in-tree under `internal/indexer/` and writes directly to Corte
 
 ## Installation
 
-### As a Claude Code Plugin
+### Claude Code Plugin (recommended)
+
+The canonical install. One command, and every Claude Code session in every repo on the machine picks up cortex's MCP server, skills, hooks, and slash commands.
 
 ```bash
 claude plugin add github:kalms/cortex
 ```
 
-This registers the MCP server, skills, and hooks automatically.
+This single install registers, in one go:
 
-### Manual Setup
+- **24 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
+- **The SessionStart hook** (`hooks/check-index.sh`) — prints the active repo, its index state, and routing reminders into every new conversation.
+- **The skill library** under `skills/` — `seed-decisions` (cold-start bootstrap), `capture-decision`, `search-decisions`, `explain-architecture`.
+- **The decision-capture flow** under `bin/` — `cortex decision create / link / why / list / rehome / propose / supersede / update / delete / show / candidates`, plus `cortex code find / show / where / why`.
+
+After the install, `/mcp` lists cortex as connected and `cortex decision --help` works from any indexed repo. There is no per-project `.mcp.json` to edit, no environment variable to set.
+
+#### Plugin contract — passing `repo_path`
+
+Every routed MCP tool (everything except `list_projects` / `delete_project`) requires an absolute `repo_path` argument naming the git root the call is about. The session-start banner prints this path for the active session; agents working across multiple repos pass the explicit path of the repo each call concerns. Calls without `repo_path` return a structured `MissingRepoPathError` payload listing every indexed repo the resolver knows about — agents can paste the right value back without a second tool call.
+
+The full design is in [`docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md).
+
+### Manual setup (advanced / development)
+
+For hacking on cortex itself, or for MCP clients that aren't Claude Code (Cursor, custom agents, etc.):
 
 ```bash
 git clone git@github.com:kalms/cortex.git
@@ -26,35 +43,24 @@ cd cortex
 npm install
 ```
 
-Register Cortex in your `.mcp.json` (project-level) or `~/.claude.json` (user-level):
+Then point your MCP client at the launcher script:
 
 ```json
 {
   "mcpServers": {
     "cortex": {
       "command": "bash",
-      "args": ["/path/to/cortex/bin/cortex-mcp.sh"]
+      "args": ["/absolute/path/to/cortex/bin/cortex-mcp.sh"]
     }
   }
 }
 ```
 
-The `bin/cortex-mcp.sh` wrapper resolves its own install path and `cd`s into it before exec'ing `npx tsx src/index.ts`. It exists because Claude Code's MCP spawn does not reliably honor the `cwd` field — child processes inherit the host session's working directory, which usually has no `tsx` and no `src/index.ts`. The wrapper sidesteps that with a single line of bash.
+The `bin/cortex-mcp.sh` wrapper resolves its own install path via `BASH_SOURCE` and `cd`s into it before exec'ing `npx tsx src/index.ts`. This is what the plugin install wires up automatically — manual users are doing the same thing by hand.
 
-If you'd rather invoke a built bundle, run `npm run build` then point at it:
+> **Note.** If you maintain a project-scoped `.mcp.json` and Claude Code's trust prompt sets `enabledMcpjsonServers: ["cortex"]` in `.claude/settings.local.json`, deleting the `.mcp.json` later (intentionally or via a stash/branch switch) leaves the setting dangling and `/mcp` then fails with `MCP error -32000: Connection closed`. The plugin install avoids this entire failure class because there is no project-level file to lose track of.
 
-```json
-{
-  "mcpServers": {
-    "cortex": {
-      "command": "node",
-      "args": ["/path/to/cortex/dist/index.js"]
-    }
-  }
-}
-```
-
-### Development Mode
+### Development mode
 
 ```bash
 npm run dev
@@ -66,13 +72,24 @@ Starts the MCP server (stdio) and the 2D frames viewer at [http://localhost:3334
 
 **`/mcp` shows `cortex` as `✘ failed` with `-32000 connection closed`**
 
-Check three locations for stale `cortex` entries in this order — the first match wins and silently overrides everything below it:
+Most common cause: a project-scoped `.mcp.json` is referenced by `enabledMcpjsonServers` in `.claude/settings.local.json` but the file itself is missing. Either restore the file or remove `"cortex"` from `enabledMcpjsonServers` and rely on the plugin install instead.
+
+If you're on the plugin path and still see this, the plugin cache may have an unbuilt native addon — see the better-sqlite3 entry below.
+
+`/mcp` displays which config file it loaded under `Config location`. Three locations are searched in order — the first match wins:
 
 1. `<your-project>/.mcp.json` — project-level override
 2. `~/.claude.json` under `projects["<your-project>"].mcpServers` — per-project user config (added by `claude mcp add`)
-3. `~/.claude/plugins/cache/cortex-local/cortex/<ver>/.mcp.json` — the canonical plugin config
+3. `~/.claude/plugins/cache/cortex-local/cortex/<ver>/.mcp.json` — the plugin's own config
 
-`/mcp` displays which file it loaded under `Config location`. If a stale `cwd: "/path/to/cortex"` entry is being read instead of the wrapper-based config, remove it and re-open the Claude Code window.
+**The plugin runs an old version of cortex**
+
+The plugin cache at `~/.claude/plugins/cache/cortex-local/cortex/<ver>/` is a snapshot taken at install time. Bumping cortex's `plugin.json` version (and `marketplace.json` version) forces a re-sync on the next Claude Code session. For a force-refresh today:
+
+```bash
+rm -rf ~/.claude/plugins/cache/cortex-local/cortex/<old-ver>
+# restart Claude Code; the marketplace re-syncs from /Users/<you>/.../cortex on next session
+```
 
 **`Error: Could not locate the bindings file` (better-sqlite3)**
 
