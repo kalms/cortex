@@ -32,6 +32,28 @@ describe("Phase 6 bridged tools", () => {
     expect(res.isError).toBeFalsy();
   });
 
+  describe("ingest_traces per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "ingest_traces", {
+        repo_path: undefined,
+        traces: [],
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("ingests against the addressed repo", async () => {
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "ingest_traces", { repo_path: repoB, traces: [] });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        expect(res.isError).toBeFalsy();
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
   describe("get_architecture per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
       const res = await callTool(h, "get_architecture", {
