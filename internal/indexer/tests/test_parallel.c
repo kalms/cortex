@@ -428,6 +428,136 @@ TEST(gbuf_next_id_accessors) {
     PASS();
 }
 
+/* ── Nuxt route extraction through the parallel path ──────────────── */
+
+/* Exercises insert_def_into_gbuf (pass_parallel.c) — the parallel pipeline's
+ * DIRECT Route + HANDLES creation. The sequential path's route emission is
+ * covered by ts_nuxt_route_handler in test_extraction.c; this is the only
+ * automated check of the parallel-path equivalent.
+ *
+ * Setup: a temp repo with one Nuxt server route (server/api/orgs/index.get.ts)
+ * containing a defineEventHandler. We discover it and run ctx_parallel_extract
+ * directly (the same Phase-3A entry the >50-file pipeline uses), which dispatches
+ * to extract_worker → insert_def_into_gbuf.
+ *
+ * Asserts: (1) a route_path-tagged Function node exists, (2) a Route node with
+ * qn "__route__GET__/api/orgs" exists, (3) a HANDLES edge runs from the function
+ * to that Route node. If insert_def_into_gbuf's route block were removed/broken,
+ * the Route node and HANDLES edge would be absent and assertions (2)/(3) fail. */
+TEST(parallel_nuxt_route_handles) {
+    char tmpdir[256];
+    snprintf(tmpdir, sizeof(tmpdir), "/tmp/ctx_par_nuxt_XXXXXX");
+    if (!ctx_mkdtemp(tmpdir))
+        SKIP("mkdtemp failed");
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/server", tmpdir);
+    ctx_mkdir(path);
+    snprintf(path, sizeof(path), "%s/server/api", tmpdir);
+    ctx_mkdir(path);
+    snprintf(path, sizeof(path), "%s/server/api/orgs", tmpdir);
+    ctx_mkdir(path);
+
+    snprintf(path, sizeof(path), "%s/server/api/orgs/index.get.ts", tmpdir);
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        th_rmtree(tmpdir);
+        SKIP("write fixture failed");
+    }
+    fprintf(f, "export default defineEventHandler(async (event) => {\n"
+               "  return $fetch('/api/platform/orgs')\n"
+               "})\n");
+    fclose(f);
+
+    ctx_discover_opts_t opts = {.mode = CTX_MODE_FULL};
+    ctx_file_info_t *files = NULL;
+    int file_count = 0;
+    if (ctx_discover(tmpdir, &opts, &files, &file_count) != 0 || file_count == 0) {
+        th_rmtree(tmpdir);
+        SKIP("discover failed");
+    }
+
+    const char *project = "par-nuxt-test";
+    ctx_gbuf_t *gbuf = ctx_gbuf_new(project, tmpdir);
+    ctx_registry_t *reg = ctx_registry_new();
+    atomic_int cancelled;
+    atomic_init(&cancelled, 0);
+
+    ctx_pipeline_ctx_t ctx = {
+        .project_name = project,
+        .repo_path = tmpdir,
+        .gbuf = gbuf,
+        .registry = reg,
+        .cancelled = &cancelled,
+    };
+
+    _Atomic int64_t shared_ids;
+    atomic_init(&shared_ids, ctx_gbuf_next_id(gbuf));
+
+    CtxFileResult **result_cache = calloc((size_t)file_count, sizeof(CtxFileResult *));
+
+    ctx_init();
+    int rc = ctx_parallel_extract(&ctx, files, file_count, result_cache, &shared_ids, 2);
+    ctx_gbuf_set_next_id(gbuf, atomic_load(&shared_ids));
+    ASSERT_EQ(rc, 0);
+
+    /* (1) The route_path-tagged Function node exists. */
+    const ctx_gbuf_node_t **fns = NULL;
+    int fn_count = 0;
+    ctx_gbuf_find_by_label(gbuf, "Function", &fns, &fn_count);
+    int64_t handler_id = 0;
+    for (int i = 0; i < fn_count; i++) {
+        const ctx_gbuf_edge_t **handles = NULL;
+        int hcount = 0;
+        ctx_gbuf_find_edges_by_source_type(gbuf, fns[i]->id, "HANDLES", &handles, &hcount);
+        if (hcount > 0) {
+            handler_id = fns[i]->id;
+            break;
+        }
+    }
+
+    /* (2) The Route node with the derived qn exists. */
+    const ctx_gbuf_node_t *route = ctx_gbuf_find_by_qn(gbuf, "__route__GET__/api/orgs");
+
+    /* (3) A HANDLES edge from the handler function to that Route node. */
+    int handles_total = ctx_gbuf_edge_count_by_type(gbuf, "HANDLES");
+
+    int ok = 1;
+    if (route == NULL) {
+        printf("  Route node __route__GET__/api/orgs missing\n");
+        ok = 0;
+    }
+    if (handler_id == 0) {
+        printf("  no Function node with an outgoing HANDLES edge\n");
+        ok = 0;
+    }
+    if (handles_total < 1) {
+        printf("  HANDLES edge count = %d\n", handles_total);
+        ok = 0;
+    }
+    if (ok && route != NULL) {
+        const ctx_gbuf_edge_t **handles = NULL;
+        int hcount = 0;
+        ctx_gbuf_find_edges_by_source_type(gbuf, handler_id, "HANDLES", &handles, &hcount);
+        if (hcount < 1 || handles[0]->target_id != route->id) {
+            printf("  HANDLES edge does not target the Route node\n");
+            ok = 0;
+        }
+    }
+
+    ctx_registry_free(reg);
+    for (int i = 0; i < file_count; i++)
+        if (result_cache[i])
+            ctx_free_result(result_cache[i]);
+    free(result_cache);
+    ctx_gbuf_free(gbuf);
+    ctx_discover_free(files, file_count);
+    th_rmtree(tmpdir);
+
+    ASSERT_TRUE(ok);
+    PASS();
+}
+
 /* ── Suite Registration ──────────────────────────────────────────── */
 
 SUITE(parallel) {
@@ -450,6 +580,9 @@ SUITE(parallel) {
     RUN_TEST(parallel_implements_parity);
     RUN_TEST(parallel_total_edges);
     RUN_TEST(parallel_empty_files);
+
+    /* Parallel-path Route + HANDLES creation (Nuxt routes) */
+    RUN_TEST(parallel_nuxt_route_handles);
 
     /* Cleanup shared state */
     parity_teardown();
