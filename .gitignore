@@ -14,6 +14,9 @@ qa2-*.png
 .playwright-mcp/
 scripts/frame-extraction/python/.venv/
 
+# macOS Finder metadata — never useful in the repo
+.DS_Store
+
 # Eval harness output and cache
 /evals/reports/
 /evals/cache/
