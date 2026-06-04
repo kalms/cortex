@@ -58,6 +58,35 @@
       "archetype": "python-ml",
       "size_hint": "medium",
       "primary_language": "python"
+    },
+    {
+      "slug": "vercel/commerce",
+      "git": "https://github.com/vercel/commerce.git",
+      "archetype": "next-app",
+      "size_hint": "medium",
+      "primary_language": "typescript"
+    },
+    {
+      "slug": "saleor/saleor",
+      "git": "https://github.com/saleor/saleor.git",
+      "archetype": "django-app",
+      "size_hint": "large",
+      "primary_language": "python"
+    },
+    {
+      "slug": "rubygems/rubygems.org",
+      "git": "https://github.com/rubygems/rubygems.org.git",
+      "archetype": "rails-app",
+      "size_hint": "medium",
+      "primary_language": "ruby"
+    },
+    {
+      "slug": "local/anthill-cloud",
+      "git": null,
+      "local_path": "/Users/rka/Development/anthill-cloud",
+      "archetype": "nuxt-app",
+      "size_hint": "medium",
+      "primary_language": "typescript"
     }
   ]
 }
