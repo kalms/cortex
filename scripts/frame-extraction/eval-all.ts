@@ -37,11 +37,15 @@ const DEFAULT_OUT = join(REPO_ROOT, ".tmp", "frame-extraction", "eval-all.json")
 interface CliArgs {
   out: string;
   only?: string;
+  keep?: boolean;
 }
 
 interface RepoEvalRow {
   slug: string;
   ok: boolean;
+  /** Resolved indexer project name (slug-form). Present on success; used by
+   *  teardown to deregister git-cloned corpus projects after the run. */
+  project?: string;
   error?: string;
   cluster_count?: number;
   noise_rate?: number;
@@ -55,8 +59,29 @@ function parseArgs(argv: string[]): CliArgs {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") args.out = resolve(argv[++i]!);
     else if (argv[i] === "--only") args.only = argv[++i];
+    else if (argv[i] === "--keep") args.keep = true;
   }
   return args;
+}
+
+/**
+ * Project names to deregister after a corpus run. Only **git-cloned** corpus
+ * repos are returned — never `local_path` fixtures (e.g. `self/cortex`,
+ * `local/anthill-cloud`), which are real registered projects the user owns.
+ * Rows without a resolved `project` (clone/index failures) are skipped.
+ *
+ * Pure: takes the repos that ran + their result rows, returns names to delete.
+ * This is the contract that keeps the eval from polluting the global project
+ * registry: measurement must leave no trace.
+ */
+export function teardownTargets(repos: RepoSpec[], rows: RepoEvalRow[]): string[] {
+  const clonedSlugs = new Set(repos.filter((r) => r.git !== null).map((r) => r.slug));
+  const out: string[] = [];
+  for (const row of rows) {
+    if (!clonedSlugs.has(row.slug)) continue;
+    if (row.project) out.push(row.project);
+  }
+  return out;
 }
 
 /** Run the full eval pipeline for one repo. Never throws — failures are
@@ -117,6 +142,7 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
     return {
       slug: repo.slug,
       ok: true,
+      project,
       cluster_count: clusterCount(result.clusters),
       noise_rate: noiseRate(result.clusters),
       import_agreement_strict: importAgreementStrict,
@@ -171,6 +197,29 @@ function main() {
     JSON.stringify({ generated_at: new Date().toISOString(), rows }, null, 2),
   );
   console.log(`[eval-all] wrote ${args.out}`);
+
+  // Teardown: deregister the git-cloned corpus projects we just indexed, so
+  // the eval leaves the global project registry as it found it. Local fixtures
+  // (self/cortex, anthill-cloud) are never touched. Opt out with --keep.
+  if (args.keep) {
+    console.log("[eval-all] --keep set: corpus projects left registered.");
+    return;
+  }
+  const targets = teardownTargets(filtered, rows);
+  for (const project of targets) {
+    const del = callIndexer<{ status?: string }>("delete_project", { project });
+    console.log(
+      del.ok
+        ? `[eval-all]   ⌫ deregistered ${project}`
+        : `[eval-all]   ⚠ could not deregister ${project}: ${del.error}`,
+    );
+  }
+  if (targets.length > 0) {
+    console.log(`[eval-all] teardown: deregistered ${targets.length} corpus project(s) (use --keep to retain).`);
+  }
 }
 
-main();
+const isDirect =
+  import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith("eval-all.ts");
+if (isDirect) main();
