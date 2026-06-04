@@ -458,22 +458,29 @@ export function registerCodeTools(
     ),
   );
 
+  // get_architecture — migrated to per-call routing.
+  //
+  // Dropped the previously-public `project` arg: with repo_path addressing
+  // the `.cortex/db`, the in-graph project name is unambiguous (one project
+  // per DB in normal use) and we derive it from ctx. If a future caller
+  // needs to override (e.g. multi-project DBs from the indexer cache), they
+  // can pass `project` via query_graph instead.
   server.tool(
     "get_architecture",
     "Get architectural overview by aspect (structure, dependencies, routes, all)",
-    {
-      aspects: z
-        .array(z.string())
-        .optional()
-        .describe('Aspects to include, e.g. ["all"]'),
-      project: z.string().optional().describe("Project name (default: active project)"),
-    },
-    async ({ aspects, project }) => {
-      const args: Record<string, unknown> = { aspects: aspects ?? ["all"] };
-      if (project !== undefined) args.project = project;
-      else if (indexerProject) args.project = indexerProject;
-      return callIndexer("get_architecture", args);
-    }
+    getArchitectureShape,
+    registerTool(
+      "get_architecture",
+      getArchitectureSchema,
+      async (ctx, args) => {
+        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const indexerArgs: Record<string, unknown> = { aspects: args.aspects ?? ["all"] };
+        const project = projectFromCtx(ctx);
+        if (project) indexerArgs.project = project;
+        return callIndexer("get_architecture", indexerArgs, addressedDbPath);
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
