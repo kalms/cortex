@@ -18,6 +18,8 @@
 #include <string.h>
 #include <ctype.h>
 
+enum { NUXT_ROUTE_BUF_SIZE = 1024 };
+
 static const char *HTTP_METHODS[] = {
     "get", "post", "put", "patch", "delete", "head", "options", NULL
 };
@@ -42,12 +44,16 @@ static const char *translate_segment(CtxArena *a, const char *seg) {
         /* catch-all: [...x] */
         if (n >= 5 && strncmp(seg + 1, "...", 3) == 0) return "*";
         /* named param: [x] → ":x" — need ':' + (n-2) inner chars + NUL = n bytes */
-        char *out = (char *)ctx_arena_alloc(a, n);
-        if (!out) return seg; /* OOM fallback — shouldn't happen in practice */
-        out[0] = ':';
-        memcpy(out + 1, seg + 1, n - 2);
-        out[n - 1] = '\0';
-        return out;
+        /* Guard against degenerate "[]" (n==2) which would produce a bare ":". */
+        if (n > 2) {
+            char *out = (char *)ctx_arena_alloc(a, n);
+            if (!out) return seg; /* OOM fallback — shouldn't happen in practice */
+            out[0] = ':';
+            memcpy(out + 1, seg + 1, n - 2);
+            out[n - 1] = '\0';
+            return out;
+        }
+        return seg; /* degenerate "[]" passes through unchanged */
     }
     return seg;
 }
@@ -82,10 +88,15 @@ bool ctx_nuxt_route_from_path(CtxArena *a, const char *rel_path,
         base = work;
     }
 
-    /* Step 3: strip ".ts" and detect method suffix */
+    /* Step 3: strip trailing ".ts" suffix and detect method suffix.
+     * Use a trailing-suffix check rather than strstr to avoid mis-parsing
+     * stems that contain ".ts" internally (e.g. "list.ts.get.ts"). */
     char *method = (char *)"ANY";
-    char *dot_ts = strstr(base, ".ts");
-    if (dot_ts) *dot_ts = '\0';
+    {
+        size_t bl = strlen(base);
+        if (bl >= 3 && memcmp(base + bl - 3, ".ts", 3) == 0)
+            base[bl - 3] = '\0';
+    }
 
     char *meth_dot = strrchr(base, '.');
     if (meth_dot) {
@@ -107,7 +118,7 @@ bool ctx_nuxt_route_from_path(CtxArena *a, const char *rel_path,
     bool stem_is_index = (strcmp(base, "index") == 0);
 
     /* Step 5 + 6: build output path in a local buffer */
-    char buf[1024];
+    char buf[NUXT_ROUTE_BUF_SIZE];
     size_t pos = 0;
     buf[pos++] = '/';
 

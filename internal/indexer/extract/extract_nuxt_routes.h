@@ -8,7 +8,7 @@
  *   server/api/orgs/index.get.ts        → /api/orgs           GET
  *   server/api/auth/update-name.patch.ts → /api/auth/update-name PATCH
  *   apps/x/server/api/items/[id].get.ts → /api/items/:id      GET
- *   server/api/items/[...slug].get.ts   -> /api/items/STAR     GET  ([...x] catch-all)
+ *   server/api/items/[...slug].get.ts   -> /api/items/(asterisk) GET  ([...x] catch-all → asterisk char)
  *   server/api/health.ts                → /api/health         ANY
  *
  * Dynamic segments:
