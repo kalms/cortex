@@ -58,7 +58,8 @@ bool ctx_nuxt_route_from_path(CtxArena *a, const char *rel_path,
  * Parameters:
  *   ctx         — extraction context (provides arena, rel_path, source,
  *                 project, result)
- *   export_stmt — an `export_statement` TSNode to inspect
+ *   export_stmt — an `export_statement` TSNode to inspect; a null node
+ *                 is safe and returns false immediately
  *
  * Returns true iff the file path resolves to a Nuxt API route AND the export
  * matches the handler shape; in that case a Function def is pushed to
