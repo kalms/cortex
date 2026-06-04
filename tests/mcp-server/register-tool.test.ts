@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { registerTool, MissingRepoPathError, RepoContextResolver } from "../../src/mcp-server/repo-context.js";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,10 @@ describe("registerTool — default (per-repo) mode", () => {
     }, { resolver });
 
     await wrapped({ repo_path: repo, name: "hello" });
-    expect(received).toEqual({ ctxPath: repo, name: "hello" });
+    // ctx.repoPath is realpath-normalized (worktree collapse path), so on
+    // macOS `repo` (/tmp/...) becomes `/private/tmp/...`. Compare via
+    // realpath.
+    expect(received).toEqual({ ctxPath: realpathSync(repo), name: "hello" });
   });
 
   it("throws MissingRepoPathError when repo_path is absent", async () => {

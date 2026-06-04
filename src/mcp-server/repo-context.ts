@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
 import { openDecisionsDb } from "../decisions/db.js";
@@ -186,12 +186,29 @@ export class RepoContextResolver {
    * rejected as {@link NotAGitRepoError} with the inferred root in the
    * payload, so the caller can re-issue against the right repo without a
    * second lookup.
+   *
+   * Worktree collapse
+   * -----------------
+   * If the supplied path is a `git worktree add` worktree (or the canonical
+   * repo itself), the resolver routes to the **canonical repo's `.cortex/`**
+   * — every worktree of the same repo shares one `RepoContext`, one pair of
+   * DB handles, and one pool entry. Mechanism: `git rev-parse --git-common-dir`
+   * returns the shared `.git/` directory (relative `.git` from canonical, or
+   * absolute `/<canonical>/.git` from inside a worktree); resolving it
+   * against the input and taking its dirname yields the canonical root.
+   * `ctx.repoPath` always reports the canonical root, never the worktree
+   * path the caller passed.
+   *
+   * Why: cortex's invariant is "one index per repo, shared across all
+   * worktrees." Worktrees model in-flight branches/PRs against the same
+   * logical codebase (see HANDOFF.md "Worktrees as in-flight PRs"); their
+   * changes will eventually be captured as PR touches against the canonical
+   * graph rather than as a separate index. Routing every worktree to
+   * canonical means decisions captured in any worktree are immediately
+   * visible from every other worktree of the same repo.
    */
   resolve(repoPath: string): RepoContext {
     const abs = resolvePath(repoPath);
-    const cached = this.pool.get(abs);
-    if (cached) return cached;
-
     if (!existsSync(abs)) throw new PathNotFoundError(abs);
 
     let gitRoot: string;
@@ -205,17 +222,38 @@ export class RepoContextResolver {
     }
     // Symlink-tolerant comparison: macOS routinely surfaces `/tmp/foo` while
     // git reports `/private/tmp/foo`. Both normalize to the same realpath
-    // when the supplied path IS the root; they diverge when the caller
-    // passed a subdir.
+    // when the supplied path IS the root (canonical or a worktree); they
+    // diverge when the caller passed a subdir.
     if (realpathSync(gitRoot) !== realpathSync(abs)) {
       throw new NotAGitRepoError(abs, gitRoot);
     }
 
-    const graphDbPath = resolveCortexDbPath(abs);
+    // Worktree collapse — see JSDoc above for rationale. We realpath the
+    // result because:
+    //   - From the canonical, `--git-common-dir` returns relative `.git`,
+    //     yielding the input path verbatim (which may contain symlinks like
+    //     macOS's /tmp → /private/tmp).
+    //   - From a worktree, `--git-common-dir` returns an absolute path that
+    //     git has already resolved through symlinks.
+    // Without normalization, the two paths differ as pool keys and dedupe
+    // fails. realpath normalizes both forms to the same value.
+    const commonDir = execSync(`git -C "${abs}" rev-parse --git-common-dir`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const canonical = realpathSync(dirname(resolvePath(abs, commonDir)));
+
+    // Pool is keyed by canonical so every worktree of the same repo dedupes
+    // to one cached entry. Fast path when the canonical is already pooled
+    // (incl. via a sibling worktree's earlier resolve).
+    const cached = this.pool.get(canonical);
+    if (cached) return cached;
+
+    const graphDbPath = resolveCortexDbPath(canonical);
     if (!existsSync(graphDbPath)) {
-      throw new RepoNotIndexedError(abs, this.listKnownRepos());
+      throw new RepoNotIndexedError(canonical, this.listKnownRepos());
     }
-    const decisionsDbPath = resolveDecisionsDbPath(abs);
+    const decisionsDbPath = resolveDecisionsDbPath(canonical);
 
     // GraphStore opens its own handle to graphDbPath and runs schema
     // migration (idempotent CREATE TABLE IF NOT EXISTS). Constructing it
@@ -232,14 +270,14 @@ export class RepoContextResolver {
     const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 
     const ctx: RepoContext = Object.freeze({
-      repoPath: abs,
+      repoPath: canonical,
       graphDb,
       decisionsDb,
       store,
       decisionsRepo,
       decisionLinksRepo,
     });
-    this.pool.set(abs, ctx);
+    this.pool.set(canonical, ctx);
     return ctx;
   }
 
