@@ -489,13 +489,22 @@ export function registerCodeTools(
     ),
   );
 
+  // ingest_traces — migrated to per-call routing. Traces enrich the graph
+  // in a specific repo's .cortex/db, so we pin CORTEX_DB to the addressed
+  // repo before invoking the indexer subprocess.
   server.tool(
     "ingest_traces",
     "Ingest runtime traces to enrich the graph",
-    {
-      traces: z.array(z.unknown()).describe("Array of trace records"),
-    },
-    async ({ traces }) => callIndexer("ingest_traces", { traces })
+    ingestTracesShape,
+    registerTool(
+      "ingest_traces",
+      ingestTracesSchema,
+      async (ctx, args) => {
+        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        return callIndexer("ingest_traces", { traces: args.traces }, addressedDbPath);
+      },
+      { resolver },
+    ),
   );
 
   // --- SQL-based tools (6) ---
