@@ -131,7 +131,8 @@ EXTRACTION_SRCS = \
     $(EXTRACT_DIR)/extract_sfc.c \
     $(EXTRACT_DIR)/helpers.c \
     $(EXTRACT_DIR)/lang_specs.c \
-    $(EXTRACT_DIR)/service_patterns.c
+    $(EXTRACT_DIR)/service_patterns.c \
+    $(EXTRACT_DIR)/extract_nuxt_routes.c
 
 # LSP resolvers (compiled as one unit via lsp_all.c)
 LSP_SRCS = $(EXTRACT_DIR)/lsp_all.c
@@ -259,7 +260,8 @@ TEST_FOUNDATION_SRCS = \
 TEST_EXTRACTION_SRCS = \
     tests/test_extraction.c \
     tests/test_ac.c \
-    tests/test_service_patterns.c
+    tests/test_service_patterns.c \
+    tests/test_nuxt_routes.c
 
 TEST_STORE_SRCS = \
     tests/test_store_nodes.c \
