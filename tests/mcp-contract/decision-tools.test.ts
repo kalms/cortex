@@ -96,11 +96,10 @@ describe("decision-tools contract", () => {
       expect(ResponseSchema.safeParse(res).success).toBe(true);
     });
 
-    it.skip("happy: finds decision for linked file after create+link", async () => {
-      // TODO: whyWasThisBuilt does not extract file path from qualified_name.
-      // When queried with "src/server.ts::handleRequest", it should try file_path "src/server.ts"
-      // but currently tries to match the full qualified_name. This requires DecisionSearch
-      // to parse qualified_name and extract the file part before querying.
+    it("happy: finds decision for linked file after create+link", async () => {
+      // why_was_this_built resolves a qualified_name by walking up the
+      // qn/path hierarchy: "src/server.ts::handleRequest" matches a decision
+      // linked to the file "src/server.ts" (DecisionSearch.findGoverning).
       const create = await callTool(h, "create_decision", {
         title: "Server pattern",
         description: "uses parseBody",
