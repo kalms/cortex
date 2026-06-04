@@ -1,13 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolve, dirname } from "node:path";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
-import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
+import { resolveCortexDbPath } from "../../db/resolve-path.js";
+import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import type { EventBus } from "../../events/bus.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -21,336 +22,520 @@ const ProvenanceSchema = z.object({
   confidence: z.enum(["high", "medium", "low"]),
 });
 
+// ---------------------------------------------------------------------------
+// Per-call repo routing schemas
+//
+// Each migrated tool exports both a raw-shape constant (consumed by
+// `server.tool(name, description, SHAPE, handler)` — the MCP SDK requires
+// raw shapes, not z.object instances) and a paired z.object wrapping the
+// same shape (consumed by `registerTool` which calls `.parse(rawArgs)`).
+//
+// `repo_path` is marked optional at the Zod layer so the SDK's input
+// validation does not fire before `registerTool`'s pre-check has a chance
+// to throw the friendly `MissingRepoPathError` (which carries the list of
+// available projects so an agent can self-correct). The .describe() text
+// makes the field's REQUIRED status explicit to LLM-facing tool listings.
+// ---------------------------------------------------------------------------
+
+const RepoPathField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "REQUIRED. Absolute path to the indexed git root this decision is about. " +
+      "If you don't know it, call list_projects first.",
+  );
+
+const createDecisionShape = {
+  repo_path: RepoPathField,
+  title: z.string().describe("Short name for the decision"),
+  description: z.string().describe("What was decided"),
+  rationale: z.string().describe("Why this decision was made"),
+  alternatives: z.array(AlternativeSchema).optional().describe("Rejected alternatives with reasons"),
+  governs: z.array(z.string()).optional().describe("Node IDs or file paths this decision governs"),
+  references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
+  problem: z.string().optional().describe("Narrative: what question this decision answers"),
+  resolution: z.string().optional().describe("Narrative: what was decided"),
+} as const;
+const createDecisionSchema = z.object(createDecisionShape);
+
+const linkDecisionShape = {
+  repo_path: RepoPathField,
+  decision_id: z.string().describe("Decision node ID"),
+  target: z.string().describe("Target node ID or file path"),
+  relation: z.enum(["GOVERNS", "REFERENCES", "RELATED_TO", "DEPENDS_ON"])
+    .optional()
+    .describe("Edge type (default: GOVERNS)"),
+} as const;
+const linkDecisionSchema = z.object(linkDecisionShape);
+
+const searchDecisionsShape = {
+  repo_path: RepoPathField,
+  query: z.string().describe("Search query (FTS5 syntax)"),
+  scope: z.string().optional().describe("Qualified name or file path to scope results"),
+} as const;
+const searchDecisionsSchema = z.object(searchDecisionsShape);
+
+const getDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+} as const;
+const getDecisionSchema = z.object(getDecisionShape);
+
+const deleteDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+} as const;
+const deleteDecisionSchema = z.object(deleteDecisionShape);
+
+const updateDecisionShape = {
+  repo_path: RepoPathField,
+  id: z.string().describe("Decision node ID"),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  rationale: z.string().optional(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  status: z.enum(["active", "superseded", "deprecated"]).optional(),
+  superseded_by: z.string().optional().describe("ID of the superseding decision"),
+  problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
+  resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
+  governs: z.array(z.string()).optional().describe("Full set replacement of GOVERNS targets. [] clears all."),
+  references: z.array(z.string()).optional().describe("Full set replacement of REFERENCES targets. [] clears all."),
+} as const;
+const updateDecisionSchema = z.object(updateDecisionShape);
+
+const supersedeDecisionShape = {
+  repo_path: RepoPathField,
+  old_decision_id: z.string(),
+  title: z.string(),
+  problem: z.string(),
+  resolution: z.string(),
+  rationale: z.string(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  governs: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional(),
+} as const;
+const supersedeDecisionSchema = z.object(supersedeDecisionShape);
+
+const proposeDecisionShape = {
+  repo_path: RepoPathField,
+  title: z.string(),
+  problem: z.string(),
+  resolution: z.string(),
+  rationale: z.string(),
+  alternatives: z.array(AlternativeSchema).optional(),
+  governs: z.array(z.string()).optional(),
+  references: z.array(z.string()).optional(),
+  pr_number: z.number().int().optional(),
+  author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
+  provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
+} as const;
+const proposeDecisionSchema = z.object(proposeDecisionShape);
+
+const whyWasThisBuiltShape = {
+  repo_path: RepoPathField,
+  qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
+} as const;
+const whyWasThisBuiltSchema = z.object(whyWasThisBuiltShape);
+
+const decisionCandidatesShape = {
+  repo_path: RepoPathField,
+  max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+} as const;
+const decisionCandidatesSchema = z.object(decisionCandidatesShape);
+
 export function registerDecisionTools(
   server: McpServer,
-  service: DecisionService,
-  search: DecisionSearch,
-  links: DecisionLinksRepository,
+  resolver: RepoContextResolver,
   indexerProject?: string | null,
-  dbPath?: string,
+  bus?: EventBus,
 ): void {
+  // ---------------------------------------------------------------------------
+  // Per-call repo-scoped service construction.
+  //
+  // Build a fresh DecisionService/DecisionSearch anchored to the repo
+  // addressed by `ctx.repo_path` rather than startup-bound handles. After
+  // Phase 2 every tool routes through `serviceFor` / `searchFor`, so the
+  // module no longer accepts pre-built `service` / `search` / `links` /
+  // `dbPath` arguments — those were Phase 1 scaffolding.
+  //
+  // `bus` and `indexerProject` remain startup-bound because the event
+  // pipeline is server-scoped, not repo-scoped; Phase 5 revisits event
+  // routing.
+  // ---------------------------------------------------------------------------
+  const serviceFor = (ctx: RepoContext): DecisionService =>
+    new DecisionService({
+      decisions: ctx.decisionsRepo,
+      links: ctx.decisionLinksRepo,
+      bus,
+      project_id: indexerProject ?? "",
+    });
+
+  // Mirrors serviceFor() for DecisionSearch — read-only path queries scoped
+  // to the per-call repo's links table. Used by search_decisions and
+  // why_was_this_built. DecisionSearch is stateless apart from its repo
+  // handles, so constructing one per call is cheap.
+  const searchFor = (ctx: RepoContext): DecisionSearch =>
+    new DecisionSearch(ctx.decisionsRepo, ctx.decisionLinksRepo);
+
+  /**
+   * Create a new decision in the repo addressed by `args.repo_path`.
+   *
+   * Migrated to receive a {@link RepoContext} from registerTool — the legacy
+   * startup-bound module-scope repos are no longer used by this tool.
+   *
+   * This is the **template** for Tasks 2.2-2.11: per-call routing tools
+   * (a) take their schema from a paired raw-shape + z.object constant pair,
+   * (b) wrap the handler with `registerTool(name, schema, async (ctx, args) => …, { resolver })`,
+   * (c) derive a per-repo service via `serviceFor(ctx)` rather than closing
+   *     over the startup-bound `service`.
+   */
   server.tool(
     "create_decision",
     "Create a new decision node with rationale, alternatives, and links to governed code",
-    {
-      title: z.string().describe("Short name for the decision"),
-      description: z.string().describe("What was decided"),
-      rationale: z.string().describe("Why this decision was made"),
-      alternatives: z.array(AlternativeSchema).optional().describe("Rejected alternatives with reasons"),
-      governs: z.array(z.string()).optional().describe("Node IDs or file paths this decision governs"),
-      references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
-      problem: z.string().optional().describe("Narrative: what question this decision answers"),
-      resolution: z.string().optional().describe("Narrative: what was decided"),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const decision = service.create(params);
-        return ok(JSON.stringify(decision, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    createDecisionShape,
+    registerTool(
+      "create_decision",
+      createDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          // Strip repo_path before forwarding to the service — it's a routing
+          // concern, not a decision field. The remaining args shape is the
+          // legacy CreateDecisionInput contract.
+          const { repo_path: _repoPath, ...createArgs } = args;
+          const decision = serviceFor(ctx).create(createArgs);
+          return ok(JSON.stringify(decision, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "propose_decision",
     "Create a proposed decision (status='proposed'). Optionally link to a PR as 'introduces', or supply provenance + author for machine-seeded candidates (e.g. cortex:seed).",
-    {
-      title: z.string(),
-      problem: z.string(),
-      resolution: z.string(),
-      rationale: z.string(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      governs: z.array(z.string()).optional(),
-      references: z.array(z.string()).optional(),
-      pr_number: z.number().int().optional(),
-      author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
-      provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const d = service.propose(params);
-        return ok(JSON.stringify(d, null, 2));
-      } catch (e) {
-        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-      }
-    }
+    proposeDecisionShape,
+    registerTool(
+      "propose_decision",
+      proposeDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          const { repo_path: _repoPath, ...proposeArgs } = args;
+          const d = serviceFor(ctx).propose(proposeArgs);
+          return ok(JSON.stringify(d, null, 2));
+        } catch (e) {
+          return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "supersede_decision",
     "Atomically create a new decision that supersedes an existing one.",
-    {
-      old_decision_id: z.string(),
-      title: z.string(),
-      problem: z.string(),
-      resolution: z.string(),
-      rationale: z.string(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      governs: z.array(z.string()).optional(),
-      references: z.array(z.string()).optional(),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      try {
-        const d = service.supersede(params);
-        return ok(JSON.stringify(d, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`supersede_decision(${params.old_decision_id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    supersedeDecisionShape,
+    registerTool(
+      "supersede_decision",
+      supersedeDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        try {
+          const { repo_path: _repoPath, ...supersedeArgs } = args;
+          const d = serviceFor(ctx).supersede(supersedeArgs);
+          return ok(JSON.stringify(d, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`supersede_decision(${args.old_decision_id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "update_decision",
     "Update an existing decision's fields (governs and references are full-set replacements when provided)",
-    {
-      id: z.string().describe("Decision node ID"),
-      title: z.string().optional(),
-      description: z.string().optional(),
-      rationale: z.string().optional(),
-      alternatives: z.array(AlternativeSchema).optional(),
-      status: z.enum(["active", "superseded", "deprecated"]).optional(),
-      superseded_by: z.string().optional().describe("ID of the superseding decision"),
-      problem: z.string().nullable().optional().describe("Narrative: what question this decision answers"),
-      resolution: z.string().nullable().optional().describe("Narrative: what was decided"),
-      governs: z.array(z.string()).optional().describe("Full set replacement of GOVERNS targets. [] clears all."),
-      references: z.array(z.string()).optional().describe("Full set replacement of REFERENCES targets. [] clears all."),
-    },
-    async (params) => {
-      const bad = validateDecisionFields(params as Record<string, unknown>);
-      if (bad) {
-        return errorResponse(
-          "malformed_input",
-          `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
-        );
-      }
-      const { id, ...updates } = params;
-      try {
-        const decision = service.update(id, updates);
-        return ok(JSON.stringify(decision, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    updateDecisionShape,
+    registerTool(
+      "update_decision",
+      updateDecisionSchema,
+      async (ctx, args) => {
+        const bad = validateDecisionFields(args as Record<string, unknown>);
+        if (bad) {
+          return errorResponse(
+            "malformed_input",
+            `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
+          );
+        }
+        const { repo_path: _repoPath, id, ...updates } = args;
+        try {
+          const decision = serviceFor(ctx).update(id, updates);
+          return ok(JSON.stringify(decision, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "delete_decision",
     "Delete a decision and all its edges",
-    {
-      id: z.string().describe("Decision node ID"),
-    },
-    async ({ id }) => {
-      try {
-        service.delete(id);
-        return ok(JSON.stringify({ deleted: id }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    deleteDecisionShape,
+    registerTool(
+      "delete_decision",
+      deleteDecisionSchema,
+      async (ctx, args) => {
+        const { id } = args;
+        try {
+          serviceFor(ctx).delete(id);
+          return ok(JSON.stringify({ deleted: id }));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "get_decision",
     "Get a decision with all resolved relationships: governs, references, related_decisions, depends_on, and PR back-refs (introduced_in, implemented_by, challenged_by, discussed_in)",
-    {
-      id: z.string().describe("Decision node ID"),
-    },
-    async ({ id }) => {
-      const dec = service.get(id);
-      if (!dec) return empty(`get_decision(${id})`);
+    getDecisionShape,
+    registerTool(
+      "get_decision",
+      getDecisionSchema,
+      async (ctx, args) => {
+        const { id } = args;
+        // Per-call repo-scoped service + links — read from the repo addressed
+        // by ctx.repo_path, not the server's startup-bound handles.
+        const scopedService = serviceFor(ctx);
+        const scopedLinks = ctx.decisionLinksRepo;
 
-      // Compose the "with refs" shape from the sidecar links table. The legacy
-      // shape included full NodeRow objects for governs/references and full
-      // Decision objects for related_decisions/depends_on; in the sidecar model
-      // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
-      // surface those as `{ target_kind, target_ref }` and let the caller
-      // resolve full node info via search_graph / get_decision as needed.
-      const all = links.findByDecision(id);
-      const pick = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation)
-          .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
+        const dec = scopedService.get(id);
+        if (!dec) return empty(`get_decision(${id})`);
 
-      // Decision-typed back-refs resolve to full Decision objects so callers
-      // can read `.id`, `.title`, etc. directly (legacy contract).
-      const pickDecisions = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation && l.target_kind === "decision")
-          .map((l) => service.get(l.target_ref))
-          .filter((d): d is NonNullable<typeof d> => d !== null);
+        // Compose the "with refs" shape from the sidecar links table. The legacy
+        // shape included full NodeRow objects for governs/references and full
+        // Decision objects for related_decisions/depends_on; in the sidecar model
+        // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
+        // surface those as `{ target_kind, target_ref }` and let the caller
+        // resolve full node info via search_graph / get_decision as needed.
+        const all = scopedLinks.findByDecision(id);
+        const pick = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation)
+            .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
 
-      // PR back-refs: in the sidecar model, PR <-> decision relations live on
-      // decision_links where target_kind="pr" (target_ref = PR number as string).
-      const prLinks = (relation: string) =>
-        all
-          .filter((l) => l.relation === relation && l.target_kind === "pr")
-          .map((l) => ({ pr_number: Number(l.target_ref) }));
+        // Decision-typed back-refs resolve to full Decision objects so callers
+        // can read `.id`, `.title`, etc. directly (legacy contract).
+        const pickDecisions = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation && l.target_kind === "decision")
+            .map((l) => scopedService.get(l.target_ref))
+            .filter((d): d is NonNullable<typeof d> => d !== null);
 
-      const withRefs = {
-        ...dec,
-        governs: pick("GOVERNS"),
-        references: pick("REFERENCES"),
-        related_decisions: pickDecisions("DECISION_RELATED_TO"),
-        depends_on: pickDecisions("DECISION_DEPENDS_ON"),
-        introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
-        implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
-        challenged_by: prLinks("PR_CHALLENGES_DECISION"),
-        discussed_in: prLinks("PR_DISCUSSES_DECISION"),
-      };
-      return ok(JSON.stringify(withRefs, null, 2));
-    }
+        // PR back-refs: in the sidecar model, PR <-> decision relations live on
+        // decision_links where target_kind="pr" (target_ref = PR number as string).
+        const prLinks = (relation: string) =>
+          all
+            .filter((l) => l.relation === relation && l.target_kind === "pr")
+            .map((l) => ({ pr_number: Number(l.target_ref) }));
+
+        const withRefs = {
+          ...dec,
+          governs: pick("GOVERNS"),
+          references: pick("REFERENCES"),
+          related_decisions: pickDecisions("DECISION_RELATED_TO"),
+          depends_on: pickDecisions("DECISION_DEPENDS_ON"),
+          introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
+          implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
+          challenged_by: prLinks("PR_CHALLENGES_DECISION"),
+          discussed_in: prLinks("PR_DISCUSSES_DECISION"),
+        };
+        return ok(JSON.stringify(withRefs, null, 2));
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "search_decisions",
     "Full-text search over decision titles, descriptions, and rationale",
-    {
-      query: z.string().describe("Search query (FTS5 syntax)"),
-      scope: z.string().optional().describe("Qualified name or file path to scope results"),
-    },
-    async ({ query, scope }) => {
-      try {
-        let results = service.search(query);
-        if (scope) {
-          // Filter to decisions whose links table mentions `scope` as a governs
-          // target (qn or path). This preserves the old MCP contract without
-          // re-implementing the directory walk that DecisionSearch.findGoverning
-          // does — `scope` here is a literal match filter.
-          const governing = search.findGoverning(scope);
-          const allowed = new Set(governing.map((d) => d.id));
-          results = results.filter((d) => allowed.has(d.id));
+    searchDecisionsShape,
+    registerTool(
+      "search_decisions",
+      searchDecisionsSchema,
+      async (ctx, args) => {
+        const { query, scope } = args;
+        try {
+          let results = serviceFor(ctx).search(query);
+          if (scope) {
+            // Filter to decisions whose links table mentions `scope` as a governs
+            // target (qn or path). This preserves the old MCP contract without
+            // re-implementing the directory walk that DecisionSearch.findGoverning
+            // does — `scope` here is a literal match filter.
+            const governing = searchFor(ctx).findGoverning(scope);
+            const allowed = new Set(governing.map((d) => d.id));
+            results = results.filter((d) => allowed.has(d.id));
+          }
+          if (results.length === 0) return empty(`search_decisions(${query})`);
+          return ok(JSON.stringify(results, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
         }
-        if (results.length === 0) return empty(`search_decisions(${query})`);
-        return ok(JSON.stringify(results, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "why_was_this_built",
     "Find decisions governing a code entity. Input accepts qualified names, file paths, or bare symbol names. Walks up file/directory hierarchy if no direct match. Returns ambiguous_input with candidates if multiple symbols match.",
-    {
-      qualified_name: z.string().describe("Qualified name, file path, or bare symbol name of the code entity"),
-    },
-    async ({ qualified_name }) => {
-      try {
-        // Resolve bare names → concrete qn/path before calling findGoverning.
-        // findGoverning already handles file paths and qns via its own walk;
-        // the resolver fills the bare-name gap.
-        //
-        // Skip the resolver for inputs that already look like file paths (contain
-        // '/' or end in a source extension) or qn separators ('::') — those are
-        // passed directly to findGoverning for its own path/hierarchy walk.
-        const SOURCE_EXT = /\.(vue|tsx?|jsx?|py|go|rs|java|cs|cpp|c|h|rb|php|swift|kt)$/;
-        const looksLikeFilePath = qualified_name.includes("/") || SOURCE_EXT.test(qualified_name);
-        const looksLikeQn = qualified_name.includes("::");
+    whyWasThisBuiltShape,
+    registerTool(
+      "why_was_this_built",
+      whyWasThisBuiltSchema,
+      async (ctx, args) => {
+        const { qualified_name } = args;
+        try {
+          // Resolve bare names → concrete qn/path before calling findGoverning.
+          // findGoverning already handles file paths and qns via its own walk;
+          // the resolver fills the bare-name gap.
+          //
+          // Skip the resolver for inputs that already look like file paths (contain
+          // '/' or end in a source extension) or qn separators ('::') — those are
+          // passed directly to findGoverning for its own path/hierarchy walk.
+          const SOURCE_EXT = /\.(vue|tsx?|jsx?|py|go|rs|java|cs|cpp|c|h|rb|php|swift|kt)$/;
+          const looksLikeFilePath = qualified_name.includes("/") || SOURCE_EXT.test(qualified_name);
+          const looksLikeQn = qualified_name.includes("::");
 
-        let target = qualified_name;
-        if (indexerProject && dbPath && !looksLikeFilePath && !looksLikeQn) {
-          const resolved = resolveInput(qualified_name, indexerProject, dbPath);
-          if (resolved.kind === "multi") {
-            const candidatesList = resolved.candidates
-              .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
-              .join("\n");
-            return errorResponse(
-              "ambiguous_input",
-              `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
-            );
+          let target = qualified_name;
+          if (!looksLikeFilePath && !looksLikeQn) {
+            // resolveInput() needs (input, project, dbPath):
+            //   - project: a string used to match canonical qns of the form
+            //     `<project>.<rest>`. Per the spec's `listKnownRepos()` naming
+            //     convention, derive it from the absolute repo path by stripping
+            //     the leading slash and replacing path separators with dashes.
+            //     This is a heuristic for the dotted-qn branch (#2); other
+            //     branches (file path, bare name) ignore the project arg.
+            //   - dbPath: the graph DB file ('.cortex/db' under the repo). The
+            //     function opens its own GraphStore on this path.
+            const project = ctx.repoPath.replace(/^\//, "").replace(/\//g, "-");
+            const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+            const resolved = resolveInput(qualified_name, project, graphDbPath);
+            if (resolved.kind === "multi") {
+              const candidatesList = resolved.candidates
+                .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
+                .join("\n");
+              return errorResponse(
+                "ambiguous_input",
+                `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+              );
+            }
+            if (resolved.kind === "single") {
+              // Prefer file_path for path-walk semantics; fall back to qn.
+              target = resolved.symbol.file_path || resolved.symbol.qn;
+            }
+            // 'none' falls through to findGoverning with the original input,
+            // preserving back-compat for non-symbol inputs.
           }
-          if (resolved.kind === "single") {
-            // Prefer file_path for path-walk semantics; fall back to qn.
-            target = resolved.symbol.file_path || resolved.symbol.qn;
+          const results = searchFor(ctx).findGoverning(target);
+          if (!results || results.length === 0) {
+            return empty(`why_was_this_built(${qualified_name})`);
           }
-          // 'none' falls through to findGoverning with the original input,
-          // preserving back-compat for non-symbol inputs.
+          return ok(JSON.stringify(results, null, 2));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return errorResponse("internal_error", msg);
         }
-        const results = search.findGoverning(target);
-        if (!results || results.length === 0) {
-          return empty(`why_was_this_built(${qualified_name})`);
-        }
-        return ok(JSON.stringify(results, null, 2));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return errorResponse("internal_error", msg);
-      }
-    }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "link_decision",
     "Attach additional GOVERNS or REFERENCES edges to an existing decision",
-    {
-      decision_id: z.string().describe("Decision node ID"),
-      target: z.string().describe("Target node ID or file path"),
-      relation: z.enum(["GOVERNS", "REFERENCES", "RELATED_TO", "DEPENDS_ON"])
-        .optional()
-        .describe("Edge type (default: GOVERNS)"),
-    },
-    async ({ decision_id, target, relation }) => {
-      try {
-        const rel = relation ?? "GOVERNS";
-        if (rel === "GOVERNS") service.linkGoverns(decision_id, target);
-        else if (rel === "REFERENCES") service.linkReference(decision_id, target);
-        else if (rel === "RELATED_TO") service.linkRelatedTo(decision_id, target);
-        else if (rel === "DEPENDS_ON") service.linkDependsOn(decision_id, target);
-        return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
-        return errorResponse("internal_error", msg);
-      }
-    }
+    linkDecisionShape,
+    registerTool(
+      "link_decision",
+      linkDecisionSchema,
+      async (ctx, args) => {
+        const { decision_id, target, relation } = args;
+        try {
+          const rel = relation ?? "GOVERNS";
+          const scopedService = serviceFor(ctx);
+          if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target);
+          else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target);
+          else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target);
+          else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target);
+          return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
+          return errorResponse("internal_error", msg);
+        }
+      },
+      { resolver },
+    ),
   );
 
   server.tool(
     "decision_candidates",
     "Read-only: frame cold-start decision candidates from git history + docs. Returns a manifest the seed-decisions skill turns into proposed decisions. Writes nothing.",
-    {
-      max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
-    },
-    async (params) => {
-      if (!dbPath) {
-        return errorResponse("project_not_found", "decision_candidates requires a resolved decisions db path");
-      }
-      try {
-        const repoRoot = resolve(dirname(dbPath), "..");
-        const manifest = frameCandidates({ repo_path: repoRoot, max_candidates: params.max_candidates });
-        return ok(JSON.stringify(manifest, null, 2));
-      } catch (e) {
-        return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-      }
-    }
+    decisionCandidatesShape,
+    registerTool(
+      "decision_candidates",
+      decisionCandidatesSchema,
+      async (ctx, args) => {
+        try {
+          // frameCandidates walks `repo_path`'s git history + ADR docs. With
+          // per-call routing, `ctx.repoPath` IS the repo to scan — no more
+          // dbPath-to-repo-root inference required. The function is read-only:
+          // it never touches the decisions DB, just spawns `git log` under
+          // ctx.repoPath and reads files via the filesystem.
+          const manifest = frameCandidates({
+            repo_path: ctx.repoPath,
+            max_candidates: args.max_candidates,
+          });
+          return ok(JSON.stringify(manifest, null, 2));
+        } catch (e) {
+          return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+        }
+      },
+      { resolver },
+    ),
   );
 }

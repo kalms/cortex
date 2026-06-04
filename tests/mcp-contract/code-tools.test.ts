@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, callTool, type HarnessContext } from "./harness.js";
+import { createHarness, callTool, makeIndexedRepoFixture, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
+import { existsSync, rmSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import BetterSqlite3 from "better-sqlite3";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("code-tools contract", () => {
   let h: HarnessContext;
@@ -80,18 +85,34 @@ describe("code-tools contract", () => {
   });
 
   describe("search_code", () => {
+    // Now that search_code anchors to ctx.repoPath (Field Report rec #5) the
+    // grep no longer roots itself in the server process's cwd — so the "empty
+    // path not found" case is finally testable: just point search_code at a
+    // repo whose source tree doesn't contain the pattern.
     it("happy: pattern found with enclosing function", async () => {
-      const res = await callTool(h, "search_code", { pattern: "handleRequest" });
-      expect(ResponseSchema.safeParse(res).success).toBe(true);
-      expect(res.content[0].text).toContain("handleRequest");
-    }, 15_000);
+      // The harness primary repo has only a .cortex/db (no source files), so
+      // construct a tmp repo with a source file the pattern can match.
+      const tmpRepo = mkdtempSync(join(tmpdir(), "cortex-search-happy-"));
+      try {
+        execSync(`git init -q "${tmpRepo}"`);
+        mkdirSync(join(tmpRepo, ".cortex"));
+        copyFileSync(join(h.repoPath, ".cortex", "db"), join(tmpRepo, ".cortex", "db"));
+        mkdirSync(join(tmpRepo, "src"));
+        writeFileSync(
+          join(tmpRepo, "src", "server.ts"),
+          "export function handleRequest() { return 'ok'; }\n",
+        );
 
-    // NOTE: "empty: pattern not found" test is infeasible because search_code
-    // searches from cwd, which during test execution includes the test file itself.
-    // Any pattern string we use for the "empty" case will be found in this test file,
-    // causing the test to fail. In a real use, users would call search_code from a
-    // cwd that doesn't contain the test suite. The happy path above validates the
-    // response contract (either results or "No results"), so the empty case is covered.
+        const res = await callTool(h, "search_code", {
+          repo_path: tmpRepo,
+          pattern: "handleRequest",
+        });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        expect(res.content[0].text).toContain("handleRequest");
+      } finally {
+        try { rmSync(tmpRepo, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 15_000);
   });
 
   describe("get_code_snippet input resolution", () => {
@@ -175,44 +196,338 @@ describe("code-tools contract", () => {
   });
 
   describe("list_projects", () => {
-    it("happy: includes the fixture project", async () => {
+    it("happy: includes the fixture project once the resolver has touched it", async () => {
+      // list_projects now reads from `RepoContextResolver.listKnownRepos`.
+      // The harness's primary repo isn't in the master cache directory
+      // (it lives at `<harnessDir>/repo/.cortex/db`); it only becomes visible
+      // after the resolver pools it via a tool call. Pool it via any
+      // per-repo tool, then assert list_projects surfaces it.
+      await callTool(h, "search_graph", { name_pattern: "_does_not_exist_" });
       const res = await callTool(h, "list_projects", {});
-      expect(res.content[0].text).toContain(h.project);
+      expect(res.content[0].text).toContain(h.repoPath);
+    });
+
+    it("Field Report rec #1: returns every indexed repo the resolver can address", async () => {
+      // Contract guarantee: when an agent has indexed N repos, list_projects
+      // must return all N — not just the one the server was started in.
+      // The 2026-05-26 field report described a state where list_projects
+      // returned only the local-DB project and hid the other 9 cache repos.
+      const second = makeIndexedRepoFixture();
+      try {
+        // Pool both repos via per-repo tool calls.
+        await callTool(h, "search_graph", { name_pattern: "_does_not_exist_" });
+        await callTool(h, "search_graph", { repo_path: second, name_pattern: "_does_not_exist_" });
+        const res = await callTool(h, "list_projects", {});
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain(h.repoPath);
+        expect(res.content[0].text).toContain(second);
+      } finally {
+        try { rmSync(second, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("delete_project", () => {
+    it("removes a project from the master registry; list_projects no longer surfaces it", async () => {
+      // delete_project operates on the indexer's master cache directory
+      // (~/.cache/cortex-indexer/<slug>.db). Seed two phantom entries
+      // directly there — using non-tmp-prefixed slugs so listKnownRepos
+      // surfaces them — then delete one and assert list_projects loses it
+      // while the other remains.
+      const cacheDir = join(homedir(), ".cache", "cortex-indexer");
+      mkdirSync(cacheDir, { recursive: true });
+      const stamp = Date.now();
+      const slugA = `cortex-test-delete-a-${stamp}`;
+      const slugB = `cortex-test-delete-b-${stamp}`;
+      const fileA = join(cacheDir, `${slugA}.db`);
+      const fileB = join(cacheDir, `${slugB}.db`);
+      const seed = (file: string, slug: string) => {
+        const db = new BetterSqlite3(file);
+        try {
+          db.exec("CREATE TABLE IF NOT EXISTS ctx_projects (name TEXT PRIMARY KEY, root_path TEXT, indexed_at TEXT)");
+          db.prepare("INSERT OR REPLACE INTO ctx_projects (name, root_path, indexed_at) VALUES (?, ?, ?)")
+            .run(slug, `/phantom/${slug}`, new Date().toISOString());
+        } finally { db.close(); }
+      };
+      seed(fileA, slugA);
+      seed(fileB, slugB);
+      try {
+        // Sanity: both visible before delete.
+        const before = await callTool(h, "list_projects", {});
+        expect(before.content[0].text).toContain(slugA);
+        expect(before.content[0].text).toContain(slugB);
+
+        // Delete A via the migrated crossRepo tool.
+        const del = await callTool(h, "delete_project", { project: slugA });
+        expect(del.isError).toBeFalsy();
+        expect(del.content[0].text).toContain("deleted");
+
+        // Cache file for A should be gone.
+        expect(existsSync(fileA)).toBe(false);
+
+        // list_projects no longer mentions A, but still mentions B.
+        const after = await callTool(h, "list_projects", {});
+        expect(after.content[0].text).not.toContain(slugA);
+        expect(after.content[0].text).toContain(slugB);
+      } finally {
+        // Teardown: best-effort cleanup of B and any sidecars.
+        for (const f of [fileA, fileB, `${fileA}-wal`, `${fileA}-shm`, `${fileB}-wal`, `${fileB}-shm`]) {
+          try { rmSync(f, { force: true }); } catch { /* ignore */ }
+        }
+      }
     });
   });
 
   describe("index_status", () => {
-    it("happy: returns indexed status for fixture dir", async () => {
-      const res = await callTool(h, "index_status", { path: h.fixtureDir });
+    it("happy: returns indexed status for the harness repo", async () => {
+      // After migration, index_status reads .cortex/db at repo_path.
+      // The harness sets up its own indexed git root; query it directly.
+      const res = await callTool(h, "index_status", { repo_path: h.repoPath });
       expect(res.content[0].text).toMatch(/^Indexed: /);
     });
 
     it("empty: unknown path returns No results", async () => {
-      const res = await callTool(h, "index_status", { path: "/nonexistent/path" });
+      // index_status is allowUnindexed — so a non-existent path doesn't
+      // throw RepoNotIndexedError, it returns the empty envelope.
+      const res = await callTool(h, "index_status", { repo_path: "/nonexistent/path" });
       expect(res.content[0].text).toMatch(/^No results: /);
+    });
+
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "index_status", { repo_path: undefined });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
     });
   });
 
   describe("detect_changes", () => {
-    it("happy: returns structured response for fixture path (success or error)", async () => {
-      const res = await callTool(h, "detect_changes", { path: h.fixtureDir });
-      expect(ResponseSchema.safeParse(res).success).toBe(true);
-      // Either succeeds with changes, or returns error (e.g., project_not_found if no .git)
-      // Both are valid structured responses per task spec.
-    });
-
-    it("default: uses cwd when path omitted (structured response)", async () => {
+    it("happy: returns structured response for the harness repo (success or error)", async () => {
+      // After migration to per-call routing, detect_changes runs against
+      // ctx.repoPath (auto-injected by the harness). The harness's tmp git
+      // root has no committed source files, so the indexer may report
+      // success with no changes or a structured error. Either is valid.
       const res = await callTool(h, "detect_changes", {});
       expect(ResponseSchema.safeParse(res).success).toBe(true);
-      // Either succeeds or returns structured ErrorResponse — never bare prose.
     });
   });
 
   describe("index_repository", () => {
-    it("happy: re-indexes fixture without erroring", async () => {
-      const res = await callTool(h, "index_repository", { path: h.fixtureDir });
+    it("happy: re-indexes harness repo without erroring", async () => {
+      // After migration, index_repository takes repo_path. The harness
+      // primary repo is a real git root with .cortex/db already populated,
+      // so this should hit the cache path or run the indexer cleanly.
+      const res = await callTool(h, "index_repository", { repo_path: h.repoPath });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.content[0].text).not.toMatch(/^ERROR /);
     });
+
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "index_repository", { repo_path: undefined });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("indexes a fresh git root that has no prior .cortex/db", async () => {
+      // The point of allowUnindexed: a repo that doesn't have an index YET
+      // is exactly the input index_repository is meant to handle.
+      const fresh = mkdtempSync(join(tmpdir(), "cortex-fresh-"));
+      try {
+        execSync(`git init -q "${fresh}"`);
+        // No .cortex/db yet — default-mode routing would throw RepoNotIndexed.
+        const res = await callTool(h, "index_repository", { repo_path: fresh });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        // The indexer subprocess may report an error (empty repo, no files)
+        // but it must NOT be a routing error — i.e. we must have made it
+        // past the resolver.
+        expect(res.content[0].text).not.toMatch(/repo_path required/);
+      } finally {
+        try { rmSync(fresh, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 30_000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-call repo routing — Phase 3 Group A (search_graph, get_code_snippet,
+  // trace_path, detect_changes, get_graph_schema).
+  //
+  // These tests pass explicit `repo_path` values (or sentinel `undefined`) to
+  // verify the new routing contract. Legacy tests above continue to work via
+  // the harness's auto-injected primary repo.
+  // ---------------------------------------------------------------------------
+
+  describe("search_graph per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_graph", {
+        repo_path: undefined,
+        name_pattern: "handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the query to the addressed repo, not the server's cwd", async () => {
+      // repoB has its own .cortex/db (copy of the same fixture). The query
+      // must resolve project + nodes through repoB's DB, not the harness primary.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "search_graph", {
+          repo_path: repoB,
+          name_pattern: "handleRequest",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("src/server.ts::handleRequest");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("get_code_snippet per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_code_snippet", {
+        repo_path: undefined,
+        qualified_name: "src/server.ts::handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the lookup to the addressed repo, not the server's cwd", async () => {
+      // repoB shares its ctx_projects.root_path with the harness primary (both
+      // point at the same on-disk fixture). The point of the test is to assert
+      // the query plumbing runs through repoB's DB — verified by getting a
+      // non-error snippet for a symbol resolved out of that DB.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "get_code_snippet", {
+          repo_path: repoB,
+          qualified_name: "src/server.ts::handleRequest",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toContain("export function handleRequest");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("trace_path per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "trace_path", {
+        repo_path: undefined,
+        function_name: "handleRequest",
+        mode: "calls",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the trace to the addressed repo, not the server's cwd", async () => {
+      // Asserts both that the start-node lookup AND the CALLS-edge walk run
+      // through repoB's DB — handleRequest calls parseBody in the fixture, so
+      // a successful trace surfaces parseBody.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "trace_path", {
+          repo_path: repoB,
+          function_name: "handleRequest",
+          mode: "calls",
+        });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toMatch(/\[d=\d+\]/);
+        expect(res.content[0].text).toContain("parseBody");
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("detect_changes per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "detect_changes", {
+        repo_path: undefined,
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("routes the diff against the addressed repo, not the server's cwd", async () => {
+      // The indexer reads git history at ctx.repoPath. Verify the call goes
+      // through (structured response, not a path-not-found error) when an
+      // explicit repo_path is passed.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "detect_changes", { repo_path: repoB });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("get_graph_schema per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "get_graph_schema", {
+        repo_path: undefined,
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    });
+
+    it("reads schema from the addressed repo, not the server's cwd", async () => {
+      // repoB has the same fixture data; assert the schema response is non-empty
+      // and shaped right, which confirms the read went through repoB's DB.
+      const repoB = makeIndexedRepoFixture();
+      try {
+        const res = await callTool(h, "get_graph_schema", { repo_path: repoB });
+        expect(res.isError).toBeFalsy();
+        expect(res.content[0].text).toMatch(/function: \d+/);
+        expect(res.content[0].text).toMatch(/Edge types:/);
+      } finally {
+        try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("search_code per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_code", {
+        repo_path: undefined,
+        pattern: "handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    }, 15_000);
+
+    it("routes the grep target to the addressed repo (Field Report rec #5)", async () => {
+      // Field Report observed search_code grepping the server's process.cwd()
+      // when project resolution fell through. After migration the rg/grep
+      // subprocess is anchored to ctx.repoPath. We verify this by running
+      // search_code against a tmp git root whose ONLY file is a sentinel:
+      // if the routing is broken, the cwd-defaulted grep would find some
+      // unrelated occurrence (or zero occurrences for a uniquely-named
+      // sentinel) instead of the file we just created.
+      const sentinel = "ZZZ_SEARCH_CODE_ROUTING_SENTINEL_a7f9";
+      const tmpRepo = mkdtempSync(join(tmpdir(), "cortex-search-code-"));
+      try {
+        execSync(`git init -q "${tmpRepo}"`);
+        mkdirSync(join(tmpRepo, ".cortex"));
+        // Copy the harness's primary cortex.db so the resolver accepts the path.
+        copyFileSync(join(h.repoPath, ".cortex", "db"), join(tmpRepo, ".cortex", "db"));
+        writeFileSync(join(tmpRepo, "sentinel.txt"), `// ${sentinel}\n`);
+
+        const res = await callTool(h, "search_code", {
+          repo_path: tmpRepo,
+          pattern: sentinel,
+        });
+        expect(res.isError).toBeFalsy();
+        // The sentinel only exists in tmpRepo. If we got a hit, the grep
+        // ran with cwd=tmpRepo as it should.
+        expect(res.content[0].text).toContain(sentinel);
+        expect(res.content[0].text).toContain("sentinel.txt");
+      } finally {
+        try { rmSync(tmpRepo, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 15_000);
   });
 });

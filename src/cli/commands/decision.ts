@@ -8,6 +8,7 @@ import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { writeRows, chooseFormat } from "../format.js";
+import { cmdRehome } from "./decision-rehome.js";
 
 export type DecisionCommand = {
   command: string;
@@ -104,6 +105,7 @@ export async function runDecisionCommand(cmd: DecisionCommand, ctx: ProjectConte
         "See HANDOFF_DECISIONS.md (Gap 1). For MCP sessions, use the promote_decision tool.",
       );
     case "propose":   return cmdPropose(cmd, ctx);
+    case "rehome":    return cmdRehome(cmd, ctx);
     case "supersede": return cmdSupersede(cmd, ctx);
     default:
       throw new UsageError(
