@@ -13,7 +13,6 @@
  * Usage:  tsx scripts/frame-extraction/eval-all.ts
  *   --out <path>      Output JSON path (default: .tmp/frame-extraction/eval-all.json)
  *   --only <slug>     Run only repos whose slug includes <slug>
- *   --skip-clone      Reuse existing checkouts but don't fetch new ones
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
@@ -38,7 +37,6 @@ const DEFAULT_OUT = join(REPO_ROOT, ".tmp", "frame-extraction", "eval-all.json")
 interface CliArgs {
   out: string;
   only?: string;
-  skipClone: boolean;
 }
 
 interface RepoEvalRow {
@@ -53,11 +51,10 @@ interface RepoEvalRow {
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { out: DEFAULT_OUT, skipClone: false };
+  const args: CliArgs = { out: DEFAULT_OUT };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") args.out = resolve(argv[++i]!);
     else if (argv[i] === "--only") args.only = argv[++i];
-    else if (argv[i] === "--skip-clone") args.skipClone = true;
   }
   return args;
 }
