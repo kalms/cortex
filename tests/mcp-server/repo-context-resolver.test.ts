@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import BetterSqlite3 from "better-sqlite3";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,7 +88,10 @@ describe("RepoContextResolver.resolve — happy path", () => {
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
       const ctx = resolver.resolve(repo);
-      expect(ctx.repoPath).toBe(repo);
+      // ctx.repoPath is the realpath-normalized canonical repo root, which
+      // on macOS resolves /tmp → /private/tmp. Compare via realpath so the
+      // test is symlink-tolerant.
+      expect(ctx.repoPath).toBe(realpathSync(repo));
       expect(ctx.graphDb).toBeDefined();
       expect(ctx.decisionsDb).toBeDefined();
     } finally {
@@ -203,7 +206,11 @@ describe("RepoContextResolver.listKnownRepos", () => {
     try {
       resolver.resolve(repo);
       const list = resolver.listKnownRepos();
-      const matches = list.filter((p) => p.path === repo);
+      // Compare via realpath: resolver normalizes ctx.repoPath through
+      // symlinks (macOS /tmp → /private/tmp), so the pooled entry's path
+      // is the realpath form, not the symlink form `repo` carries.
+      const repoReal = realpathSync(repo);
+      const matches = list.filter((p) => p.path === repoReal);
       expect(matches).toHaveLength(1);
     } finally {
       resolver.shutdown();
@@ -221,6 +228,74 @@ describe("RepoContextResolver.listKnownRepos", () => {
       expect(existsSync(join(homedir(), ".cache", "cortex-indexer"))).toBeTypeOf("boolean");
     } finally {
       resolver.shutdown();
+    }
+  });
+});
+
+describe("RepoContextResolver.resolve — worktree collapse", () => {
+  // Cortex's invariant: one index per repo, shared across all worktrees.
+  // Worktrees represent in-flight branches/PRs against the same logical
+  // codebase; they should route to the canonical repo's .cortex/ rather
+  // than maintaining a per-worktree index. See HANDOFF.md "Worktrees as
+  // in-flight PRs" and src/mcp-server/repo-context.ts JSDoc on resolve().
+
+  function makeCanonicalRepoWithCommit(): string {
+    const root = mkdtempSync(join(tmpdir(), "cortex-canonical-"));
+    execSync(`git -C "${root}" init -q`);
+    execSync(`git -C "${root}" config user.email t@t.test`);
+    execSync(`git -C "${root}" config user.name Test`);
+    execSync(`git -C "${root}" commit --allow-empty -m init -q`);
+    mkdirSync(join(root, ".cortex"));
+    writeFileSync(join(root, ".cortex", "db"), "");
+    return root;
+  }
+
+  it("routes a worktree path to the canonical repo root", () => {
+    const canonical = makeCanonicalRepoWithCommit();
+    const wtParent = mkdtempSync(join(tmpdir(), "cortex-wt-"));
+    const wtDir = join(wtParent, "wt");
+    execSync(
+      `git -C "${canonical}" worktree add --quiet "${wtDir}" -b wt-test-branch-${Date.now()}`,
+    );
+
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      const ctx = resolver.resolve(wtDir);
+      // ctx.repoPath reflects the canonical repo, not the worktree path
+      // the caller passed in. realpath compare to tolerate /private/tmp.
+      expect(realpathSync(ctx.repoPath)).toBe(realpathSync(canonical));
+    } finally {
+      resolver.shutdown();
+      try {
+        execSync(`git -C "${canonical}" worktree remove --force "${wtDir}"`);
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  });
+
+  it("dedupes worktree and canonical to the same pooled RepoContext", () => {
+    const canonical = makeCanonicalRepoWithCommit();
+    const wtParent = mkdtempSync(join(tmpdir(), "cortex-wt-"));
+    const wtDir = join(wtParent, "wt");
+    execSync(
+      `git -C "${canonical}" worktree add --quiet "${wtDir}" -b wt-dedupe-branch-${Date.now()}`,
+    );
+
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      const ctxFromWorktree = resolver.resolve(wtDir);
+      const ctxFromCanonical = resolver.resolve(canonical);
+      // Same RepoContext object — only one entry in the pool, both DB
+      // handles shared across the worktree and the canonical view.
+      expect(ctxFromWorktree).toBe(ctxFromCanonical);
+    } finally {
+      resolver.shutdown();
+      try {
+        execSync(`git -C "${canonical}" worktree remove --force "${wtDir}"`);
+      } catch {
+        /* best-effort cleanup */
+      }
     }
   });
 });
