@@ -174,6 +174,8 @@ static bool is_event_handler_callee(const char *name) {
 }
 
 bool ctx_try_extract_nuxt_handler(CtxExtractCtx *ctx, TSNode export_stmt) {
+    if (ts_node_is_null(export_stmt)) return false;
+
     CtxArena *a = ctx->arena;
 
     const char *route_path = NULL, *route_method = NULL;
@@ -214,7 +216,7 @@ bool ctx_try_extract_nuxt_handler(CtxExtractCtx *ctx, TSNode export_stmt) {
     CtxDefinition def;
     memset(&def, 0, sizeof(def));
 
-    char namebuf[300];
+    char namebuf[NUXT_ROUTE_BUF_SIZE + 16];
     snprintf(namebuf, sizeof(namebuf), "%s %s", route_method, route_path);
     def.name = ctx_arena_strdup(a, namebuf);
     def.qualified_name = ctx_fqn_compute(a, ctx->project, ctx->rel_path, def.name);
@@ -228,6 +230,9 @@ bool ctx_try_extract_nuxt_handler(CtxExtractCtx *ctx, TSNode export_stmt) {
     def.route_path = route_path;
     def.route_method = route_method;
 
+    /* Note: the bare single-param form `event => ...` uses the "parameter"
+     * (singular) field rather than "parameters"; that form is intentionally
+     * not captured here, consistent with the rest of the extraction layer. */
     TSNode params = ts_node_child_by_field_name(arrow, TS_FIELD("parameters"));
     if (!ts_node_is_null(params)) {
         def.signature = ctx_node_text(a, params, ctx->source);

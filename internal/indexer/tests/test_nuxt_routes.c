@@ -238,6 +238,27 @@ TEST(nuxt_handler_rejects_non_handler_export) {
     PASS();
 }
 
+/* Captures a function_expression (non-arrow) handler as a Function def. */
+TEST(nuxt_handler_captures_function_expression) {
+    arena_setup();
+    CtxFileResult result;
+    memset(&result, 0, sizeof(result));
+    TSTree *tree = NULL;
+    bool ok = run_handler_capture(
+        "export default defineEventHandler(function (event) { return [] })",
+        "server/api/orgs/index.get.ts", &tree, &result);
+    ASSERT_TRUE(ok);
+    ASSERT_EQ(result.defs.count, 1);
+    CtxDefinition *def = &result.defs.items[0];
+    ASSERT_STR_EQ(def->label, "Function");
+    ASSERT_STR_EQ(def->route_path, "/api/orgs");
+    ASSERT_STR_EQ(def->route_method, "GET");
+    ASSERT_TRUE(def->is_entry_point);
+    ts_tree_delete(tree);
+    arena_teardown();
+    PASS();
+}
+
 /* ── Suite ───────────────────────────────────────────────────────── */
 
 SUITE(nuxt_routes) {
@@ -252,4 +273,5 @@ SUITE(nuxt_routes) {
     RUN_TEST(nuxt_handler_captures_function_def);
     RUN_TEST(nuxt_handler_rejects_non_route_path);
     RUN_TEST(nuxt_handler_rejects_non_handler_export);
+    RUN_TEST(nuxt_handler_captures_function_expression);
 }
