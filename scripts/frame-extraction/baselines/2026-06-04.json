@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-06-04T20:58:58.978Z",
+  "rows": [
+    {
+      "slug": "self/cortex",
+      "ok": true,
+      "cluster_count": 8,
+      "noise_rate": 0.6389776357827476,
+      "import_agreement_strict": 0.5673076923076923,
+      "label_violations": 2,
+      "violation_rules": {
+        "non_salient_label": 2
+      }
+    },
+    {
+      "slug": "vueuse/vueuse",
+      "ok": true,
+      "cluster_count": 10,
+      "noise_rate": 0.7588996763754046,
+      "import_agreement_strict": 0.7368421052631579,
+      "label_violations": 9,
+      "violation_rules": {
+        "non_salient_label": 7,
+        "structural_token_in_label": 2
+      }
+    },
+    {
+      "slug": "TanStack/table",
+      "ok": true,
+      "cluster_count": 47,
+      "noise_rate": 0.4931381518755718,
+      "import_agreement_strict": 0.20242914979757085,
+      "label_violations": 19,
+      "violation_rules": {
+        "non_salient_label": 18,
+        "structural_token_in_label": 1
+      }
+    },
+    {
+      "slug": "trpc/trpc",
+      "ok": true,
+      "cluster_count": 31,
+      "noise_rate": 0.49176470588235294,
+      "import_agreement_strict": 0.18617021276595744,
+      "label_violations": 20,
+      "violation_rules": {
+        "non_salient_label": 19,
+        "structural_token_in_label": 1
+      }
+    },
+    {
+      "slug": "nuxt/ui",
+      "ok": true,
+      "cluster_count": 21,
+      "noise_rate": 0.5336426914153132,
+      "import_agreement_strict": 0.030303030303030304,
+      "label_violations": 11,
+      "violation_rules": {
+        "non_salient_label": 9,
+        "structural_token_in_label": 2
+      }
+    },
+    {
+      "slug": "spf13/cobra",
+      "ok": true,
+      "cluster_count": 0,
+      "noise_rate": 1,
+      "import_agreement_strict": null,
+      "label_violations": 0,
+      "violation_rules": {}
+    },
+    {
+      "slug": "pallets/click",
+      "ok": true,
+      "cluster_count": 3,
+      "noise_rate": 0.5185185185185185,
+      "import_agreement_strict": 0.4642857142857143,
+      "label_violations": 3,
+      "violation_rules": {
+        "non_salient_label": 3
+      }
+    },
+    {
+      "slug": "huggingface/peft",
+      "ok": true,
+      "cluster_count": 13,
+      "noise_rate": 0.37364620938628157,
+      "import_agreement_strict": 0.8406374501992032,
+      "label_violations": 11,
+      "violation_rules": {
+        "non_salient_label": 11
+      }
+    },
+    {
+      "slug": "vercel/commerce",
+      "ok": true,
+      "cluster_count": 2,
+      "noise_rate": 0.6153846153846154,
+      "import_agreement_strict": 0.6842105263157895,
+      "label_violations": 2,
+      "violation_rules": {
+        "non_salient_label": 2
+      }
+    },
+    {
+      "slug": "saleor/saleor",
+      "ok": true,
+      "cluster_count": 79,
+      "noise_rate": 0.6391778107974244,
+      "import_agreement_strict": 0.215625,
+      "label_violations": 44,
+      "violation_rules": {
+        "structural_token_in_label": 28,
+        "non_salient_label": 16
+      }
+    },
+    {
+      "slug": "rubygems/rubygems.org",
+      "ok": true,
+      "cluster_count": 24,
+      "noise_rate": 0.6935086277732129,
+      "import_agreement_strict": 0.2534246575342466,
+      "label_violations": 6,
+      "violation_rules": {
+        "non_salient_label": 6
+      }
+    },
+    {
+      "slug": "local/anthill-cloud",
+      "ok": true,
+      "cluster_count": 9,
+      "noise_rate": 0.4899328859060403,
+      "import_agreement_strict": 0.36764705882352944,
+      "label_violations": 6,
+      "violation_rules": {
+        "structural_token_in_label": 2,
+        "non_salient_label": 4
+      }
+    }
+  ]
+}
