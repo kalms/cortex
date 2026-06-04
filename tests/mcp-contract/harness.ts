@@ -143,7 +143,7 @@ export async function createHarness(): Promise<HarnessContext> {
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
-  registerCodeTools(server, store, project, cortexDbPath);
+  registerCodeTools(server, store, project, resolver, cortexDbPath);
   registerDecisionTools(server, resolver, project);
   registerPromotionTools(server, promotion, resolver, project);
   registerPRTools(server, prService);

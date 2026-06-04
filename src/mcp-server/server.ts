@@ -63,7 +63,7 @@ export function createServer(
 
   registerDecisionTools(server, resolver, indexerProject, bus);
   registerPromotionTools(server, decisionPromotion, resolver, indexerProject, bus);
-  registerCodeTools(server, store, indexerProject, graphDbPath);
+  registerCodeTools(server, store, indexerProject, resolver, graphDbPath);
   registerPRTools(server, prService);
 
   return server;
