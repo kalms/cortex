@@ -454,6 +454,32 @@ TEST(ts_class) {
     PASS();
 }
 
+/* End-to-end: a Nuxt server/api route handler is captured through the real
+ * ctx_extract_file walk (walk_defs dispatch), producing a Function def tagged
+ * with route_path/route_method. Also verifies the inner $fetch call is still
+ * extracted, proving the dispatch is additive and does not skip child traversal. */
+TEST(ts_nuxt_route_handler) {
+    CtxFileResult *r = extract(
+        "export default defineEventHandler(async (event) => { return $fetch('/api/platform/orgs') })",
+        CTX_LANG_TYPESCRIPT, "t", "server/api/orgs/index.get.ts");
+    ASSERT_NOT_NULL(r);
+    ASSERT_FALSE(r->has_error);
+    int found = 0;
+    for (int i = 0; i < r->defs.count; i++) {
+        CtxDefinition *d = &r->defs.items[i];
+        if (strcmp(d->label, "Function") == 0 && d->route_path && d->route_method &&
+            strcmp(d->route_path, "/api/orgs") == 0 && strcmp(d->route_method, "GET") == 0) {
+            found = 1;
+            break;
+        }
+    }
+    ASSERT(found);
+    /* Inner $fetch call still extracted — dispatch did not return early. */
+    ASSERT(has_call(r, "$fetch"));
+    ctx_free_result(r);
+    PASS();
+}
+
 /* --- Lua --- */
 TEST(lua_function) {
     CtxFileResult *r = extract(
@@ -2473,6 +2499,7 @@ SUITE(extraction) {
     RUN_TEST(js_class);
     RUN_TEST(ts_function);
     RUN_TEST(ts_class);
+    RUN_TEST(ts_nuxt_route_handler);
     RUN_TEST(lua_function);
     RUN_TEST(bash_function);
     RUN_TEST(perl_function);
