@@ -3,46 +3,43 @@ import { registerDecisionTools } from "./tools/decision-tools.js";
 import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
 import { registerPRTools } from "./tools/pr-tools.js";
-import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
-import { openDecisionsDb } from "../decisions/db.js";
-import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
 /**
- * Build the MCP server. After Phase 4 every tool routes per-call through
- * the resolver, so no startup-bound GraphStore is needed here — the previous
- * `store` parameter has been dropped.
+ * Build the MCP server. After Phase 5 the server holds no repo-scoped state
+ * — every tool routes per-call through {@link RepoContextResolver}, which
+ * opens DB handles and runs the idempotent decisions migration on first
+ * touch for each addressed repo.
  *
- * `repoPath` is still useful for the one-shot defensive decisions migration
- * (so a CLI consumer that expects the legacy startup behavior of "open
- * decisions DB, migrate, close" still gets it), but no tool handler closes
- * over it.
+ * Retained server-scoped concerns:
+ *   - `indexerProject`: default in-graph project name stamped into events
+ *     emitted by event-bus-aware tools (decisions, PRs). The event pipeline
+ *     is server-scoped, not repo-scoped — a single subscriber wants a stable
+ *     id over the server's lifetime.
+ *   - `bus`: event bus used by decision/promotion/PR tools to broadcast.
+ *
+ * Dropped over Phases 2-5:
+ *   - `store`: per-tool handlers now own per-call `GraphStore` instances via
+ *     `RepoContext.store` (Phase 4).
+ *   - `repoPath`: the previous startup-time path served only to run an
+ *     eager defensive decisions migration. The resolver runs that same
+ *     migration on first touch per-repo, so a startup-time pass would only
+ *     ever apply to the home repo — exactly the cwd-binding this migration
+ *     set out to remove. The build of `index.ts` runs `index_repository`
+ *     and other tools by `repo_path`, so any consumer that expected the
+ *     legacy "open, migrate, close" sequencing for some specific repo
+ *     can call `resolver.resolve(path)` (or just invoke a tool against that
+ *     path) and get the same idempotent migration as a side effect.
  */
 export function createServer(
   indexerProject: string | null = null,
   bus?: EventBus,
-  repoPath: string = process.cwd(),
 ): McpServer {
   const server = new McpServer({
     name: "cortex",
     version: "0.1.0",
   });
-
-  // One-shot defensive decisions migration for the startup-bound repo.
-  // After this point all tools route through the resolver, which also runs
-  // the (idempotent) migration on first touch — so this is belt-and-braces
-  // for the case where a CLI consumer expects the legacy startup behavior
-  // (open decisions DB, migrate, close) to have completed before the first
-  // tool call.
-  const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-  const graphDbPath = resolveCortexDbPath(repoPath);
-  const decisionsDb = openDecisionsDb(decisionsDbPath);
-  try {
-    migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
-  } finally {
-    decisionsDb.close();
-  }
 
   // Per-call repo context resolver — every tool routes through this.
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
