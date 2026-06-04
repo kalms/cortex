@@ -15,6 +15,9 @@
  *  6. No trailing slash except root "/".
  */
 #include "extract_nuxt_routes.h"
+#include "helpers.h"            /* ctx_node_text, ctx_fqn_compute */
+#include "foundation/constants.h" /* TS_FIELD, TS_LINE_OFFSET */
+#include <stdio.h>             /* snprintf */
 #include <string.h>
 #include <ctype.h>
 
@@ -159,5 +162,77 @@ bool ctx_nuxt_route_from_path(CtxArena *a, const char *rel_path,
 
     *out_path = out;
     *out_method = method;
+    return true;
+}
+
+/* Recognized Nuxt/Nitro handler-wrapper callees. */
+static bool is_event_handler_callee(const char *name) {
+    return name && (strcmp(name, "defineEventHandler") == 0 ||
+                    strcmp(name, "eventHandler") == 0 ||
+                    strcmp(name, "defineCachedEventHandler") == 0 ||
+                    strcmp(name, "defineLazyEventHandler") == 0);
+}
+
+bool ctx_try_extract_nuxt_handler(CtxExtractCtx *ctx, TSNode export_stmt) {
+    CtxArena *a = ctx->arena;
+
+    const char *route_path = NULL, *route_method = NULL;
+    if (!ctx_nuxt_route_from_path(a, ctx->rel_path, &route_path, &route_method)) {
+        return false;
+    }
+
+    /* `export default <expr>` exposes the expression via the `value` field;
+     * named exports use `declaration` instead, so a NULL `value` means this is
+     * not the `export default` form we capture. */
+    TSNode value = ts_node_child_by_field_name(export_stmt, TS_FIELD("value"));
+    if (ts_node_is_null(value) || strcmp(ts_node_type(value), "call_expression") != 0) {
+        return false;
+    }
+
+    TSNode callee = ts_node_child_by_field_name(value, TS_FIELD("function"));
+    if (ts_node_is_null(callee)) {
+        return false;
+    }
+    char *callee_text = ctx_node_text(a, callee, ctx->source);
+    if (!is_event_handler_callee(callee_text)) {
+        return false;
+    }
+
+    TSNode args = ts_node_child_by_field_name(value, TS_FIELD("arguments"));
+    if (ts_node_is_null(args)) {
+        return false;
+    }
+    TSNode arrow = ts_node_named_child(args, 0);
+    if (ts_node_is_null(arrow)) {
+        return false;
+    }
+    const char *ak = ts_node_type(arrow);
+    if (strcmp(ak, "arrow_function") != 0 && strcmp(ak, "function_expression") != 0) {
+        return false;
+    }
+
+    CtxDefinition def;
+    memset(&def, 0, sizeof(def));
+
+    char namebuf[300];
+    snprintf(namebuf, sizeof(namebuf), "%s %s", route_method, route_path);
+    def.name = ctx_arena_strdup(a, namebuf);
+    def.qualified_name = ctx_fqn_compute(a, ctx->project, ctx->rel_path, def.name);
+    def.label = "Function";
+    def.file_path = ctx->rel_path;
+    def.start_line = ts_node_start_point(arrow).row + TS_LINE_OFFSET;
+    def.end_line = ts_node_end_point(arrow).row + TS_LINE_OFFSET;
+    def.lines = (int)(def.end_line - def.start_line + TS_LINE_OFFSET);
+    def.is_exported = true;
+    def.is_entry_point = true;
+    def.route_path = route_path;
+    def.route_method = route_method;
+
+    TSNode params = ts_node_child_by_field_name(arrow, TS_FIELD("parameters"));
+    if (!ts_node_is_null(params)) {
+        def.signature = ctx_node_text(a, params, ctx->source);
+    }
+
+    ctx_defs_push(&ctx->result->defs, a, def);
     return true;
 }

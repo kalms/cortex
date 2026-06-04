@@ -22,6 +22,8 @@
 #define EXTRACT_NUXT_ROUTES_H
 
 #include "arena.h" /* CtxArena, ctx_arena_alloc */
+#include "extract.h" /* CtxExtractCtx, CtxDefinition, ctx_defs_push */
+#include "tree_sitter/api.h" /* TSNode */
 #include <stdbool.h>
 
 /*
@@ -41,5 +43,27 @@
  */
 bool ctx_nuxt_route_from_path(CtxArena *a, const char *rel_path,
                               const char **out_path, const char **out_method);
+
+/*
+ * ctx_try_extract_nuxt_handler — Capture a Nuxt file-based-route handler arrow
+ * (or function expression) as a Function CtxDefinition tagged with route_path
+ * and route_method, derived from the file path.
+ *
+ * Recognizes `export default <wrapper>(<arrow|fn-expr>)` where <wrapper> is one
+ * of defineEventHandler / eventHandler / defineCachedEventHandler /
+ * defineLazyEventHandler — the Nuxt/Nitro handler convention. Keying on the
+ * `value` field of the export_statement restricts matching to `export default`
+ * (named exports use a `declaration` field, leaving `value` NULL).
+ *
+ * Parameters:
+ *   ctx         — extraction context (provides arena, rel_path, source,
+ *                 project, result)
+ *   export_stmt — an `export_statement` TSNode to inspect
+ *
+ * Returns true iff the file path resolves to a Nuxt API route AND the export
+ * matches the handler shape; in that case a Function def is pushed to
+ * ctx->result->defs. Returns false otherwise (nothing pushed).
+ */
+bool ctx_try_extract_nuxt_handler(CtxExtractCtx *ctx, TSNode export_stmt);
 
 #endif /* EXTRACT_NUXT_ROUTES_H */
