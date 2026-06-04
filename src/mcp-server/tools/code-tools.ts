@@ -547,20 +547,26 @@ export function registerCodeTools(
     ),
   );
 
-  // 5J: get_graph_schema with counts
+  // 5J: get_graph_schema with counts — migrated to per-call repo routing.
   server.tool(
     "get_graph_schema",
     "List node labels, edge types, and their counts in the knowledge graph",
-    {},
-    async () => {
-      if (!indexerProject) {
-        return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
-      }
-      const schema = getGraphSchema(store, indexerProject);
-      const labelLines = schema.labels.map((l) => `  ${l.name}: ${l.count}`).join("\n");
-      const edgeLines = schema.edgeTypes.map((e) => `  ${e.name}: ${e.count}`).join("\n");
-      return ok(`Labels:\n${labelLines}\nEdge types:\n${edgeLines}`);
-    }
+    getGraphSchemaShape,
+    registerTool(
+      "get_graph_schema",
+      getGraphSchemaSchema,
+      async (ctx, _args) => {
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
+        }
+        const schema = getGraphSchema(ctx.store, project);
+        const labelLines = schema.labels.map((l) => `  ${l.name}: ${l.count}`).join("\n");
+        const edgeLines = schema.edgeTypes.map((e) => `  ${e.name}: ${e.count}`).join("\n");
+        return ok(`Labels:\n${labelLines}\nEdge types:\n${edgeLines}`);
+      },
+      { resolver },
+    ),
   );
 
   // 5L: list_projects — union of (a) the bound store's ctx_projects table
