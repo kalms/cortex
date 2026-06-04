@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, callTool, makeIndexedRepoFixture, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
-import { rmSync } from "node:fs";
+import { rmSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("code-tools contract", () => {
   let h: HarnessContext;
@@ -81,18 +84,34 @@ describe("code-tools contract", () => {
   });
 
   describe("search_code", () => {
+    // Now that search_code anchors to ctx.repoPath (Field Report rec #5) the
+    // grep no longer roots itself in the server process's cwd — so the "empty
+    // path not found" case is finally testable: just point search_code at a
+    // repo whose source tree doesn't contain the pattern.
     it("happy: pattern found with enclosing function", async () => {
-      const res = await callTool(h, "search_code", { pattern: "handleRequest" });
-      expect(ResponseSchema.safeParse(res).success).toBe(true);
-      expect(res.content[0].text).toContain("handleRequest");
-    }, 15_000);
+      // The harness primary repo has only a .cortex/db (no source files), so
+      // construct a tmp repo with a source file the pattern can match.
+      const tmpRepo = mkdtempSync(join(tmpdir(), "cortex-search-happy-"));
+      try {
+        execSync(`git init -q "${tmpRepo}"`);
+        mkdirSync(join(tmpRepo, ".cortex"));
+        copyFileSync(join(h.repoPath, ".cortex", "db"), join(tmpRepo, ".cortex", "db"));
+        mkdirSync(join(tmpRepo, "src"));
+        writeFileSync(
+          join(tmpRepo, "src", "server.ts"),
+          "export function handleRequest() { return 'ok'; }\n",
+        );
 
-    // NOTE: "empty: pattern not found" test is infeasible because search_code
-    // searches from cwd, which during test execution includes the test file itself.
-    // Any pattern string we use for the "empty" case will be found in this test file,
-    // causing the test to fail. In a real use, users would call search_code from a
-    // cwd that doesn't contain the test suite. The happy path above validates the
-    // response contract (either results or "No results"), so the empty case is covered.
+        const res = await callTool(h, "search_code", {
+          repo_path: tmpRepo,
+          pattern: "handleRequest",
+        });
+        expect(ResponseSchema.safeParse(res).success).toBe(true);
+        expect(res.content[0].text).toContain("handleRequest");
+      } finally {
+        try { rmSync(tmpRepo, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 15_000);
   });
 
   describe("get_code_snippet input resolution", () => {
@@ -354,5 +373,47 @@ describe("code-tools contract", () => {
         try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
       }
     });
+  });
+
+  describe("search_code per-call routing", () => {
+    it("rejects when repo_path is missing", async () => {
+      const res = await callTool(h, "search_code", {
+        repo_path: undefined,
+        pattern: "handleRequest",
+      });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/repo_path required/);
+    }, 15_000);
+
+    it("routes the grep target to the addressed repo (Field Report rec #5)", async () => {
+      // Field Report observed search_code grepping the server's process.cwd()
+      // when project resolution fell through. After migration the rg/grep
+      // subprocess is anchored to ctx.repoPath. We verify this by running
+      // search_code against a tmp git root whose ONLY file is a sentinel:
+      // if the routing is broken, the cwd-defaulted grep would find some
+      // unrelated occurrence (or zero occurrences for a uniquely-named
+      // sentinel) instead of the file we just created.
+      const sentinel = "ZZZ_SEARCH_CODE_ROUTING_SENTINEL_a7f9";
+      const tmpRepo = mkdtempSync(join(tmpdir(), "cortex-search-code-"));
+      try {
+        execSync(`git init -q "${tmpRepo}"`);
+        mkdirSync(join(tmpRepo, ".cortex"));
+        // Copy the harness's primary cortex.db so the resolver accepts the path.
+        copyFileSync(join(h.repoPath, ".cortex", "db"), join(tmpRepo, ".cortex", "db"));
+        writeFileSync(join(tmpRepo, "sentinel.txt"), `// ${sentinel}\n`);
+
+        const res = await callTool(h, "search_code", {
+          repo_path: tmpRepo,
+          pattern: sentinel,
+        });
+        expect(res.isError).toBeFalsy();
+        // The sentinel only exists in tmpRepo. If we got a hit, the grep
+        // ran with cwd=tmpRepo as it should.
+        expect(res.content[0].text).toContain(sentinel);
+        expect(res.content[0].text).toContain("sentinel.txt");
+      } finally {
+        try { rmSync(tmpRepo, { recursive: true }); } catch { /* ignore */ }
+      }
+    }, 15_000);
   });
 });
