@@ -1,8 +1,9 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
 import { execSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveCortexDbPath } from "../db/resolve-path.js";
 import { openDecisionsDb } from "../decisions/db.js";
@@ -80,6 +81,16 @@ export class RepoContextPool {
   values(): IterableIterator<RepoContext> {
     return this.map.values();
   }
+}
+
+/**
+ * Convert an absolute path into the indexer's project naming convention —
+ * leading slash dropped, remaining slashes flattened to dashes. Mirrors the
+ * standalone indexer CLI so cache directory filenames line up with what
+ * `list_projects` reports.
+ */
+function deriveProjectName(absPath: string): string {
+  return absPath.replace(/^\//, "").replace(/\//g, "-");
 }
 
 /**
@@ -246,7 +257,7 @@ export class RepoContextResolver {
    * `Users-rka-Development-cortex.db`). Each file's `ctx_projects` row
    * carries the canonical `name` + `root_path` for that project. The
    * indexer CLI's `list_projects` verb implements this same directory walk;
-   * Phase 4 reads it directly here (cheap, read-only) rather than fork a
+   * we read it directly here (cheap, read-only) rather than fork a
    * subprocess so the resolver stays in-process.
    *
    * In addition to the cache directory, this method also surfaces *pooled*
@@ -256,29 +267,68 @@ export class RepoContextResolver {
    * the shared cache); the cache directory wouldn't otherwise know about
    * those until indexing populates a cache slot.
    *
-   * Phase 1 implementation (current): only emits pooled repos. Phase 4
-   * adds the cache-directory walk per the design spec at
-   * `docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md`.
-   *
    * Returned shape: {@link AvailableProject}[] with `indexed: true` for
    * every entry. `indexed: false` is reserved for a future version that
    * surfaces registry-known repos whose .db has been deleted out from
    * under us.
    */
   listKnownRepos(): AvailableProject[] {
-    // TODO(phase-4): merge in entries from ~/.cache/cortex-indexer/*.db so
-    // callers see indexed repos that haven't been touched in this server
-    // lifetime yet. The implementation lives just below this stub in the
-    // Phase 4 follow-up commit.
-    const out: AvailableProject[] = [];
+    const byPath = new Map<string, AvailableProject>();
+
+    // (a) Pooled repos — covers the local `.cortex/db` convention even when
+    // the cache directory has nothing for them. Indexed because resolve()
+    // wouldn't have succeeded otherwise.
     for (const ctx of this.pool.values()) {
-      out.push({
-        name: ctx.repoPath.replace(/^\//, "").replace(/\//g, "-"),
+      byPath.set(ctx.repoPath, {
+        name: deriveProjectName(ctx.repoPath),
         path: ctx.repoPath,
         indexed: true,
       });
     }
-    return out;
+
+    // (b) Standalone-indexer cache directory — the master registry.
+    // Reads each `<slug>.db`'s ctx_projects row to recover the original
+    // root_path (the slug filename is lossy: slashes were flattened).
+    const cacheDir = join(homedir(), ".cache", "cortex-indexer");
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(cacheDir);
+    } catch {
+      return Array.from(byPath.values());
+    }
+    for (const name of entries) {
+      // Skip non-project files: SQLite sidecars (-wal/-shm), config DB
+      // (_config.db), and any tmp-prefixed staging files — mirrors the
+      // indexer's own convention in listProjectsUnified.
+      if (!name.endsWith(".db") || name.startsWith("_") || name.startsWith("tmp-")) continue;
+      const projectName = name.slice(0, -3);
+      const dbPath = join(cacheDir, name);
+      let probe: BetterSqlite3.Database | null = null;
+      try {
+        probe = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+        const hasTable = probe
+          .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ctx_projects'")
+          .get();
+        if (!hasTable) continue;
+        const row = probe
+          .prepare("SELECT name, root_path FROM ctx_projects WHERE name = ? LIMIT 1")
+          .get(projectName) as { name: string; root_path: string } | undefined;
+        if (!row) continue;
+        if (byPath.has(row.root_path)) continue;
+        byPath.set(row.root_path, {
+          name: row.name,
+          path: row.root_path,
+          indexed: true,
+        });
+      } catch {
+        // Unreadable / locked / not-yet-a-graph-db files are silently
+        // skipped — the registry is best-effort.
+      } finally {
+        probe?.close();
+      }
+    }
+
+    return Array.from(byPath.values());
   }
 
   /** Closes all pooled DB handles. Call on server shutdown. */
