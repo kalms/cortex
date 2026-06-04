@@ -22,6 +22,7 @@ extern void suite_platform(void);
 extern void suite_extraction(void);
 extern void suite_ac(void);
 extern void suite_service_patterns(void);
+extern void suite_nuxt_routes(void);
 extern void suite_store_nodes(void);
 extern void suite_store_edges(void);
 extern void suite_store_search(void);
@@ -71,6 +72,7 @@ int main(void) {
     RUN_SUITE(ac);
     RUN_SUITE(extraction);
     RUN_SUITE(service_patterns);
+    RUN_SUITE(nuxt_routes);
 
     /* Store (M5) */
     RUN_SUITE(store_nodes);
