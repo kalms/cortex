@@ -164,7 +164,7 @@ Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
 | Project | HTTP_CALLS | HANDLES | route nodes | Notes |
 |---|---:|---:|---:|---|
 | cortex | 25 | 0 | 20 | was 76 HTTP_CALLS / 60 routes — Bug 2 + lockfile fix |
-| anthill-cloud | **23** | 0 | **13** | was 0 HTTP_CALLS / 183 routes — Bug 1 + lockfile fix |
+| anthill-cloud | **23** | **53** | **66** | was 0 HTTP_CALLS / 183 routes — Bug 1 + lockfile fix; Nuxt file-based route extractor shipped (branch `feature/indexer/nuxt-route-extraction`, new module `internal/indexer/extract/extract_nuxt_routes.c`) |
 | trpc | 5 | 0 | 35 | unchanged |
 | nuxt/ui | 2 | 0 | 130 | unchanged |
 | vueuse | 2 | 0 | 14 | unchanged |
@@ -172,7 +172,9 @@ Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
 
 **Remaining work:**
 
-3. **HANDLES = 0 universally** — see "Bug 3" section above for the refined diagnosis. Next session should pick a single routing pattern (recommended: Nuxt file-based) and implement a new route extractor end-to-end with a real fixture trace. Estimated effort: medium for Nuxt alone (1 day).
+3. **HANDLES = 0 universally — RESOLVED for Nuxt file-based routing.** The Nuxt file-based route extractor shipped on branch `feature/indexer/nuxt-route-extraction` (new module `internal/indexer/extract/extract_nuxt_routes.c`). anthill-cloud went from 0 → 53 HANDLES with full coverage of its 53 canonical route files; route nodes 13 → 66. See "Bug 3" section above for the original diagnosis. **Remaining patterns:** Hono (cortex, call-arg `app.get('/path', handler)`) and tRPC (procedure-based) still show HANDLES=0 — by design, they need their own dedicated extractors (future follow-ups).
+
+   **Build artifact note:** `bin/cortex-indexer` is a compiled artifact that must be explicitly rebuilt after C-source changes. It was stale during this work — the freshly-built binary lives at `internal/indexer/build/c/cortex-indexer`. The production CLI (`~/.local/bin/cortex`) invokes `bin/cortex-indexer` via `npm run postinstall`; run that (or `make -f internal/indexer/Makefile.indexer` directly) to make the Nuxt extractor live through the `cortex` CLI.
 
 4. **Template-literal URL arg extraction** (new follow-up to Bug 1). `extract_positional_url` in [extract_calls.c:531-545](internal/indexer/extract/extract_calls.c#L531-L545) only accepts simple string node kinds. Adding `template_string` (TS) and `formatted_string` (Python) would recover ~47 more anthill-cloud `$fetch` calls plus similar in other Nuxt/Python projects. Need to handle interpolations carefully — convert `` `/api/${id}` `` to `/api/:id` (the normalize_url_arg already has logic for this in pass_parallel.c). Estimated effort: small.
 
