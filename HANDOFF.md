@@ -1,360 +1,72 @@
-# Cortex — Session Handoff (2026-06-04)
-
-> Supersedes the 2026-05-26 handoff content below. The 2026-06-04 MCP
-> multi-project routing + worktree-collapse work is the freshest material
-> (see "What shipped 2026-06-04"); the 2026-05-26 Wave 1/2/3 sections that
-> follow are retained for their root-cause writeups but predate this work.
+# Cortex — Session Handoff (2026-06-05)
 
 ## TL;DR
 
-**2026-06-04:** shipped the MCP multi-project routing rework (per-call
-resolver replacing startup-time single-repo binding) plus the worktree→canonical
-collapse, the `.mcp.json` unification, and the plugin 0.3.0 bump. See
-"What shipped 2026-06-04" below. The deeper "worktrees as in-flight PRs"
-goal is scoped but unbuilt (Item 4).
+The **import-aware frame-extraction arc is done and its honest result is mixed-to-negative.** Phase 1 (convention-aware tokenization + label salience) is the only change that touched frame quality and it shipped; the two graph-signal phases (import-affinity blend, modularity split) were built, swept, and **discarded as negative**. Phase 1 itself did **not** clearly improve label quality — it removed some egregious labels and, in exchange, strands a real number of frames at the `cluster:N` non-label. Two things are now top priority: **fix the `cluster:N` labeling bug**, and **fix + refactor the viewer/frames storage pipeline** (it's a multi-store mess and needs to be far more stable for Mesh).
 
-**2026-05-26 (retained below):** three waves. **Wave 1**: HTTP_CALLS / HANDLES queue from yesterday — shipped Bug 1 (Nuxt fetch detection: anthill-cloud 0→23 HTTP_CALLS), Bug 2 (URL-arg discriminator: cortex 76→25), refined Bug 3 diagnosis and deferred. **Wave 2**: triaged the first 2026-05-26 field report and shipped the three small items (lockfile-route noise 183→13, `cortex index changes` bug, `file:symbol` editor-jump form). **Wave 3**: a SECOND field report landed late-session ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) — investigated and shipped the root-cause fix: CORTEX_DB env was silently hijacking per-project query routing, so MCP tools could reach exactly one project even when 10 were indexed.
+- **Branch:** `main` @ `7b662d6`. **`origin/main` @ `d6a8938`** — the Phase-3 research merge (`c54e5ac`, `7b662d6`) is **unpushed**. Push when ready.
+- **TS tests:** 680/680 on a clean run (`npm test`). The old cluster-determinism flake is fixed (30s timeout for cold Python-venv tests). One caveat: Python-venv integration tests can still flake under parallel cold-start; they pass in isolation.
+- **`.mcp.json`:** `CORTEX_DB_PATH` override removed (by user) + MCP server restarted — multi-project routing works through the plugin now.
 
-- **Branch:** `main`. All work below is committed locally (HEAD `ed220f2`).
-  **Sync state as of this handoff: local `main` is 107 commits ahead of
-  `origin/main` (`b0d1989`) — re-verify the push reached
-  `git@github.com:ruevu/cortex.git` `main` before relying on remote.**
-- **C tests** (last recorded 2026-05-26, not re-run for this handoff): `service_patterns` 24/24 + `platform` 3 new (ctx_cache_db_path) all pass. Pre-existing store/cypher/pipeline sanitizer failures unchanged.
-- **TS tests** (re-run 2026-06-04): 97 files / 612 passed / 1 skipped. The sole failure is the documented Python-venv flake (`tests/frame-extraction/cluster-tfidf-hdbscan.test.ts`, timed out at 5s) — pre-existing, environment-dependent, not a regression.
-- **Build:** `bin/cortex-indexer` clean, `npx tsc` clean (full dist/ rebuilt) — last verified 2026-05-26.
-- **`cortex` CLI:** installed at `~/.local/bin/cortex` (unchanged)
+---
 
-## What shipped 2026-06-04
+## What shipped this session (on `main`, mostly pushed)
 
-### MCP multi-project routing (the big one)
+1. **Phase 0 — eval guardrail** (`scripts/frame-extraction/eval-all.ts`, `eval-labels.ts`, corpus + baseline). `npm run eval:frames`.
+2. **Phase 1 — convention-aware tokenization + label salience** — the one frame-quality change. New `structural-tokens.ts`; `path-tokenize.ts` drops `[brackets]`/`(groups)`, strips leading `use`, drops route-method suffixes; `pickFrameLabel` gained a ≥50%-path-salience gate + structural-token ineligibility, falling back to path-prefix then `cluster:<id>`.
+3. **Plan 1b — zero-frames warning** — `frameCoverage` detector + dismissible viewer banner (Gate-0 QA'd).
+4. **Read-path routing fix** — `CORTEX_DB_PATH` global override no longer defeats per-call `repo_path`; new `resolveGraphDbForRead` (`src/db/resolve-path.ts`) finds the populated store; `RepoContext.graphDbPath` threads it to all MCP read tools. **Incomplete — see Priority 2: the viewer's `openProjectStore` was NOT fixed.**
+5. **Eval teardown** — `eval-all.ts` deregisters git-cloned corpus projects after a run (`--keep` opts out).
+6. **Flaky-test fix** — 30s timeout on cold Python-venv cluster tests.
 
-Replaces the cortex MCP server's startup-time, single-repo binding with a per-call resolver middleware. Every routed tool now requires a `repo_path` argument (`list_projects` / `delete_project` opt out via `crossRepo: true`); the resolver opens per-repo DB handles, pools them, and surfaces structured `MissingRepoPathError` / `RepoNotIndexedError` payloads with an `available_projects` list when callers miss. Fixes the empirical bug where 14 of 26 decisions in cortex's `.cortex/decisions.db` actually governed `apps/cloud/` / `apps/activator/` paths from anthill-cloud — pooled there because cortex was the server's startup cwd. The fix is gated by `tests/regression/decisions-cross-repo-isolation.test.ts` which fails on pre-merge `main` and passes here.
+## What was built then DISCARDED (negative results, documented)
 
-50 commits on `feature/mcp/multi-project-routing` (merged 491a569). Design: [`docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md). Plan: [`docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md`](docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md).
+- **Phase 2 — import-affinity `delta`** ([docs/research/2026-06-05-import-affinity-delta.md](docs/research/2026-06-05-import-affinity-delta.md)): no safe global weight; targeted files have too few/diffuse edges, dense monorepos over-merge. Branch deleted.
+- **Phase 3 — modularity split** ([docs/research/2026-06-05-modularity-split.md](docs/research/2026-06-05-modularity-split.md)): splits cortex's `cli commands` blob into *incoherent* mixed communities with `cluster:N` labels (+ label-violation regression). Branch deleted.
+- **Why both failed (one cause):** the `IMPORTS`/`CALLS` graph couples files *across* the topical boundaries frames should express (CLI→decisions→MCP, tests→everything, framework leaves→shared utils). **The import graph is the wrong signal for topical grouping — do not reattempt graph-signal blends/splits.** Spec §13 records this.
 
-Companion ships:
-- `cortex decision rehome <id> --to=<repo_path>` CLI verb for moving historical mis-routed decisions; the 14 anthill-owned decisions were rehomed via this verb the same day.
-- Master registry under `~/.cache/cortex-indexer/<slug>.db` powers `list_projects` and the friendly error payloads — closes Field Report 2026-05-26 rec #1.
-- Plugin bumped 0.2.0 → 0.3.0 (793733d); README install section rewritten to lead with the marketplace plugin path (3d94b62); `.mcp.json` unified to one expression that works in both plugin and project contexts via `${CLAUDE_PLUGIN_ROOT:-$PWD}` (b8ba817).
+## Honest verdict on label quality (don't trust the headline number)
 
-### Resolver collapses worktrees to canonical (fc8ae84)
+- The "label violations 133→10" metric is **circular**: `checkLabelQuality` enforces the same rules `pickFrameLabel` was built to satisfy. It measures rule-compliance, not semantic quality. There is **no independent label-quality signal** in the eval.
+- A human before/after on real corpus labels showed **net mixed**: genuine wins (`orgid design`→`design systems`, `activator email`→`activator`), several "vaguer but arguably more correct" (`account`→`admin`, `dsl compiler`→`dsl`), and a **real regression** — frames stranded at `cluster:N` (see Priority 1).
 
-Cortex's invariant — "one index per repo, shared across all worktrees" — is now structural. `git rev-parse --git-common-dir` returns the shared `.git/` from any worktree; the resolver routes to the canonical repo root regardless of whether the caller passed a canonical or a worktree path. `ctx.repoPath` is realpath-normalized so two worktrees of the same repo dedupe to one pooled `RepoContext`. Decisions captured from any worktree are immediately visible from every other worktree of the same repo. Sets up the "worktree as in-flight PR" model (Item 5 below).
+---
 
-## What shipped this session (2026-05-26)
+## PRIORITY 1 — Fix the `cluster:N` labeling bug
 
-### Bug 1 — Nuxt fetch family HTTP_CALLS detection (merged: 5700759)
+**Symptom:** frames render with no label, just `cluster:<id>`. Observed on the current index: anthill **1** (`cluster:0`), rosalind **4+ of 22** (`cluster:24/22/21/17`).
 
-Adds `ctx_service_pattern_is_global_http()` allowlist covering `$fetch`, `useFetch`, `useLazyFetch`, and platform `fetch`. Wires a fallback in the unresolved-call branch of both `pass_calls.c` AND `pass_parallel.c` (the latter is the production path for repos with >50 files, per `MIN_FILES_FOR_PARALLEL` — yesterday's plan only mentioned pass_calls.c). For unresolved calls whose bare callee matches the allowlist AND whose first string arg is URL-shaped, emits an HTTP_CALLS edge pointing to a Route node.
+**Root cause:** `pickFrameLabel` (`src/frame-extraction/inject-frames.ts`) passes 1–2 require a token that is non-structural AND ≥50%-path-salient (`pathSalience` in `structural-tokens.ts`). When a frame's members span multiple directories with no ≥50%-shared token, all candidates are rejected; the path-prefix fallback (`commonPathSegmentLabel`) then finds no common informative segment and drops to the `cluster:<id>` terminal fallback. The salience gate, tuned to kill leaf-token mislabels, is too aggressive at the tail and deletes specificity (also: `dsl compiler`→`dsl`, `drizzle config`→`config`).
 
-- **Why the original plan ("just add them to http_libraries[]") didn't work:** that table is a SUBSTRING match on the resolved QN. Nuxt's `$fetch` etc. are auto-imports — they never appear in an IMPORTS edge, so call resolution returns nothing and the call gets dropped before classification can run. The substring-match path is unreachable for them.
-- **Impact:** anthill-cloud 0 → 23 HTTP_CALLS (all `via: global_http`, all real Nuxt fetches). cortex +1 legit fetch. No regressions elsewhere.
-- **Known gap:** 47 of anthill-cloud's 57 `$fetch` calls use template-literal URLs (`` $fetch(`/api/${id}`) ``). `extract_positional_url` only accepts `string`/`string_literal`/`interpreted_string_literal` tree-sitter node kinds — `template_string` isn't in `is_string_like()` in [internal/indexer/extract/extract_calls.c:40-44](internal/indexer/extract/extract_calls.c#L40-L44). Adding it would recover ~80% more anthill HTTP_CALLS. Small follow-up.
+**Fix direction (decide + implement):** replace the `cluster:N` terminal with a real last-resort label — e.g. the most-frequent path segment even if <50%, or the top TF-IDF token regardless of salience, or the dominant directory name — and consider lowering/ramping the salience threshold so it removes noise without erasing specificity. Re-judge by *eyeballing real labels*, not the circular count. Files: `inject-frames.ts` (`pickFrameLabel`, `commonPathSegmentLabel`), `structural-tokens.ts` (`pathSalience`).
 
-### Bug 2 — URL-arg discriminator (merged: fe92f5c)
+## PRIORITY 2 — Finish + refactor the viewer/frames storage pipeline
 
-Adds `ctx_service_pattern_looks_like_http_url()` that rejects paths starting with filesystem prefixes (`/tmp/`, `/Users/`, `/usr/`, `/var/`, `/etc/`, `/opt/`, `/home/`, `/bin/`, `/sbin/`, `/private/`, `/dev/`, `/mnt/`, `/Volumes/`, `/Library/`, `/Applications/`, `/root/`, `/proc/`, `/sys/`, `/media/`, `/srv/`, `/run/`, `/boot/`, `/cygdrive/`) and paths ending with source-file/asset extensions (44 in the list: `.ts .go .py .c .rs .vue .json .yaml .md .png .woff2 …`).
+**The clusterfuck:** three stores disagree on where a project's frames live.
+- MCP `index_repository` writes **`<repo>/.cortex/db`**.
+- CLI `cortex index` writes the shared cache **`~/.cache/cortex-indexer/<slug>.db`** (and leaves an un-checkpointed WAL).
+- The viewer's `openProjectStore` (`src/graph/code-queries.ts:198`) reads the **cache** for any non-active project.
+- The read-path fix (`resolveGraphDbForRead`) only covered the MCP `RepoContextResolver` — **`openProjectStore` was not migrated**, so the viewer reads a possibly-stale cache while reindexes land in `.cortex/db`. This is why "reindex + view" showed pre-Phase-1 labels until manually worked around.
 
-Wired into `normalize_url_arg` (pass_parallel's detect_url_in_args), `try_emit_global_http_call`, and `try_emit_global_http_call_parallel`.
+**⚠ TEMP HACK currently on disk (uncommitted):** to let the viewer render current frames, each repo's `.cortex/db` (authoritative Phase-1 frames) was `cp`'d over its `~/.cache/.../<slug>.db`. This will drift on the next index — ignore/undo it; it is not a fix.
 
-- **Impact:** cortex 76 → 25 HTTP_CALLS (51 FPs gone). The 25 remaining: 19 are legitimate `/api/...` paths from `src/mcp-server/api.ts` (Hono routes) + test fixtures, 6 are `/foo/bar/`, `/a/b/c/d/e` — generic-looking test data that the discriminator can't safely reject. No regressions in other indexes.
+**The work:**
+1. Migrate `openProjectStore` (and any other reader) to `resolveGraphDbForRead` so the viewer reads the populated/freshest store.
+2. Make the index **write** and the viewer **read** agree on ONE canonical store per project (pick `.cortex/db` *or* the cache, not both) and checkpoint the WAL after frame injection.
+3. **Revisit/refactor the whole frames pipeline** (collect → cluster → inject → read), removing the store divergence and WAL footguns. **It needs to be far more stable for Mesh.** The dev server is `npm run dev` (port 3334, `/viewer`); `startViewerServer` is `src/mcp-server/api.ts`.
 
-### Multi-project routing fix (Wave 3, merged)
+---
 
-Second 2026-05-26 field report ([field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)) caught a hard failure mode: the indexer's cache had 10 projects; MCP tools could reach exactly 1 (the bound cwd's project). Self-contradictory payload — `get_architecture(project="X")` returned `"available_projects": [...X...]` in the SAME error that said X was "not found".
+## Loose ends / state
 
-**Root cause** (two layers, fixed together):
+- **Unpushed:** Phase-3 research merge (`7b662d6`).
+- **Registry re-polluted:** `list_projects` again carries ~10 `Users-rka-Development-cortex-.tmp-frame-extraction-corpus-*` entries (a full `eval:frames` run re-indexed the corpus; teardown only deregisters on a full-corpus run, and these came back). Re-clean via `delete_project`, OR make teardown/registry permanently exclude `.tmp/` clones.
+- **Temp cache-sync hack** (Priority 2) is live on disk, uncommitted.
 
-- **C-side**: `ctx_resolve_db_path()` short-circuits to the `CORTEX_DB` env var when set, ignoring the `project` argument entirely. The TS MCP server's `callIndexer` always sets `CORTEX_DB=<bound .cortex/db>`, so every per-project query was silently routed to the bound DB and failed. The `available_projects` array on the error came from a separate code path (`build_project_list_error`) that scans the cache dir directly — hence the contradictory two-views payload.
-- **TS-side**: `list_projects` and `index_status` queried only the bound store's `ctx_projects` table, which has one row (the bound project's self-entry). 9 of 10 cache-resident projects were invisible.
+## Pointers
 
-**Fix** (merged: `491a569` — MCP multi-project routing merge):
-- New `ctx_cache_db_path()` in platform.c that always resolves `<cache>/<project>.db`, env-agnostic. `handlers.c::project_db_path` rewired to use it; `ctx_resolve_db_path` left alone so pipeline writes still honor `CORTEX_DB` for embedders.
-- `callIndexerCache` variant in code-tools.ts that strips `CORTEX_DB` from the subprocess env.
-- `list_projects` and `index_status` now union the bound store's projects with the cache directory's. Bound store wins on conflict so fresher embedder data takes precedence.
-
-Verified end-to-end: with `CORTEX_DB=<cortex.db>` set, both `get_architecture(project="anthill-cloud")` (5378 nodes) AND `get_architecture(project="cortex")` (17444 nodes) now succeed in the same process. 3 new C tests cover `ctx_cache_db_path`. 80/80 JS tests pass.
-
-### Field-report follow-ups (Wave 2, all merged)
-
-Triaged the 2026-05-26 field report and shipped the three small actionable items same session:
-
-- **Lockfile route noise** (merged: `fcde0e1` — `d85a746`): `is_infra_file` in [pipeline.c:435](internal/indexer/src/pipeline/pipeline.c#L435) accepted any `.yaml`/`.yml`/`.tf`/`.hcl`/`.toml` path, so pnpm-lock.yaml's thousands of tarball URLs were upserted as `__route__infra__` nodes. **anthill-cloud 183 → 13 Route nodes**, cortex 60 → 20, no other corpus affected. Filter is a small basename allowlist (pnpm-lock.yaml, Cargo.lock, Pipfile.lock, poetry.lock, uv.lock, Gemfile.lock, mix.lock, composer.lock).
-
-- **`cortex index changes` bug fix** (merged: `2a82a76` — `bd467cc`): one-line typo in [src/cli/commands/index.ts:32](src/cli/commands/index.ts#L32). The CLI passed `{ repo_path: ctx.cwd }` to `detect_changes` but the handler reads `{ project: ... }`. Now matches how `index status` is wired. SessionStart hook copy specifically points agents at this command — was a real usability hit.
-
-- **`file:symbol` editor-jump form in resolveInput** (merged: `5f29a16` — `4f89e77`): adds a pre-check for `path/to/file.ext:identifier` inputs (the natural form for jump-to-definition). Bare file paths and bare names still work as before. 3 new tests cover the editor-jump form, tail-match (`Card.tsx:render` works as well as the full path), and the negative case (unknown symbol throws DomainError instead of silently falling through to file lookup).
-
-**Field-report diagnoses that turned out to be wrong** (worth noting for the agent for next time):
-- Report said `.vue` files don't appear as `file` nodes. **Actually 99 are present.** The agent queried `WHERE f.qualified_name CONTAINS ".vue"` but file QNs strip the extension (`...pages.onboarding.__file__`). The data is there; the query was wrong. Worth a docs note or schema change to preserve the extension.
-- Report said Pinia stores aren't a node class because `useFoundationStore` returns zero. **Actually 16 other `use*Store` variables ARE indexed correctly** (useSlideLayoutsStore, useVariablesStore, …). The specific example uses a factory wrapper (`createFoundationStore()`) that hides the `defineStore` call, which IS a real gap — but the general pattern works.
-
-### Bug 3 — HANDLES = 0 universally (diagnosed, deferred)
-
-**Refined diagnosis** after reading [pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) carefully: the emission logic is correct. `ensure_decorator_routes` scans Function/Method nodes for a `route_path` property and emits Route + HANDLES; `connect_prefix_to_decorators` and `match_infra_routes` are also working. Confirmed by counting: ZERO functions in ANY of the 9 indexed projects have a `"route_path":"..."` property in their JSON. The bug is upstream in extraction.
-
-`extract_route_from_decorators` at [extract_defs.c:780-810](internal/indexer/extract/extract_defs.c#L780-L810) only matches Python/Java-style decorator syntax (`@app.get("/path")` over a function definition). The indexed corpora don't use that pattern:
-
-| Project | Routing pattern | Why decorator extractor misses |
-|---|---|---|
-| anthill-cloud (Nuxt 3) | File-based: `server/api/orgs/index.get.ts` | No decorator. Route derives from filename + path |
-| cortex (Hono) | Call-arg: `app.get('/api/x', handler)` | URL is in a CALL arg, not a decorator |
-| trpc | `t.procedure.query(...)` | Procedure-based, no path string anywhere |
-| pallets/click | CLI library | No routes |
-| nuxt/ui, vueuse, TanStack/table | UI/utility libs | No routes |
-
-To get HANDLES > 0, this needs a NEW route extractor per pattern. Highest-leverage target: **Nuxt file-based routing**, which would recover ~170 routes for anthill-cloud alone. Sketch of work:
-
-1. In extract_defs.c (or a new extract_nuxt_routes.c): detect file paths matching `server/api/**/*.{get,post,put,delete,patch}.ts` and `server/api/**/index.{get,…}.ts`.
-2. Derive the URL pattern from the path (translate `[id]` → `:id`, drop the `.get.ts` suffix, etc.).
-3. Find the default-exported handler. In Nuxt these are `export default defineEventHandler(async (event) => { … })`. The arrow function inside isn't currently captured as a Function node — would need to either capture it OR attach `route_path`/`route_method` to the module/file node and adjust `ensure_decorator_routes` to scan those too.
-
-**Scope estimate:** medium for Nuxt alone (1 day). Hono and tRPC patterns would be follow-ups. Deferred from this session to give it the focused C-side fixture trace work it deserves.
-
-## What shipped 2026-05-25
-
-### 1. User-friendly `cortex` CLI (16 commits)
-
-Merge: `d3159c4` + QA fix merges `d61d596`, `e4c4010`.
-
-A polished command-line front door wrapping the existing TS MCP helpers and the native indexer behind a namespaced verb-object surface. Five namespaces — `code`, `decision`, `graph`, `index`, `eval` — plus meta (`tour`, `install`, `help`).
-
-- `bin/cortex` launcher that resolves symlinks (so the install symlink works from any cwd), exports `CORTEX_REPO_ROOT`, prefers `dist/cli/main.js`, falls back to `npx tsx`.
-- `src/cli/` package: `main.ts`, `router.ts`, `context.ts`, `resolve-input.ts`, `paths.ts`, `format.ts`, `help.ts`, `tour.ts`, `install.ts`, `errors.ts`, `indexer-output.ts` plus a `commands/` directory.
-- Smart input resolution at [src/shared/resolve-input.ts](src/shared/resolve-input.ts) (extracted in the resolver workstream below): file paths, canonical qns, dotted suffixes, bare names.
-- 48 unit + 5 integration tests under [tests/cli/](tests/cli/), all green.
-- Smoke-verified from `/Users/rka/Development/cortex` and `/Users/rka/Development/anthill-cloud` and `/tmp`.
-
-Two QA passes happened post-merge. The second one (driven by an independent Opus review) fixed:
-- `install.ts` + `eval.ts` were still resolving via `process.cwd()` — `cortex eval` broke from any non-cortex dir. Now use `repoRoot()`.
-- `install.ts` uninstall over-matched on bare `alias cortex=` substring (clobbered user aliases); install didn't handle existing non-symlink at target.
-- `context.ts dbHasProjectData` opened write-mode `GraphStore` (`CREATE TABLE IF NOT EXISTS` side-effect, didn't close, race with concurrent indexer). Now opens better-sqlite3 read-only with `fileMustExist`, closes in `finally`.
-- `decision` commands created `.cortex/` under random dirs. Now requires git context (`state !== "no-project"`).
-- `decision why` exited 0 on no-match; now throws `DomainError` → exit 3 (consistent with `cmdShow`).
-
-Plan + spec: [docs/superpowers/plans/2026-05-24-user-friendly-cli.md](docs/superpowers/plans/2026-05-24-user-friendly-cli.md), [docs/superpowers/specs/2026-05-24-user-friendly-cli-design.md](docs/superpowers/specs/2026-05-24-user-friendly-cli-design.md).
-
-### 2. MCP tool robustness (9 commits)
-
-Merge: `4519415`. Plan: [docs/superpowers/plans/2026-05-21-mcp-tool-robustness.md](docs/superpowers/plans/2026-05-21-mcp-tool-robustness.md).
-
-Three fixes from the 2026-05-21 field report. 6 TDD tasks, 25 new tests:
-
-- **`search_code` argv hardening** — extracted rg/grep argv into `buildRgArgs`/`buildGrepFallbackArgs` helpers; added `--max-count 200` and `--exclude-dir=node_modules,.git,dist,build,.cache,vendored` so common patterns no longer time out on monorepos.
-- **Decision input validator** — new `src/mcp-server/tools/decision-input-validation.ts` rejects writes whose `title`/`description`/`rationale`/`problem`/`resolution` fields contain XML marshalling leakage markers (`</invoke>`, `</rationale>`, etc.). Wired into all four write tools.
-- **`governs` on `update_decision`** — `DecisionService.update` now accepts `governs` and `references` arrays with full-set-replacement semantics. Closes the recovery gap when governance was set wrong at create time (no more delete+recreate).
-
-### 3. MCP tool input resolver (5 commits)
-
-Merge: `e13982d`. Plan: [docs/superpowers/plans/2026-05-25-mcp-tool-input-resolver.md](docs/superpowers/plans/2026-05-25-mcp-tool-input-resolver.md).
-
-Lifted the CLI's `resolveInput` heuristic into a new `src/shared/resolve-input.ts` returning a tagged result (`single | multi | none`). Wired into three MCP tools:
-- `get_code_snippet` — accepts raw file paths and bare names
-- `trace_path` — accepts file paths and bare names for `function_name`
-- `why_was_this_built` — accepts bare names (file paths and qns already worked via `findGoverning`'s own walk)
-
-Multi-match returns `ambiguous_input` with a numbered candidate list (new ErrorReason). 9 new tests. Closes the agentic-MCP-side of the field-report friction.
-
-## What's next — actual current queue
-
-### Item 1 — HTTP_CALLS / HANDLES extraction (Bug 1+2 done; Bug 3 + template-literal follow-up remain)
-
-Post-session diagnostic counts (`~/.cache/cortex-indexer/*.db`):
-
-| Project | HTTP_CALLS | HANDLES | route nodes | Notes |
-|---|---:|---:|---:|---|
-| cortex | 25 | 0 | 20 | was 76 HTTP_CALLS / 60 routes — Bug 2 + lockfile fix |
-| anthill-cloud | **23** | **53** | **66** | was 0 HTTP_CALLS / 183 routes — Bug 1 + lockfile fix; Nuxt file-based route extractor shipped (branch `feature/indexer/nuxt-route-extraction`, new module `internal/indexer/extract/extract_nuxt_routes.c`) |
-| trpc | 5 | 0 | 35 | unchanged |
-| nuxt/ui | 2 | 0 | 130 | unchanged |
-| vueuse | 2 | 0 | 14 | unchanged |
-| pallets/click | 5 | 0 | 16 | unchanged |
-
-**Remaining work:**
-
-3. **HANDLES = 0 universally — RESOLVED for Nuxt file-based routing.** The Nuxt file-based route extractor shipped on branch `feature/indexer/nuxt-route-extraction` (new module `internal/indexer/extract/extract_nuxt_routes.c`). anthill-cloud went from 0 → 53 HANDLES with full coverage of its 53 canonical route files; route nodes 13 → 66. See "Bug 3" section above for the original diagnosis. **Remaining patterns:** Hono (cortex, call-arg `app.get('/path', handler)`) and tRPC (procedure-based) still show HANDLES=0 — by design, they need their own dedicated extractors (future follow-ups).
-
-   **Build artifact note:** `bin/cortex-indexer` is a compiled artifact that must be explicitly rebuilt after C-source changes. It was stale during this work — the freshly-built binary lives at `internal/indexer/build/c/cortex-indexer`. The production CLI (`~/.local/bin/cortex`) invokes `bin/cortex-indexer` via `npm run postinstall`; run that (or `make -f internal/indexer/Makefile.indexer` directly) to make the Nuxt extractor live through the `cortex` CLI.
-
-4. **Template-literal URL arg extraction** (new follow-up to Bug 1). `extract_positional_url` in [extract_calls.c:531-545](internal/indexer/extract/extract_calls.c#L531-L545) only accepts simple string node kinds. Adding `template_string` (TS) and `formatted_string` (Python) would recover ~47 more anthill-cloud `$fetch` calls plus similar in other Nuxt/Python projects. Need to handle interpolations carefully — convert `` `/api/${id}` `` to `/api/:id` (the normalize_url_arg already has logic for this in pass_parallel.c). Estimated effort: small.
-
-### Item 2 — Decision-capture process gap
-
-`SELECT COUNT(*) FROM .cortex/decisions.db decisions` = 3, but architectural decisions made in recent sessions weren't captured. Decisions worth capturing retroactively (from this session alone):
-
-- "Extract CLI `resolveInput` into `src/shared/` rather than letting MCP reach into `src/cli/`" — captured in the input-resolver plan but not as a decision row.
-- "Probe local `.cortex/graph.db` for project data before using it; fall back to indexer cache" — captured in the QA-followups commit but not as a decision row.
-- "Indexer-output unwrapper lives in `src/cli/`, not in the indexer or as a shared module — only the CLI is a human consumer of the raw output" — implicit in the QA pass.
-- "`cortex` CLI launcher exports `CORTEX_REPO_ROOT`; modules resolve paths from that, not from `process.cwd()`" — surfaced by the Opus review.
-
-This same gap was noted in the older root HANDOFF.md too and hasn't been addressed. Open question: hook-based prompt at commit time? `/review-recent-commits` skill? Manual capture pass? Not investigated yet.
-
-### Item 3 — Polish items from the recent QA pass + 2026-05-26 field report
-
-Tracked but deliberately deferred:
-- **`get_code_snippet` source extraction has no unit-test coverage** ([src/cli/commands/code.ts:99-123](src/cli/commands/code.ts#L99-L123)) — the `.source` field extraction silently falls back to dumping JSON if the indexer's payload shape ever changes. Add a unit test that mocks `runIndexer` and asserts only the source is written.
-- **`router.ts` `--flag value` form eats positionals.** `cortex install --uninstall foo` parses `uninstall` as `"foo"` (truthy string), then the boolean check fails. Either special-case known-boolean flags or document `--uninstall` as bare-only.
-- **`graph sql '<sql>'` is a footgun** — no read-only enforcement. Document or prepend `--readonly` to sqlite3 args.
-- **`tests/cli/context.test.ts:32`** — writes an empty file that the new read-only `dbHasProjectData` probe will happily open. Test passes by accident; should write valid sqlite header or skip the probe path explicitly.
-- **`pass_route_nodes.c`** comment claims governance edges aren't transactional; technically true for single-statement writes (atomic at SQLite level) but misleading for multi-statement bulk operations. Wrap in `db.transaction()` if you ever do bulk link writes.
-
-From the 2026-05-26 field report (after the three small items already shipped above):
-- **Preserve file extension in `file` node qualified-names** — file QNs end in `__file__` with no extension, so `WHERE qualified_name CONTAINS ".vue"` returns 0 even when 99 Vue file nodes exist. Either preserve the extension (small schema change, careful with downstream consumers) or document this convention prominently in `cortex help qualified-names`. Either way kills a whole class of agent false negatives.
-- **Recognize `defineStore` factory patterns** (Pinia) — direct `defineStore` calls already produce `use*Store` variable nodes. The factory pattern `createXxxStore(config)` that internally returns `defineStore(...)` produces only the factory function as a node, not the derived stores. Medium effort — needs to track call-site → defineStore returns through factory wrappers.
-- **Verify `governs` linking and `FILE_CHANGES_WITH` actually work against `.vue` file paths** — the field report claimed these were broken on the basis of the (wrong) "no .vue file nodes" diagnosis. Should be a verify-only task; if it works, just document.
-- **Investigate `<template>` references between components in `.vue` files** — `<ACardFooter />` template usage doesn't appear to create CALLS or USES edges. Unverified by the report; would close the last Vue-coverage gap.
-
-### Item 4 — Open items from the older Phase 4 handoff that are still real
-
-These survived multiple sessions; not deliberately ignored, just unprioritized:
-- **2D viewer color/shape regression for granular kinds** post-Phase 4 (`class`, `method`, `interface`, `enum` render with default styling).
-- **`anim.nodes` grows unbounded** in the viewer; `setHover` adds but `remove_node` doesn't evict.
-- **`seen` Set in `src/viewer/websocket.js` unbounded** — ~26MB at 1M events.
-- **WS reconnect drift** — mutations during outage aren't replayed.
-- **Lean grammar parser ~100MB** at `internal/indexer/internal/cbm/vendored/grammars/lean/parser.c` flagged on push.
-
-### Item 5 — Worktrees as in-flight PRs (slice 2 + 3 from 2026-06-04 design conversation)
-
-The 2026-06-04 routing fix made cortex "one index per repo, all worktrees collapse to canonical" (commit fc8ae84 — "slice 1"). The deeper goal, articulated by user on the same day, is to make worktrees first-class in the data model:
-
-> Cortex's key feature is showing — transparently — the ongoing changes that other agents, developers, and their agents are making to the codebase. Worktrees usually represent a new feature / future PR. We need to capture and reflect that state.
-
-That points at two follow-on work streams. Neither has a spec yet; both want their own `/brainstorm`.
-
-**Slice 2 — Worktree↔PR auto-registration.** Detect worktree creation, open a synthetic PR keyed on the worktree's branch, write `pr_touches` against the canonical graph as files change. PR closes on worktree-remove / branch-merge / GitHub-PR-merge. Existing machinery: `pull_request` nodes + `pr_touches` table + the four PR tools (`open_pr` / `get_pr` / `add_pr_touch` / `merge_pr`) that were migrated in the routing fix. Open design questions:
-
-- **Trigger** — SessionStart hook detects "I'm in a worktree, no PR record yet, register one" vs. ambient `git worktree list` poller vs. explicit `cortex worktree register` verb.
-- **Identifier** — synthetic ID like `wt:feature/arcane-dsl` from branch name vs. mapping to actual GitHub PR number when one exists vs. both (synthetic at first, upgrades when the real PR opens).
-- **Touch flow** — fsevents watcher (real-time) vs. periodic `git diff <mainline>...HEAD` snapshot vs. git post-commit hook vs. on-demand `cortex worktree sync` verb. Touch-flow choice has long downstream consequences: real-time means a worker process; snapshot is simpler but stale; per-commit misses uncommitted state which is where SDD agents actually live.
-- **Lifecycle** — close on `git worktree remove` vs. branch-merge-detected vs. GitHub PR merged vs. explicit unregister.
-
-**Slice 3 — Multi-agent visibility query layer.** The actual UX payoff once slice 2's touch data exists. `why_was_this_built('src/auth.ts')` returning "the decision merged from `main` + 3 in-flight PRs proposing changes, here are their touches and rationales." `search_graph` returning canonical symbols + symbols proposed-but-unmerged from open PRs, flagged. This is the transparent multi-agent collaboration story — the thing cortex was always meant to do but doesn't fully today.
-
-Interesting reordering possibility: design slice 3 *first* (what do agents and humans want to see?) and let that constrain slice 2's touch-flow choice. Probably the right move — working backward from the UX narrows the mechanism choice better than picking a mechanism first.
-
-**Also still open: tier-model promotion** (migrated from the now-deleted `HANDOFF_DECISIONS.md` Gap 1). `cortex decision promote` was removed from the CLI in [ef0262c](src/cli/commands/decision.ts) with a "deferred until tier model specced" error. `DecisionPromotion` class + `promote_decision` MCP tool still exist (TS-side, repo-scoped per the routing fix). What promotion *means* (personal → team semantics, who can promote, where a `team` decision physically lives — same repo's `.cortex/decisions.db` with a tier flag, a shared store, synced, etc.) was never specced; the `tier` column is in the schema with `DEFAULT 'personal'` but has no design rationale. Either spec it or remove the dormant plumbing.
-
-## What's in main right now
-
-Top commits on local `main` (HEAD `ed220f2`). **`origin/main` is at `b0d1989`,
-107 commits behind — re-verify the push before treating remote as current.**
-
-```
-ed220f2 Merge: track field reports + .DS_Store gitignore
-b716058 chore: track field reports + gitignore .DS_Store
-67058bd Merge: worktree collapse to canonical + HANDOFF updates
-c5f86eb docs(handoff): record 2026-06-04 shipped work + Item 5 worktrees-as-PRs
-fc8ae84 feat(mcp): collapse worktrees to canonical repo root in resolver
-6a3c463 Merge: unified .mcp.json invocation for both contexts
-b8ba817 fix(mcp): unify .mcp.json invocation for plugin + project contexts
-6fa84a7 Merge: marketplace install path + plugin 0.3.0
-3d94b62 docs(readme): lead install with plugin marketplace path
-793733d chore(plugin): bump cortex plugin 0.2.0 → 0.3.0
-491a569 Merge: MCP multi-project routing (per-call resolver + rehome CLI + regression test)
-579aaab feat(hooks): print repo absolute path in SessionStart banner
-565901d docs: agent-facing MCP routing contract
-4082577 test(cli): error-path coverage for decision rehome
-5b4d076 feat(cli): cortex decision rehome <id> --to=<repo_path>
-6938492 feat(mcp): remove startup repoPath binding — per-call routing is the only path
-```
-
-The 2026-05-26 Wave 1/2/3 commits (Bug 1+2, lockfile-route noise, `index
-changes`, `file:symbol`, the first multi-project routing fix) are further down
-the same `main` history.
-
-Eval baselines: 3 reports under [evals/reports/](evals/reports/), latest `2026-05-24_20-54`.
-
-## How to start the next session
-
-```bash
-cd ~/Development/cortex
-git pull --ff-only origin main          # should already be in sync
-npm install                              # postinstall builds bin/cortex-indexer + installs cortex CLI
-
-# Sanity smoke
-cortex tour                              # confirm CLI works from cortex repo
-npm test                                 # expect ~612 passed / 1 skipped / 1 documented Python-venv flake
-```
-
-### If picking up the template-literal follow-up (smallest remaining piece):
-
-Goal: add `template_string` (TS) to `is_string_like()` in [extract_calls.c:40-44](internal/indexer/extract/extract_calls.c#L40-L44) so calls like `` $fetch(`/api/${id}`) `` get their URL captured. The URL normalizer in pass_parallel.c already handles `${...}` → `:varname` (see `normalize_url_arg`), so the rest of the pipeline is ready.
-
-```bash
-# Reindex anthill-cloud first to baseline:
-cortex index delete Users-rka-Development-anthill-cloud
-cd ~/Development/anthill-cloud && /Users/rka/Development/cortex/bin/cortex-indexer cli index_repository '{"repo_path":"/Users/rka/Development/anthill-cloud"}'
-sqlite3 ~/.cache/cortex-indexer/Users-rka-Development-anthill-cloud.db \
-  "SELECT COUNT(*) FROM edges WHERE relation='HTTP_CALLS'"   # expect 23 baseline
-# After fix, expect ~70 (the ~47 template-literal $fetch + the 23 plain-string ones)
-```
-
-After is_string_like is widened, also ensure the strip_and_validate_string_arg path handles backtick stripping correctly — it currently checks `text[0] == '"' || text[0] == '\''` only.
-
-### If picking up Bug 3 (HANDLES, Nuxt file-based routing):
-
-This needs its own focused session. Read order: [pass_route_nodes.c](internal/indexer/src/pipeline/pass_route_nodes.c) (the emission logic — already correct), then [extract_defs.c:780-810](internal/indexer/extract/extract_defs.c#L780-L810) (where decorator routes get extracted), then look at how Nuxt routes are structured:
-
-```bash
-# Trace a real Nuxt route file
-ls ~/Development/anthill-cloud/apps/activator/server/api/orgs/
-# index.get.ts, index.post.ts, [id].get.ts, [id].patch.ts, …
-
-# The file's default export is the handler — find it in the index:
-sqlite3 ~/.cache/cortex-indexer/Users-rka-Development-anthill-cloud.db \
-  "SELECT id, kind, name, qualified_name FROM nodes WHERE file_path = 'apps/activator/server/api/orgs/index.get.ts'"
-# Currently: only file + module nodes. The handler arrow function inside defineEventHandler isn't captured as a Function.
-```
-
-Suggested approach: add a new pass (or extend pass_definitions) that:
-1. Walks `result->defs` and for each module-level `export default defineEventHandler(...)`, captures the inner arrow function as a Function node.
-2. Computes `route_path` from the file path (translate `[id]` → `:id`, strip `.get.ts` etc.).
-3. Sets `route_method` from the filename suffix (`.get.ts` → GET).
-
-Existing pass_route_nodes.c will then pick those functions up via `ensure_decorator_routes` and emit HANDLES.
-
-### If picking up Item 2 (decision capture):
-
-This is a meta-improvement, not feature work. Probably needs a brainstorm before any code lands. Open with:
-
-```
-/brainstorm decision-capture process gap. SELECT COUNT(*) FROM decisions = 3 after many architectural sessions. The CLAUDE.md guidance to "capture a decision proactively" isn't actually producing decisions. Investigate hook-based prompts, mid-session triggers, or a /review-recent-commits skill.
-```
-
-### If picking up an Item 3 polish item:
-
-Most are small enough to do without ceremony. Use the file:line refs in this doc.
-
-## Quick reference — current modules added this session
-
-| File | What it does |
-|---|---|
-| [bin/cortex](bin/cortex) | Launcher; resolves symlinks; exports `CORTEX_REPO_ROOT`; prefers `dist/cli/main.js` |
-| [src/cli/main.ts](src/cli/main.ts) | argv dispatch + meta (`--help`, `--version`, `tour`, `install`) |
-| [src/cli/router.ts](src/cli/router.ts) | parseArgv + Levenshtein "did you mean" |
-| [src/cli/context.ts](src/cli/context.ts) | Detects indexed/unindexed-repo/no-project; resolves graphDbPath with read-only probe |
-| [src/cli/paths.ts](src/cli/paths.ts) | `repoRoot()` from `CORTEX_REPO_ROOT` env or import.meta.url fallback |
-| [src/cli/format.ts](src/cli/format.ts) | `formatRows` + `writeRows(rows, fmt, emptyMessage)` |
-| [src/cli/indexer-output.ts](src/cli/indexer-output.ts) | `unwrapIndexerResult` + `renderIndexerResult` (strips MCP envelope + log lines, surfaces isError) |
-| [src/cli/install.ts](src/cli/install.ts) | symlink → ~/.local/bin/cortex, fall back to shell alias |
-| [src/cli/tour.ts](src/cli/tour.ts) | Context-aware tour; pickSampleFunction filters by current project |
-| [src/cli/commands/code.ts](src/cli/commands/code.ts) | find / search / show / where / calls / arch / schema |
-| [src/cli/commands/decision.ts](src/cli/commands/decision.ts) | list / show / why / create / update / delete / link / propose / supersede |
-| [src/cli/commands/graph.ts](src/cli/commands/graph.ts) | query (Cypher) / sql (raw SQLite) |
-| [src/cli/commands/index.ts](src/cli/commands/index.ts) | run / status / changes / list / delete |
-| [src/cli/commands/eval.ts](src/cli/commands/eval.ts) | Delegates to `evals/src/cli.ts` |
-| [src/shared/resolve-input.ts](src/shared/resolve-input.ts) | `resolveInput(input, project, dbPath): ResolveResult` — tagged single/multi/none |
-| [src/mcp-server/tools/decision-input-validation.ts](src/mcp-server/tools/decision-input-validation.ts) | `validateDecisionFields` — rejects XML marshalling leakage |
-
-## Project conventions (recap, unchanged)
-
-- **Branch first.** Never commit to `main`. Naming: `feature/<scope>/<desc>` or `fix/<scope>/<desc>`. Scope ∈ `{component, page, api, store, config, layout, css, db, cli, mcp, decisions, ...}`.
-- **Atomic commits.** Format: `<type>(<scope>): <description>`.
-- **Merge protocol.** `git merge --no-ff <branch>` then `git branch -d <branch>`. Push only when explicitly asked.
-- **Gates.** Visual QA (Gate 0) for UI; `/review` (Gate 1) before marking tasks complete; `qa` agent (Gate 2) before merge.
-- **Decision tools.** Prefer `search_decisions` → `create_decision` / `propose_decision` for any non-trivial choice. (See Item 2 — practice is lagging this rule.)
-
-## Historical handoffs (for cross-reference)
-
-- [docs/HANDOFF-2026-05-24.md](docs/HANDOFF-2026-05-24.md) — 2026-05-24 (one session before this one). Covered the eval harness work and the field-assessment investigation.
-- The earlier 2026-05-10 root HANDOFF.md (now replaced by this file) covered the CBM absorption Phase 1-4 work. Phases 6-9 also shipped (see tags `phase-6-mcp-strip` through `phase-9-c-rename`) — CBM absorption is complete.
+- **Spec (with §13 outcome):** [docs/superpowers/specs/2026-06-04-import-aware-frame-extraction-design.md](docs/superpowers/specs/2026-06-04-import-aware-frame-extraction-design.md)
+- **Research reports:** [import-affinity-delta](docs/research/2026-06-05-import-affinity-delta.md) · [modularity-split](docs/research/2026-06-05-modularity-split.md)
+- **Field report (label quality assessment):** [field-report-2026-06-04-frame-extraction-semantic-quality.md](docs/architecture/field%20reports/field-report-2026-06-04-frame-extraction-semantic-quality.md)
+- **Plans:** [Phase 1](docs/superpowers/plans/2026-06-04-frame-convention-aware-tokenization.md) · [1b zero-frames](docs/superpowers/plans/2026-06-05-zero-frames-warning.md) · [P2 (discarded)](docs/superpowers/plans/2026-06-05-import-affinity-delta.md) · [P3 (discarded)](docs/superpowers/plans/2026-06-05-modularity-split.md)
+- **Key code:** frame labels `src/frame-extraction/inject-frames.ts` + `structural-tokens.ts`; tokenizer `path-tokenize.ts`; pipeline `run-frames.ts`; store resolution `src/db/resolve-path.ts` (`resolveGraphDbForRead`) + `src/mcp-server/repo-context.ts`; viewer read `src/graph/code-queries.ts` (`openProjectStore`) + `src/mcp-server/api.ts`.
