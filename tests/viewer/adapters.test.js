@@ -5,6 +5,7 @@ import {
   basenames,
   buildFrameGovernance,
   edgesInternalIndex,
+  frameCoverage,
 } from "../../src/viewer/adapters.js";
 
 describe("groupNodesIntoFrames", () => {
@@ -83,5 +84,44 @@ describe("edgesInternalIndex", () => {
     expect(index.has("1::2")).toBe(true);
     expect(index.has("2::3")).toBe(true);
     expect(index.has("3::1")).toBe(false);
+  });
+});
+
+describe("frameCoverage", () => {
+  it("flags zeroFrames when file nodes exist but none carry a frame_id", () => {
+    const nodes = [
+      { id: "1", kind: "file", file_path: "src/a.ts", data: {} },
+      { id: "2", kind: "file", file_path: "src/b.ts", data: {} },
+      { id: "3", kind: "function", name: "foo", data: {} },
+    ];
+    expect(frameCoverage(nodes)).toEqual({ fileNodes: 2, framedNodes: 0, zeroFrames: true });
+  });
+
+  it("does not flag when at least one file node has a frame_id", () => {
+    const nodes = [
+      { id: "1", kind: "file", file_path: "src/a.ts", data: { frame_id: 0, frame_label: "auth" } },
+      { id: "2", kind: "file", file_path: "src/b.ts", data: {} },
+    ];
+    expect(frameCoverage(nodes)).toEqual({ fileNodes: 2, framedNodes: 1, zeroFrames: false });
+  });
+
+  it("does not flag a project with no file nodes (unindexed / empty)", () => {
+    const nodes = [{ id: "1", kind: "function", name: "foo", data: {} }];
+    expect(frameCoverage(nodes)).toEqual({ fileNodes: 0, framedNodes: 0, zeroFrames: false });
+  });
+
+  it("parses stringified data JSON like the rest of the adapter", () => {
+    const nodes = [
+      { id: "1", kind: "file", file_path: "src/a.ts", data: '{"frame_id":2,"frame_label":"x"}' },
+    ];
+    expect(frameCoverage(nodes)).toEqual({ fileNodes: 1, framedNodes: 1, zeroFrames: false });
+  });
+
+  it("ignores frame_id that is not a number", () => {
+    const nodes = [
+      { id: "1", kind: "file", file_path: "src/a.ts", data: { frame_id: null } },
+      { id: "2", kind: "file", file_path: "src/b.ts", data: { frame_id: "0" } },
+    ];
+    expect(frameCoverage(nodes)).toEqual({ fileNodes: 2, framedNodes: 0, zeroFrames: true });
   });
 });
