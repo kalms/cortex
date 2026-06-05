@@ -4,7 +4,8 @@
 
 ## Why a sidecar DB
 
-Cortex's graph DB (`.cortex/graph.db`) is a **fully replaceable derived
+Cortex's canonical graph DB (`.cortex/db` — see
+[graph-storage.md](graph-storage.md)) is a **fully replaceable derived
 artifact**. It can be rebuilt from source code via `index_repository`. The
 indexer's cache layer treats it as such: on cache hit, `readCacheEntry`
 overwrites the file in place; on cache miss with a "mode change reindex",
