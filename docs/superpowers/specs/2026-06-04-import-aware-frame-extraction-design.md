@@ -83,6 +83,8 @@ This feeds **both** the TF-IDF blob ([text-blob.ts](../../../src/frame-extractio
 
 ## 6. Phase 2 — Import-affinity signal
 
+> **SUPERSEDED — investigated, null result (2026-06-05).** A designed experiment built and swept this `delta` signal and found **no safe corpus-wide value**: the targeted framework leaves have too few/too-diffuse import edges to pull on, while the `delta` high enough to move them collapses dense monorepo import graphs (cortex → 2 clusters at δ=0.45). 0/8 named targeted files rescued; net coverage flat-to-negative. Implementation discarded (not merged); `delta` stays 0. The lead, if revisited, is **adaptive per-repo delta** or better edge extraction — not a global weight. Full write-up: [docs/research/2026-06-05-import-affinity-delta.md](../../research/2026-06-05-import-affinity-delta.md). Phase 3 below is independent and unaffected.
+
 **Goal:** rescue import-coupled files from the noise cluster (improve coverage), using the graph edges already in the DB.
 
 - **New collector** (sibling to [co-change.ts](../../../src/frame-extraction/co-change.ts)): read `IMPORTS`+`CALLS` edges from the graph DB, aggregate to a symmetric file→file adjacency weighted by count, emit JSONL (same shape contract as the co-change JSONL).
