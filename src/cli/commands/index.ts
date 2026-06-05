@@ -34,7 +34,12 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
         env: { ...process.env, CORTEX_DB: dbPath },
       },
     );
-    process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
+    const result = unwrapIndexerResult(raw);
+    process.stdout.write(renderIndexerResult(result) + "\n");
+    // renderIndexerResult throws on a failed index today, but guard explicitly
+    // so a future refactor can't let frames/register run against an empty
+    // .cortex/db (which would leave a registry row pointing at no graph).
+    if (result.isError) return;
 
     // Auto frame extraction into the SAME canonical store (additive; never blocks).
     const project = deriveProjectName(repoPath);
@@ -46,7 +51,11 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
     try {
       const conn = new Database(dbPath);
       try { conn.pragma("wal_checkpoint(TRUNCATE)"); } finally { conn.close(); }
-    } catch { /* non-fatal */ }
+    } catch (e) {
+      if (process.env.CORTEX_CLI_DEBUG === "1") {
+        process.stderr.write(`Cortex: WAL checkpoint failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
 
     // Register in the master registry (best-effort; never fail the index).
     try {
