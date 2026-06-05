@@ -1,5 +1,5 @@
 import { GraphStore } from "./store.js";
-import { readdirSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Registry } from "../db/registry.js";
@@ -131,10 +131,9 @@ export function listProjects(store: GraphStore): IndexerProject[] {
 }
 
 /* Union of (a) the bound store's ctx_projects (Cortex-Vue's local .cortex/db)
- * and (b) every .db file in the standalone-indexer cache (~/.cache/cortex-indexer).
- * The bound store wins on name conflict so embedder-fresher data takes precedence.
- * Opens cache .db files briefly (read-only) to read their ctx_projects row;
- * suitable for low-volume endpoints (project switcher, list_projects tool). */
+ * and (b) the master Registry (~/.cache/cortex-indexer/_registry.db), which
+ * records every repo indexed via the CLI or another MCP session. The bound
+ * store wins on name conflict so embedder-fresher data takes precedence. */
 export function listProjectsUnified(store: GraphStore): IndexerProject[] {
   const out = new Map<string, IndexerProject>();
 
@@ -151,6 +150,8 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
     try {
       for (const r of registry.list()) {
         if (out.has(r.name)) continue;
+        // RegistryRepo is a structural subset of IndexerProject; /api/projects
+        // consumers only read `name`. No nodes/edges counts here by design.
         out.set(r.name, { name: r.name, indexed_at: r.indexed_at, root_path: r.root_path } as IndexerProject);
       }
     } finally {
@@ -169,7 +170,7 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
  *  - { store: boundStore, owned: false }  when the request is for the bound
  *    project (or no project specified) — caller must NOT close.
  *  - { store: <fresh read-only>, owned: true }  when the request is for a
- *    cache-resident project — caller MUST close in `finally`.
+ *    registry-resolved (or legacy-cache-fallback) project — caller MUST close in `finally`.
  *  - null when the requested project isn't in the cache either.
  *
  * The /api/* HTTP endpoints use this to serve multi-project queries without
