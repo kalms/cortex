@@ -10,12 +10,27 @@ export interface RegistryRepo {
   indexed_at: string;
 }
 
-/** Canonical registry location. `_`-prefixed so existing cache scanners that
- *  skip `_`/`tmp-` files never mistake it for a project graph DB. Honors the
- *  `CORTEX_REGISTRY_DB` env override (used by tests to avoid polluting the
- *  real registry), mirroring CORTEX_DB / CORTEX_DECISIONS_DB. */
+/** XDG data home for durable cortex state — `$XDG_DATA_HOME` if set, else
+ *  `~/.local/share`. The registry is durable metadata (what repos exist +
+ *  where), so it lives under the DATA home, NOT `~/.cache` (which means
+ *  "regenerable, safe to delete"). Matches the indexer binary's XDG discipline
+ *  (`~/.config/cortex-indexer` for config, `~/.cache/cortex-indexer` for cache). */
+function xdgDataHome(): string {
+  const env = process.env.XDG_DATA_HOME;
+  return env && env.trim() ? env : join(homedir(), ".local", "share");
+}
+
+/** Canonical registry location: `<XDG_DATA_HOME>/cortex-indexer/registry.db`.
+ *  Honors the `CORTEX_REGISTRY_DB` override (used by tests to avoid polluting
+ *  the real registry), mirroring CORTEX_DB / CORTEX_DECISIONS_DB. */
 export function defaultRegistryPath(): string {
-  return process.env.CORTEX_REGISTRY_DB ?? join(homedir(), ".cache", "cortex-indexer", "_registry.db");
+  return process.env.CORTEX_REGISTRY_DB ?? join(xdgDataHome(), "cortex-indexer", "registry.db");
+}
+
+/** Legacy registry location (pre-XDG): `~/.cache/cortex-indexer/_registry.db`.
+ *  Read-only migration source — see `importLegacyRegistry`. */
+export function legacyRegistryPath(): string {
+  return join(homedir(), ".cache", "cortex-indexer", "_registry.db");
 }
 
 /** True if any path segment is exactly ".tmp". Eval-corpus clones live under

@@ -294,7 +294,7 @@ export class RepoContextResolver {
   /**
    * Returns every indexed repo this server can address — the union of
    * (a) repos pooled (resolved) in this server lifetime, and (b) all rows
-   * in the master Registry (`~/.cache/cortex-indexer/_registry.db`),
+   * in the master Registry (`~/.local/share/cortex-indexer/registry.db`),
    * deduped by `root_path`. Used by `list_projects` (crossRepo tool) and
    * the friendly error payloads on {@link MissingRepoPathError} /
    * {@link RepoNotIndexedError}.
