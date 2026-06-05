@@ -1,5 +1,5 @@
 import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance } from '/viewer/adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage } from '/viewer/adapters.js';
 import { gridLayout } from '/viewer/layout.js';
 
 (() => {
@@ -58,6 +58,28 @@ import { gridLayout } from '/viewer/layout.js';
 
   let currentProject = null;
 
+  // Zero-frames warning: shown when a project has file nodes but none are
+  // framed (graph built by the raw C indexer, which skips frame extraction).
+  // Re-evaluated on every loadGraph; dismiss only hides until next load.
+  function updateFramesWarning(nodes) {
+    const el = document.getElementById('frames-warning');
+    if (!el) return;
+    const { zeroFrames, fileNodes } = frameCoverage(nodes);
+    if (zeroFrames) {
+      const text = document.getElementById('frames-warning-text');
+      if (text) {
+        text.textContent = '';
+        text.append(`${fileNodes} files indexed, 0 frames — reindex via `);
+        const code = document.createElement('code');
+        code.textContent = 'cortex index';
+        text.append(code, ' to generate frames.');
+      }
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
   async function loadGraph(projectName) {
     currentProject = projectName;
     const [graph, decs, aggs, fileEdges] = await Promise.all([
@@ -71,6 +93,7 @@ import { gridLayout } from '/viewer/layout.js';
 
     // 1. Build frame summaries from the graph.
     const summaries = groupNodesIntoFrames(graph.nodes);
+    updateFramesWarning(graph.nodes);
 
     // 2. Position via grid layout. Reserve 90px at the bottom for the
     // aggregate strip so frames never overlap auxiliary aggregate dots.
@@ -148,6 +171,14 @@ import { gridLayout } from '/viewer/layout.js';
     }
     select.addEventListener('change', () => loadGraph(select.value || null));
     themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
+
+    const framesDismiss = document.getElementById('frames-warning-dismiss');
+    if (framesDismiss) {
+      framesDismiss.addEventListener('click', () => {
+        const el = document.getElementById('frames-warning');
+        if (el) el.hidden = true;
+      });
+    }
 
     await loadGraph(active);
   }
