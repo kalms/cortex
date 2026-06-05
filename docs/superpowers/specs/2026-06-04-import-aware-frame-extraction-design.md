@@ -4,7 +4,7 @@
 **Date:** 2026-06-04
 **Author:** Claude (Opus 4.8, 1M context) + rka
 **Related:**
-- Field report: [field-report-2026-06-04-frame-extraction-semantic-quality.md](../../architecture/field%20reports/field-report-2026-06-04-frame-extraction-semantic-quality.md)
+- Field report: [field-report-2026-06-04-frame-extraction-semantic-quality.md](../../field%20reports/field-report-2026-06-04-frame-extraction-semantic-quality.md)
 - Module: [`src/frame-extraction/`](../../../src/frame-extraction/)
 - Eval harness: [`scripts/frame-extraction/`](../../../scripts/frame-extraction/)
 
