@@ -135,6 +135,71 @@ describe("pickFrameLabel — path-prefix fallback", () => {
   });
 });
 
+describe("pickFrameLabel — dominant-segment fallback (cluster:N bug)", () => {
+  // Real rosalind clusters that stranded at cluster:N: coherent frames whose
+  // members share a NON-PREFIX path segment (the org root differs:
+  // modules/… vs features/…), so the common-prefix fallback finds nothing and
+  // the convention segment never ranks as a TF-IDF top token (low IDF). The
+  // dominant-segment fallback must recover a real label before cluster:N.
+
+  it("labels a Terraform-infra cluster 'infrastructure' via the dominant dir segment", () => {
+    const paths = [
+      "modules/rosalind-scripts/templates/lambda-feature/infrastructure/main.tf",
+      "features/VAULT/publish-vault-document/infrastructure/main.tf",
+      "features/EDITOR/edit-document/infrastructure/main.tf",
+    ];
+    // top tokens are terraform content / generic — none salient or eligible.
+    expect(pickFrameLabel(["main", "tf"], paths, 21)).toBe("infrastructure");
+  });
+
+  it("labels a devbox.json cluster 'devbox' via the dominant filename stem", () => {
+    const paths = [
+      "modules/rosalind-strings/devbox.json",
+      "modules/anthill-i-o/devbox.json",
+      "modules/deepl-helper/devbox.json",
+    ];
+    // Directories all differ; only the shared filename stem characterises it.
+    expect(pickFrameLabel([], paths, 24)).toBe("devbox");
+  });
+
+  it("labels a settings cluster 'settings', preferring the deeper topic over the org root", () => {
+    const paths = [
+      "features/DESIGN-SYSTEM/edit-design-system/data/settings/dev.json",
+      "features/RENDITIONS/add-rendition/data/settings/dev.json",
+      "features/DEV/rosalind-debugger/data/settings/example.json",
+    ];
+    // 'features' is shared 3/3 too, but it is an org-root convention — the
+    // topical segment 'settings' must win.
+    expect(pickFrameLabel([], paths, 17)).toBe("settings");
+  });
+
+  it("labels an events cluster 'events'", () => {
+    const paths = [
+      "features/VAULT/publish-vault-document/data/events/publish-document-events.json",
+      "features/EDITOR/edit-document/data/events/edit-document-events.json",
+      "modules/rosalind-scripts/templates/lambda-feature/data/events/test-events.json",
+    ];
+    expect(pickFrameLabel([], paths, 22)).toBe("events");
+  });
+
+  it("strips compound extensions from the filename stem (backup.tar.gz -> backup)", () => {
+    const paths = ["a/backup.tar.gz", "b/backup.tar.gz"];
+    expect(pickFrameLabel([], paths, 5)).toBe("backup");
+  });
+
+  it("strips the leading dot from a dotfile stem (.eslintrc -> eslintrc)", () => {
+    const paths = ["x/.eslintrc", "y/.eslintrc"];
+    expect(pickFrameLabel([], paths, 6)).toBe("eslintrc");
+  });
+
+  it("still returns cluster:<id> when no segment reaches a strict majority", () => {
+    // Genuinely heterogeneous 2-file cluster: every informative segment is
+    // shared by only 50% — not dominant — so the opaque fallback is honest.
+    const paths = ["apps/foo/x.ts", "packages/bar/y.ts"];
+    expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("cluster:42");
+  });
+});
+
 describe("buildFrameAssignments — passes paths through to label", () => {
   it("uses path-prefix fallback when all tokens are generic", () => {
     const cluster: ClusterResult = {

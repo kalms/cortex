@@ -32,6 +32,11 @@ const GENERIC_TOKENS = new Set([
   // Filesystem layout conventions
   "src", "lib", "common", "core", "main", "app", "apps", "packages",
   "modules", "pkg", "pkgs", "components", "index", "pages",
+  // Organisational root dirs that group code but never name a topic. Demoted
+  // in every pass (token + path-segment), consistent with the layout
+  // conventions above — a `features/`-rooted cluster is labelled by its
+  // deeper topical segment, not the org root.
+  "feature", "features",
   // Test infrastructure
   "test", "tests",
   // Generic utility nouns
@@ -86,7 +91,13 @@ function isLabelEligibleWord(
  *   3. Path-prefix fallback: deepest non-generic segment of the longest
  *      common directory prefix of member paths. Catches clusters whose top
  *      tokens are all generic but whose files share a meaningful directory.
- *   4. `cluster:<id>` as last resort.
+ *   4. Dominant-segment fallback: the most frequent informative path segment
+ *      (directory or filename stem) shared by a STRICT majority of members,
+ *      even when it is not a common prefix. Catches convention clusters —
+ *      every file is `…/infrastructure/main.tf` or `modules/*​/devbox.json` —
+ *      whose grouping segment TF-IDF suppresses (low IDF) and whose org roots
+ *      differ so the common prefix is empty.
+ *   5. `cluster:<id>` as last resort.
  *
  *  Tokens are normalised to lowercase for the stop-list check, but returned
  *  in their original form.
@@ -118,8 +129,89 @@ export function pickFrameLabel(
   const prefix = commonPathSegmentLabel(memberPaths);
   if (prefix) return prefix;
 
-  // Pass 4: cluster id fallback.
+  // Pass 4: dominant-segment fallback (non-prefix convention clusters).
+  const dominant = dominantPathSegmentLabel(memberPaths);
+  if (dominant) return dominant;
+
+  // Pass 5: cluster id fallback.
   return `cluster:${clusterId ?? "?"}`;
+}
+
+/** Last-resort topical label for clusters whose members share an informative
+ *  path segment that is NOT a common prefix — e.g. every file is
+ *  `…/infrastructure/main.tf`, or `modules/*​/devbox.json`. TF-IDF suppresses
+ *  such corpus-common convention segments (low IDF) so they never reach
+ *  `topTokens`, and `commonPathSegmentLabel` misses them because the org root
+ *  differs (`modules/…` vs `features/…`). Counts every informative segment
+ *  (directory or extension-stripped filename stem) across members and returns
+ *  the one shared by a STRICT majority (>50%). Ties break toward the segment
+ *  that is a shared DIRECTORY in more members (a stronger topical grouping
+ *  than a filename), then deeper, longer, lexicographically. Returns null
+ *  when nothing characterises a majority — keeping the honest `cluster:<id>`. */
+function dominantPathSegmentLabel(paths: readonly string[]): string | null {
+  if (paths.length === 0) return null;
+  const params = routeParamTokens(paths);
+  interface Cand { original: string; count: number; dirCount: number; maxDepth: number }
+  const cands = new Map<string, Cand>();
+
+  for (const p of paths) {
+    const parts = p.split("/").filter((s) => s.length > 0);
+    if (parts.length === 0) continue;
+    const last = parts.length - 1;
+    const file = parts[last]!;
+    // Filename stem: drop a leading dot (dotfiles like `.eslintrc`) then cut at
+    // the first remaining dot so compound extensions (`backup.tar.gz`) and
+    // role/ext suffixes (`devbox.json`) are both stripped to the base name.
+    const base = file.startsWith(".") ? file.slice(1) : file;
+    const cut = base.indexOf(".");
+    const stem = cut > 0 ? base.slice(0, cut) : base;
+
+    // Collapse repeats within this single path so each segment counts once
+    // per member; remember the deepest position and whether it was a directory.
+    const here = new Map<string, { original: string; depth: number; isDir: boolean }>();
+    const consider = (seg: string, depth: number, isDir: boolean) => {
+      if (seg.length === 0) return;
+      const lower = seg.toLowerCase();
+      if (isDynamicSegment(lower) || isGenericToken(lower) ||
+          isStructuralLabelToken(lower) || params.has(lower)) return;
+      const prev = here.get(lower);
+      if (!prev) here.set(lower, { original: seg, depth, isDir });
+      else here.set(lower, { original: prev.original, depth: Math.max(prev.depth, depth), isDir: prev.isDir || isDir });
+    };
+    for (let i = 0; i < last; i++) consider(parts[i]!, i, true);
+    consider(stem, last, false);
+
+    for (const [lower, occ] of here) {
+      const c = cands.get(lower);
+      if (!c) cands.set(lower, { original: occ.original, count: 1, dirCount: occ.isDir ? 1 : 0, maxDepth: occ.depth });
+      else {
+        c.count++;
+        if (occ.isDir) c.dirCount++;
+        if (occ.depth > c.maxDepth) c.maxDepth = occ.depth;
+      }
+    }
+  }
+
+  const total = paths.length;
+  let best: Cand | null = null;
+  for (const c of cands.values()) {
+    if (c.count / total <= 0.5) continue; // strict majority only
+    if (best === null || isStrongerCandidate(c, best)) best = c;
+  }
+  return best ? best.original : null;
+}
+
+/** Total order for dominant-segment candidates: more members, then shared as a
+ *  directory in more members, then deeper, then longer, then lexicographic. */
+function isStrongerCandidate(
+  a: { count: number; dirCount: number; maxDepth: number; original: string },
+  b: { count: number; dirCount: number; maxDepth: number; original: string },
+): boolean {
+  if (a.count !== b.count) return a.count > b.count;
+  if (a.dirCount !== b.dirCount) return a.dirCount > b.dirCount;
+  if (a.maxDepth !== b.maxDepth) return a.maxDepth > b.maxDepth;
+  if (a.original.length !== b.original.length) return a.original.length > b.original.length;
+  return a.original.toLowerCase() < b.original.toLowerCase();
 }
 
 /** Return the deepest non-generic directory segment shared by every member
