@@ -38,7 +38,13 @@ const MIME_TYPES: Record<string, string> = {
 export interface ViewerServerHandle {
   port: number;
   httpServer: HttpServer | null;
-  /** Close the HTTP server and release the registry DB handle. */
+  /**
+   * Release server-held resources (HTTP listener + the master Registry handle).
+   * Intended for programmatic/embedded callers and tests. The long-running MCP
+   * entrypoint (src/index.ts) does NOT call this — like its sibling resources
+   * (graph store, decisions DB, resolver pool) the registry handle is
+   * process-lifetime and reclaimed by the OS / better-sqlite3 atexit on exit.
+   */
   close(): void;
 }
 
@@ -52,7 +58,7 @@ export function startViewerServer(
     // Master registry, opened once for the server's lifetime. Seed it from any
     // legacy cache <slug>.db on first run (idempotent, best-effort).
     const registry = new Registry();
-    try { migrateCacheToRegistry(registry); } catch { /* best-effort */ }
+    try { migrateCacheToRegistry(registry); } catch { /* best-effort; idempotent, so a partial failure here is recovered on the next startup */ }
 
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
