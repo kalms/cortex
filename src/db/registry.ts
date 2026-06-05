@@ -11,9 +11,11 @@ export interface RegistryRepo {
 }
 
 /** Canonical registry location. `_`-prefixed so existing cache scanners that
- *  skip `_`/`tmp-` files never mistake it for a project graph DB. */
+ *  skip `_`/`tmp-` files never mistake it for a project graph DB. Honors the
+ *  `CORTEX_REGISTRY_DB` env override (used by tests to avoid polluting the
+ *  real registry), mirroring CORTEX_DB / CORTEX_DECISIONS_DB. */
 export function defaultRegistryPath(): string {
-  return join(homedir(), ".cache", "cortex-indexer", "_registry.db");
+  return process.env.CORTEX_REGISTRY_DB ?? join(homedir(), ".cache", "cortex-indexer", "_registry.db");
 }
 
 /** True if any path segment is exactly ".tmp". Eval-corpus clones live under
