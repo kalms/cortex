@@ -449,3 +449,48 @@
   .toolbar button:hover {
     border-color: var(--border-3);
   }
+
+.frames-warning {
+  position: fixed;
+  /* Below the toolbar row (top:20px, ~30px tall) so the banner never collides
+     with the project-select, which widens with long project names. */
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 640px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+}
+.frames-warning[hidden] { display: none; }
+.frames-warning code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(245, 158, 11, 0.18);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.frames-warning-dismiss {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.8;
+}
+.frames-warning-dismiss:hover { opacity: 1; }
+body.light .frames-warning {
+  background: rgba(180, 83, 9, 0.10);
+  border-color: rgba(180, 83, 9, 0.5);
+  color: #b45309;
+}
