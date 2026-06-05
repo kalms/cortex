@@ -417,6 +417,7 @@ export function registerCodeTools(
             }
           } catch { /* non-fatal; skip cache write */ }
           if (!checkpointed) {
+            registerRepo();
             return result;
           }
           try {
