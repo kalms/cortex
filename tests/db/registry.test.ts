@@ -50,4 +50,9 @@ describe("Registry", () => {
     reg.register("b", "/b", "t");
     expect(reg.list().map((r) => r.name)).toEqual(["a", "b"]);
   });
+
+  it("throws when a different name claims an already-registered root_path", () => {
+    reg.register("name-a", "/shared/path", "t");
+    expect(() => reg.register("name-b", "/shared/path", "t")).toThrow();
+  });
 });

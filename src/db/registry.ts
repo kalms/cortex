@@ -37,6 +37,20 @@ export class Registry {
     )`);
   }
 
+  /**
+   * Register or update a repo entry.
+   *
+   * `indexed_at` should be the timestamp of when indexing *finished*; it
+   * defaults to call-time `new Date().toISOString()` only as a fallback when
+   * the caller has no more-precise value.
+   *
+   * `root_path` carries a UNIQUE constraint. Registering a *different* `name`
+   * that points at a `root_path` already owned by another name will throw a
+   * SQLite UNIQUE-constraint error. In practice callers derive `name`
+   * deterministically from `root_path` (a bijection) so this path is
+   * unreachable; call sites should treat registration as best-effort
+   * (try/catch) if they cannot guarantee uniqueness.
+   */
   register(name: string, root_path: string, indexed_at: string = new Date().toISOString()): void {
     if (isTmpPath(root_path)) return;
     this.db
