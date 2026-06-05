@@ -2,7 +2,7 @@
 
 **Status:** Draft. Brainstormed with user 2026-05-21; design approved before
 writing. Companion to
-[docs/architecture/field-assessment-nuxt-monorepo.md](../../architecture/field-assessment-nuxt-monorepo.md).
+[docs/architecture/field-assessment-nuxt-monorepo.md](../../architecture/field%20reports/field-assessment-nuxt-monorepo.md).
 
 ## Goal
 
@@ -210,7 +210,7 @@ Tool-behavior assertions (exercise the MCP tool layer — see
 
 - `vue_file_is_module_node` — `MATCH (m:module) WHERE m.file_path ENDS WITH '.vue' RETURN count(m)` > 0.
   Encodes the "weaker MVP" from the
-  [2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md):
+  [2026-05-21 follow-up field report](../../architecture/field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md):
   even without parsing, a `.vue` file should at minimum be a module node
   so `governs` linking and `get_code_snippet` can target it.
 - `get_code_snippet_returns_vue_content` — calling
@@ -254,7 +254,7 @@ them loudly in the surprises block.
   `MATCH (d:Decision) WHERE d.rationale CONTAINS '</rationale>' OR d.rationale CONTAINS '<problem>' OR d.rationale CONTAINS '</invoke>' RETURN count(d)` == 0.
   Regression guard for the silent-bad-write failure mode described in
   Issue 2 of the
-  [2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md):
+  [2026-05-21 follow-up field report](../../architecture/field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md):
   XML-namespace marshalling errors on the caller side previously
   concatenated structured fields into `rationale` and persisted with no
   warning. The robustness fix to `create_decision` (see
@@ -269,7 +269,7 @@ Most assertions are pure graph reads — they open `graph.db` via
 `governs_link_to_vue_path_persists`, `search_graph_finds_vue_component`,
 plus the existing fixture probe) require calling MCP tool functions
 end-to-end: they exist because the
-[2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md)
+[2026-05-21 follow-up field report](../../architecture/field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md)
 demonstrated that a graph-content fix can leave the tool layer broken.
 
 The `Assertion` query shape gains a fourth kind:
@@ -383,7 +383,7 @@ the file. This is enforced by review, not by tooling.
 ## Sibling work — not in this harness
 
 The
-[2026-05-21 follow-up field report](../../architecture/field-report-2026-05-21-vue-graph-and-decision-input.md)
+[2026-05-21 follow-up field report](../../architecture/field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md)
 identified two MCP tool robustness issues this harness does not cover.
 Both are deemed critical ("without it, Cortex is borderline useless"):
 
