@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Registry, isTmpPath } from "../../src/db/registry.js";
+import { Registry, isTmpPath, defaultRegistryPath } from "../../src/db/registry.js";
 
 describe("Registry", () => {
   let dir: string;
@@ -54,5 +54,28 @@ describe("Registry", () => {
   it("throws when a different name claims an already-registered root_path", () => {
     reg.register("name-a", "/shared/path", "t");
     expect(() => reg.register("name-b", "/shared/path", "t")).toThrow();
+  });
+});
+
+describe("defaultRegistryPath", () => {
+  it("honors the CORTEX_REGISTRY_DB env override", () => {
+    const prev = process.env.CORTEX_REGISTRY_DB;
+    process.env.CORTEX_REGISTRY_DB = "/tmp/custom-registry.db";
+    try {
+      expect(defaultRegistryPath()).toBe("/tmp/custom-registry.db");
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_REGISTRY_DB;
+      else process.env.CORTEX_REGISTRY_DB = prev;
+    }
+  });
+
+  it("defaults to ~/.cache/cortex-indexer/_registry.db when unset", () => {
+    const prev = process.env.CORTEX_REGISTRY_DB;
+    delete process.env.CORTEX_REGISTRY_DB;
+    try {
+      expect(defaultRegistryPath().endsWith("/.cache/cortex-indexer/_registry.db")).toBe(true);
+    } finally {
+      if (prev !== undefined) process.env.CORTEX_REGISTRY_DB = prev;
+    }
   });
 });
