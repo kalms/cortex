@@ -292,33 +292,20 @@ export class RepoContextResolver {
   }
 
   /**
-   * Returns every indexed repo this server can address — the authoritative
-   * answer to "which repos exist?" used by both `list_projects` (the
-   * crossRepo tool) and the friendly error payloads on
-   * {@link MissingRepoPathError} / {@link RepoNotIndexedError}.
+   * Returns every indexed repo this server can address — the union of
+   * (a) repos pooled (resolved) in this server lifetime, and (b) all rows
+   * in the master Registry (`~/.cache/cortex-indexer/_registry.db`),
+   * deduped by `root_path`. Used by `list_projects` (crossRepo tool) and
+   * the friendly error payloads on {@link MissingRepoPathError} /
+   * {@link RepoNotIndexedError}.
    *
-   * Master registry source
-   * ----------------------
-   * The standalone indexer has no single "registry" table. Its registry IS
-   * the SET of `.db` files living in `~/.cache/cortex-indexer/`, one per
-   * project (filename = slug-form of the absolute path, e.g.
-   * `Users-rka-Development-cortex.db`). Each file's `ctx_projects` row
-   * carries the canonical `name` + `root_path` for that project. The
-   * indexer CLI's `list_projects` verb implements this same directory walk;
-   * we read it directly here (cheap, read-only) rather than fork a
-   * subprocess so the resolver stays in-process.
+   * Pooled entries cover the local `.cortex/db` convention (DB lives next
+   * to the repo rather than in the shared cache); the registry wouldn't
+   * surface those until explicit indexing writes a registry row.
    *
-   * In addition to the cache directory, this method also surfaces *pooled*
-   * repos — those a tool call has resolved in this server lifetime. Pooled
-   * entries cover the "local" `.cortex/db` convention used by Cortex-Vue
-   * and similar embeddings (where the DB lives next to the repo, not in
-   * the shared cache); the cache directory wouldn't otherwise know about
-   * those until indexing populates a cache slot.
-   *
-   * Returned shape: {@link AvailableProject}[] with `indexed: true` for
-   * every entry. `indexed: false` is reserved for a future version that
-   * surfaces registry-known repos whose .db has been deleted out from
-   * under us.
+   * @returns {@link AvailableProject}[] — every known project, all with
+   * `indexed: true`. (`indexed: false` is reserved for a future mode that
+   * surfaces registry rows whose backing `.db` has been deleted.)
    */
   listKnownRepos(): AvailableProject[] {
     const byPath = new Map<string, AvailableProject>();
