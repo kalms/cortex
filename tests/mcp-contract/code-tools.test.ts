@@ -254,6 +254,16 @@ describe("code-tools contract", () => {
         // the underlying indexer delete is a no-op for a phantom path).
         await callTool(h, "delete_project", { project: slugA });
 
+        // Direct check: delete_project removed slugA from the registry, kept slugB.
+        const check = new Registry();
+        try {
+          const names = check.list().map((r) => r.name);
+          expect(names).not.toContain(slugA);
+          expect(names).toContain(slugB);
+        } finally {
+          check.close();
+        }
+
         // list_projects no longer mentions A, but still mentions B.
         const after = await callTool(h, "list_projects", {});
         expect(after.content[0].text).not.toContain(slugA);
