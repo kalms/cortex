@@ -131,7 +131,7 @@ export function listProjects(store: GraphStore): IndexerProject[] {
 }
 
 /* Union of (a) the bound store's ctx_projects (Cortex-Vue's local .cortex/db)
- * and (b) the master Registry (~/.cache/cortex-indexer/_registry.db), which
+ * and (b) the master Registry (~/.local/share/cortex-indexer/registry.db), which
  * records every repo indexed via the CLI or another MCP session. The bound
  * store wins on name conflict so embedder-fresher data takes precedence. */
 export function listProjectsUnified(store: GraphStore): IndexerProject[] {
