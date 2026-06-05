@@ -22,6 +22,7 @@ import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from 
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { Registry } from "../../db/registry.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -346,6 +347,13 @@ export function registerCodeTools(
         const repoPath = args.repo_path!;
         const dbPath = resolveCortexDbPath(repoPath);
 
+        const registerRepo = () => {
+          try {
+            const reg = new Registry();
+            try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
+          } catch { /* non-fatal: registration must never fail the index */ }
+        };
+
         // Defensive: before we touch the graph DB (which a cache import will
         // OVERWRITE), make sure any decisions still living in graph.db have
         // been migrated into the sidecar decisions.db. The migration is
@@ -389,6 +397,7 @@ export function registerCodeTools(
               try { unlinkSync(sidecar); } catch { /* non-fatal */ }
             }
           }
+          registerRepo();
           return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
         }
 
@@ -408,6 +417,7 @@ export function registerCodeTools(
             }
           } catch { /* non-fatal; skip cache write */ }
           if (!checkpointed) {
+            registerRepo();
             return result;
           }
           try {
@@ -418,6 +428,7 @@ export function registerCodeTools(
         }
         if (result.isError) return result;
         const baseText = result.content?.[0]?.text ?? "indexed";
+        registerRepo();
         return await withFrames(baseText, repoPath, dbPath);
       },
       { resolver, allowUnindexed: true },
@@ -452,11 +463,13 @@ export function registerCodeTools(
   // contract: `cortex index delete <project>` shells `delete_project` with
   // the same arg shape.
   //
-  // The underlying delete (cache file removal + cortex_db row drop) is
-  // performed by the standalone indexer subprocess; from there it propagates
-  // back to listKnownRepos automatically since the master registry IS the
-  // cache directory. No CORTEX_DB pinning here — by design the indexer
-  // resolves the cache slot from the slug.
+  // Two-part delete: the standalone indexer subprocess drops the legacy cache
+  // file + cortex_db row, then we remove the row from the master registry
+  // (`_registry.db`) — which is what `listKnownRepos`/`list_projects` now
+  // enumerate, so the registry removal is the part that makes the project
+  // disappear from listings. Best-effort: registry removal runs even if the
+  // subprocess delete errors (e.g. a project whose on-disk repo is already
+  // gone), preserving the cleanup-the-stale-entry contract.
   server.tool(
     "delete_project",
     "Remove a project from the code index",
@@ -464,7 +477,14 @@ export function registerCodeTools(
     registerTool(
       "delete_project",
       deleteProjectSchema,
-      async (_resolver, args) => callIndexer("delete_project", { project: args.project }),
+      async (_resolver, args) => {
+        const result = await callIndexer("delete_project", { project: args.project });
+        try {
+          const reg = new Registry();
+          try { reg.remove(args.project); } finally { reg.close(); }
+        } catch { /* non-fatal */ }
+        return result;
+      },
       { resolver, crossRepo: true },
     ),
   );
