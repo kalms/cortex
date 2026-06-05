@@ -1,6 +1,6 @@
 // tests/db/registry-migration.test.ts
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import BetterSqlite3 from "better-sqlite3";
@@ -47,13 +47,23 @@ describe("migrateCacheToRegistry", () => {
     writeCacheDb(cacheDir, "_registry.db", "_registry", "/should/skip");
     writeCacheDb(cacheDir, "tmp-staging.db", "tmp-staging", "/should/skip");
     mkdirSync(join(cacheDir, "ignore-me"));
+    writeFileSync(join(cacheDir, "notes.txt"), "not a db");
     migrateCacheToRegistry(reg, cacheDir);
     expect(reg.list()).toEqual([]);
   });
 
-  it("skips cache DBs whose root_path is under .tmp", () => {
+  it("refuses .tmp root_paths seeded via migration (Registry guard)", () => {
     writeCacheDb(cacheDir, "corpus.db", "corpus", "/x/cortex/.tmp/frame-extraction-corpus/foo");
     migrateCacheToRegistry(reg, cacheDir);
     expect(reg.list()).toEqual([]);
+  });
+
+  it("registers a shared root_path only once across two slugs", () => {
+    writeCacheDb(cacheDir, "slug-one.db", "slug-one", "/repos/shared");
+    writeCacheDb(cacheDir, "slug-two.db", "slug-two", "/repos/shared");
+    migrateCacheToRegistry(reg, cacheDir);
+    const rows = reg.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.root_path).toBe("/repos/shared");
   });
 });
