@@ -95,6 +95,10 @@ This feeds **both** the TF-IDF blob ([text-blob.ts](../../../src/frame-extractio
 
 ## 7. Phase 3 — TS modularity split
 
+> **SUPERSEDED — investigated, negative result (2026-06-05).** The split was built and swept; on cortex's `cli commands` blob it produced **incoherent** sub-clusters (each mixing `cli`/`mcp-server`/`decisions`/`tests`), all falling back to `cluster:N` labels (+3 label violations), with a small CALLS-agreement dip — because the call/import graph crosses the subsystem boundaries frames should respect, so no clean modular cut exists. Implementation discarded (not merged); split stays off. Full write-up: [docs/research/2026-06-05-modularity-split.md](../../research/2026-06-05-modularity-split.md).
+>
+> **Both graph-signal phases (2 + 3) are negative.** See the cross-phase conclusion at the end of this doc.
+
 **Goal:** split clusters that fuse distinct subsystems (the `cli commands` blob).
 
 - **New TS pass `src/frame-extraction/refine-split.ts`**, run **between** Python clustering and `injectFrames`.
@@ -149,3 +153,12 @@ The zero-frames warning is small and rides with Plan 1 (it touches the same `run
 - Which specific OSS apps to pin as the Next/Django/Rails fixtures (must be permissively licensed, shallow-clonable, and architecturally representative — chosen during Plan 0).
 - Exact label-ineligible MVC marker set (start: controller/model/view/serializer/migration/schema; refine against Django/Rails fixtures).
 - Whether the salience gate should also consider content-token document-frequency (path-presence is the v1; content DF is a Plan-1 stretch if path-presence proves insufficient).
+
+## 13. Outcome (2026-06-05) — graph-signal phases closed negative
+
+The arc shipped **Phase 0** (eval guardrail), **Phase 1** (convention-aware tokenization + label salience — **the win**, label violations 133→10 corpus-wide), and the **zero-frames warning** (Plan 1b). The two **graph-signal** phases were built, swept, and **discarded as negative**:
+
+- **Phase 2 — import-affinity `delta`** ([research](../../research/2026-06-05-import-affinity-delta.md)): no safe global weight; targeted files have too few/diffuse edges, dense monorepos over-merge.
+- **Phase 3 — modularity split** ([research](../../research/2026-06-05-modularity-split.md)): incoherent splits + label regression; no clean modular cut exists.
+
+**Why both failed (one cause):** a codebase's `IMPORTS`/`CALLS` graph couples files *across* the topical/subsystem boundaries frames are meant to express (CLI→decisions→MCP, tests→everything, framework leaves→shared utils). The import graph is the wrong signal for *topical* grouping; the cleaned lexical/path signal (Phase 1) expresses it better. **Future frame-quality work should build on tokenization/labeling/auxiliary-detection, not the import graph.** The eval guardrail (Phase 0) and corpus remain the regression bar for any such work.
