@@ -21,6 +21,7 @@ export function migrateCacheToRegistry(
   } catch {
     return;
   }
+  const seenPaths = new Set<string>();
   for (const name of entries) {
     if (!name.endsWith(".db") || name.startsWith("_") || name.startsWith("tmp-")) continue;
     const dbPath = join(cacheDir, name);
@@ -35,7 +36,12 @@ export function migrateCacheToRegistry(
       const row = probe
         .prepare("SELECT name, root_path, indexed_at FROM ctx_projects WHERE name = ? LIMIT 1")
         .get(projectName) as { name: string; root_path: string; indexed_at?: string } | undefined;
-      if (!row?.root_path) continue;
+      if (!row?.root_path || !row?.name) continue;
+      // Two cache slugs may point at the same repo (e.g. a re-slug). Register
+      // each root_path once; register() conflicts on root_path's UNIQUE
+      // constraint otherwise. Mirrors listKnownRepos' byPath dedup.
+      if (seenPaths.has(row.root_path)) continue;
+      seenPaths.add(row.root_path);
       registry.register(row.name, row.root_path, row.indexed_at ?? new Date().toISOString());
     } catch {
       // best-effort
