@@ -9,6 +9,8 @@ import { join, extname } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
 import { listProjects, listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
+import { Registry } from "../db/registry.js";
+import { migrateCacheToRegistry } from "../db/registry-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
@@ -36,6 +38,8 @@ const MIME_TYPES: Record<string, string> = {
 export interface ViewerServerHandle {
   port: number;
   httpServer: HttpServer | null;
+  /** Close the HTTP server and release the registry DB handle. */
+  close(): void;
 }
 
 export function startViewerServer(
@@ -45,6 +49,11 @@ export function startViewerServer(
   decisionLinksRepo?: DecisionLinksRepository,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
+    // Master registry, opened once for the server's lifetime. Seed it from any
+    // legacy cache <slug>.db on first run (idempotent, best-effort).
+    const registry = new Registry();
+    try { migrateCacheToRegistry(registry); } catch { /* best-effort */ }
+
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
 
@@ -52,7 +61,7 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const resolved = openProjectStore(store, indexerProject, project);
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
         if (!resolved) {
           res.writeHead(200, {
             "Content-Type": "application/json",
@@ -117,7 +126,7 @@ export function startViewerServer(
           return;
         }
         const links = decisionLinksRepo.findByDecision(id);
-        const resolved = openProjectStore(store, indexerProject, indexerProject);
+        const resolved = openProjectStore(store, indexerProject, indexerProject, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(indexerProject ?? undefined) : [];
         try {
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
@@ -144,7 +153,7 @@ export function startViewerServer(
         const project = projectParam ?? indexerProject ?? undefined;
         const records = decisionsRepo.list();
         const allLinks = records.flatMap((r) => decisionLinksRepo.findByDecision(r.id));
-        const resolved = openProjectStore(store, indexerProject, project);
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
@@ -164,7 +173,7 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const resolved = openProjectStore(store, indexerProject, project);
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
           const paths: string[] = [];
@@ -187,7 +196,7 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const resolved = openProjectStore(store, indexerProject, project);
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
         if (!resolved) {
           res.writeHead(200, {
             "Content-Type": "application/json",
@@ -244,11 +253,24 @@ export function startViewerServer(
     const port = parseInt(process.env.CORTEX_VIEWER_PORT || "3333", 10);
 
     httpServer.once("error", () => {
-      resolve({ port: -1, httpServer: null });
+      resolve({
+        port: -1,
+        httpServer: null,
+        close() {
+          registry.close();
+        },
+      });
     });
 
     httpServer.listen(port, () => {
-      resolve({ port, httpServer });
+      resolve({
+        port,
+        httpServer,
+        close() {
+          httpServer.close();
+          registry.close();
+        },
+      });
     });
   });
 }
