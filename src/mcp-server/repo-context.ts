@@ -1,11 +1,11 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveGraphDbForRead } from "../db/resolve-path.js";
+import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
@@ -334,46 +334,20 @@ export class RepoContextResolver {
       });
     }
 
-    // (b) Standalone-indexer cache directory — the master registry.
-    // Reads each `<slug>.db`'s ctx_projects row to recover the original
-    // root_path (the slug filename is lossy: slashes were flattened).
-    const cacheDir = join(homedir(), ".cache", "cortex-indexer");
-    let entries: string[] = [];
+    // (b) Master registry — the persistent record of every known repo and its
+    // root_path, independent of graph storage.
     try {
-      entries = readdirSync(cacheDir);
-    } catch {
-      return Array.from(byPath.values());
-    }
-    for (const name of entries) {
-      // Skip non-project files: SQLite sidecars (-wal/-shm), config DB
-      // (_config.db), and any tmp-prefixed staging files — mirrors the
-      // indexer's own convention in listProjectsUnified.
-      if (!name.endsWith(".db") || name.startsWith("_") || name.startsWith("tmp-")) continue;
-      const projectName = name.slice(0, -3);
-      const dbPath = join(cacheDir, name);
-      let probe: BetterSqlite3.Database | null = null;
+      const registry = new Registry();
       try {
-        probe = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
-        const hasTable = probe
-          .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ctx_projects'")
-          .get();
-        if (!hasTable) continue;
-        const row = probe
-          .prepare("SELECT name, root_path FROM ctx_projects WHERE name = ? LIMIT 1")
-          .get(projectName) as { name: string; root_path: string } | undefined;
-        if (!row) continue;
-        if (byPath.has(row.root_path)) continue;
-        byPath.set(row.root_path, {
-          name: row.name,
-          path: row.root_path,
-          indexed: true,
-        });
-      } catch {
-        // Unreadable / locked / not-yet-a-graph-db files are silently
-        // skipped — the registry is best-effort.
+        for (const r of registry.list()) {
+          if (byPath.has(r.root_path)) continue;
+          byPath.set(r.root_path, { name: r.name, path: r.root_path, indexed: true });
+        }
       } finally {
-        probe?.close();
+        registry.close();
       }
+    } catch {
+      // Registry unavailable — pooled repos only.
     }
 
     return Array.from(byPath.values());
