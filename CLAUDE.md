@@ -71,7 +71,7 @@ to move them to the right repo's DB when you spot one.
 See:
 - Design spec: [docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md)
 - Implementation plan: [docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md](docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md)
-- Field report: [docs/architecture/field reports/field-report-2026-05-26-mcp-multi-project-routing.md](docs/architecture/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)
+- Field report: [docs/field reports/field-report-2026-05-26-mcp-multi-project-routing.md](docs/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)
 - Regression test: [tests/regression/decisions-cross-repo-isolation.test.ts](tests/regression/decisions-cross-repo-isolation.test.ts)
 
 ## Decision capture — when to use it
