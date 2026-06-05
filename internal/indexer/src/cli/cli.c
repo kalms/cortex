@@ -2304,10 +2304,23 @@ int ctx_cmd_config(int argc, char **argv) {
         return CLI_TRUE;
     }
 
-    char cache_dir[CLI_BUF_1K];
-    snprintf(cache_dir, sizeof(cache_dir), "%s", ctx_resolve_cache_dir());
+    /* Config is durable state, so it lives in the DATA dir (survives a cache
+     * wipe), not ~/.cache. One-shot migration: move a pre-XDG _config.db out of
+     * the cache into the data dir. Best-effort — ctx_config_open recreates an
+     * empty store if the move fails. */
+    char data_dir[CLI_BUF_1K];
+    snprintf(data_dir, sizeof(data_dir), "%s", ctx_resolve_data_dir());
 
-    ctx_config_t *cfg = ctx_config_open(cache_dir);
+    char new_cfg[CLI_BUF_1K];
+    char old_cfg[CLI_BUF_1K];
+    snprintf(new_cfg, sizeof(new_cfg), "%s/_config.db", data_dir);
+    snprintf(old_cfg, sizeof(old_cfg), "%s/_config.db", ctx_resolve_cache_dir());
+    if (!ctx_file_exists(new_cfg) && ctx_file_exists(old_cfg)) {
+        mkdirp(data_dir, DIR_PERMS);
+        (void)rename(old_cfg, new_cfg);
+    }
+
+    ctx_config_t *cfg = ctx_config_open(data_dir);
     if (!cfg) {
         (void)fprintf(stderr, "error: cannot open config database\n");
         return CLI_TRUE;

@@ -375,6 +375,44 @@ const char *ctx_resolve_cache_dir(void) {
     return buf;
 }
 
+const char *ctx_resolve_data_dir(void) {
+    static char buf[CTX_SZ_1K];
+    char tmp[CTX_SZ_256] = "";
+    ctx_safe_getenv("CTX_DATA_DIR", tmp, sizeof(tmp), NULL);
+    if (tmp[0]) {
+        snprintf(buf, sizeof(buf), "%s", tmp);
+        ctx_normalize_path_sep(buf);
+        return buf;
+    }
+#ifdef _WIN32
+    ctx_safe_getenv("LOCALAPPDATA", tmp, sizeof(tmp), NULL);
+    if (tmp[0]) {
+        snprintf(buf, sizeof(buf), "%s/cortex-indexer", tmp);
+        ctx_normalize_path_sep(buf);
+        return buf;
+    }
+    const char *home = ctx_get_home_dir();
+    if (!home) {
+        return NULL;
+    }
+    snprintf(buf, sizeof(buf), "%s/AppData/Local/cortex-indexer", home);
+    return buf;
+#else
+    /* XDG_DATA_HOME or ~/.local/share */
+    ctx_safe_getenv("XDG_DATA_HOME", tmp, sizeof(tmp), NULL);
+    if (tmp[0]) {
+        snprintf(buf, sizeof(buf), "%s/cortex-indexer", tmp);
+        return buf;
+    }
+    const char *home = ctx_get_home_dir();
+    if (!home) {
+        return NULL;
+    }
+    snprintf(buf, sizeof(buf), "%s/.local/share/cortex-indexer", home);
+    return buf;
+#endif /* _WIN32 */
+}
+
 const char *ctx_resolve_db_path(const char *project, char *buf, size_t bufsz) {
     if (!buf || bufsz == 0) {
         return NULL;
