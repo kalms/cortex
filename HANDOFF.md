@@ -67,6 +67,6 @@ The **import-aware frame-extraction arc is done and its honest result is mixed-t
 
 - **Spec (with §13 outcome):** [docs/superpowers/specs/2026-06-04-import-aware-frame-extraction-design.md](docs/superpowers/specs/2026-06-04-import-aware-frame-extraction-design.md)
 - **Research reports:** [import-affinity-delta](docs/research/2026-06-05-import-affinity-delta.md) · [modularity-split](docs/research/2026-06-05-modularity-split.md)
-- **Field report (label quality assessment):** [field-report-2026-06-04-frame-extraction-semantic-quality.md](docs/architecture/field%20reports/field-report-2026-06-04-frame-extraction-semantic-quality.md)
+- **Field report (label quality assessment):** [field-report-2026-06-04-frame-extraction-semantic-quality.md](docs/field%20reports/field-report-2026-06-04-frame-extraction-semantic-quality.md)
 - **Plans:** [Phase 1](docs/superpowers/plans/2026-06-04-frame-convention-aware-tokenization.md) · [1b zero-frames](docs/superpowers/plans/2026-06-05-zero-frames-warning.md) · [P2 (discarded)](docs/superpowers/plans/2026-06-05-import-affinity-delta.md) · [P3 (discarded)](docs/superpowers/plans/2026-06-05-modularity-split.md)
 - **Key code:** frame labels `src/frame-extraction/inject-frames.ts` + `structural-tokens.ts`; tokenizer `path-tokenize.ts`; pipeline `run-frames.ts`; store resolution `src/db/resolve-path.ts` (`resolveGraphDbForRead`) + `src/mcp-server/repo-context.ts`; viewer read `src/graph/code-queries.ts` (`openProjectStore`) + `src/mcp-server/api.ts`.

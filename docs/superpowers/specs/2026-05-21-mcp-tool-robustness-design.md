@@ -1,7 +1,7 @@
 # MCP Tool Robustness — Design Spec
 
 **Status:** Draft. Companion to
-[2026-05-21 follow-up field report](../../architecture/field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md)
+[2026-05-21 follow-up field report](../../field%20reports/field-report-2026-05-21-vue-graph-and-decision-input.md)
 and the
 [Nuxt-Impact Eval Harness design](2026-05-21-nuxt-impact-eval-harness-design.md).
 User directive: "without it, Cortex is borderline useless."
