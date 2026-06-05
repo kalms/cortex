@@ -44,6 +44,29 @@ export function groupNodesIntoFrames(nodes) {
   return out;
 }
 
+/**
+ * Frame-coverage summary for a project's nodes.
+ *
+ * `zeroFrames` is true when the graph has file nodes but NONE carry a numeric
+ * `frame_id` — the signature of a graph built by the raw C indexer (which
+ * skips the TS frame-extraction pass) rather than via `cortex index` / the MCP
+ * `index_repository` tool. A project with no file nodes at all (unindexed /
+ * empty) is NOT flagged. Mirrors `groupNodesIntoFrames`' file-node + parseData
+ * handling so the two never disagree about what counts as "framed".
+ * Returns: { fileNodes, framedNodes, zeroFrames }.
+ */
+export function frameCoverage(nodes) {
+  let fileNodes = 0;
+  let framedNodes = 0;
+  for (const n of nodes) {
+    if (n.kind !== "file") continue;
+    fileNodes++;
+    const data = parseData(n.data);
+    if (typeof data.frame_id === "number") framedNodes++;
+  }
+  return { fileNodes, framedNodes, zeroFrames: fileNodes > 0 && framedNodes === 0 };
+}
+
 /** First N basenames from a list of nodes' file_path values. */
 export function basenames(nodes, limit) {
   const out = [];
