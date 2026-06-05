@@ -69,13 +69,30 @@ describe("defaultRegistryPath", () => {
     }
   });
 
-  it("defaults to ~/.cache/cortex-indexer/_registry.db when unset", () => {
-    const prev = process.env.CORTEX_REGISTRY_DB;
+  it("defaults to ~/.local/share/cortex-indexer/registry.db (XDG data home) when no env set", () => {
+    const prevReg = process.env.CORTEX_REGISTRY_DB;
+    const prevXdg = process.env.XDG_DATA_HOME;
     delete process.env.CORTEX_REGISTRY_DB;
+    delete process.env.XDG_DATA_HOME;
     try {
-      expect(defaultRegistryPath().endsWith("/.cache/cortex-indexer/_registry.db")).toBe(true);
+      expect(defaultRegistryPath().endsWith("/.local/share/cortex-indexer/registry.db")).toBe(true);
     } finally {
-      if (prev !== undefined) process.env.CORTEX_REGISTRY_DB = prev;
+      if (prevReg !== undefined) process.env.CORTEX_REGISTRY_DB = prevReg;
+      if (prevXdg !== undefined) process.env.XDG_DATA_HOME = prevXdg;
+    }
+  });
+
+  it("honors $XDG_DATA_HOME for the registry location", () => {
+    const prevReg = process.env.CORTEX_REGISTRY_DB;
+    const prevXdg = process.env.XDG_DATA_HOME;
+    delete process.env.CORTEX_REGISTRY_DB;
+    process.env.XDG_DATA_HOME = "/custom/data";
+    try {
+      expect(defaultRegistryPath()).toBe("/custom/data/cortex-indexer/registry.db");
+    } finally {
+      if (prevReg !== undefined) process.env.CORTEX_REGISTRY_DB = prevReg;
+      if (prevXdg === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = prevXdg;
     }
   });
 });
