@@ -10,6 +10,11 @@ const FIXTURE_SRC = join(REPO_ROOT, "tests", "fixtures", "sample-project");
 const BINARY = join(REPO_ROOT, "bin", "cortex-indexer");
 
 export async function setup() {
+  // Isolate the master registry so register()-on-index in contract tests does
+  // not pollute the user's real ~/.cache/cortex-indexer/_registry.db.
+  const regDir = mkdtempSync(join(tmpdir(), "cortex-registry-test-"));
+  process.env.CORTEX_REGISTRY_DB = join(regDir, "_registry.db");
+
   if (!existsSync(BINARY)) {
     // CI without the binary — contract suite will fail when harness is used; that's expected.
     // We deliberately do not silently skip here; absence of binary is a deploy-time concern.
@@ -80,6 +85,11 @@ export async function setup() {
 }
 
 export async function teardown() {
+  const regDb = process.env.CORTEX_REGISTRY_DB;
+  if (regDb) {
+    try { rmSync(dirname(regDb), { recursive: true }); } catch { /* ignore */ }
+  }
+
   const fixtureCopy = process.env.CORTEX_CONTRACT_FIXTURE_DIR;
   if (fixtureCopy) {
     // fixtureCopy is at `<workDir>/sample-project`; remove the whole workDir
