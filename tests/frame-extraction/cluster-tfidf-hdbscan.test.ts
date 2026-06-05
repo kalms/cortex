@@ -12,6 +12,12 @@ import { hasVenv } from "../../src/frame-extraction/venv.js";
 // in-repo path, which no longer exists after the venv was relocated.
 const PYTHON_AVAILABLE = hasVenv();
 
+// These tests spawn the Python venv synchronously. The FIRST invocation in a
+// run pays cold-start cost (interpreter + sklearn/hdbscan import) that, under
+// parallel test load, routinely exceeds vitest's 5s default — a recurring
+// false failure. Give them generous headroom; a real hang still fails.
+const VENV_TEST_TIMEOUT_MS = 30_000;
+
 let root: string;
 
 beforeAll(() => {
@@ -84,7 +90,7 @@ describe.skipIf(!PYTHON_AVAILABLE)("runTfIdfHdbscan (requires Python venv)", () 
       );
       expect(topDirs.size).toBe(1);
     }
-  });
+  }, VENV_TEST_TIMEOUT_MS);
 
   it("is deterministic across runs", () => {
     const a = runTfIdfHdbscan({ repo_path: root, min_cluster_size: 3 });
@@ -93,7 +99,7 @@ describe.skipIf(!PYTHON_AVAILABLE)("runTfIdfHdbscan (requires Python venv)", () 
     // too (derived from project name) so equality on the full RunResult would
     // also pass, but result is the load-bearing assertion.
     expect(a.result).toEqual(b.result);
-  });
+  }, VENV_TEST_TIMEOUT_MS);
 
   it("co-change pulls cross-domain files together when gamma is high", () => {
     // Use a fresh corpus that's deliberately topically split: 4 auth + 4
@@ -159,5 +165,5 @@ describe.skipIf(!PYTHON_AVAILABLE)("runTfIdfHdbscan (requires Python venv)", () 
     let diff = 0;
     for (const m of baselineMembers) if (!pulledMembers.has(m)) diff += 1;
     expect(diff).toBeGreaterThan(0);
-  });
+  }, VENV_TEST_TIMEOUT_MS);
 });
