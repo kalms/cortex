@@ -15,13 +15,24 @@
 |---|---|---|---|
 | **Graph** (canonical) | `<repo>/.cortex/db` | **Derived, replaceable** — recreated by `index_repository` | nodes, edges, `ctx_projects`, frames |
 | **Decisions** | `<repo>/.cortex/decisions.db` | **Durable** — survives every reindex | user-authored decisions + links |
-| **Registry** (central) | `~/.cache/cortex-indexer/_registry.db` | Durable index of "what repos exist + where" | `repos(name, root_path, indexed_at)` |
+| **Registry** (central) | `~/.local/share/cortex-indexer/registry.db` | Durable index of "what repos exist + where" | `repos(name, root_path, indexed_at)` |
 
 The graph and decisions DBs are **per-repo siblings** under `.cortex/`. The
 registry is a **single machine-wide** SQLite file. Keeping these three concerns
 separate is deliberate: the graph is a throwaway derivative of code-at-a-commit,
 decisions are durable knowledge, and the registry answers "where are the repos"
 independently of either.
+
+**Why `~/.local/share`, not `~/.cache`:** the registry is *durable* metadata —
+losing it blanks `list_projects`/the switcher for every repo not re-indexed
+since. `~/.cache` (XDG_CACHE_HOME) means "regenerable, safe to delete," so
+durable state belongs under the XDG **data** home instead. This matches the
+indexer binary's own XDG discipline: `~/.config/cortex-indexer/` for config,
+`~/.cache/cortex-indexer/` for cache, and now `~/.local/share/cortex-indexer/`
+for durable data (the registry, and the binary's `_config.db` key-value store).
+Genuinely-regenerable artifacts stay in `~/.cache`: the content-hash build cache
+(`~/.cache/cortex/`), the legacy per-project graph cache
+(`~/.cache/cortex-indexer/<slug>.db`), and the frame-extraction Python venv.
 
 ## Canonical store vs. the legacy names
 
@@ -55,6 +66,8 @@ are stored." Making `.cortex/db` canonical meant enumeration needed a new home.
 atomic upserts — no lost-update/torn-write race when the CLI and an MCP server
 register concurrently.
 
+- **Location:** `<XDG_DATA_HOME>/cortex-indexer/registry.db`, i.e.
+  `~/.local/share/cortex-indexer/registry.db` by default; honors `$XDG_DATA_HOME`.
 - **Override:** `CORTEX_REGISTRY_DB` relocates it (tests set this to a temp path
   so they never pollute the real registry — mirrors `CORTEX_DB` /
   `CORTEX_DECISIONS_DB`).
@@ -102,22 +115,32 @@ reads until it is re-indexed into `.cortex/db`.
 > graph cache (`.cortex/graph/<ref>.db`) would touch only the resolver, leaving
 > the registry and decisions DB untouched.
 
-## Migration (legacy cache → registry)
+## Migration
 
-`migrateCacheToRegistry` (`src/db/registry-migration.ts`) runs **once at viewer
-startup** — inside `startViewerServer`, which `src/index.ts` awaits *before*
-`server.connect(transport)`, so the registry is seeded before any
-`list_projects` call. For each legacy `~/.cache/cortex-indexer/<slug>.db` with a
-`ctx_projects` row, it `register`s the `root_path`. It is:
+Two idempotent, best-effort seeders run **once at viewer startup** — inside
+`startViewerServer`, which `src/index.ts` awaits *before* `server.connect(transport)`,
+so the registry is populated before any `list_projects` call:
 
-- **Idempotent** — `ON CONFLICT(name)` upsert + within-run dedup by `root_path`;
-  a partial failure recovers on the next startup.
-- **Non-destructive** — it does **not** copy graph data. Repos re-index into
-  `.cortex/db` naturally, and the `resolveGraphDbForRead` cache fallback serves
-  reads until they do. Old cache `<slug>.db` files are left in place but unused.
+1. **`importLegacyRegistry`** — carries rows from the pre-XDG registry
+   (`~/.cache/cortex-indexer/_registry.db`) into the current
+   `~/.local/share/cortex-indexer/registry.db`. Covers repos registered via
+   register-on-index that have no legacy `<slug>.db` to re-seed from.
+2. **`migrateCacheToRegistry`** — for each legacy
+   `~/.cache/cortex-indexer/<slug>.db` with a `ctx_projects` row, `register`s its
+   `root_path`. Catches repos present only in the old per-project cache.
 
-New repos don't need migration: register-on-index (write path step 3) covers
-them going forward.
+Both are **idempotent** (`ON CONFLICT(name)` upsert + within-run dedup by
+`root_path`; a partial failure recovers next startup) and **non-destructive**
+(they do **not** copy graph data — repos re-index into `.cortex/db` naturally,
+and `resolveGraphDbForRead`'s cache fallback serves reads until they do; old
+files are left in place). New repos need no migration — register-on-index (write
+path step 3) covers them.
+
+> The indexer binary's `_config.db` key-value store (`cortex-indexer config
+> get/set`) moved the same way: `ctx_resolve_data_dir()` now places it under
+> `~/.local/share/cortex-indexer/`, and the `config` command renames a pre-XDG
+> `~/.cache/cortex-indexer/_config.db` into the data dir on first use
+> (`CTX_DATA_DIR` overrides the location, mirroring `CTX_CACHE_DIR`).
 
 ## Key files
 
