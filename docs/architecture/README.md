@@ -8,8 +8,7 @@ of the system; read the matching doc before working in that area.
 | [graph-ui.md](graph-ui.md) | Event pipeline, WebSocket server, worker thread, frames viewer. Anything under `src/events/`, `src/ws/`, `src/viewer/`, or the HTTP layer in `src/mcp-server/api*.ts`. |
 | [decisions-storage.md](decisions-storage.md) | The sidecar `.cortex/decisions.db` model — why decisions are not in the graph DB. Anything under `src/decisions/` or that touches the decision schema. |
 | [frame-extraction.md](frame-extraction.md) | The TF-IDF + HDBSCAN + co-change pipeline that produces frames. Anything under `scripts/frame-extraction/` or `src/frame-extraction/`. |
-| [eval-harness.md](eval-harness.md) | The tool-surface eval at `evals/`. Driven by the field assessment below. |
-| [field reports/field-assessment-nuxt-monorepo.md](field%20reports/field-assessment-nuxt-monorepo.md) | The 2026-05-20 candid evaluation of Cortex on a Nuxt monorepo (anthill-cloud). Source of truth for "what's broken on Vue/Nuxt repos". |
+| [eval-harness.md](eval-harness.md) | The tool-surface eval at `evals/`. Driven by the field reports (see below). |
 | [known-limitations.md](known-limitations.md) | Active issues with known workarounds (most relevant: the C-indexer multi-project workflow). |
 
 For the **algorithmic and product design** of frames, PRs, decisions,
@@ -20,3 +19,9 @@ are implemented in code; the specs describe what they should do.
 
 For **execution plans** of features as they were built, see
 [`docs/superpowers/`](../superpowers/).
+
+For **field reports** — candid, dated evaluations of Cortex run against
+real repos (the source of truth for "what's broken in the wild" and the
+motivation behind the eval harness) — see
+[`docs/field reports/`](../field%20reports/). The standout is the
+[2026-05-20 Nuxt-monorepo assessment](../field%20reports/field-assessment-nuxt-monorepo.md).
