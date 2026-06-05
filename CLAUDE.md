@@ -104,8 +104,8 @@ reconsider the change.
 
 ## Decision storage
 
-Decisions live in `.cortex/decisions.db`, a sibling of the graph DB
-(`.cortex/graph.db`). The graph DB is a fully replaceable derived artifact —
+Decisions live in `.cortex/decisions.db`, a sibling of the canonical graph DB
+(`.cortex/db`). The graph DB is a fully replaceable derived artifact —
 `index_repository` cache imports and full reindexes copy or recreate it
 freely. The decisions DB is durable: it survives every indexing operation.
 
@@ -125,6 +125,28 @@ live in:
 
 See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md)
 for the full architecture rationale.
+
+## Graph storage & the project registry
+
+The canonical graph store is **`<repo>/.cortex/db`** (per repo). Both writers —
+the CLI `cortex index` and the MCP `index_repository` tool — write it (via the
+indexer binary's `CORTEX_DB` env), checkpoint the WAL, and then register the
+repo in a single machine-wide **registry** at
+`~/.cache/cortex-indexer/_registry.db` (`name → root_path → indexed_at`,
+overridable with `CORTEX_REGISTRY_DB`). Enumeration (`list_projects`, the viewer
+project switcher) reads the registry; per-repo reads resolve `root_path` from
+the registry and open via `resolveGraphDbForRead`, which prefers `.cortex/db`
+and falls back to the legacy `~/.cache/cortex-indexer/<slug>.db` cache only for
+repos not yet re-indexed. A one-shot idempotent migration seeds the registry
+from that legacy cache at viewer startup. `register()` rejects `.tmp/` paths so
+eval-corpus clones never pollute enumeration.
+
+`.cortex/db` is the only graph write target; `.cortex/graph.db` and the
+`<slug>.db` cache are read-only fallbacks. (Separately, `~/.cache/cortex/<hash>.db`
+is the unrelated content-hash *build* cache — not the project graph store.)
+
+See [docs/architecture/graph-storage.md](docs/architecture/graph-storage.md) for
+the full model, the read/write paths, and the single path-resolution chokepoint.
 
 ## Cold-start decision seeding
 
