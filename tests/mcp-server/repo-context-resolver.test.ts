@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import BetterSqlite3 from "better-sqlite3";
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import {
   RepoNotIndexedError,
   RepoContextResolver,
 } from "../../src/mcp-server/repo-context.js";
+import { Registry } from "../../src/db/registry.js";
 
 function makeIndexedRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "cortex-repo-"));
@@ -29,28 +29,15 @@ function projectSlug(absPath: string): string {
 }
 
 /**
- * Seed a fake cache-registry entry at `~/.cache/cortex-indexer/<slug>.db`.
- * The resolver reads ctx_projects from each cache file to discover projects,
- * so we create the minimum schema + one row. Returns the cache file path so
- * the caller can remove it in teardown.
+ * Seed a registry entry in the master registry (~/.cache/cortex-indexer/_registry.db).
+ * listKnownRepos / list_projects enumerate from the registry now. Returns the
+ * slug so teardown can remove it.
  */
-function seedCacheRegistryEntry(rootPath: string, name?: string): string {
+function seedRegistryEntry(rootPath: string, name?: string): string {
   const slug = name ?? projectSlug(rootPath);
-  const cacheDir = join(homedir(), ".cache", "cortex-indexer");
-  mkdirSync(cacheDir, { recursive: true });
-  const file = join(cacheDir, `${slug}.db`);
-  const db = new BetterSqlite3(file);
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS ctx_projects (name TEXT PRIMARY KEY, root_path TEXT, indexed_at TEXT)",
-    );
-    db.prepare(
-      "INSERT OR REPLACE INTO ctx_projects (name, root_path, indexed_at) VALUES (?, ?, ?)",
-    ).run(slug, rootPath, new Date().toISOString());
-  } finally {
-    db.close();
-  }
-  return file;
+  const reg = new Registry();
+  try { reg.register(slug, rootPath); } finally { reg.close(); }
+  return slug;
 }
 
 describe("Resolver error classes", () => {
@@ -149,16 +136,12 @@ describe("RepoContextResolver.resolve — error paths", () => {
 });
 
 describe("RepoContextResolver.listKnownRepos", () => {
-  const seededFiles: string[] = [];
+  const seededNames: string[] = [];
 
   afterEach(() => {
-    for (const f of seededFiles.splice(0)) {
-      try { rmSync(f, { force: true }); } catch { /* ignore */ }
-      // Clear SQLite sidecars too.
-      for (const ext of ["-wal", "-shm"]) {
-        try { rmSync(f + ext, { force: true }); } catch { /* ignore */ }
-      }
-    }
+    if (seededNames.length === 0) return;
+    const reg = new Registry();
+    try { for (const n of seededNames.splice(0)) reg.remove(n); } finally { reg.close(); }
   });
 
   it("returns pooled repos with indexed=true", () => {
@@ -184,7 +167,7 @@ describe("RepoContextResolver.listKnownRepos", () => {
     // alongside `_*.db` as staging files, mirroring the indexer's convention.
     const phantomRoot = `/cortex-test-phantom-${Date.now()}`;
     const slug = projectSlug(phantomRoot);
-    seededFiles.push(seedCacheRegistryEntry(phantomRoot, slug));
+    seededNames.push(seedRegistryEntry(phantomRoot, slug));
 
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
@@ -200,8 +183,8 @@ describe("RepoContextResolver.listKnownRepos", () => {
 
   it("dedupes pooled + cache entries on path", () => {
     const repo = makeIndexedRepo();
-    // Seed cache to point at the same path; pooled should NOT be duplicated.
-    seededFiles.push(seedCacheRegistryEntry(repo));
+    // Seed registry to point at the same realpath; pooled should NOT be duplicated.
+    seededNames.push(seedRegistryEntry(realpathSync(repo)));
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
       resolver.resolve(repo);
@@ -218,7 +201,9 @@ describe("RepoContextResolver.listKnownRepos", () => {
   });
 
   it("ignores _config.db and other non-project cache files", () => {
-    // The real cache dir has _config.db; listKnownRepos must not surface it.
+    // Enumeration is now registry-based (_registry.db). The registry never
+    // contains a "_config" entry — only real project slugs — so this must
+    // always return undefined.
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
       const list = resolver.listKnownRepos();
