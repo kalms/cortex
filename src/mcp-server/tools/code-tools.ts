@@ -22,6 +22,7 @@ import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from 
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { Registry } from "../../db/registry.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -346,6 +347,13 @@ export function registerCodeTools(
         const repoPath = args.repo_path!;
         const dbPath = resolveCortexDbPath(repoPath);
 
+        const registerRepo = () => {
+          try {
+            const reg = new Registry();
+            try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
+          } catch { /* non-fatal: registration must never fail the index */ }
+        };
+
         // Defensive: before we touch the graph DB (which a cache import will
         // OVERWRITE), make sure any decisions still living in graph.db have
         // been migrated into the sidecar decisions.db. The migration is
@@ -389,6 +397,7 @@ export function registerCodeTools(
               try { unlinkSync(sidecar); } catch { /* non-fatal */ }
             }
           }
+          registerRepo();
           return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
         }
 
@@ -418,6 +427,7 @@ export function registerCodeTools(
         }
         if (result.isError) return result;
         const baseText = result.content?.[0]?.text ?? "indexed";
+        registerRepo();
         return await withFrames(baseText, repoPath, dbPath);
       },
       { resolver, allowUnindexed: true },
@@ -464,7 +474,14 @@ export function registerCodeTools(
     registerTool(
       "delete_project",
       deleteProjectSchema,
-      async (_resolver, args) => callIndexer("delete_project", { project: args.project }),
+      async (_resolver, args) => {
+        const result = await callIndexer("delete_project", { project: args.project });
+        try {
+          const reg = new Registry();
+          try { reg.remove(args.project); } finally { reg.close(); }
+        } catch { /* non-fatal */ }
+        return result;
+      },
       { resolver, crossRepo: true },
     ),
   );
