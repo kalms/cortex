@@ -1,7 +1,7 @@
 # Cold-Start Decision Seeding — Design
 
 **Date:** 2026-05-28
-**Status:** Design — pending implementation
+**Status:** Implemented — live (`src/decisions/seed/`, `seed-decisions` skill, `decision_candidates` MCP tool; referenced in CLAUDE.md)
 **Branch:** `feature/decisions/cold-start-seeding`
 
 ## Problem

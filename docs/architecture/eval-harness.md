@@ -1,7 +1,7 @@
 # Eval Harness Architecture
 
 > Audience: anyone touching `evals/` or the killer-query list. The
-> [field assessment](field-assessment-nuxt-monorepo.md) is the
+> [field assessment](field%20reports/field-assessment-nuxt-monorepo.md) is the
 > driving motivation; the implementation plans live under
 > [`docs/superpowers/`](../superpowers/).
 
@@ -98,7 +98,7 @@ The full plan (clone → index → score → assert → baseline diff) is in
 [`docs/superpowers/2026-05-17-frame-extraction-eval-harness.md`](../superpowers/2026-05-17-frame-extraction-eval-harness.md)
 and the spec it derives from is
 [`docs/specs/cortex-v0.3/nuxt-impact-eval-harness.md`](../specs/cortex-v0.3/)
-(if present) plus the [field assessment](field-assessment-nuxt-monorepo.md).
+(if present) plus the [field assessment](field%20reports/field-assessment-nuxt-monorepo.md).
 
 ## Why the killer queries look the way they do
 

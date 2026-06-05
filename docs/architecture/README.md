@@ -9,7 +9,7 @@ of the system; read the matching doc before working in that area.
 | [decisions-storage.md](decisions-storage.md) | The sidecar `.cortex/decisions.db` model — why decisions are not in the graph DB. Anything under `src/decisions/` or that touches the decision schema. |
 | [frame-extraction.md](frame-extraction.md) | The TF-IDF + HDBSCAN + co-change pipeline that produces frames. Anything under `scripts/frame-extraction/` or `src/frame-extraction/`. |
 | [eval-harness.md](eval-harness.md) | The tool-surface eval at `evals/`. Driven by the field assessment below. |
-| [field-assessment-nuxt-monorepo.md](field-assessment-nuxt-monorepo.md) | The 2026-05-20 candid evaluation of Cortex on a Nuxt monorepo (anthill-cloud). Source of truth for "what's broken on Vue/Nuxt repos". |
+| [field reports/field-assessment-nuxt-monorepo.md](field%20reports/field-assessment-nuxt-monorepo.md) | The 2026-05-20 candid evaluation of Cortex on a Nuxt monorepo (anthill-cloud). Source of truth for "what's broken on Vue/Nuxt repos". |
 | [known-limitations.md](known-limitations.md) | Active issues with known workarounds (most relevant: the C-indexer multi-project workflow). |
 
 For the **algorithmic and product design** of frames, PRs, decisions,
