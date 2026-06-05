@@ -435,7 +435,7 @@ export function registerCodeTools(
       "detect_changes",
       detectChangesSchema,
       async (ctx, _args) => {
-        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const addressedDbPath = ctx.graphDbPath;
         return callIndexer("detect_changes", { repo_path: ctx.repoPath }, addressedDbPath);
       },
       { resolver },
@@ -485,7 +485,7 @@ export function registerCodeTools(
       "query_graph",
       queryGraphSchema,
       async (ctx, args) => {
-        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const addressedDbPath = ctx.graphDbPath;
         const indexerArgs: Record<string, unknown> = { query: args.query };
         // Caller-supplied project wins; otherwise derive from the addressed
         // DB. Either way the project filter is applied INSIDE the graph DB
@@ -517,7 +517,7 @@ export function registerCodeTools(
       "get_architecture",
       getArchitectureSchema,
       async (ctx, args) => {
-        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const addressedDbPath = ctx.graphDbPath;
         const indexerArgs: Record<string, unknown> = { aspects: args.aspects ?? ["all"] };
         const project = projectFromCtx(ctx);
         if (project) indexerArgs.project = project;
@@ -538,7 +538,7 @@ export function registerCodeTools(
       "ingest_traces",
       ingestTracesSchema,
       async (ctx, args) => {
-        const addressedDbPath = resolveCortexDbPath(ctx.repoPath);
+        const addressedDbPath = ctx.graphDbPath;
         return callIndexer("ingest_traces", { traces: args.traces }, addressedDbPath);
       },
       { resolver },
@@ -589,7 +589,7 @@ export function registerCodeTools(
         // qns, and dotted suffixes work — not just exact bare names. The
         // resolver opens its own GraphStore handle, so point it at the
         // addressed repo's graph DB rather than the server-bound one.
-        const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+        const graphDbPath = ctx.graphDbPath;
         let fnName = params.function_name;
         const resolved = resolveInput(params.function_name, project, graphDbPath);
         if (resolved.kind === "none") {
@@ -633,7 +633,7 @@ export function registerCodeTools(
         }
         // resolveInput opens its own GraphStore handle on the supplied dbPath
         // — point it at the addressed repo's graph DB, not the server-bound one.
-        const graphDbPath = resolveCortexDbPath(ctx.repoPath);
+        const graphDbPath = ctx.graphDbPath;
         if (!qualified_name.includes("::")) {
           const resolved = resolveInput(qualified_name, project, graphDbPath);
           if (resolved.kind === "none") {
