@@ -463,11 +463,13 @@ export function registerCodeTools(
   // contract: `cortex index delete <project>` shells `delete_project` with
   // the same arg shape.
   //
-  // The underlying delete (cache file removal + cortex_db row drop) is
-  // performed by the standalone indexer subprocess; from there it propagates
-  // back to listKnownRepos automatically since the master registry IS the
-  // cache directory. No CORTEX_DB pinning here — by design the indexer
-  // resolves the cache slot from the slug.
+  // Two-part delete: the standalone indexer subprocess drops the legacy cache
+  // file + cortex_db row, then we remove the row from the master registry
+  // (`_registry.db`) — which is what `listKnownRepos`/`list_projects` now
+  // enumerate, so the registry removal is the part that makes the project
+  // disappear from listings. Best-effort: registry removal runs even if the
+  // subprocess delete errors (e.g. a project whose on-disk repo is already
+  // gone), preserving the cleanup-the-stale-entry contract.
   server.tool(
     "delete_project",
     "Remove a project from the code index",
