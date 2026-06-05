@@ -10,7 +10,7 @@ import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
 import { listProjects, listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
 import { Registry } from "../db/registry.js";
-import { migrateCacheToRegistry } from "../db/registry-migration.js";
+import { migrateCacheToRegistry, importLegacyRegistry } from "../db/registry-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
@@ -55,10 +55,12 @@ export function startViewerServer(
   decisionLinksRepo?: DecisionLinksRepository,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
-    // Master registry, opened once for the server's lifetime. Seed it from any
-    // legacy cache <slug>.db on first run (idempotent, best-effort).
+    // Master registry, opened once for the server's lifetime. Seed it on first
+    // run (idempotent, best-effort): carry over the pre-XDG registry, then any
+    // legacy cache <slug>.db. A partial failure here recovers on next startup.
     const registry = new Registry();
-    try { migrateCacheToRegistry(registry); } catch { /* best-effort; idempotent, so a partial failure here is recovered on the next startup */ }
+    try { importLegacyRegistry(registry); } catch { /* best-effort */ }
+    try { migrateCacheToRegistry(registry); } catch { /* best-effort; idempotent */ }
 
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";

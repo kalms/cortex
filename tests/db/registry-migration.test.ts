@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import BetterSqlite3 from "better-sqlite3";
 import { Registry } from "../../src/db/registry.js";
-import { migrateCacheToRegistry } from "../../src/db/registry-migration.js";
+import { migrateCacheToRegistry, importLegacyRegistry } from "../../src/db/registry-migration.js";
 
 function writeCacheDb(dir: string, file: string, name: string, root_path: string) {
   const db = new BetterSqlite3(join(dir, file));
@@ -65,5 +65,47 @@ describe("migrateCacheToRegistry", () => {
     const rows = reg.list();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.root_path).toBe("/repos/shared");
+  });
+});
+
+describe("importLegacyRegistry", () => {
+  let oldDir: string;
+  let newDir: string;
+  let reg: Registry;
+  beforeEach(() => {
+    oldDir = mkdtempSync(join(tmpdir(), "cortex-oldreg-"));
+    newDir = mkdtempSync(join(tmpdir(), "cortex-newreg-"));
+    reg = new Registry(join(newDir, "registry.db"));
+  });
+  afterEach(() => {
+    reg.close();
+    rmSync(oldDir, { recursive: true, force: true });
+    rmSync(newDir, { recursive: true, force: true });
+  });
+
+  it("carries rows from the legacy registry into the current one", () => {
+    const oldPath = join(oldDir, "_registry.db");
+    const old = new Registry(oldPath);
+    old.register("proj-a", "/repos/a", "t");
+    old.register("proj-b", "/repos/b", "t");
+    old.close();
+
+    importLegacyRegistry(reg, oldPath);
+    expect(reg.list().map((r) => r.name).sort()).toEqual(["proj-a", "proj-b"]);
+  });
+
+  it("is a no-op when the legacy registry is absent", () => {
+    importLegacyRegistry(reg, join(oldDir, "does-not-exist.db"));
+    expect(reg.list()).toEqual([]);
+  });
+
+  it("is idempotent across re-runs", () => {
+    const oldPath = join(oldDir, "_registry.db");
+    const old = new Registry(oldPath);
+    old.register("proj-a", "/repos/a", "t");
+    old.close();
+    importLegacyRegistry(reg, oldPath);
+    importLegacyRegistry(reg, oldPath);
+    expect(reg.list()).toHaveLength(1);
   });
 });
