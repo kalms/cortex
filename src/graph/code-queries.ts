@@ -2,6 +2,8 @@ import { GraphStore } from "./store.js";
 import { readdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Registry } from "../db/registry.js";
+import { resolveGraphDbForRead } from "../db/resolve-path.js";
 
 /**
  * After Phase 4, code-entity rows live in `nodes` with `kind` as discriminator.
@@ -144,33 +146,18 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
     if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
   }
 
-  const cacheDir = join(homedir(), ".cache", "cortex-indexer");
-  let entries: string[] = [];
   try {
-    entries = readdirSync(cacheDir);
-  } catch {
-    return Array.from(out.values());
-  }
-
-  for (const name of entries) {
-    if (!name.endsWith(".db") || name.startsWith("tmp-") || name.startsWith("_")) continue;
-    const projectName = name.slice(0, -3);
-    if (out.has(projectName)) continue;
-
-    const dbPath = join(cacheDir, name);
-    let cacheStore: GraphStore | null = null;
+    const registry = new Registry();
     try {
-      cacheStore = new GraphStore(dbPath, { readonly: true });
-      const rows = cacheStore.queryRaw<IndexerProject>(
-        "SELECT name, indexed_at, root_path FROM ctx_projects WHERE name = ?",
-        [projectName],
-      );
-      if (rows[0]) out.set(projectName, rows[0]);
-    } catch {
-      // Skip unreadable / empty / pre-migration cache DBs.
+      for (const r of registry.list()) {
+        if (out.has(r.name)) continue;
+        out.set(r.name, { name: r.name, indexed_at: r.indexed_at, root_path: r.root_path } as IndexerProject);
+      }
     } finally {
-      cacheStore?.close();
+      registry.close();
     }
+  } catch {
+    // Registry unavailable — bound store entries only.
   }
 
   return Array.from(out.values());
@@ -191,14 +178,36 @@ export function openProjectStore(
   boundStore: GraphStore,
   boundProject: string | null | undefined,
   requestedProject: string | null | undefined,
+  opts: { registry?: Registry } = {},
 ): { store: GraphStore; owned: boolean } | null {
   if (!requestedProject || requestedProject === boundProject) {
     return { store: boundStore, owned: false };
   }
-  const cachePath = join(homedir(), ".cache", "cortex-indexer", `${requestedProject}.db`);
-  if (!existsSync(cachePath)) return null;
+
+  // Resolve the requested project's root_path from the registry, then open the
+  // freshest store via resolveGraphDbForRead (prefers .cortex/db; cache is the
+  // last-resort fallback for un-migrated repos). Falls back to the legacy cache
+  // path only when the project is unknown to the registry.
+  const registry = opts.registry ?? new Registry();
+  let rootPath: string | null = null;
   try {
-    const store = new GraphStore(cachePath, { readonly: true });
+    rootPath = registry.findByName(requestedProject)?.root_path ?? null;
+  } finally {
+    if (!opts.registry) registry.close();
+  }
+
+  let dbPath: string | null = null;
+  if (rootPath) {
+    dbPath = resolveGraphDbForRead(rootPath);
+  }
+  if (!dbPath) {
+    const legacy = join(homedir(), ".cache", "cortex-indexer", `${requestedProject}.db`);
+    dbPath = existsSync(legacy) ? legacy : null;
+  }
+  if (!dbPath) return null;
+
+  try {
+    const store = new GraphStore(dbPath, { readonly: true });
     return { store, owned: true };
   } catch {
     return null;
