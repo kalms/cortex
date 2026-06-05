@@ -132,8 +132,10 @@ The canonical graph store is **`<repo>/.cortex/db`** (per repo). Both writers �
 the CLI `cortex index` and the MCP `index_repository` tool — write it (via the
 indexer binary's `CORTEX_DB` env), checkpoint the WAL, and then register the
 repo in a single machine-wide **registry** at
-`~/.cache/cortex-indexer/_registry.db` (`name → root_path → indexed_at`,
-overridable with `CORTEX_REGISTRY_DB`). Enumeration (`list_projects`, the viewer
+`~/.local/share/cortex-indexer/registry.db` (XDG data home, `name → root_path →
+indexed_at`; honors `$XDG_DATA_HOME`, overridable with `CORTEX_REGISTRY_DB`).
+Durable metadata lives under the XDG *data* home, not `~/.cache` (which means
+"regenerable"). Enumeration (`list_projects`, the viewer
 project switcher) reads the registry; per-repo reads resolve `root_path` from
 the registry and open via `resolveGraphDbForRead`, which prefers `.cortex/db`
 and falls back to the legacy `~/.cache/cortex-indexer/<slug>.db` cache only for

@@ -1,9 +1,36 @@
 // src/db/registry-migration.ts
 import BetterSqlite3 from "better-sqlite3";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Registry } from "./registry.js";
+import { Registry, legacyRegistryPath } from "./registry.js";
+
+/** One-shot, idempotent: carry rows from the pre-XDG registry location
+ *  (`~/.cache/cortex-indexer/_registry.db`) into the current registry. Covers
+ *  repos registered via register-on-index that have no legacy cache `<slug>.db`
+ *  to re-seed from. Best-effort; reads the old file read-only and leaves it in
+ *  place. No-op when the old file is absent (fresh installs). */
+export function importLegacyRegistry(
+  registry: Registry,
+  legacyPath: string = legacyRegistryPath(),
+): void {
+  if (!existsSync(legacyPath)) return;
+  let old: BetterSqlite3.Database | null = null;
+  try {
+    old = new BetterSqlite3(legacyPath, { readonly: true, fileMustExist: true });
+    const rows = old
+      .prepare("SELECT name, root_path, indexed_at FROM repos")
+      .all() as Array<{ name: string; root_path: string; indexed_at?: string }>;
+    for (const r of rows) {
+      if (!r?.name || !r?.root_path) continue;
+      registry.register(r.name, r.root_path, r.indexed_at ?? new Date().toISOString());
+    }
+  } catch {
+    // best-effort (old file unreadable / pre-`repos`-schema)
+  } finally {
+    old?.close();
+  }
+}
 
 /** One-shot, idempotent: seed the registry from every legacy project graph DB
  *  in the cache dir. Reads each `<slug>.db`'s ctx_projects row to recover the

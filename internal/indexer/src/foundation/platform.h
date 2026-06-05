@@ -100,6 +100,14 @@ const char *ctx_app_local_dir(void);
  * Returns static buffer or NULL if home is unavailable. */
 const char *ctx_resolve_cache_dir(void);
 
+/* Resolve the durable DATA directory for cortex-indexer (persistent state that
+ * must survive a cache wipe — e.g. the config key-value store). Unlike the
+ * cache dir, this is NOT safe to delete.
+ * Priority: CTX_DATA_DIR > $XDG_DATA_HOME/cortex-indexer >
+ *           ~/.local/share/cortex-indexer (Windows: %LOCALAPPDATA%/cortex-indexer).
+ * Returns static buffer or NULL if home is unavailable. */
+const char *ctx_resolve_data_dir(void);
+
 /* Resolve the SQLite database path to use for indexing.
  *
  * Priority:
