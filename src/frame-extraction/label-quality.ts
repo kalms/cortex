@@ -60,13 +60,13 @@ function countFilesWithAllTerms(idx: CorpusIndex, terms: readonly string[]): num
 }
 
 /**
- * Matches the label against the blob token surface using a simple whitespace
- * split (not the camelCase/compound blob tokenizer). Opaque fallback labels
- * such as `cluster:N` score near-zero by construction — they contain no corpus
- * token — and that is **intended** (they genuinely don't characterize the
- * files). Labels whose surface differs from the blob tokenizer (e.g. a
- * camelCase symbol stored split in the blobs) may under-score; aligning the
- * label tokenizer with the blob tokenizer is a known follow-up.
+ * Matches the label against the blob token surface. The label is tokenized with
+ * the SAME `splitSymbol` used to build the blob token sets (camelCase + `._-/`
+ * split, lowercased), so compound labels (`useElementSize`, `method_comparison`)
+ * match blobs that store their parts split. Opaque fallback labels such as
+ * `cluster:N` score zero by construction — `splitSymbol` leaves `cluster:N`
+ * intact (colon is not a split boundary) and no blob contains that token — and
+ * that is **intended** (they genuinely don't characterize the files).
  */
 export function scoreLabel(
   label: string,
