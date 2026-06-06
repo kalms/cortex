@@ -92,6 +92,37 @@ describe("pickFrameLabel — bigram preference", () => {
   });
 });
 
+describe("pickFrameLabel — path-ordered slash rendering (multi-word labels)", () => {
+  it("joins a multi-word label with '/' in directory-nesting order", () => {
+    // saleor/ nests above graphql/ in every member → already in n-gram order.
+    expect(
+      pickFrameLabel(["saleor graphql"], ["saleor/graphql/a.py", "saleor/graphql/b.py"]),
+    ).toBe("saleor/graphql");
+  });
+
+  it("reorders words so the ancestor directory comes first", () => {
+    // n-gram order is "beta alpha" but alpha/ nests above beta/ in the paths.
+    expect(
+      pickFrameLabel(["beta alpha"], ["alpha/beta/x.ts", "alpha/beta/y.ts"]),
+    ).toBe("alpha/beta");
+  });
+
+  it("joins same-segment compound words with '-' rather than '/'", () => {
+    // both words live in the single 'react-query' segment → not a hierarchy.
+    expect(
+      pickFrameLabel(
+        ["react query"],
+        ["packages/react-query/index.ts", "packages/react-query/core.ts"],
+      ),
+    ).toBe("react-query");
+  });
+
+  it("preserves the original spaced form when no member paths are available", () => {
+    // token-only callers (memberPaths === []) keep current behavior.
+    expect(pickFrameLabel(["mcp server"], [])).toBe("mcp server");
+  });
+});
+
 describe("pickFrameLabel — path-prefix fallback", () => {
   it("uses the deepest non-generic common path segment when all tokens are generic", () => {
     const tokens = ["id", "data", "default"];
