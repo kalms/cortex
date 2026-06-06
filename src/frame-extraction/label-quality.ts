@@ -96,3 +96,44 @@ export function scoreClusters(
   }
   return out;
 }
+
+export interface LabelQualityAggregate {
+  f1_mean: number;
+  /** F1 weighted by cluster member count. */
+  f1_weighted: number;
+  coverage_mean: number;
+  specificity_mean: number;
+  /** Number of clusters with f1 below the floor. */
+  clusters_below: number;
+  cluster_count: number;
+}
+
+export const DEFAULT_F1_FLOOR = 0.5;
+
+export function aggregateLabelQuality(
+  scores: readonly ClusterLabelScore[],
+  f1Floor: number = DEFAULT_F1_FLOOR,
+): LabelQualityAggregate {
+  const n = scores.length;
+  if (n === 0) {
+    return {
+      f1_mean: 0, f1_weighted: 0, coverage_mean: 0, specificity_mean: 0,
+      clusters_below: 0, cluster_count: 0,
+    };
+  }
+  const mean = (sel: (s: ClusterLabelScore) => number) =>
+    scores.reduce((acc, s) => acc + sel(s), 0) / n;
+  const totalMembers = scores.reduce((acc, s) => acc + s.member_count, 0);
+  const f1_weighted =
+    totalMembers > 0
+      ? scores.reduce((acc, s) => acc + s.f1 * s.member_count, 0) / totalMembers
+      : 0;
+  return {
+    f1_mean: mean((s) => s.f1),
+    f1_weighted,
+    coverage_mean: mean((s) => s.coverage),
+    specificity_mean: mean((s) => s.specificity),
+    clusters_below: scores.filter((s) => s.f1 < f1Floor).length,
+    cluster_count: n,
+  };
+}
