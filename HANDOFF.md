@@ -1,6 +1,46 @@
-# Cortex — Session Handoff (2026-06-06, label-quality arc)
+# Cortex — Session Handoff (2026-06-07, label-quality verdict + label rendering)
 
-## TL;DR
+## TL;DR (2026-06-07 session — read this first)
+
+Adjudicated the open "is F1 specificity too harsh?" question **empirically and
+cheaply** (manual inspection of the cached corpus, no new LLM harness), then
+shipped two changes off the finding:
+
+1. **Verdict: the F1 metric is sound; the LLM validator (Phase B.2) is NOT
+   needed.** Reconstructed per-cluster scores offline from the cached
+   `clusters/`+`blobs/` data via the real `scoreClusters` (258 clusters, median
+   F1 0.468, clean bimodal). The sub-0.5 clusters are **correctly** penalised —
+   their labels are genuinely vague (directory names `examples`/`demo`, the repo
+   name `saleor`, tech tags `react`/`graphql`). Low F1 = a real signal about
+   weak labels, not metric harshness. The only sliver of genuine harshness is
+   multi-word labels where one term saturates the repo (`TableDevtools` in a
+   table lib). ⇒ **Phase B.2 dropped from the critical path; the F1 gate is
+   unblocked.** The lead the metric actually surfaced: improve `pickFrameLabel`
+   to stop emitting repo/dir/tech-name labels.
+2. **Shipped: path-ordered multi-word label rendering** (decision `11c742ec`,
+   merged). `pickFrameLabel` now renders two-word labels path-like —
+   `saleor/graphql`, `react-query` — ordered by directory nesting (ancestor
+   first, fixing reversals like `get api`→`api/get`), `/` for hierarchy and `-`
+   for same-segment compounds. Measured: 79% of two-word labels already in path
+   order, ~1% reversed, 20% same-segment. Display-only, metric-safe (`splitSymbol`
+   splits on `/` and `-`). New helper `formatPathOrderedLabel`, 4 tests.
+3. **Shipped: viewer matches decision-governed paths to frames by membership**
+   (decision `ccd1ab6c`, merged). The viewer's `path.startsWith(label + '/')`
+   matcher conflated frame *labels* with real paths — fragile, and worse once
+   labels contain `/`. Replaced with cluster-membership matching via new tested
+   `adapters.js` helpers `buildFramePathIndex`/`frameIdForPath`. Gate-0 visual
+   QA passed (labels render, decision dots/leader-lines draw, file-ref click
+   resolves, zero console errors).
+
+- **Branch:** `main`, both above merged (not yet pushed). **TS tests 719/719
+  green, `tsc` clean.** Graph reindexed (110 frames).
+- **Minor quirk found during QA:** at least one decision stores a *basename*
+  (`frame-candidates.ts`) in `governs`, not a full file_path, so neither old nor
+  new viewer matcher resolves it — pre-existing data-shape issue, not a regression.
+
+---
+
+## Prior session TL;DR (2026-06-06, label-quality arc)
 
 This session delivered an **independent label-quality metric** for frame extraction
 and the harness to validate it — and, in validating it, found the validator
@@ -91,24 +131,33 @@ the *independent validation* of that metric.
 
 ---
 
-## Next priorities (suggested)
+## Next priorities (suggested — revised 2026-06-07)
 
-1. **Phase B.2 — per-candidate validator redesign** (the real next step). Replace
-   the comparison-set "which of these N doesn't belong" with a per-candidate fit
-   judgment: label + ONE file → "does this label describe this file? yes/no",
-   scored against membership (members→yes, sampled non-members→no). The label
-   becomes the only basis, so opaque `cluster:N` can't score above chance. Then
-   re-run and finally adjudicate whether F1 specificity is too harsh; set the
-   gate threshold from the result. Full shape in decision `8d2ced0c` + spec
-   "Phase B run outcome" section.
-2. **Set the F1 gate threshold** in `eval-all.ts` (regression vs baseline +
-   absolute floor) — only after Phase B.2 tells us whether to trust the raw F1
-   distribution or adjust specificity first.
-3. **C test harness fixtures** — implement the deferred fix from `589d9e3c`
+1. **Set the F1 gate threshold** in `eval-all.ts` — now **unblocked** (the
+   2026-06-07 verdict established the raw F1 distribution is trustworthy). Gate
+   **regression-relative** (weighted-F1-per-repo vs the committed baseline, with
+   tolerance for clustering nondeterminism) plus a soft absolute floor. Do NOT
+   use a hard per-cluster floor: median F1 is 0.468, so ~half the corpus sits
+   below 0.5 by nature of legitimately-vague labels.
+2. **Improve `pickFrameLabel` (the high-value lead the metric surfaced).**
+   Stop emitting non-characterising labels — stopword the repo name (e.g.
+   `saleor` on ~20 saleor clusters), structural dir names (`examples`, `demo`,
+   `content`, `migrate`), and deprioritise bare framework tags (`react`,
+   `graphql`). The F1 metric is now the yardstick to measure the improvement.
+3. **Phase B.2 (per-candidate LLM validator) — DEMOTED to optional.** No longer
+   on the critical path: the cheap inspection already adjudicated harshness. Only
+   build it if independent validation of the metric is later wanted for its own
+   sake. Shape still in decision `8d2ced0c` + spec "Phase B run outcome".
+4. **Artifacts the inspection flagged** (each small): nuxt `composables` cluster
+   scores coverage 0.00 (label token absent from member blobs — tokenization/path
+   edge worth a look); duplicate `member_paths` (saleor/TanStack/trpc) inflate
+   clusters; trpc fragments generated `.gen.ts` into 9 near-identical `routers`
+   clusters.
+5. **C test harness fixtures** — implement the deferred fix from `589d9e3c`
    (`th_open_store_graph()` fixture that creates the canonical `nodes`/`edges`
    schema; lowercase the stale capitalized-label assertions; rename `ctx_nodes`
    in `test_sqlite_writer`).
-4. **Fix the `detect_changes` MCP tool** — it's a half-migrated multi-project-routing
+6. **Fix the `detect_changes` MCP tool** — it's a half-migrated multi-project-routing
    straggler that fails with `binary_failed: … project not found`. The MCP tool was
    migrated to per-call routing and now sends `{ repo_path }` + pins `CORTEX_DB`
    ([code-tools.ts:450](src/mcp-server/tools/code-tools.ts#L450)), but the indexer
@@ -124,7 +173,7 @@ the *independent validation* of that metric.
    receives — keeps the per-call-routing intent. Non-blocking: `index_repository`
    detects changes internally, so reindexing is unaffected; only the standalone
    "git diff → affected symbols" impact tool is broken.
-5. **(Parked)** clustering nondeterminism — HDBSCAN gives run-to-run variance
+7. **(Parked)** clustering nondeterminism — HDBSCAN gives run-to-run variance
    (`cobra` collapsed to 0 clusters one run; `vueuse` 2↔12 clusters); a clustering
    `--seed` would make baselines reproducible. `vercel/commerce` intermittently
    fails clustering (`Python exit 1`).
@@ -140,6 +189,7 @@ the *independent validation* of that metric.
 
 - **Spec:** [label-quality signal design](docs/superpowers/specs/2026-06-06-label-quality-signal-design.md) (read the "Phase B run outcome" section)
 - **Plan:** [label-quality implementation plan](docs/superpowers/plans/2026-06-06-label-quality-signal.md) (Phase B.2 not yet written)
-- **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign)
-- **Key code:** metric `src/frame-extraction/label-quality.ts`; validator `scripts/frame-extraction/intruder.ts` · `validate-labels.ts`; harness `scripts/frame-extraction/eval-all.ts`; baseline `scripts/frame-extraction/baselines/2026-06-06.json`
-- **Run the validator:** `ANTHROPIC_API_KEY=… npm run eval:frames -- --validate --seed 1` (add `--model claude-opus-4-8` to spot-check judge strength)
+- **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign), `11c742ec` (path-ordered label rendering), `ccd1ab6c` (viewer membership matching)
+- **Key code:** metric `src/frame-extraction/label-quality.ts`; label rendering `src/frame-extraction/inject-frames.ts::formatPathOrderedLabel`/`pickFrameLabel`; viewer matchers `src/viewer/adapters.js::buildFramePathIndex`/`frameIdForPath`; validator `scripts/frame-extraction/intruder.ts` · `validate-labels.ts`; harness `scripts/frame-extraction/eval-all.ts`; baseline `scripts/frame-extraction/baselines/2026-06-06.json`
+- **Reproduce the 2026-06-07 verdict:** the inspection ran offline from the cached `clusters/`+`blobs/` via the real `scoreClusters` (no pipeline re-run); 258 clusters, 137 slash / 36 hyphen / 1 spaced-fallback / 81 single-word labels after the rendering change.
+- **Run the validator (optional, Phase B.2 only):** `ANTHROPIC_API_KEY=… npm run eval:frames -- --validate --seed 1` (add `--model claude-opus-4-8` to spot-check judge strength)
