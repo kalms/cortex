@@ -145,12 +145,16 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
     const violationRules: Record<string, number> = {};
     for (const v of violations) violationRules[v.rule] = (violationRules[v.rule] ?? 0) + 1;
 
+    if (!existsSync(blobs_path)) {
+      return { slug: repo.slug, ok: false, error: `blobs file not found: ${blobs_path}` };
+    }
     const blobs = readFileSync(blobs_path, "utf-8")
       .split("\n")
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as FileBlob);
     const corpusIndex = buildCorpusIndex(blobs);
     const labelScores = scoreClusters(result.clusters, topTokens, corpusIndex);
+    // aggregateLabelQuality's own cluster_count is not surfaced; RepoEvalRow.cluster_count already carries it.
     const labelAgg = aggregateLabelQuality(labelScores);
 
     return {
