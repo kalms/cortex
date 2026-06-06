@@ -16,8 +16,19 @@ export interface IntruderTrial {
   member_sample: string[];
   /** A path from a DIFFERENT cluster — the known correct answer. */
   intruder_path: string;
-  /** member_sample + intruder, in a fixed order (intruder appended). */
+  /** member_sample + intruder, shuffled to remove positional bias. */
   candidates: string[];
+}
+
+/** Fisher-Yates shuffle over a copy of `arr`. Uses the same `pick` seam as
+ *  intruder sampling so tests can verify position deterministically. */
+function shuffle<T>(arr: T[], pick: (n: number) => number): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = pick(i + 1);
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
 }
 
 export interface BuildIntruderOptions {
@@ -46,7 +57,7 @@ export function buildIntruderTrials(
       cluster_id: c.cluster_id,
       member_sample,
       intruder_path,
-      candidates: [...member_sample, intruder_path],
+      candidates: shuffle([...member_sample, intruder_path], pick),
     });
   }
   return trials;

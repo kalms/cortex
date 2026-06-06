@@ -42,6 +42,7 @@ interface CliArgs {
   validate?: boolean;       // opt-in LLM intruder phase
   validateSample?: number;  // max trials per repo (default 15)
   model?: string;
+  seed?: number;            // PRNG seed for reproducible intruder sampling
 }
 
 interface RepoEvalRow {
@@ -63,8 +64,19 @@ interface RepoEvalRow {
   label_clusters_below_f1?: number;
   validation?: {
     sampled: number;
-    skipped_low_member: number;
+    not_validated: number;
     trials: { cluster_id: number; label: string; f1: number; intruder_found: boolean }[];
+  };
+}
+
+/** Mulberry32 PRNG — small, seedable, good enough for shuffling trial order. */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s |= 0; s = s + 0x6d2b79f5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
 
@@ -77,6 +89,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (argv[i] === "--validate") args.validate = true;
     else if (argv[i] === "--validate-sample") args.validateSample = Number(argv[++i]);
     else if (argv[i] === "--model") args.model = argv[++i];
+    else if (argv[i] === "--seed") args.seed = Number(argv[++i]);
   }
   return args;
 }
@@ -103,7 +116,7 @@ export function teardownTargets(repos: RepoSpec[], rows: RepoEvalRow[]): string[
 
 /** Run the full eval pipeline for one repo. Never throws — failures are
  *  caught and returned as { ok: false, error }. */
-async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSample: number; model: string }): Promise<RepoEvalRow> {
+async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSample: number; model: string; seed?: number }): Promise<RepoEvalRow> {
   try {
     const clone = ensureClone(repo);
     if (!clone.ok) {
@@ -188,8 +201,14 @@ async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSampl
       try {
         const { buildIntruderTrials } = await import("./intruder.js");
         const realClusterCount = result.clusters.filter((c) => c.cluster_id !== -1).length;
-        const allTrials = buildIntruderTrials(result.clusters, { membersPerTrial: 5 });
-        const trials = allTrials.slice(0, opts.validateSample);
+        // Build a seeded pick function if a seed was supplied, for reproducible sampling.
+        const intruderOpts = Number.isFinite(opts.seed)
+          ? (() => { const rng = mulberry32(opts.seed!); return { membersPerTrial: 5, pick: (n: number) => Math.floor(rng() * n) }; })()
+          : { membersPerTrial: 5 };
+        const allTrials = buildIntruderTrials(result.clusters, intruderOpts);
+        // Guard against NaN from a missing/garbage --validate-sample value.
+        const validateSample = Number.isFinite(opts.validateSample) ? opts.validateSample : 15;
+        const trials = allTrials.slice(0, validateSample);
         const labelByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.label]));
         const f1ByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.f1]));
         const { runIntruderValidation } = await import("./validate-labels.js");
@@ -204,10 +223,10 @@ async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSampl
           sampled: trials.length,
           // clusters that yielded no trial: too-few-members or no intruder source, plus
           // any beyond the sample cap.
-          skipped_low_member: realClusterCount - results.length,
+          not_validated: realClusterCount - results.length,
           trials: results,
         };
-        console.log(`[eval-all]   ⟳ validated ${results.length}/${realClusterCount} clusters (sample cap ${opts.validateSample})`);
+        console.log(`[eval-all]   ⟳ validated ${results.length}/${realClusterCount} clusters (sample cap ${validateSample})`);
       } catch (err) {
         console.log(`[eval-all]   ⚠ validation skipped: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -241,7 +260,7 @@ async function main() {
   const rows: RepoEvalRow[] = [];
   for (const repo of filtered) {
     console.log(`[eval-all] → ${repo.slug} (${repo.archetype})`);
-    const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8" });
+    const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8", seed: args.seed });
     rows.push(row);
     if (!row.ok) {
       console.log(`[eval-all]   ✗ ${(row.error ?? "").slice(0, 160)}`);
