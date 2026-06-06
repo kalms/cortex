@@ -10,6 +10,7 @@
  * PURE module: no file/DB/network I/O. Inputs in, scores out.
  */
 import { pickFrameLabel } from "./inject-frames.js";
+import { splitSymbol } from "./text-blob.js";
 import type { ClusterAssignment, FileBlob } from "./types.js";
 
 export interface CorpusIndex {
@@ -72,7 +73,7 @@ export function scoreLabel(
   memberPaths: readonly string[],
   idx: CorpusIndex,
 ): LabelScore {
-  const terms = tokenize(label);
+  const terms = splitSymbol(label);
   const uniqueMembers = [...new Set(memberPaths)];
   const membersWith = uniqueMembers.filter((p) => pathHasAllTerms(idx, p, terms)).length;
   // Single-term fast path uses df; multi-word scans for co-occurrence.
