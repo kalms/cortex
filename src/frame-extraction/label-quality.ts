@@ -63,13 +63,14 @@ export function scoreLabel(
   memberPaths: readonly string[],
   idx: CorpusIndex,
 ): LabelScore {
-  const terms = label.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
-  const membersWith = memberPaths.filter((p) => pathHasAllTerms(idx, p, terms)).length;
+  const terms = tokenize(label);
+  const uniqueMembers = [...new Set(memberPaths)];
+  const membersWith = uniqueMembers.filter((p) => pathHasAllTerms(idx, p, terms)).length;
   // Single-term fast path uses df; multi-word scans for co-occurrence.
   const filesWith =
     terms.length === 1 ? idx.df.get(terms[0]!) ?? 0 : countFilesWithAllTerms(idx, terms);
 
-  const coverage = memberPaths.length > 0 ? membersWith / memberPaths.length : 0;
+  const coverage = uniqueMembers.length > 0 ? membersWith / uniqueMembers.length : 0;
   const specificity = filesWith > 0 ? membersWith / filesWith : 0;
   const f1 =
     coverage + specificity > 0 ? (2 * coverage * specificity) / (coverage + specificity) : 0;

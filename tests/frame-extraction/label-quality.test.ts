@@ -39,7 +39,7 @@ describe("scoreLabel", () => {
   });
 
   it("penalises a framework idiom (high coverage, low specificity)", () => {
-    // "auth" is in all 3 members but the label is applied to a cluster of 2;
+    // "index" is in all 4 corpus files but the label is applied to a cluster of 2;
     // build a corpus where the term leaks everywhere.
     const leak = buildCorpusIndex([
       { path: "m/1.ts", text: "index one" },
