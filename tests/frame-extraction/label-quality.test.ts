@@ -103,3 +103,30 @@ describe("scoreClusters", () => {
     expect(scores[0]!.f1).toBeGreaterThan(0);
   });
 });
+
+import { aggregateLabelQuality } from "../../src/frame-extraction/label-quality.js";
+import type { ClusterLabelScore } from "../../src/frame-extraction/label-quality.js";
+
+describe("aggregateLabelQuality", () => {
+  const mk = (cluster_id: number, member_count: number, f1: number): ClusterLabelScore => ({
+    label: `c${cluster_id}`, terms: [`c${cluster_id}`], coverage: f1, specificity: f1, f1,
+    cluster_id, member_count,
+  });
+
+  it("computes mean, member-weighted mean, and below-floor count", () => {
+    const scores = [mk(0, 1, 1.0), mk(1, 9, 0.0)]; // tiny great cluster, big bad one
+    const agg = aggregateLabelQuality(scores, 0.5);
+    expect(agg.f1_mean).toBeCloseTo(0.5, 5);          // (1 + 0) / 2
+    expect(agg.f1_weighted).toBeCloseTo(0.1, 5);       // (1*1 + 0*9) / 10
+    expect(agg.clusters_below).toBe(1);
+    expect(agg.cluster_count).toBe(2);
+  });
+
+  it("returns zeros for an empty score list", () => {
+    const agg = aggregateLabelQuality([], 0.5);
+    expect(agg).toEqual({
+      f1_mean: 0, f1_weighted: 0, coverage_mean: 0, specificity_mean: 0,
+      clusters_below: 0, cluster_count: 0,
+    });
+  });
+});
