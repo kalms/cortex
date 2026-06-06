@@ -68,7 +68,7 @@ when both are accurate. If a cluster genuinely is `app/controllers/*`, then
 it good, though it is a structural-layer word, not domain-informative. This
 distinction ("controllers" vs "billing") is irreducibly semantic and no token
 count resolves it. This is the explicit limitation of the deterministic gate; it
-is characterized (not eliminated) by the LLM-judge validator below.
+is characterized (not eliminated) by the intruder-detection validator below.
 
 ## Architecture
 
@@ -76,10 +76,10 @@ Two layers, matching the "gate built on a diagnostic" decision:
 
 1. The **deterministic F1 metric** is both the diagnostic and the regression
    gate.
-2. An **offline LLM-judge validator** confirms the F1 score tracks semantic
-   quality and characterizes the residual blind spot. It earns trust in the
-   cheap deterministic gate. It is run manually and is **not** part of CI or the
-   gate computation.
+2. An **offline LLM intruder-detection validator** confirms the F1 score tracks
+   a semantically-grounded measure of label discriminativeness, and characterizes
+   the residual blind spot. It earns trust in the cheap deterministic gate. It is
+   run manually and is **not** part of CI or the gate computation.
 
 ### Components
 
@@ -127,15 +127,50 @@ chosen blind** — the first deliverable reports the metric and writes the
 baseline; the regression `ε` and any absolute floor are set in a follow-up once
 real corpus numbers exist.
 
-**4. Offline LLM-judge validator: `scripts/frame-extraction/validate-label-quality.ts`**
+**4. Offline LLM intruder-detection validator: `scripts/frame-extraction/validate-label-quality.ts`**
 
-Manual, isolated, not in CI, shares no code with the gate. For a sample of
-clusters across the corpus, prompt Claude with the generated label + member file
-paths and collect a structured rating
-`{ accurate: boolean, failure_mode: "idiom" | "layer" | "misrep" | "none", better_suggestion?: string }`.
-Output a report correlating the LLM rating against the deterministic F1: does F1
-track semantic quality, and where do they diverge (the layer-marker blind spot)?
-Results inform the gate threshold and any future structural-token penalty.
+Manual, isolated, not in CI, shares no code with the gate. It does **not** ask
+the LLM for a subjective goodness rating (unfalsifiable, and circular if the LLM
+reasons from the same paths). Instead it gives the LLM a task with an objective
+answer drawn from data we already have — **cluster membership** — and measures
+its accuracy. We never need a "correct label" (which is subjective and which we
+do not have).
+
+This is the intruder-detection paradigm (Chang et al., "Reading Tea Leaves"),
+the field-standard for topic/cluster-label evaluation, applied to labels:
+
+- For each non-noise cluster `C` with generated label `L`: sample ~5 real member
+  files of `C` plus **1 intruder** file drawn from a *different* cluster.
+  Present `L` + the file set (paths **and** small content snippets, size-capped
+  to fit context) and ask: *"which file does not fit a group described by `L`?"*
+- The correct answer is the intruder — known from **membership**, not from any
+  label judgment.
+- Structured output per trial:
+  `{ cluster_id, intruder_path, chosen_path, correct: boolean }`.
+- The signal is **intruder-detection accuracy** aggregated across clusters (run
+  multiple trials per cluster with different intruders to reduce variance).
+
+What this measures and why it is the right basis:
+
+- A discriminative label (`"authentication"`) lets the LLM exclude a non-member
+  (`billing/invoice.ts`); a vague/idiom label (`"typescript"`, `"index"`)
+  does not → low accuracy exposes it. The label is the decision lens, so accuracy
+  reflects label quality, not just cluster coherence.
+- It is the **semantic mirror of the deterministic metric**: F1 uses literal
+  token-presence as the matcher to test whether the label discriminates members;
+  this uses semantic understanding as the matcher against the same membership
+  ground truth. Agreement ⇒ F1 is a validated proxy. Divergence ⇒ F1's blind
+  spots are *measured*, not guessed.
+- It directly probes the **layer-marker blind spot**: an optional "hard intruder"
+  variant draws the intruder from the *same structural layer but a different
+  domain* (e.g. a controller from another cluster against a `"controllers"`
+  label). A layer-marker label cannot exclude it → low accuracy, surfacing
+  exactly the case F1 scores as good.
+
+Output: a report of intruder-detection accuracy per cluster and corpus-wide,
+correlated against the deterministic F1. Results inform the gate threshold and
+any future structural-token penalty. Skipped for corpora with fewer than two
+clusters (no intruder source).
 
 **5. Tests (TDD): `tests/frame-extraction/label-quality.test.ts`**
 
@@ -155,8 +190,9 @@ runTfIdfHdbscan → { result: ClusterResult, blobs_path }
                                               → eval-all.json (+ baseline snapshot)
 ```
 
-The LLM-judge validator consumes the same `ClusterLabelScore[]` + member paths
-out-of-band; it does not touch the gate path.
+The intruder-detection validator consumes the same `ClusterLabelScore[]` +
+member paths (and samples content snippets) out-of-band; it does not touch the
+gate path.
 
 ## Module boundaries
 
