@@ -1,5 +1,5 @@
 import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage } from '/viewer/adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
 import { gridLayout } from '/viewer/layout.js';
 
 (() => {
@@ -36,6 +36,9 @@ import { gridLayout } from '/viewer/layout.js';
   let NODE_CFG = {};
   let FILE_NAMES = {};
   let FRAME_FILE_PATHS = {};
+  // file_path → frameIdStr, for matching decision-governed file paths to the
+  // frame that actually contains the file (membership, not label resemblance).
+  let FRAME_PATH_INDEX = new Map();
 
   const nodes = [];
   const edges = [];
@@ -93,6 +96,7 @@ import { gridLayout } from '/viewer/layout.js';
 
     // 1. Build frame summaries from the graph.
     const summaries = groupNodesIntoFrames(graph.nodes);
+    FRAME_PATH_INDEX = buildFramePathIndex(summaries);
     updateFramesWarning(graph.nodes);
 
     // 2. Position via grid layout. Reserve 90px at the bottom for the
@@ -698,8 +702,8 @@ import { gridLayout } from '/viewer/layout.js';
       dec.governs.forEach(g => {
         if (g.kind === 'frame') governedFrameIds.add(g.id);
         else if (g.kind === 'file') {
-          const match = FRAMES.find(f => g.path === f.name || g.path.startsWith(f.name + '/'));
-          if (match) governedFrameIds.add(match.id);
+          const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+          if (fid) governedFrameIds.add(fid);
         }
       });
 
@@ -1554,8 +1558,7 @@ import { gridLayout } from '/viewer/layout.js';
         if (ref.kind === 'frame') {
           frameId = ref.id;
         } else if (ref.path) {
-          const match = FRAMES.find(f => ref.path === f.name || ref.path.startsWith(f.name + '/'));
-          if (match) frameId = match.id;
+          frameId = frameIdForPath(FRAME_PATH_INDEX, ref.path);
         }
         if (frameId) {
           closeDecisionCard();
