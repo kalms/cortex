@@ -257,3 +257,39 @@ judge are trusted is **out of scope** here.
   Next.js / Django / Rails / Nuxt archetypes) is representative of users' repos.
   A repo structurally unlike anything in the corpus is not strictly covered;
   broadening the corpus, not per-user validation, is the remedy.
+
+## Phase B run outcome (2026-06-06) — the validator is confounded; redesign needed
+
+First corpus-wide `--validate` run (Sonnet 4.6, 122 trials over 11 repos):
+
+- Overall intruder-detection accuracy **0.877**.
+- F1≥0.5 band **0.919** vs F1<0.5 band **0.833** — nearly flat.
+- Point-biserial **r(F1, intruder_found) = 0.077** ≈ zero.
+
+At face value this reads as "F1 is far too harsh." **That conclusion is unsafe**,
+because the test is confounded by **cluster coherence**: the LLM is shown the
+label *and* the candidate file contents, so when a cluster is visually coherent
+it identifies the intruder from the files regardless of label informativeness.
+The proof: both trials whose label was the opaque `cluster:N` fallback (zero
+label information) were solved **100%**, and near-zero-F1 trials solved at 75%.
+A meaningless label cannot help — so the LLM is not relying on the label.
+
+**Therefore the intruder-detection validator, as built, measures cluster
+coherence rather than label quality, and cannot adjudicate whether F1's
+specificity component is too harsh.** The large "F1<0.5 but intruder found"
+bucket (`demo`, `examples`, `composables`, …) is confounded and is not evidence
+of harshness.
+
+**Recommended redesign (Phase B.2):** remove the LLM's ability to lean on
+inter-file similarity. Instead of "which of these N does not belong" (a
+comparison that invites coherence-spotting), present **one candidate at a
+time** — *"does the label `X` describe this file? yes/no"* — and score the
+label-as-predicate against membership (members → yes, sampled non-members →
+no). The label is then the only basis for the decision, so an opaque `cluster:N`
+can no longer score above chance. A "hard intruder" drawn from the same
+structural layer but a different domain would further stress layer-marker
+labels, but per-candidate judgment is the fundamental fix.
+
+The deterministic F1 metric and gate (Phase A) are unaffected by this finding —
+they remain a defensible label metric; what is deferred is the *independent
+validation* of that metric, pending the Phase B.2 redesign.
