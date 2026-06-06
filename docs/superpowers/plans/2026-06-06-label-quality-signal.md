@@ -988,7 +988,7 @@ in that block if it is not already named. `clone` and `project` are existing loc
 - [ ] **Step 4: Make `main` async, await `evalRepo`, and aggregate corpus-wide**
 
 Change `function main()` to `async function main()`, and the call site to
-`const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8" });`.
+`const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-sonnet-4-6" });` (Sonnet is plenty for the intruder odd-one-out task and far cheaper across the corpus; override with `--model claude-opus-4-8` to spot-check).
 
 After the write-file block and before teardown, add the corpus-wide report:
 
