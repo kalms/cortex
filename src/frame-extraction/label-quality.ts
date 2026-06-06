@@ -33,3 +33,45 @@ export function buildCorpusIndex(blobs: readonly FileBlob[]): CorpusIndex {
   }
   return { tokensByPath, df };
 }
+
+export interface LabelScore {
+  label: string;
+  terms: string[];
+  /** Recall over the cluster's members. */
+  coverage: number;
+  /** Precision over the whole repo. */
+  specificity: number;
+  f1: number;
+}
+
+function pathHasAllTerms(idx: CorpusIndex, path: string, terms: readonly string[]): boolean {
+  const set = idx.tokensByPath.get(path);
+  if (!set) return false;
+  return terms.every((t) => set.has(t));
+}
+
+function countFilesWithAllTerms(idx: CorpusIndex, terms: readonly string[]): number {
+  let n = 0;
+  for (const set of idx.tokensByPath.values()) {
+    if (terms.every((t) => set.has(t))) n++;
+  }
+  return n;
+}
+
+export function scoreLabel(
+  label: string,
+  memberPaths: readonly string[],
+  idx: CorpusIndex,
+): LabelScore {
+  const terms = label.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
+  const membersWith = memberPaths.filter((p) => pathHasAllTerms(idx, p, terms)).length;
+  // Single-term fast path uses df; multi-word scans for co-occurrence.
+  const filesWith =
+    terms.length === 1 ? idx.df.get(terms[0]!) ?? 0 : countFilesWithAllTerms(idx, terms);
+
+  const coverage = memberPaths.length > 0 ? membersWith / memberPaths.length : 0;
+  const specificity = filesWith > 0 ? membersWith / filesWith : 0;
+  const f1 =
+    coverage + specificity > 0 ? (2 * coverage * specificity) / (coverage + specificity) : 0;
+  return { label, terms, coverage, specificity, f1 };
+}
