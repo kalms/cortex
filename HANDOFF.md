@@ -108,7 +108,23 @@ the *independent validation* of that metric.
    (`th_open_store_graph()` fixture that creates the canonical `nodes`/`edges`
    schema; lowercase the stale capitalized-label assertions; rename `ctx_nodes`
    in `test_sqlite_writer`).
-4. **(Parked)** clustering nondeterminism — HDBSCAN gives run-to-run variance
+4. **Fix the `detect_changes` MCP tool** — it's a half-migrated multi-project-routing
+   straggler that fails with `binary_failed: … project not found`. The MCP tool was
+   migrated to per-call routing and now sends `{ repo_path }` + pins `CORTEX_DB`
+   ([code-tools.ts:450](src/mcp-server/tools/code-tools.ts#L450)), but the indexer
+   binary's `handle_detect_changes` still reads a `project` *name* arg and resolves
+   the working tree via `get_project_root(srv, project)`
+   ([handlers.c:2663-2690](internal/indexer/src/handlers/handlers.c#L2663-L2690));
+   `get_project_root` returns NULL the instant `project` is null, so with no
+   `project` sent it errors "project not found". (The CLI path still passes
+   `project` — [index.ts:72](src/cli/commands/index.ts#L72) — so the binary matches
+   the CLI contract, not the MCP one.) **Preferred fix:** make `handle_detect_changes`
+   use the passed `repo_path` as the working-tree root directly (it's already pinned
+   alongside `CORTEX_DB`), rather than resolving a `project` name it no longer
+   receives — keeps the per-call-routing intent. Non-blocking: `index_repository`
+   detects changes internally, so reindexing is unaffected; only the standalone
+   "git diff → affected symbols" impact tool is broken.
+5. **(Parked)** clustering nondeterminism — HDBSCAN gives run-to-run variance
    (`cobra` collapsed to 0 clusters one run; `vueuse` 2↔12 clusters); a clustering
    `--seed` would make baselines reproducible. `vercel/commerce` intermittently
    fails clustering (`Python exit 1`).
