@@ -75,3 +75,24 @@ export function scoreLabel(
     coverage + specificity > 0 ? (2 * coverage * specificity) / (coverage + specificity) : 0;
   return { label, terms, coverage, specificity, f1 };
 }
+
+export interface ClusterLabelScore extends LabelScore {
+  cluster_id: number;
+  member_count: number;
+}
+
+export function scoreClusters(
+  clusters: readonly ClusterAssignment[],
+  topTokensPerCluster: Record<string, string[]>,
+  idx: CorpusIndex,
+): ClusterLabelScore[] {
+  const out: ClusterLabelScore[] = [];
+  for (const c of clusters) {
+    if (c.cluster_id === -1) continue;
+    const tokens = topTokensPerCluster[String(c.cluster_id)] ?? [];
+    const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id);
+    const s = scoreLabel(label, c.member_paths, idx);
+    out.push({ ...s, cluster_id: c.cluster_id, member_count: c.member_paths.length });
+  }
+  return out;
+}
