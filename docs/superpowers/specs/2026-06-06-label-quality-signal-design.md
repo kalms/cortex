@@ -78,8 +78,13 @@ Two layers, matching the "gate built on a diagnostic" decision:
    gate.
 2. An **offline LLM intruder-detection validator** confirms the F1 score tracks
    a semantically-grounded measure of label discriminativeness, and characterizes
-   the residual blind spot. It earns trust in the cheap deterministic gate. It is
-   run manually and is **not** part of CI or the gate computation.
+   the residual blind spot. It earns trust in the cheap deterministic gate. It
+   runs **corpus-wide** (pooling clusters across all corpus repos — one repo is
+   too few data points to establish a correlation), as an **opt-in phase of the
+   eval runner**, manually, and is **not** part of CI or the gate computation.
+   It is an **internal calibration tool**: it validates the shared labeler +
+   metric once over a representative corpus; it is never run per-user and never
+   ships to users (see Scope / non-goals).
 
 ### Components
 
@@ -127,14 +132,21 @@ chosen blind** — the first deliverable reports the metric and writes the
 baseline; the regression `ε` and any absolute floor are set in a follow-up once
 real corpus numbers exist.
 
-**4. Offline LLM intruder-detection validator: `scripts/frame-extraction/validate-label-quality.ts`**
+**4. Offline LLM intruder-detection validator: opt-in `--validate` phase of `eval-all.ts` + a lazy-loaded module `scripts/frame-extraction/validate-labels.ts`**
 
-Manual, isolated, not in CI, shares no code with the gate. It does **not** ask
-the LLM for a subjective goodness rating (unfalsifiable, and circular if the LLM
-reasons from the same paths). Instead it gives the LLM a task with an objective
-answer drawn from data we already have — **cluster membership** — and measures
-its accuracy. We never need a "correct label" (which is subjective and which we
-do not have).
+Runs **corpus-wide** as an opt-in phase of the eval runner: `npm run eval:frames`
+is the gate path and never touches the LLM; `npm run eval:frames -- --validate`
+reuses the *same single* clone+index+cluster pass over the corpus and, per repo,
+runs the intruder step. The Anthropic SDK and the validator module are
+**lazy-loaded** (dynamic `import()`) only when `--validate` is set, so the default
+gate path never loads the SDK — isolation is preserved in practice without
+re-cloning the corpus a second time (large fixtures like `saleor` are expensive).
+
+It does **not** ask the LLM for a subjective goodness rating (unfalsifiable, and
+circular if the LLM reasons from the same paths). Instead it gives the LLM a task
+with an objective answer drawn from data we already have — **cluster
+membership** — and measures its accuracy. We never need a "correct label" (which
+is subjective and which we do not have).
 
 This is the intruder-detection paradigm (Chang et al., "Reading Tea Leaves"),
 the field-standard for topic/cluster-label evaluation, applied to labels:
@@ -167,10 +179,21 @@ What this measures and why it is the right basis:
   label). A layer-marker label cannot exclude it → low accuracy, surfacing
   exactly the case F1 scores as good.
 
-Output: a report of intruder-detection accuracy per cluster and corpus-wide,
-correlated against the deterministic F1. Results inform the gate threshold and
-any future structural-token penalty. Skipped for corpora with fewer than two
-clusters (no intruder source).
+**Cost bound:** corpus-wide means one LLM call per sampled cluster across every
+repo — potentially hundreds. The phase caps trials per repo
+(`--validate-sample N`, default 15) and **logs how many clusters were sampled vs
+skipped** (no silent truncation). Calls run sequentially or with a small
+concurrency cap.
+
+**Correlation / output:** pool every `(f1, intruder_found)` pair across the whole
+corpus and report (a) overall intruder-detection accuracy, (b) accuracy split by
+F1 band — below vs at/above the `0.5` floor — which is the interpretable headline
+("do low-F1 labels actually fail more often?"), and (c) the **blind-spot list**:
+clusters with high F1 but a missed intruder (suspected layer-marker /
+non-discriminative labels). A point-biserial correlation coefficient is a
+nice-to-have but the band split is the robust signal at modest sample sizes.
+Results inform the gate threshold and any future structural-token penalty.
+Skipped for a repo with fewer than two clusters (no intruder source).
 
 **5. Tests (TDD): `tests/frame-extraction/label-quality.test.ts`**
 
@@ -190,17 +213,22 @@ runTfIdfHdbscan → { result: ClusterResult, blobs_path }
                                               → eval-all.json (+ baseline snapshot)
 ```
 
-The intruder-detection validator consumes the same `ClusterLabelScore[]` +
-member paths (and samples content snippets) out-of-band; it does not touch the
-gate path.
+Under `--validate`, the same per-repo `ClusterLabelScore[]` + member paths feed
+the intruder phase, which additionally reads content snippets and calls the LLM.
+The default (no-flag) run never enters this path.
 
 ## Module boundaries
 
 - `label-quality.ts` — pure, unit-tested, no I/O. What it does: scores labels
   against the corpus token distribution. Depends on: `types`, `pickFrameLabel`.
-- `eval-all.ts` — owns all file I/O (reading blobs, writing the report).
-- `validate-label-quality.ts` — fully isolated LLM path; depends on the Anthropic
-  SDK and the eval output, nothing in the gate.
+- `intruder.ts` — pure, unit-tested, no I/O, no LLM. Builds intruder trials from
+  clusters (membership = ground truth); seedable for determinism.
+- `eval-all.ts` — owns the corpus loop + all file I/O (reading blobs, writing the
+  report). Under `--validate` it lazy-imports the SDK and the validator glue;
+  the default gate path imports neither.
+- `validate-labels.ts` — the lazy-loaded LLM glue: given trials + labels, calls
+  Claude and scores intruder accuracy. Depends on the Anthropic SDK; reached only
+  via the `--validate` dynamic import.
 
 ## Relationship to the existing `checkLabelQuality`
 
@@ -217,3 +245,15 @@ judge are trusted is **out of scope** here.
 - Embedding-based scoring and a human gold set were considered and rejected as
   the anchor (model noise on word-vs-code embeddings; gold-set brittleness as
   cluster membership shifts between runs).
+- **The LLM validator is internal-only and never runs per-user.** It validates
+  the *shared labeler + the F1 metric* (both shared code) once over a
+  representative corpus; users running the same labeler inherit that confidence
+  with zero LLM cost. Requiring per-user LLM calls during frame extraction
+  (API key, network, cost, nondeterminism) is an explicit non-goal — frame
+  extraction stays cheap and offline. The deterministic F1 is the only part that
+  *could* later generalize to an in-product per-label confidence signal; that is
+  out of scope here.
+- **Generalization assumption:** this trusts that the corpus (spanning the
+  Next.js / Django / Rails / Nuxt archetypes) is representative of users' repos.
+  A repo structurally unlike anything in the corpus is not strictly covered;
+  broadening the corpus, not per-user validation, is the remedy.
