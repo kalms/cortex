@@ -22,6 +22,7 @@ import {
   routeParamTokens,
   pathSalience,
 } from "./structural-tokens.js";
+import { splitSymbol } from "./text-blob.js";
 
 /** Stop-list of generic tokens we skip when picking a label. Lowercase.
  *  Includes monorepo-convention dirs (`apps`, `packages`), framework/route
@@ -81,12 +82,68 @@ function isLabelEligibleWord(
   return true;
 }
 
+/** Render a multi-word n-gram label as a path-like string that mirrors the
+ *  directory nesting of its member files. Two-word TF-IDF n-grams almost always
+ *  name an ancestor directory and a descendant (`saleor graphql` ⇒ files under
+ *  `saleor/.../graphql/…`), so a slash reads as the containment the label is
+ *  implicitly capturing. We don't trust the n-gram's word order: each word is
+ *  located by its earliest matching path segment across members, words are
+ *  ordered ancestor-first, and adjacent words that share the SAME segment in a
+ *  majority of members are joined with `-` (a compound term like `react-query`,
+ *  not a real hierarchy). Falls back to the original spaced token when there are
+ *  no member paths or any word can't be located — keeping token-only callers
+ *  unchanged. F1 scoring is unaffected: `splitSymbol` treats `/` and `-` as
+ *  boundaries, so the rendered label tokenizes identically to the spaced form. */
+function formatPathOrderedLabel(token: string, memberPaths: readonly string[]): string {
+  const words = token.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length < 2 || memberPaths.length === 0) return token;
+
+  const paths = memberPaths.map((p) => p.split("/").filter((s) => s.length > 0));
+  // earliest[w][p] = earliest segment index of word w in path p, or -1 if absent.
+  // Keeping the path axis lets us compare two words WITHIN the same member.
+  const earliest = words.map((w) => {
+    const lc = w.toLowerCase();
+    return paths.map((segs) => segs.findIndex((seg) => splitSymbol(seg).includes(lc)));
+  });
+  // If any word is never locatable, we can't order reliably — keep the original.
+  if (earliest.some((row) => row.every((i) => i < 0))) return token;
+
+  const avg = (row: number[]) => {
+    const found = row.filter((i) => i >= 0);
+    return found.reduce((a, b) => a + b, 0) / found.length;
+  };
+  const order = words
+    .map((word, i) => ({ word, i, key: avg(earliest[i]!) }))
+    .sort((a, b) => a.key - b.key || a.i - b.i);
+
+  // Adjacent words sharing the SAME segment in a majority of members where both
+  // are present → compound term (`-`), not a hierarchy (`/`).
+  const sameSegMajority = (a: number, b: number): boolean => {
+    let both = 0, same = 0;
+    for (let p = 0; p < paths.length; p++) {
+      const ia = earliest[a]![p]!, ib = earliest[b]![p]!;
+      if (ia < 0 || ib < 0) continue;
+      both++;
+      if (ia === ib) same++;
+    }
+    return both > 0 && same * 2 > both;
+  };
+
+  let out = order[0]!.word;
+  for (let k = 1; k < order.length; k++) {
+    const sep = sameSegMajority(order[k - 1]!.i, order[k]!.i) ? "-" : "/";
+    out += sep + order[k]!.word;
+  }
+  return out;
+}
+
 /** Pick a frame label, preferring informative tokens in this order:
  *
  *   1. First bigram (or longer) where ALL words are label-eligible (non-generic,
  *      non-structural, not a route param, and salient across ≥50% of member paths).
  *      Bigrams like "design system" or "mcp server" identify subsystems more
- *      clearly than either word alone.
+ *      clearly than either word alone. Multi-word hits are rendered path-like via
+ *      `formatPathOrderedLabel` (e.g. `saleor/graphql`, `react-query`).
  *   2. First label-eligible unigram (same criteria).
  *   3. Path-prefix fallback: deepest non-generic segment of the longest
  *      common directory prefix of member paths. Catches clusters whose top
@@ -113,7 +170,7 @@ export function pickFrameLabel(
   for (const token of topTokens) {
     const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
     if (parts.length > 1 && parts.every((p) => isLabelEligibleWord(p, params, memberPaths))) {
-      return token;
+      return formatPathOrderedLabel(token, memberPaths);
     }
   }
 
