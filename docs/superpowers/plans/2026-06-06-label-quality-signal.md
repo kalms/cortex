@@ -20,11 +20,11 @@
 |---|---|---|
 | `src/frame-extraction/label-quality.ts` | **New.** Pure: build corpus token index, score a label as a classifier (coverage/specificity/F1), score all clusters, aggregate. No I/O. | Create |
 | `tests/frame-extraction/label-quality.test.ts` | **New.** Unit tests over synthetic blobs/clusters. | Create |
-| `scripts/frame-extraction/eval-all.ts` | Read `blobs_path`, build index, score clusters, extend `RepoEvalRow` + log line. | Modify |
-| `scripts/frame-extraction/intruder.ts` | **New (Phase B).** Pure: build intruder-detection trials from clusters + blobs (seedable). No I/O, no LLM. | Create |
+| `scripts/frame-extraction/eval-all.ts` | Phase A: read `blobs_path`, build index, score clusters, extend `RepoEvalRow` + log line. Phase B: add opt-in `--validate` / `--validate-sample` flags; per repo, build trials and call the lazy-loaded validator; aggregate corpus-wide at the end. | Modify |
+| `scripts/frame-extraction/intruder.ts` | **New (Phase B).** Pure: build intruder-detection trials from clusters (seedable). No I/O, no LLM. | Create |
 | `tests/frame-extraction/intruder.test.ts` | **New (Phase B).** Unit tests for trial construction. | Create |
-| `scripts/frame-extraction/validate-label-quality.ts` | **New (Phase B).** Offline orchestrator: build trials, call Claude, score accuracy, correlate with F1. | Create |
-| `package.json` | Add `@anthropic-ai/sdk` + `eval:labels:validate` script alias (Phase B). | Modify |
+| `scripts/frame-extraction/validate-labels.ts` | **New (Phase B).** Lazy-loaded LLM glue: given trials + labels + clone path, read snippets, call Claude, return per-trial intruder results. Holds the only Anthropic SDK import. | Create |
+| `package.json` | Add `@anthropic-ai/sdk` (Phase B). No new script alias — validation is `eval:frames -- --validate`. | Modify |
 
 `label-quality.ts` lives in `src/` (pure, unit-tested, may be reused beyond the eval); the orchestrators that do I/O / LLM calls stay in `scripts/`. This mirrors the existing `eval-labels.ts` (src) vs `eval-all.ts` (scripts) split.
 
@@ -626,10 +626,12 @@ git commit -m "chore(frames): baseline snapshot with label-F1 metric"
 
 ---
 
-# Phase B — Offline intruder-detection validator
+# Phase B — Corpus-wide offline intruder-detection validator
 
-> Adds `@anthropic-ai/sdk` and makes real LLM calls. Runs manually; never part of CI
-> or the deterministic gate. Requires `ANTHROPIC_API_KEY` in the environment.
+> Runs **corpus-wide** as an opt-in `--validate` phase of the existing `eval:frames`
+> runner — one clone+index+cluster pass, LLM step piggybacks per repo. Adds
+> `@anthropic-ai/sdk`, lazy-loaded via dynamic `import()` so the default gate path never
+> loads it. Internal-only, never per-user, never in CI. Requires `ANTHROPIC_API_KEY`.
 
 ## Task 7: Pure intruder-trial construction (`buildIntruderTrials`)
 
@@ -769,20 +771,18 @@ git commit -m "feat(frames): pure intruder-trial construction for label validati
 Run: `npm install @anthropic-ai/sdk`
 Expected: adds `@anthropic-ai/sdk` to `dependencies`; `package-lock.json` updates.
 
-- [ ] **Step 2: Add a script alias**
+> No new script alias. Validation is the existing `eval:frames` runner with a flag:
+> `npm run eval:frames -- --validate`. The SDK is only ever loaded via a dynamic
+> `import()` reached under that flag (Task 9), so the default `eval:frames` / gate
+> path never imports it.
 
-In `package.json` `scripts`, add (after the `eval:frames` line):
-
-```json
-    "eval:labels:validate": "tsx scripts/frame-extraction/validate-label-quality.ts",
-```
-
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 2: Typecheck**
 
 Run: `npm run build`
-Expected: exits 0.
+Expected: exits 0. (The dependency is installed but not yet imported anywhere — that
+is fine; Task 9 adds the lazy import.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add package.json package-lock.json
@@ -791,45 +791,52 @@ git commit -m "chore: add @anthropic-ai/sdk for offline label validation"
 
 ---
 
-## Task 9: Intruder-detection orchestrator (`validate-label-quality.ts`)
+## Task 9: Corpus-wide `--validate` phase (lazy-loaded LLM glue)
+
+The validator runs **corpus-wide as an opt-in phase of `eval-all.ts`**, reusing the
+single clone+index+cluster pass the runner already does. The Anthropic SDK lives only
+in `validate-labels.ts`, reached via a dynamic `import()` under `--validate`, so the
+default `eval:frames` gate path never loads it. The LLM glue has no unit test
+(nondeterministic); the pure trial-building is already covered by Task 7. Verification
+is a manual run (Step 6).
 
 **Files:**
-- Create: `scripts/frame-extraction/validate-label-quality.ts`
+- Create: `scripts/frame-extraction/validate-labels.ts`
+- Modify: `scripts/frame-extraction/eval-all.ts`
 
-This script is offline and nondeterministic (real LLM calls); it has no unit test.
-Verification is a manual run (Step 3). It reuses `buildIntruderTrials`,
-`buildCorpusIndex`/`scoreClusters` for the F1 side, and the existing clone+index+cluster
-harness pieces.
+- [ ] **Step 1: Create the lazy-loaded LLM glue**
 
-- [ ] **Step 1: Write the orchestrator**
-
-`scripts/frame-extraction/validate-label-quality.ts`:
+`scripts/frame-extraction/validate-labels.ts`:
 
 ```ts
-// scripts/frame-extraction/validate-label-quality.ts
+// scripts/frame-extraction/validate-labels.ts
 /**
- * Offline label-quality validator (NOT in CI).
- *
- * For each non-noise cluster of a single repo: build an intruder-detection trial,
- * ask Claude which candidate file does NOT fit the generated label, and score the
- * answer against the known intruder (cluster membership = ground truth). Correlate
- * the intruder-detection accuracy with the deterministic label-F1 to confirm F1 is
- * a trustworthy proxy and to surface its blind spots.
- *
- * Usage: ANTHROPIC_API_KEY=… npx tsx scripts/frame-extraction/validate-label-quality.ts <repo-path> [--members 5] [--model claude-opus-4-8]
+ * Lazy-loaded LLM glue for the eval-all `--validate` phase. Holds the ONLY Anthropic
+ * SDK import in the eval — reached exclusively via dynamic import() under --validate,
+ * so the default gate path never loads the SDK. Offline, internal-only, never per-user.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { runTfIdfHdbscan, deriveProjectName } from "../../src/frame-extraction/cluster-tfidf-hdbscan.js";
-import { pickFrameLabel } from "../../src/frame-extraction/inject-frames.js";
-import { buildCorpusIndex, scoreClusters } from "../../src/frame-extraction/label-quality.js";
-import { buildIntruderTrials } from "./intruder.js";
-import { cachePathForProject } from "../../src/cli/context.js";
-import type { FileBlob } from "../../src/frame-extraction/types.js";
+import type { IntruderTrial } from "./intruder.js";
 
-const MODEL_DEFAULT = "claude-opus-4-8";
 const SNIPPET_MAX_CHARS = 800;
+
+export interface TrialResult {
+  cluster_id: number;
+  label: string;
+  f1: number;
+  intruder_found: boolean;
+}
+
+export interface RunIntruderArgs {
+  /** Clone path, for reading content snippets of candidate files. */
+  repoPath: string;
+  model: string;
+  trials: IntruderTrial[];
+  labelByCluster: Map<number, string>;
+  f1ByCluster: Map<number, number>;
+}
 
 function snippet(repoPath: string, relPath: string): string {
   const abs = join(repoPath, relPath);
@@ -843,9 +850,7 @@ async function askIntruder(
   label: string,
   candidates: { path: string; body: string }[],
 ): Promise<string> {
-  const list = candidates
-    .map((c, i) => `[${i}] ${c.path}\n${c.body}`)
-    .join("\n\n---\n\n");
+  const list = candidates.map((c, i) => `[${i}] ${c.path}\n${c.body}`).join("\n\n---\n\n");
   const msg = await client.messages.create({
     model,
     max_tokens: 16,
@@ -864,83 +869,183 @@ async function askIntruder(
   return m ? candidates[Number(m[0])]?.path ?? "" : "";
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  const repoPath = resolve(argv[0] ?? ".");
-  const membersPerTrial = Number(argv[argv.indexOf("--members") + 1]) || 5;
-  const model = argv.includes("--model") ? argv[argv.indexOf("--model") + 1]! : MODEL_DEFAULT;
-
-  const project = deriveProjectName(repoPath);
-  const graphDbPath = [
-    cachePathForProject(project),
-    join(repoPath, ".cortex", "db"),
-  ].find((p) => existsSync(p));
-  if (!graphDbPath) {
-    console.error(`No graph DB for ${project}; index the repo first.`);
-    process.exit(2);
-  }
-
-  const { result, blobs_path } = runTfIdfHdbscan({
-    repo_path: repoPath,
-    project_name: project,
-    db_path: graphDbPath,
-  });
-  const topTokens = (result.parameters?.top_tokens_per_cluster ?? {}) as Record<string, string[]>;
-  const blobs = readFileSync(blobs_path, "utf-8")
-    .split("\n").filter((l) => l.length > 0).map((l) => JSON.parse(l) as FileBlob);
-  const idx = buildCorpusIndex(blobs);
-  const f1ByCluster = new Map(
-    scoreClusters(result.clusters, topTokens, idx).map((s) => [s.cluster_id, s.f1]),
-  );
-
+/** Run one intruder trial per supplied trial; returns per-trial results. */
+export async function runIntruderValidation(args: RunIntruderArgs): Promise<TrialResult[]> {
   const client = new Anthropic();
-  const trials = buildIntruderTrials(result.clusters, { membersPerTrial });
-
-  let correct = 0;
-  const rows: { cluster_id: number; label: string; f1: number; ok: boolean }[] = [];
-  for (const t of trials) {
-    const cluster = result.clusters.find((c) => c.cluster_id === t.cluster_id)!;
-    const label = pickFrameLabel(topTokens[String(t.cluster_id)] ?? [], cluster.member_paths, t.cluster_id);
-    const candidates = t.candidates.map((p) => ({ path: p, body: snippet(repoPath, p) }));
-    const chosen = await askIntruder(client, model, label, candidates);
-    const ok = chosen === t.intruder_path;
-    if (ok) correct++;
-    rows.push({ cluster_id: t.cluster_id, label, f1: f1ByCluster.get(t.cluster_id) ?? 0, ok });
-    console.log(`cluster=${t.cluster_id} label="${label}" f1=${(f1ByCluster.get(t.cluster_id) ?? 0).toFixed(3)} intruderFound=${ok}`);
+  const out: TrialResult[] = [];
+  for (const t of args.trials) {
+    const label = args.labelByCluster.get(t.cluster_id) ?? "";
+    const candidates = t.candidates.map((p) => ({ path: p, body: snippet(args.repoPath, p) }));
+    const chosen = await askIntruder(client, args.model, label, candidates);
+    out.push({
+      cluster_id: t.cluster_id,
+      label,
+      f1: args.f1ByCluster.get(t.cluster_id) ?? 0,
+      intruder_found: chosen === t.intruder_path,
+    });
   }
-
-  const accuracy = trials.length > 0 ? correct / trials.length : 0;
-  console.log(`\nintruder-detection accuracy = ${accuracy.toFixed(3)} over ${trials.length} clusters`);
-  // Divergence: clusters with high F1 but the LLM could NOT find the intruder
-  // (suspected layer-marker / non-discriminative labels).
-  const divergent = rows.filter((r) => r.f1 >= 0.5 && !r.ok);
-  if (divergent.length > 0) {
-    console.log(`\nHigh-F1 but intruder-missed (blind-spot candidates):`);
-    for (const r of divergent) console.log(`  cluster=${r.cluster_id} label="${r.label}" f1=${r.f1.toFixed(3)}`);
-  }
+  return out;
 }
-
-main().catch((err) => { console.error(err); process.exit(1); });
 ```
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Extend `parseArgs` and `RepoEvalRow` in `eval-all.ts`**
+
+Add the flags to the `CliArgs` interface and `parseArgs`:
+
+```ts
+interface CliArgs {
+  out: string;
+  only?: string;
+  keep?: boolean;
+  validate?: boolean;       // opt-in LLM intruder phase
+  validateSample?: number;  // max trials per repo (default 15)
+  model?: string;
+}
+```
+
+In `parseArgs`, inside the arg loop, add:
+
+```ts
+    else if (argv[i] === "--validate") args.validate = true;
+    else if (argv[i] === "--validate-sample") args.validateSample = Number(argv[++i]);
+    else if (argv[i] === "--model") args.model = argv[++i];
+```
+
+Add the optional validation field to `RepoEvalRow`:
+
+```ts
+  validation?: {
+    sampled: number;
+    skipped_low_member: number;
+    trials: { cluster_id: number; label: string; f1: number; intruder_found: boolean }[];
+  };
+```
+
+- [ ] **Step 3: Make `evalRepo` async and add the lazy-loaded validate block**
+
+Change the `evalRepo` signature to async and accept options:
+
+```ts
+async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSample: number; model: string }): Promise<RepoEvalRow> {
+```
+
+Build the deterministic row as a mutable `const row` (instead of returning the object
+literal directly) so the validate block can attach to it. Replace the existing
+`return { slug: repo.slug, ok: true, ... }` with:
+
+```ts
+    const row: RepoEvalRow = {
+      slug: repo.slug,
+      ok: true,
+      project,
+      cluster_count: clusterCount(result.clusters),
+      noise_rate: noiseRate(result.clusters),
+      import_agreement_strict: importAgreementStrict,
+      label_violations: violations.length,
+      violation_rules: violationRules,
+      label_f1_mean: labelAgg.f1_mean,
+      label_f1_weighted: labelAgg.f1_weighted,
+      label_coverage_mean: labelAgg.coverage_mean,
+      label_specificity_mean: labelAgg.specificity_mean,
+      label_clusters_below_f1: labelAgg.clusters_below,
+    };
+
+    if (opts.validate) {
+      try {
+        const { buildIntruderTrials } = await import("./intruder.js");
+        const realClusterCount = result.clusters.filter((c) => c.cluster_id !== -1).length;
+        const allTrials = buildIntruderTrials(result.clusters, { membersPerTrial: 5 });
+        const trials = allTrials.slice(0, opts.validateSample);
+        const labelByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.label]));
+        const f1ByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.f1]));
+        const { runIntruderValidation } = await import("./validate-labels.js");
+        const results = await runIntruderValidation({
+          repoPath: clone.path,
+          model: opts.model,
+          trials,
+          labelByCluster,
+          f1ByCluster,
+        });
+        row.validation = {
+          sampled: trials.length,
+          // clusters that yielded no trial: too-few-members or no intruder source, plus
+          // any beyond the sample cap.
+          skipped_low_member: realClusterCount - results.length,
+          trials: results,
+        };
+        console.log(`[eval-all]   ⟳ validated ${results.length}/${realClusterCount} clusters (sample cap ${opts.validateSample})`);
+      } catch (err) {
+        console.log(`[eval-all]   ⚠ validation skipped: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return row;
+```
+
+(`labelScores` is the `scoreClusters(...)` result from Task 5 — promote it to a `const`
+in that block if it is not already named. `clone` and `project` are existing locals.)
+
+- [ ] **Step 4: Make `main` async, await `evalRepo`, and aggregate corpus-wide**
+
+Change `function main()` to `async function main()`, and the call site to
+`const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8" });`.
+
+After the write-file block and before teardown, add the corpus-wide report:
+
+```ts
+  if (args.validate) {
+    const trials = rows.flatMap((r) => r.validation?.trials ?? []);
+    if (trials.length > 0) {
+      const acc = (xs: typeof trials) =>
+        xs.length > 0 ? xs.filter((t) => t.intruder_found).length / xs.length : 0;
+      const high = trials.filter((t) => t.f1 >= 0.5);
+      const low = trials.filter((t) => t.f1 < 0.5);
+      const blindSpots = trials.filter((t) => t.f1 >= 0.5 && !t.intruder_found);
+      console.log(`\n[eval-all] intruder-detection (corpus-wide, ${trials.length} clusters):`);
+      console.log(`[eval-all]   overall accuracy = ${acc(trials).toFixed(3)}`);
+      console.log(`[eval-all]   accuracy | F1>=0.5 = ${acc(high).toFixed(3)} (n=${high.length})`);
+      console.log(`[eval-all]   accuracy | F1<0.5  = ${acc(low).toFixed(3)} (n=${low.length})`);
+      if (blindSpots.length > 0) {
+        console.log(`[eval-all]   blind-spot candidates (high F1, intruder missed):`);
+        for (const t of blindSpots) {
+          console.log(`[eval-all]     cluster=${t.cluster_id} label="${t.label}" f1=${t.f1.toFixed(3)}`);
+        }
+      }
+    }
+  }
+```
+
+Update the bottom invocation to handle the promise: `if (isDirect) main().catch((e) => { console.error(e); process.exit(1); });`.
+
+- [ ] **Step 5: Typecheck**
 
 Run: `npm run build`
 Expected: exits 0.
 
-- [ ] **Step 3: Manual validation run**
+- [ ] **Step 6: Manual corpus/local validation run**
 
-Run: `ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY npm run eval:labels:validate -- $(pwd)`
-Expected: prints a per-cluster line, an overall intruder-detection accuracy, and any
-high-F1-but-missed blind-spot candidates. Sanity check: accuracy should be high on a
-convention-heavy repo, and the blind-spot list should call out any layer-marker labels.
-(If no API key / no network, state that and mark the task hand-verify-before-merge.)
+Run (single local fixture, cheap, exercises the path end-to-end):
+```bash
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY npm run eval:frames -- --only self --keep --validate --validate-sample 8
+```
+Expected: the `self/cortex` run prints a `⟳ validated N/M clusters` line, then a
+corpus-wide intruder-detection block with overall accuracy, the F1>=0.5 vs F1<0.5
+accuracy split, and any blind-spot candidates. Sanity: the F1>=0.5 band should detect
+intruders more often than the F1<0.5 band (F1 tracks discriminativeness). For the full
+corpus, drop `--only self`. (If no API key / no network, state that and mark the task
+hand-verify-before-merge.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Confirm the gate path still never loads the SDK**
+
+Run: `npm run eval:frames -- --only self --keep`
+Expected: completes with the Phase A `labelF1=…` line and **no** validation output;
+the dynamic `import("@anthropic-ai/sdk")` is never reached without `--validate`.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add scripts/frame-extraction/validate-label-quality.ts
-git commit -m "feat(frames): offline intruder-detection validator for labels"
+git add scripts/frame-extraction/validate-labels.ts scripts/frame-extraction/eval-all.ts
+git commit -m "feat(frames): corpus-wide --validate intruder-detection phase (lazy-loaded LLM)"
 ```
 
 ---
@@ -956,15 +1061,19 @@ git commit -m "feat(frames): offline intruder-detection validator for labels"
 - Wire into `eval-all.ts`, extend `RepoEvalRow`, read `blobs_path` → Task 5. ✓
 - Baseline snapshot, threshold deferred → Task 6. ✓
 - Intruder detection grounded in membership, content snippets, accuracy vs F1, blind-spot surfacing → Tasks 7 & 9. ✓
+- Corpus-wide, opt-in `--validate`, lazy-loaded SDK (gate path never imports it) → Task 9 (Step 3 dynamic imports; Step 7 guard run). ✓
+- Cost cap (`--validate-sample`, default 15) with no silent truncation (`skipped_low_member` logged) → Task 9 Steps 2–4. ✓
+- Band-split correlation (F1≥0.5 vs F1<0.5 accuracy) + blind-spot list → Task 9 Step 4. ✓
+- Internal-only / never-per-user → spec non-goal; no code path implements per-user validation (nothing to build). ✓
 - Offline/isolated, not in CI, adds SDK → Tasks 8 & 9. ✓
 - `checkLabelQuality` left in place (untouched) → no task removes it. ✓
 
 **Placeholder scan:** No TBD/TODO; every code step shows complete code; commands have expected output. ✓
 
-**Type consistency:** `CorpusIndex`, `LabelScore`, `ClusterLabelScore`, `LabelQualityAggregate`, `IntruderTrial` are defined once and referenced consistently. `scoreClusters(clusters, topTokensPerCluster, idx)` arg order matches its call in Tasks 5 & 9. `buildIntruderTrials(clusters, opts)` matches its test and orchestrator usage. ✓
+**Type consistency:** `CorpusIndex`, `LabelScore`, `ClusterLabelScore`, `LabelQualityAggregate`, `IntruderTrial`, `TrialResult`, `RunIntruderArgs` are defined once and referenced consistently. `scoreClusters(clusters, topTokensPerCluster, idx)` arg order matches its calls (Tasks 5, 9). `buildIntruderTrials(clusters, opts)` matches its test (Task 7) and use (Task 9). `runIntruderValidation(args)`'s `RunIntruderArgs` shape (`repoPath, model, trials, labelByCluster, f1ByCluster`) matches its call in Task 9 Step 3. The `labelScores` const from Task 5 Step 3 is reused in Task 9 Step 3 to build `labelByCluster`/`f1ByCluster`. ✓
 
 ---
 
 ## Execution Handoff
 
-Phase A (Tasks 1–6) is the recommended first pass — it is complete, no new deps, and independently shippable. Phase B (Tasks 7–9) can follow once Phase A's baseline numbers exist.
+Phase A (Tasks 1–6) is the recommended first pass — it is complete, no new deps, and independently shippable; it lands the deterministic label-F1 metric and the baseline. Phase B (Tasks 7–9) adds the corpus-wide `--validate` intruder phase (`npm run eval:frames -- --validate`) and should follow once Phase A's baseline numbers exist, so the validator has real F1 values to correlate against.
