@@ -62,9 +62,13 @@ async function askIntruder(
 export async function runIntruderValidation(args: RunIntruderArgs): Promise<TrialResult[]> {
   const client = new Anthropic();
   const out: TrialResult[] = [];
+  let unreadableCount = 0;
+  let totalCandidates = 0;
   for (const t of args.trials) {
     const label = args.labelByCluster.get(t.cluster_id) ?? "";
     const candidates = t.candidates.map((p) => ({ path: p, body: snippet(args.repoPath, p) }));
+    unreadableCount += candidates.filter((c) => c.body === "(file not found)").length;
+    totalCandidates += candidates.length;
     const chosen = await askIntruder(client, args.model, label, candidates);
     out.push({
       cluster_id: t.cluster_id,
@@ -72,6 +76,9 @@ export async function runIntruderValidation(args: RunIntruderArgs): Promise<Tria
       f1: args.f1ByCluster.get(t.cluster_id) ?? 0,
       intruder_found: chosen === t.intruder_path,
     });
+  }
+  if (unreadableCount > 0) {
+    console.warn(`[validate] WARNING: ${unreadableCount}/${totalCandidates} candidate files unreadable (path mismatch?) — accuracy may be unreliable`);
   }
   return out;
 }

@@ -42,4 +42,19 @@ describe("buildIntruderTrials", () => {
     const trials = buildIntruderTrials(lonely, { membersPerTrial: 2, pick: pickFirst });
     expect(trials).toEqual([]);
   });
+
+  it("shuffles candidates so the intruder is not always last (positional bias fix)", () => {
+    // pickFirst always picks index 0 — with Fisher-Yates from the end, this drives
+    // the intruder toward the front of the array, NOT leaving it appended at the end.
+    const trials = buildIntruderTrials(clusters, { membersPerTrial: 3, pick: pickFirst });
+    expect(trials).toHaveLength(2);
+    for (const t of trials) {
+      // Intruder must still be present in candidates.
+      expect(t.candidates).toContain(t.intruder_path);
+      // Length must be members + 1.
+      expect(t.candidates).toHaveLength(t.member_sample.length + 1);
+      // The intruder must NOT be stuck at the last position.
+      expect(t.candidates[t.candidates.length - 1]).not.toBe(t.intruder_path);
+    }
+  });
 });
