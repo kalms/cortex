@@ -32,4 +32,14 @@ describe("buildIntruderTrials", () => {
     const trials = buildIntruderTrials(tiny, { membersPerTrial: 3, pick: pickFirst });
     expect(trials.find((t) => t.cluster_id === 0)).toBeUndefined();
   });
+
+  it("returns no trials when there is only one non-noise cluster to draw from", () => {
+    const lonely: ClusterAssignment[] = [
+      { cluster_id: 0, member_paths: ["auth/a.ts", "auth/b.ts", "auth/c.ts"] },
+      { cluster_id: -1, member_paths: ["noise/n.ts"] },
+    ];
+    // Cluster 0 qualifies on size, but there is no other cluster for an intruder.
+    const trials = buildIntruderTrials(lonely, { membersPerTrial: 2, pick: pickFirst });
+    expect(trials).toEqual([]);
+  });
 });
