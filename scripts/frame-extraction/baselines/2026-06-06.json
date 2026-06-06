@@ -1,0 +1,183 @@
+{
+  "generated_at": "2026-06-06T16:44:24.871Z",
+  "rows": [
+    {
+      "slug": "self/cortex",
+      "ok": true,
+      "project": "Users-rka-Development-cortex",
+      "cluster_count": 8,
+      "noise_rate": 0.6763848396501457,
+      "import_agreement_strict": 0.6142857142857143,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.6425849372006868,
+      "label_f1_weighted": 0.6306167105028585,
+      "label_coverage_mean": 0.8649703557312254,
+      "label_specificity_mean": 0.5408117908180221,
+      "label_clusters_below_f1": 1
+    },
+    {
+      "slug": "vueuse/vueuse",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-vueuse__vueuse",
+      "cluster_count": 2,
+      "noise_rate": 0.02481121898597627,
+      "import_agreement_strict": 0.9879807692307693,
+      "label_violations": 2,
+      "violation_rules": {
+        "non_salient_label": 2
+      },
+      "label_f1_mean": 0,
+      "label_f1_weighted": 0,
+      "label_coverage_mean": 0,
+      "label_specificity_mean": 0,
+      "label_clusters_below_f1": 2
+    },
+    {
+      "slug": "TanStack/table",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-TanStack__table",
+      "cluster_count": 78,
+      "noise_rate": 0.5124936257011729,
+      "import_agreement_strict": 0.24855491329479767,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.5681653279444004,
+      "label_f1_weighted": 0.5076273080359589,
+      "label_coverage_mean": 0.9565877888768706,
+      "label_specificity_mean": 0.4961143568285639,
+      "label_clusters_below_f1": 31
+    },
+    {
+      "slug": "trpc/trpc",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-trpc__trpc",
+      "cluster_count": 51,
+      "noise_rate": 0.5100463678516228,
+      "import_agreement_strict": 0.2074074074074074,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.535575051690727,
+      "label_f1_weighted": 0.5935743774783723,
+      "label_coverage_mean": 0.9320608041196277,
+      "label_specificity_mean": 0.45146266186215617,
+      "label_clusters_below_f1": 19
+    },
+    {
+      "slug": "nuxt/ui",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-nuxt__ui",
+      "cluster_count": 26,
+      "noise_rate": 0.6483412322274882,
+      "import_agreement_strict": 0.047619047619047616,
+      "label_violations": 2,
+      "violation_rules": {
+        "non_salient_label": 2
+      },
+      "label_f1_mean": 0.4926138474830764,
+      "label_f1_weighted": 0.5025999610350305,
+      "label_coverage_mean": 0.7648750602794248,
+      "label_specificity_mean": 0.44589403568738084,
+      "label_clusters_below_f1": 11
+    },
+    {
+      "slug": "spf13/cobra",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-spf13__cobra",
+      "cluster_count": 2,
+      "noise_rate": 0.5,
+      "import_agreement_strict": 0.7741935483870968,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.7745098039215685,
+      "label_f1_weighted": 0.8305882352941176,
+      "label_coverage_mean": 0.6447368421052632,
+      "label_specificity_mean": 1,
+      "label_clusters_below_f1": 0
+    },
+    {
+      "slug": "pallets/click",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-pallets__click",
+      "cluster_count": 5,
+      "noise_rate": 0.5142857142857142,
+      "import_agreement_strict": 0.5405405405405406,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.7688296003513395,
+      "label_f1_weighted": 0.7516781196448715,
+      "label_coverage_mean": 0.7865079365079365,
+      "label_specificity_mean": 0.7829118250170881,
+      "label_clusters_below_f1": 1
+    },
+    {
+      "slug": "huggingface/peft",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-huggingface__peft",
+      "cluster_count": 14,
+      "noise_rate": 0.44471744471744473,
+      "import_agreement_strict": 0.7702702702702703,
+      "label_violations": 1,
+      "violation_rules": {
+        "non_salient_label": 1
+      },
+      "label_f1_mean": 0.4725476470551761,
+      "label_f1_weighted": 0.6631990315205569,
+      "label_coverage_mean": 0.7852008070934072,
+      "label_specificity_mean": 0.4118837500835876,
+      "label_clusters_below_f1": 8
+    },
+    {
+      "slug": "vercel/commerce",
+      "ok": false,
+      "error": "Python script exited with status 1\nSTDOUT: \nSTDERR: Traceback (most recent call last):\n  File \"/Users/rka/Development/cortex/scripts/frame-extraction/python/tfidf_hdbscan.py\", line 272, in <module>\n    sys.exit(main())\n  File \"/Users/rka/Development/cortex/scripts/frame-extraction/python/tfidf_hdbscan.py\", line 194, in main\n    silhouette = float(_silhouette(\n  File \"/Users/rka/.cache/cortex-indexer/python-venv/lib/python3.9/site-packages/sklearn/utils/_param_validation.py\", line 213, in wrapper\n    return func(*args, **kwargs)\n  File \"/Users/rka/.cache/cortex-indexer/python-venv/lib/python3.9/site-packages/sklearn/metrics/cluster/_unsupervised.py\", line 140, in silhouette_score\n    return np.mean(silhouette_samples(X, labels, metric=metric, **kwds))\n  File \"/Users/rka/.cache/cortex-indexer/python-venv/lib/python3.9/site-packages/sklearn/utils/_param_validation.py\", line 186, in wrapper\n    return func(*args, **kwargs)\n  File \"/Users/rka/.cache/cortex-indexer/python-venv/lib/python3.9/site-packages/sklearn/metrics/cluster/_unsupervised."
+    },
+    {
+      "slug": "saleor/saleor",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-saleor__saleor",
+      "cluster_count": 62,
+      "noise_rate": 0.6528577758085955,
+      "import_agreement_strict": 0.41916167664670656,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.38574959300239275,
+      "label_f1_weighted": 0.3724503550145596,
+      "label_coverage_mean": 0.960350817979046,
+      "label_specificity_mean": 0.30539354856895423,
+      "label_clusters_below_f1": 38
+    },
+    {
+      "slug": "rubygems/rubygems.org",
+      "ok": true,
+      "project": "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-rubygems__rubygems.org",
+      "cluster_count": 12,
+      "noise_rate": 0.448566610455312,
+      "import_agreement_strict": 0.5458937198067633,
+      "label_violations": 1,
+      "violation_rules": {
+        "non_salient_label": 1
+      },
+      "label_f1_mean": 0.6157217194995275,
+      "label_f1_weighted": 0.15426323916544785,
+      "label_coverage_mean": 0.7126068376068376,
+      "label_specificity_mean": 0.6174618650115798,
+      "label_clusters_below_f1": 4
+    },
+    {
+      "slug": "local/anthill-cloud",
+      "ok": true,
+      "project": "Users-rka-Development-anthill-cloud",
+      "cluster_count": 10,
+      "noise_rate": 0.5302013422818792,
+      "import_agreement_strict": 0.5714285714285714,
+      "label_violations": 0,
+      "violation_rules": {},
+      "label_f1_mean": 0.6282463918503318,
+      "label_f1_weighted": 0.7228908705487731,
+      "label_coverage_mean": 0.8672817460317461,
+      "label_specificity_mean": 0.5535691247433183,
+      "label_clusters_below_f1": 4
+    }
+  ]
+}
