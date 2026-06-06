@@ -29,7 +29,8 @@ import {
 import { checkLabelQuality } from "../../src/frame-extraction/eval-labels.js";
 import { hasVenv } from "../../src/frame-extraction/venv.js";
 import { cachePathForProject } from "../../src/cli/context.js";
-import type { CorpusFile, RepoSpec, ImportEdge } from "../../src/frame-extraction/types.js";
+import { buildCorpusIndex, scoreClusters, aggregateLabelQuality } from "../../src/frame-extraction/label-quality.js";
+import type { CorpusFile, RepoSpec, ImportEdge, FileBlob } from "../../src/frame-extraction/types.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const DEFAULT_OUT = join(REPO_ROOT, ".tmp", "frame-extraction", "eval-all.json");
@@ -52,6 +53,11 @@ interface RepoEvalRow {
   import_agreement_strict?: number | null;
   label_violations?: number;
   violation_rules?: Record<string, number>;
+  label_f1_mean?: number;
+  label_f1_weighted?: number;
+  label_coverage_mean?: number;
+  label_specificity_mean?: number;
+  label_clusters_below_f1?: number;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -114,7 +120,7 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
       return { slug: repo.slug, ok: false, error: `no graph DB found for project ${project}` };
     }
 
-    const { result } = runTfIdfHdbscan({
+    const { result, blobs_path } = runTfIdfHdbscan({
       repo_path: clone.path,
       project_name: project,
       db_path: graphDbPath,
@@ -139,6 +145,14 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
     const violationRules: Record<string, number> = {};
     for (const v of violations) violationRules[v.rule] = (violationRules[v.rule] ?? 0) + 1;
 
+    const blobs = readFileSync(blobs_path, "utf-8")
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as FileBlob);
+    const corpusIndex = buildCorpusIndex(blobs);
+    const labelScores = scoreClusters(result.clusters, topTokens, corpusIndex);
+    const labelAgg = aggregateLabelQuality(labelScores);
+
     return {
       slug: repo.slug,
       ok: true,
@@ -148,6 +162,11 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
       import_agreement_strict: importAgreementStrict,
       label_violations: violations.length,
       violation_rules: violationRules,
+      label_f1_mean: labelAgg.f1_mean,
+      label_f1_weighted: labelAgg.f1_weighted,
+      label_coverage_mean: labelAgg.coverage_mean,
+      label_specificity_mean: labelAgg.specificity_mean,
+      label_clusters_below_f1: labelAgg.clusters_below,
     };
   } catch (err) {
     return { slug: repo.slug, ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -186,7 +205,8 @@ function main() {
         `[eval-all]   ✓ clusters=${row.cluster_count} ` +
           `noise=${row.noise_rate?.toFixed(3)} ` +
           `agree=${agree === null || agree === undefined ? "—" : agree.toFixed(3)} ` +
-          `labelViol=${row.label_violations}`,
+          `labelViol=${row.label_violations} ` +
+          `labelF1=${row.label_f1_weighted?.toFixed(3)}`,
       );
     }
   }
