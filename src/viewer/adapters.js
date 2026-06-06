@@ -95,6 +95,45 @@ export function buildFrameGovernance(decisions) {
   return out;
 }
 
+/**
+ * Build a `file_path → frameIdStr` lookup from grouped frame summaries
+ * (the `groupNodesIntoFrames` shape; `members[].file_path`). Frame ids are
+ * stringified to match `FRAMES[].id`. Used to associate a decision's
+ * file-governed path with the frame that actually CONTAINS that file — i.e.
+ * cluster membership — rather than guessing from the frame's display label.
+ */
+export function buildFramePathIndex(summaries) {
+  const byPath = new Map();
+  for (const s of summaries || []) {
+    const sid = String(s.frame_id);
+    for (const m of s.members || []) {
+      if (m && m.file_path) byPath.set(m.file_path, sid);
+    }
+  }
+  return byPath;
+}
+
+/**
+ * Resolve the frame id (string) that owns a decision-governed path:
+ *   1. exact file membership, else
+ *   2. the frame of any member sitting under `path/` (directory-level
+ *      governance — a decision that governs a whole directory).
+ * Returns null when nothing matches. Deliberately does NOT fall back to
+ * label resemblance: a frame label is a topical summary, not a real path
+ * prefix, so matching `path.startsWith(label + '/')` produced false
+ * associations (especially now that labels can contain `/`).
+ */
+export function frameIdForPath(index, path) {
+  if (!index || !path) return null;
+  const exact = index.get(path);
+  if (exact !== undefined) return exact;
+  const prefix = path.endsWith("/") ? path : path + "/";
+  for (const [fp, sid] of index) {
+    if (fp.startsWith(prefix)) return sid;
+  }
+  return null;
+}
+
 /** Quick membership check: does an edge between (a,b) exist? */
 export function edgesInternalIndex(edges) {
   const set = new Set();
