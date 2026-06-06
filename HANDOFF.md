@@ -31,9 +31,18 @@ shipped two changes off the finding:
    `adapters.js` helpers `buildFramePathIndex`/`frameIdForPath`. Gate-0 visual
    QA passed (labels render, decision dots/leader-lines draw, file-ref click
    resolves, zero console errors).
+4. **Shipped: F1 regression gate** (decision `2990a57e`, merged). `eval:frames`
+   now enforces it by default (`--no-gate` to skip, `--baseline <path>` to
+   override). Pure `evaluateF1Gate` (`src/frame-extraction/eval-gate.ts`, 8
+   tests) compares the corpus **mean** weighted-F1 over repos common to both
+   runs, **excludes 0-cluster (degenerate) runs**, only enforces (exit 3) at
+   ≥3 comparable repos, fails on >0.05 mean regression or <0.45 floor. Smoke:
+   10 repos (cobra excluded), 0.561 vs 0.562 → pass.
 
-- **Branch:** `main`, both above merged (not yet pushed). **TS tests 719/719
-  green, `tsc` clean.** Graph reindexed (110 frames).
+- **Branch:** `main`, all four merged and **pushed to `origin/main`**. **TS tests
+  727/727 green, `tsc` clean.** Graph reindexed (108 frames). Four decisions
+  captured: `11c742ec`, `ccd1ab6c`, `2990a57e` (this session) + the prior
+  `8d2ced0c`/`589d9e3c`.
 - **Minor quirk found during QA:** at least one decision stores a *basename*
   (`frame-candidates.ts`) in `governs`, not a full file_path, so neither old nor
   new viewer matcher resolves it — pre-existing data-shape issue, not a regression.
@@ -133,18 +142,26 @@ the *independent validation* of that metric.
 
 ## Next priorities (suggested — revised 2026-06-07)
 
-1. **Set the F1 gate threshold** in `eval-all.ts` — now **unblocked** (the
-   2026-06-07 verdict established the raw F1 distribution is trustworthy). Gate
-   **regression-relative** (weighted-F1-per-repo vs the committed baseline, with
-   tolerance for clustering nondeterminism) plus a soft absolute floor. Do NOT
-   use a hard per-cluster floor: median F1 is 0.468, so ~half the corpus sits
-   below 0.5 by nature of legitimately-vague labels.
-2. **Improve `pickFrameLabel` (the high-value lead the metric surfaced).**
-   Stop emitting non-characterising labels — stopword the repo name (e.g.
-   `saleor` on ~20 saleor clusters), structural dir names (`examples`, `demo`,
-   `content`, `migrate`), and deprioritise bare framework tags (`react`,
-   `graphql`). The F1 metric is now the yardstick to measure the improvement.
-3. **Phase B.2 (per-candidate LLM validator) — DEMOTED to optional.** No longer
+0. **DONE — F1 regression gate** (decision `2990a57e`). Was the prior #1; shipped
+   this session. The gate is regression-relative + soft floor + degenerate-run
+   exclusion, exactly as the deferred note specified.
+
+1. **Improve `pickFrameLabel` (the high-value lead the metric surfaced).**
+   Stop emitting non-characterising labels — the biggest low-F1 bucket is the
+   **repo name** (`saleor` on ~20 clusters, `rubygems`…), then structural dir
+   names (`examples`, `demo`, `content`, `migrate`) and bare framework tags
+   (`react`, `graphql`). **Design note for next session:** `pickFrameLabel` only
+   sees *member* paths, not the whole repo, so it can't measure true specificity
+   itself (the repo name has member-salience 1.0, same as a good label) — hence
+   the existing salience gate can't catch it. Three approaches were scoped (see
+   below); **repo-name suppression** (pass the project name in, exclude it as a
+   label term) is the highest-value/lowest-risk start. Whatever lands here
+   **raises F1 → regenerate the committed baseline** afterward to lock the gain.
+   - Options: (a) repo-name suppression [targeted]; (b) + structural-dir
+     stop-list expansion [broader, risks `cluster:N` fallbacks for demo/examples];
+     (c) plumb corpus document-frequency into `pickFrameLabel` for
+     specificity-aware candidate selection [most principled, larger pipeline change].
+2. **Phase B.2 (per-candidate LLM validator) — DEMOTED to optional.** No longer
    on the critical path: the cheap inspection already adjudicated harshness. Only
    build it if independent validation of the metric is later wanted for its own
    sake. Shape still in decision `8d2ced0c` + spec "Phase B run outcome".
@@ -189,7 +206,7 @@ the *independent validation* of that metric.
 
 - **Spec:** [label-quality signal design](docs/superpowers/specs/2026-06-06-label-quality-signal-design.md) (read the "Phase B run outcome" section)
 - **Plan:** [label-quality implementation plan](docs/superpowers/plans/2026-06-06-label-quality-signal.md) (Phase B.2 not yet written)
-- **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign), `11c742ec` (path-ordered label rendering), `ccd1ab6c` (viewer membership matching)
-- **Key code:** metric `src/frame-extraction/label-quality.ts`; label rendering `src/frame-extraction/inject-frames.ts::formatPathOrderedLabel`/`pickFrameLabel`; viewer matchers `src/viewer/adapters.js::buildFramePathIndex`/`frameIdForPath`; validator `scripts/frame-extraction/intruder.ts` · `validate-labels.ts`; harness `scripts/frame-extraction/eval-all.ts`; baseline `scripts/frame-extraction/baselines/2026-06-06.json`
+- **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign), `11c742ec` (path-ordered label rendering), `ccd1ab6c` (viewer membership matching), `2990a57e` (F1 regression gate)
+- **Key code:** metric `src/frame-extraction/label-quality.ts`; gate `src/frame-extraction/eval-gate.ts::evaluateF1Gate`; label rendering `src/frame-extraction/inject-frames.ts::formatPathOrderedLabel`/`pickFrameLabel`; viewer matchers `src/viewer/adapters.js::buildFramePathIndex`/`frameIdForPath`; validator `scripts/frame-extraction/intruder.ts` · `validate-labels.ts`; harness `scripts/frame-extraction/eval-all.ts`; baseline `scripts/frame-extraction/baselines/2026-06-06.json`
 - **Reproduce the 2026-06-07 verdict:** the inspection ran offline from the cached `clusters/`+`blobs/` via the real `scoreClusters` (no pipeline re-run); 258 clusters, 137 slash / 36 hyphen / 1 spaced-fallback / 81 single-word labels after the rendering change.
 - **Run the validator (optional, Phase B.2 only):** `ANTHROPIC_API_KEY=… npm run eval:frames -- --validate --seed 1` (add `--model claude-opus-4-8` to spot-check judge strength)
