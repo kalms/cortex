@@ -1,57 +1,129 @@
-# Cortex — Session Handoff (2026-06-06)
+# Cortex — Session Handoff (2026-06-06, label-quality arc)
 
 ## TL;DR
 
-**Both priorities from the 2026-06-05 handoff are done, merged to `main`, and pushed.** The `cluster:N` labeling bug is fixed (a frequency-based dominant-segment fallback), and the frames/viewer **storage pipeline is unified**: one canonical graph store per repo (`<repo>/.cortex/db`), project enumeration decoupled into a small SQLite **registry**, and durable global state moved out of `~/.cache` into the XDG **data** home. Live frame labels were regenerated — zero `cluster:N` remain on the real indexes. The session's open threads are now small: a red **C test-runner** (pre-existing, unrelated — root cause now diagnosed as stale fixtures from the Phase-4 schema fold, decision `589d9e3c`; misdiagnosis corrected), some leftover legacy cache files, and the still-unresolved **label-quality measurement** problem inherited from the prior arc.
+This session delivered an **independent label-quality metric** for frame extraction
+and the harness to validate it — and, in validating it, found the validator
+itself can't yet answer the question. Specifically:
 
-- **Branch:** `main` @ `90423d4`, **in sync with `origin/main`** (everything pushed).
-- **TS tests:** 695/695 (`npm test`), `tsc` clean (`npm run build`).
-- **Decisions captured:** `bb142587` (label fix), `bb2dee7e` (storage architecture).
+1. **Diagnosed the red C test-runner** as a misdiagnosis: it's stale C test
+   fixtures from the Phase-4 schema fold, not "environmental store-open failure."
+   (decision `589d9e3c`)
+2. **Shipped the deterministic label-quality metric (Phase A)** — label scored
+   as a corpus classifier (coverage × specificity → F1), breaking the circular
+   `checkLabelQuality`. Wired into `eval:frames`, with a committed baseline.
+3. **Shipped the LLM intruder-detection validator (Phase B)** + a label/blob
+   **tokenizer-alignment fix**. The validator runs as an opt-in `--validate`
+   phase of `eval:frames` with the Anthropic SDK lazy-loaded so the gate path
+   never touches it; defaults to **Sonnet 4.6**.
+4. **Ran the validator** and found it is **confounded by cluster coherence** — it
+   measures whether the *clustering* is coherent, not whether the *label* is good,
+   so it cannot yet adjudicate the open specificity-harshness question.
+   (decision `8d2ced0c`) The fix is a per-candidate redesign (**Phase B.2**).
 
----
-
-## What shipped this session (all on `main`, pushed)
-
-### 1. `cluster:N` labeling bug — fixed (`88db7c2`, merged `e338796`)
-Convention clusters (every file `…/infrastructure/main.tf`, `modules/*/devbox.json`, `…/data/events/*.json`) stranded at the opaque `cluster:N` label. **Root cause:** passes 1–2 pick from TF-IDF top tokens, but TF-IDF *suppresses* corpus-common convention segments (low IDF), so the grouping segment is never a top token; pass 3 only matched a common path *prefix*, which is empty when org roots differ. **Fix:** a new pass 4 — `dominantPathSegmentLabel` — counts every informative path segment (dir or extension-stripped filename stem) across members and returns the one shared by a strict majority (`>50%`), tie-breaking toward shared-as-directory → deeper → longer → lexicographic. Files: `src/frame-extraction/inject-frames.ts`, `structural-tokens.ts`. 7 new TDD tests.
-- **Live labels regenerated** into both stores for rosalind + anthill-cloud — zero `cluster:N` remain (`infrastructure`, `events`, `settings`, `devbox`, `drizzle`, `design systems`, `org settings`, …). Gate-0 visual QA confirmed the viewer renders them.
-
-### 2. Frames/viewer storage unification — Priority 2 (spec `af28a65`, plan `0bf2c0a`, merged `d750813`)
-Designed → planned → executed via subagent-driven development (per-task spec + quality review + a final cross-cutting review). Canonical store is **`<repo>/.cortex/db`**; both writers (CLI `cortex index`, MCP `index_repository`) write it (via the binary's `CORTEX_DB`), checkpoint the WAL, and **register** the repo. Enumeration + per-repo reads go through a new **registry** + `resolveGraphDbForRead`. One-shot idempotent startup migration seeds the registry from the legacy cache. `register()` rejects `.tmp/` paths so eval-corpus clones can't pollute enumeration. New: `src/db/registry.ts`, `src/db/registry-migration.ts`; reworked read/write paths in `cli/commands/index.ts`, `mcp-server/tools/code-tools.ts`, `graph/code-queries.ts`, `mcp-server/repo-context.ts`, `mcp-server/api.ts`.
-
-### 3. Durable state → XDG data home (`85f0557`, merged `90423d4`)
-`~/.cache` means "regenerable"; the registry and the C binary's `_config.db` are durable, so they moved to the XDG **data** home, matching the binary's existing XDG discipline:
-- Registry → `~/.local/share/cortex-indexer/registry.db` (honors `$XDG_DATA_HOME`; `CORTEX_REGISTRY_DB` override). `importLegacyRegistry()` carries the old one over at startup.
-- C `_config.db` → data dir via new `ctx_resolve_data_dir()` (`CTX_DATA_DIR` > `$XDG_DATA_HOME` > `~/.local/share`); the `config` command renames a pre-XDG file out of cache on first use.
-- Genuinely-regenerable artifacts stay in `~/.cache`: build cache (`~/.cache/cortex/`), legacy per-project graph cache (`~/.cache/cortex-indexer/<slug>.db`), the 188 MB frame-extraction venv.
-
-### 4. Documentation (`31ed480`, merged `d5450e1`; + updates in 1 & 3)
-New living reference **[docs/architecture/graph-storage.md](docs/architecture/graph-storage.md)** (the three stores, registry rationale, write/read paths, migration, the single path-resolution chokepoint, the `~/.cache/cortex` vs `~/.cache/cortex-indexer` gotcha). Indexed in the architecture README; CLAUDE.md gained a "Graph storage & the project registry" section; fixed stale `.cortex/graph.db` → `.cortex/db` canonical references.
+- **Branch:** `main`, all the above merged. **Pushed to `origin/main`.**
+- **TS tests:** full suite green (710/710 on the last full run; build `tsc` clean).
+- **Decisions captured:** `589d9e3c` (C-runner), `8d2ced0c` (validator confound).
 
 ---
 
-## Honest caveats / things to know
+## What shipped this session (all merged to `main`, pushed)
 
-- **Label *quality* is still not independently measured.** The cluster:N fix removed the opaque labels, but the prior arc's core problem stands: `checkLabelQuality` enforces the same rules `pickFrameLabel` satisfies (circular), so there is no independent signal that labels are *semantically good*. The new labels eyeball well on real repos, but "is this the right label" remains unvalidated. This is the most valuable next investment for frames.
-- **The C test-runner is red (pre-existing, NOT from this work) — root cause now diagnosed (decision `589d9e3c`).** `make -f Makefile.indexer test` → **2486 passed, 194 failed**. The earlier "store can't open / environmental" framing was a **misdiagnosis**: the store opens fine (`store_open_memory`, `store_project_crud`, `store_file_hash` all pass). ~191 of 194 are **stale C test fixtures left behind by the Phase-4 schema fold** (commit `763344d`, pre-dates this session). Three themes: **(A ~160)** `ctx_store_open_memory()` no longer creates the `nodes`/`edges` tables — they were delegated to Cortex's TS `GraphStore.migrate()` — so `upsert_node`'s `INSERT INTO nodes` fails at prepare → `-1`; **(B ~25)** `upsert_node` now `LOWER()`-normalizes kind ([store.c:999](internal/indexer/src/store/store.c#L999)) but tests assert capitalized `"Function"`/`"Project"`; **(C 3)** `test_sqlite_writer` still queries the renamed-away `ctx_nodes`/`ctx_edges`. Only **3** are genuinely independent (`default_worker_count_initial` — RAM-headroom cap, 12 vs 14 on this 14-core box; `cli_extract_binary_from_targz`; `test_simhash:1124`). Empirically proven via a throwaway probe (create the canonical `nodes` DDL → `upsert_node` returns `id>0`). The **production** binary works (TS contract tests index real repos through it, 695 green). Recommended fix shape (deferred) is in decision `589d9e3c`.
+### 1. C test-runner red — root cause diagnosed (decision `589d9e3c`)
+`make -f Makefile.indexer test` → 2486 pass / 194 fail. The earlier "store can't
+open / environmental" framing was wrong: the store opens fine. ~191 of 194 are
+**stale C fixtures from the Phase-4 schema fold** (commit `763344d`) —
+`ctx_store_open_memory()` no longer creates the `nodes`/`edges` tables (delegated
+to Cortex's TS `GraphStore.migrate()`), `upsert_node` lowercases `kind`, and the
+tables were renamed `ctx_nodes`→`nodes`. Only ~3 failures are genuinely
+independent (worker-count RAM cap, targz, simhash). **Proven** by a throwaway
+probe (create the canonical `nodes` schema → `upsert_node` returns `id>0`).
+Fix is deferred; the recommended shape (a `th_open_store_graph()` fixture helper)
+is in the decision. No code changed for this — diagnosis only.
 
-## Loose ends / state
+### 2. Label-quality metric — Phase A (merged `920447e`)
+New pure module **`src/frame-extraction/label-quality.ts`**: `buildCorpusIndex`,
+`scoreLabel` (coverage × specificity → F1, strict-AND multi-word), `scoreClusters`,
+`aggregateLabelQuality`. Non-circular because **specificity** (precision over the
+whole repo) is the axis `pickFrameLabel` never optimizes. Wired into
+`scripts/frame-extraction/eval-all.ts` (each `RepoEvalRow` carries `label_f1_*`);
+committed baseline at `scripts/frame-extraction/baselines/2026-06-06.json`. No
+hard gate threshold yet (deferred per spec). 11 unit tests.
 
-- **Legacy files left in place (unused):** the old `~/.cache/cortex-indexer/_registry.db`, the per-project `<slug>.db` graph caches, and (now-empty-of-config) cache dir. They're read fallbacks / migration sources; a future cleanup can delete them once every active repo has re-indexed into `.cortex/db`.
-- **Registry test-pollution fixed:** `globalSetup` sets `CORTEX_REGISTRY_DB` to a temp path, so `npm test` no longer writes the real registry (verified: a full run adds zero rows).
-- **Process hygiene note:** during Gate-0 QA a broad `pkill -f "src/index.ts"` killed stale dev servers *and* MCP plugin servers across other Claude Code windows; those relaunch lazily on next cortex-tool use. Scope kills to the port/PID (`lsof -ti tcp:3334`) next time.
+### 3. Label tokenizer fix (merged in the Phase B branch)
+`scoreLabel` now tokenizes the label with the same `splitSymbol` used to build the
+blob token sets (camelCase + `._-/` split), so compound labels like
+`method_comparison` match blobs that store the parts split. (Confirmed false-zero
+on `huggingface/peft`; was a 1/270-cluster effect, not the high-leverage fix the
+first review hypothesized — see "what we learned" below.)
+
+### 4. Label-quality validator — Phase B (merged `be26aa4`)
+- **`scripts/frame-extraction/intruder.ts`** — pure, seedable intruder-trial
+  construction (ground truth = cluster membership); candidates are **shuffled**
+  (no positional bias).
+- **`scripts/frame-extraction/validate-labels.ts`** — the only `@anthropic-ai/sdk`
+  import; lazy-loaded.
+- **`eval-all.ts`** `--validate` / `--validate-sample` / `--seed` flags + a
+  corpus-wide F1↔intruder-accuracy report. Default gate path (`npm run eval:frames`)
+  loads no SDK; isolation verified.
+- Validator default model → **Sonnet 4.6** (merged `63f100d`); `--model
+  claude-opus-4-8` to spot-check.
+
+---
+
+## The headline finding — the validator is confounded (decision `8d2ced0c`)
+
+First corpus-wide `--validate` run (Sonnet 4.6, 122 trials over 11 repos):
+overall intruder-detection accuracy **0.877**; F1≥0.5 band **0.919** vs F1<0.5
+band **0.833** (nearly flat); point-biserial **r(F1, intruder_found) = 0.077**.
+
+At face value: "F1 specificity is far too harsh." **That conclusion is unsafe.**
+The test shows the LLM the label **and** the candidate file contents, so for a
+coherent cluster it spots the planted intruder from the files regardless of label
+quality. **Proof:** both trials whose label was the opaque `cluster:N` fallback
+(zero label information) were solved **100%**. So the validator measures *cluster
+coherence*, not *label quality*, and cannot adjudicate the specificity question.
+The big "F1<0.5 but intruder found" bucket (`demo`, `examples`, `composables`…)
+is confounded — **not** evidence of harshness.
+
+The deterministic F1 metric + gate (Phase A) are unaffected; what's deferred is
+the *independent validation* of that metric.
+
+---
 
 ## Next priorities (suggested)
 
-1. **An independent label-quality signal** in the eval (break the circular metric) — the highest-leverage frames work left.
-2. **C test harness — fix the stale fixtures** (root cause diagnosed, decision `589d9e3c`). Theme A: a test fixture helper (`th_open_store_graph()`) that execs the canonical `nodes`/`edges` DDL after `ctx_store_open_memory()`, ideally from a shared C DDL header synced with `src/graph/schema.ts`. Theme B: lowercase the stale capitalized-label expectations (and confirm `find_nodes_by_label` lowercases its query param). Theme C: rename `ctx_nodes`/`ctx_edges` → `nodes`/`edges` in `test_sqlite_writer`. Theme D: triage the 3 independent failures separately. Land A first (~160 tests), re-measure, then B/C/D.
-3. **Cleanup task** — delete legacy `~/.cache/cortex-indexer/<slug>.db` + old `_registry.db` once repos have re-indexed.
-4. **(Parked, not built)** branch-keyed graph cache — the single path-resolution chokepoint in `resolve-path.ts` preserves the seam (`.cortex/db` → `.cortex/graph/<ref>.db`); registry + decisions stay branch-independent.
+1. **Phase B.2 — per-candidate validator redesign** (the real next step). Replace
+   the comparison-set "which of these N doesn't belong" with a per-candidate fit
+   judgment: label + ONE file → "does this label describe this file? yes/no",
+   scored against membership (members→yes, sampled non-members→no). The label
+   becomes the only basis, so opaque `cluster:N` can't score above chance. Then
+   re-run and finally adjudicate whether F1 specificity is too harsh; set the
+   gate threshold from the result. Full shape in decision `8d2ced0c` + spec
+   "Phase B run outcome" section.
+2. **Set the F1 gate threshold** in `eval-all.ts` (regression vs baseline +
+   absolute floor) — only after Phase B.2 tells us whether to trust the raw F1
+   distribution or adjust specificity first.
+3. **C test harness fixtures** — implement the deferred fix from `589d9e3c`
+   (`th_open_store_graph()` fixture that creates the canonical `nodes`/`edges`
+   schema; lowercase the stale capitalized-label assertions; rename `ctx_nodes`
+   in `test_sqlite_writer`).
+4. **(Parked)** clustering nondeterminism — HDBSCAN gives run-to-run variance
+   (`cobra` collapsed to 0 clusters one run; `vueuse` 2↔12 clusters); a clustering
+   `--seed` would make baselines reproducible. `vercel/commerce` intermittently
+   fails clustering (`Python exit 1`).
+
+## Honest caveats
+
+- The label-F1 baseline is **inherently approximate** because clustering is
+  nondeterministic; treat per-repo numbers as indicative, not exact.
+- The validator LLM run needs `ANTHROPIC_API_KEY` and is **internal-only / never
+  per-user** (spec non-goal). It validates shared code once over the corpus.
 
 ## Pointers
 
-- **Storage model (read first for `src/db/`):** [docs/architecture/graph-storage.md](docs/architecture/graph-storage.md)
-- **Specs:** [storage unification](docs/superpowers/specs/2026-06-05-frames-viewer-storage-unification-design.md) · [import-aware frame extraction (§13 outcome)](docs/superpowers/specs/2026-06-04-import-aware-frame-extraction-design.md)
-- **Plan:** [storage unification](docs/superpowers/plans/2026-06-05-frames-viewer-storage-unification.md)
-- **Decisions:** `bb142587` (cluster:N fallback), `bb2dee7e` (canonical .cortex/db + registry)
-- **Key code:** labels `src/frame-extraction/inject-frames.ts` + `structural-tokens.ts`; storage `src/db/registry.ts` · `registry-migration.ts` · `resolve-path.ts`; read/write paths `src/cli/commands/index.ts` · `src/mcp-server/tools/code-tools.ts` · `src/graph/code-queries.ts` · `src/mcp-server/repo-context.ts` · `src/mcp-server/api.ts`; C data dir `internal/indexer/src/foundation/platform.c` (`ctx_resolve_data_dir`) + config store `internal/indexer/src/cli/cli.c`.
+- **Spec:** [label-quality signal design](docs/superpowers/specs/2026-06-06-label-quality-signal-design.md) (read the "Phase B run outcome" section)
+- **Plan:** [label-quality implementation plan](docs/superpowers/plans/2026-06-06-label-quality-signal.md) (Phase B.2 not yet written)
+- **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign)
+- **Key code:** metric `src/frame-extraction/label-quality.ts`; validator `scripts/frame-extraction/intruder.ts` · `validate-labels.ts`; harness `scripts/frame-extraction/eval-all.ts`; baseline `scripts/frame-extraction/baselines/2026-06-06.json`
+- **Run the validator:** `ANTHROPIC_API_KEY=… npm run eval:frames -- --validate --seed 1` (add `--model claude-opus-4-8` to spot-check judge strength)
