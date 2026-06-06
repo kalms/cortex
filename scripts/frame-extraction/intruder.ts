@@ -39,9 +39,8 @@ export function buildIntruderTrials(
     const intruderPool = others.flatMap((o) => o.member_paths);
     if (intruderPool.length === 0) continue;
 
-    const member_sample = [...c.member_paths]
-      .slice(0, opts.membersPerTrial) // stable base; pick selects within if randomised
-      .map((p) => p);
+    // First N members; the intruder is picked separately from other clusters.
+    const member_sample = c.member_paths.slice(0, opts.membersPerTrial);
     const intruder_path = intruderPool[pick(intruderPool.length)]!;
     trials.push({
       cluster_id: c.cluster_id,
