@@ -6,6 +6,8 @@ import {
   buildFrameGovernance,
   edgesInternalIndex,
   frameCoverage,
+  buildFramePathIndex,
+  frameIdForPath,
 } from "../../src/viewer/adapters.js";
 
 describe("groupNodesIntoFrames", () => {
@@ -84,6 +86,44 @@ describe("edgesInternalIndex", () => {
     expect(index.has("1::2")).toBe(true);
     expect(index.has("2::3")).toBe(true);
     expect(index.has("3::1")).toBe(false);
+  });
+});
+
+describe("buildFramePathIndex + frameIdForPath", () => {
+  // grouped-summary shape, as built near viewer.js step 4: members carry file_path.
+  const summaries = [
+    { frame_id: 0, frame_label: "auth", members: [{ file_path: "src/auth/a.ts" }, { file_path: "src/auth/b.ts" }] },
+    { frame_id: 1, frame_label: "saleor/graphql", members: [{ file_path: "saleor/graphql/schema.ts" }] },
+  ];
+
+  it("maps each member file_path to its frame id as a STRING", () => {
+    const idx = buildFramePathIndex(summaries);
+    expect(idx.get("src/auth/a.ts")).toBe("0");
+    expect(idx.get("saleor/graphql/schema.ts")).toBe("1");
+  });
+
+  it("resolves an exact member file to its frame", () => {
+    const idx = buildFramePathIndex(summaries);
+    expect(frameIdForPath(idx, "src/auth/b.ts")).toBe("0");
+  });
+
+  it("resolves a directory-level governed path to the frame of a member under it", () => {
+    const idx = buildFramePathIndex(summaries);
+    expect(frameIdForPath(idx, "saleor/graphql")).toBe("1");
+  });
+
+  it("does NOT match by label resemblance — only real membership", () => {
+    // "auth/ghost.ts" is not a member of any frame; the old label-prefix matcher
+    // (path.startsWith(label + '/')) would have matched the 'auth' frame. It must not.
+    const idx = buildFramePathIndex(summaries);
+    expect(frameIdForPath(idx, "auth/ghost.ts")).toBeNull();
+  });
+
+  it("returns null for an unrelated path and for an empty path", () => {
+    const idx = buildFramePathIndex(summaries);
+    expect(frameIdForPath(idx, "lib/unrelated.ts")).toBeNull();
+    expect(frameIdForPath(idx, "")).toBeNull();
+    expect(frameIdForPath(idx, null)).toBeNull();
   });
 });
 
