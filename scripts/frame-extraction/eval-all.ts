@@ -260,7 +260,10 @@ async function main() {
   const rows: RepoEvalRow[] = [];
   for (const repo of filtered) {
     console.log(`[eval-all] → ${repo.slug} (${repo.archetype})`);
-    const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8", seed: args.seed });
+    // Sonnet is plenty for the intruder-detection task (single-index odd-one-out
+    // over short snippets) and far cheaper across hundreds of corpus-wide calls;
+    // override with --model claude-opus-4-8 to spot-check sensitivity.
+    const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-sonnet-4-6", seed: args.seed });
     rows.push(row);
     if (!row.ok) {
       console.log(`[eval-all]   ✗ ${(row.error ?? "").slice(0, 160)}`);
