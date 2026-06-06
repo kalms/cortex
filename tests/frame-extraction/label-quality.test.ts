@@ -78,6 +78,22 @@ describe("scoreLabel", () => {
     expect(s.specificity).toBe(0);
     expect(s.f1).toBe(0);
   });
+
+  it("scores a compound/underscore label via splitSymbol tokenization", () => {
+    // Blobs contain the split tokens "method" and "comparison" (produced by
+    // splitSymbol("method_comparison") == ["method","comparison"]) but NOT
+    // the joined string "method_comparison". The naive whitespace tokenizer
+    // would emit ["method_comparison"], which is absent → coverage 0.
+    // After the fix (label tokenized with splitSymbol), coverage must be 1.
+    const compoundIdx = buildCorpusIndex([
+      { path: "train/a.ts", text: "trainer method comparison alpha" },
+      { path: "train/b.ts", text: "trainer method comparison beta" },
+      { path: "other/c.ts", text: "other stuff here" },
+    ]);
+    const s = scoreLabel("method_comparison", ["train/a.ts", "train/b.ts"], compoundIdx);
+    expect(s.coverage).toBe(1);
+    expect(s.f1).toBeGreaterThan(0);
+  });
 });
 
 import { scoreClusters } from "../../src/frame-extraction/label-quality.js";
