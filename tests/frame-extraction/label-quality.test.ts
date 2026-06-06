@@ -18,3 +18,64 @@ describe("buildCorpusIndex", () => {
     expect(idx.df.get("invoice")).toBe(1);
   });
 });
+
+import { scoreLabel } from "../../src/frame-extraction/label-quality.js";
+
+describe("scoreLabel", () => {
+  // Corpus: 3 auth files all contain "authentication"; nothing else does.
+  const idx = buildCorpusIndex([
+    { path: "auth/a.ts", text: "auth a authentication" },
+    { path: "auth/b.ts", text: "auth b authentication" },
+    { path: "auth/c.ts", text: "auth c authentication" },
+    { path: "billing/x.ts", text: "billing x payment" },
+    { path: "billing/y.ts", text: "billing y payment" },
+  ]);
+
+  it("scores a perfect, distinctive label 1.0", () => {
+    const s = scoreLabel("authentication", ["auth/a.ts", "auth/b.ts", "auth/c.ts"], idx);
+    expect(s.coverage).toBe(1);
+    expect(s.specificity).toBe(1);
+    expect(s.f1).toBe(1);
+  });
+
+  it("penalises a framework idiom (high coverage, low specificity)", () => {
+    // "auth" is in all 3 members but the label is applied to a cluster of 2;
+    // build a corpus where the term leaks everywhere.
+    const leak = buildCorpusIndex([
+      { path: "m/1.ts", text: "index one" },
+      { path: "m/2.ts", text: "index two" },
+      { path: "other/3.ts", text: "index three" },
+      { path: "other/4.ts", text: "index four" },
+    ]);
+    const s = scoreLabel("index", ["m/1.ts", "m/2.ts"], leak);
+    expect(s.coverage).toBe(1);        // both members have "index"
+    expect(s.specificity).toBe(0.5);   // 2 of 4 corpus files with "index" are members
+    expect(s.f1).toBeCloseTo(2 / 3, 5);
+  });
+
+  it("penalises a single-member label (low coverage)", () => {
+    const s = scoreLabel("payment", ["billing/x.ts", "billing/y.ts", "auth/a.ts"], idx);
+    // "payment" in 2 of 3 members, and only those 2 files in the whole corpus.
+    expect(s.coverage).toBeCloseTo(2 / 3, 5);
+    expect(s.specificity).toBe(1);
+    expect(s.f1).toBeCloseTo(0.8, 5);
+  });
+
+  it("requires ALL words of a multi-word label (strict AND)", () => {
+    const m = buildCorpusIndex([
+      { path: "u/1.ts", text: "user model alpha" },
+      { path: "u/2.ts", text: "user model beta" },
+      { path: "u/3.ts", text: "user only" }, // has "user" but not "model"
+    ]);
+    const s = scoreLabel("user model", ["u/1.ts", "u/2.ts", "u/3.ts"], m);
+    expect(s.coverage).toBeCloseTo(2 / 3, 5); // only 2 contain both words
+    expect(s.specificity).toBe(1);
+  });
+
+  it("returns zeros when the label appears in no file", () => {
+    const s = scoreLabel("nonexistent", ["auth/a.ts"], idx);
+    expect(s.coverage).toBe(0);
+    expect(s.specificity).toBe(0);
+    expect(s.f1).toBe(0);
+  });
+});
