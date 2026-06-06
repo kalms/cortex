@@ -204,6 +204,7 @@ the *independent validation* of that metric.
 
 ## Pointers
 
+- **Research report (2026-06-07):** [label-quality verdict + path-ordered rendering + the F1 gate](docs/research/2026-06-07-label-quality-verdict-and-rendering.md) — the empirical basis for decisions `11c742ec`/`ccd1ab6c`/`2990a57e` and the "F1 is not too harsh" verdict, with the offline-reconstruction method and the full distribution data.
 - **Spec:** [label-quality signal design](docs/superpowers/specs/2026-06-06-label-quality-signal-design.md) (read the "Phase B run outcome" section)
 - **Plan:** [label-quality implementation plan](docs/superpowers/plans/2026-06-06-label-quality-signal.md) (Phase B.2 not yet written)
 - **Decisions:** `589d9e3c` (C-runner stale fixtures), `8d2ced0c` (validator confound + Phase B.2 redesign), `11c742ec` (path-ordered label rendering), `ccd1ab6c` (viewer membership matching), `2990a57e` (F1 regression gate)
