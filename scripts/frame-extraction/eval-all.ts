@@ -39,6 +39,10 @@ interface CliArgs {
   out: string;
   only?: string;
   keep?: boolean;
+  validate?: boolean;       // opt-in LLM intruder phase
+  validateSample?: number;  // max trials per repo (default 15)
+  model?: string;
+  seed?: number;            // PRNG seed for reproducible intruder sampling
 }
 
 interface RepoEvalRow {
@@ -58,6 +62,22 @@ interface RepoEvalRow {
   label_coverage_mean?: number;
   label_specificity_mean?: number;
   label_clusters_below_f1?: number;
+  validation?: {
+    sampled: number;
+    not_validated: number;
+    trials: { cluster_id: number; label: string; f1: number; intruder_found: boolean }[];
+  };
+}
+
+/** Mulberry32 PRNG — small, seedable, good enough for shuffling trial order. */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s |= 0; s = s + 0x6d2b79f5 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -66,6 +86,10 @@ function parseArgs(argv: string[]): CliArgs {
     if (argv[i] === "--out") args.out = resolve(argv[++i]!);
     else if (argv[i] === "--only") args.only = argv[++i];
     else if (argv[i] === "--keep") args.keep = true;
+    else if (argv[i] === "--validate") args.validate = true;
+    else if (argv[i] === "--validate-sample") args.validateSample = Number(argv[++i]);
+    else if (argv[i] === "--model") args.model = argv[++i];
+    else if (argv[i] === "--seed") args.seed = Number(argv[++i]);
   }
   return args;
 }
@@ -92,7 +116,7 @@ export function teardownTargets(repos: RepoSpec[], rows: RepoEvalRow[]): string[
 
 /** Run the full eval pipeline for one repo. Never throws — failures are
  *  caught and returned as { ok: false, error }. */
-function evalRepo(repo: RepoSpec): RepoEvalRow {
+async function evalRepo(repo: RepoSpec, opts: { validate: boolean; validateSample: number; model: string; seed?: number }): Promise<RepoEvalRow> {
   try {
     const clone = ensureClone(repo);
     if (!clone.ok) {
@@ -157,7 +181,7 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
     // aggregateLabelQuality's own cluster_count is not surfaced; RepoEvalRow.cluster_count already carries it.
     const labelAgg = aggregateLabelQuality(labelScores);
 
-    return {
+    const row: RepoEvalRow = {
       slug: repo.slug,
       ok: true,
       project,
@@ -172,12 +196,49 @@ function evalRepo(repo: RepoSpec): RepoEvalRow {
       label_specificity_mean: labelAgg.specificity_mean,
       label_clusters_below_f1: labelAgg.clusters_below,
     };
+
+    if (opts.validate) {
+      try {
+        const { buildIntruderTrials } = await import("./intruder.js");
+        const realClusterCount = result.clusters.filter((c) => c.cluster_id !== -1).length;
+        // Build a seeded pick function if a seed was supplied, for reproducible sampling.
+        const intruderOpts = Number.isFinite(opts.seed)
+          ? (() => { const rng = mulberry32(opts.seed!); return { membersPerTrial: 5, pick: (n: number) => Math.floor(rng() * n) }; })()
+          : { membersPerTrial: 5 };
+        const allTrials = buildIntruderTrials(result.clusters, intruderOpts);
+        // Guard against NaN from a missing/garbage --validate-sample value.
+        const validateSample = Number.isFinite(opts.validateSample) ? opts.validateSample : 15;
+        const trials = allTrials.slice(0, validateSample);
+        const labelByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.label]));
+        const f1ByCluster = new Map(labelScores.map((s) => [s.cluster_id, s.f1]));
+        const { runIntruderValidation } = await import("./validate-labels.js");
+        const results = await runIntruderValidation({
+          repoPath: clone.path,
+          model: opts.model,
+          trials,
+          labelByCluster,
+          f1ByCluster,
+        });
+        row.validation = {
+          sampled: trials.length,
+          // clusters that yielded no trial: too-few-members or no intruder source, plus
+          // any beyond the sample cap.
+          not_validated: realClusterCount - results.length,
+          trials: results,
+        };
+        console.log(`[eval-all]   ⟳ validated ${results.length}/${realClusterCount} clusters (sample cap ${validateSample})`);
+      } catch (err) {
+        console.log(`[eval-all]   ⚠ validation skipped: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return row;
   } catch (err) {
     return { slug: repo.slug, ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (!hasVenv()) {
@@ -199,7 +260,7 @@ function main() {
   const rows: RepoEvalRow[] = [];
   for (const repo of filtered) {
     console.log(`[eval-all] → ${repo.slug} (${repo.archetype})`);
-    const row = evalRepo(repo);
+    const row = await evalRepo(repo, { validate: !!args.validate, validateSample: args.validateSample ?? 15, model: args.model ?? "claude-opus-4-8", seed: args.seed });
     rows.push(row);
     if (!row.ok) {
       console.log(`[eval-all]   ✗ ${(row.error ?? "").slice(0, 160)}`);
@@ -221,6 +282,27 @@ function main() {
     JSON.stringify({ generated_at: new Date().toISOString(), rows }, null, 2),
   );
   console.log(`[eval-all] wrote ${args.out}`);
+
+  if (args.validate) {
+    const trials = rows.flatMap((r) => r.validation?.trials ?? []);
+    if (trials.length > 0) {
+      const acc = (xs: typeof trials) =>
+        xs.length > 0 ? xs.filter((t) => t.intruder_found).length / xs.length : 0;
+      const high = trials.filter((t) => t.f1 >= 0.5);
+      const low = trials.filter((t) => t.f1 < 0.5);
+      const blindSpots = trials.filter((t) => t.f1 >= 0.5 && !t.intruder_found);
+      console.log(`\n[eval-all] intruder-detection (corpus-wide, ${trials.length} clusters):`);
+      console.log(`[eval-all]   overall accuracy = ${acc(trials).toFixed(3)}`);
+      console.log(`[eval-all]   accuracy | F1>=0.5 = ${acc(high).toFixed(3)} (n=${high.length})`);
+      console.log(`[eval-all]   accuracy | F1<0.5  = ${acc(low).toFixed(3)} (n=${low.length})`);
+      if (blindSpots.length > 0) {
+        console.log(`[eval-all]   blind-spot candidates (high F1, intruder missed):`);
+        for (const t of blindSpots) {
+          console.log(`[eval-all]     cluster=${t.cluster_id} label="${t.label}" f1=${t.f1.toFixed(3)}`);
+        }
+      }
+    }
+  }
 
   // Teardown: deregister the git-cloned corpus projects we just indexed, so
   // the eval leaves the global project registry as it found it. Local fixtures
@@ -246,4 +328,4 @@ function main() {
 const isDirect =
   import.meta.url === `file://${process.argv[1]}` ||
   process.argv[1]?.endsWith("eval-all.ts");
-if (isDirect) main();
+if (isDirect) main().catch((e) => { console.error(e); process.exit(1); });
