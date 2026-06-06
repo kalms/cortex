@@ -30,10 +30,12 @@ import { checkLabelQuality } from "../../src/frame-extraction/eval-labels.js";
 import { hasVenv } from "../../src/frame-extraction/venv.js";
 import { cachePathForProject } from "../../src/cli/context.js";
 import { buildCorpusIndex, scoreClusters, aggregateLabelQuality } from "../../src/frame-extraction/label-quality.js";
+import { evaluateF1Gate, F1_GATE_DEFAULTS } from "../../src/frame-extraction/eval-gate.js";
 import type { CorpusFile, RepoSpec, ImportEdge, FileBlob } from "../../src/frame-extraction/types.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const DEFAULT_OUT = join(REPO_ROOT, ".tmp", "frame-extraction", "eval-all.json");
+const DEFAULT_BASELINE = join(REPO_ROOT, "scripts", "frame-extraction", "baselines", "2026-06-06.json");
 
 interface CliArgs {
   out: string;
@@ -43,6 +45,8 @@ interface CliArgs {
   validateSample?: number;  // max trials per repo (default 15)
   model?: string;
   seed?: number;            // PRNG seed for reproducible intruder sampling
+  gate?: boolean;           // F1 regression gate (default on; --no-gate to skip)
+  baseline?: string;        // baseline JSON path for the gate
 }
 
 interface RepoEvalRow {
@@ -90,8 +94,39 @@ function parseArgs(argv: string[]): CliArgs {
     else if (argv[i] === "--validate-sample") args.validateSample = Number(argv[++i]);
     else if (argv[i] === "--model") args.model = argv[++i];
     else if (argv[i] === "--seed") args.seed = Number(argv[++i]);
+    else if (argv[i] === "--no-gate") args.gate = false;
+    else if (argv[i] === "--baseline") args.baseline = resolve(argv[++i]!);
   }
   return args;
+}
+
+/** Run the F1 regression gate against the committed baseline. Prints a report
+ *  and returns true when an ENFORCED regression was detected (caller exits
+ *  non-zero). Skips quietly when disabled or no baseline file exists. */
+function runF1Gate(args: CliArgs, rows: RepoEvalRow[]): boolean {
+  if (args.gate === false) return false;
+  const baselinePath = args.baseline ?? DEFAULT_BASELINE;
+  if (!existsSync(baselinePath)) {
+    console.log(`\n[eval-all] F1 gate: no baseline at ${baselinePath} — skipping (commit one to enable).`);
+    return false;
+  }
+  const baseline = JSON.parse(readFileSync(baselinePath, "utf-8")) as { rows?: RepoEvalRow[] };
+  const gate = evaluateF1Gate(rows, baseline.rows ?? []);
+  console.log(`\n[eval-all] F1 regression gate (vs ${baselinePath}):`);
+  if (gate.currentMean !== null) {
+    console.log(`[eval-all]   corpus mean weighted F1 = ${gate.currentMean} vs baseline ${gate.baselineMean} (Δ ${gate.delta}) over ${gate.comparedRepos} comparable repos`);
+  }
+  for (const w of gate.warnings) console.log(`[eval-all]   ⚠ ${w}`);
+  if (!gate.enforced) {
+    console.log(`[eval-all]   gate not enforced (${gate.comparedRepos}/${F1_GATE_DEFAULTS.minReposToEnforce} comparable repos needed).`);
+    return false;
+  }
+  if (gate.pass) {
+    console.log(`[eval-all]   ✓ gate passed.`);
+    return false;
+  }
+  for (const f of gate.failures) console.log(`[eval-all]   ✗ ${f}`);
+  return true;
 }
 
 /**
@@ -307,24 +342,34 @@ async function main() {
     }
   }
 
+  // F1 regression gate (computed before teardown; exit deferred to the end so
+  // cleanup always runs regardless of the verdict).
+  const gateFailed = runF1Gate(args, rows);
+
   // Teardown: deregister the git-cloned corpus projects we just indexed, so
   // the eval leaves the global project registry as it found it. Local fixtures
   // (self/cortex, anthill-cloud) are never touched. Opt out with --keep.
   if (args.keep) {
     console.log("[eval-all] --keep set: corpus projects left registered.");
-    return;
+  } else {
+    const targets = teardownTargets(filtered, rows);
+    for (const project of targets) {
+      const del = callIndexer<{ status?: string }>("delete_project", { project });
+      console.log(
+        del.ok
+          ? `[eval-all]   ⌫ deregistered ${project}`
+          : `[eval-all]   ⚠ could not deregister ${project}: ${del.error}`,
+      );
+    }
+    if (targets.length > 0) {
+      console.log(`[eval-all] teardown: deregistered ${targets.length} corpus project(s) (use --keep to retain).`);
+    }
   }
-  const targets = teardownTargets(filtered, rows);
-  for (const project of targets) {
-    const del = callIndexer<{ status?: string }>("delete_project", { project });
-    console.log(
-      del.ok
-        ? `[eval-all]   ⌫ deregistered ${project}`
-        : `[eval-all]   ⚠ could not deregister ${project}: ${del.error}`,
-    );
-  }
-  if (targets.length > 0) {
-    console.log(`[eval-all] teardown: deregistered ${targets.length} corpus project(s) (use --keep to retain).`);
+
+  // Non-zero exit on an enforced regression, after cleanup.
+  if (gateFailed) {
+    console.error("[eval-all] F1 regression gate FAILED.");
+    process.exit(3);
   }
 }
 
