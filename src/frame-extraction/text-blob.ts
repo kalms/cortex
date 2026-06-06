@@ -12,7 +12,7 @@ import type { FileBlob } from "./types.js";
  *  STRIP_SEGMENTS are framework-structural tokens meaningful for paths (e.g.
  *  "middleware", "service") but are real domain words when they appear as
  *  identifiers — we must not drop them from symbol blobs. */
-function splitSymbol(s: string): string[] {
+export function splitSymbol(s: string): string[] {
   return s
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
