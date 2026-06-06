@@ -79,3 +79,27 @@ describe("scoreLabel", () => {
     expect(s.f1).toBe(0);
   });
 });
+
+import { scoreClusters } from "../../src/frame-extraction/label-quality.js";
+import type { ClusterAssignment } from "../../src/frame-extraction/types.js";
+
+describe("scoreClusters", () => {
+  const idx = buildCorpusIndex([
+    { path: "infra/main.tf", text: "infra main tf infrastructure" },
+    { path: "infra/net.tf", text: "infra net tf infrastructure" },
+    { path: "app/index.ts", text: "app index ts" },
+  ]);
+
+  it("scores each non-noise cluster and skips noise (-1)", () => {
+    const clusters: ClusterAssignment[] = [
+      { cluster_id: 0, member_paths: ["infra/main.tf", "infra/net.tf"] },
+      { cluster_id: -1, member_paths: ["app/index.ts"] },
+    ];
+    const topTokens: Record<string, string[]> = { "0": ["infrastructure"], "-1": ["index"] };
+    const scores = scoreClusters(clusters, topTokens, idx);
+    expect(scores).toHaveLength(1);
+    expect(scores[0]!.cluster_id).toBe(0);
+    expect(scores[0]!.member_count).toBe(2);
+    expect(scores[0]!.f1).toBeGreaterThan(0);
+  });
+});
