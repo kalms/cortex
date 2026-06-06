@@ -28,3 +28,21 @@ export function parseTsConsumers(src: string, file: string): { bindings: Binding
   }
   return { bindings, unrecognized };
 }
+
+const C_HANDLER = /\bstatic\s+char\s*\*\s*handle_([a-z0-9_]+)\s*\(/g;
+const C_ARG = /ctx_mcp_get_(?:string|int|bool)_arg\s*\(\s*args\s*,\s*"([^"]+)"\s*[,)]/g;
+
+export function parseCProviders(src: string, file: string): { bindings: Binding[]; unrecognized: number } {
+  const heads = [...src.matchAll(C_HANDLER)];
+  const bindings: Binding[] = [];
+  for (let i = 0; i < heads.length; i++) {
+    const h = heads[i]!;
+    const start = h.index!;
+    const end = i + 1 < heads.length ? heads[i + 1]!.index! : src.length;
+    const body = src.slice(start, end);
+    const keys: string[] = [];
+    for (const am of body.matchAll(C_ARG)) if (!keys.includes(am[1]!)) keys.push(am[1]!);
+    bindings.push({ tool: h[1]!, role: "provides", keys, file, symbol: `handle_${h[1]}`, line: lineOf(src, start) });
+  }
+  return { bindings, unrecognized: 0 };
+}
