@@ -102,6 +102,25 @@ describe("scoreClusters", () => {
     expect(scores[0]!.member_count).toBe(2);
     expect(scores[0]!.f1).toBeGreaterThan(0);
   });
+
+  it("opaque cluster:N fallback label scores f1=0 (intended: label is not a corpus token)", () => {
+    // Corpus contains no token that looks like "cluster" or "cluster:42".
+    // With top_tokens=[], pickFrameLabel exhausts all passes and returns
+    // "cluster:42" — a string that is absent from every blob token set.
+    // Both coverage and f1 should be 0.
+    const sparseIdx = buildCorpusIndex([
+      { path: "src/a.ts", text: "alpha beta gamma" },
+      { path: "src/b.ts", text: "delta epsilon zeta" },
+    ]);
+    const clusters: ClusterAssignment[] = [
+      { cluster_id: 42, member_paths: ["src/a.ts", "src/b.ts"] },
+    ];
+    const scores = scoreClusters(clusters, { "42": [] }, sparseIdx);
+    expect(scores).toHaveLength(1);
+    expect(scores[0]!.label).toBe("cluster:42");
+    expect(scores[0]!.coverage).toBe(0);
+    expect(scores[0]!.f1).toBe(0);
+  });
 });
 
 import { aggregateLabelQuality } from "../../src/frame-extraction/label-quality.js";
