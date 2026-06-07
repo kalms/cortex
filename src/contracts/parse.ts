@@ -2,9 +2,11 @@ import type { Binding } from "./types.js";
 
 const lineOf = (src: string, idx: number) => src.slice(0, idx).split("\n").length;
 
-// callIndexer("tool", { ...literal... })  — object-literal arg → keys
+// Matches  callIndexer(NAME, { ...literal... })  — object-literal arg → keys.
+// (Comments here deliberately avoid the real quoted-string call shape so the
+// scanner doesn't pick up this source file's own examples as a contract.)
 const TS_LITERAL = /\bcallIndexer(?:Cache)?\s*\(\s*"([^"]+)"\s*,\s*\{([^}]*)\}/g;
-// callIndexer("tool", identifier)         — non-literal arg → unrecognized
+// Matches  callIndexer(NAME, identifier)  — non-literal 2nd arg → unrecognized.
 const TS_NONLITERAL = /\bcallIndexer(?:Cache)?\s*\(\s*"([^"]+)"\s*,\s*([A-Za-z_$][\w$]*)\s*[,)]/g;
 const TS_KEY = /(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:/g;
 
