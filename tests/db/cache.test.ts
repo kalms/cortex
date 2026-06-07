@@ -45,6 +45,23 @@ describe("content-hash cache", () => {
     expect(k1).not.toBe(k2);
   });
 
+  it("derives distinct keys per index mode so a fast snapshot is never served for a full request", () => {
+    const full = computeCacheKey(repo, "full");
+    const fast = computeCacheKey(repo, "fast");
+    const moderate = computeCacheKey(repo, "moderate");
+    expect(full).not.toBe(fast);
+    expect(full).not.toBe(moderate);
+    expect(fast).not.toBe(moderate);
+    // fast key is stable for the same repo+mode
+    expect(computeCacheKey(repo, "fast")).toBe(fast);
+  });
+
+  it("keeps the full-mode key backward-compatible with the no-mode default", () => {
+    // Existing cache entries were written without a mode; full must hash the
+    // same so they stay valid after this change.
+    expect(computeCacheKey(repo, "full")).toBe(computeCacheKey(repo));
+  });
+
   it("writes and detects a cache entry", () => {
     const key = computeCacheKey(repo);
     createdKeys.push(key);

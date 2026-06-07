@@ -129,6 +129,12 @@ const deleteProjectSchema = z.object(deleteProjectShape);
 // the very tool that brings the index online.
 const indexRepositoryShape = {
   repo_path: RepoPathField,
+  // Index depth. `full` (default) runs every pass; `fast`/`moderate` skip
+  // passes for a quicker, shallower graph. Forwarded to the indexer binary and
+  // folded into the build-cache key so a shallow snapshot is never served for a
+  // deeper request (see src/db/cache.ts::computeCacheKey).
+  mode: z.enum(["fast", "moderate", "full"]).optional()
+    .describe('Index depth: "fast" | "moderate" | "full" (default "full")'),
 } as const;
 const indexRepositorySchema = z.object(indexRepositoryShape);
 
@@ -351,6 +357,7 @@ export function registerCodeTools(
       indexRepositorySchema,
       async (_resolver, args) => {
         const repoPath = args.repo_path!;
+        const mode = args.mode ?? "full";
         const dbPath = resolveCortexDbPath(repoPath);
 
         const registerRepo = () => {
@@ -388,7 +395,7 @@ export function registerCodeTools(
         let cacheKey: string | null = null;
         if (existsSync(join(repoPath, ".git"))) {
           try {
-            cacheKey = computeCacheKey(repoPath);
+            cacheKey = computeCacheKey(repoPath, mode);
           } catch {
             cacheKey = null;
           }
@@ -407,7 +414,7 @@ export function registerCodeTools(
           return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
         }
 
-        const result = await callIndexer("index_repository", { repo_path: repoPath }, dbPath);
+        const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, dbPath);
         if (!result.isError && cacheKey) {
           // The indexer DB runs in WAL mode (see src/graph/store.ts).
           // Checkpoint WAL into the main file before copying so the cached
