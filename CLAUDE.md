@@ -50,9 +50,12 @@ and a structured `freshness` field is attached:
 
 A `stale`/`empty` signal means **reindex**, not "abandon Cortex for grep."
 The SessionStart banner (`cortex freshness`) shows the same verdict; auto-refresh
-runs out-of-band at SessionStart (full for empty/unknown, incremental for stale).
-Gates: `CORTEX_FRESHNESS=0` disables the signal; `CORTEX_AUTO_REFRESH=0` keeps
-the signal but disables auto-refresh.
+runs out-of-band at SessionStart (full for empty/unknown, incremental for stale)
+**and after every `git commit`** (incremental, via a `PostToolUse` hook). Mid-session
+post-commit refresh is safe because incremental indexing is now **in-place /
+inode-preserving** — it never unlinks `.cortex/db`, so the MCP server's open handle
+survives and sees the refresh (decision `04c848f0`). Gates: `CORTEX_FRESHNESS=0`
+disables the signal; `CORTEX_AUTO_REFRESH=0` keeps the signal but disables auto-refresh.
 
 ## MCP tool routing — always pass repo_path
 
