@@ -9,12 +9,6 @@ import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 //   "project"/"base_branch"/"scope"/"depth" and never repo_path (so the
 //   working tree can't be resolved). Awaiting HANDOFF #4. Remove when fixed.
 //
-// index_repository: genuine gap — C handler reads an optional "mode" key
-//   ("fast" | "moderate" | full default) that the TS MCP layer never sends.
-//   The MCP schema only exposes repo_path, so callers cannot choose index
-//   depth. Deferred: the gap is low-severity (defaulting to full is safe)
-//   but should be closed by adding mode to indexRepositoryShape.
-//
 // ingest_traces: parser false positive — C reads "traces" via yyjson_obj_get()
 //   directly (not ctx_mcp_get_string_arg), so the regex parser sees
 //   provider_keys=[] even though the handler does consume the key correctly.
@@ -23,7 +17,6 @@ import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 //   src/contracts/parse.ts C_ARG regex.
 const KNOWN_MISMATCHES = new Set<string>([
   "detect_changes",    // genuine bug — awaiting HANDOFF #4
-  "index_repository",  // genuine gap — mode param unreachable via TS MCP schema
   "ingest_traces",     // parser false positive — C uses yyjson_obj_get not ctx_mcp_get_*_arg
 ]);
 

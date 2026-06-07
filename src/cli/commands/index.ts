@@ -11,8 +11,29 @@ import type { ContractResult } from "../../contracts/types.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { Registry } from "../../db/registry.js";
+import type { IndexMode } from "../../db/cache.js";
 
 const INDEXER_BIN = indexerBinPath();
+
+const INDEX_MODES: readonly IndexMode[] = ["fast", "moderate", "full"];
+
+/**
+ * Resolve the optional `--mode` flag for `cortex index` into a validated
+ * {@link IndexMode}. Returns `undefined` when the flag is absent (the indexer
+ * defaults to `full`). Throws {@link UsageError} on an unknown value or a bare
+ * `--mode` (which the router parses as `true`).
+ */
+export function resolveIndexMode(flags: Record<string, string | boolean>): IndexMode | undefined {
+  const raw = flags.mode;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !INDEX_MODES.includes(raw as IndexMode)) {
+    throw new UsageError(
+      `invalid --mode '${String(raw)}'`,
+      `Usage: cortex index [path] --mode=<${INDEX_MODES.join("|")}>`,
+    );
+  }
+  return raw as IndexMode;
+}
 
 export type IndexCommand = {
   command: string | null;
@@ -24,10 +45,12 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
   // 'cortex index' with no subcommand → index the cwd (or given path)
   if (cmd.command === null || cmd.command === undefined || cmd.command === ".") {
     const repoPath = resolve(cmd.positionals[0] ?? ctx.cwd);
+    const mode = resolveIndexMode(cmd.flags);
     const dbPath = resolveCortexDbPath(repoPath); // <repo>/.cortex/db — canonical
+    const indexerArgs = mode ? { repo_path: repoPath, mode } : { repo_path: repoPath };
     const raw = execFileSync(
       INDEXER_BIN,
-      ["cli", "index_repository", JSON.stringify({ repo_path: repoPath })],
+      ["cli", "index_repository", JSON.stringify(indexerArgs)],
       {
         encoding: "utf-8",
         stdio: ["inherit", "pipe", "inherit"],
