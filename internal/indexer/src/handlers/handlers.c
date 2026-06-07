@@ -160,6 +160,22 @@ bool ctx_mcp_get_bool_arg(const char *args_json, const char *key) {
     return result;
 }
 
+/* Length of the JSON array at `key`, or -1 when the key is absent or not an
+ * array. Member of the ctx_mcp_get_*_arg accessor family (parses the whole
+ * args doc each call) so the cross-language RPC contract scanner recognises
+ * the key as a consumed tool argument — see src/contracts/parse.ts. */
+int ctx_mcp_get_array_len_arg(const char *args_json, const char *key) {
+    yyjson_doc *doc = yyjson_read(args_json, strlen(args_json), 0);
+    if (!doc) {
+        return -1;
+    }
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_val *val = yyjson_obj_get(root, key);
+    int result = (val && yyjson_is_arr(val)) ? (int)yyjson_arr_size(val) : -1;
+    yyjson_doc_free(doc);
+    return result;
+}
+
 /* ══════════════════════════════════════════════════════════════════
  *  MCP SERVER
  * ══════════════════════════════════════════════════════════════════ */
@@ -2911,17 +2927,12 @@ static char *handle_manage_adr(ctx_mcp_server_t *srv, const char *args) {
 
 static char *handle_ingest_traces(ctx_mcp_server_t *srv, const char *args) {
     (void)srv;
-    /* Parse traces array from JSON args */
-    yyjson_doc *adoc = yyjson_read(args, strlen(args), 0);
-    int trace_count = 0;
-
-    if (adoc) {
-        yyjson_val *aroot = yyjson_doc_get_root(adoc);
-        yyjson_val *traces = yyjson_obj_get(aroot, "traces");
-        if (traces && yyjson_is_arr(traces)) {
-            trace_count = (int)yyjson_arr_size(traces);
-        }
-        yyjson_doc_free(adoc);
+    /* Read the traces array via the typed accessor (not raw yyjson_obj_get) so
+     * the "traces" key is visible to the RPC contract scanner as a consumed
+     * argument. Returns -1 when absent/not-an-array → treat as zero. */
+    int trace_count = ctx_mcp_get_array_len_arg(args, "traces");
+    if (trace_count < 0) {
+        trace_count = 0;
     }
 
     yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);

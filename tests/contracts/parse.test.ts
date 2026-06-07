@@ -73,4 +73,9 @@ describe("parseCProviders", () => {
     const s = `static char *handle_x(s, a) { ctx_mcp_get_bool_arg(args, "flag", false); }`;
     expect(parseCProviders(s, "h.c").bindings[0].keys).toEqual(["flag"]);
   });
+
+  it("recognises the whole typed-accessor family, including array-length args", () => {
+    const s = `static char *handle_ingest_traces(s, a) { ctx_mcp_get_array_len_arg(args, "traces"); }`;
+    expect(parseCProviders(s, "h.c").bindings[0].keys).toEqual(["traces"]);
+  });
 });
