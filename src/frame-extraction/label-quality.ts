@@ -9,7 +9,7 @@
  *
  * PURE module: no file/DB/network I/O. Inputs in, scores out.
  */
-import { pickFrameLabel } from "./inject-frames.js";
+import { pickFrameLabel, ubiquitousPathSegments } from "./inject-frames.js";
 import { splitSymbol } from "./text-blob.js";
 import type { ClusterAssignment, FileBlob } from "./types.js";
 
@@ -97,11 +97,16 @@ export function scoreClusters(
   topTokensPerCluster: Record<string, string[]>,
   idx: CorpusIndex,
 ): ClusterLabelScore[] {
+  // Mirror buildFrameAssignments: suppress repo-wide ubiquitous segments so the
+  // metric scores the SAME labels that get injected (repo-name suppression).
+  const suppressed = ubiquitousPathSegments(
+    clusters.filter((c) => c.cluster_id !== -1).map((c) => c.member_paths),
+  );
   const out: ClusterLabelScore[] = [];
   for (const c of clusters) {
     if (c.cluster_id === -1) continue;
     const tokens = topTokensPerCluster[String(c.cluster_id)] ?? [];
-    const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id);
+    const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id, suppressed);
     const s = scoreLabel(label, c.member_paths, idx);
     out.push({ ...s, cluster_id: c.cluster_id, member_count: c.member_paths.length });
   }
