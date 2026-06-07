@@ -48,6 +48,61 @@ export interface ViewerServerHandle {
   close(): void;
 }
 
+/** Outcome of a single bind attempt. */
+export type BindOutcome = { ok: true } | { ok: false; error: NodeJS.ErrnoException };
+
+/** Default retry policy for the viewer port. Tuned for the common failure we
+ *  hit in practice: a stale/dying sibling instance still holding the port for
+ *  a moment after a VS Code reload. ~5 tries over a couple of seconds gives the
+ *  old listener time to release the socket without floating the URL. */
+export const VIEWER_BIND_RETRIES = 5;
+export const VIEWER_BIND_DELAY_MS = 300;
+
+/**
+ * Attempt to bind a (fixed) port with bounded retry on contention.
+ *
+ * Why this exists: the viewer used to swallow `httpServer.listen` errors
+ * silently (resolve port -1, no log), so a failed bind left zero trace and the
+ * MCP server ran viewer-less with no signal. This loop surfaces every attempt
+ * via `log` and self-heals across the EADDRINUSE window without changing the
+ * port (a floating port would defeat a "consistent viewer" URL).
+ *
+ * Retries ONLY on `EADDRINUSE` (transient contention). Any other error
+ * (EACCES, etc.) is logged and fails fast — retrying wouldn't help.
+ *
+ * @returns true if a bind succeeded, false if it gave up.
+ */
+export async function bindWithRetry(
+  attempt: () => Promise<BindOutcome>,
+  opts: {
+    port: number;
+    retries: number;
+    delayMs: number;
+    log: (msg: string) => void;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<boolean> {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let i = 0; i <= opts.retries; i++) {
+    const outcome = await attempt();
+    if (outcome.ok) return true;
+    const err = outcome.error;
+    if (err.code !== "EADDRINUSE") {
+      opts.log(`Cortex viewer: FAILED to bind port ${opts.port}: ${err.message}`);
+      return false;
+    }
+    if (i < opts.retries) {
+      opts.log(`Cortex viewer: port ${opts.port} busy (EADDRINUSE), retrying ${i + 1}/${opts.retries}...`);
+      await sleep(opts.delayMs * (i + 1)); // linear backoff
+    } else {
+      opts.log(
+        `Cortex viewer: FAILED to bind port ${opts.port}: ${err.message} (gave up after ${opts.retries} retries)`,
+      );
+    }
+  }
+  return false;
+}
+
 export function startViewerServer(
   store: GraphStore,
   indexerProject?: string | null,
@@ -259,27 +314,49 @@ export function startViewerServer(
     });
 
     const port = parseInt(process.env.CORTEX_VIEWER_PORT || "3333", 10);
+    const log = (msg: string) => process.stderr.write(msg + "\n");
 
-    httpServer.once("error", () => {
-      resolve({
-        port: -1,
-        httpServer: null,
-        close() {
-          registry.close();
-        },
+    // One bind attempt over the shared httpServer. listen() is retryable after
+    // an 'error' (the server isn't closed by a failed bind), so each attempt
+    // wires fresh one-shot listeners and re-issues listen(port).
+    const attempt = (): Promise<BindOutcome> =>
+      new Promise((res) => {
+        const onError = (err: NodeJS.ErrnoException) => {
+          httpServer.removeListener("listening", onListening);
+          res({ ok: false, error: err });
+        };
+        const onListening = () => {
+          httpServer.removeListener("error", onError);
+          res({ ok: true });
+        };
+        httpServer.once("error", onError);
+        httpServer.once("listening", onListening);
+        httpServer.listen(port);
       });
-    });
 
-    httpServer.listen(port, () => {
-      resolve({
-        port,
-        httpServer,
-        close() {
-          httpServer.close();
-          registry.close();
-        },
+    void bindWithRetry(attempt, { port, retries: VIEWER_BIND_RETRIES, delayMs: VIEWER_BIND_DELAY_MS, log })
+      .then((ok) => {
+        if (ok) {
+          resolve({
+            port,
+            httpServer,
+            close() {
+              httpServer.close();
+              registry.close();
+            },
+          });
+        } else {
+          // bindWithRetry has already logged WHY. Caller (src/index.ts) logs the
+          // user-facing "viewer disabled" line off the port: -1 sentinel.
+          resolve({
+            port: -1,
+            httpServer: null,
+            close() {
+              registry.close();
+            },
+          });
+        }
       });
-    });
   });
 }
 
