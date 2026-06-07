@@ -3,17 +3,10 @@ import { resolve } from "node:path";
 import { scanRepoContracts } from "../../src/contracts/extract.js";
 import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 
-// Known mismatches — remove each when the underlying issue is resolved.
-//
-// ingest_traces: parser false positive — C reads "traces" via yyjson_obj_get()
-//   directly (not ctx_mcp_get_string_arg), so the regex parser sees
-//   provider_keys=[] even though the handler does consume the key correctly.
-//   Fix: extend parseCProviders to recognise yyjson_obj_get call sites, or
-//   annotate the handler with a ctx_mcp_get_array_arg wrapper. See
-//   src/contracts/parse.ts C_ARG regex.
-const KNOWN_MISMATCHES = new Set<string>([
-  "ingest_traces",     // parser false positive — C uses yyjson_obj_get not ctx_mcp_get_*_arg
-]);
+// Known mismatches — add an entry only with a documented reason, and remove it
+// when the underlying issue is resolved. The allowlist is currently EMPTY: the
+// seam is fully consistent and this guard enforces zero tolerance for drift.
+const KNOWN_MISMATCHES = new Set<string>([]);
 
 describe("RPC contract seam (real repo)", () => {
   const repo = resolve(__dirname, "../..");
