@@ -115,6 +115,26 @@ restored to `0.1.0`).
   fix is already live — the pre-merge MCP sends `{ repo_path }`, which the new
   binary now reads correctly.
 
+## ✅ DONE (2026-06-07) — repo-name label suppression in `pickFrameLabel` (decision `9c05cabc`, merged)
+
+The #1 label-quality lead. The biggest low-F1 bucket was frames labelled by the
+repo name / top package (e.g. `saleor` on ~33 clusters) — ubiquitous across the
+repo, so non-distinguishing, but uncatchable by the per-cluster salience gate.
+- New pure `ubiquitousPathSegments()` ([inject-frames.ts](src/frame-extraction/inject-frames.ts))
+  computes path segments present in ≥90% of members across **all** clusters,
+  guarded to fire only with ≥2 clusters (one cluster → the shared prefix IS the
+  best label). Threaded into `pickFrameLabel` as `suppressedTerms` (gate + both
+  path fallbacks); wired through `buildFrameAssignments` and `scoreClusters` so
+  injected labels and the F1 metric agree.
+- **Deterministic offline check** on cached `saleor` data (82 clusters):
+  "saleor"-containing labels **33 → 0**; F1 mean **0.389 → 0.425**, weighted
+  **0.361 → 0.425**; e.g. `saleor/graphql`→`mutations`, `saleor/payment`→`payment`.
+  Backward compatible (default empty set). 775/775 tests (5 new), `tsc` clean.
+- **Follow-up:** regenerate the committed F1 baseline across the full corpus to
+  *lock* the gain. Not done here (full corpus eval is heavy + HDBSCAN-nondeterministic);
+  safe to defer — an improvement never trips the regression gate (it only fails
+  on >0.05 *regression* or <0.45 floor).
+
 ## ▶ NEXT STEP (fresh session) — `ingest_traces` parser false-positive (last allowlist entry)
 
 The contract allowlist now has exactly one entry left, and it's **not a bug**:
