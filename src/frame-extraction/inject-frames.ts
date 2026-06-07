@@ -73,13 +73,54 @@ function isLabelEligibleWord(
   word: string,
   params: ReadonlySet<string>,
   memberPaths: readonly string[],
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
 ): boolean {
   const w = word.toLowerCase();
   if (isGenericToken(w)) return false;
   if (isStructuralLabelToken(w)) return false;
   if (params.has(w)) return false;
+  // Repo-wide ubiquitous terms (the repo name / top-level package) carry no
+  // signal for distinguishing one frame from another — see ubiquitousPathSegments.
+  if (suppressedTerms.has(w)) return false;
   if (memberPaths.length > 0 && pathSalience(w, memberPaths) < 0.5) return false;
   return true;
+}
+
+const EMPTY_TERMS: ReadonlySet<string> = new Set();
+
+/**
+ * Path segments that appear in at least `threshold` of ALL member paths across
+ * every cluster — i.e. the repo-wide ubiquitous segments (typically the repo
+ * name or top-level source package, e.g. `saleor` in `saleor/...`).
+ *
+ * Such a segment has member-salience ~1.0 in every cluster, so the per-cluster
+ * salience gate in {@link isLabelEligibleWord} can't tell it apart from a
+ * genuinely characterising term — yet it labels nothing distinctly (it's shared
+ * by the whole repo). Computing it needs the full set of clusters, which only
+ * the caller ({@link buildFrameAssignments} / scoreClusters) has. Feed the
+ * result into {@link pickFrameLabel} as `suppressedTerms`.
+ */
+export function ubiquitousPathSegments(
+  memberPathsPerCluster: readonly (readonly string[])[],
+  threshold = 0.9,
+): Set<string> {
+  const out = new Set<string>();
+  // A term is "non-characterising" only if it fails to DISTINGUISH frames — which
+  // requires ≥2 frames to distinguish. With a single cluster the shared prefix
+  // IS the best label (nothing to tell it apart from), so suppress nothing.
+  if (memberPathsPerCluster.length < 2) return out;
+  const all = memberPathsPerCluster.flat();
+  if (all.length === 0) return out;
+  const df = new Map<string, number>();
+  for (const p of all) {
+    // Count each distinct segment once per path (document frequency).
+    const segs = new Set(p.split("/").filter((s) => s.length > 0).map((s) => s.toLowerCase()));
+    for (const s of segs) df.set(s, (df.get(s) ?? 0) + 1);
+  }
+  for (const [seg, n] of df) {
+    if (n / all.length >= threshold) out.add(seg);
+  }
+  return out;
 }
 
 /** Render a multi-word n-gram label as a path-like string that mirrors the
@@ -163,13 +204,14 @@ export function pickFrameLabel(
   topTokens: readonly string[],
   memberPaths: readonly string[],
   clusterId?: number,
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
 ): string {
   const params = routeParamTokens(memberPaths);
 
   // Pass 1: first n-gram where every word is label-eligible.
   for (const token of topTokens) {
     const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
-    if (parts.length > 1 && parts.every((p) => isLabelEligibleWord(p, params, memberPaths))) {
+    if (parts.length > 1 && parts.every((p) => isLabelEligibleWord(p, params, memberPaths, suppressedTerms))) {
       return formatPathOrderedLabel(token, memberPaths);
     }
   }
@@ -177,17 +219,17 @@ export function pickFrameLabel(
   // Pass 2: first label-eligible unigram.
   for (const token of topTokens) {
     const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
-    if (parts.length === 1 && isLabelEligibleWord(parts[0]!, params, memberPaths)) {
+    if (parts.length === 1 && isLabelEligibleWord(parts[0]!, params, memberPaths, suppressedTerms)) {
       return token;
     }
   }
 
   // Pass 3: path-prefix fallback.
-  const prefix = commonPathSegmentLabel(memberPaths);
+  const prefix = commonPathSegmentLabel(memberPaths, suppressedTerms);
   if (prefix) return prefix;
 
   // Pass 4: dominant-segment fallback (non-prefix convention clusters).
-  const dominant = dominantPathSegmentLabel(memberPaths);
+  const dominant = dominantPathSegmentLabel(memberPaths, suppressedTerms);
   if (dominant) return dominant;
 
   // Pass 5: cluster id fallback.
@@ -205,7 +247,10 @@ export function pickFrameLabel(
  *  that is a shared DIRECTORY in more members (a stronger topical grouping
  *  than a filename), then deeper, longer, lexicographically. Returns null
  *  when nothing characterises a majority — keeping the honest `cluster:<id>`. */
-function dominantPathSegmentLabel(paths: readonly string[]): string | null {
+function dominantPathSegmentLabel(
+  paths: readonly string[],
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
   if (paths.length === 0) return null;
   const params = routeParamTokens(paths);
   interface Cand { original: string; count: number; dirCount: number; maxDepth: number }
@@ -230,7 +275,7 @@ function dominantPathSegmentLabel(paths: readonly string[]): string | null {
       if (seg.length === 0) return;
       const lower = seg.toLowerCase();
       if (isDynamicSegment(lower) || isGenericToken(lower) ||
-          isStructuralLabelToken(lower) || params.has(lower)) return;
+          isStructuralLabelToken(lower) || params.has(lower) || suppressedTerms.has(lower)) return;
       const prev = here.get(lower);
       if (!prev) here.set(lower, { original: seg, depth, isDir });
       else here.set(lower, { original: prev.original, depth: Math.max(prev.depth, depth), isDir: prev.isDir || isDir });
@@ -276,7 +321,10 @@ function isStrongerCandidate(
  *  generic segments. Returns null when no informative common segment exists.
  *  Filenames (the last segment of each path) are dropped before comparison
  *  so we never label a frame after one of its files. */
-function commonPathSegmentLabel(paths: readonly string[]): string | null {
+function commonPathSegmentLabel(
+  paths: readonly string[],
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
   if (paths.length === 0) return null;
   const splits = paths.map((p) => {
     const parts = p.split("/");
@@ -306,6 +354,7 @@ function commonPathSegmentLabel(paths: readonly string[]): string | null {
     const seg = splits[0]![i]!;
     if (isDynamicSegment(seg)) continue;
     if (isGenericToken(seg.toLowerCase())) continue;
+    if (suppressedTerms.has(seg.toLowerCase())) continue;
     return seg;
   }
   return null;
@@ -322,11 +371,16 @@ export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[]
   const topTokens = ((cluster.parameters ?? {}) as Record<string, unknown>)["top_tokens_per_cluster"] as
     | Record<string, string[]>
     | undefined ?? {};
+  // Repo-wide ubiquitous segments (repo name / top package) computed across all
+  // clusters so no single frame is labelled by a term shared by the whole repo.
+  const suppressed = ubiquitousPathSegments(
+    cluster.clusters.filter((c) => c.cluster_id !== -1).map((c) => c.member_paths),
+  );
   const out: FrameAssignment[] = [];
   for (const c of cluster.clusters) {
     if (c.cluster_id === -1) continue;
     const tokens = topTokens[String(c.cluster_id)] ?? [];
-    const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id);
+    const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id, suppressed);
     for (const path of c.member_paths) {
       out.push({
         file_path: path,

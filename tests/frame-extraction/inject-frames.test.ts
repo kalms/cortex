@@ -6,10 +6,45 @@ import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import {
   pickFrameLabel,
+  ubiquitousPathSegments,
   buildFrameAssignments,
   injectFrames,
 } from "../../src/frame-extraction/inject-frames.js";
 import type { ClusterResult } from "../../src/frame-extraction/types.js";
+
+describe("repo-name suppression", () => {
+  it("flags a path segment present in >=90% of all members as ubiquitous", () => {
+    const perCluster = [
+      ["saleor/asgi/a.py", "saleor/asgi/b.py"],
+      ["saleor/graphql/m.py", "saleor/order/x.py"],
+    ];
+    expect(ubiquitousPathSegments(perCluster)).toEqual(new Set(["saleor"]));
+  });
+
+  it("flags nothing when no single top-level dir dominates", () => {
+    const perCluster = [["src/a.ts", "src/b.ts"], ["tests/c.ts"], ["docs/d.md"]];
+    expect(ubiquitousPathSegments(perCluster).has("src")).toBe(false);
+  });
+
+  it("returns an empty set for no paths", () => {
+    expect(ubiquitousPathSegments([]).size).toBe(0);
+  });
+
+  it("suppresses the repo name so a characterising token wins instead", () => {
+    const tokens = ["saleor asgi", "asgi", "application"];
+    const paths = ["saleor/asgi/__init__.py", "saleor/asgi/handler.py", "saleor/asgi/cors.py"];
+    // Without suppression the repo name leaks into the label.
+    expect(pickFrameLabel(tokens, paths).includes("saleor")).toBe(true);
+    // With suppression it falls through to the real token.
+    expect(pickFrameLabel(tokens, paths, undefined, new Set(["saleor"]))).toBe("asgi");
+  });
+
+  it("never re-emits a suppressed segment via the path fallbacks", () => {
+    // No usable tokens → would normally fall back to the common path segment.
+    const paths = ["saleor/a/x.py", "saleor/b/y.py", "saleor/c/z.py"];
+    expect(pickFrameLabel([], paths, 5, new Set(["saleor"])).includes("saleor")).toBe(false);
+  });
+});
 
 describe("pickFrameLabel — original behavior", () => {
   it("returns the first non-generic top token", () => {
