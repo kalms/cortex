@@ -36,7 +36,41 @@ silently" watch-for that bit the previous session.
 - **Status:** `tsc` clean; **802/802 TS tests** green; RPC-seam regression guard
   green. Cortex's own index reindexed → `cortex freshness` = `fresh`.
 - **Possible follow-up:** make incremental truly in-place (C-side) to unlock a
-  safe in-session post-commit refresh (Task 10). Out of scope here.
+  safe in-session post-commit refresh (Task 10). Out of scope here. See NEXT STEP.
+
+## ▶ NEXT STEP — make incremental indexing in-place (unlocks mid-session auto-refresh / Task 10)
+
+**Why:** the freshness system tells an agent *when* the graph is stale, but
+mid-session it can't safely *fix* it. Auto-refresh runs only at SessionStart
+because the incremental pipeline is **delete+recreate**, not in-place: it loads
+the graph into memory, merges changed files, then `ctx_unlink()`s `.cortex/db`
+(+`-wal`/`-shm`) and re-dumps. Doing that while the long-lived MCP server holds
+open pooled `RepoContext.graphDb` handles reproduces the graph-db-stale-reads
+bug (handle pinned to a deleted inode). So the graph only self-heals between
+sessions — not between commits during heavy dev.
+
+**Goal:** make incremental indexing UPDATE/DELETE rows in the existing
+`.cortex/db` instead of unlink+re-dump, so the DB file (and any open handle)
+survives. Then ship the deferred **Task 10** (post-commit `PostToolUse`
+incremental refresh) — the `Bash(git commit*)` hook matcher already exists in
+[hooks/hooks.json](hooks/hooks.json), and the script shape is in the plan.
+
+**Pointers:**
+- Evidence / rationale / rejected alternatives: decision `bbf0fce5`
+  (`bbf0fce5-df70-417e-80da-c53be00e2671`).
+- The delete+recreate path: `internal/indexer/src/pipeline/pipeline_incremental.c`
+  (~line 265, `ctx_unlink(db_path)` in the dump-and-persist step) and
+  `internal/indexer/src/pipeline/pipeline.c:691` (`try_incremental_or_delete_db`).
+- Task 10 (script + hook registration, currently NOT shipped):
+  [plan §Task 10](docs/superpowers/plans/2026-06-07-graph-freshness-and-auto-refresh.md).
+- This is a **meaty C change** to the indexer's persistence/dump path — warrants
+  its own brainstorm → spec → plan cycle. Also helps SessionStart: a non-destructive
+  incremental removes the subtle hook-vs-server-bind race on `.cortex/db`.
+
+**Secondary (smaller) follow-up:** confirm the SessionStart hook's
+delete+recreate reindex completes before the MCP server binds its pooled handle
+(or move the server to lazy/re-resolving handles) — same inode-race class,
+present today only in the narrow session-start window.
 
 ---
 
