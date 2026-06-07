@@ -18,28 +18,52 @@
 
 REPO="$PWD"
 
-# The MCP server resolves the DB path via resolveCortexDbPath():
-#   1. $CORTEX_DB env override
-#   2. <repo>/.cortex/graph.db (walks up for .git)
-#   3. fallback under the cache dir
-# We replicate just (1) and (2) — the common cases. A graph.db file present
-# in either location is a strong proxy for "indexed".
+# The MCP server resolves the read DB via resolveGraphDbForRead(), preferring
+# the canonical <repo>/.cortex/db and falling back to the legacy graph.db /
+# cache slot. We replicate the common cases here. We use `-s` (exists AND
+# non-empty) rather than `-f`: a 0-byte `.cortex/db` is a degraded/aborted
+# index, NOT an indexed repo — treating it as indexed would mask the stale-read
+# fallback (see the graph-db-stale-reads field note).
 INDEX_STATE="not-indexed"
 DB_PATH=""
-if [ -n "$CORTEX_DB" ] && [ -f "$CORTEX_DB" ]; then
+if [ -n "$CORTEX_DB" ] && [ -s "$CORTEX_DB" ]; then
     DB_PATH="$CORTEX_DB"
     INDEX_STATE="indexed"
-elif [ -f "$REPO/.cortex/graph.db" ]; then
+elif [ -s "$REPO/.cortex/db" ]; then
+    DB_PATH="$REPO/.cortex/db"
+    INDEX_STATE="indexed"
+elif [ -s "$REPO/.cortex/graph.db" ]; then
     DB_PATH="$REPO/.cortex/graph.db"
     INDEX_STATE="indexed"
 else
     # Walk up to the git root and check there too — handles cases where
     # the hook fires in a subdirectory of the repo.
     GIT_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"
-    if [ -n "$GIT_ROOT" ] && [ -f "$GIT_ROOT/.cortex/graph.db" ]; then
+    if [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/db" ]; then
+        DB_PATH="$GIT_ROOT/.cortex/db"
+        REPO="$GIT_ROOT"
+        INDEX_STATE="indexed"
+    elif [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/graph.db" ]; then
         DB_PATH="$GIT_ROOT/.cortex/graph.db"
         REPO="$GIT_ROOT"
         INDEX_STATE="indexed"
+    fi
+fi
+
+# Locate a cortex CLI for best-effort freshness / decision-count probes.
+CORTEX_BIN=""
+if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/cortex" ]; then
+    CORTEX_BIN="$CLAUDE_PLUGIN_ROOT/bin/cortex"
+elif [ -x "$REPO/bin/cortex" ]; then
+    CORTEX_BIN="$REPO/bin/cortex"
+fi
+
+# Fold the freshness verdict into the banner so a stale/degraded graph is loud.
+# Best-effort: any failure leaves the plain "indexed" state untouched.
+if [ "$INDEX_STATE" = "indexed" ] && [ -n "$CORTEX_BIN" ]; then
+    FRESHNESS="$(cd "$REPO" && "$CORTEX_BIN" freshness 2>/dev/null | head -1)"
+    if [ -n "$FRESHNESS" ] && [ "$FRESHNESS" != "fresh" ]; then
+        INDEX_STATE="indexed ($FRESHNESS)"
     fi
 fi
 
@@ -58,7 +82,7 @@ the repo the call is about.
 EOF
 
 case "$INDEX_STATE" in
-    indexed)
+    indexed*)
         cat <<'EOF'
 The repo is indexed by Cortex. For code exploration, prefer these MCP tools
 over grep/Read:
@@ -81,15 +105,10 @@ After any non-trivial commit, consider:
 EOF
         # Cold-start decision seeding: if the durable decisions store is empty,
         # nudge the agent to bootstrap it. Degrade-safe — never errors, and only
-        # prompts when we can confirm a zero count.
-        CORTEX_CLI=""
-        if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/cortex" ]; then
-            CORTEX_CLI="$CLAUDE_PLUGIN_ROOT/bin/cortex"
-        elif [ -x "$REPO/bin/cortex" ]; then
-            CORTEX_CLI="$REPO/bin/cortex"
-        fi
-        if [ -n "$CORTEX_CLI" ]; then
-            DECISION_COUNT="$(cd "$REPO" && "$CORTEX_CLI" decision count 2>/dev/null | tr -dc '0-9')"
+        # prompts when we can confirm a zero count. Reuses $CORTEX_BIN resolved
+        # above.
+        if [ -n "$CORTEX_BIN" ]; then
+            DECISION_COUNT="$(cd "$REPO" && "$CORTEX_BIN" decision count 2>/dev/null | tr -dc '0-9')"
             if [ "$DECISION_COUNT" = "0" ]; then
                 cat <<'EOF'
 
