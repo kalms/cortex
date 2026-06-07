@@ -409,6 +409,46 @@ TEST(incr_modify_file) {
     PASS();
 }
 
+TEST(incr_inplace_preserves_inode) {
+    /* The live DB exists from earlier tests (incr_full_index ran first). */
+    struct stat st_before;
+    ASSERT_EQ(stat(g_dbpath, &st_before), 0);
+    ino_t ino_before = st_before.st_ino;
+    ASSERT_GT((long)ino_before, 0);
+
+    /* A handle opened BEFORE the refresh — simulates the MCP server's pooled
+     * connection. It must stay valid and observe the refreshed graph. */
+    ctx_store_t *pre = ctx_store_open_path(g_dbpath);
+    ASSERT(pre != NULL);
+    int count_pre = ctx_store_count_nodes(pre, g_project);
+    ASSERT_GT(count_pre, 0);
+
+    /* Mutate a source file and run an incremental index. */
+    char path[512];
+    snprintf(path, sizeof(path), "%s/fastapi/applications.py", g_repodir);
+    FILE *f = fopen(path, "a");
+    ASSERT(f != NULL);
+    fprintf(f, "\n\ndef incr_inode_probe_fn(z: int) -> int:\n    return z * 2\n");
+    fclose(f);
+
+    char *resp = index_repo();
+    ASSERT(resp != NULL);
+    ASSERT(strstr(resp, "indexed") != NULL);
+    free(resp);
+
+    /* The live file must be the SAME inode — never unlinked+recreated. */
+    struct stat st_after;
+    ASSERT_EQ(stat(g_dbpath, &st_after), 0);
+    ASSERT_EQ((long)st_after.st_ino, (long)ino_before);
+
+    /* The handle opened before the refresh sees the new node on a fresh query. */
+    int count_post = ctx_store_count_nodes(pre, g_project);
+    ASSERT_GT(count_post, count_pre);
+    ctx_store_close(pre);
+
+    PASS();
+}
+
 TEST(incr_formatter_run) {
     /* Baseline */
     char *resp = index_repo();
@@ -2861,6 +2901,7 @@ SUITE(incremental) {
 
         /* Phase 3: Incremental deltas */
         RUN_TEST(incr_modify_file);
+        RUN_TEST(incr_inplace_preserves_inode);
         RUN_TEST(incr_formatter_run);
         RUN_TEST(incr_add_file);
         RUN_TEST(incr_delete_file);
