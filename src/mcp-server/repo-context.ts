@@ -4,13 +4,14 @@ import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
-import { resolveDecisionsDbPath, resolveGraphDbForRead } from "../db/resolve-path.js";
+import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath } from "../db/resolve-path.js";
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { GraphStore } from "../graph/store.js";
+import { freshnessForContext, attachFreshness } from "./freshness.js";
 
 /**
  * Everything a tool needs to act on one repo. Constructed by
@@ -25,6 +26,9 @@ export interface RepoContext {
    *  Read-path tools MUST use this rather than re-deriving a path, so every
    *  reader hits the same populated store the resolver chose. */
   readonly graphDbPath: string;
+  /** True when graphDbPath is the canonical <repo>/.cortex/db; false when the
+   *  resolver fell back to a legacy graph.db / cache slot (a degraded read). */
+  readonly canonical: boolean;
   readonly graphDb: Database.Database;
   readonly decisionsDb: Database.Database;
   readonly store: GraphStore;
@@ -281,6 +285,7 @@ export class RepoContextResolver {
     const ctx: RepoContext = Object.freeze({
       repoPath: canonical,
       graphDbPath,
+      canonical: graphDbPath === resolveCortexDbPath(canonical),
       graphDb,
       decisionsDb,
       store,
@@ -391,7 +396,7 @@ export function registerTool<A extends { repo_path?: string }, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: (ctx: RepoContext, args: A) => Promise<R>,
-  options: { resolver: RepoContextResolver; crossRepo?: false; allowUnindexed?: false },
+  options: { resolver: RepoContextResolver; crossRepo?: false; allowUnindexed?: false; freshnessAware?: boolean },
 ): (rawArgs: unknown) => Promise<R>;
 export function registerTool<A, R>(
   name: string,
@@ -409,7 +414,7 @@ export function registerTool<A, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: any,
-  options: { resolver: RepoContextResolver; crossRepo?: boolean; allowUnindexed?: boolean },
+  options: { resolver: RepoContextResolver; crossRepo?: boolean; allowUnindexed?: boolean; freshnessAware?: boolean },
 ): (rawArgs: unknown) => Promise<R> {
   return async (rawArgs: unknown) => {
     // crossRepo skips the repo_path pre-check entirely (e.g. list_projects).
@@ -434,6 +439,11 @@ export function registerTool<A, R>(
       return handler(options.resolver, args);
     }
     const ctx = options.resolver.resolve(args.repo_path!);
-    return handler(ctx, args);
+    const result = await handler(ctx, args);
+    if (options.freshnessAware && result && typeof result === "object" && "content" in (result as object)) {
+      const f = freshnessForContext({ repoPath: ctx.repoPath, graphDb: ctx.graphDb, canonical: ctx.canonical });
+      return attachFreshness(result as any, f) as R;
+    }
+    return result;
   };
 }
