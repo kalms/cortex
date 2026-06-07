@@ -272,9 +272,13 @@ static void dump_and_persist(ctx_gbuf_t *gbuf, const char *db_path, const char *
     char tmp[INCR_WAL_BUF];
     char tmp_wal[INCR_WAL_BUF];
     char tmp_shm[INCR_WAL_BUF];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", db_path);
+    int tmp_len = snprintf(tmp, sizeof(tmp), "%s.tmp", db_path);
     snprintf(tmp_wal, sizeof(tmp_wal), "%s-wal", tmp);
     snprintf(tmp_shm, sizeof(tmp_shm), "%s-shm", tmp);
+    if (tmp_len < 0 || tmp_len >= (int)sizeof(tmp)) {
+        ctx_log_error("incremental.persist", "phase", "tmp_path_truncated");
+        return; /* live DB untouched */
+    }
 
     /* Clean any stale temp from a previous interrupted run (temp only — never
      * the live DB). */
@@ -313,8 +317,10 @@ static void dump_and_persist(ctx_gbuf_t *gbuf, const char *db_path, const char *
         }
     }
 
-    /* Page-copy temp -> live, preserving the live inode + open handles.  Retry on
-     * transient SQLITE_BUSY from a concurrent reader (e.g. the MCP server). */
+    /* Page-copy temp -> live, preserving the live inode + open handles.  The live
+     * connection already carries PRAGMA busy_timeout (~10s), which absorbs transient
+     * contention from a concurrent reader (e.g. the MCP server); this retry/backoff
+     * loop is a belt-and-suspenders layer for contention that outlasts that timeout. */
     ctx_store_t *live = ctx_store_open_path(db_path);
     if (live && tmp_store) {
         int rc = CTX_STORE_ERR;
@@ -326,7 +332,7 @@ static void dump_and_persist(ctx_gbuf_t *gbuf, const char *db_path, const char *
             ctx_usleep((unsigned)INCR_RESTORE_BACKOFF_MS * 1000U);
         }
         if (rc == CTX_STORE_OK) {
-            ctx_store_checkpoint(live);
+            ctx_store_checkpoint(live); /* fold live WAL into the main file (live -wal/-shm intentionally never unlinked) */
             ctx_log_info("incremental.persist", "path", "in_place", "elapsed_ms",
                          itoa_buf((int)elapsed_ms(t)));
         } else {
