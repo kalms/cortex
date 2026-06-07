@@ -30,6 +30,30 @@ Fall back to `Grep`/`Glob`/`Read` only when:
 - you need a regex feature `search_code` doesn't support
 - the Cortex tool returned empty AND you've confirmed the index is current
 
+### Freshness signal — trust the graph, don't pre-emptively grep
+
+Every read tool above (`search_graph`, `get_code_snippet`, `trace_path`,
+`query_graph`, `search_code`, `get_architecture`, `why_was_this_built`) now
+carries a **freshness verdict**. When the graph is current, results are
+returned unchanged. When it isn't, a one-line note is appended to the result
+and a structured `freshness` field is attached:
+
+- `fresh` — graph matches HEAD + working tree; trust it fully.
+- `stale:dirty` / `stale:commits` / `stale:both` — the working tree or HEAD
+  moved since the last index. Results may be slightly behind. This is **not**
+  a cue to fall back to grep — it's a cue to run `index_repository` (or let the
+  SessionStart auto-refresh catch it) to bring the graph current.
+- `empty` — the DB is degraded/empty (0-byte or fallback). **Reindex**
+  (`index_repository`) before trusting any read.
+- `unknown` — indexed before freshness tracking, or not a git repo. Reindex to
+  enable the signal.
+
+A `stale`/`empty` signal means **reindex**, not "abandon Cortex for grep."
+The SessionStart banner (`cortex freshness`) shows the same verdict; auto-refresh
+runs out-of-band at SessionStart (full for empty/unknown, incremental for stale).
+Gates: `CORTEX_FRESHNESS=0` disables the signal; `CORTEX_AUTO_REFRESH=0` keeps
+the signal but disables auto-refresh.
+
 ## MCP tool routing — always pass repo_path
 
 **Contract:** every Cortex MCP tool **requires an absolute `repo_path`**
