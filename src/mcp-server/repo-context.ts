@@ -4,7 +4,7 @@ import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
-import { resolveDecisionsDbPath, resolveGraphDbForRead } from "../db/resolve-path.js";
+import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath } from "../db/resolve-path.js";
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
@@ -25,6 +25,9 @@ export interface RepoContext {
    *  Read-path tools MUST use this rather than re-deriving a path, so every
    *  reader hits the same populated store the resolver chose. */
   readonly graphDbPath: string;
+  /** True when graphDbPath is the canonical <repo>/.cortex/db; false when the
+   *  resolver fell back to a legacy graph.db / cache slot (a degraded read). */
+  readonly canonical: boolean;
   readonly graphDb: Database.Database;
   readonly decisionsDb: Database.Database;
   readonly store: GraphStore;
@@ -281,6 +284,7 @@ export class RepoContextResolver {
     const ctx: RepoContext = Object.freeze({
       repoPath: canonical,
       graphDbPath,
+      canonical: graphDbPath === resolveCortexDbPath(canonical),
       graphDb,
       decisionsDb,
       store,
