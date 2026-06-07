@@ -1,6 +1,42 @@
-# Cortex — Session Handoff (2026-06-07, label-quality verdict + label rendering)
+# Cortex — Session Handoff (2026-06-07, cross-language contract edges + label-quality)
 
-## TL;DR (2026-06-07 session — read this first)
+## TL;DR (latest — cross-language contract edges, read this first)
+
+Shipped a new **`src/contracts/`** subsystem that makes the C↔TS RPC seam a
+first-class graph fact — built to fix the "graph isn't reached for because grep
+substitutes for everything it does" gap, by adding the one capability grep
+*can't* do: cross-language contract impact. (Decision `ffff6d54`; spec
+[2026-06-07-cross-language-contract-edges-design.md](docs/superpowers/specs/2026-06-07-cross-language-contract-edges-design.md);
+plan [2026-06-07-cross-language-contract-edges.md](docs/superpowers/plans/2026-06-07-cross-language-contract-edges.md).)
+
+- **What it does:** a TS post-index pass scans `callIndexer("tool",{keys})`
+  consumers and `ctx_mcp_get_*_arg(args,"key")` providers in `handle_<tool>`,
+  and writes `Anchor` nodes + `BINDS_KEY` edges (`{role,keys,symbol,line}`) into
+  `.cortex/db`. Wired after `runFrameExtraction` in both CLI + MCP index paths
+  (never throws into indexing; gate `CORTEX_CONTRACTS=0`). New **`check_contracts`**
+  MCP tool reads the persisted edges → arg-key mismatches + coverage.
+- **Verified end-to-end on the live graph:** 15 anchors / 19 `BINDS_KEY` edges;
+  `check_contracts` surfaces the mismatches. Built via 8 TDD tasks, two-stage
+  reviewed; **760/760 tests** green, `tsc` clean.
+- **Findings the tool discovered on first run** (3 allowlisted in the regression
+  guard `tests/regression/contracts-rpc-seam.test.ts`):
+  1. **`detect_changes`** — the known HANDOFF #4 bug, now with a **live regression
+     guard** (TS sends `repo_path`; C reads `project`/`base_branch`/`scope`/`depth`,
+     never `repo_path`). Remove the allowlist entry when #4 lands → guard enforces it.
+  2. **`index_repository`** — *real gap*: the C handler reads a `mode`
+     (fast/moderate) arg that the MCP schema (`indexRepositoryShape`) never
+     exposes, so no caller can choose index depth. Fix: add `mode` to the shape.
+  3. **`ingest_traces`** — *parser limitation* (not a bug): the handler reads
+     `traces` via raw `yyjson_obj_get`, not the `ctx_mcp_get_*_arg` convention the
+     parser models. Don't broaden the parser to `yyjson_obj_get` (it's used
+     everywhere for response-building → massive over-capture); needs a targeted approach.
+- **Follow-ups (named in the spec):** event/config-key anchors on the same model;
+  the typed-manifest approach (C) for the RPC layer; fix the `index_repository`
+  `mode` gap; refine the parser for raw-yyjson handlers.
+
+---
+
+## TL;DR (2026-06-07 earlier session — label-quality verdict + label rendering)
 
 Adjudicated the open "is F1 specificity too harsh?" question **empirically and
 cheaply** (manual inspection of the cached corpus, no new LLM harness), then
