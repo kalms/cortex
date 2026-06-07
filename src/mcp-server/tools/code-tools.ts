@@ -20,6 +20,7 @@ import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
+import { runContractExtraction } from "../../contracts/run-contracts.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { Registry } from "../../db/registry.js";
@@ -310,7 +311,8 @@ async function withFrames(
   } catch (e) {
     frames = { status: "failed", reason: e instanceof Error ? e.message : String(e) };
   }
-  return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}` }] };
+  const contracts = await runContractExtraction({ repoPath, project, dbPath });
+  return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}\ncontracts: ${JSON.stringify(contracts)}` }] };
 }
 
 /**
