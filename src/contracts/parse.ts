@@ -32,7 +32,11 @@ export function parseTsConsumers(src: string, file: string): { bindings: Binding
 }
 
 const C_HANDLER = /\bstatic\s+char\s*\*\s*handle_([a-z0-9_]+)\s*\(/g;
-const C_ARG = /ctx_mcp_get_(?:string|int|bool)_arg\s*\(\s*args\s*,\s*"([^"]+)"\s*[,)]/g;
+// Matches the whole ctx_mcp_get_<type>_arg accessor family (string/int/bool/
+// array_len/…) — any member reads a tool argument by key. Generalised over the
+// type so new typed accessors are recognised without editing this regex; the
+// (args, "literal") shape keeps it from matching unrelated yyjson reads.
+const C_ARG = /ctx_mcp_get_\w+_arg\s*\(\s*args\s*,\s*"([^"]+)"\s*[,)]/g;
 
 export function parseCProviders(src: string, file: string): { bindings: Binding[]; unrecognized: number } {
   const heads = [...src.matchAll(C_HANDLER)];
