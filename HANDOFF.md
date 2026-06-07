@@ -1,5 +1,39 @@
 # Cortex — Session Handoff (2026-06-07, cross-language contract edges + label-quality)
 
+## ⚑ VERIFICATION PASS (2026-06-07, latest — read this first)
+
+Verified HANDOFF claims against reality and fixed the gap that mattered for
+tool effectiveness:
+
+- **Label-quality arc — ACCURATE.** Metric, F1 gate (`evaluateF1Gate`, wired
+  into `eval:frames` by default), path-ordered rendering (`formatPathOrderedLabel`),
+  viewer membership matching (`buildFramePathIndex`/`frameIdForPath`) all exist
+  and match the descriptions; 78 tests cover them.
+- **`index_repository` mode gap — CLOSED + merged** (decision `0155458d`):
+  schema `mode` enum, threaded through `callIndexer`, folded into the cache key,
+  `cortex index --mode` flag, allowlist entry removed. 766/766 TS tests, `tsc`
+  clean.
+- **The real problem found: the live graph tooling was serving STALE/EMPTY data.**
+  `.cortex/db` (canonical, the only write target) had drifted to **0 bytes**;
+  reads silently fell back to a 2-day-old `graph.db` with `project=""`, no
+  frames, and no contract edges. So `check_contracts` returned **0 mismatches**
+  — not because the seam was clean, but because no `BINDS_KEY` edges persisted.
+  The detection logic was correct (live source-scan + regression guard always
+  found the 2 mismatches); the persistence/read layer was broken.
+- **FIXED by a clean reindex** (`./bin/cortex index`): `.cortex/db` now 50MB,
+  all nodes keyed to the project, **118 frames / 7 clusters**, **14 anchors / 19
+  BINDS_KEY edges (14 provides + 5 consumes)**. MCP `check_contracts` now
+  surfaces the 2 real mismatches (`detect_changes`, `ingest_traces`) and shows
+  `index_repository` matched — **end-to-end, no plugin restart needed.** The
+  earlier `project=""`/0-edge state was stale DB, NOT an `inject.ts` bug.
+- **Watch-for:** the canonical `.cortex/db` can drift to 0 bytes (WAL not
+  checkpointed / file truncated) and reads fall back to a stale `graph.db`
+  without warning. A `./bin/cortex index` (or `index_repository`) rebuilds and
+  checkpoints it. See memory `project-graph-db-stale-reads`.
+- **Still open (genuine):** `detect_changes` C-side fix (the one remaining real
+  contract mismatch — `ingest_traces` is a parser false positive). See NEXT STEP
+  below.
+
 ## TL;DR (latest — cross-language contract edges, read this first)
 
 Shipped a new **`src/contracts/`** subsystem that makes the C↔TS RPC seam a
