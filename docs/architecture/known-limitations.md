@@ -66,3 +66,15 @@ CORTEX_DB_PATH="$SHARED" npm run dev
 **Workaround:** Re-cluster + re-inject after every re-index. The frame-extraction pipeline is fast enough (~seconds on a typical repo) that this isn't a real cost; just remember to do it.
 
 **Real fix:** Same as the indexer scoping fix — once dump is project-scoped and incremental, frame_id values on other projects' nodes survive.
+
+## Incremental indexing is delete+recreate, not in-place
+
+**File:** `internal/indexer/src/pipeline/pipeline_incremental.c` (~line 265), `internal/indexer/src/pipeline/pipeline.c:691` (`try_incremental_or_delete_db`)
+
+**Behaviour:** "Incremental" indexing still rebuilds the DB *file*: it loads the existing graph into an in-memory buffer, merges the changed files, then `ctx_unlink()`s `.cortex/db` (+`-wal`/`-shm`) and re-dumps the merged graph. Data is preserved across the refresh, but the file — and any open SQLite handle pinned to its inode — is replaced.
+
+**Symptom:** A reindex that runs while the long-lived MCP server holds an open pooled `RepoContext.graphDb` handle leaves that handle pointing at a deleted inode → stale/empty reads (the `project-graph-db-stale-reads` failure mode). This is why the freshness system's **auto-refresh runs only at SessionStart** (a separate process, before any reads) and the post-commit *in-session* refresh (freshness plan Task 10) was deliberately not shipped — see decision `bbf0fce5`.
+
+**Workaround:** Reindex at session boundaries (SessionStart auto-refresh handles this). Mid-session, the freshness signal tells you the graph is stale so you can reindex explicitly. The decisions DB (`.cortex/decisions.db`) is a separate sibling file, unaffected by the graph-DB unlink.
+
+**Real fix:** Make incremental indexing UPDATE/DELETE rows in the existing `.cortex/db` instead of unlink+re-dump, so the file/handle survive — unlocking safe in-session post-commit auto-refresh (Task 10). Shares the dump-path rewrite with the project-scoping fix above. See decision `bbf0fce5` and the HANDOFF NEXT STEP. Requires recompiling the C binary.

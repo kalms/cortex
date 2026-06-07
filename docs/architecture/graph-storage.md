@@ -115,6 +115,40 @@ reads until it is re-indexed into `.cortex/db`.
 > graph cache (`.cortex/graph/<ref>.db`) would touch only the resolver, leaving
 > the registry and decisions DB untouched.
 
+## Freshness (is the read current?)
+
+The read path above will, by design, serve a *populated fallback*
+(`.cortex/graph.db` / cache slug) when `.cortex/db` is missing or 0-byte — which
+returned **stale data with no signal** before this layer existed (see
+[known-limitations](known-limitations.md) and the
+`project-graph-db-stale-reads` history). Every indexed read now carries a
+**freshness verdict** (`src/mcp-server/freshness.ts`), attached at the
+`registerTool` chokepoint for the read tools.
+
+- **Baseline.** Both index paths write `indexed_commit`, `indexed_dirty_sig`,
+  and `indexed_at` into a `cortex_index_meta` key/value table in `.cortex/db`
+  (`src/graph/index-meta.ts`, captured by `src/graph/capture-index-meta.ts`).
+- **Per-call check** (memoized 2 s/repo). Compares the baseline to the live
+  `git rev-parse HEAD` + `git status --porcelain` signature →
+  `fresh | stale:commits | stale:dirty | stale:both`. `RepoContext.canonical`
+  (true only when `graphDbPath === resolveCortexDbPath(...)`) plus a 0-node check
+  yields **`empty`** — this is the verdict that makes the degraded *fallback*
+  above **loud instead of silent**. No baseline / non-git → `unknown`.
+  Storing `indexed_dirty_sig` means indexing a dirty tree reads `fresh` (the
+  graph reflects that state); only *further* edits flip it to stale.
+- **Surfacing.** `fresh` leaves results untouched; otherwise a
+  `⚠ cortex freshness: …` note is appended to the result text and a structured
+  `freshness` field is added. `cortex freshness` (CLI) prints the same verdict
+  into the SessionStart banner; the banner's index detection uses `-s`
+  (non-empty), so a 0-byte `.cortex/db` no longer reads as "indexed".
+- **Auto-refresh** runs **only out-of-band at SessionStart** (full index for
+  `empty`/`unknown`, incremental for `stale:*`) — never inside a read, because
+  incremental indexing is delete+recreate, not in-place
+  (see [known-limitations](known-limitations.md) + decision `bbf0fce5`).
+
+Gates: `CORTEX_FRESHNESS=0` disables the signal; `CORTEX_AUTO_REFRESH=0` keeps
+the signal but disables auto-refresh.
+
 ## Migration
 
 Two idempotent, best-effort seeders run **once at viewer startup** — inside
@@ -152,3 +186,5 @@ path step 3) covers them.
 | `src/db/cache.ts` | The *unrelated* content-hash build cache (`~/.cache/cortex/`) |
 | `src/cli/commands/index.ts` · `src/mcp-server/tools/code-tools.ts` | Write paths (CORTEX_DB + WAL + register) |
 | `src/graph/code-queries.ts` · `src/mcp-server/repo-context.ts` · `src/mcp-server/api.ts` | Read + enumeration + startup migration |
+| `src/graph/index-meta.ts` · `src/graph/capture-index-meta.ts` | Freshness baseline (`cortex_index_meta`): write at index, read at check |
+| `src/mcp-server/freshness.ts` · `src/cli/commands/freshness.ts` | Freshness classifier + memoized resolver + `attachFreshness`; `cortex freshness` CLI |
