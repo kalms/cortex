@@ -173,6 +173,13 @@ if (port > 0 && httpServer) {
     serverVersion: "0.2.0",
   });
   process.stderr.write(`Cortex viewer: http://localhost:${port}/viewer (WS at /ws)\n`);
+} else {
+  // startViewerServer has already logged the specific bind failure. Surface a
+  // clear user-facing line so a viewer-less server is never silent.
+  process.stderr.write(
+    `Cortex viewer: disabled (port bind failed); MCP server continues over stdio. ` +
+      `Free the port (CORTEX_VIEWER_PORT, default 3333) and restart to enable the viewer.\n`,
+  );
 }
 
 const transport = new StdioServerTransport();
