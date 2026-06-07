@@ -11,7 +11,8 @@
  */
 #include "foundation/constants.h"
 
-enum { INCR_RING_BUF = 4, INCR_RING_MASK = 3, INCR_TS_BUF = 24, INCR_WAL_BUF = 1040 };
+enum { INCR_RING_BUF = 4, INCR_RING_MASK = 3, INCR_TS_BUF = 24, INCR_WAL_BUF = 1040,
+       INCR_RESTORE_RETRIES = 5, INCR_RESTORE_BACKOFF_MS = 20 };
 #include "pipeline/pipeline.h"
 #include <stdio.h>
 #include <time.h>
@@ -256,46 +257,98 @@ static void run_postpasses(ctx_pipeline_ctx_t *ctx, ctx_file_info_t *changed_fil
                      itoa_buf((int)elapsed_ms(t)));
     }
 }
-/* Delete old DB and dump merged graph + hashes to disk. */
+/* Persist the merged graph WITHOUT unlinking the live DB.  Dump to a temp
+ * sibling DB (B-tree writer — carries nodes + edges + vectors), backfill file
+ * hashes + FTS on the temp, then page-copy the temp into the live inode via
+ * ctx_store_restore_from (SQLite online backup).  Because the live file is never
+ * unlinked, any handle already open on it (e.g. the MCP server's pooled
+ * connection) stays valid and sees the refresh on its next read.  On any failure
+ * the live DB is left untouched (old-but-consistent). */
 static void dump_and_persist(ctx_gbuf_t *gbuf, const char *db_path, const char *project,
                              ctx_file_info_t *files, int file_count) {
     struct timespec t;
     ctx_clock_gettime(CLOCK_MONOTONIC, &t);
 
-    ctx_unlink(db_path);
-    char wal[INCR_WAL_BUF];
-    char shm[INCR_WAL_BUF];
-    snprintf(wal, sizeof(wal), "%s-wal", db_path);
-    snprintf(shm, sizeof(shm), "%s-shm", db_path);
-    ctx_unlink(wal);
-    ctx_unlink(shm);
+    char tmp[INCR_WAL_BUF];
+    char tmp_wal[INCR_WAL_BUF];
+    char tmp_shm[INCR_WAL_BUF];
+    int tmp_len = snprintf(tmp, sizeof(tmp), "%s.tmp", db_path);
+    snprintf(tmp_wal, sizeof(tmp_wal), "%s-wal", tmp);
+    snprintf(tmp_shm, sizeof(tmp_shm), "%s-shm", tmp);
+    if (tmp_len < 0 || tmp_len >= (int)sizeof(tmp)) {
+        ctx_log_error("incremental.persist", "phase", "tmp_path_truncated");
+        return; /* live DB untouched */
+    }
 
-    int dump_rc = ctx_gbuf_dump_to_sqlite(gbuf, db_path);
+    /* Clean any stale temp from a previous interrupted run (temp only — never
+     * the live DB). */
+    ctx_unlink(tmp);
+    ctx_unlink(tmp_wal);
+    ctx_unlink(tmp_shm);
+
+    int dump_rc = ctx_gbuf_dump_to_sqlite(gbuf, tmp);
     ctx_log_info("incremental.dump", "rc", itoa_buf(dump_rc), "elapsed_ms",
                  itoa_buf((int)elapsed_ms(t)));
+    if (dump_rc != 0) {
+        ctx_unlink(tmp);
+        ctx_unlink(tmp_wal);
+        ctx_unlink(tmp_shm);
+        return; /* live DB untouched */
+    }
 
-    ctx_store_t *hash_store = ctx_store_open_path(db_path);
-    if (hash_store) {
-        persist_hashes(hash_store, project, files, file_count);
+    /* Backfill hashes + FTS on the TEMP db so the single page copy carries a
+     * complete, ready database into the live inode. */
+    ctx_store_t *tmp_store = ctx_store_open_path(tmp);
+    if (tmp_store) {
+        persist_hashes(tmp_store, project, files, file_count);
 
-        /* FTS5 rebuild after incremental dump.  The btree dump path bypasses
-         * any triggers that could have kept nodes_fts synchronized, so we
-         * rebuild from the nodes table here.  See the full-dump path in
-         * pipeline.c for the matching logic. */
-        ctx_store_exec(hash_store, "INSERT INTO ctx_nodes_fts(ctx_nodes_fts) VALUES('delete-all');");
-        if (ctx_store_exec(hash_store,
+        /* FTS5 rebuild: the btree dump bypasses triggers, so rebuild nodes_fts
+         * from the nodes table (mirrors the prior incremental dump path). */
+        ctx_store_exec(tmp_store, "INSERT INTO ctx_nodes_fts(ctx_nodes_fts) VALUES('delete-all');");
+        if (ctx_store_exec(tmp_store,
                            "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
                            "SELECT CAST(SUBSTR(id, 5) AS INTEGER), ctx_camel_split(name), "
                            "qualified_name, kind, file_path "
                            "FROM nodes WHERE project IS NOT NULL;") != CTX_STORE_OK) {
-            ctx_store_exec(hash_store,
+            ctx_store_exec(tmp_store,
                            "INSERT INTO ctx_nodes_fts(rowid, name, qualified_name, kind, file_path) "
                            "SELECT CAST(SUBSTR(id, 5) AS INTEGER), name, qualified_name, kind, "
                            "file_path FROM nodes WHERE project IS NOT NULL;");
         }
-
-        ctx_store_close(hash_store);
     }
+
+    /* Page-copy temp -> live, preserving the live inode + open handles.  The live
+     * connection already carries PRAGMA busy_timeout (~10s), which absorbs transient
+     * contention from a concurrent reader (e.g. the MCP server); this retry/backoff
+     * loop is a belt-and-suspenders layer for contention that outlasts that timeout. */
+    ctx_store_t *live = ctx_store_open_path(db_path);
+    if (live && tmp_store) {
+        int rc = CTX_STORE_ERR;
+        for (int attempt = 0; attempt < INCR_RESTORE_RETRIES; attempt++) {
+            rc = ctx_store_restore_from(live, tmp_store);
+            if (rc == CTX_STORE_OK) {
+                break;
+            }
+            ctx_usleep((unsigned)INCR_RESTORE_BACKOFF_MS * 1000U);
+        }
+        if (rc == CTX_STORE_OK) {
+            ctx_store_checkpoint(live); /* fold live WAL into the main file (live -wal/-shm intentionally never unlinked) */
+            ctx_log_info("incremental.persist", "path", "in_place", "elapsed_ms",
+                         itoa_buf((int)elapsed_ms(t)));
+        } else {
+            ctx_log_error("incremental.persist", "phase", "restore_from");
+        }
+    }
+    if (live) {
+        ctx_store_close(live);
+    }
+    if (tmp_store) {
+        ctx_store_close(tmp_store);
+    }
+
+    ctx_unlink(tmp);
+    ctx_unlink(tmp_wal);
+    ctx_unlink(tmp_shm);
 }
 
 /* ── Incremental pipeline entry point ────────────────────────────── */
