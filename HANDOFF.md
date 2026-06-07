@@ -135,21 +135,23 @@ repo, so non-distinguishing, but uncatchable by the per-cluster salience gate.
   safe to defer — an improvement never trips the regression gate (it only fails
   on >0.05 *regression* or <0.45 floor).
 
-## ▶ NEXT STEP (fresh session) — `ingest_traces` parser false-positive (last allowlist entry)
+## ✅ DONE (2026-06-07) — `ingest_traces` typed accessor; RPC contract allowlist now EMPTY (decision `f5da5c77`, merged)
 
-The contract allowlist now has exactly one entry left, and it's **not a bug**:
-`ingest_traces` reads `traces` via raw `yyjson_obj_get` instead of the
-`ctx_mcp_get_*_arg` convention the scanner models, so the parser reports
-`provider_keys=[]` (false mismatch). **Do NOT** broaden the parser to match
-`yyjson_obj_get` generally — it's used everywhere for response-building and would
-massively over-capture. Targeted options: (a) teach `parse.ts` a narrow
-`ctx_mcp_get_array_arg`-style recognizer and have the C handler use such a
-wrapper; (b) annotate the handler; (c) keep it allowlisted with the rationale.
-Lower-value than the label-quality lead below — pick by appetite.
+The last allowlist entry (a parser false-positive) is resolved. Added a typed
+`ctx_mcp_get_array_len_arg()` to the C accessor family and used it in
+`handle_ingest_traces` (instead of raw `yyjson_obj_get`); generalized the
+scanner regex to `ctx_mcp_get_\w+_arg`. `KNOWN_MISMATCHES` is now `[]` — the
+C↔TS RPC seam is **fully consistent** and the regression guard enforces
+zero-tolerance drift. `check_contracts` (MCP, live): **mismatches 1 → 0**, 5/5
+consumers matched. 776/776 tests, `tsc` clean, binary rebuilt.
 
-**Alternative higher-value lead (tooling effectiveness):** improve `pickFrameLabel`
-to stop emitting repo/dir/tech-name labels (Next priorities #1) — repo-name
-suppression is the cheap start; regenerate the F1 baseline after.
+## ▶ NEXT STEP — see "Trust over grep" assessment (2026-06-07) below for the prioritized roadmap
+
+The contract arc is complete (all three findings closed; guard is zero-drift).
+The next frontier is the stated goal: make agents *trust* the graph over grep
+during heavy development. The assessment section lays out the gaps and a
+prioritized plan (reliability/freshness first, then coverage/recall, then
+the trust signals).
 
 ---
 
