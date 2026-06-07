@@ -20,6 +20,8 @@ import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
+import { runContractExtraction } from "../../contracts/run-contracts.js";
+import { computeContractReport } from "./contract-tools.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { Registry } from "../../db/registry.js";
@@ -92,6 +94,9 @@ const queryGraphShape = {
   max_rows: z.number().int().optional().describe("Maximum rows to return"),
 } as const;
 const queryGraphSchema = z.object(queryGraphShape);
+
+const checkContractsShape = { repo_path: RepoPathField } as const;
+const checkContractsSchema = z.object(checkContractsShape);
 
 const getArchitectureShape = {
   repo_path: RepoPathField,
@@ -310,7 +315,8 @@ async function withFrames(
   } catch (e) {
     frames = { status: "failed", reason: e instanceof Error ? e.message : String(e) };
   }
-  return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}` }] };
+  const contracts = await runContractExtraction({ repoPath, project, dbPath });
+  return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}\ncontracts: ${JSON.stringify(contracts)}` }] };
 }
 
 /**
@@ -560,6 +566,26 @@ export function registerCodeTools(
       async (ctx, args) => {
         const addressedDbPath = ctx.graphDbPath;
         return callIndexer("ingest_traces", { traces: args.traces }, addressedDbPath);
+      },
+      { resolver },
+    ),
+  );
+
+  // check_contracts — reads persisted BINDS_KEY edges and reports mismatches.
+  server.tool(
+    "check_contracts",
+    "Report cross-language RPC contract mismatches (arg-key diffs) + coverage",
+    checkContractsShape,
+    registerTool(
+      "check_contracts",
+      checkContractsSchema,
+      async (ctx) => {
+        const project = projectFromCtx(ctx);
+        if (!project) {
+          return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
+        }
+        const report = computeContractReport(ctx.graphDbPath, project);
+        return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
       },
       { resolver },
     ),
