@@ -58,10 +58,33 @@ elif [ -x "$REPO/bin/cortex" ]; then
     CORTEX_BIN="$REPO/bin/cortex"
 fi
 
-# Fold the freshness verdict into the banner so a stale/degraded graph is loud.
-# Best-effort: any failure leaves the plain "indexed" state untouched.
+# Compute the freshness verdict, optionally auto-refresh out-of-band (this runs
+# at SessionStart, BEFORE the agent reads — a clean boundary), then fold the
+# verdict into the banner so a stale/degraded graph is loud.
+#
+# Auto-refresh is SessionStart-only by design. The indexer's incremental path
+# delete+recreates .cortex/db (it is NOT in-place — see decision bbf0fce5), so
+# refreshing mid-session under the MCP server's open pooled handle would
+# reproduce the graph-db-stale-reads failure. SessionStart is a separate process
+# firing before any read, so it is safe. `cortex index` auto-selects incremental
+# when a populated DB exists and a full reindex otherwise — one verb covers both
+# the empty/degraded and the stale cases. Gated by CORTEX_AUTO_REFRESH=0.
 if [ "$INDEX_STATE" = "indexed" ] && [ -n "$CORTEX_BIN" ]; then
     FRESHNESS="$(cd "$REPO" && "$CORTEX_BIN" freshness 2>/dev/null | head -1)"
+    if [ "${CORTEX_AUTO_REFRESH:-1}" != "0" ]; then
+        case "$FRESHNESS" in
+            empty*|unknown*)
+                echo "Cortex: index missing/degraded — rebuilding (one-time)…" >&2
+                (cd "$REPO" && "$CORTEX_BIN" index >/dev/null 2>&1) || true
+                FRESHNESS="$(cd "$REPO" && "$CORTEX_BIN" freshness 2>/dev/null | head -1)"
+                ;;
+            stale:*)
+                echo "Cortex: index stale — incremental refresh…" >&2
+                (cd "$REPO" && "$CORTEX_BIN" index >/dev/null 2>&1) || true
+                FRESHNESS="$(cd "$REPO" && "$CORTEX_BIN" freshness 2>/dev/null | head -1)"
+                ;;
+        esac
+    fi
     if [ -n "$FRESHNESS" ] && [ "$FRESHNESS" != "fresh" ]; then
         INDEX_STATE="indexed ($FRESHNESS)"
     fi
