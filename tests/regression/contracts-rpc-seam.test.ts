@@ -5,10 +5,6 @@ import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 
 // Known mismatches — remove each when the underlying issue is resolved.
 //
-// detect_changes: genuine bug — TS sends only repo_path, but C reads
-//   "project"/"base_branch"/"scope"/"depth" and never repo_path (so the
-//   working tree can't be resolved). Awaiting HANDOFF #4. Remove when fixed.
-//
 // ingest_traces: parser false positive — C reads "traces" via yyjson_obj_get()
 //   directly (not ctx_mcp_get_string_arg), so the regex parser sees
 //   provider_keys=[] even though the handler does consume the key correctly.
@@ -16,7 +12,6 @@ import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 //   annotate the handler with a ctx_mcp_get_array_arg wrapper. See
 //   src/contracts/parse.ts C_ARG regex.
 const KNOWN_MISMATCHES = new Set<string>([
-  "detect_changes",    // genuine bug — awaiting HANDOFF #4
   "ingest_traces",     // parser false positive — C uses yyjson_obj_get not ctx_mcp_get_*_arg
 ]);
 

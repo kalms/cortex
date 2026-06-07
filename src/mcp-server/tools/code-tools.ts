@@ -68,6 +68,12 @@ const tracePathSchema = z.object(tracePathShape);
 
 const detectChangesShape = {
   repo_path: RepoPathField,
+  // Diff base. Defaults to "main" in the indexer when omitted.
+  base_branch: z.string().min(1).optional().describe('Branch to diff HEAD against (default "main")'),
+  // "files" = changed files only; "symbols"/"impact" = files + impacted symbols (default).
+  scope: z.enum(["files", "symbols", "impact"]).optional().describe("Result scope (default symbols)"),
+  // BFS depth for impact traversal.
+  depth: z.number().int().positive().optional().describe("Impact BFS depth"),
 } as const;
 const detectChangesSchema = z.object(detectChangesShape);
 
@@ -458,9 +464,16 @@ export function registerCodeTools(
     registerTool(
       "detect_changes",
       detectChangesSchema,
-      async (ctx, _args) => {
+      async (ctx, args) => {
         const addressedDbPath = ctx.graphDbPath;
-        return callIndexer("detect_changes", { repo_path: ctx.repoPath }, addressedDbPath);
+        // Forward the optional diff params alongside the addressed repo_path.
+        // undefined keys are dropped by JSON.stringify, so the indexer applies
+        // its own defaults (base_branch="main", scope="symbols").
+        return callIndexer(
+          "detect_changes",
+          { repo_path: ctx.repoPath, base_branch: args.base_branch, scope: args.scope, depth: args.depth },
+          addressedDbPath,
+        );
       },
       { resolver },
     ),
