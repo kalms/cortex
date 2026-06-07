@@ -95,9 +95,19 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
     case "status":
       shell("index_status", { project: ctx.projectName ?? "" });
       return;
-    case "changes":
-      shell("detect_changes", { project: ctx.projectName ?? "" });
+    case "changes": {
+      // detect_changes now routes by repo_path + a pinned CORTEX_DB (per-call
+      // routing), matching the MCP contract — it no longer resolves a project
+      // name. Fall back to the canonical .cortex/db when the repo isn't indexed
+      // yet (git diff still works; impacted symbols just come back empty).
+      const repoPath = ctx.gitRoot;
+      if (!repoPath) {
+        throw new UsageError("not in a git repository", "Run 'cortex index changes' from inside a git repo");
+      }
+      const dbPath = ctx.graphDbPath ?? resolveCortexDbPath(repoPath);
+      shell("detect_changes", { repo_path: repoPath }, { CORTEX_DB: dbPath });
       return;
+    }
     case "list":
       shell("list_projects", {});
       return;
@@ -112,13 +122,14 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
   }
 }
 
-function shell(tool: string, args: Record<string, unknown>): void {
+function shell(tool: string, args: Record<string, unknown>, extraEnv?: Record<string, string>): void {
   const raw = execFileSync(
     INDEXER_BIN,
     ["cli", tool, JSON.stringify(args)],
     {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", process.env.CORTEX_CLI_DEBUG === "1" ? "inherit" : "ignore"],
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
     },
   );
   process.stdout.write(renderIndexerResult(unwrapIndexerResult(raw)) + "\n");
