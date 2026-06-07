@@ -5,8 +5,9 @@ import { findMismatches, summarizeCoverage } from "../../src/contracts/diff.js";
 
 // Known mismatches — remove each when the underlying issue is resolved.
 //
-// detect_changes: genuine bug — TS sends repo_path, C reads "project".
-//   Awaiting HANDOFF #4. Remove when that fix lands.
+// detect_changes: genuine bug — TS sends only repo_path, but C reads
+//   "project"/"base_branch"/"scope"/"depth" and never repo_path (so the
+//   working tree can't be resolved). Awaiting HANDOFF #4. Remove when fixed.
 //
 // index_repository: genuine gap — C handler reads an optional "mode" key
 //   ("fast" | "moderate" | full default) that the TS MCP layer never sends.
