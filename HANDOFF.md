@@ -94,19 +94,42 @@ mismatch count until the plugin is **rebuilt and restarted**. Exercise the
 pass directly meanwhile:
 `npx tsx -e "import('./src/contracts/run-contracts.ts').then(m=>m.runContractExtraction({repoPath:process.cwd(),project:'Users-rka-Development-cortex',dbPath:'.cortex/db'}).then(r=>console.log(JSON.stringify(r))))"`.
 
-## ▶ NEXT STEP (fresh session) — fix the `detect_changes` MCP tool (the other genuine allowlisted bug)
+## ✅ DONE (2026-06-07) — `detect_changes` routed by `repo_path` (decision `4cad5308`, merged)
 
-`detect_changes` is now the only remaining **genuine bug** in
-`KNOWN_MISMATCHES` (the third entry, `ingest_traces`, is a parser false
-positive, not a bug). Full diagnosis already written up in **Next priorities
-#6** below — the short version: the MCP tool sends `{ repo_path }` + pins
-`CORTEX_DB`, but the C `handle_detect_changes` still resolves the working tree
-via `get_project_root(srv, project)` and errors `project not found` when no
-`project` is sent. **Preferred fix:** make `handle_detect_changes` use the
-passed `repo_path` as the working-tree root directly. Then remove
-`"detect_changes"` from `KNOWN_MISMATCHES` so the guard enforces it — same
-loop-closing pattern as the `mode` fix above. (This one touches C, so it needs
-the indexer binary rebuilt + the C test harness; see caveat #5.)
+The last genuine contract bug is fixed and merged. `handle_detect_changes` now
+uses the passed `repo_path` as the working-tree root, derives the project name
+from it (`ctx_project_name_from_path`) for the impacted-symbols filter, and
+opens the addressed graph DB from the pinned `CORTEX_DB` (query-only, NULL-safe)
+— no more `get_project_root(project)` / "project not found". Also: MCP exposes
+`base_branch`/`scope`/`depth`; the CLI `cortex index changes` sends `repo_path`
++ pins `CORTEX_DB`; and `detect_add_impacted_symbols` now filters **lowercase**
+`file`/`folder`/`project` labels (Phase-4 fold) so structural nodes stop leaking
+into results. Indexer binary rebuilt via `scripts/build-indexer.sh` (version
+restored to `0.1.0`).
+- **Verified at runtime:** `detect_changes` returns the changed files + 139
+  impacted code symbols (no error); `scope=files` → 0 impacted. `check_contracts`
+  (MCP, live): **mismatches 2 → 1** — only `ingest_traces` remains. 770/770 TS
+  tests, `tsc` clean.
+- **Note:** the running plugin's TS is still pre-merge (schema won't show the new
+  optional params until restart), BUT the binary is spawned per-call, so the core
+  fix is already live — the pre-merge MCP sends `{ repo_path }`, which the new
+  binary now reads correctly.
+
+## ▶ NEXT STEP (fresh session) — `ingest_traces` parser false-positive (last allowlist entry)
+
+The contract allowlist now has exactly one entry left, and it's **not a bug**:
+`ingest_traces` reads `traces` via raw `yyjson_obj_get` instead of the
+`ctx_mcp_get_*_arg` convention the scanner models, so the parser reports
+`provider_keys=[]` (false mismatch). **Do NOT** broaden the parser to match
+`yyjson_obj_get` generally — it's used everywhere for response-building and would
+massively over-capture. Targeted options: (a) teach `parse.ts` a narrow
+`ctx_mcp_get_array_arg`-style recognizer and have the C handler use such a
+wrapper; (b) annotate the handler; (c) keep it allowlisted with the rationale.
+Lower-value than the label-quality lead below — pick by appetite.
+
+**Alternative higher-value lead (tooling effectiveness):** improve `pickFrameLabel`
+to stop emitting repo/dir/tech-name labels (Next priorities #1) — repo-name
+suppression is the cheap start; regenerate the F1 baseline after.
 
 ---
 
