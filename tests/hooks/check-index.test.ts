@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync, closeSync, openSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +28,10 @@ function indexedRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "cortex-hook-"));
   mkdirSync(join(root, ".git"), { recursive: true });
   mkdirSync(join(root, ".cortex"), { recursive: true });
-  closeSync(openSync(join(root, ".cortex", "graph.db"), "w")); // presence => "indexed"
+  // Non-empty file => "indexed". A real graph DB always has content; the hook
+  // now uses `-s` (exists AND non-empty) so a 0-byte file reads as not-indexed
+  // (a degraded/aborted index), per the freshness work.
+  writeFileSync(join(root, ".cortex", "graph.db"), "SQLite format 3\0");
   return root;
 }
 

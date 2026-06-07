@@ -481,7 +481,7 @@ export function registerDecisionTools(
           return errorResponse("internal_error", msg);
         }
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
