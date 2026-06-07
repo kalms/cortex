@@ -50,8 +50,17 @@ function gitTreeHash(repo: string): string {
   }
 }
 
-export function computeCacheKey(repo: string): string {
+/** Index depth the indexer binary supports. `full` is the default and indexes
+ * every pass; `fast`/`moderate` skip passes, so they produce a different graph
+ * and must NOT share a cache entry with `full` (or each other). */
+export type IndexMode = "fast" | "moderate" | "full";
+
+export function computeCacheKey(repo: string, mode: IndexMode = "full"): string {
   const parts = [indexerVersion(), grammarPackHash(), gitTreeHash(repo)];
+  // `full` is the historical default — omit it so entries written before mode
+  // existed stay valid. Non-full modes hash a distinct key so a partial snapshot
+  // can never be served for a deeper request.
+  if (mode !== "full") parts.push(`mode:${mode}`);
   return createHash("sha256").update(parts.join("\n")).digest("hex");
 }
 
