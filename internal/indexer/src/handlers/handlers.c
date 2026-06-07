@@ -2648,8 +2648,12 @@ static void detect_add_impacted_symbols(ctx_store_t *store, const char *project,
     int ncount = 0;
     ctx_store_find_nodes_by_file(store, project, file, &nodes, &ncount);
     for (int i = 0; i < ncount; i++) {
-        if (nodes[i].label && strcmp(nodes[i].label, "File") != 0 &&
-            strcmp(nodes[i].label, "Folder") != 0 && strcmp(nodes[i].label, "Project") != 0) {
+        /* Exclude structural nodes — keep only code symbols. Labels are
+         * lowercase since the Phase-4 schema fold (see decision 589d9e3c);
+         * the prior capitalized comparisons silently matched nothing, leaking
+         * the file/folder/project nodes themselves into impacted_symbols. */
+        if (nodes[i].label && strcmp(nodes[i].label, "file") != 0 &&
+            strcmp(nodes[i].label, "folder") != 0 && strcmp(nodes[i].label, "project") != 0) {
             yyjson_mut_val *item = yyjson_mut_obj(doc);
             yyjson_mut_obj_add_strcpy(doc, item, "name", nodes[i].name ? nodes[i].name : "");
             yyjson_mut_obj_add_strcpy(doc, item, "label", nodes[i].label);
@@ -2661,10 +2665,12 @@ static void detect_add_impacted_symbols(ctx_store_t *store, const char *project,
 }
 
 static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
-    char *project = ctx_mcp_get_string_arg(args, "project");
+    (void)srv; /* per-call routing: working tree + store come from repo_path + CORTEX_DB */
+    char *repo_path = ctx_mcp_get_string_arg(args, "repo_path");
     char *base_branch = ctx_mcp_get_string_arg(args, "base_branch");
     char *scope = ctx_mcp_get_string_arg(args, "scope");
     int depth = ctx_mcp_get_int_arg(args, "depth", MCP_DEFAULT_BFS_DEPTH);
+    ctx_normalize_path_sep(repo_path);
 
     /* scope: "files" = just changed files, "symbols" = files + symbols (default) */
     bool want_symbols = !scope || strcmp(scope, "symbols") == 0 || strcmp(scope, "impact") == 0;
@@ -2675,26 +2681,41 @@ static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
 
     /* Reject shell metacharacters in user-supplied branch name */
     if (!ctx_validate_shell_arg(base_branch)) {
-        free(project);
+        free(repo_path);
         free(base_branch);
         free(scope);
         return ctx_mcp_text_result("base_branch contains invalid characters", true);
     }
 
-    char *root_path = get_project_root(srv, project);
-    if (!root_path) {
-        free(project);
+    /* Working-tree root is the addressed repo_path directly (per-call routing).
+     * Previously this resolved a `project` NAME via get_project_root(), which
+     * returned NULL — "project not found" — once the MCP layer switched to
+     * sending repo_path + a pinned CORTEX_DB and stopped sending `project`. */
+    if (!repo_path) {
         free(base_branch);
         free(scope);
-        return ctx_mcp_text_result("project not found", true);
+        return ctx_mcp_text_result("repo_path is required", true);
     }
-
-    if (!ctx_validate_shell_arg(root_path)) {
-        free(root_path);
-        free(project);
+    if (!ctx_validate_shell_arg(repo_path)) {
+        free(repo_path);
         free(base_branch);
         free(scope);
-        return ctx_mcp_text_result("project path contains invalid characters", true);
+        return ctx_mcp_text_result("repo_path contains invalid characters", true);
+    }
+    char *root_path = repo_path; /* alias; the allocation is freed via root_path below */
+
+    /* Project name for graph queries — derived from repo_path the same way the
+     * indexer pipeline keyed the graph (so the impacted-symbols filter matches). */
+    char *project = ctx_project_name_from_path(repo_path);
+
+    /* Open the addressed graph DB for impacted-symbol lookups. Honors the pinned
+     * CORTEX_DB (set by the MCP/CLI caller); query-only so it never creates a
+     * ghost db. A NULL store is non-fatal — git diff still runs and
+     * impacted_symbols is simply returned empty. */
+    ctx_store_t *changes_store = NULL;
+    char changes_db_path[CTX_SZ_1K];
+    if (ctx_resolve_db_path(project, changes_db_path, sizeof(changes_db_path))) {
+        changes_store = ctx_store_open_path_query(changes_db_path);
     }
 
     /* Get changed files via git (-C avoids cd + quoting issues on Windows) */
@@ -2713,6 +2734,9 @@ static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
 
     FILE *fp = ctx_popen(cmd, "r");
     if (!fp) {
+        if (changes_store) {
+            ctx_store_close(changes_store);
+        }
         free(root_path);
         free(project);
         free(base_branch);
@@ -2727,8 +2751,8 @@ static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
     yyjson_mut_val *changed = yyjson_mut_arr(doc);
     yyjson_mut_val *impacted = yyjson_mut_arr(doc);
 
-    /* resolve_store already called via get_project_root above */
-    ctx_store_t *store = srv->store;
+    /* Store opened from the addressed CORTEX_DB above (may be NULL). */
+    ctx_store_t *store = changes_store;
 
     char line[CTX_SZ_1K];
     int file_count = 0;
@@ -2745,7 +2769,7 @@ static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
         yyjson_mut_arr_add_strcpy(doc, changed, line);
         file_count++;
 
-        if (want_symbols) {
+        if (want_symbols && store) {
             detect_add_impacted_symbols(store, project, line, doc, impacted);
         }
     }
@@ -2758,6 +2782,9 @@ static char *handle_detect_changes(ctx_mcp_server_t *srv, const char *args) {
 
     char *json = yy_doc_to_str(doc);
     yyjson_mut_doc_free(doc);
+    if (changes_store) {
+        ctx_store_close(changes_store);
+    }
     free(root_path);
     free(project);
     free(base_branch);
