@@ -548,7 +548,7 @@ export function registerCodeTools(
         if (args.max_rows !== undefined) indexerArgs.max_rows = args.max_rows;
         return callIndexer("query_graph", indexerArgs, addressedDbPath);
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
@@ -573,7 +573,7 @@ export function registerCodeTools(
         if (project) indexerArgs.project = project;
         return callIndexer("get_architecture", indexerArgs, addressedDbPath);
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
@@ -637,7 +637,7 @@ export function registerCodeTools(
         const queryDesc = `search_graph(${JSON.stringify(params)})`;
         return text ? ok(text) : empty(queryDesc);
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
@@ -683,7 +683,7 @@ export function registerCodeTools(
         );
         return ok(lines.join("\n"));
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
@@ -732,7 +732,7 @@ export function registerCodeTools(
         const node = nodes[0];
         return readSnippet(ctx, project, node);
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 
@@ -944,7 +944,7 @@ export function registerCodeTools(
 
         return ok(enriched.join("\n"));
       },
-      { resolver },
+      { resolver, freshnessAware: true },
     ),
   );
 }

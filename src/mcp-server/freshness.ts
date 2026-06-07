@@ -93,3 +93,18 @@ export function freshnessForContext(ctx: {
   memo.set(ctx.repoPath, { value, expiresAt: now + TTL_MS });
   return value;
 }
+
+type TextResult = { content: Array<{ type: string; text: string }>; [k: string]: unknown };
+
+/** Attach a freshness verdict to an MCP text result. Returns the result
+ *  UNCHANGED when fresh. When stale/empty/unknown, appends a one-line note to
+ *  the first text block (always visible to the agent) and adds a structured
+ *  `freshness` field. Mutates and returns the same object for non-fresh. */
+export function attachFreshness<T extends TextResult>(result: T, f: Freshness): T {
+  if (f.state === "fresh") return result;
+  const line = `\n\n⚠ cortex freshness: ${f.state}${f.note ? ` — ${f.note}` : ""}`;
+  const first = result.content?.find((c) => c.type === "text");
+  if (first) first.text += line;
+  (result as TextResult).freshness = f;
+  return result;
+}
