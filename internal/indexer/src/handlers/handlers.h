@@ -29,6 +29,9 @@ int ctx_mcp_get_int_arg(const char *args_json, const char *key, int default_val)
 /* Extract a bool argument. Returns false if not found. */
 bool ctx_mcp_get_bool_arg(const char *args_json, const char *key);
 
+/* Length of the array argument at `key`. Returns -1 if absent or not an array. */
+int ctx_mcp_get_array_len_arg(const char *args_json, const char *key);
+
 /* ── Server context ───────────────────────────────────────────── */
 
 typedef struct ctx_mcp_server ctx_mcp_server_t;
