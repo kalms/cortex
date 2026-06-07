@@ -34,32 +34,45 @@ plan [2026-06-07-cross-language-contract-edges.md](docs/superpowers/plans/2026-0
   the typed-manifest approach (C) for the RPC layer; refine the parser for
   raw-yyjson handlers.
 
-## ▶ NEXT STEP (fresh session) — close the `index_repository` `mode` gap
+## ✅ DONE (2026-06-07) — `index_repository` `mode` gap closed (decision `0155458d`, merged)
 
-The contract checker's first real finding, ready to execute. The C handler
-`handle_index_repository` reads an optional `"mode"` arg (`"fast"` |
-`"moderate"`, default full) — see [handlers.c:1508](internal/indexer/src/handlers/handlers.c#L1508)
-and the dispatch at ~line 1543 — but the MCP layer never sends it: the schema
-`indexRepositoryShape` in [code-tools.ts](src/mcp-server/tools/code-tools.ts)
-(~line 125) exposes only `repo_path`, and the call site (~line 404) sends only
-`{ repo_path }`. So no MCP/CLI caller can choose index depth — the capability is
-unreachable.
+The contract checker's first real finding is fixed and merged to `main`.
+- Added `mode: z.enum(["fast","moderate","full"]).optional()` to
+  `indexRepositoryShape` and threaded it through the `callIndexer` call site
+  ([code-tools.ts](src/mcp-server/tools/code-tools.ts)); the C
+  `handle_index_repository` already read the arg.
+- **Cache correctness (beyond the original fix shape):** folded `mode` into
+  `computeCacheKey` ([cache.ts](src/db/cache.ts)) so a `fast`/`moderate`
+  snapshot is never served for a deeper `full` request; `full` hashes
+  identically to the historical no-mode key (existing cache entries stay valid).
+- Added a validated `cortex index --mode` flag (`resolveIndexMode` in
+  [index.ts](src/cli/commands/index.ts)).
+- Removed `"index_repository"` from `KNOWN_MISMATCHES` in
+  [tests/regression/contracts-rpc-seam.test.ts](tests/regression/contracts-rpc-seam.test.ts);
+  the seam guard now enforces the contract permanently.
+- **Verified:** 766/766 TS tests green, `tsc` clean. `runContractExtraction`
+  on the live graph: mismatches **3 → 2** (only the still-allowlisted
+  `detect_changes` + `ingest_traces` remain). Built TDD (3 red→green cycles).
 
-**Fix shape:** add an optional `mode: z.enum(["fast","moderate","full"]).optional()`
-to `indexRepositoryShape`, thread it through the `callIndexer("index_repository", …)`
-call so it's forwarded to the binary, and (if the CLI exposes index) add a
-`--mode` flag. **TDD + the existing guard close the loop:** once the consumer
-sends `mode`, the contract is satisfied — then remove `"index_repository"` from
-`KNOWN_MISMATCHES` in [tests/regression/contracts-rpc-seam.test.ts](tests/regression/contracts-rpc-seam.test.ts)
-so the regression guard enforces it permanently. Verify with `check_contracts`
-(requires the plugin rebuilt/restarted — see caveat below) or by running
-`runContractExtraction` directly and re-querying.
-
-**Prerequisite for the contract tooling to be live:** the running Cortex MCP
-plugin is the **pre-merge build**, so the post-index contract pass and the
-`check_contracts` tool won't be active until the plugin is **rebuilt and
-restarted**. Until then, exercise the pass directly:
+**Plugin caveat still applies:** the running Cortex MCP plugin is the
+**pre-merge build**, so the `check_contracts` MCP tool reflects the old
+mismatch count until the plugin is **rebuilt and restarted**. Exercise the
+pass directly meanwhile:
 `npx tsx -e "import('./src/contracts/run-contracts.ts').then(m=>m.runContractExtraction({repoPath:process.cwd(),project:'Users-rka-Development-cortex',dbPath:'.cortex/db'}).then(r=>console.log(JSON.stringify(r))))"`.
+
+## ▶ NEXT STEP (fresh session) — fix the `detect_changes` MCP tool (the other genuine allowlisted bug)
+
+`detect_changes` is now the only remaining **genuine bug** in
+`KNOWN_MISMATCHES` (the third entry, `ingest_traces`, is a parser false
+positive, not a bug). Full diagnosis already written up in **Next priorities
+#6** below — the short version: the MCP tool sends `{ repo_path }` + pins
+`CORTEX_DB`, but the C `handle_detect_changes` still resolves the working tree
+via `get_project_root(srv, project)` and errors `project not found` when no
+`project` is sent. **Preferred fix:** make `handle_detect_changes` use the
+passed `repo_path` as the working-tree root directly. Then remove
+`"detect_changes"` from `KNOWN_MISMATCHES` so the guard enforces it — same
+loop-closing pattern as the `mode` fix above. (This one touches C, so it needs
+the indexer binary rebuilt + the C test harness; see caveat #5.)
 
 ---
 
