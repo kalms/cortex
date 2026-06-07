@@ -11,6 +11,7 @@ import type { ContractResult } from "../../contracts/types.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { Registry } from "../../db/registry.js";
+import { captureIndexMeta } from "../../graph/capture-index-meta.js";
 import type { IndexMode } from "../../db/cache.js";
 
 const INDEXER_BIN = indexerBinPath();
@@ -72,6 +73,8 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
     process.stdout.write(renderFramesLine(frames) + "\n");
     const contracts = await runContractExtraction({ repoPath, project, dbPath });
     process.stdout.write(renderContractsLine(contracts) + "\n");
+
+    captureIndexMeta(dbPath, repoPath);
 
     // Checkpoint WAL so a reader opening .cortex/db immediately sees a complete
     // state (no pending frame writes stranded in the -wal sidecar).
