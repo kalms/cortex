@@ -31,8 +31,35 @@ plan [2026-06-07-cross-language-contract-edges.md](docs/superpowers/plans/2026-0
      parser models. Don't broaden the parser to `yyjson_obj_get` (it's used
      everywhere for response-building → massive over-capture); needs a targeted approach.
 - **Follow-ups (named in the spec):** event/config-key anchors on the same model;
-  the typed-manifest approach (C) for the RPC layer; fix the `index_repository`
-  `mode` gap; refine the parser for raw-yyjson handlers.
+  the typed-manifest approach (C) for the RPC layer; refine the parser for
+  raw-yyjson handlers.
+
+## ▶ NEXT STEP (fresh session) — close the `index_repository` `mode` gap
+
+The contract checker's first real finding, ready to execute. The C handler
+`handle_index_repository` reads an optional `"mode"` arg (`"fast"` |
+`"moderate"`, default full) — see [handlers.c:1508](internal/indexer/src/handlers/handlers.c#L1508)
+and the dispatch at ~line 1543 — but the MCP layer never sends it: the schema
+`indexRepositoryShape` in [code-tools.ts](src/mcp-server/tools/code-tools.ts)
+(~line 125) exposes only `repo_path`, and the call site (~line 404) sends only
+`{ repo_path }`. So no MCP/CLI caller can choose index depth — the capability is
+unreachable.
+
+**Fix shape:** add an optional `mode: z.enum(["fast","moderate","full"]).optional()`
+to `indexRepositoryShape`, thread it through the `callIndexer("index_repository", …)`
+call so it's forwarded to the binary, and (if the CLI exposes index) add a
+`--mode` flag. **TDD + the existing guard close the loop:** once the consumer
+sends `mode`, the contract is satisfied — then remove `"index_repository"` from
+`KNOWN_MISMATCHES` in [tests/regression/contracts-rpc-seam.test.ts](tests/regression/contracts-rpc-seam.test.ts)
+so the regression guard enforces it permanently. Verify with `check_contracts`
+(requires the plugin rebuilt/restarted — see caveat below) or by running
+`runContractExtraction` directly and re-querying.
+
+**Prerequisite for the contract tooling to be live:** the running Cortex MCP
+plugin is the **pre-merge build**, so the post-index contract pass and the
+`check_contracts` tool won't be active until the plugin is **rebuilt and
+restarted**. Until then, exercise the pass directly:
+`npx tsx -e "import('./src/contracts/run-contracts.ts').then(m=>m.runContractExtraction({repoPath:process.cwd(),project:'Users-rka-Development-cortex',dbPath:'.cortex/db'}).then(r=>console.log(JSON.stringify(r))))"`.
 
 ---
 
