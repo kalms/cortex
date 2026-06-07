@@ -15,12 +15,12 @@ The indexer ships in-tree under `internal/indexer/` and writes directly to Corte
 The canonical install. One command, and every Claude Code session in every repo on the machine picks up cortex's MCP server, skills, hooks, and slash commands.
 
 ```bash
-claude plugin add github:kalms/cortex
+claude plugin add github:ruevu/cortex
 ```
 
 This single install registers, in one go:
 
-- **24 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
+- **29 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, `check_contracts`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
 - **The SessionStart hook** (`hooks/check-index.sh`) — prints the active repo, its index state, and routing reminders into every new conversation.
 - **The skill library** under `skills/` — `seed-decisions` (cold-start bootstrap), `capture-decision`, `search-decisions`, `explain-architecture`.
 - **The decision-capture flow** under `bin/` — `cortex decision create / link / why / list / rehome / propose / supersede / update / delete / show / candidates`, plus `cortex code find / show / where / why`.
@@ -38,7 +38,7 @@ The full design is in [`docs/superpowers/specs/2026-06-03-mcp-multi-project-rout
 For hacking on cortex itself, or for MCP clients that aren't Claude Code (Cursor, custom agents, etc.):
 
 ```bash
-git clone git@github.com:kalms/cortex.git
+git clone git@github.com:ruevu/cortex.git
 cd cortex
 npm install
 ```
@@ -145,7 +145,7 @@ npm rebuild better-sqlite3
 
 ## MCP Tools
 
-### Code tools (13)
+### Code tools (14)
 
 These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 
@@ -158,6 +158,7 @@ These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 | `search_code` | Grep with graph enrichment — annotates matches with enclosing function/class |
 | `query_graph` | Run a Cypher-flavoured query against the unified graph |
 | `get_architecture` | One-shot architectural histogram (label/edge counts) |
+| `check_contracts` | Report cross-language RPC contract mismatches (arg-key diffs) + coverage, from persisted `BINDS_KEY` edges |
 | `list_projects` | List all indexed projects |
 | `index_status` | Check if the current repository is indexed |
 | `ingest_traces` | Bulk-ingest runtime traces (experimental) |
@@ -224,6 +225,26 @@ There is **no decision data in `.cortex/db`** — decisions live in the sidecar 
 ### Known limitations
 
 The C indexer has two open issues that affect multi-project workflows: the dump pass replaces the entire `nodes`/`edges` tables (not project-scoped), and IDs collide across DBs because they restart at `ctx-1` for each indexed repo. See [docs/architecture/known-limitations.md](docs/architecture/known-limitations.md) for the canonical multi-project workflow using `scripts/frame-extraction/merge-indexed-db.ts`.
+
+## Cross-language contracts
+
+A post-index extraction pass walks the RPC seam between languages and records
+**contract edges** (`Anchor` nodes + `BINDS_KEY` edges) linking a caller's
+argument keys to the handler that consumes them across a language boundary —
+for example a TypeScript consumer calling into the C indexer. The pass runs
+automatically as part of `index_repository` (and the `cortex index` CLI); no
+extra step is needed.
+
+Once a repo is indexed, the `check_contracts` MCP tool reports any
+**argument-key mismatches** between the two sides of each RPC seam, plus a
+coverage figure for how much of the seam is bound. This catches a class of
+bug that single-language tooling can't see — a caller passing `repoPath` to a
+handler that reads `repo_path`, say — without running the code.
+
+```
+check_contracts(repo_path="/abs/path/to/repo")
+  → { mismatches: [...], coverage: 0.92, ... }
+```
 
 ## Frame extraction pipeline
 
@@ -402,7 +423,7 @@ src/
     api-edges.ts
     response.ts                     # MCP tool response helpers
     tools/
-      code-tools.ts                 # 13 code MCP tools
+      code-tools.ts                 # 14 code MCP tools
       decision-tools.ts             # 11 decision MCP tools
       promotion-tools.ts            # promote_decision
       pr-tools.ts                   # 4 PR tools
