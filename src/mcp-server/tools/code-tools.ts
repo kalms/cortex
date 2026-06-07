@@ -26,6 +26,7 @@ import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
+import { invalidateFreshness } from "../freshness.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -418,6 +419,7 @@ export function registerCodeTools(
             }
           }
           captureIndexMeta(dbPath, repoPath);
+          invalidateFreshness(repoPath);
           registerRepo();
           return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
         }
@@ -439,6 +441,7 @@ export function registerCodeTools(
           } catch { /* non-fatal; skip cache write */ }
           if (!checkpointed) {
             captureIndexMeta(dbPath, repoPath);
+            invalidateFreshness(repoPath);
             registerRepo();
             return result;
           }
@@ -451,6 +454,7 @@ export function registerCodeTools(
         if (result.isError) return result;
         const baseText = result.content?.[0]?.text ?? "indexed";
         captureIndexMeta(dbPath, repoPath);
+        invalidateFreshness(repoPath);
         registerRepo();
         return await withFrames(baseText, repoPath, dbPath);
       },
@@ -470,6 +474,7 @@ export function registerCodeTools(
       detectChangesSchema,
       async (ctx, args) => {
         const addressedDbPath = ctx.graphDbPath;
+        invalidateFreshness(ctx.repoPath);
         // Forward the optional diff params alongside the addressed repo_path.
         // undefined keys are dropped by JSON.stringify, so the indexer applies
         // its own defaults (base_branch="main", scope="symbols").
