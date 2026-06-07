@@ -6,6 +6,8 @@ import { UsageError } from "../errors.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
+import { runContractExtraction } from "../../contracts/run-contracts.js";
+import type { ContractResult } from "../../contracts/types.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { Registry } from "../../db/registry.js";
@@ -45,6 +47,8 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
     const project = deriveProjectName(repoPath);
     const frames = await runFrameExtraction({ repoPath, project, dbPath });
     process.stdout.write(renderFramesLine(frames) + "\n");
+    const contracts = await runContractExtraction({ repoPath, project, dbPath });
+    process.stdout.write(renderContractsLine(contracts) + "\n");
 
     // Checkpoint WAL so a reader opening .cortex/db immediately sees a complete
     // state (no pending frame writes stranded in the -wal sidecar).
@@ -107,5 +111,16 @@ function renderFramesLine(r: FrameResult): string {
         : `frames: skipped (${r.reason})`;
     case "failed":
       return `frames: failed (${r.reason})`;
+  }
+}
+
+function renderContractsLine(r: ContractResult): string {
+  switch (r.status) {
+    case "ok":
+      return `contracts: ${r.anchors} anchors, ${r.mismatches} mismatches (${(r.elapsedMs / 1000).toFixed(1)}s)`;
+    case "skipped":
+      return `contracts: skipped (${r.reason})`;
+    case "failed":
+      return `contracts: failed (${r.reason})`;
   }
 }
