@@ -8,6 +8,8 @@ import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
+import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
+import { RECONCILE_ENABLED } from "../../decisions/reconciliation.js";
 
 const AlternativeSchema = z.object({
   name: z.string(),
@@ -386,6 +388,7 @@ export function registerDecisionTools(
             ? JSON.parse(rawRec.nonconformant_nodes)
             : null,
           reconciliation_note: rawRec?.reconciliation_note ?? null,
+          display_state: rawRec ? decisionDisplayState(ctx, rawRec) : dec.status,
           governs: pick("GOVERNS"),
           references: pick("REFERENCES"),
           related_decisions: pickDecisions("DECISION_RELATED_TO"),
@@ -395,7 +398,7 @@ export function registerDecisionTools(
           challenged_by: prLinks("PR_CHALLENGES_DECISION"),
           discussed_in: prLinks("PR_DISCUSSES_DECISION"),
         };
-        return ok(JSON.stringify(withRefs, null, 2));
+        return attachDecisionReconciliation(ctx, rawRec ? [rawRec] : [], ok(JSON.stringify(withRefs, null, 2)));
       },
       { resolver },
     ),
@@ -422,7 +425,12 @@ export function registerDecisionTools(
             results = results.filter((d) => allowed.has(d.id));
           }
           if (results.length === 0) return empty(`search_decisions(${query})`);
-          return ok(JSON.stringify(results, null, 2));
+          const okResult = ok(JSON.stringify(results, null, 2));
+          if (!RECONCILE_ENABLED()) return okResult;
+          const rawForAttach = results
+            .map((r) => ctx.decisionsRepo.get(r.id))
+            .filter((d): d is NonNullable<typeof d> => d != null);
+          return attachDecisionReconciliation(ctx, rawForAttach, okResult);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           return errorResponse("internal_error", msg);
@@ -488,7 +496,12 @@ export function registerDecisionTools(
           if (!results || results.length === 0) {
             return empty(`why_was_this_built(${qualified_name})`);
           }
-          return ok(JSON.stringify(results, null, 2));
+          const okResult = ok(JSON.stringify(results, null, 2));
+          if (!RECONCILE_ENABLED()) return okResult;
+          const rawForAttach = results
+            .map((r) => ctx.decisionsRepo.get(r.id))
+            .filter((d): d is NonNullable<typeof d> => d != null);
+          return attachDecisionReconciliation(ctx, rawForAttach, okResult);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           return errorResponse("internal_error", msg);
