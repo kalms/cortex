@@ -1,0 +1,119 @@
+// src/mcp-server/frame-map.ts
+/**
+ * Read-time orchestrator behind `/api/frames`. Turns a project's nodes + edges
+ * into the viewer's frame map: rank every frame, lay out the ambient ones.
+ *
+ * Nameability needs a corpus index, but the read-time graph holds no source
+ * text — so each file's "blob" is its path tokens plus the names of the symbols
+ * it defines (the closest available token surface). Opaque `cluster:N` labels
+ * still score ~0 by construction (label-quality.ts), preserving the signal.
+ *
+ * PURE — no I/O; the endpoint supplies nodes/edges.
+ */
+import type { NodeRow, EdgeRow } from "../graph/store.js";
+import type { FileBlob } from "../frame-extraction/types.js";
+import { buildCorpusIndex } from "../frame-extraction/label-quality.js";
+import { splitSymbol } from "../frame-extraction/text-blob.js";
+import { rankFrames, type FrameRecord } from "../frame-extraction/frame-ranker.js";
+import { rollupFramePairs } from "./frame-pair-rollup.js";
+import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
+
+export interface FrameMapEntry {
+  id: number;
+  name: string;
+  count: number;
+  /** Integer px in virtual-stage coords; null for non-ambient (unpositioned). */
+  x: number | null;
+  y: number | null;
+  w: number | null;
+  h: number | null;
+  ambient: boolean;
+  rank: number;
+  score: number;
+}
+
+export interface FrameMap {
+  frames: FrameMapEntry[];
+  stage: { w: number; h: number };
+}
+
+/** Group file nodes by frame_id into ranker input records. */
+function buildFrameRecords(nodes: readonly NodeRow[]): FrameRecord[] {
+  const byFrame = new Map<number, FrameRecord>();
+  for (const n of nodes) {
+    if (n.kind !== "file" || !n.file_path) continue;
+    let d: { frame_id?: number; frame_label?: string };
+    try {
+      d = JSON.parse(n.data);
+    } catch {
+      continue;
+    }
+    if (typeof d.frame_id !== "number") continue;
+    const label = typeof d.frame_label === "string" ? d.frame_label : `frame:${d.frame_id}`;
+    let rec = byFrame.get(d.frame_id);
+    if (!rec) {
+      rec = { frame_id: d.frame_id, frame_label: label, member_paths: [] };
+      byFrame.set(d.frame_id, rec);
+    }
+    rec.member_paths.push(n.file_path);
+  }
+  return [...byFrame.values()].sort((a, b) => a.frame_id - b.frame_id);
+}
+
+/** One token blob per file: path tokens + the file's symbol names, split the
+ *  SAME way `scoreLabel` splits labels so terms line up. */
+function buildFileBlobs(nodes: readonly NodeRow[]): FileBlob[] {
+  const symbolsByPath = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.file_path || n.kind === "file") continue;
+    const arr = symbolsByPath.get(n.file_path) ?? [];
+    arr.push(n.qualified_name || n.name);
+    symbolsByPath.set(n.file_path, arr);
+  }
+  const blobs: FileBlob[] = [];
+  for (const n of nodes) {
+    if (n.kind !== "file" || !n.file_path) continue;
+    const tokens = [
+      ...splitSymbol(n.file_path),
+      ...(symbolsByPath.get(n.file_path) ?? []).flatMap(splitSymbol),
+    ];
+    blobs.push({ path: n.file_path, text: tokens.join(" ") });
+  }
+  return blobs;
+}
+
+export function buildFrameMap(nodes: readonly NodeRow[], edges: readonly EdgeRow[]): FrameMap {
+  const records = buildFrameRecords(nodes);
+  const corpus = buildCorpusIndex(buildFileBlobs(nodes));
+  const ranked = rankFrames(records, corpus);
+
+  const ambient = ranked.filter((r) => r.ambient);
+  const pairs = rollupFramePairs(nodes, edges);
+  const positioned = layoutFrames(
+    ambient.map((r) => ({
+      frame_id: r.frame_id,
+      frame_label: r.frame_label,
+      member_count: r.member_count,
+    })),
+    pairs,
+  );
+  const posById = new Map(positioned.map((p) => [p.id, p]));
+
+  const frames: FrameMapEntry[] = ranked.map((r) => {
+    const p = posById.get(r.frame_id);
+    return {
+      id: r.frame_id,
+      name: r.frame_label,
+      count: r.member_count,
+      x: p ? p.x : null,
+      y: p ? p.y : null,
+      w: p ? p.w : null,
+      h: p ? p.h : null,
+      ambient: r.ambient,
+      rank: r.rank,
+      score: r.score,
+    };
+  });
+
+  return { frames, stage: { w: STAGE_W, h: STAGE_H } };
+}
