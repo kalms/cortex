@@ -42,3 +42,12 @@ export async function fetchFileEdges(project) {
   if (!r.ok) return { file_edges: [] };
   return r.json();
 }
+
+export async function fetchFrames(project) {
+  const url = project
+    ? `/api/frames?project=${encodeURIComponent(project)}`
+    : "/api/frames";
+  const r = await fetch(url);
+  if (!r.ok) return { frames: [], stage: { w: 1000, h: 800 } };
+  return r.json();
+}
