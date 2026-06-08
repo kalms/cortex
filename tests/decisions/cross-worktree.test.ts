@@ -8,7 +8,7 @@ import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 describe("decisions store is shared across worktrees", () => {
   let root: string;
   let home: string;
-  let prevHome: string | undefined;
+  let prevCortexHome: string | undefined;
   let prevDecisionsDb: string | undefined;
 
   beforeEach(() => {
@@ -20,8 +20,8 @@ describe("decisions store is shared across worktrees", () => {
       { cwd: root },
     );
     home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cwhome-")));
-    prevHome = process.env.HOME;
-    process.env.HOME = home;
+    prevCortexHome = process.env.CORTEX_HOME;
+    process.env.CORTEX_HOME = home;
     // Save and delete CORTEX_DECISIONS_DB so an override can't turn this into
     // a trivial identity check (the env var short-circuits ensureRepoId entirely).
     prevDecisionsDb = process.env.CORTEX_DECISIONS_DB;
@@ -29,8 +29,8 @@ describe("decisions store is shared across worktrees", () => {
   });
 
   afterEach(() => {
-    if (prevHome === undefined) delete process.env.HOME;
-    else process.env.HOME = prevHome;
+    if (prevCortexHome === undefined) delete process.env.CORTEX_HOME;
+    else process.env.CORTEX_HOME = prevCortexHome;
     if (prevDecisionsDb === undefined) delete process.env.CORTEX_DECISIONS_DB;
     else process.env.CORTEX_DECISIONS_DB = prevDecisionsDb;
     rmSync(root, { recursive: true, force: true });
