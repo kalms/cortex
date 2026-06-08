@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS id_sequences (
+  entity_type TEXT PRIMARY KEY,   -- 'decision' | 'todo'
+  next_val    INTEGER NOT NULL    -- next seq to hand out (1-based)
+);
 `;
 
 /*
@@ -114,6 +119,14 @@ function ensureProvenanceColumn(db: Database.Database): void {
   }
 }
 
+/** Additively add the seq column to pre-existing DBs. Idempotent. */
+function ensureSeqColumn(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(decisions)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "seq")) {
+    db.exec("ALTER TABLE decisions ADD COLUMN seq INTEGER");
+  }
+}
+
 /** Additively add the reconciliation columns to pre-existing DBs. Idempotent. */
 function ensureReconciliationColumns(db: Database.Database): void {
   const cols = db.prepare("PRAGMA table_info(decisions)").all() as Array<{ name: string }>;
@@ -139,6 +152,7 @@ export function openDecisionsDb(path: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.exec(BASE_SCHEMA);
   ensureProvenanceColumn(db);
+  ensureSeqColumn(db);
   // Ensure reconciliation columns exist before FTS migration,
   // which may try to read from them when rebuilding the index.
   ensureReconciliationColumns(db);

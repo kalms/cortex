@@ -1,12 +1,15 @@
-import { randomUUID } from "node:crypto";
+import type Database from "better-sqlite3";
 import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
 import { DecisionsRepository, DecisionRecord } from "./repository.js";
 import { DecisionLinksRepository, TargetKind, Relation } from "./links-repository.js";
+import { mintId } from "../ids/allocator.js";
+import { parseRef } from "../ids/short-id.js";
 
 export interface DecisionServiceDeps {
+  db: Database.Database;
   decisions: DecisionsRepository;
   links: DecisionLinksRepository;
   bus?: EventBus;
@@ -14,12 +17,14 @@ export interface DecisionServiceDeps {
 }
 
 export class DecisionService {
+  private db: Database.Database;
   private decisions: DecisionsRepository;
   private links: DecisionLinksRepository;
   private bus: EventBus | undefined;
   private projectId: string;
 
   constructor(deps: DecisionServiceDeps) {
+    this.db = deps.db;
     this.decisions = deps.decisions;
     this.links = deps.links;
     this.bus = deps.bus;
@@ -28,9 +33,10 @@ export class DecisionService {
 
   create(input: CreateDecisionInput): Decision {
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
     const rec: DecisionRecord = {
       id,
+      seq,
       title: input.title,
       description: input.description ?? null,
       rationale: input.rationale,
@@ -70,14 +76,25 @@ export class DecisionService {
     return toDecision(rec);
   }
 
+  /** Resolve a canonical id, "D-<seq>", or bare "<seq>" to the stored record. */
+  private resolveRecord(ref: string): DecisionRecord | null {
+    const direct = this.decisions.get(ref);
+    if (direct) return direct; // exact canonical id (fast path)
+    const parsed = parseRef("decision", ref);
+    if (!parsed) return null;
+    if (parsed.kind === "seq") return this.decisions.getBySeq(parsed.seq);
+    return this.decisions.get(parsed.id);
+  }
+
   get(id: string): Decision | null {
-    const rec = this.decisions.get(id);
+    const rec = this.resolveRecord(id);
     return rec ? toDecision(rec) : null;
   }
 
   update(id: string, input: UpdateDecisionInput, opts: { emit?: boolean } = { emit: true }): Decision {
-    const existing = this.decisions.get(id);
+    const existing = this.resolveRecord(id);
     if (!existing) throw new Error(`Decision not found: ${id}`);
+    const canonicalId = existing.id;
     const now = new Date().toISOString();
     const patch: Partial<DecisionRecord> = { updated_at: now };
     const changedFields: string[] = [];
@@ -96,7 +113,7 @@ export class DecisionService {
     if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
     if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
-    this.decisions.update(id, patch);
+    this.decisions.update(canonicalId, patch);
 
     // Governance replacement — full set semantics.
     // Not wrapped in a transaction because the existing service layer
@@ -105,10 +122,10 @@ export class DecisionService {
     // becomes a requirement, refactor the whole link-write surface in one
     // pass.
     if (input.governs !== undefined) {
-      this.replaceLinks(id, "GOVERNS", input.governs, now);
+      this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
     }
     if (input.references !== undefined) {
-      this.replaceLinks(id, "REFERENCES", input.references, now);
+      this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
     }
 
     if (opts.emit !== false) {
@@ -123,7 +140,7 @@ export class DecisionService {
           actor: patch.author ?? existing.author ?? "claude",
           created_at: Date.now(),
           project_id: this.projectId,
-          payload: { old_id: id, new_id: patch.superseded_by!, reason: "" },
+          payload: { old_id: canonicalId, new_id: patch.superseded_by!, reason: "" },
         });
       } else {
         this.emit({
@@ -132,7 +149,7 @@ export class DecisionService {
           actor: patch.author ?? existing.author ?? "claude",
           created_at: Date.now(),
           project_id: this.projectId,
-          payload: { decision_id: id, changed_fields: changedFields },
+          payload: { decision_id: canonicalId, changed_fields: changedFields },
         });
       }
     }
@@ -141,16 +158,17 @@ export class DecisionService {
   }
 
   delete(id: string): void {
-    const existing = this.decisions.get(id);
+    const existing = this.resolveRecord(id);
     if (!existing) return; // idempotent: missing decision is a no-op
-    this.decisions.delete(id);
+    const canonicalId = existing.id;
+    this.decisions.delete(canonicalId);
     this.emit({
       id: newUlid(),
       kind: "decision.deleted",
       actor: existing.author ?? "claude",
       created_at: Date.now(),
       project_id: this.projectId,
-      payload: { decision_id: id, title: existing.title },
+      payload: { decision_id: canonicalId, title: existing.title },
     });
   }
 
@@ -173,9 +191,11 @@ export class DecisionService {
   supersede(input: SupersedeDecisionInput): Decision {
     // Validate the target exists BEFORE creating the replacement, so we don't
     // leave an orphan if old_decision_id is bogus.
-    if (!this.decisions.get(input.old_decision_id)) {
+    const oldExisting = this.resolveRecord(input.old_decision_id);
+    if (!oldExisting) {
       throw new Error(`Decision not found: ${input.old_decision_id}`);
     }
+    const oldCanonicalId = oldExisting.id;
     const replacement = this.create({
       title: input.title,
       description: input.resolution ?? "",
@@ -187,7 +207,7 @@ export class DecisionService {
       problem: input.problem,
       resolution: input.resolution,
     });
-    this.update(input.old_decision_id, {
+    this.update(oldCanonicalId, {
       status: "superseded",
       superseded_by: replacement.id,
       author: input.author,
@@ -195,7 +215,7 @@ export class DecisionService {
     this.links.add({
       decision_id: replacement.id,
       target_kind: "decision",
-      target_ref: input.old_decision_id,
+      target_ref: oldCanonicalId,
       relation: "SUPERSEDES",
       created_at: new Date().toISOString(),
     });
@@ -205,16 +225,17 @@ export class DecisionService {
       actor: input.author ?? "claude",
       created_at: Date.now(),
       project_id: this.projectId,
-      payload: { old_id: input.old_decision_id, new_id: replacement.id, reason: "" },
+      payload: { old_id: oldCanonicalId, new_id: replacement.id, reason: "" },
     });
     return replacement;
   }
 
   propose(input: ProposeDecisionInput): Decision {
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
     const rec: DecisionRecord = {
       id,
+      seq,
       title: input.title,
       description: input.resolution ?? null,
       rationale: input.rationale,
@@ -272,24 +293,31 @@ export class DecisionService {
   }
 
   linkRelatedTo(fromId: string, toId: string): void {
-    this.links.add({
-      decision_id: fromId, target_kind: "decision", target_ref: toId,
-      relation: "DECISION_RELATED_TO", created_at: new Date().toISOString(),
-    });
+    this.addLink(fromId, "decision", toId, "DECISION_RELATED_TO", new Date().toISOString());
   }
 
   linkDependsOn(fromId: string, toId: string): void {
-    this.links.add({
-      decision_id: fromId, target_kind: "decision", target_ref: toId,
-      relation: "DECISION_DEPENDS_ON", created_at: new Date().toISOString(),
-    });
+    this.addLink(fromId, "decision", toId, "DECISION_DEPENDS_ON", new Date().toISOString());
   }
 
   private addLink(
     decisionId: string, kind: TargetKind, ref: string, relation: Relation, createdAt: string,
   ): void {
+    // Resolve seq-form or bare-seq owning ref to the canonical FK value so
+    // `decision_links.decision_id` always stores the canonical PK (FK safe).
+    const owner = this.resolveRecord(decisionId);
+    const ownerId = owner ? owner.id : decisionId;
+
+    // When the *target* is itself a decision (RELATED_TO, DEPENDS_ON, SUPERSEDES,
+    // etc.), resolve it to canonical too so `target_ref` is stable.
+    let targetRef = ref;
+    if (kind === "decision") {
+      const targetOwner = this.resolveRecord(ref);
+      targetRef = targetOwner ? targetOwner.id : ref;
+    }
+
     this.links.add({
-      decision_id: decisionId, target_kind: kind, target_ref: ref,
+      decision_id: ownerId, target_kind: kind, target_ref: targetRef,
       relation, created_at: createdAt,
     });
   }
@@ -325,6 +353,7 @@ function classifyTarget(target: string): TargetKind {
 function toDecision(rec: DecisionRecord): Decision {
   return {
     id: rec.id,
+    seq: rec.seq,
     title: rec.title,
     description: rec.description ?? "",
     rationale: rec.rationale ?? "",

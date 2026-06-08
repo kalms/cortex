@@ -19,6 +19,7 @@ describe("DecisionService.update — governs replacement", () => {
     db = openDecisionsDb(join(dir, "decisions.db"));
     links = new DecisionLinksRepository(db);
     svc = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links,
     });

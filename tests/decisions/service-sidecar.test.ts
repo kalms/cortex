@@ -17,6 +17,7 @@ describe("DecisionService over sidecar DB", () => {
     root = mkdtempSync(join(tmpdir(), "cortex-test-"));
     db = openDecisionsDb(join(root, "decisions.db"));
     svc = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links: new DecisionLinksRepository(db),
     });
@@ -30,7 +31,7 @@ describe("DecisionService over sidecar DB", () => {
       rationale: "Speed.",
       alternatives: [{ name: "jest", reason_rejected: "slower" }],
     });
-    expect(d.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(d.id).toMatch(/^D-[0-9abcdefghjkmnpqrstvwxyz]{4}$/);
     expect(d.title).toBe("Use vitest");
   });
 

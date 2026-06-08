@@ -23,19 +23,19 @@ describe("DecisionSearch.findGoverning", () => {
     search = new DecisionSearch(decisions, links);
     const now = "2026-05-14T10:00:00Z";
     decisions.insert({
-      id: "d-fn", title: "Function rule", description: null, rationale: null,
+      id: "d-fn", seq: 1, title: "Function rule", description: null, rationale: null,
       problem: null, resolution: null, alternatives: null, tier: "personal",
       status: "active", superseded_by: null, author: null,
       created_at: now, updated_at: now,
     });
     decisions.insert({
-      id: "d-file", title: "File rule", description: null, rationale: null,
+      id: "d-file", seq: 2, title: "File rule", description: null, rationale: null,
       problem: null, resolution: null, alternatives: null, tier: "personal",
       status: "active", superseded_by: null, author: null,
       created_at: now, updated_at: now,
     });
     decisions.insert({
-      id: "d-dir", title: "Dir rule", description: null, rationale: null,
+      id: "d-dir", seq: 3, title: "Dir rule", description: null, rationale: null,
       problem: null, resolution: null, alternatives: null, tier: "personal",
       status: "active", superseded_by: null, author: null,
       created_at: now, updated_at: now,
