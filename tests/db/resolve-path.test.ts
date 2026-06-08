@@ -8,6 +8,7 @@ import {
   resolveCortexDbPath,
   resolveDecisionsDbPath,
   resolveGraphDbForRead,
+  isCanonicalGraphDbPath,
 } from "../../src/db/resolve-path.js";
 
 /** Create a graph DB at `path`; populate `nodes` with one row when `withNode`. */
@@ -118,6 +119,36 @@ describe("resolveGraphDbForRead", () => {
     } finally {
       delete process.env.CORTEX_DB_PATH;
     }
+  });
+});
+
+describe("isCanonicalGraphDbPath", () => {
+  // Guards against eval/merge tooling clobbering a per-repo canonical graph
+  // store. The canonical write target is `<gitroot>/.cortex/db`; the legacy
+  // read-fallback `<gitroot>/.cortex/graph.db` is also off-limits as a merge
+  // target. Anything else (dedicated eval/demo DBs) is allowed.
+  it("flags <repo>/.cortex/db", () => {
+    expect(isCanonicalGraphDbPath("/Users/x/proj/.cortex/db")).toBe(true);
+  });
+
+  it("flags the legacy <repo>/.cortex/graph.db fallback", () => {
+    expect(isCanonicalGraphDbPath("/Users/x/proj/.cortex/graph.db")).toBe(true);
+  });
+
+  it("normalizes relative + redundant segments before judging", () => {
+    expect(isCanonicalGraphDbPath("proj/./.cortex/../.cortex/db")).toBe(true);
+  });
+
+  it("allows a dedicated eval/demo DB outside .cortex", () => {
+    expect(isCanonicalGraphDbPath("/Users/x/proj/.tmp/eval-shared.db")).toBe(false);
+  });
+
+  it("does not flag a file literally named db outside a .cortex dir", () => {
+    expect(isCanonicalGraphDbPath("/Users/x/proj/build/db")).toBe(false);
+  });
+
+  it("does not flag the sibling decisions DB", () => {
+    expect(isCanonicalGraphDbPath("/Users/x/proj/.cortex/decisions.db")).toBe(false);
   });
 });
 
