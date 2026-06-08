@@ -50,6 +50,7 @@ export class DecisionPromotion {
 function toDecision(rec: import("./repository.js").DecisionRecord): Decision {
   return {
     id: rec.id,
+    seq: rec.seq,
     title: rec.title,
     description: rec.description ?? "",
     rationale: rec.rationale ?? "",

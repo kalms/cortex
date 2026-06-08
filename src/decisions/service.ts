@@ -1,12 +1,14 @@
-import { randomUUID } from "node:crypto";
+import type Database from "better-sqlite3";
 import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
 import { DecisionsRepository, DecisionRecord } from "./repository.js";
 import { DecisionLinksRepository, TargetKind, Relation } from "./links-repository.js";
+import { mintId } from "../ids/allocator.js";
 
 export interface DecisionServiceDeps {
+  db: Database.Database;
   decisions: DecisionsRepository;
   links: DecisionLinksRepository;
   bus?: EventBus;
@@ -14,12 +16,14 @@ export interface DecisionServiceDeps {
 }
 
 export class DecisionService {
+  private db: Database.Database;
   private decisions: DecisionsRepository;
   private links: DecisionLinksRepository;
   private bus: EventBus | undefined;
   private projectId: string;
 
   constructor(deps: DecisionServiceDeps) {
+    this.db = deps.db;
     this.decisions = deps.decisions;
     this.links = deps.links;
     this.bus = deps.bus;
@@ -28,9 +32,10 @@ export class DecisionService {
 
   create(input: CreateDecisionInput): Decision {
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
     const rec: DecisionRecord = {
       id,
+      seq,
       title: input.title,
       description: input.description ?? null,
       rationale: input.rationale,
@@ -212,9 +217,10 @@ export class DecisionService {
 
   propose(input: ProposeDecisionInput): Decision {
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
     const rec: DecisionRecord = {
       id,
+      seq,
       title: input.title,
       description: input.resolution ?? null,
       rationale: input.rationale,
@@ -325,6 +331,7 @@ function classifyTarget(target: string): TargetKind {
 function toDecision(rec: DecisionRecord): Decision {
   return {
     id: rec.id,
+    seq: rec.seq,
     title: rec.title,
     description: rec.description ?? "",
     rationale: rec.rationale ?? "",
