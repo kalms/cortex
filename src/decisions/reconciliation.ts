@@ -21,7 +21,7 @@ export function RECONCILE_ENABLED(): boolean {
  * without the graph). "path" refs pass through; "qn" refs use the file part
  * before "::".
  */
-function refToFile(ref: GovernedRef): string | null {
+export function refToFile(ref: GovernedRef): string | null {
   if (ref.target_kind === "decision" || ref.target_kind === "pr") return null;
   const r = ref.target_ref;
   if (r.includes("::")) return r.slice(0, r.indexOf("::"));
