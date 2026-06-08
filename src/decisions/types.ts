@@ -24,6 +24,7 @@ export type DecisionStatus = "proposed" | "active" | "superseded" | "deprecated"
 
 export interface Decision {
   id: string;
+  seq: number;
   title: string;
   description: string;
   rationale: string;
@@ -42,7 +43,7 @@ export interface Decision {
 
 export interface CreateDecisionInput {
   title: string;
-  description: string;
+  description?: string;
   rationale: string;
   alternatives?: Alternative[];
   governs?: string[];
@@ -116,6 +117,7 @@ export function nodeToDecision(node: NodeRow): Decision {
   const data = JSON.parse(node.data);
   return {
     id: node.id,
+    seq: data.seq ?? 0,
     title: data.title,
     description: data.description,
     rationale: data.rationale,

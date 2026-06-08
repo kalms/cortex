@@ -8,6 +8,7 @@ import { DecisionsRepository, type DecisionRecord } from "../../src/decisions/re
 function rec(id: string): DecisionRecord {
   return {
     id,
+    seq: 1,
     title: "t",
     description: null,
     rationale: null,

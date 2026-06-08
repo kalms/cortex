@@ -115,6 +115,7 @@ describe('end-to-end: decision → event + mutations over WS', () => {
     bus.onEvent((e) => worker.postMessage({ type: 'event', event: e }));
 
     const service = new DecisionService({
+      db: decisionsDb,
       decisions: new DecisionsRepository(decisionsDb),
       links: new DecisionLinksRepository(decisionsDb),
       bus,

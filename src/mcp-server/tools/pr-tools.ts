@@ -82,6 +82,7 @@ export function registerPRTools(
   // is a cheap per-call construction. Mirrors decision-tools.ts's serviceFor.
   const prServiceFor = (ctx: RepoContext): PRService => {
     const decisions = new DecisionService({
+      db: ctx.decisionsDb,
       decisions: ctx.decisionsRepo,
       links: ctx.decisionLinksRepo,
       bus,

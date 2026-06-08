@@ -33,6 +33,7 @@ describe("cortex decision count", () => {
       mkdirSync(join(root, ".git"));
       const db = openDecisionsDb(join(root, ".cortex", "decisions.db"));
       const service = new DecisionService({
+        db,
         decisions: new DecisionsRepository(db),
         links: new DecisionLinksRepository(db),
       });
