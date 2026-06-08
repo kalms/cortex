@@ -65,6 +65,17 @@ function isGenericToken(token: string): boolean {
   return GENERIC_TOKENS.has(token);
 }
 
+/** Fraction of a label's tokens that are topic-bearing (non-generic). 1.0 = every
+ *  token is specific; 0 = the label is entirely generic/structural/short. The
+ *  frame ranker multiplies F1 by this to down-weight opaque labels (e.g. the
+ *  `cluster:N` fallback, or `src/core` org-root labels). */
+export function genericPenalty(label: string): number {
+  const terms = splitSymbol(label);
+  if (terms.length === 0) return 0;
+  const specific = terms.filter((t) => !isGenericToken(t)).length;
+  return specific / terms.length;
+}
+
 /** A label word is eligible only if it is not generic, not structural
  *  (route param / MVC marker / bracket), and — when member paths are
  *  available — salient across ≥50% of them. The salience gate is skipped
