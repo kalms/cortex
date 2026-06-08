@@ -34,7 +34,8 @@ export type ErrorReason =
   | "malformed_input"
   | "internal_error"
   | "fs_error"
-  | "ambiguous_input";
+  | "ambiguous_input"
+  | "not_reconcilable";
 
 export function ok(text: string) {
   return { content: [{ type: "text" as const, text }] };

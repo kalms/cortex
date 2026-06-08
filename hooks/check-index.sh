@@ -145,6 +145,13 @@ search_decisions are empty. Offer to bootstrap them:
 EOF
             fi
         fi
+        # Reconciliation drift probe (opt-in). Cheap: deterministic hash compare, no LLM.
+        if [ "${CORTEX_RECONCILE:-0}" = "1" ] && [ -n "$CORTEX_BIN" ]; then
+            DRIFTED="$(cd "$REPO" && "$CORTEX_BIN" reconcile status 2>/dev/null | tr -dc '0-9')"
+            if [ -n "$DRIFTED" ] && [ "$DRIFTED" -gt 0 ]; then
+                printf '↻ %s decision(s) drifted since last reconciliation. Call pending_reconciliations to refresh their verdicts.\n' "$DRIFTED"
+            fi
+        fi
         ;;
     not-indexed)
         cat <<'EOF'
