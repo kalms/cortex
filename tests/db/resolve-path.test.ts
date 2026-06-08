@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import BetterSqlite3 from "better-sqlite3";
 import {
   resolveCortexDbPath,
@@ -122,32 +123,41 @@ describe("resolveGraphDbForRead", () => {
 
 describe("resolveDecisionsDbPath", () => {
   let root: string;
-  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "cortex-test-")); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
-
-  it("returns <repo>/.cortex/decisions.db for a git repo", () => {
-    mkdirSync(join(root, ".git"));
-    expect(resolveDecisionsDbPath(root)).toBe(join(root, ".cortex", "decisions.db"));
+  let home: string;
+  let prevCortexHome: string | undefined;
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "cortex-dec-")));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-")));
+    prevCortexHome = process.env.CORTEX_HOME;
+    process.env.CORTEX_HOME = home;
+  });
+  afterEach(() => {
+    if (prevCortexHome === undefined) delete process.env.CORTEX_HOME; else process.env.CORTEX_HOME = prevCortexHome;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
   });
 
-  it("walks up to the git root from a subdirectory", () => {
-    mkdirSync(join(root, ".git"));
-    const sub = join(root, "src", "nested");
-    mkdirSync(sub, { recursive: true });
-    expect(resolveDecisionsDbPath(sub)).toBe(join(root, ".cortex", "decisions.db"));
+  it("resolves to ~/.cortex/<repo-id>/decisions.db, minting the id", () => {
+    const p = resolveDecisionsDbPath(root);
+    const id = JSON.parse(readFileSync(join(root, "cortex.json"), "utf-8")).repoId;
+    expect(p).toBe(join(process.env.CORTEX_HOME!, ".cortex", id, "decisions.db"));
   });
 
-  it("honors $CORTEX_DECISIONS_DB env override", () => {
+  it("is stable across calls (same minted id)", () => {
+    expect(resolveDecisionsDbPath(root)).toBe(resolveDecisionsDbPath(root));
+  });
+
+  it("honors $CORTEX_DECISIONS_DB override verbatim", () => {
     const override = join(root, "custom", "decisions.db");
     process.env.CORTEX_DECISIONS_DB = override;
-    try {
-      expect(resolveDecisionsDbPath(root)).toBe(override);
-    } finally {
-      delete process.env.CORTEX_DECISIONS_DB;
-    }
+    try { expect(resolveDecisionsDbPath(root)).toBe(override); }
+    finally { delete process.env.CORTEX_DECISIONS_DB; }
   });
 
-  it("falls back to <startDir>/.cortex/decisions.db when no .git is found", () => {
-    expect(resolveDecisionsDbPath(root)).toBe(join(root, ".cortex", "decisions.db"));
+  it("falls back to <startDir>/.cortex/decisions.db outside any git repo", () => {
+    const noGit = realpathSync(mkdtempSync(join(tmpdir(), "cortex-nogit2-")));
+    try { expect(resolveDecisionsDbPath(noGit)).toBe(join(noGit, ".cortex", "decisions.db")); }
+    finally { rmSync(noGit, { recursive: true, force: true }); }
   });
 });
