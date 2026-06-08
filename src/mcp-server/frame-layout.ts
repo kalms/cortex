@@ -58,6 +58,8 @@ const FRAME_MAX = 160;
 const ITERATIONS = 300;
 /** Padding added to each frame's collision radius (px). */
 const COLLIDE_PAD = 10;
+/** Extra collision-only ticks after the main sim to enforce non-overlap. */
+const RELAX_ITERATIONS = 120;
 
 export interface PositionedFrame {
   id: number;
@@ -137,7 +139,7 @@ export function layoutFrames(
         .distance((l) => 220 - 150 * (l.weight / maxW))
         .strength((l) => 0.1 + 0.8 * (l.weight / maxW)),
     )
-    .force("collide", forceCollide<SimNode>((d) => d.size / 2 + COLLIDE_PAD).strength(1))
+    .force("collide", forceCollide<SimNode>((d) => d.size / 2 + COLLIDE_PAD).strength(1).iterations(4))
     .stop();
 
   for (let i = 0; i < ITERATIONS; i++) {
@@ -148,6 +150,50 @@ export function layoutFrames(
       const damp = 1 - 0.6 * n.mass;
       n.vx = (n.vx ?? 0) * damp;
       n.vy = (n.vy ?? 0) * damp;
+    }
+  }
+
+  // Collision-relaxation tail: drop attraction + charge so the hard non-overlap
+  // constraint wins where the link force was fighting it. Deterministic — no
+  // randomness, fixed iteration count, collision is a pure positional solve.
+  //
+  // d3's forceCollide uses circular separation (Euclidean distance), which can
+  // leave axis-aligned bounding boxes (AABBs) overlapping when two frames sit at
+  // a diagonal (circles clear but corners still touch). We therefore run a direct
+  // AABB separation pass: for each overlapping pair, push the two nodes apart
+  // along the axis of lesser penetration (minimum separation vector), splitting
+  // the correction 50/50. RELAX_ITERATIONS sweeps guarantee convergence for any
+  // realistic frame count. The pass is purely positional and references no PRNG.
+  sim.force("link", null).force("charge", null);
+  for (let i = 0; i < RELAX_ITERATIONS; i++) {
+    sim.tick();
+    // Direct AABB separation — resolves residual rectangular overlap that the
+    // circular forceCollide misses at diagonal frame positions.
+    for (let a = 0; a < nodes.length; a++) {
+      for (let b = a + 1; b < nodes.length; b++) {
+        const na = nodes[a], nb = nodes[b];
+        const ax = na.x ?? 0, ay = na.y ?? 0;
+        const bx = nb.x ?? 0, by = nb.y ?? 0;
+        const halfSumW = (na.size + nb.size) / 2;
+        const halfSumH = halfSumW; // square frames
+        const dx = bx - ax, dy = by - ay;
+        const ox = halfSumW - Math.abs(dx); // overlap on x-axis (positive = overlap)
+        const oy = halfSumH - Math.abs(dy); // overlap on y-axis (positive = overlap)
+        if (ox > 0 && oy > 0) {
+          // Push along the axis of lesser penetration, splitting 50/50.
+          if (ox < oy) {
+            const push = ox / 2 + 0.5;
+            const sign = dx >= 0 ? 1 : -1;
+            na.x = ax - sign * push;
+            nb.x = bx + sign * push;
+          } else {
+            const push = oy / 2 + 0.5;
+            const sign = dy >= 0 ? 1 : -1;
+            na.y = ay - sign * push;
+            nb.y = by + sign * push;
+          }
+        }
+      }
     }
   }
 
