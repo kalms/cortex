@@ -6,6 +6,7 @@ import { registerCodeTools } from "../../src/mcp-server/tools/code-tools.js";
 import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
 import { registerPromotionTools } from "../../src/mcp-server/tools/promotion-tools.js";
 import { registerPRTools } from "../../src/mcp-server/tools/pr-tools.js";
+import { registerReconciliationTools } from "../../src/mcp-server/tools/reconciliation-tools.js";
 import { DecisionService } from "../../src/decisions/service.js";
 import { DecisionPromotion } from "../../src/decisions/promotion.js";
 import { PRService } from "../../src/prs/service.js";
@@ -151,6 +152,7 @@ export async function createHarness(): Promise<HarnessContext> {
   registerDecisionTools(server, resolver, project);
   registerPromotionTools(server, resolver, project);
   registerPRTools(server, resolver, project);
+  registerReconciliationTools(server, resolver);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
