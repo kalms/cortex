@@ -37,9 +37,12 @@ export function attachDecisionReconciliation<T extends TextResult>(
     pending.push({ id: d.id, state: "stale-pending", last_verdict: d.reconciliation_verdict ?? "unknown" });
   }
   if (pending.length === 0) return result;
-  const line = `\n\n↻ cortex reconciliation: ${pending.length} governed decision(s) drifted since last verdict — judge match/partial/drift and call record_reconciliation(decision_id, verdict).`;
-  const first = result.content?.find((c) => c.type === "text");
-  if (first) first.text += line;
+  const note = `↻ cortex reconciliation: ${pending.length} governed decision(s) drifted since last verdict — judge match/partial/drift and call record_reconciliation(decision_id, verdict).`;
+  // Emit as a SEPARATE content block so content[0].text stays pure JSON for
+  // callers that parse it (get_decision returns an object; why_was_this_built
+  // and search_decisions return arrays). The structured `reconciliation` field
+  // carries the machine-readable signal; this block is the agent-facing nudge.
+  result.content.push({ type: "text", text: note });
   (result as TextResult).reconciliation = { pending };
   return result;
 }

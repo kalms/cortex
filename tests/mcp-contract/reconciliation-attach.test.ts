@@ -3,8 +3,11 @@ import { attachDecisionReconciliation } from "../../src/mcp-server/reconciliatio
 
 // attachDecisionReconciliation(ctx, decisions, result): when CORTEX_RECONCILE=1
 // and ≥1 active decision has a governed-source hash != its stored
-// reconciled_source_hash, it appends a note to result.content[0].text and adds
-// a `reconciliation` field. No-op when the flag is off or nothing drifted.
+// reconciled_source_hash, it pushes a NEW content block with the reconciliation
+// note and adds a `reconciliation` field. content[0].text is left untouched so
+// callers that JSON.parse it (get_decision returns an object; why_was_this_built
+// and search_decisions return arrays) are not corrupted.
+// No-op when the flag is off or nothing drifted.
 // The `decisions` passed must be RAW records (carry status + reconciled_source_hash).
 const fakeCtx = () => ({
   repoPath: "/nonexistent-repo",
@@ -30,7 +33,11 @@ describe("attachDecisionReconciliation", () => {
       const result = { content: [{ type: "text", text: "base" }] };
       const out = attachDecisionReconciliation(fakeCtx(), [{ id: "d1", status: "active", reconciled_source_hash: "old" }], result);
       expect((out as any).reconciliation).toBeDefined();
-      expect(out.content[0].text).toMatch(/reconcil/i);
+      // content[0].text must remain untouched (pure JSON for callers that parse it)
+      expect(out.content[0].text).toBe("base");
+      // the note is emitted as a separate second content block
+      expect(out.content.length).toBe(2);
+      expect(out.content[1].text).toMatch(/reconcil/i);
     } finally { if (prev === undefined) delete process.env.CORTEX_RECONCILE; else process.env.CORTEX_RECONCILE = prev; }
   });
 
