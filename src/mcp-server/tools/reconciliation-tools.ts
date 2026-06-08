@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
+import { governedRefs } from "../reconciliation-attach.js";
 
 const RepoPathField = z
   .string().min(1).optional()
@@ -19,14 +20,6 @@ const recordReconciliationShape = {
   note: z.string().optional().describe("One-line human summary of the drift"),
 } as const;
 const recordReconciliationSchema = z.object(recordReconciliationShape);
-
-/** GOVERNS links for a decision, as GovernedRef[]. */
-function governedRefs(ctx: RepoContext, decisionId: string): GovernedRef[] {
-  return ctx.decisionLinksRepo
-    .findByDecision(decisionId)
-    .filter((l) => l.relation === "GOVERNS")
-    .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
-}
 
 const MAX_INLINE_BYTES = 16 * 1024; // per-file cap on inlined source
 
