@@ -12,6 +12,7 @@ import { EventPersister } from "./events/worker/persister.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath } from "./db/resolve-path.js";
 import { openDecisionsDb } from "./decisions/db.js";
+import { migrateDecisionIdsToShortForm } from "./decisions/id-migration.js";
 import { DecisionsRepository } from "./decisions/repository.js";
 import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import type { WireNode } from "./events/types.js";
@@ -157,6 +158,7 @@ const server = createServer(indexerProject, bus);
 
 const decisionsDbPath = resolveDecisionsDbPath(cwd);
 const decisionsDb = openDecisionsDb(decisionsDbPath);
+migrateDecisionIdsToShortForm(decisionsDb);
 const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 
