@@ -97,11 +97,12 @@ export function durableStoreRoot(): string {
 }
 
 /** The pre-relocation in-repo decisions path, used only as a one-time
- *  migration source. */
+ *  migration source. Resolves from the MAIN worktree root so that a linked
+ *  worktree finds the same legacy data as the main worktree. */
 export function legacyDecisionsDbPath(startDir?: string): string {
   const start = startDir ?? process.cwd();
-  const gitRoot = findGitRoot(start);
-  return join(gitRoot ?? start, ".cortex", "decisions.db");
+  const root = mainWorktreeRoot(start) ?? findGitRoot(start) ?? start;
+  return join(root, ".cortex", "decisions.db");
 }
 
 /**
