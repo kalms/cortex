@@ -15,6 +15,14 @@ export function RECONCILE_ENABLED(): boolean {
   return process.env.CORTEX_RECONCILE === "1";
 }
 
+/** Reject absolute paths and any '..' segment so a governed ref can never
+ *  escape the repo root when joined to it. Backslashes are treated as
+ *  separators too, for safety on mixed inputs. */
+function isUnsafePath(p: string): boolean {
+  if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) return true; // absolute (posix or windows)
+  return p.split(/[\\/]/).includes("..");
+}
+
 /**
  * Resolve a GOVERNS ref to a repo-relative file path, or null if it does not
  * name code (decision/pr refs, or a bare dotted qn we can't map to a file
@@ -24,14 +32,14 @@ export function RECONCILE_ENABLED(): boolean {
 export function refToFile(ref: GovernedRef): string | null {
   if (ref.target_kind === "decision" || ref.target_kind === "pr") return null;
   const r = ref.target_ref;
-  if (r.includes("::")) return r.slice(0, r.indexOf("::"));
-  // A "path"-kind ref IS a path (file OR directory) — resolve it directly so
-  // bare top-level directory/frame refs (no slash, no extension) are walked.
-  if (ref.target_kind === "path") return r;
-  // A "qn"-kind ref that is really a file/path (has a separator or extension).
-  // A bare dotted qn (e.g. Module.Class) stays unresolvable to a file in v1.
-  if (r.includes("/") || /\.[a-z0-9]+$/i.test(r)) return r;
-  return null;
+  const candidate =
+    r.includes("::") ? r.slice(0, r.indexOf("::"))
+    : ref.target_kind === "path" ? r
+    : (r.includes("/") || /\.[a-z0-9]+$/i.test(r)) ? r
+    : null;
+  if (candidate == null) return null;
+  if (isUnsafePath(candidate)) return null; // defense-in-depth: never escape the repo
+  return candidate;
 }
 
 /**
