@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { openDecisionsDb } from "../../src/decisions/db.js";
 import { relocateLegacyDecisions } from "../../src/decisions/relocation.js";
 
@@ -151,6 +152,61 @@ describe("relocateLegacyDecisions", () => {
       `SELECT next_val FROM id_sequences WHERE entity_type = 'decision'`,
     ).get() as { next_val: number };
     expect(row.next_val).toBe(20);
+    target.close();
+  });
+
+  it("relocates from an OLDER legacy schema missing seq/reconciliation columns", () => {
+    // Simulate a legacy DB created by an older Cortex that never ran ensureSeqColumn
+    // or ensureReconciliationColumns — only the BASE_SCHEMA columns exist.
+    const legacy = join(dir, "old", ".cortex", "decisions.db");
+    mkdirSync(join(dir, "old", ".cortex"), { recursive: true });
+    const ldb = new Database(legacy);
+    ldb.exec(`
+      CREATE TABLE decisions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        rationale TEXT,
+        problem TEXT,
+        resolution TEXT,
+        alternatives TEXT,
+        tier TEXT NOT NULL DEFAULT 'personal',
+        status TEXT NOT NULL DEFAULT 'active',
+        superseded_by TEXT,
+        author TEXT,
+        provenance TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE decision_links (
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        decision_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_ref TEXT NOT NULL,
+        relation TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE id_sequences (entity_type TEXT PRIMARY KEY, next_val INTEGER NOT NULL);
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    `);
+    ldb.prepare(
+      `INSERT INTO decisions (id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at)
+       VALUES ('uuid-old-1', 'old decision', '', '', '', '', '[]', 'personal', 'active', NULL, 'me', NULL, '2026-01-01', '2026-01-01')`,
+    ).run();
+    ldb.close();
+
+    const target = openDecisionsDb(join(dir, "store-old", "decisions.db"));
+    const r = relocateLegacyDecisions(target, legacy);
+    expect(r.copied).toBe(1);
+    expect(
+      (target.prepare("SELECT COUNT(*) c FROM decisions").get() as { c: number }).c,
+    ).toBe(1);
+    // The row exists with its id; seq is NULL (column absent in legacy, defaults to NULL)
+    const row = target
+      .prepare("SELECT id, seq FROM decisions WHERE id='uuid-old-1'")
+      .get() as { id: string; seq: number | null };
+    expect(row.id).toBe("uuid-old-1");
+    expect(row.seq).toBeNull();
     target.close();
   });
 });
