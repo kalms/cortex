@@ -15,9 +15,10 @@ import { renderTour } from "./tour.js";
 import { runInstall } from "./install.js";
 import { setupVenv } from "../frame-extraction/venv.js";
 import { runFreshnessCommand } from "./commands/freshness.js";
+import { runReconcileCommand } from "./commands/reconcile.js";
 
 const NAMESPACES = ["code", "decision", "graph", "index", "eval"];
-const META_COMMANDS = ["tour", "help", "install", "setup", "freshness"];
+const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile"];
 
 function getVersion(): string {
   try {
@@ -52,6 +53,10 @@ async function main(): Promise<void> {
   if (argv.namespace === "freshness") {
     const ctx = loadContext(process.cwd());
     runFreshnessCommand(ctx);
+    return;
+  }
+  if (argv.namespace === "reconcile") {
+    runReconcileCommand(argv.command);
     return;
   }
   if (argv.namespace === "help") {
