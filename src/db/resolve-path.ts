@@ -96,6 +96,14 @@ export function durableStoreRoot(): string {
   return join(homedir(), ".cortex");
 }
 
+/** The pre-relocation in-repo decisions path, used only as a one-time
+ *  migration source. */
+export function legacyDecisionsDbPath(startDir?: string): string {
+  const start = startDir ?? process.cwd();
+  const gitRoot = findGitRoot(start);
+  return join(gitRoot ?? start, ".cortex", "decisions.db");
+}
+
 /**
  * Resolve the durable decisions DB for the repo containing `startDir`.
  *
