@@ -46,6 +46,7 @@ function createDecisionInRepo(
     const now = new Date().toISOString();
     const rec: DecisionRecord = {
       id,
+      seq: 0,
       title: fields.title,
       description: fields.description,
       rationale: fields.rationale,
