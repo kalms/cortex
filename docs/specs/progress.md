@@ -1,15 +1,15 @@
 # Cortex v0.3 — Progress Assessment
 
-_Assessment date: 2026-06-08. Derived from the live Cortex graph (index current
-as of 2026-06-08T07:16:23Z), the v0.3 design corpus in
-[`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
+_Assessment date: 2026-06-08 (refreshed after the decision-reconciliation
+engine merged to `main`). Derived from the live Cortex graph, the v0.3 design
+corpus in [`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
 
 Version metadata is consistent: `package.json`, `plugin.json`, and
-`.claude-plugin/marketplace.json` are all `0.3.0` (synced on
-`fix/config/version-sync`).
+`.claude-plugin/marketplace.json` are all `0.3.0`.
 
-The shorthand: **the structural / data half of v0.3 shipped; the
-"multiplayer canvas" half is still design.**
+The shorthand: **the structural / data half of v0.3 shipped — including the
+reconciliation engine (merged 2026-06-08, flag-gated); the "multiplayer canvas"
+half is still design.**
 
 ---
 
