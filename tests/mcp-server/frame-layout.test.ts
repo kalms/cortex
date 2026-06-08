@@ -140,4 +140,29 @@ describe("layoutFrames", () => {
       expect(f.y + f.h / 2).toBeLessThanOrEqual(STAGE_H);
     }
   });
+
+  it("produces non-overlapping ambient frames even under strong attraction", () => {
+    // Many frames all strongly pulled toward frame 0 — the case that overlapped
+    // before the collision-relaxation tail.
+    const many: LayoutInputFrame[] = Array.from({ length: 8 }, (_, i) => ({
+      frame_id: i,
+      frame_label: `f${i}`,
+      member_count: 5 + (i % 4) * 8,
+    }));
+    const pulls: FramePairWeight[] = many.slice(1).map((f) => ({ a: 0, b: f.frame_id, weight: 80 }));
+    const out = layoutFrames(many, pulls);
+    // No two frame axis-aligned bounding boxes (AABB) overlap.
+    // AABB non-overlap is the precise definition for axis-aligned squares and
+    // is more correct than center-distance alone (which can reject valid diagonal
+    // packing). Two AABBs overlap iff they overlap on BOTH axes simultaneously.
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i], b = out[j];
+        const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+        const overlapX = dx < (a.w + b.w) / 2 - 1;
+        const overlapY = dy < (a.h + b.h) / 2 - 1;
+        expect(overlapX && overlapY).toBe(false);
+      }
+    }
+  });
 });
