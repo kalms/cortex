@@ -80,9 +80,7 @@ describe("decision extensions contract", () => {
         governs: ["src/viewer/projection.js"],
       })).content[0].text
     );
-    const view = JSON.parse(
-      (await callTool(h, "get_decision", { id: created.id })).content[0].text
-    );
+    const view = JSON.parse((await callTool(h, "get_decision", { id: created.id })).content[0].text);
     expect(Array.isArray(view.governs)).toBe(true);
     expect(view.governs.length).toBeGreaterThanOrEqual(1);
     // references can be empty but must be present
