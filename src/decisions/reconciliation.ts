@@ -1,0 +1,86 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { join, relative, isAbsolute } from "node:path";
+
+export type Verdict = "match" | "partial" | "drift";
+export type ReconciliationState = Verdict | "unknown";
+
+export interface GovernedRef {
+  target_kind: string; // "qn" | "path" | "decision" | "pr"
+  target_ref: string;
+}
+
+/** True only when reconciliation is explicitly enabled. Default off (v1). */
+export function RECONCILE_ENABLED(): boolean {
+  return process.env.CORTEX_RECONCILE === "1";
+}
+
+/**
+ * Resolve a GOVERNS ref to a repo-relative file path, or null if it does not
+ * name code (decision/pr refs, or a bare dotted qn we can't map to a file
+ * without the graph). "path" refs pass through; "qn" refs use the file part
+ * before "::".
+ */
+function refToFile(ref: GovernedRef): string | null {
+  if (ref.target_kind === "decision" || ref.target_kind === "pr") return null;
+  const r = ref.target_ref;
+  if (r.includes("::")) return r.slice(0, r.indexOf("::"));
+  // A "path"-kind ref IS a path (file OR directory) — resolve it directly so
+  // bare top-level directory/frame refs (no slash, no extension) are walked.
+  if (ref.target_kind === "path") return r;
+  // A "qn"-kind ref that is really a file/path (has a separator or extension).
+  // A bare dotted qn (e.g. Module.Class) stays unresolvable to a file in v1.
+  if (r.includes("/") || /\.[a-z0-9]+$/i.test(r)) return r;
+  return null;
+}
+
+/**
+ * Working-tree hash of a decision's governed source. Reads CURRENT bytes from
+ * disk (NOT git HEAD) so in-session edits flip a decision stale-pending before
+ * any commit — the property that makes reconciliation live. Reuses the
+ * sha256(sorted(ref \0 bytes)) shape from src/db/cache.ts:grammarPackHash.
+ *
+ * A directory ref is walked (sorted) so frame/folder governance hashes its
+ * whole subtree. A missing file contributes a "<missing>" sentinel so deletion
+ * registers as drift. Unresolvable refs contribute only their ref string, so
+ * relinking still changes the hash deterministically.
+ */
+export function hashGovernedSource(repoPath: string, refs: GovernedRef[]): string {
+  const h = createHash("sha256");
+  const sorted = [...refs].sort((a, b) => (a.target_ref < b.target_ref ? -1 : a.target_ref > b.target_ref ? 1 : 0));
+  for (const ref of sorted) {
+    h.update(ref.target_ref);
+    h.update("\0");
+    const rel = refToFile(ref);
+    if (rel == null) { h.update("<unresolved>\0"); continue; }
+    const abs = isAbsolute(rel) ? rel : join(repoPath, rel);
+    if (!existsSync(abs)) { h.update("<missing>\0"); continue; }
+    const st = statSync(abs);
+    if (st.isDirectory()) hashDir(h, abs, abs); else h.update(readFileSync(abs));
+    h.update("\0");
+  }
+  return h.digest("hex");
+}
+
+function hashDir(h: ReturnType<typeof createHash>, root: string, dir: string): void {
+  for (const entry of readdirSync(dir).sort()) {
+    const p = join(dir, entry);
+    const st = statSync(p);
+    if (st.isDirectory()) hashDir(h, root, p);
+    else { h.update(relative(root, p)); h.update("\0"); h.update(readFileSync(p)); }
+  }
+}
+
+/**
+ * Project the two stored axes (status, reconciliation verdict) into a single
+ * human-facing display state. "stale" is active ∧ drift — never stored.
+ */
+export function displayState(status: string, verdict: string | null | undefined): string {
+  if (status !== "active") return status;
+  switch (verdict) {
+    case "match": return "active";
+    case "partial": return "active · drifting";
+    case "drift": return "stale";
+    default: return "active · unreconciled"; // "unknown" or null
+  }
+}

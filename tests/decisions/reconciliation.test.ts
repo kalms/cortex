@@ -1,0 +1,115 @@
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { hashGovernedSource, displayState, RECONCILE_ENABLED } from "../../src/decisions/reconciliation.js";
+
+function repoWith(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "gov-"));
+  for (const [rel, content] of Object.entries(files)) writeFileSync(join(dir, rel), content);
+  return dir;
+}
+
+describe("hashGovernedSource", () => {
+  it("is deterministic for the same content", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    const refs = [{ target_kind: "path", target_ref: "a.ts" }];
+    expect(hashGovernedSource(dir, refs)).toBe(hashGovernedSource(dir, refs));
+  });
+
+  it("changes when a governed file's content changes", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    const refs = [{ target_kind: "path", target_ref: "a.ts" }];
+    const before = hashGovernedSource(dir, refs);
+    writeFileSync(join(dir, "a.ts"), "beta");
+    expect(hashGovernedSource(dir, refs)).not.toBe(before);
+  });
+
+  it("is order-independent across refs", () => {
+    const dir = repoWith({ "a.ts": "alpha", "b.ts": "beta" });
+    const h1 = hashGovernedSource(dir, [{ target_kind: "path", target_ref: "a.ts" }, { target_kind: "path", target_ref: "b.ts" }]);
+    const h2 = hashGovernedSource(dir, [{ target_kind: "path", target_ref: "b.ts" }, { target_kind: "path", target_ref: "a.ts" }]);
+    expect(h1).toBe(h2);
+  });
+
+  it("resolves a qn ref to the file part before '::'", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    const viaPath = hashGovernedSource(dir, [{ target_kind: "path", target_ref: "a.ts" }]);
+    const viaQn = hashGovernedSource(dir, [{ target_kind: "qn", target_ref: "a.ts::someFn" }]);
+    expect(viaQn).toBe(hashGovernedSource(dir, [{ target_kind: "qn", target_ref: "a.ts::someFn" }]));
+    expect(viaQn).not.toBe(viaPath);
+  });
+
+  it("uses a <missing> sentinel for a deleted governed file (and changes when it disappears)", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    const refs = [{ target_kind: "path", target_ref: "a.ts" }];
+    const before = hashGovernedSource(dir, refs);
+    rmSync(join(dir, "a.ts"));
+    expect(hashGovernedSource(dir, refs)).not.toBe(before);
+  });
+
+  it("reads the file through a qn ref (mutating the file changes the hash)", () => {
+    // Proves qn refs actually read file bytes — not just that the ref string differs.
+    const dir = repoWith({ "a.ts": "alpha" });
+    const refs = [{ target_kind: "qn", target_ref: "a.ts::someFn" }];
+    const before = hashGovernedSource(dir, refs);
+    writeFileSync(join(dir, "a.ts"), "beta");
+    expect(hashGovernedSource(dir, refs)).not.toBe(before);
+  });
+
+  it("reads the file for a bare-filename qn ref with no '::'", () => {
+    // service.ts classifies bare filenames (no '/') as target_kind 'qn'; these
+    // are real files and must be hashed by content, not treated as unresolvable.
+    const dir = repoWith({ "x.ts": "one" });
+    const refs = [{ target_kind: "qn", target_ref: "x.ts" }];
+    const before = hashGovernedSource(dir, refs);
+    writeFileSync(join(dir, "x.ts"), "two");
+    expect(hashGovernedSource(dir, refs)).not.toBe(before);
+  });
+
+  it("treats decision/pr refs as unresolvable (no file read; stable across unrelated edits)", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    const refs = [{ target_kind: "decision", target_ref: "01HXISADECISIONID" }];
+    const before = hashGovernedSource(dir, refs);
+    writeFileSync(join(dir, "a.ts"), "changed"); // unrelated file edit
+    expect(hashGovernedSource(dir, refs)).toBe(before); // sentinel is stable
+  });
+
+  it("walks a directory ref recursively (a new file under it changes the hash)", () => {
+    const dir = repoWith({});
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "sub", "a.ts"), "alpha");
+    const refs = [{ target_kind: "path", target_ref: "sub" }];
+    const before = hashGovernedSource(dir, refs);
+    writeFileSync(join(dir, "sub", "b.ts"), "beta");
+    expect(hashGovernedSource(dir, refs)).not.toBe(before);
+  });
+});
+
+describe("displayState", () => {
+  it.each([
+    ["active", "match", "active"],
+    ["active", "partial", "active · drifting"],
+    ["active", "drift", "stale"],
+    ["active", "unknown", "active · unreconciled"],
+    ["active", null, "active · unreconciled"],
+    ["superseded", "drift", "superseded"],
+    ["deprecated", "match", "deprecated"],
+    ["proposed", "drift", "proposed"],
+  ])("status=%s verdict=%s → %s", (status, verdict, expected) => {
+    expect(displayState(status, verdict)).toBe(expected);
+  });
+});
+
+describe("RECONCILE_ENABLED", () => {
+  it("is true only when CORTEX_RECONCILE=1", () => {
+    const prev = process.env.CORTEX_RECONCILE;
+    try {
+      process.env.CORTEX_RECONCILE = "1"; expect(RECONCILE_ENABLED()).toBe(true);
+      process.env.CORTEX_RECONCILE = "0"; expect(RECONCILE_ENABLED()).toBe(false);
+      delete process.env.CORTEX_RECONCILE; expect(RECONCILE_ENABLED()).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_RECONCILE; else process.env.CORTEX_RECONCILE = prev;
+    }
+  });
+});
