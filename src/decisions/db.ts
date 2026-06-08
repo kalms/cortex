@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
+import { relocateLegacyDecisions } from "./relocation.js";
 
 /**
  * Current FTS schema version. Bump when the FTS table or triggers change in
@@ -145,7 +146,7 @@ function ensureReconciliationColumns(db: Database.Database): void {
 }
 
 /** Open (and create if missing) the decisions sidecar DB. */
-export function openDecisionsDb(path: string): Database.Database {
+export function openDecisionsDb(path: string, legacyPath?: string): Database.Database {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
@@ -158,6 +159,9 @@ export function openDecisionsDb(path: string): Database.Database {
   ensureReconciliationColumns(db);
   if (readSchemaMeta(db, "fts_version") !== FTS_VERSION) {
     migrateFtsToTriggers(db);
+  }
+  if (legacyPath && legacyPath !== path) {
+    relocateLegacyDecisions(db, legacyPath);
   }
   return db;
 }
