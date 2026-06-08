@@ -203,7 +203,11 @@ export function layoutFrames(
     .map((n) => {
       const w = Math.round(n.size);
       const h = w;
-      const half = Math.floor(w / 2);
+      // Use ceil(w/2) as the clamp half so the bounds invariant x ± w/2 ∈
+      // [0, STAGE] holds for ODD w too: with an integer center x and a
+      // fractional w/2, x must stay ≤ STAGE - ceil(w/2) (and ≥ ceil(w/2)) to
+      // keep both edges inside. floor(w/2) would leave a 0.5px overhang.
+      const half = Math.ceil(w / 2);
       const x = Math.round(Math.min(STAGE_W - half, Math.max(half, n.x ?? STAGE_W / 2)));
       const y = Math.round(Math.min(STAGE_H - half, Math.max(half, n.y ?? STAGE_H / 2)));
       return { id: n.id, name: n.name, count: n.count, x, y, w, h };
