@@ -124,16 +124,16 @@ describe("resolveGraphDbForRead", () => {
 describe("resolveDecisionsDbPath", () => {
   let root: string;
   let home: string;
-  let prevHome: string | undefined;
+  let prevCortexHome: string | undefined;
   beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "cortex-dec-")));
     execFileSync("git", ["init", "-q"], { cwd: root });
     home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-")));
-    prevHome = process.env.HOME;
-    process.env.HOME = home;
+    prevCortexHome = process.env.CORTEX_HOME;
+    process.env.CORTEX_HOME = home;
   });
   afterEach(() => {
-    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+    if (prevCortexHome === undefined) delete process.env.CORTEX_HOME; else process.env.CORTEX_HOME = prevCortexHome;
     rmSync(root, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
@@ -141,7 +141,7 @@ describe("resolveDecisionsDbPath", () => {
   it("resolves to ~/.cortex/<repo-id>/decisions.db, minting the id", () => {
     const p = resolveDecisionsDbPath(root);
     const id = JSON.parse(readFileSync(join(root, "cortex.json"), "utf-8")).repoId;
-    expect(p).toBe(join(home, ".cortex", id, "decisions.db"));
+    expect(p).toBe(join(process.env.CORTEX_HOME!, ".cortex", id, "decisions.db"));
   });
 
   it("is stable across calls (same minted id)", () => {

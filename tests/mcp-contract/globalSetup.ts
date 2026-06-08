@@ -15,6 +15,11 @@ export async function setup() {
   const regDir = mkdtempSync(join(tmpdir(), "cortex-registry-test-"));
   process.env.CORTEX_REGISTRY_DB = join(regDir, "_registry.db");
 
+  // Isolate the durable decisions store so contract tests write decisions into
+  // a temp home rather than the developer's real ~/.cortex.
+  const homeDir = mkdtempSync(join(tmpdir(), "cortex-home-test-"));
+  process.env.CORTEX_HOME = homeDir;
+
   if (!existsSync(BINARY)) {
     // CI without the binary — contract suite will fail when harness is used; that's expected.
     // We deliberately do not silently skip here; absence of binary is a deploy-time concern.
@@ -88,6 +93,12 @@ export async function teardown() {
   const regDb = process.env.CORTEX_REGISTRY_DB;
   if (regDb) {
     try { rmSync(dirname(regDb), { recursive: true }); } catch { /* ignore */ }
+  }
+
+  const homeDir = process.env.CORTEX_HOME;
+  if (homeDir) {
+    try { rmSync(homeDir, { recursive: true }); } catch { /* ignore */ }
+    delete process.env.CORTEX_HOME;
   }
 
   const fixtureCopy = process.env.CORTEX_CONTRACT_FIXTURE_DIR;

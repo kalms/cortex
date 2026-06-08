@@ -19,6 +19,7 @@ import { copyFileSync, existsSync, mkdtempSync, mkdirSync, rmSync } from "node:f
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 
 export interface HarnessContext {
   client: Client;
@@ -65,7 +66,7 @@ export function makeIndexedRepoFixture(opts?: { sourceCortexDb?: string }): stri
  * in some other repo).
  */
 export function countDecisions(repoPath: string): number {
-  const decisionsDbPath = join(repoPath, ".cortex", "decisions.db");
+  const decisionsDbPath = resolveDecisionsDbPath(repoPath);
   // The resolver creates the decisions.db lazily on first access; before
   // that, the file doesn't exist and the count is trivially zero.
   if (!existsSync(decisionsDbPath)) return 0;

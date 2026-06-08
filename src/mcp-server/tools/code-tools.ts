@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { existsSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
 import Database from "better-sqlite3";
 import {
   searchGraph,
@@ -209,7 +209,7 @@ async function readSnippet(
 }
 
 const execFileAsync = promisify(execFile);
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -451,6 +451,8 @@ export function registerCodeTools(
         }
 
         if (cacheKey && hasCacheEntry(cacheKey)) {
+          // Ensure .cortex/ exists before copying (fresh repos have no .cortex/ yet).
+          mkdirSync(dirname(dbPath), { recursive: true });
           readCacheEntry(cacheKey, dbPath);
           // Remove any stale WAL sidecars left over from a previous indexer run.
           for (const ext of ["-wal", "-shm"]) {
