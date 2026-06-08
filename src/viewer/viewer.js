@@ -1474,7 +1474,9 @@ import { gridLayout } from '/viewer/layout.js';
       name = ref.name;
     } else if (ref.kind === 'decision') {
       type = 'decision';
-      name = ref.id;
+      // Show the friendly D-<seq> form (consistent with the card header and
+      // pills); the click handler still keys on ref.id via data-ref.
+      name = decisionDisplayId(DECISIONS[ref.id] || ref);
     } else {
       type = ref.kind || '';
       name = ref.name || ref.id || ref.path || '';
