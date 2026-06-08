@@ -1,7 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { ensureRepoId } from "./repo-id.js";
 import { mainWorktreeRoot } from "./git-root.js";
 
@@ -100,6 +100,26 @@ export function resolveGraphDbForRead(repoPath: string): string | null {
  */
 export function durableStoreRoot(): string {
   return join(process.env.CORTEX_HOME ?? homedir(), ".cortex");
+}
+
+/**
+ * True if `dbPath` points at a per-repo *canonical* graph store —
+ * `<repo>/.cortex/db` (the write target) or `<repo>/.cortex/graph.db` (the
+ * legacy read-fallback). Such a store may only ever hold ONE repo's index:
+ * the C indexer's dump pass replaces all nodes/edges and node IDs are global
+ * (`ctx-N`), so merging foreign sources into it silently clobbers the repo's
+ * real index. Eval / corpus-merge / multi-repo-viewer tooling must therefore
+ * target a dedicated DB outside `.cortex/`, never a canonical store. This
+ * predicate is the guard those tools call to refuse a canonical target.
+ *
+ * Path-shape only — does not stat the filesystem. The input is normalized
+ * first so relative and redundant-segment paths are judged correctly.
+ */
+export function isCanonicalGraphDbPath(dbPath: string): boolean {
+  const abs = resolvePath(dbPath);
+  const file = basename(abs);
+  if (file !== "db" && file !== "graph.db") return false;
+  return basename(dirname(abs)) === ".cortex";
 }
 
 /** The pre-relocation in-repo decisions path, used only as a one-time
