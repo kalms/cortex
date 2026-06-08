@@ -21,6 +21,7 @@ describe("DecisionsRepository", () => {
   function sample(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
     return {
       id: "d1",
+      seq: 1,
       title: "Use vitest",
       description: "Standardize on vitest for unit tests.",
       rationale: "Same runner across packages, fast watch mode.",
@@ -115,7 +116,7 @@ describe("DecisionsRepository search", () => {
     db = openDecisionsDb(join(root, "decisions.db"));
     repo = new DecisionsRepository(db);
     repo.insert({
-      id: "d1", title: "Use vitest", description: "vitest is fast.",
+      id: "d1", seq: 1, title: "Use vitest", description: "vitest is fast.",
       rationale: "Single runner across packages.",
       problem: "Mixed jest/mocha.", resolution: "Convert.",
       alternatives: null, tier: "personal", status: "active",
@@ -123,7 +124,7 @@ describe("DecisionsRepository search", () => {
       created_at: "2026-05-14T10:00:00Z", updated_at: "2026-05-14T10:00:00Z",
     });
     repo.insert({
-      id: "d2", title: "Use mimalloc", description: "Replace system malloc.",
+      id: "d2", seq: 2, title: "Use mimalloc", description: "Replace system malloc.",
       rationale: "Lower RSS, better fragmentation behavior.",
       problem: null, resolution: null,
       alternatives: null, tier: "personal", status: "active",
