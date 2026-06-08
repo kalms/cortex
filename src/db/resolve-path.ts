@@ -90,10 +90,16 @@ export function resolveGraphDbForRead(repoPath: string): string | null {
   return populated ?? existing[0] ?? null;
 }
 
-/** Out-of-repo durable home for authored primitives: ~/.cortex (advertised,
- *  discoverable). Distinct from the in-repo `.cortex/` derived cache. */
+/**
+ * Out-of-repo durable home for authored primitives: `~/.cortex` (advertised,
+ * discoverable). Distinct from the in-repo `.cortex/` derived cache.
+ *
+ * `$CORTEX_HOME` overrides the base home directory for isolation (tests,
+ * CI). When set, the durable root becomes `$CORTEX_HOME/.cortex` rather
+ * than `~/.cortex`.
+ */
 export function durableStoreRoot(): string {
-  return join(homedir(), ".cortex");
+  return join(process.env.CORTEX_HOME ?? homedir(), ".cortex");
 }
 
 /** The pre-relocation in-repo decisions path, used only as a one-time
