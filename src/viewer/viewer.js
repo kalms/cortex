@@ -1,6 +1,5 @@
-import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges } from '/viewer/data-fetch.js';
+import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames } from '/viewer/data-fetch.js';
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
-import { gridLayout } from '/viewer/layout.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -90,11 +89,12 @@ import { gridLayout } from '/viewer/layout.js';
 
   async function loadGraph(projectName) {
     currentProject = projectName;
-    const [graph, decs, aggs, fileEdges] = await Promise.all([
+    const [graph, decs, aggs, fileEdges, frameMap] = await Promise.all([
       fetchGraph(projectName),
       fetchDecisions(projectName),
       fetchAggregates(projectName),
       fetchFileEdges(projectName),
+      fetchFrames(projectName),
     ]);
     AGGREGATES = aggs.aggregates || [];
     FILE_EDGES = fileEdges.file_edges || [];
@@ -104,32 +104,22 @@ import { gridLayout } from '/viewer/layout.js';
     FRAME_PATH_INDEX = buildFramePathIndex(summaries);
     updateFramesWarning(graph.nodes);
 
-    // 2. Position via grid layout. Reserve 90px at the bottom for the
-    // aggregate strip so frames never overlap auxiliary aggregate dots.
-    const stageW = canvas.clientWidth;
-    const stageH = canvas.clientHeight;
-    const AGGREGATE_STRIP_H = AGGREGATES.length > 0 ? 90 : 0;
-    const layoutH = stageH - AGGREGATE_STRIP_H;
-    const positioned = gridLayout(
-      summaries.map((s) => ({
-        frame_id: s.frame_id,
-        frame_label: s.frame_label,
-        member_count: s.member_count,
-      })),
-      stageW, layoutH,
-    );
-
-    // 3. Replace FRAMES with positioned frames (string id matches the rest of
-    // the file's expectation that id is a string).
-    FRAMES = positioned.map((p) => ({
-      id: String(p.id),
-      name: p.name,
-      x: p.x / stageW,
-      y: p.y / stageH,
-      w: p.w,
-      h: p.h,
-      count: p.count,
-    }));
+    // 2. Consume server-computed force-directed positions. Only ambient frames
+    //    are positioned + rendered on the first map; the rest stay reachable
+    //    via search. Positions are integer px in a fixed virtual stage; the
+    //    viewer normalizes by the stage dims the server reports.
+    const stage = frameMap.stage || { w: 1000, h: 800 };
+    FRAMES = (frameMap.frames || [])
+      .filter((f) => f.ambient && f.x !== null && f.y !== null)
+      .map((f) => ({
+        id: String(f.id),
+        name: f.name,
+        x: f.x / stage.w,
+        y: f.y / stage.h,
+        w: f.w,
+        h: f.h,
+        count: f.count,
+      }));
 
     // 4. NODE_CFG.count = how many file basenames to show per frame (cap at 16).
     //    Track the canonical file_path alongside the basename so edge lookups
