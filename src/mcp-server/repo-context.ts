@@ -8,6 +8,7 @@ import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath } fr
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
+import { migrateDecisionIdsToShortForm } from "../decisions/id-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { GraphStore } from "../graph/store.js";
@@ -279,6 +280,7 @@ export class RepoContextResolver {
     const graphDb = new BetterSqlite3(graphDbPath);
     const decisionsDb = openDecisionsDb(decisionsDbPath);
     migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
+    migrateDecisionIdsToShortForm(decisionsDb);
     const decisionsRepo = new DecisionsRepository(decisionsDb);
     const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 

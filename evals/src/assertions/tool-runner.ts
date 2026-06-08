@@ -66,6 +66,7 @@ function runGovernsLinkVuePath(a: Assertion, ctx: ToolRunnerContext): AssertionR
   try {
     const links = new DecisionLinksRepository(db);
     const svc = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links,
     });

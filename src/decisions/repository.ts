@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 export interface DecisionRecord {
   id: string;
+  seq: number;
   title: string;
   description: string | null;
   rationale: string | null;
@@ -28,13 +29,14 @@ export interface DecisionRecord {
 }
 
 // provenance is machine-derived and write-once: excluded from updates so it
-// cannot be silently overwritten by a spread of a full DecisionRecord.
+// cannot be silently overwritten by a spread of a full DecisionRecord. seq is
+// assigned once at mint time and is likewise never patched.
 export type DecisionUpdate = Partial<
-  Omit<DecisionRecord, "id" | "created_at" | "provenance">
+  Omit<DecisionRecord, "id" | "seq" | "created_at" | "provenance">
 >;
 
 const SELECT_COLS =
-  "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
+  "id, seq, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
 
 const RECON_COLS =
   "reconciliation_verdict, reconciled_at, reconciled_source_hash, reconciled_by, nonconformant_nodes, reconciliation_note";
@@ -59,10 +61,17 @@ export class DecisionsRepository {
     this.db
       .prepare(
         `INSERT INTO decisions (${SELECT_COLS}) VALUES
-         (@id, @title, @description, @rationale, @problem, @resolution, @alternatives,
+         (@id, @seq, @title, @description, @rationale, @problem, @resolution, @alternatives,
           @tier, @status, @superseded_by, @author, @provenance, @created_at, @updated_at)`,
       )
       .run({ ...rec, provenance: rec.provenance ?? null });
+  }
+
+  getBySeq(seq: number): DecisionRecord | null {
+    const row = this.db
+      .prepare(`SELECT ${READ_COLS} FROM decisions WHERE seq = ?`)
+      .get(seq) as DecisionRecord | undefined;
+    return row ?? null;
   }
 
   update(id: string, patch: DecisionUpdate): void {

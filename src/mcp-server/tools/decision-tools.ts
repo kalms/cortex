@@ -166,6 +166,7 @@ export function registerDecisionTools(
   // ---------------------------------------------------------------------------
   const serviceFor = (ctx: RepoContext): DecisionService =>
     new DecisionService({
+      db: ctx.decisionsDb,
       decisions: ctx.decisionsRepo,
       links: ctx.decisionLinksRepo,
       bus,

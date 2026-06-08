@@ -21,6 +21,7 @@ describe("DecisionPromotion", () => {
     db = openDecisionsDb(join(dir, "decisions.db"));
     repo = new DecisionsRepository(db);
     svc = new DecisionService({
+      db,
       decisions: repo,
       links: new DecisionLinksRepository(db),
     });
