@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
 import Database from "better-sqlite3";
 import {
   searchGraph,
@@ -231,15 +232,55 @@ export function buildRgArgs(pattern: string): string[] {
 export function buildGrepFallbackArgs(pattern: string): string[] {
   return [
     "-rn",
+    "-I", // skip binary files (sqlite DBs, compiled objects)
+    "-m", "200", // cap matches per file, mirroring rg's --max-count
     "--exclude-dir=node_modules",
     "--exclude-dir=.git",
     "--exclude-dir=dist",
     "--exclude-dir=build",
     "--exclude-dir=.cache",
     "--exclude-dir=vendored",
+    // Derived / scratch trees. Unlike rg (which honors .gitignore), grep
+    // recurses everything — these total ~1.7 GB in this repo and caused the
+    // fallback to time out or exit 2 on an unreadable file.
+    "--exclude-dir=.tmp",
+    "--exclude-dir=.cortex",
+    "--exclude-dir=.venv",
     pattern,
     ".",
   ];
+}
+
+const localRequire = createRequire(import.meta.url);
+let cachedRgBinary: string | null | undefined;
+
+/**
+ * Resolve the ripgrep binary to invoke for `search_code`.
+ *
+ * Order of preference:
+ *  1. `CORTEX_RG_PATH` env override — escape hatch for custom installs.
+ *  2. The `@vscode/ripgrep` bundled binary (absolute path, platform-specific).
+ *     This is the load-bearing fix: the MCP server is often spawned with a
+ *     stripped PATH (e.g. a plugin host), so a system `rg` on the user's PATH
+ *     is invisible. Bundling guarantees rg is present for every install.
+ *  3. Bare `"rg"` (PATH lookup) if the bundled package is somehow unavailable.
+ *
+ * The bundled path is cached after the first successful resolve; the env
+ * override is re-read each call so tests and operators can flip it at runtime.
+ */
+export function resolveRgBinary(): string {
+  const override = process.env.CORTEX_RG_PATH;
+  if (override) return override;
+  if (cachedRgBinary === undefined) {
+    try {
+      const { rgPath } = localRequire("@vscode/ripgrep") as { rgPath: string };
+      accessSync(rgPath, fsConstants.X_OK);
+      cachedRgBinary = rgPath;
+    } catch {
+      cachedRgBinary = null;
+    }
+  }
+  return cachedRgBinary ?? "rg";
 }
 
 // 5B: callIndexer now handles binary in-stdout errors and returns structured responses
@@ -891,7 +932,9 @@ export function registerCodeTools(
         };
         let grepOutput = "";
         try {
-          const { stdout } = await execFileAsync("rg", buildRgArgs(pattern), execOpts);
+          // Prefer the bundled ripgrep (absolute path) so a stripped server
+          // PATH can't hide it; fall back to grep only if rg is truly absent.
+          const { stdout } = await execFileAsync(resolveRgBinary(), buildRgArgs(pattern), execOpts);
           grepOutput = stdout;
         } catch (err: any) {
           if (err.code === "ENOENT") {
@@ -902,11 +945,12 @@ export function registerCodeTools(
               if (err2.code === "ENOENT") {
                 return errorResponse("internal_error", "Neither rg nor grep available on PATH.");
               }
-              if (err2.code !== 1) {
-                return errorResponse("internal_error", err2.message ?? String(err2));
-              }
-              if (!err2.stdout) return empty(`search_code(${pattern})`);
-              grepOutput = err2.stdout;
+              // grep exit 1 = no matches. Anything else (2 = read error, or a
+              // 10 s timeout → killed/SIGTERM) means an incomplete search.
+              // Prefer whatever partial output we captured; otherwise return
+              // empty so a degraded fallback never masquerades as a crash.
+              grepOutput = err2.stdout ?? "";
+              if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
             }
           } else if (err.stdout) {
             grepOutput = err.stdout;
