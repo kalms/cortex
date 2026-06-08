@@ -21,6 +21,12 @@
  *
  * Then point the viewer at shared.db.
  *
+ * `--target` MUST be a dedicated DB outside any `.cortex/` dir (e.g.
+ * `.tmp/eval-shared.db`). Merging into a per-repo canonical store
+ * (`<repo>/.cortex/db` or `graph.db`) is refused — it would clobber that
+ * repo's real index (replace-all dump pass, global node IDs). See
+ * `isCanonicalGraphDbPath` in src/db/resolve-path.ts.
+ *
  * CLI:
  *   tsx scripts/frame-extraction/merge-indexed-db.ts \
  *     --source <path-to-source.db> \
@@ -31,6 +37,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
+import { isCanonicalGraphDbPath } from "../../src/db/resolve-path.js";
 
 interface CliArgs {
   source: string;
@@ -64,6 +71,21 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const sourcePath = resolve(args.source);
   const targetPath = resolve(args.target);
+
+  // Hard guard: merging foreign sources into a per-repo canonical graph store
+  // (`<repo>/.cortex/db` or the legacy `graph.db`) clobbers that repo's real
+  // index — the dump pass is replace-all and node IDs are global. This is the
+  // mechanism behind the recurring "wrong DB" pollution. Eval / corpus-merge /
+  // multi-repo-viewer runs must target a dedicated DB outside `.cortex/`. No
+  // --force escape: the canonical store is never a legitimate merge target.
+  if (isCanonicalGraphDbPath(targetPath)) {
+    console.error(
+      `Refusing to merge into a canonical graph store: ${targetPath}\n` +
+      `Merging foreign sources here would clobber the repo's own index.\n` +
+      `Use a dedicated DB outside .cortex/ (e.g. .tmp/eval-shared.db) as --target.`,
+    );
+    process.exit(2);
+  }
 
   if (!existsSync(sourcePath)) {
     console.error(`Source DB not found: ${sourcePath}`);
