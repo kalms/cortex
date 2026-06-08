@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
   "main": "dist/index.js",
@@ -26,6 +26,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@vscode/ripgrep": "^1.18.0",
     "better-sqlite3": "^11.8.1",
     "chokidar": "^5.0.0",
     "ulid": "^3.0.2",
