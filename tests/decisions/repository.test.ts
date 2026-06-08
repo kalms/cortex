@@ -34,6 +34,12 @@ describe("DecisionsRepository", () => {
       provenance: null,
       created_at: "2026-05-14T10:00:00Z",
       updated_at: "2026-05-14T10:00:00Z",
+      reconciliation_verdict: null,
+      reconciled_at: null,
+      reconciled_source_hash: null,
+      reconciled_by: null,
+      nonconformant_nodes: null,
+      reconciliation_note: null,
       ...overrides,
     };
   }
@@ -113,7 +119,7 @@ describe("DecisionsRepository search", () => {
       rationale: "Single runner across packages.",
       problem: "Mixed jest/mocha.", resolution: "Convert.",
       alternatives: null, tier: "personal", status: "active",
-      superseded_by: null, author: null,
+      superseded_by: null, author: null, provenance: null,
       created_at: "2026-05-14T10:00:00Z", updated_at: "2026-05-14T10:00:00Z",
     });
     repo.insert({
@@ -121,7 +127,7 @@ describe("DecisionsRepository search", () => {
       rationale: "Lower RSS, better fragmentation behavior.",
       problem: null, resolution: null,
       alternatives: null, tier: "personal", status: "active",
-      superseded_by: null, author: null,
+      superseded_by: null, author: null, provenance: null,
       created_at: "2026-05-14T11:00:00Z", updated_at: "2026-05-14T11:00:00Z",
     });
   });
