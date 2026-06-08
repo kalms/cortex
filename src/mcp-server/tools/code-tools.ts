@@ -16,7 +16,7 @@ import {
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 import { resolveInput } from "../../shared/resolve-input.js";
-import { resolveCortexDbPath, resolveDecisionsDbPath } from "../../db/resolve-path.js";
+import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -423,7 +423,7 @@ export function registerCodeTools(
         // first run.
         try {
           const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-          const decDb = openDecisionsDb(decisionsDbPath);
+          const decDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(repoPath));
           try {
             migrateDecisionsFromGraphDb(decDb, dbPath);
           } finally {
