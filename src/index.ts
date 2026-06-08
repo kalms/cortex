@@ -158,6 +158,11 @@ const server = createServer(indexerProject, bus);
 
 const decisionsDbPath = resolveDecisionsDbPath(cwd);
 const decisionsDb = openDecisionsDb(decisionsDbPath);
+// Note: unlike repo-context.ts, this path intentionally does NOT run
+// migrateDecisionsFromGraphDb — that legacy graph→sidecar import is driven
+// per-repo by the context resolver. The id-migration is idempotent and safe
+// to run here on its own; if a graph import is ever needed on this path it
+// must run BEFORE the id-migration so freshly-imported UUID rows get rewritten.
 migrateDecisionIdsToShortForm(decisionsDb);
 const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
