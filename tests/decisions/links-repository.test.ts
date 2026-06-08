@@ -19,7 +19,7 @@ describe("DecisionLinksRepository", () => {
     decisions = new DecisionsRepository(db);
     links = new DecisionLinksRepository(db);
     decisions.insert({
-      id: "d1", title: "t", description: null, rationale: null, problem: null,
+      id: "d1", seq: 1, title: "t", description: null, rationale: null, problem: null,
       resolution: null, alternatives: null, tier: "personal", status: "active",
       superseded_by: null, author: null, created_at: "2026-05-14T10:00:00Z",
       updated_at: "2026-05-14T10:00:00Z",

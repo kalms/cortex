@@ -11,6 +11,7 @@ function svc() {
   const root = mkdtempSync(join(tmpdir(), "cortex-prov-svc-"));
   const db = openDecisionsDb(join(root, "decisions.db"));
   const service = new DecisionService({
+    db,
     decisions: new DecisionsRepository(db),
     links: new DecisionLinksRepository(db),
   });

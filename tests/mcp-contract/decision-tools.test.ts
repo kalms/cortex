@@ -21,7 +21,7 @@ describe("decision-tools contract", () => {
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.isError).toBeFalsy();
       const parsed = JSON.parse(res.content[0].text);
-      expect(parsed.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(parsed.id).toMatch(/^D-[0-9abcdefghjkmnpqrstvwxyz]{4}$/);
       decisionId = parsed.id;
     });
 
@@ -502,7 +502,7 @@ describe("decision-tools contract", () => {
         });
         expect(res.isError).toBeFalsy();
         const parsed = JSON.parse(res.content[0].text);
-        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        expect(parsed.id).toMatch(/^D-/);
         // Supersede creates exactly one new decision in repoB.
         expect(countDecisions(repoB)).toBe(before + 1);
         expect(h.service.get(parsed.id)).toBeNull();
@@ -538,7 +538,7 @@ describe("decision-tools contract", () => {
         });
         expect(res.isError).toBeFalsy();
         const parsed = JSON.parse(res.content[0].text);
-        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        expect(parsed.id).toMatch(/^D-/);
         expect(countDecisions(repoB)).toBe(before + 1);
         expect(h.service.get(parsed.id)).toBeNull();
       } finally {
@@ -578,7 +578,7 @@ describe("decision-tools contract", () => {
         });
         expect(res.isError).toBeFalsy();
         const parsed = JSON.parse(res.content[0].text);
-        expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+        expect(parsed.id).toMatch(/^D-/);
         // Write landed in repoB.
         expect(countDecisions(repoB)).toBe(before + 1);
         // And did NOT leak into the harness's primary repo. The harness's

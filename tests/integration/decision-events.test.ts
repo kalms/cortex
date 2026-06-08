@@ -25,6 +25,7 @@ describe('DecisionService event emission', () => {
 
   function makeService(): DecisionService {
     return new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links: new DecisionLinksRepository(db),
       bus,
@@ -97,6 +98,7 @@ describe('DecisionService event emission', () => {
 
   it('no bus is allowed — emissions silently skipped', () => {
     const service = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links: new DecisionLinksRepository(db),
     });

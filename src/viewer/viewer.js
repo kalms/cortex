@@ -32,6 +32,11 @@ import { gridLayout } from '/viewer/layout.js';
   function prTextRGB()            { return isLight() ? [79, 70, 229]   : [165, 180, 252]; }
   function amberRGB()             { return [245, 158, 11]; }
 
+  // Display id for a decision: prefer the friendly seq form, fall back to canonical id.
+  function decisionDisplayId(d) {
+    return (d.seq != null) ? ('D-' + d.seq) : d.id;
+  }
+
   let FRAMES = [];
   let NODE_CFG = {};
   let FILE_NAMES = {};
@@ -800,7 +805,7 @@ import { gridLayout } from '/viewer/layout.js';
 
       let pillRect = null;
       if (expand > 0.001) {
-        const label = dec.id;
+        const label = decisionDisplayId(dec);
         const titleLabel = truncateMiddle(ctx, dec.summary, 220);
         const labelW = ctx.measureText(label).width;
         const titleW = ctx.measureText(titleLabel).width;
@@ -980,7 +985,7 @@ import { gridLayout } from '/viewer/layout.js';
 
     decs.forEach((dec) => {
       const state = dec.state || 'active';
-      const label = `${dec.id} · ${dec.summary}`;
+      const label = `${decisionDisplayId(dec)} · ${dec.summary}`;
       const labelW = ctx.measureText(label).width;
       const pillH = 20;
       const padX = 10;
@@ -1469,7 +1474,9 @@ import { gridLayout } from '/viewer/layout.js';
       name = ref.name;
     } else if (ref.kind === 'decision') {
       type = 'decision';
-      name = ref.id;
+      // Show the friendly D-<seq> form (consistent with the card header and
+      // pills); the click handler still keys on ref.id via data-ref.
+      name = decisionDisplayId(DECISIONS[ref.id] || ref);
     } else {
       type = ref.kind || '';
       name = ref.name || ref.id || ref.path || '';
@@ -1491,7 +1498,7 @@ import { gridLayout } from '/viewer/layout.js';
     html += `<div class="dc-header">
       <div class="dc-id-block">
         <div class="dc-id-row">
-          <span class="dc-id">${escapeHtml(dec.id)}</span>
+          <span class="dc-id">${escapeHtml(decisionDisplayId(dec))}</span>
           <span class="dc-state-pill ${stateLabel}"><span class="sw"></span>${stateLabel}</span>
         </div>
         <div class="dc-summary">${escapeHtml(dec.summary)}</div>
