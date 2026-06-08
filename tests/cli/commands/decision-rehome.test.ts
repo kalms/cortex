@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { openDecisionsDb } from "../../../src/decisions/db.js";
 import { DecisionsRepository, type DecisionRecord } from "../../../src/decisions/repository.js";
 import { DecisionLinksRepository, type Relation } from "../../../src/decisions/links-repository.js";
+import { DecisionService } from "../../../src/decisions/service.js";
 
 // Direct path to tsx — mirrors the pattern in tests/cli/decision-candidates.test.ts.
 const TSX = join(process.cwd(), "node_modules/.bin/tsx");
@@ -226,6 +227,77 @@ describe("cortex decision rehome — error paths", () => {
       runRehome(source, [id, `--to=${target}`, "--dry-run"]);
       expect(getDecisionFromRepo(source, id)).toBeDefined();
       expect(getDecisionFromRepo(target, id)).toBeUndefined();
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cortex decision rehome — seq reassignment (regression: Bug 1)", () => {
+  /**
+   * Regression test: rehome must NOT carry the source `seq` verbatim into the
+   * target repo. It must allocate a fresh seq from the *target* id_sequences
+   * counter, so that:
+   *   1. The moved decision's seq doesn't collide with an existing target seq.
+   *   2. The target's next_val advances past the newly allocated seq.
+   *   3. The canonical `id` (D-xxxx) survives unchanged.
+   */
+  it("reassigns seq from target counter when moving a decision", () => {
+    const source = makeIndexedRepoFixture();
+    const target = makeIndexedRepoFixture();
+    try {
+      // Seed source: create one decision via the service so id_sequences is
+      // properly initialised and we get a real canonical id.
+      const sourceDbPath = decisionsDbPath(source);
+      const sourceDb = openDecisionsDb(sourceDbPath);
+      const sourceDecisions = new DecisionsRepository(sourceDb);
+      const sourceLinks = new DecisionLinksRepository(sourceDb);
+      const sourceSvc = new DecisionService({ db: sourceDb, decisions: sourceDecisions, links: sourceLinks });
+      const sourceDecision = sourceSvc.create({ title: "source", rationale: "r" });
+      const canonicalId = sourceDecision.id; // e.g. "D-ab12"
+      const sourceSeq = sourceDecision.seq;   // 1
+      sourceDb.close();
+
+      // Seed target: create one decision so target's id_sequences.next_val = 2
+      // (seq 1 is already taken in the target). This simulates the collision
+      // scenario the bug would hit.
+      const targetDbPath = decisionsDbPath(target);
+      const targetDb = openDecisionsDb(targetDbPath);
+      const targetDecisions = new DecisionsRepository(targetDb);
+      const targetLinks = new DecisionLinksRepository(targetDb);
+      const targetSvc = new DecisionService({ db: targetDb, decisions: targetDecisions, links: targetLinks });
+      const targetExisting = targetSvc.create({ title: "pre-existing", rationale: "r" });
+      expect(targetExisting.seq).toBe(1); // sanity: target already occupies seq 1
+      const nextValBefore = (targetDb.prepare("SELECT next_val FROM id_sequences WHERE entity_type = 'decision'").get() as { next_val: number }).next_val;
+      expect(nextValBefore).toBe(2); // next_val is 2 before the rehome
+      targetDb.close();
+
+      // Run rehome: source seq is 1, target already has seq 1 — without the
+      // fix this would produce a duplicate seq in the target.
+      runRehome(source, [canonicalId, `--to=${target}`]);
+
+      // Assertions on the target DB.
+      const targetDbCheck = openDecisionsDb(targetDbPath);
+      try {
+        const repo = new DecisionsRepository(targetDbCheck);
+        const moved = repo.get(canonicalId);
+
+        // The canonical id must survive unchanged.
+        expect(moved).toBeDefined();
+        expect(moved!.id).toBe(canonicalId);
+
+        // The seq in the target must NOT be the source seq (1), because seq 1 is
+        // already taken by targetExisting. It must be a freshly allocated value (2).
+        expect(moved!.seq).not.toBe(sourceSeq);
+        expect(moved!.seq).toBe(2);
+
+        // The id_sequences counter must have advanced past the newly allocated seq.
+        const nextValAfter = (targetDbCheck.prepare("SELECT next_val FROM id_sequences WHERE entity_type = 'decision'").get() as { next_val: number }).next_val;
+        expect(nextValAfter).toBe(3); // advanced: 1 (pre-existing) + 2 (moved) → next is 3
+      } finally {
+        targetDbCheck.close();
+      }
     } finally {
       rmSync(source, { recursive: true, force: true });
       rmSync(target, { recursive: true, force: true });

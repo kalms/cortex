@@ -293,24 +293,31 @@ export class DecisionService {
   }
 
   linkRelatedTo(fromId: string, toId: string): void {
-    this.links.add({
-      decision_id: fromId, target_kind: "decision", target_ref: toId,
-      relation: "DECISION_RELATED_TO", created_at: new Date().toISOString(),
-    });
+    this.addLink(fromId, "decision", toId, "DECISION_RELATED_TO", new Date().toISOString());
   }
 
   linkDependsOn(fromId: string, toId: string): void {
-    this.links.add({
-      decision_id: fromId, target_kind: "decision", target_ref: toId,
-      relation: "DECISION_DEPENDS_ON", created_at: new Date().toISOString(),
-    });
+    this.addLink(fromId, "decision", toId, "DECISION_DEPENDS_ON", new Date().toISOString());
   }
 
   private addLink(
     decisionId: string, kind: TargetKind, ref: string, relation: Relation, createdAt: string,
   ): void {
+    // Resolve seq-form or bare-seq owning ref to the canonical FK value so
+    // `decision_links.decision_id` always stores the canonical PK (FK safe).
+    const owner = this.resolveRecord(decisionId);
+    const ownerId = owner ? owner.id : decisionId;
+
+    // When the *target* is itself a decision (RELATED_TO, DEPENDS_ON, SUPERSEDES,
+    // etc.), resolve it to canonical too so `target_ref` is stable.
+    let targetRef = ref;
+    if (kind === "decision") {
+      const targetOwner = this.resolveRecord(ref);
+      targetRef = targetOwner ? targetOwner.id : ref;
+    }
+
     this.links.add({
-      decision_id: decisionId, target_kind: kind, target_ref: ref,
+      decision_id: ownerId, target_kind: kind, target_ref: targetRef,
       relation, created_at: createdAt,
     });
   }
