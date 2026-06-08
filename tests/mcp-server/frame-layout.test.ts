@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mulberry32, seedFromFrames, type LayoutInputFrame } from "../../src/mcp-server/frame-layout.js";
+import { mulberry32, seedFromFrames, layoutFrames, STAGE_W, STAGE_H, type LayoutInputFrame } from "../../src/mcp-server/frame-layout.js";
+import type { FramePairWeight } from "../../src/mcp-server/frame-pair-rollup.js";
 
 describe("mulberry32", () => {
   it("is deterministic for a given seed", () => {
@@ -46,5 +47,79 @@ describe("seedFromFrames", () => {
     expect(Number.isInteger(s)).toBe(true);
     expect(s).toBeGreaterThanOrEqual(0);
     expect(s).toBeLessThanOrEqual(0xffffffff);
+  });
+});
+
+describe("layoutFrames", () => {
+  const frames: LayoutInputFrame[] = [
+    { frame_id: 0, frame_label: "checkout", member_count: 30 },
+    { frame_id: 1, frame_label: "viewer", member_count: 10 },
+    { frame_id: 2, frame_label: "graph", member_count: 5 },
+  ];
+  const pairs: FramePairWeight[] = [{ a: 0, b: 1, weight: 12 }];
+
+  it("returns one positioned frame per input", () => {
+    const out = layoutFrames(frames, pairs);
+    expect(out).toHaveLength(3);
+    expect(out.map((f) => f.id).sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it("preserves id, name, and count", () => {
+    const out = layoutFrames(frames, pairs);
+    const checkout = out.find((f) => f.id === 0)!;
+    expect(checkout.name).toBe("checkout");
+    expect(checkout.count).toBe(30);
+  });
+
+  it("emits integer-pixel coordinates", () => {
+    for (const f of layoutFrames(frames, pairs)) {
+      expect(Number.isInteger(f.x)).toBe(true);
+      expect(Number.isInteger(f.y)).toBe(true);
+      expect(Number.isInteger(f.w)).toBe(true);
+      expect(Number.isInteger(f.h)).toBe(true);
+    }
+  });
+
+  it("sizes frames within the 110–160px band", () => {
+    for (const f of layoutFrames(frames, pairs)) {
+      expect(f.w).toBeGreaterThanOrEqual(110);
+      expect(f.w).toBeLessThanOrEqual(160);
+      expect(f.w).toBe(f.h); // square frames
+    }
+    // The 30-member frame should be at least as large as the 5-member one.
+    const out = layoutFrames(frames, pairs);
+    const big = out.find((f) => f.id === 0)!;
+    const small = out.find((f) => f.id === 2)!;
+    expect(big.w).toBeGreaterThanOrEqual(small.w);
+  });
+
+  it("keeps frame centers within the virtual stage", () => {
+    for (const f of layoutFrames(frames, pairs)) {
+      expect(f.x - f.w / 2).toBeGreaterThanOrEqual(0);
+      expect(f.x + f.w / 2).toBeLessThanOrEqual(STAGE_W);
+      expect(f.y - f.h / 2).toBeGreaterThanOrEqual(0);
+      expect(f.y + f.h / 2).toBeLessThanOrEqual(STAGE_H);
+    }
+  });
+
+  it("is byte-identical across repeated runs (determinism)", () => {
+    expect(layoutFrames(frames, pairs)).toEqual(layoutFrames(frames, pairs));
+  });
+
+  it("returns [] for empty input", () => {
+    expect(layoutFrames([], [])).toEqual([]);
+  });
+
+  it("handles a single frame", () => {
+    const [only] = layoutFrames([frames[0]], []);
+    expect(only.id).toBe(0);
+    expect(only.x).toBeGreaterThan(0);
+    expect(only.y).toBeGreaterThan(0);
+  });
+
+  it("ignores pairs referencing frames not in the input set", () => {
+    // pair references frame 99 which isn't laid out — must not throw
+    const out = layoutFrames(frames, [{ a: 0, b: 99, weight: 5 }]);
+    expect(out).toHaveLength(3);
   });
 });
