@@ -11,6 +11,15 @@
  * PURE — no I/O.
  */
 import { createHash } from "node:crypto";
+import {
+  forceSimulation,
+  forceManyBody,
+  forceLink,
+  forceCenter,
+  forceCollide,
+  type SimulationNodeDatum,
+} from "d3-force";
+import type { FramePairWeight } from "./frame-pair-rollup.js";
 
 /** Fixed virtual coordinate space. The viewer normalizes by these. */
 export const STAGE_W = 1000;
@@ -41,16 +50,6 @@ export function seedFromFrames(frames: readonly LayoutInputFrame[]): number {
   const rec = sorted.map((f) => `${f.frame_id}:${f.member_count}:${f.frame_label}`).join("|");
   return createHash("sha256").update(rec).digest().readUInt32BE(0) >>> 0;
 }
-
-import {
-  forceSimulation,
-  forceManyBody,
-  forceLink,
-  forceCenter,
-  forceCollide,
-  type SimulationNodeDatum,
-} from "d3-force";
-import type { FramePairWeight } from "./frame-pair-rollup.js";
 
 /** Frame size band (px), mapped from member_count via sqrt. */
 const FRAME_MIN = 110;
@@ -147,8 +146,8 @@ export function layoutFrames(
     // less while lighter satellites settle around them.
     for (const n of nodes) {
       const damp = 1 - 0.6 * n.mass;
-      if (n.vx !== undefined) n.vx *= damp;
-      if (n.vy !== undefined) n.vy *= damp;
+      n.vx = (n.vx ?? 0) * damp;
+      n.vy = (n.vy ?? 0) * damp;
     }
   }
 
@@ -158,8 +157,9 @@ export function layoutFrames(
     .map((n) => {
       const w = Math.round(n.size);
       const h = w;
-      const x = Math.round(Math.min(STAGE_W - w / 2, Math.max(w / 2, n.x ?? STAGE_W / 2)));
-      const y = Math.round(Math.min(STAGE_H - h / 2, Math.max(h / 2, n.y ?? STAGE_H / 2)));
+      const half = Math.floor(w / 2);
+      const x = Math.round(Math.min(STAGE_W - half, Math.max(half, n.x ?? STAGE_W / 2)));
+      const y = Math.round(Math.min(STAGE_H - half, Math.max(half, n.y ?? STAGE_H / 2)));
       return { id: n.id, name: n.name, count: n.count, x, y, w, h };
     });
 }
