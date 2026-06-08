@@ -70,4 +70,25 @@ describe("buildFrameMap", () => {
     const map = buildFrameMap(bare, []);
     expect(map.frames).toEqual([]);
   });
+
+  it("tolerates malformed data JSON on a file node", () => {
+    const withBad: NodeRow[] = [
+      ...nodes,
+      { id: "bad", kind: "file", name: "x.ts", qualified_name: null, file_path: "src/x.ts",
+        data: "{not valid json", tier: "tier1", created_at: "", updated_at: "" },
+    ];
+    // The malformed node is skipped; the two valid frames still come through.
+    const map = buildFrameMap(withBad, edges);
+    expect(map.frames).toHaveLength(2);
+  });
+
+  it("falls back to a frame:N label when frame_label is missing", () => {
+    const noLabel: NodeRow[] = [
+      { id: "g1", kind: "file", name: "a.ts", qualified_name: null, file_path: "src/a.ts",
+        data: JSON.stringify({ frame_id: 5 }), tier: "tier1", created_at: "", updated_at: "" },
+    ];
+    const map = buildFrameMap(noLabel, []);
+    expect(map.frames).toHaveLength(1);
+    expect(map.frames[0].name).toBe("frame:5");
+  });
 });
