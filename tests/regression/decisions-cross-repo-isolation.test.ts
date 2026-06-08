@@ -71,7 +71,7 @@ describe("regression: decisions don't leak across repos", () => {
 
     expect(res.isError).toBeFalsy();
     const parsed = JSON.parse(res.content[0].text);
-    expect(parsed.id).toMatch(/^[0-9a-f]{8}-/);
+    expect(parsed.id).toMatch(/^D-/);
 
     // The decision must have landed in repoB's sidecar, not in repoA's.
     expect(countDecisions(repoA)).toBe(0);

@@ -14,7 +14,7 @@ describe("countDriftedDecisions", () => {
     const db = openDecisionsDb(join(repoDir, "decisions.db"));
     const decisions = new DecisionsRepository(db);
     const links = new DecisionLinksRepository(db);
-    decisions.insert({ id: "d1", title: "t", description: null, rationale: null, problem: null,
+    decisions.insert({ id: "d1", seq: 0, title: "t", description: null, rationale: null, problem: null,
       resolution: null, alternatives: null, tier: "personal", status: "active",
       superseded_by: null, author: null, provenance: null, created_at: "t", updated_at: "t" });
     links.add({ decision_id: "d1", target_kind: "path", target_ref: "x.ts", relation: "GOVERNS", created_at: "t" });
@@ -28,7 +28,7 @@ describe("countDriftedDecisions", () => {
     const db = openDecisionsDb(join(repoDir, "decisions.db"));
     const decisions = new DecisionsRepository(db);
     const links = new DecisionLinksRepository(db);
-    decisions.insert({ id: "d2", title: "t", description: null, rationale: null, problem: null,
+    decisions.insert({ id: "d2", seq: 0, title: "t", description: null, rationale: null, problem: null,
       resolution: null, alternatives: null, tier: "personal", status: "active",
       superseded_by: null, author: null, provenance: null, created_at: "t", updated_at: "t" });
     expect(countDriftedDecisions(repoDir, decisions, links)).toBe(0);
