@@ -129,6 +129,21 @@ If a decision exists and your change contradicts it, that's a signal to
 either update the decision (with reasoning for the new direction) or
 reconsider the change.
 
+## Decision reconciliation
+
+Reconciliation detects drift by hashing the **current working-tree** source of
+the files a decision governs — not git HEAD — so in-session edits flip a
+governed decision to stale-pending immediately, before any commit. When drift is
+detected, the agent judges whether the decision's prose still matches the code
+(match/partial/drift) and records the verdict via `record_reconciliation`. It is
+agent-delegated and gated behind `CORTEX_RECONCILE=1` (default off in v1). When
+on, `why_was_this_built` and `get_decision` emit a separate "reconcile this"
+content block whenever governed code has drifted; judge the alignment and call
+`record_reconciliation(decision_id, verdict)`. `pending_reconciliations` lists
+every drifted decision for a batch pass. `get_decision` exposes a derived
+`display_state` ("active" / "stale" / "active · drifting" / "active ·
+unreconciled") that reflects the latest verdict against the current source.
+
 ## Decision storage
 
 Decisions live in `.cortex/decisions.db`, a sibling of the canonical graph DB
@@ -190,7 +205,7 @@ explicit user ratification (`update_decision`). See
 ## Tools Available
 
 ### Decision tools
-`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`
+`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`, `record_reconciliation`, `pending_reconciliations`
 
 ### Code tools
 `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`

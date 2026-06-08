@@ -114,6 +114,23 @@ function ensureProvenanceColumn(db: Database.Database): void {
   }
 }
 
+/** Additively add the reconciliation columns to pre-existing DBs. Idempotent. */
+function ensureReconciliationColumns(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(decisions)").all() as Array<{ name: string }>;
+  const have = new Set(cols.map((c) => c.name));
+  const additions: Array<[string, string]> = [
+    ["reconciliation_verdict", "TEXT"],
+    ["reconciled_at", "TEXT"],
+    ["reconciled_source_hash", "TEXT"],
+    ["reconciled_by", "TEXT"],
+    ["nonconformant_nodes", "TEXT"],
+    ["reconciliation_note", "TEXT"],
+  ];
+  for (const [name, type] of additions) {
+    if (!have.has(name)) db.exec(`ALTER TABLE decisions ADD COLUMN ${name} ${type}`);
+  }
+}
+
 /** Open (and create if missing) the decisions sidecar DB. */
 export function openDecisionsDb(path: string): Database.Database {
   mkdirSync(dirname(path), { recursive: true });
@@ -122,6 +139,9 @@ export function openDecisionsDb(path: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.exec(BASE_SCHEMA);
   ensureProvenanceColumn(db);
+  // Ensure reconciliation columns exist before FTS migration,
+  // which may try to read from them when rebuilding the index.
+  ensureReconciliationColumns(db);
   if (readSchemaMeta(db, "fts_version") !== FTS_VERSION) {
     migrateFtsToTriggers(db);
   }
