@@ -18,6 +18,13 @@ export interface DecisionRecord {
   provenance?: string | null;
   created_at: string;
   updated_at: string;
+  // Reconciliation (code-alignment) — derived, cached. Null until first judged.
+  reconciliation_verdict?: string | null;
+  reconciled_at?: string | null;
+  reconciled_source_hash?: string | null;
+  reconciled_by?: string | null;
+  nonconformant_nodes?: string | null; // JSON array of { ref, note }
+  reconciliation_note?: string | null;
 }
 
 // provenance is machine-derived and write-once: excluded from updates so it
@@ -28,6 +35,19 @@ export type DecisionUpdate = Partial<
 
 const SELECT_COLS =
   "id, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
+
+const RECON_COLS =
+  "reconciliation_verdict, reconciled_at, reconciled_source_hash, reconciled_by, nonconformant_nodes, reconciliation_note";
+const READ_COLS = `${SELECT_COLS}, ${RECON_COLS}`;
+
+export interface ReconciliationFields {
+  reconciliation_verdict: string;
+  reconciled_at: string;
+  reconciled_source_hash: string;
+  reconciled_by: string;
+  nonconformant_nodes: string | null;
+  reconciliation_note: string | null;
+}
 
 export class DecisionsRepository {
   constructor(private db: Database.Database) {}
@@ -61,14 +81,14 @@ export class DecisionsRepository {
 
   get(id: string): DecisionRecord | null {
     const row = this.db
-      .prepare(`SELECT ${SELECT_COLS} FROM decisions WHERE id = ?`)
+      .prepare(`SELECT ${READ_COLS} FROM decisions WHERE id = ?`)
       .get(id) as DecisionRecord | undefined;
     return row ?? null;
   }
 
   list(): DecisionRecord[] {
     return this.db
-      .prepare(`SELECT ${SELECT_COLS} FROM decisions ORDER BY created_at DESC`)
+      .prepare(`SELECT ${READ_COLS} FROM decisions ORDER BY created_at DESC`)
       .all() as DecisionRecord[];
   }
 
@@ -76,12 +96,30 @@ export class DecisionsRepository {
     if (!query.trim()) return [];
     return this.db
       .prepare(
-        `SELECT ${SELECT_COLS.split(", ").map((c) => "d." + c).join(", ")}
+        `SELECT ${READ_COLS.split(", ").map((c) => "d." + c).join(", ")}
          FROM decisions d
          JOIN decisions_fts f ON f.rowid = d.rowid
          WHERE decisions_fts MATCH ?
          ORDER BY rank`,
       )
       .all(query) as DecisionRecord[];
+  }
+
+  /** Stamp the latest reconciliation verdict. The caller (record_reconciliation
+   *  tool) is responsible for computing reconciled_source_hash against the
+   *  current working tree, so the verdict is always bound to real source. */
+  recordReconciliation(id: string, f: ReconciliationFields): void {
+    this.db
+      .prepare(
+        `UPDATE decisions SET
+           reconciliation_verdict = @reconciliation_verdict,
+           reconciled_at          = @reconciled_at,
+           reconciled_source_hash = @reconciled_source_hash,
+           reconciled_by          = @reconciled_by,
+           nonconformant_nodes    = @nonconformant_nodes,
+           reconciliation_note    = @reconciliation_note
+         WHERE id = @id`,
+      )
+      .run({ ...f, id });
   }
 }
