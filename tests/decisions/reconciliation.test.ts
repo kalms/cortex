@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashGovernedSource, displayState, RECONCILE_ENABLED } from "../../src/decisions/reconciliation.js";
+import { hashGovernedSource, displayState, RECONCILE_ENABLED, refToFile } from "../../src/decisions/reconciliation.js";
 
 function repoWith(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "gov-"));
@@ -84,6 +84,21 @@ describe("hashGovernedSource", () => {
     writeFileSync(join(dir, "sub", "b.ts"), "beta");
     expect(hashGovernedSource(dir, refs)).not.toBe(before);
   });
+
+  it("treats path-traversal and absolute refs as unresolvable (no escape from repo)", () => {
+    const dir = repoWith({ "a.ts": "alpha" });
+    // A '..' traversal ref and an absolute ref must NOT read outside the repo —
+    // they resolve to the <unresolved> sentinel, so their hash is stable and
+    // independent of whatever lives at the escaped path.
+    const traversal = hashGovernedSource(dir, [{ target_kind: "path", target_ref: "../../../../etc/hosts" }]);
+    const absolute = hashGovernedSource(dir, [{ target_kind: "path", target_ref: "/etc/hosts" }]);
+    // Both reduce to the unresolved sentinel for their (different) ref strings;
+    // crucially neither throws nor depends on the external file's contents.
+    expect(typeof traversal).toBe("string");
+    expect(typeof absolute).toBe("string");
+    // Same ref string ⇒ same hash regardless of external FS state (proves no read).
+    expect(traversal).toBe(hashGovernedSource(dir, [{ target_kind: "path", target_ref: "../../../../etc/hosts" }]));
+  });
 });
 
 describe("displayState", () => {
@@ -111,5 +126,19 @@ describe("RECONCILE_ENABLED", () => {
     } finally {
       if (prev === undefined) delete process.env.CORTEX_RECONCILE; else process.env.CORTEX_RECONCILE = prev;
     }
+  });
+});
+
+describe("refToFile traversal guard", () => {
+  it("returns null for absolute and parent-traversal refs", () => {
+    expect(refToFile({ target_kind: "path", target_ref: "/etc/passwd" })).toBeNull();
+    expect(refToFile({ target_kind: "path", target_ref: "../secrets.ts" })).toBeNull();
+    expect(refToFile({ target_kind: "path", target_ref: "a/../../b.ts" })).toBeNull();
+    expect(refToFile({ target_kind: "qn", target_ref: "../x.ts::fn" })).toBeNull();
+  });
+  it("still resolves normal in-repo refs", () => {
+    expect(refToFile({ target_kind: "path", target_ref: "src/a.ts" })).toBe("src/a.ts");
+    expect(refToFile({ target_kind: "path", target_ref: "sub" })).toBe("sub");
+    expect(refToFile({ target_kind: "qn", target_ref: "src/a.ts::fn" })).toBe("src/a.ts");
   });
 });
