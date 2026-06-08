@@ -3,9 +3,10 @@
 **Date:** 2026-06-08
 **Status:** draft (brainstorm), pending user review → implementation plan
 **Branch:** `feature/db/durable-primitive-store`
-**Absorbs:** `2026-06-08-short-primitive-ids-design.md` (the ID scheme becomes a
-component of this store; that spec's "DB-as-source-of-truth migration" is
-reframed here).
+**Builds on:** `2026-06-08-short-primitive-ids-design.md` — that work lands
+**first** (it is nearly complete); this spec then *takes over* to relocate the
+store and add the swap interface, **reusing** its landed ID scheme. It does not
+supersede or fold in that branch mid-flight.
 
 ## Problem
 
@@ -42,7 +43,7 @@ reconcile here.
   required to adopt it later).
 - **Migrate** the existing decisions; preserve cross-repo isolation and
   `decision rehome` semantics.
-- **Absorb** the `short-primitive-ids` ID scheme.
+- **Reuse** the `short-primitive-ids` ID scheme (which lands first).
 
 ## Non-goals (explicitly deferred)
 
@@ -59,33 +60,38 @@ reconcile here.
 
 ## Design
 
-### 1. Storage location — out-of-repo, repo-keyed
+### 1. Storage location — out-of-repo, keyed by a generated stable repo-id
 
-Durable primitives move to an XDG data-home location, sibling to the existing
-project registry (`~/.local/share/cortex-indexer/registry.db`), consistent with
-the principle already stated in `graph-storage.md`: *durable metadata lives
-under the XDG data home, not the regenerable cache.*
+Durable primitives move out of the repo to a discoverable, advertised home:
 
 ```
-~/.local/share/cortex/<repo-key>/decisions.db      # (todos.db, etc. later)
+~/.cortex/<repo-id>/decisions.db      # (todos.db, etc. later)
 ```
 
-- **`~/.local/share/cortex/`** (honoring `$XDG_DATA_HOME`). `~/.cortex/` is a
-  friendlier, more-discoverable alternative — **decision for the user at review
-  time**; both are out-of-repo and equivalent for the design.
-- **`<repo-key>`** = canonical repo identity, *stable across worktrees*.
-  Derived from the main working tree, resolved via
-  `git rev-parse --git-common-dir` (→ its parent is the primary worktree),
-  then keyed the same way the registry keys repos (`root_path` slug). Every
-  worktree of a repo maps to **one** key → **one** store.
+- **`~/.cortex/`** — chosen for discoverability (easy to find and inspect).
+  Out-of-repo and durable, distinct from the in-repo `.cortex/` *derived* cache.
+  Overridable via env for tests/isolation.
+- **`<repo-id>` = a generated stable identifier**, not a path slug. A path-keyed
+  store breaks the moment a repo is moved or renamed; a generated id does not.
+  The id is **minted once** (a UUID) and **committed to the repo** (e.g. a
+  tracked `cortex.json` `{ "repoId": … }` at the repo root — exact file is a
+  plan detail), so it is:
+  - **identical across every worktree and clone** (it travels in git, not in the
+    gitignored cache), which is what lets all worktrees — and later, teammates —
+    resolve to the *same* store;
+  - **stable across moves/renames/re-clones** (it's content, not a path).
+  Fallback: if no id is present (pre-existing repo), mint and write one on first
+  use. The id → `~/.cortex/<repo-id>/` mapping needs no separate registry.
 - The **graph DB stays** at `<repo>/.cortex/db` — it is derived and per-worktree
-  is fine (each branch can index its own code).
+  is fine (each branch indexes its own code).
 
 ### 2. Resolution change
 
-`resolveDecisionsDbPath` (and a future `resolveTodoStorePath`) resolve to the
-out-of-repo, repo-keyed home — not `<gitroot>/.cortex/decisions.db`. They become
-worktree-aware via `git-common-dir`. The `$CORTEX_DECISIONS_DB` override is
+`resolveDecisionsDbPath` (and a future `resolveTodoStorePath`) read the
+committed `repo-id` from the repo root (found via gitroot / `git-common-dir`)
+and resolve to `~/.cortex/<repo-id>/…` — not `<gitroot>/.cortex/decisions.db`.
+Because the id is committed, the resolved path is **worktree-invariant** (every
+worktree's checkout carries the same id). The `$CORTEX_DECISIONS_DB` override is
 retained (tests, isolation). This is the single chokepoint, mirroring how
 `resolve-path.ts` already centralizes graph-DB resolution.
 
@@ -110,7 +116,7 @@ DurablePrimitiveStore:
   Neon-upstream + local replica, or libSQL, or cr-sqlite. Call sites and schema
   are untouched by that swap.
 
-### 4. ID scheme (absorbed from `short-primitive-ids`)
+### 4. ID scheme (reused from `short-primitive-ids`, which lands first)
 
 - **Canonical PK**: `<PREFIX>-<4-char lowercase Crockford base32>`, ≥1 letter
   (disjoint from the all-digit seq namespace), collision-checked at mint. The
@@ -127,19 +133,19 @@ DurablePrimitiveStore:
 
 One-shot, idempotent (server startup + defensively at the top of
 `index_repository`), guarded by a `schema_meta` flag — the established pattern in
-`src/decisions/migration.ts`. In one transaction:
+`src/decisions/migration.ts`. Because `short-primitive-ids` lands first, the
+UUID → `D-<random>` re-key is **already done** by the time this runs; this
+migration is purely the **relocation**:
 
-1. **Relocate**: move/copy the repo's decisions from
-   `<repo>/.cortex/decisions.db` to the repo-keyed XDG store. Consolidates any
-   per-worktree DBs for the same repo-key into the single store (last-write or
-   union by canonical id; union preferred — distinct decisions merge cleanly via
-   distinct random canonicals).
-2. **Re-key** UUID → `D-<random>`: PK, `superseded_by`, `decision_links.
-   decision_id`, and `decision_links.target_ref` where `target_kind='decision'`;
-   assign `seq` in `created_at` order. (FK-safe order or deferred FK enforcement,
-   per the short-primitive-ids migration.)
-3. Leave the now-empty `<repo>/.cortex/decisions.db` behind (or remove it);
-   `.cortex/` stays gitignored.
+1. **Ensure a repo-id**: read the committed `repo-id`; if absent, mint a UUID and
+   write it to the tracked repo-root file (so it travels and is worktree-stable).
+2. **Relocate**: move the repo's (already `D-`keyed) decisions from
+   `<repo>/.cortex/decisions.db` to `~/.cortex/<repo-id>/decisions.db`.
+   Consolidate any per-worktree DBs for the same repo-id into the one store —
+   **union by canonical id** (distinct decisions merge cleanly via distinct
+   random canonicals; identical ids dedupe).
+3. Remove the now-orphaned `<repo>/.cortex/decisions.db`; `.cortex/` stays
+   gitignored (derived only).
 
 Live-DB safety: checkpoint WAL before the move; the MCP server's open handle is
 re-pointed at the new path on next open.
@@ -166,8 +172,9 @@ the substrate decision for the full rationale.)
   `created_at` order, idempotent on re-run.
 - **Cross-worktree** (the core fix): two worktrees of one repo resolve to the
   **same** store and observe the **same** decisions.
-- **Repo-key stability**: same key from main worktree and from a linked
-  worktree (`git-common-dir`); distinct repos get distinct keys.
+- **Repo-id stability**: the committed id yields the same store path from every
+  worktree and from a fresh clone; distinct repos get distinct ids; a
+  moved/renamed repo keeps its id.
 - **Regression**: the existing `decisions-cross-repo-isolation` test must pass;
   add a `rehome` test (canonical preserved, seq reassigned from destination).
 - **Interface**: call sites depend only on `DurablePrimitiveStore`; a fake
@@ -175,19 +182,18 @@ the substrate decision for the full rationale.)
 
 ## Risks / open questions
 
-- **Repo-key edge cases**: bare/no-git dirs, submodules, a repo physically
-  moved/renamed (key derived from path slug would change). Need fallback +
-  possibly a stable repo identifier (e.g. first-commit hash or remote URL) —
-  resolve in the plan.
+- **Repo-id edge cases**: a repo with no commits / not yet inited (mint-on-
+  first-use covers it); the brief window where a branch predates the id file
+  (self-heals on merge, and mint-on-first-use makes both worktrees agree once
+  written); bare/no-git dirs fall back to the `$CORTEX_DECISIONS_DB` override.
 - **Existing distributed decisions**: decisions presently live in *multiple*
   per-worktree DBs (main has 29; worktrees have their own). Migration must
-  union them under the repo-key, not clobber. Random canonicals make the union
-  safe; collisions are astronomically unlikely and checked.
-- **`~/.local/share/cortex` vs `~/.cortex`**: user's call at review.
-- **Coordination with `short-primitive-ids` branch**: that branch holds the ID
-  spec + plan (no code yet). This spec supersedes its storage framing; the two
-  plans should merge so the ID scheme and relocation land together (one
-  migration, not two).
+  **union** them under the repo-id, not clobber. Random canonicals make the
+  union safe; collisions are astronomically unlikely and checked.
+- **Sequencing with `short-primitive-ids`**: that branch lands first (ID scheme
+  + UUID→`D-` migration on the current store). This work then takes over with a
+  second, relocation-only migration — two migrations in sequence, cleanly
+  separated, not folded together.
 - **Decisions referencing branch-only code**: a shared store makes a decision
   visible on branches whose governed code doesn't exist yet. Acceptable —
   decisions are repo-level knowledge; governance resolves by qn/path and
@@ -195,7 +201,8 @@ the substrate decision for the full rationale.)
 
 ## Relationship to other specs
 
-- **Supersedes/absorbs** `2026-06-08-short-primitive-ids-design.md`.
+- **Builds on** `2026-06-08-short-primitive-ids-design.md` (lands after it;
+  reuses its ID scheme rather than superseding it).
 - **Unblocks** the frame-ranking spec (computed frame state gets a durable home
   that survives worktree churn).
 - **Extends** the storage model in `docs/architecture/graph-storage.md` and
