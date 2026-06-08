@@ -3,6 +3,7 @@ import { registerDecisionTools } from "./tools/decision-tools.js";
 import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
 import { registerPRTools } from "./tools/pr-tools.js";
+import { registerReconciliationTools } from "./tools/reconciliation-tools.js";
 import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
@@ -48,6 +49,7 @@ export function createServer(
   registerPromotionTools(server, resolver, indexerProject, bus);
   registerCodeTools(server, resolver);
   registerPRTools(server, resolver, indexerProject, bus);
+  registerReconciliationTools(server, resolver);
 
   return server;
 }
