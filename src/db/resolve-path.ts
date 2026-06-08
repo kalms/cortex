@@ -2,6 +2,8 @@ import BetterSqlite3 from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { ensureRepoId } from "./repo-id.js";
+import { mainWorktreeRoot } from "./git-root.js";
 
 function findGitRoot(startDir: string): string | null {
   let dir = startDir;
@@ -88,12 +90,48 @@ export function resolveGraphDbForRead(repoPath: string): string | null {
   return populated ?? existing[0] ?? null;
 }
 
+/**
+ * Out-of-repo durable home for authored primitives: `~/.cortex` (advertised,
+ * discoverable). Distinct from the in-repo `.cortex/` derived cache.
+ *
+ * `$CORTEX_HOME` overrides the base home directory for isolation (tests,
+ * CI). When set, the durable root becomes `$CORTEX_HOME/.cortex` rather
+ * than `~/.cortex`.
+ */
+export function durableStoreRoot(): string {
+  return join(process.env.CORTEX_HOME ?? homedir(), ".cortex");
+}
+
+/** The pre-relocation in-repo decisions path, used only as a one-time
+ *  migration source. Resolves from the MAIN worktree root so that a linked
+ *  worktree finds the same legacy data as the main worktree. */
+export function legacyDecisionsDbPath(startDir?: string): string {
+  const start = startDir ?? process.cwd();
+  const root = mainWorktreeRoot(start) ?? findGitRoot(start) ?? start;
+  return join(root, ".cortex", "decisions.db");
+}
+
+/**
+ * Resolve the durable decisions DB for the repo containing `startDir`.
+ *
+ * Durable primitives live OUT of the repo at `~/.cortex/<repo-id>/decisions.db`,
+ * keyed by a generated, committed, repo-stable id so every worktree/clone of a
+ * repo shares one store (fixing per-worktree stranding). `$CORTEX_DECISIONS_DB`
+ * overrides verbatim (tests/isolation). Outside any git repo, falls back to the
+ * legacy `<startDir>/.cortex/decisions.db`.
+ *
+ * Side effect: on the first call for a repo whose `cortex.json` has no `repoId`,
+ * this mints and persists one via `ensureRepoId` (writes `<repoRoot>/cortex.json`).
+ */
 export function resolveDecisionsDbPath(startDir?: string): string {
   const override = process.env.CORTEX_DECISIONS_DB;
   if (override) return override;
 
   const start = startDir ?? process.cwd();
-  const gitRoot = findGitRoot(start);
-  const base = gitRoot ?? start;
-  return join(base, ".cortex", "decisions.db");
+  const repoRoot = mainWorktreeRoot(start);
+  if (repoRoot === null) {
+    return join(start, ".cortex", "decisions.db");
+  }
+  const repoId = ensureRepoId(repoRoot);
+  return join(durableStoreRoot(), repoId, "decisions.db");
 }

@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { existsSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
 import Database from "better-sqlite3";
 import {
   searchGraph,
@@ -16,7 +16,7 @@ import {
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 import { resolveInput } from "../../shared/resolve-input.js";
-import { resolveCortexDbPath, resolveDecisionsDbPath } from "../../db/resolve-path.js";
+import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -209,7 +209,7 @@ async function readSnippet(
 }
 
 const execFileAsync = promisify(execFile);
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -423,7 +423,7 @@ export function registerCodeTools(
         // first run.
         try {
           const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-          const decDb = openDecisionsDb(decisionsDbPath);
+          const decDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(repoPath));
           try {
             migrateDecisionsFromGraphDb(decDb, dbPath);
           } finally {
@@ -451,6 +451,8 @@ export function registerCodeTools(
         }
 
         if (cacheKey && hasCacheEntry(cacheKey)) {
+          // Ensure .cortex/ exists before copying (fresh repos have no .cortex/ yet).
+          mkdirSync(dirname(dbPath), { recursive: true });
           readCacheEntry(cacheKey, dbPath);
           // Remove any stale WAL sidecars left over from a previous indexer run.
           for (const ext of ["-wal", "-shm"]) {
