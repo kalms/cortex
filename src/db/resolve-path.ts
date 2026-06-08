@@ -104,6 +104,9 @@ export function durableStoreRoot(): string {
  * repo shares one store (fixing per-worktree stranding). `$CORTEX_DECISIONS_DB`
  * overrides verbatim (tests/isolation). Outside any git repo, falls back to the
  * legacy `<startDir>/.cortex/decisions.db`.
+ *
+ * Side effect: on the first call for a repo whose `cortex.json` has no `repoId`,
+ * this mints and persists one via `ensureRepoId` (writes `<repoRoot>/cortex.json`).
  */
 export function resolveDecisionsDbPath(startDir?: string): string {
   const override = process.env.CORTEX_DECISIONS_DB;
