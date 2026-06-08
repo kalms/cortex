@@ -144,8 +144,9 @@ migration is purely the **relocation**:
    Consolidate any per-worktree DBs for the same repo-id into the one store —
    **union by canonical id** (distinct decisions merge cleanly via distinct
    random canonicals; identical ids dedupe).
-3. Remove the now-orphaned `<repo>/.cortex/decisions.db`; `.cortex/` stays
-   gitignored (derived only).
+3. **Leave** the legacy `<repo>/.cortex/decisions.db` in place — non-destructive,
+   so the migration stays retry-safe; the orphaned file is harmless (the
+   resolver no longer points at it). `.cortex/` stays gitignored (derived only).
 
 Live-DB safety: checkpoint WAL before the move; the MCP server's open handle is
 re-pointed at the new path on next open.
