@@ -22,6 +22,7 @@ The shorthand: **the structural / data half of v0.3 shipped; the
 | **PR data model + tools** | ✅ Shipped (data only) | [`src/prs/service.ts`](../../src/prs/service.ts), [`src/prs/types.ts`](../../src/prs/types.ts) (`OpenPRInput` with `introduces_frame`, `additions`, `external_ref`). MCP tools `open_pr` / `add_pr_touch` / `merge_pr` / `get_pr`. Matches spec §4 schema. **Not rendered on canvas** (spec said so explicitly). |
 | **Decision proposal / supersession tools** | ✅ Shipped | `propose_decision`, `supersede_decision`, `promote_decision`, `link_decision`; [`src/decisions/promotion.ts`](../../src/decisions/promotion.ts), `cli/commands/decision.ts::cmdPropose`. |
 | **2D frames viewer** | ✅ Shipped | [`src/viewer/`](../../src/viewer/) — `adapters.js` (`groupNodesIntoFrames`, `frameCoverage`), `data-fetch.js`, `layout.js`, `viewer.js`, wired to `/api/graph` / `/api/projects` / `/api/decisions`. |
+| **Reconciliation engine** (derived decision state) | ✅ Shipped (flag-gated) | Agent-delegated reconciliation behind `CORTEX_RECONCILE` (default off in v1). Working-tree (not HEAD) source hash in [`src/decisions/reconciliation.ts`](../../src/decisions/reconciliation.ts); `record_reconciliation` / `pending_reconciliations` tools ([`src/mcp-server/tools/reconciliation-tools.ts`](../../src/mcp-server/tools/reconciliation-tools.ts)); on-read drift block + derived `display_state` in `get_decision` / `why_was_this_built` ([`src/mcp-server/reconciliation-attach.ts`](../../src/mcp-server/reconciliation-attach.ts)); `cortex reconcile status` CLI and SessionStart banner. Design: [`docs/superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md`](../superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md); plan: [`docs/superpowers/plans/2026-06-08-decision-reconciliation-engine.md`](../superpowers/plans/2026-06-08-decision-reconciliation-engine.md). |
 
 ---
 
@@ -29,7 +30,6 @@ The shorthand: **the structural / data half of v0.3 shipped; the
 
 | Spec area | Status | Evidence |
 |---|---|---|
-| **Reconciliation engine** (derived decision state) | ❌ Missing | `%econcil%` matches only the spec/backlog docs — zero code. Decision `status` is a plain column ([`src/decisions/db.ts`](../../src/decisions/db.ts)), not derived from code-alignment. The spec's central "decisions ratified by code, drift → stale" mechanism does not exist. Blocks spec §3 ratification story and §10.3. **Highest-leverage gap.** |
 | **Frame ranking / taxonomy** | ❌ Largely missing | [`frame-ranking.md`](cortex-v0.3/frame-ranking.md)'s `FrameKind` payload, layer-first taxonomy, and gravity model have no code counterpart. Labeling (`label-quality.ts`) shipped; the ranking/classification layer did not. |
 | **TODO entity** | ❌ Missing | `%odo%` matches only [`todo-entity.md`](cortex-v0.3/todo-entity.md). No schema, state machine, drawer, tools, or external bridge. |
 | **Multiplayer-test mode / scenario DSL** | ❌ Missing | `%cenario%` matches only spec §9.3. No TS DSL scenario runner. |
@@ -46,14 +46,18 @@ plus a generic `decision_links` table (handles `governs` / `supersedes` /
 
 **Gaps:**
 - No `validatedBy` / `observedImpact` (evidence) fields.
-- `status` is **stored, not derived** — the reconciliation engine that the spec
-  assumes would compute it from code-alignment is absent.
+- `status` is stored, but a **derived `display_state`** now layers on top of it:
+  the reconciliation engine detects working-tree source-hash drift and the agent
+  judges whether the decision's prose still matches the code, projecting
+  `match`/`partial`/`drift` into `active` / `active · drifting` / `stale`
+  (shipped flag-gated behind `CORTEX_RECONCILE`).
 
 ---
 
 ## Recommended next step
 
-Build the **reconciliation engine**. Multiple spec sections (§3 ratification,
-§10.3, the entire stale-decision lifecycle) assume it, and today decision
-`status` is just a manually-set column. It unblocks the most spec surface per
-unit of work. _(Brainstorm in progress — design notes to follow.)_
+The **reconciliation engine** — previously the highest-leverage gap — is now
+**shipped behind `CORTEX_RECONCILE`** (agent-delegated, working-tree hash,
+on-read + SessionStart triggers), so spec §3 ratification and the §10.3 /
+stale-decision lifecycle are unblocked in v1. Next-highest remaining gaps are
+**frame ranking / taxonomy** and the **TODO entity**.

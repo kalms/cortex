@@ -83,4 +83,30 @@ describe("record_reconciliation", () => {
     const res = await callTool(h, "pending_reconciliations", { limit: 1 });
     expect(JSON.parse(res.content[0].text).pending.length).toBe(1);
   });
+
+  it("full loop: create → judge match → drift → judge drift → fix → judge match", async () => {
+    const parse = async (id: string) => JSON.parse((await callTool(h, "get_decision", { id })).content[0].text);
+    const file = join(h.repoPath, "loop.ts");
+
+    writeFileSync(file, "export const v = 1;\n");
+    const c = await callTool(h, "create_decision", { title: "loop", description: "d", rationale: "r", resolution: "v is 1" });
+    const id = JSON.parse(c.content[0].text).id;
+    await callTool(h, "link_decision", { decision_id: id, target: "loop.ts", relation: "GOVERNS" });
+
+    // 1. judge match → active
+    await callTool(h, "record_reconciliation", { decision_id: id, verdict: "match" });
+    expect((await parse(id)).display_state).toBe("active");
+
+    // 2. edit governed file → drifted ⇒ verdict treated as unknown until re-judged
+    writeFileSync(file, "export const v = 2;\n");
+    expect((await parse(id)).display_state).toBe("active · unreconciled");
+
+    // 3. judge drift → stale
+    await callTool(h, "record_reconciliation", { decision_id: id, verdict: "drift" });
+    expect((await parse(id)).display_state).toBe("stale");
+
+    // 4. re-judge match against the current content → active
+    await callTool(h, "record_reconciliation", { decision_id: id, verdict: "match" });
+    expect((await parse(id)).display_state).toBe("active");
+  });
 });
