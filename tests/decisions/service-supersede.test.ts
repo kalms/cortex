@@ -20,6 +20,7 @@ describe("DecisionService.supersede / propose", () => {
     db = openDecisionsDb(join(root, "decisions.db"));
     events = [];
     svc = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links: new DecisionLinksRepository(db),
       bus: { emit: (e: Event) => events.push(e) },

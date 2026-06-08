@@ -52,6 +52,7 @@ function stripQnMember(target: string): string {
 function toDecision(rec: DecisionRecord): Decision {
   return {
     id: rec.id,
+    seq: rec.seq,
     title: rec.title,
     description: rec.description ?? "",
     rationale: rec.rationale ?? "",

@@ -25,6 +25,7 @@ export interface AdaptedAlternative {
 
 export interface AdaptedDecision {
   id: string;
+  seq: number | null;
   summary: string;
   state: string;
   problem: string | null;
@@ -83,6 +84,7 @@ export function buildAdaptedDecision(
 
   return {
     id: rec.id,
+    seq: rec.seq ?? null,
     summary: rec.title,
     state: rec.status,
     problem: rec.problem,

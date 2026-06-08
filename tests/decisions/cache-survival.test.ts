@@ -25,6 +25,7 @@ describe("decisions survive index_repository cache import", () => {
     const decPath = resolveDecisionsDbPath(repoDir);
     const db = openDecisionsDb(decPath);
     const svc = new DecisionService({
+      db,
       decisions: new DecisionsRepository(db),
       links: new DecisionLinksRepository(db),
     });

@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { DecisionsRepository } from "../../decisions/repository.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
+import { allocateSeq } from "../../ids/allocator.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import type { DecisionCommand } from "./decision.js";
@@ -121,8 +122,13 @@ export function cmdRehome(cmd: DecisionCommand, ctx: ProjectContext): void {
       }
 
       // Insert decision + links into target inside one target-side transaction.
+      // The canonical `id` survives the move unchanged, but `seq` MUST be
+      // reassigned from the target repo's counter — the source seq can collide
+      // with an existing destination seq, and the target's next_val would never
+      // advance if we just copied the source row verbatim.
       targetDb.transaction(() => {
-        targetDecisions.insert(decision);
+        const targetSeq = allocateSeq(targetDb, "decision");
+        targetDecisions.insert({ ...decision, seq: targetSeq });
         for (const link of links) targetLinks.add(link);
       })();
 

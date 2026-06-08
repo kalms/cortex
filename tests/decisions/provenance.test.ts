@@ -11,7 +11,7 @@ function tmp() {
 }
 
 const baseRec = (over: Partial<DecisionRecord> = {}): DecisionRecord => ({
-  id: "d1", title: "T", description: null, rationale: null,
+  id: "d1", seq: 1, title: "T", description: null, rationale: null,
   problem: null, resolution: null, alternatives: null,
   tier: "personal", status: "proposed", superseded_by: null,
   author: "cortex:seed", created_at: "2026-05-28", updated_at: "2026-05-28",
