@@ -4,7 +4,7 @@ import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
-import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath } from "../db/resolve-path.js";
+import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
@@ -278,7 +278,7 @@ export class RepoContextResolver {
     // need raw SQL access (migrations, tools that bypass GraphStore). Same
     // file, WAL-safe across handles in the same process.
     const graphDb = new BetterSqlite3(graphDbPath);
-    const decisionsDb = openDecisionsDb(decisionsDbPath);
+    const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(canonical));
     migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
     migrateDecisionIdsToShortForm(decisionsDb);
     const decisionsRepo = new DecisionsRepository(decisionsDb);

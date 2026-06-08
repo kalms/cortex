@@ -1,4 +1,4 @@
-import { resolveDecisionsDbPath } from "../../db/resolve-path.js";
+import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { DecisionsRepository } from "../../decisions/repository.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
@@ -26,7 +26,7 @@ export function runReconcileCommand(sub: string | null): void {
   const subCmd = sub ?? "status";
   if (subCmd !== "status") { process.stderr.write(`unknown: cortex reconcile ${subCmd}\n`); process.exit(2); }
   const repoPath = process.cwd();
-  const db = openDecisionsDb(resolveDecisionsDbPath(repoPath));
+  const db = openDecisionsDb(resolveDecisionsDbPath(repoPath), legacyDecisionsDbPath(repoPath));
   try {
     const n = countDriftedDecisions(repoPath, new DecisionsRepository(db), new DecisionLinksRepository(db));
     process.stdout.write(`${n}\n`);
