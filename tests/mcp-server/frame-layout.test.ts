@@ -122,4 +122,22 @@ describe("layoutFrames", () => {
     const out = layoutFrames(frames, [{ a: 0, b: 99, weight: 5 }]);
     expect(out).toHaveLength(3);
   });
+
+  it("keeps odd-sized frames within bounds (sub-pixel clamp regression)", () => {
+    // Two frames with different counts → sizes span the band and can be odd.
+    // Many strongly-weighted frames push some to the stage edges; assert the
+    // bounds invariant holds with real (non-integer) half-widths.
+    const odd: LayoutInputFrame[] = Array.from({ length: 8 }, (_, i) => ({
+      frame_id: i,
+      frame_label: `f${i}`,
+      member_count: 1 + i * 3, // varied counts → varied (incl. odd) sizes
+    }));
+    const heavyPairs: FramePairWeight[] = odd.slice(1).map((f) => ({ a: 0, b: f.frame_id, weight: 50 }));
+    for (const f of layoutFrames(odd, heavyPairs)) {
+      expect(f.x - f.w / 2).toBeGreaterThanOrEqual(0);
+      expect(f.x + f.w / 2).toBeLessThanOrEqual(STAGE_W);
+      expect(f.y - f.h / 2).toBeGreaterThanOrEqual(0);
+      expect(f.y + f.h / 2).toBeLessThanOrEqual(STAGE_H);
+    }
+  });
 });
