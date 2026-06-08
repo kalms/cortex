@@ -5,6 +5,7 @@ import { Worker } from "node:worker_threads";
 import { GraphStore, type NodeRow } from "./graph/store.js";
 import { createServer } from "./mcp-server/server.js";
 import { startViewerServer } from "./mcp-server/api.js";
+import { createGracefulShutdown } from "./mcp-server/shutdown.js";
 import { startWsServer, type WsServerHandle } from "./ws/server.js";
 import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
@@ -184,3 +185,36 @@ if (port > 0 && httpServer) {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// Bind this process's lifetime to the stdio pipe. A stdio MCP server has no
+// "done" signal of its own, and the viewer HTTP/WS servers + worker thread keep
+// the event loop alive forever. When the parent (Claude Code / VSCode) goes
+// away — window closed, session ended — we must exit, otherwise we linger as an
+// orphan still holding CORTEX_VIEWER_PORT (default 3333). Accumulated orphans
+// are the root cause of ERR_CONNECTION_REFUSED on the viewer after a VSCode
+// restart: the next session races a port-squatting zombie and gives up.
+//
+// Closing the DBs/worker before exit is best-effort cleanliness (flush SQLite
+// WAL); process exit itself is what frees the port.
+const shutdown = createGracefulShutdown({
+  log: (msg) => process.stderr.write(msg + "\n"),
+  exit: (code) => process.exit(code),
+  // The freed-port guarantee must not hinge on every resource closing cleanly:
+  // if a close() stalls, force the exit so we never re-orphan on the port.
+  forceExitAfterMs: 3000,
+  closables: [
+    // Free the port first: stop accepting viewer/WS connections promptly.
+    ...(httpServer ? [{ name: "viewer-http", close: () => httpServer.close() }] : []),
+    { name: "worker-supervisor", close: () => supervisor.stop() },
+    { name: "events-persister", close: () => mainPersister.close() },
+    { name: "decisions-db", close: () => decisionsDb.close() },
+    { name: "graph-store", close: () => store.close() },
+  ],
+});
+
+// stdin EOF = parent closed the pipe (the canonical "parent is gone" signal for
+// a stdio server). SIGTERM/SIGINT cover orderly termination by a supervisor.
+process.stdin.on("end", () => void shutdown("stdin-close"));
+process.stdin.on("close", () => void shutdown("stdin-close"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
