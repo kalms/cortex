@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 /** Entity types that receive the full short-id + seq treatment. */
 export type EntityType = "decision" | "todo";
 
@@ -18,8 +20,6 @@ const HAS_LETTER_RE = /[a-z]/;
 
 /** Default token source: TOKEN_LEN symbols drawn from ALPHABET via crypto. */
 function cryptoToken(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { randomInt } = require("node:crypto") as typeof import("node:crypto");
   let out = "";
   for (let i = 0; i < TOKEN_LEN; i++) out += ALPHABET[randomInt(ALPHABET.length)];
   return out;

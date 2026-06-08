@@ -25,6 +25,14 @@ describe("short-id grammar", () => {
     expect(tok).toMatch(/[a-z]/);
   });
 
+  it("randomToken() with no injection yields a valid token", () => {
+    for (let i = 0; i < 50; i++) {
+      const tok = randomToken();
+      expect(tok).toMatch(/^[0-9abcdefghjkmnpqrstvwxyz]{4}$/);
+      expect(tok).toMatch(/[a-z]/);
+    }
+  });
+
   it("parseRef treats all-digit tokens as seq refs", () => {
     expect(parseRef("decision", "D-12")).toEqual({ kind: "seq", seq: 12 });
     expect(parseRef("decision", "12")).toEqual({ kind: "seq", seq: 12 });
