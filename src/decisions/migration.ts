@@ -73,6 +73,7 @@ export function migrateDecisionsFromGraphDb(
         const data = safeParseJson(node.data);
         const rec: DecisionRecord = {
           id: node.id,
+          seq: 0, // legacy migrated decisions have no seq; 0 is the sentinel
           title: (data.title as string) ?? node.name ?? "",
           description: (data.description as string | null) ?? null,
           rationale: (data.rationale as string | null) ?? null,

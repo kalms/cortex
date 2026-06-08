@@ -30,6 +30,7 @@ function openService(ctx: ProjectContext) {
   const db = openDecisionsDb(dbPath);
   const links = new DecisionLinksRepository(db);
   const svc = new DecisionService({
+    db,
     decisions: new DecisionsRepository(db),
     links,
   });

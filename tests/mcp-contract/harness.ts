@@ -129,6 +129,7 @@ export async function createHarness(): Promise<HarnessContext> {
   // HarnessContext for older tests that exercise the services directly
   // (e.g. seeding decisions outside the MCP surface).
   const service = new DecisionService({
+    db: decisionsDb,
     decisions: decisionsRepo,
     links: decisionLinksRepo,
     project_id: project,

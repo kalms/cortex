@@ -117,6 +117,7 @@ describe("PRService.merge", () => {
     events = [];
     const bus = { emit: (e: Event) => events.push(e) };
     decisions = new DecisionService({
+      db: decisionsDb,
       decisions: new DecisionsRepository(decisionsDb),
       links: linksRepo,
       bus,
@@ -220,6 +221,7 @@ describe("PRService.getWithRefs", () => {
     linksRepo = new DecisionLinksRepository(decisionsDb);
     const bus = { emit: () => {} };
     decisions = new DecisionService({
+      db: decisionsDb,
       decisions: new DecisionsRepository(decisionsDb),
       links: linksRepo,
       bus,

@@ -27,6 +27,7 @@ describe('DecisionPromotion event emission', () => {
   it('emits decision.promoted on promote() with from_tier and to_tier', () => {
     const bus = new EventBus();
     const service = new DecisionService({
+      db,
       decisions: repo,
       links: new DecisionLinksRepository(db),
       bus,
@@ -59,6 +60,7 @@ describe('DecisionPromotion event emission', () => {
 
   it('no bus is allowed — promote() still works', () => {
     const service = new DecisionService({
+      db,
       decisions: repo,
       links: new DecisionLinksRepository(db),
     });
