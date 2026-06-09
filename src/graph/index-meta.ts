@@ -19,6 +19,7 @@ export function writeIndexMeta(dbPath: string, meta: IndexMeta): void {
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath);
+    db.pragma("busy_timeout = 5000");
     ensureTable(db);
     const up = db.prepare(
       "INSERT INTO cortex_index_meta (key, value) VALUES (@key, @value) " +

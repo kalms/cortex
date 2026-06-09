@@ -10,6 +10,7 @@ const anchorId = (tool: string) => `anchor:rpc_tool:${tool}`;
  *  prior anchors/edges. */
 export function injectContracts(args: { bindings: readonly Binding[]; project: string; dbPath: string }): number {
   const db = new Database(args.dbPath);
+  db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
   try {
     const now = new Date().toISOString();
