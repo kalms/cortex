@@ -42,6 +42,26 @@ const RECON_COLS =
   "reconciliation_verdict, reconciled_at, reconciled_source_hash, reconciled_by, nonconformant_nodes, reconciliation_note";
 const READ_COLS = `${SELECT_COLS}, ${RECON_COLS}`;
 
+/**
+ * Turn a free-text user query into a safe FTS5 MATCH expression.
+ *
+ * Raw user text cannot go straight into `MATCH ?`: FTS5 interprets `-`, `:`,
+ * `"`, `*`, `(`, `^`, and bareword `AND`/`OR`/`NOT`/`NEAR` as query operators,
+ * so an ordinary query like `in-place` throws `no such column: place` (the
+ * hyphen + colon parsing). Each whitespace-separated term is wrapped as a
+ * double-quoted phrase (internal quotes doubled), which makes every term a
+ * literal and neutralizes the operators while preserving implicit-AND keyword
+ * search. Returns "" for an empty/blank query (caller short-circuits to []).
+ */
+export function toFtsMatch(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
+    .map((t) => `"${t.replace(/"/g, '""')}"`)
+    .join(" ");
+}
+
 export interface ReconciliationFields {
   reconciliation_verdict: string;
   reconciled_at: string;
@@ -102,7 +122,8 @@ export class DecisionsRepository {
   }
 
   search(query: string): DecisionRecord[] {
-    if (!query.trim()) return [];
+    const match = toFtsMatch(query);
+    if (!match) return [];
     return this.db
       .prepare(
         `SELECT ${READ_COLS.split(", ").map((c) => "d." + c).join(", ")}
@@ -111,7 +132,7 @@ export class DecisionsRepository {
          WHERE decisions_fts MATCH ?
          ORDER BY rank`,
       )
-      .all(query) as DecisionRecord[];
+      .all(match) as DecisionRecord[];
   }
 
   /** Stamp the latest reconciliation verdict. The caller (record_reconciliation
