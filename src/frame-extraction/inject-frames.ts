@@ -445,6 +445,10 @@ export function injectFrames(args: { cluster: ClusterResult; project: string; db
         AND file_path = @file_path
     `);
 
+    // reclaimed bound as the string 'true'/'false': SQLite has no native
+    // boolean, and the CASE WHEN sets json('true') vs json_remove so parsed
+    // data.reclaimed is `true` for reclaimed members and absent for core.
+
     // 2. Clear frame_* keys on any file node in this project that is NOT in
     //    the cluster set (handles re-clustering moving files to noise).
     //    NOTE: positional `?` throughout — better-sqlite3 does not allow
