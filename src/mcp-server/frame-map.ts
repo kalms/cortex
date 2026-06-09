@@ -39,10 +39,10 @@ export interface FrameMap {
 
 /** Group file nodes by frame_id into ranker input records. */
 function buildFrameRecords(nodes: readonly NodeRow[]): FrameRecord[] {
-  const byFrame = new Map<number, FrameRecord>();
+  const byFrame = new Map<number, { frame_id: number; frame_label: string; member_paths: string[]; core_member_paths: string[] }>();
   for (const n of nodes) {
     if (n.kind !== "file" || !n.file_path) continue;
-    let d: { frame_id?: number; frame_label?: string };
+    let d: { frame_id?: number; frame_label?: string; reclaimed?: boolean };
     try {
       d = JSON.parse(n.data);
     } catch {
@@ -52,10 +52,11 @@ function buildFrameRecords(nodes: readonly NodeRow[]): FrameRecord[] {
     const label = typeof d.frame_label === "string" ? d.frame_label : `frame:${d.frame_id}`;
     let rec = byFrame.get(d.frame_id);
     if (!rec) {
-      rec = { frame_id: d.frame_id, frame_label: label, member_paths: [] };
+      rec = { frame_id: d.frame_id, frame_label: label, member_paths: [], core_member_paths: [] };
       byFrame.set(d.frame_id, rec);
     }
     rec.member_paths.push(n.file_path);
+    if (d.reclaimed !== true) rec.core_member_paths.push(n.file_path);
   }
   return [...byFrame.values()].sort((a, b) => a.frame_id - b.frame_id);
 }
