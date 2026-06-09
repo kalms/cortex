@@ -64,30 +64,59 @@ function hasNodes(dbPath: string): boolean {
   }
 }
 
+/** True if `dbPath` is a structurally-valid SQLite file that opens without
+ *  error — including a 0-byte file (an empty DB) or a valid DB with no rows.
+ *  A non-SQLite file (garbage content) throws on access and returns false.
+ *  This is the distinction that lets the canonical `.cortex/db` win whenever
+ *  it is *usable* (populated, empty, or 0-byte drift) while still ceding to a
+ *  legacy fallback when it is genuinely corrupt non-DB content. */
+function isOpenableSqlite(dbPath: string): boolean {
+  let db: BetterSqlite3.Database | null = null;
+  try {
+    db = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+    db.pragma("schema_version");
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
 /**
  * Resolve the graph DB to READ for an addressed repo, independent of any
  * global `CORTEX_DB_PATH` override.
  *
- * Different writers populate different stores: MCP `index_repository` writes
- * `<repo>/.cortex/db`; the CLI `cortex index` writes the shared cache
- * (`~/.cache/cortex-indexer/<slug>.db`); the legacy override era wrote
- * `<repo>/.cortex/graph.db`. This searches all three (in that priority order)
- * and returns the first that is POPULATED (has node rows), so a successful
- * index is visible regardless of how it was created. If none are populated but
- * one exists (e.g. a repo mid-index with a freshly-created empty DB), the
- * highest-priority existing path is returned. Returns null when the repo has
- * no store at all — the caller raises RepoNotIndexedError.
+ * The canonical store is `<repo>/.cortex/db` (the only write target today).
+ * It wins UNCONDITIONALLY whenever it is an openable SQLite file — populated,
+ * valid-but-empty, or a 0-byte drift. An empty canonical DB must surface as
+ * empty (so the freshness layer flags `empty` and prompts a reindex), and must
+ * never be shadowed by a stale sibling `<repo>/.cortex/graph.db`: once
+ * `.cortex/db` exists, `graph.db` is by definition stale-or-equal, and serving
+ * it produced the 2026-06-09 viewer stale-map bug (`.cortex/db` held the fresh
+ * 25-frame index while the default read path served an 8-frame `graph.db`).
+ *
+ * Only when `.cortex/db` is absent or structurally unusable (non-SQLite
+ * garbage) do we fall back to the legacy stores — the pre-canonical
+ * `<repo>/.cortex/graph.db` and the CLI's shared cache
+ * (`~/.cache/cortex-indexer/<slug>.db`) — preferring a populated one so
+ * un-migrated repos still resolve. Returns null when the repo has no store at
+ * all; the caller raises RepoNotIndexedError.
  */
 export function resolveGraphDbForRead(repoPath: string): string | null {
   const gitRoot = findGitRoot(repoPath) ?? repoPath;
-  const candidates = [
-    join(gitRoot, ".cortex", "db"),
+  const cortexDb = join(gitRoot, ".cortex", "db");
+  if (existsSync(cortexDb) && isOpenableSqlite(cortexDb)) return cortexDb;
+
+  const legacy = [
     join(gitRoot, ".cortex", "graph.db"),
     join(homedir(), ".cache", "cortex-indexer", `${cacheSlug(gitRoot)}.db`),
   ];
-  const existing = candidates.filter(existsSync);
+  const existing = legacy.filter(existsSync);
   const populated = existing.find(hasNodes);
-  return populated ?? existing[0] ?? null;
+  // Last resort: a present-but-unopenable .cortex/db (so the caller's
+  // empty/degraded handling engages) over null when nothing else exists.
+  return populated ?? existing[0] ?? (existsSync(cortexDb) ? cortexDb : null);
 }
 
 /**

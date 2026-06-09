@@ -414,6 +414,7 @@ export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[]
 export function injectFrames(args: { cluster: ClusterResult; project: string; dbPath: string }): number {
   const assignments = buildFrameAssignments(args.cluster);
   const db = new Database(args.dbPath);
+  db.pragma("busy_timeout = 5000");
   try {
     // 1. Apply assignments (UPDATE the data JSON for matching file nodes).
     const applyOne = db.prepare(`
