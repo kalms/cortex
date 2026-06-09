@@ -75,30 +75,55 @@ register concurrently.
   segment, so eval-corpus clones under `cortex/.tmp/…` can never enter
   enumeration.
 
-## Write path (both writers agree)
+## Write path: staging build + transactional publish
 
 Both `cortex index` (CLI, `src/cli/commands/index.ts`) and the `index_repository`
-MCP tool (`src/mcp-server/tools/code-tools.ts`) do the same three things:
+MCP tool (`src/mcp-server/tools/code-tools.ts`) build into a **private staging
+DB** and then publish into the canonical store through a single libsqlite3
+transaction. The canonical `<repo>/.cortex/db` is **never written out-of-band**
+while a reader holds it open.
 
-1. **Write the graph to `<repo>/.cortex/db`.** The native indexer binary chooses
-   its output from the `CORTEX_DB` env var; both writers set it via
-   `resolveCortexDbPath(repoPath)`. (The CLI previously let the binary fall back
-   to the cache — that was the divergence this model removed.)
-2. **Checkpoint the WAL** (`PRAGMA wal_checkpoint(TRUNCATE)`) after frame
-   injection, so a reader opening the DB immediately sees a complete state with
-   no writes stranded in the `-wal` sidecar.
-3. **`registry.register(deriveProjectName(repoPath), repoPath)`** — best-effort
-   (never fails the index). `deriveProjectName` is the same slug used as
-   `ctx_projects.name` and as the viewer's `?project=` param, so the registry
-   key matches what readers look up.
+1. **Build into staging.** `stagingDbPath(repoPath)` →
+   `<repo>/.cortex/db.stage-<pid>` (a sibling no long-lived handle holds open).
+   The native indexer binary writes it (`CORTEX_DB=<stage>`); on a cache hit the
+   cache entry is imported *into staging* (never copied onto the live db); frame
+   + contract passes run against staging. Stale staging is cleaned at entry and
+   after publish.
+2. **Publish.** `publishStagedDb({ stagePath, liveDbPath })`
+   (`src/db/swap-graph-db.ts`) opens the live db on a short-lived handle,
+   `ATTACH`es staging, and inside one `BEGIN IMMEDIATE … COMMIT` replaces every
+   staging-present table (`DELETE` + `INSERT…SELECT`, FK off for the
+   edges↔nodes cascade). Because every byte reaching the live file goes through
+   libsqlite3 in WAL mode, the server's open handle sees the new committed
+   snapshot with **no reopen**, and a crash before COMMIT leaves the old state
+   intact. Live-only tables (`edge_annotations`, `cortex_index_meta`) are left
+   untouched; contentless FTS5 virtual tables (`ctx_nodes_fts`) are recreated +
+   repopulated from `nodes` (see [known-limitations](known-limitations.md)). The
+   C indexer (`sqlite_writer.c`) is **unchanged** — it just writes the staging
+   path. This **supersedes** the in-place/inode-preserving truncate (`04c848f0`),
+   whose out-of-band `fopen("wb")` under an open WAL handle corrupted index
+   b-trees.
+3. **Serialize.** The whole build+publish runs under `withIndexLock(repoPath, …)`
+   (`src/db/index-lock.ts`) — a per-repo `BEGIN EXCLUSIVE` on
+   `.cortex/index.lock.db` (auto-released on process death) plus an in-process
+   promise queue — so a CLI `cortex index` and an MCP `index_repository` of the
+   same repo can't race.
+4. **Freshness baseline + register.** `captureIndexMeta(dbPath, repoPath)` writes
+   the baseline on the *canonical* path after publish;
+   `registry.register(deriveProjectName(repoPath), repoPath)` is best-effort.
 
 ## Read path (everything resolves through one chokepoint)
 
 `resolveGraphDbForRead(repoPath)` in `src/db/resolve-path.ts` is the **single
-chokepoint** mapping a repo → its graph DB. It returns the first *populated*
-candidate in priority order: `.cortex/db` → `.cortex/graph.db` → cache slug.
-This is the migration safety net: a repo indexed only into the old cache still
-reads until it is re-indexed into `.cortex/db`.
+chokepoint** mapping a repo → its graph DB. The canonical `.cortex/db` wins
+**unconditionally whenever it is an openable SQLite file** — populated,
+valid-empty, or a 0-byte drift; an empty canonical store surfaces as `empty`
+(→ reindex) rather than being shadowed by a stale sibling. Only when `.cortex/db`
+is *absent or non-SQLite garbage* does it fall back to a populated
+`.cortex/graph.db` → cache slug (the migration safety net for repos indexed only
+into the old cache). This replaced the earlier "first populated candidate" order,
+which let a stale `.cortex/graph.db` shadow a fresh `.cortex/db` (the 2026-06-09
+viewer stale-map bug; decision `f1950d3`).
 
 - **MCP reads** thread `RepoContext.graphDbPath` (from `resolveGraphDbForRead`)
   into every tool.
