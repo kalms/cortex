@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync, unlinkSync, accessSync, constants as fsConstants } from "node:fs";
+import { existsSync, mkdirSync, accessSync, constants as fsConstants } from "node:fs";
 import Database from "better-sqlite3";
 import {
   searchGraph,
@@ -28,7 +28,7 @@ import { registerTool, type RepoContext, type RepoContextResolver } from "../rep
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
 import { invalidateFreshness } from "../freshness.js";
-import { stagingDbPath } from "../../db/staging-path.js";
+import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 
@@ -453,69 +453,68 @@ export function registerCodeTools(
         // same repo so they never race on staging/publish.
         return await withIndexLock(repoPath, async () => {
           const stagePath = stagingDbPath(repoPath);
-          for (const ext of ["", "-wal", "-shm"]) {
-            try { unlinkSync(stagePath + ext); } catch { /* no stale staging */ }
-          }
-
-          // Cache requires a git tree to key on. Without it, computeCacheKey()
-          // returns the same value for every non-git directory — which would
-          // let an unrelated repo serve stale results. Skip cache entirely when
-          // there's no .git directory.
-          let cacheKey: string | null = null;
-          if (existsSync(join(repoPath, ".git"))) {
-            try {
-              cacheKey = computeCacheKey(repoPath, mode);
-            } catch {
-              cacheKey = null;
+          cleanupStagingDb(stagePath); // clear any stale staging from an interrupted run
+          try {
+            // Cache requires a git tree to key on. Without it, computeCacheKey()
+            // returns the same value for every non-git directory — which would
+            // let an unrelated repo serve stale results. Skip cache entirely when
+            // there's no .git directory.
+            let cacheKey: string | null = null;
+            if (existsSync(join(repoPath, ".git"))) {
+              try {
+                cacheKey = computeCacheKey(repoPath, mode);
+              } catch {
+                cacheKey = null;
+              }
             }
-          }
 
-          if (cacheKey && hasCacheEntry(cacheKey)) {
-            // Import the cached snapshot INTO staging, never directly onto the
-            // live db. withFrames will run passes against staging and then
-            // publish to dbPath atomically.
-            mkdirSync(dirname(stagePath), { recursive: true });
-            readCacheEntry(cacheKey, stagePath);
-            const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
-            for (const ext of ["", "-wal", "-shm"]) { try { unlinkSync(stagePath + ext); } catch { /* cleanup */ } }
+            if (cacheKey && hasCacheEntry(cacheKey)) {
+              // Import the cached snapshot INTO staging, never directly onto the
+              // live db. withFrames will run passes against staging and then
+              // publish to dbPath atomically.
+              mkdirSync(dirname(stagePath), { recursive: true });
+              readCacheEntry(cacheKey, stagePath);
+              const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
+              captureIndexMeta(dbPath, repoPath);
+              invalidateFreshness(repoPath);
+              registerRepo();
+              return out;
+            }
+
+            const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, stagePath);
+            if (!result.isError && cacheKey) {
+              // The indexer DB runs in WAL mode (see src/graph/store.ts).
+              // Checkpoint WAL into the staging file before snapshotting so the
+              // cached copy is self-contained. We checkpoint staging (not the live
+              // db) because publish hasn't happened yet at this point.
+              let checkpointed = false;
+              try {
+                const conn = new Database(stagePath);
+                try {
+                  conn.pragma("wal_checkpoint(TRUNCATE)");
+                  checkpointed = true;
+                } finally {
+                  conn.close();
+                }
+              } catch { /* non-fatal; skip cache write */ }
+              if (checkpointed) {
+                try {
+                  writeCacheEntry(cacheKey, stagePath);
+                } catch {
+                  // Cache write failure is non-fatal.
+                }
+              }
+            }
+            if (result.isError) return result;
+            const baseText = result.content?.[0]?.text ?? "indexed";
+            const out = await withFrames(baseText, repoPath, stagePath, dbPath);
             captureIndexMeta(dbPath, repoPath);
             invalidateFreshness(repoPath);
             registerRepo();
             return out;
+          } finally {
+            cleanupStagingDb(stagePath); // never leak staging — even on indexer error / throw
           }
-
-          const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, stagePath);
-          if (!result.isError && cacheKey) {
-            // The indexer DB runs in WAL mode (see src/graph/store.ts).
-            // Checkpoint WAL into the staging file before snapshotting so the
-            // cached copy is self-contained. We checkpoint staging (not the live
-            // db) because publish hasn't happened yet at this point.
-            let checkpointed = false;
-            try {
-              const conn = new Database(stagePath);
-              try {
-                conn.pragma("wal_checkpoint(TRUNCATE)");
-                checkpointed = true;
-              } finally {
-                conn.close();
-              }
-            } catch { /* non-fatal; skip cache write */ }
-            if (checkpointed) {
-              try {
-                writeCacheEntry(cacheKey, stagePath);
-              } catch {
-                // Cache write failure is non-fatal.
-              }
-            }
-          }
-          if (result.isError) return result;
-          const baseText = result.content?.[0]?.text ?? "indexed";
-          const out = await withFrames(baseText, repoPath, stagePath, dbPath);
-          for (const ext of ["", "-wal", "-shm"]) { try { unlinkSync(stagePath + ext); } catch { /* cleanup */ } }
-          captureIndexMeta(dbPath, repoPath);
-          invalidateFreshness(repoPath);
-          registerRepo();
-          return out;
         });
       },
       { resolver, allowUnindexed: true },
