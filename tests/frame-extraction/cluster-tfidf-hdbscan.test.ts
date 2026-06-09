@@ -167,3 +167,32 @@ describe.skipIf(!PYTHON_AVAILABLE)("runTfIdfHdbscan (requires Python venv)", () 
     expect(diff).toBeGreaterThan(0);
   }, VENV_TEST_TIMEOUT_MS);
 });
+
+describe("min_samples wiring", () => {
+  it.skipIf(!PYTHON_AVAILABLE)(
+    "defaults min_samples to 1 and stamps it into result parameters",
+    () => {
+      const { result } = runTfIdfHdbscan({
+        repo_path: root,
+        db_path: join(root, ".cortex", "graph.db"),
+        co_change_path: null,
+      });
+      expect(result.parameters.min_samples).toBe(1);
+    },
+    VENV_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(!PYTHON_AVAILABLE)(
+    "honors an explicit min_samples override",
+    () => {
+      const { result } = runTfIdfHdbscan({
+        repo_path: root,
+        db_path: join(root, ".cortex", "graph.db"),
+        co_change_path: null,
+        min_samples: 3,
+      });
+      expect(result.parameters.min_samples).toBe(3);
+    },
+    VENV_TEST_TIMEOUT_MS,
+  );
+});
