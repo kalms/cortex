@@ -84,7 +84,7 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
     //     (Phase 1 coverage still applies).
     let reclaimed = result;
     try {
-      const store = new GraphStore(opts.dbPath);
+      const store = new GraphStore(opts.dbPath, { readonly: true });
       try {
         const nodes = store.getAllNodesUnified(opts.project);
         const edges = store.getAllEdgesUnified(opts.project);
