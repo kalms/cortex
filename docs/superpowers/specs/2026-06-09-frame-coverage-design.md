@@ -178,6 +178,25 @@ Expected effect (measured): noise 70% → ~34%; framed semantic files roughly do
 - **Gate-0 visual QA:** the viewer shows more frames / denser maps without junk
   labels; no console errors.
 
+## Phase 1 retune — measured results (2026-06-09, Cortex corpus)
+
+Label-quality F1 gate, baseline (`min_samples=5`) vs retune (`min_samples=1`):
+
+| metric | baseline | retune |
+|---|---|---|
+| noise | 282 (70%) | 138 (34%) |
+| clusters | 8 | 24 |
+| **f1_weighted** | 0.620 | 0.622 |
+| f1_mean | 0.625 | 0.535 |
+| clusters below 0.5 floor | 1 | 9 |
+
+**Verdict: gate PASSES.** `f1_weighted` is essentially unchanged (member-weighted
+quality holds) while noise halves, so `min_samples=1` is kept (no fallback to 2).
+The `f1_mean` dip and the 9 below-floor clusters are the expected trade-off — the
+newly-surfaced smaller clusters are individually less crisp, but the ambient ranker
+(nameability = F1 × generic-penalty) won't promote those weak clusters onto the map;
+they remain reachable via search.
+
 ## Risks / open questions
 
 - **`min_samples=1` sensitivity:** HDBSCAN becomes more sensitive; cluster membership
