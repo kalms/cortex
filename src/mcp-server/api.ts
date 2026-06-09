@@ -15,6 +15,8 @@ import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 import { buildFileEdges } from "./api-edges.js";
+import { buildFrameMap } from "./frame-map.js";
+import { STAGE_W, STAGE_H } from "./frame-layout.js";
 import { groupAuxiliaryPaths } from "../frame-extraction/auxiliary-detection.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -251,6 +253,34 @@ export function startViewerServer(
           res.end(JSON.stringify({ aggregates }));
         } finally {
           if (resolved?.owned) resolved.store.close();
+        }
+        return;
+      }
+
+      if (url.startsWith("/api/frames")) {
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
+        if (!resolved) {
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ frames: [], stage: { w: STAGE_W, h: STAGE_H } }));
+          return;
+        }
+        try {
+          const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
+          const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
+          const map = buildFrameMap(nodes, edges);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify(map));
+        } finally {
+          if (resolved.owned) resolved.store.close();
         }
         return;
       }
