@@ -376,6 +376,7 @@ export interface FrameAssignment {
   frame_id: number;
   frame_label: string;
   frame_confidence: number;
+  reclaimed: boolean;
 }
 
 export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[] {
@@ -392,12 +393,14 @@ export function buildFrameAssignments(cluster: ClusterResult): FrameAssignment[]
     if (c.cluster_id === -1) continue;
     const tokens = topTokens[String(c.cluster_id)] ?? [];
     const label = pickFrameLabel(tokens, c.member_paths, c.cluster_id, suppressed);
+    const reclaimedSet = new Set(c.reclaimed_paths ?? []);
     for (const path of c.member_paths) {
       out.push({
         file_path: path,
         frame_id: c.cluster_id,
         frame_label: label,
         frame_confidence: 1.0,
+        reclaimed: reclaimedSet.has(path),
       });
     }
   }
@@ -415,13 +418,28 @@ export function injectFrames(args: { cluster: ClusterResult; project: string; db
     // 1. Apply assignments (UPDATE the data JSON for matching file nodes).
     const applyOne = db.prepare(`
       UPDATE nodes
-      SET data = json_set(
-        json_set(
-          json_set(COALESCE(data, '{}'), '$.frame_id', @frame_id),
-          '$.frame_label', @frame_label
-        ),
-        '$.frame_confidence', @frame_confidence
-      )
+      SET data = CASE WHEN @reclaimed = 'true'
+        THEN json_set(
+          json_set(
+            json_set(
+              json_set(COALESCE(data, '{}'), '$.frame_id', @frame_id),
+              '$.frame_label', @frame_label
+            ),
+            '$.frame_confidence', @frame_confidence
+          ),
+          '$.reclaimed', json('true')
+        )
+        ELSE json_remove(
+          json_set(
+            json_set(
+              json_set(COALESCE(data, '{}'), '$.frame_id', @frame_id),
+              '$.frame_label', @frame_label
+            ),
+            '$.frame_confidence', @frame_confidence
+          ),
+          '$.reclaimed'
+        )
+      END
       WHERE project = @project
         AND kind = 'file'
         AND file_path = @file_path
@@ -435,10 +453,13 @@ export function injectFrames(args: { cluster: ClusterResult; project: string; db
       UPDATE nodes
       SET data = json_remove(
         json_remove(
-          json_remove(COALESCE(data, '{}'), '$.frame_id'),
-          '$.frame_label'
+          json_remove(
+            json_remove(COALESCE(data, '{}'), '$.frame_id'),
+            '$.frame_label'
+          ),
+          '$.frame_confidence'
         ),
-        '$.frame_confidence'
+        '$.reclaimed'
       )
       WHERE project = ?
         AND kind = 'file'
@@ -447,7 +468,7 @@ export function injectFrames(args: { cluster: ClusterResult; project: string; db
 
     const tx = db.transaction(() => {
       for (const a of assignments) {
-        applyOne.run({ ...a, project: args.project });
+        applyOne.run({ ...a, project: args.project, reclaimed: a.reclaimed ? "true" : "false" });
       }
       // Run clear statement only when there are files to clear against;
       // otherwise the NOT IN (NULL) collapses to nothing matching.
