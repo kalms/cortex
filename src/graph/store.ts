@@ -44,9 +44,11 @@ export class GraphStore {
   constructor(dbPath: string, options: GraphStoreOptions = {}) {
     if (options.readonly) {
       this.db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      this.db.pragma("busy_timeout = 5000");
       return;
     }
     this.db = new Database(dbPath);
+    this.db.pragma("busy_timeout = 5000");
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.migrate();
