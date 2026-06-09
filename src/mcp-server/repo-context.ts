@@ -278,6 +278,7 @@ export class RepoContextResolver {
     // need raw SQL access (migrations, tools that bypass GraphStore). Same
     // file, WAL-safe across handles in the same process.
     const graphDb = new BetterSqlite3(graphDbPath);
+    graphDb.pragma("busy_timeout = 5000");
     const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(canonical));
     migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
     migrateDecisionIdsToShortForm(decisionsDb);
