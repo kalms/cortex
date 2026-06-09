@@ -456,4 +456,39 @@ describe("injectFrames — reclaimed marker", () => {
     expect(byPath["core.ts"].reclaimed).toBeUndefined();
     expect(byPath["core.ts"].frame_id).toBe(0);
   });
+
+  it("is idempotent: a second run keeps reclaimed=true and core flagless", () => {
+    const cluster: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"], reclaimed_paths: ["recl.ts"] }],
+      total_files: 2, noise_count: 0,
+    };
+    injectFrames({ cluster, project: "p", dbPath });
+    injectFrames({ cluster, project: "p", dbPath }); // second run
+    const db = new Database(dbPath);
+    const rows = db.prepare("SELECT file_path, data FROM nodes").all() as { file_path: string; data: string }[];
+    db.close();
+    const byPath = Object.fromEntries(rows.map((r) => [r.file_path, JSON.parse(r.data)]));
+    expect(byPath["recl.ts"].reclaimed).toBe(true);
+    expect(byPath["core.ts"].reclaimed).toBeUndefined();
+  });
+
+  it("clears a stale reclaimed flag when a file is no longer reclaimed", () => {
+    const asReclaimed: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"], reclaimed_paths: ["recl.ts"] }],
+      total_files: 2, noise_count: 0,
+    };
+    const asCore: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"] }], // recl.ts now core
+      total_files: 2, noise_count: 0,
+    };
+    injectFrames({ cluster: asReclaimed, project: "p", dbPath });
+    injectFrames({ cluster: asCore, project: "p", dbPath });
+    const db = new Database(dbPath);
+    const row = db.prepare("SELECT data FROM nodes WHERE file_path = 'recl.ts'").get() as { data: string };
+    db.close();
+    expect(JSON.parse(row.data).reclaimed).toBeUndefined();
+  });
 });
