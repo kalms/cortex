@@ -147,4 +147,24 @@ describe("DecisionsRepository search", () => {
   it("search returns empty array on no match", () => {
     expect(repo.search("zzz_no_match")).toEqual([]);
   });
+
+  it("does not throw on FTS special characters in the query (hyphen)", () => {
+    // Regression: a raw query like "in-place" reached `decisions_fts MATCH ?`
+    // and FTS5 parsed the hyphen as an operator → "no such column: place".
+    repo.insert({
+      id: "d3", seq: 3, title: "In-place vs staging-swap write path",
+      description: "Truncate-rewrite under an open handle corrupted the index.",
+      rationale: "Publish via a single transaction.", problem: null, resolution: null,
+      alternatives: null, tier: "personal", status: "active",
+      superseded_by: null, author: null, provenance: null,
+      created_at: "2026-05-14T12:00:00Z", updated_at: "2026-05-14T12:00:00Z",
+    });
+    expect(() => repo.search("graph staging-swap in-place corruption")).not.toThrow();
+    expect(repo.search("in-place").map((h) => h.id)).toContain("d3");
+  });
+
+  it("does not throw on a colon (FTS column-filter char) in the query", () => {
+    expect(() => repo.search("foo:bar")).not.toThrow();
+    expect(repo.search("foo:bar")).toEqual([]);
+  });
 });
