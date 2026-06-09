@@ -174,7 +174,6 @@ describe("min_samples wiring", () => {
     () => {
       const { result } = runTfIdfHdbscan({
         repo_path: root,
-        db_path: join(root, ".cortex", "graph.db"),
         co_change_path: null,
       });
       expect(result.parameters.min_samples).toBe(1);
@@ -187,7 +186,6 @@ describe("min_samples wiring", () => {
     () => {
       const { result } = runTfIdfHdbscan({
         repo_path: root,
-        db_path: join(root, ".cortex", "graph.db"),
         co_change_path: null,
         min_samples: 3,
       });
