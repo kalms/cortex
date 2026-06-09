@@ -254,12 +254,23 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
     return { t, focused: focusedFrameId, from: previousFocusId };
   }
 
+  // Keep-out margins so frames stay clear of the canvas edges and the UI
+  // chrome layered over them (the toolbar / project switcher up top, the
+  // aggregate strip along the bottom). The frame LABEL is drawn above the box
+  // top (see primaryY = -h/2 - 7), so the top keep-out adds LABEL_HEADROOM on
+  // top of EDGE_MARGIN to keep the label itself off the edge — otherwise a
+  // frame whose box sits exactly at 40px still has its label tucked under the
+  // toolbar.
+  const EDGE_MARGIN = 40;
+  const LABEL_HEADROOM = 16;
+  const BOTTOM_MARGIN = 50; // room for the aggregate strip
+
   function framePxBase(frame) {
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
     return {
-      cx: Math.max(frame.w / 2 + 40, Math.min(stageW - frame.w / 2 - 40, frame.x * stageW)),
-      cy: Math.max(frame.h / 2 + 40, Math.min(stageH - frame.h / 2 - 50, frame.y * stageH)),
+      cx: Math.max(frame.w / 2 + EDGE_MARGIN, Math.min(stageW - frame.w / 2 - EDGE_MARGIN, frame.x * stageW)),
+      cy: Math.max(frame.h / 2 + EDGE_MARGIN + LABEL_HEADROOM, Math.min(stageH - frame.h / 2 - BOTTOM_MARGIN, frame.y * stageH)),
       w: frame.w, h: frame.h,
     };
   }
@@ -300,9 +311,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
     let newCx = cxCanvas + ux * dist * Math.max(1, pushRatio * 0.9);
     let newCy = cyCanvas + uy * dist * Math.max(1, pushRatio * 0.9);
 
-    const pad = 40;
+    const pad = EDGE_MARGIN;
     newCx = Math.max(compressedW / 2 + pad, Math.min(stageW - compressedW / 2 - pad, newCx));
-    newCy = Math.max(compressedH / 2 + pad, Math.min(stageH - compressedH / 2 - pad, newCy));
+    newCy = Math.max(compressedH / 2 + pad + LABEL_HEADROOM, Math.min(stageH - compressedH / 2 - pad, newCy));
 
     return { cx: newCx, cy: newCy, w: compressedW, h: compressedH };
   }
