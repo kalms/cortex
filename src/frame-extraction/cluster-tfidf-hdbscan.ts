@@ -39,6 +39,11 @@ export interface RunOptions {
   min_df?: number;
   max_df?: number;
   min_cluster_size?: number;
+  /** HDBSCAN min_samples. Decoupled from min_cluster_size; the wrapper
+   *  defaults it to 1. HDBSCAN otherwise defaults min_samples to
+   *  min_cluster_size (=5), which was over-conservative and caused ~70%
+   *  noise on real corpora — see the frame-coverage spec. */
+  min_samples?: number;
   /** Path to a co-change JSONL ({a, b, count} per line). If undefined,
    *  the orchestrator looks under .tmp/frame-extraction/co-change/<slug>.jsonl
    *  and uses that if it exists. Pass explicit null to opt out of the
@@ -131,6 +136,7 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     "--min-df", String(opts.min_df ?? 2),
     "--max-df", String(opts.max_df ?? 0.8),
     "--min-cluster-size", String(opts.min_cluster_size ?? 5),
+    "--min-samples", String(opts.min_samples ?? 1),
     "--gamma", String(gamma),
   ];
   if (resolvedCoChange !== null) {
@@ -179,7 +185,7 @@ export function deriveProjectName(absPath: string): string {
 function main() {
   const args = process.argv.slice(2);
   if (args.length < 1) {
-    console.error("usage: tsx cluster-tfidf-hdbscan.ts <repo-path> [--out <path>] [--project <name>] [--min-df N] [--max-df F] [--min-cluster-size N] [--co-change <path> | --no-co-change] [--gamma F]");
+    console.error("usage: tsx cluster-tfidf-hdbscan.ts <repo-path> [--out <path>] [--project <name>] [--min-df N] [--max-df F] [--min-cluster-size N] [--min-samples N] [--co-change <path> | --no-co-change] [--gamma F]");
     process.exit(2);
   }
   const opts: RunOptions = { repo_path: resolve(args[0]!) };
@@ -189,6 +195,7 @@ function main() {
     else if (args[i] === "--min-df") opts.min_df = Number(args[++i]);
     else if (args[i] === "--max-df") opts.max_df = Number(args[++i]);
     else if (args[i] === "--min-cluster-size") opts.min_cluster_size = Number(args[++i]);
+    else if (args[i] === "--min-samples") opts.min_samples = Number(args[++i]);
     else if (args[i] === "--co-change") opts.co_change_path = args[++i]!;
     else if (args[i] === "--no-co-change") opts.co_change_path = null;
     else if (args[i] === "--gamma") opts.gamma = Number(args[++i]);

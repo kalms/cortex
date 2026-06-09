@@ -104,3 +104,32 @@ describe("rankFrames", () => {
     }
   });
 });
+
+describe("rankFrames — reclaimed members", () => {
+  it("scores nameability on core members, not reclaimed ones", () => {
+    const corpus = buildCorpusIndex([
+      { path: "src/checkout/cart.ts", text: "src checkout cart" },
+      { path: "src/checkout/pay.ts", text: "src checkout pay" },
+      { path: "src/random/unrelated.ts", text: "src random unrelated" },
+    ]);
+    const withReclaimed = rankFrames([{
+      frame_id: 0, frame_label: "checkout",
+      member_paths: ["src/checkout/cart.ts", "src/checkout/pay.ts", "src/random/unrelated.ts"],
+      core_member_paths: ["src/checkout/cart.ts", "src/checkout/pay.ts"],
+    }], corpus)[0];
+    const coreOnly = rankFrames([{
+      frame_id: 0, frame_label: "checkout",
+      member_paths: ["src/checkout/cart.ts", "src/checkout/pay.ts"],
+    }], corpus)[0];
+    // Same nameability F1 (reclaimed file ignored for the label score)...
+    expect(withReclaimed.components.f1).toBeCloseTo(coreOnly.components.f1, 5);
+    // ...but member_count counts the reclaimed file.
+    expect(withReclaimed.member_count).toBe(3);
+  });
+
+  it("falls back to all members when core_member_paths is omitted", () => {
+    const corpus = buildCorpusIndex([{ path: "a/b.ts", text: "a b" }]);
+    const r = rankFrames([{ frame_id: 0, frame_label: "b", member_paths: ["a/b.ts"] }], corpus)[0];
+    expect(r.member_count).toBe(1);
+  });
+});
