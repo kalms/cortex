@@ -56,10 +56,21 @@ describe("reclaimNoise", () => {
     expect(out.noise_count).toBe(2);
   });
 
-  it("ignores edges touching a frameless file", () => {
+  it("reclaims at minEdges=1 with a single qualifying edge", () => {
     const edges = [edge("sx", "sa1")];
     const out = reclaimNoise(baseCluster(), nodes, edges, { minEdges: 1 });
     expect(out.clusters.find((c) => c.cluster_id === 0)!.member_paths).toContain("x.ts");
+  });
+
+  it("ignores edges from a noise file to a file in no cluster", () => {
+    // z.ts is not in any cluster (not in 0/1, not in noise) — a "frameless"
+    // file. x's only edge points at it, so x has no qualifying connectivity.
+    const withZ = [...nodes, fileNode("fz", "z.ts"), symNode("sz", "z.ts")];
+    const edges = [edge("sx", "sz"), edge("sx", "sz", "USAGE")]; // weight 2 to a frameless file
+    const out = reclaimNoise(baseCluster(), withZ, edges, { minEdges: 1 });
+    const noise = out.clusters.find((c) => c.cluster_id === -1)!;
+    expect(noise.member_paths).toContain("x.ts");
+    expect(out.clusters.find((c) => c.cluster_id === 0)!.member_paths).not.toContain("x.ts");
   });
 
   it("breaks argmax ties on the lowest cluster_id", () => {
