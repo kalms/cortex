@@ -1,6 +1,59 @@
-# Cortex — Session Handoff (2026-06-07, in-place incremental persist + post-commit refresh)
+# Cortex — Session Handoff
 
-## ✅ DONE (2026-06-07 — in-place incremental persist + Task 10, read this first)
+## ✅ DONE (2026-06-10 — graph DB transactional-swap publish, read this first; SUPERSEDES the in-place section below)
+
+Fixed a **graph-DB index-corruption** bug (contracts failing every reindex with
+`database disk image is malformed`; stale/partial frames) and the **viewer
+stale-map** read bug, and merged to `main` (`--no-ff`, merge `501ce72`).
+
+- **Root cause:** the C indexer wrote `.cortex/db` via `fopen(path,"wb")` — an
+  out-of-band truncate-rewrite — while the long-lived MCP server held the file
+  open in WAL mode. That bypassed SQLite's coherence protocol, so the next
+  libsqlite3 write desynced the index b-trees. The 2026-06-07 in-place approach
+  below (`04c848f0`, page-copy into the **live inode** via the SQLite backup API)
+  was the *same class* of out-of-band write into the open live file — it is
+  **superseded**, not extended.
+- **Fix (transactional staging-swap):** indexing now builds into a **private
+  staging DB** (`.cortex/db.stage-<pid>`) — the C indexer, cache import, and
+  frame/contract passes all target it — then `publishStagedDb`
+  ([src/db/swap-graph-db.ts](src/db/swap-graph-db.ts)) reloads the canonical
+  `.cortex/db` via **one libsqlite3 WAL transaction** (`ATTACH` + per-table
+  `DELETE`/`INSERT…SELECT`). Every byte reaching the live file goes through
+  libsqlite3, so corruption is impossible, the cutover is crash-atomic, and the
+  server's open handle sees the new snapshot with **no reopen**. Serialized
+  per-repo by `withIndexLock` ([src/db/index-lock.ts](src/db/index-lock.ts)).
+  **The C writer (`sqlite_writer.c`) is unchanged.**
+- **Also:** `resolveGraphDbForRead` now prefers an openable `.cortex/db` over a
+  stale legacy `graph.db` (`f1950d3`); `busy_timeout=5000` on all graph-DB
+  handles; contentless FTS5 `ctx_nodes_fts` recreated + repopulated from `nodes`.
+- **Verified:** TS suite green (967); end-to-end `cortex index` with the server
+  holding the DB open → `integrity_check ok`, contracts `0 mismatches`, frames
+  restored, no staging leftovers. Single-write-path invariant reviewed
+  end-to-end (TS → C subprocess → staging → publish).
+- **Spec:** [docs/.../2026-06-09-graphdb-transactional-swap-design.md](docs/superpowers/specs/2026-06-09-graphdb-transactional-swap-design.md) ·
+  **Plan:** [docs/.../2026-06-09-graphdb-transactional-swap.md](docs/superpowers/plans/2026-06-09-graphdb-transactional-swap.md) ·
+  **Decision:** `D-47xb`.
+
+## ▶ NEXT STEP
+
+1. **Restart Claude Code / the MCP server.** The live server still runs the
+   pre-merge code (issue #2, dev-reload). The **CLI path is fixed + verified**,
+   but the MCP `index_repository` tool keeps using the old in-place-truncate code
+   (which can still corrupt `.cortex/db`) **until restart** — avoid MCP-triggered
+   reindex until then. `main` is **not pushed** (40 commits ahead of origin).
+2. **#2 dev-reload (optional follow-up):** run the post-index frame/contract
+   passes in a fresh subprocess so a stale long-lived server can't reindex with
+   stale in-memory code. Lower priority now that the swap makes any reindex
+   corruption-safe; restart-before-reindex is the interim discipline.
+3. **The viewer / Mesh.** The substrate is now corruption-safe and the
+   `/api/*` HTTP boundary is the intended embedding seam (webview+HTTP). See
+   [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md). Note the
+   deferred **#1 part-B** (viewer default-path reopen-on-change) folds into this
+   rework — though with the swap, an open handle already sees the refresh.
+
+---
+
+## ⚑ PRIOR (2026-06-07 — in-place incremental persist + post-commit refresh) — SUPERSEDED by the 2026-06-10 section above
 
 Made incremental indexing **inode-preserving** and shipped the deferred
 post-commit refresh (decision `04c848f0`;
@@ -31,10 +84,10 @@ the durable fix that lets the graph self-heal **mid-session**, not just at Sessi
   *optimization* — not an unblocker — needing incremental load+resolve and its own
   cycle. See the spec's "Deferred: Approach C" section.
 
-## ▶ NEXT STEP — the viewer
+### (prior next-step note — the viewer; now folded into the 2026-06-10 NEXT STEP above)
 
 The internal API / tooling + reliability groundwork is now sealed off (contract
-edges, freshness signal, in-place persist + post-commit refresh). The next frontier
+edges, freshness signal, transactional-swap publish). The next frontier
 is the **viewer**. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md).
 
 ---
