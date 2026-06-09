@@ -52,10 +52,16 @@ A `stale`/`empty` signal means **reindex**, not "abandon Cortex for grep."
 The SessionStart banner (`cortex freshness`) shows the same verdict; auto-refresh
 runs out-of-band at SessionStart (full for empty/unknown, incremental for stale)
 **and after every `git commit`** (incremental, via a `PostToolUse` hook). Mid-session
-post-commit refresh is safe because incremental indexing is now **in-place /
-inode-preserving** — it never unlinks `.cortex/db`, so the MCP server's open handle
-survives and sees the refresh (decision `04c848f0`). Gates: `CORTEX_FRESHNESS=0`
-disables the signal; `CORTEX_AUTO_REFRESH=0` keeps the signal but disables auto-refresh.
+post-commit refresh is safe because indexing now **builds into a private staging
+DB (`.cortex/db.stage-<pid>`) and publishes into `.cortex/db` through a single
+libsqlite3 WAL transaction** (`publishStagedDb`): the canonical file is never
+truncated out-of-band, so the MCP server's open handle is never corrupted and
+sees the new committed snapshot with no reopen. This **supersedes** the former
+in-place/inode-preserving truncate (decision `04c848f0`), whose out-of-band
+`fopen("wb")` under an open WAL handle corrupted the index b-trees. See
+[docs/architecture/graph-storage.md](docs/architecture/graph-storage.md#write-path-staging-build--transactional-publish).
+Gates: `CORTEX_FRESHNESS=0` disables the signal; `CORTEX_AUTO_REFRESH=0` keeps
+the signal but disables auto-refresh.
 
 ## MCP tool routing — always pass repo_path
 
