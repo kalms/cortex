@@ -71,6 +71,26 @@ describe("buildFileEdges — happy path", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.weight).toBe(1);
   });
+
+  it("combines CALLS + USAGE + IMPORTS into one per-pair weight (the /api/file-edges config)", () => {
+    const nodes = [
+      fn("a1", "src/auth/middleware.ts"),
+      fn("a2", "src/auth/token.ts"),
+    ];
+    const edges = [
+      edge("a1", "a2", "CALLS"),
+      edge("a1", "a2", "USAGE"),
+      edge("a1", "a2", "USAGE"),
+      edge("a1", "a2", "IMPORTS"),
+    ];
+    const result = buildFileEdges(nodes, edges, {
+      relations: ["CALLS", "USAGE", "IMPORTS"],
+      min_weight: 1,
+    });
+    expect(result).toEqual([
+      { from_path: "src/auth/middleware.ts", to_path: "src/auth/token.ts", weight: 4 },
+    ]);
+  });
 });
 
 describe("buildFileEdges — normalization + dedup", () => {
