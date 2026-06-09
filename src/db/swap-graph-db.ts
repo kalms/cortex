@@ -21,6 +21,21 @@ export interface PublishResult {
  * the omission is the preservation. INSERT...SELECT copies rows (not pages), so
  * a page-size mismatch between staging (64 KiB, C writer) and live (4 KiB,
  * libsqlite3 default) is irrelevant.
+ *
+ * FTS5 virtual tables (e.g. ctx_nodes_fts) are a special case: a *contentless*
+ * FTS5 index cannot be copied across databases via SQL — its shadow tables
+ * (_data/_idx/_docsize/_config) are write-protected, and a contentless table
+ * has no source table to rebuild from. So each virtual table is recreated from
+ * staging's DDL and then REPOPULATED from the freshly-copied `nodes` table,
+ * mirroring the C indexer (internal/indexer/src/pipeline/pipeline.c). The FTS
+ * rowid follows the C indexer's search contract — the BM25 handler joins
+ * `nodes n ON n.id = 'ctx-' || <fts>.rowid` (handlers.c) — so we key each FTS
+ * row by the numeric suffix of the node id (NOT the live rowid, which
+ * INSERT...SELECT reassigns). Searchable columns are derived from the FTS table
+ * itself and intersected with `nodes`, so a schema change stays in sync; the
+ * C-only `ctx_camel_split` tokenizer degrades to plain `name` (its own
+ * documented fallback). Repopulation is best-effort: FTS is a search index, not
+ * a source of truth.
  */
 export function publishStagedDb(opts: { stagePath: string; liveDbPath: string }): PublishResult {
   const db = new BetterSqlite3(opts.liveDbPath); // creates the live DB on first index
@@ -30,37 +45,23 @@ export function publishStagedDb(opts: { stagePath: string; liveDbPath: string })
     db.pragma("foreign_keys = OFF");
     db.exec(`ATTACH '${opts.stagePath.replace(/'/g, "''")}' AS stage`);
     try {
-      // Collect all regular (non-virtual) tables from staging.
-      // FTS5 virtual tables (e.g. ctx_nodes_fts) and their SQLite-managed
-      // shadow tables (_data, _idx, _config, _docsize) are excluded from the
-      // row-copy loop — virtual tables cannot be written via plain SQL.
-      // Instead, after the row-copy transaction we rebuild FTS in-place from
-      // the freshly-published nodes table (see post-tx block below).
-      const allTables = (db
+      const allTables = db
         .prepare("SELECT name, sql FROM stage.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        .all() as Array<{ name: string; sql: string }>);
+        .all() as Array<{ name: string; sql: string }>;
 
-      const virtualNames = new Set(
-        allTables
-          .filter((r) => /^CREATE\s+VIRTUAL\s+TABLE/i.test(r.sql ?? ""))
-          .map((r) => r.name),
-      );
-      const shadowNames = new Set(
-        allTables
-          .filter(
-            (r) =>
-              !virtualNames.has(r.name) &&
-              [...virtualNames].some((vt) => r.name.startsWith(vt + "_")),
-          )
-          .map((r) => r.name),
-      );
-
-      const tables = allTables
-        .filter((r) => !virtualNames.has(r.name) && !shadowNames.has(r.name))
+      // Virtual (FTS5) tables and their SQLite-managed shadow tables
+      // (<vtable>_data/_idx/_docsize/_config) are handled apart from the generic
+      // row-copy — see the function docstring.
+      const virtual = allTables.filter((r) => /^CREATE\s+VIRTUAL\s+TABLE/i.test(r.sql ?? ""));
+      const virtualNames = new Set(virtual.map((r) => r.name));
+      const isShadow = (name: string) => [...virtualNames].some((vt) => name.startsWith(vt + "_"));
+      const regular = allTables
+        .filter((r) => !virtualNames.has(r.name) && !isShadow(r.name))
         .map((r) => r.name);
 
       const tx = db.transaction(() => {
-        for (const t of tables) {
+        // 1. Full content replace for every regular table (incl. `nodes`).
+        for (const t of regular) {
           const { sql: createSql } = db
             .prepare("SELECT sql FROM stage.sqlite_master WHERE type='table' AND name=?")
             .get(t) as { sql: string };
@@ -70,31 +71,32 @@ export function publishStagedDb(opts: { stagePath: string; liveDbPath: string })
           db.exec(`DELETE FROM main.${q(t)}`);
           db.exec(`INSERT INTO main.${q(t)} (${cols.join(",")}) SELECT ${cols.join(",")} FROM stage.${q(t)}`);
         }
+        // 2. Recreate each virtual table from staging DDL, then repopulate from
+        //    the now-copied `nodes` (keyed by the 'ctx-<rowid>' search contract).
+        const nodeCols = new Set(
+          (db.prepare("PRAGMA main.table_info(nodes)").all() as Array<{ name: string }>).map((c) => c.name),
+        );
+        for (const v of virtual) {
+          db.exec(`DROP TABLE IF EXISTS main.${q(v.name)}`);
+          db.exec(v.sql);
+          try {
+            const ftsCols = (db.prepare(`PRAGMA main.table_info(${q(v.name)})`).all() as Array<{ name: string }>)
+              .map((c) => c.name)
+              .filter((c) => nodeCols.has(c));
+            if (ftsCols.length > 0) {
+              const sel = ftsCols.map(q).join(", ");
+              db.exec(
+                `INSERT INTO main.${q(v.name)}(rowid, ${sel}) ` +
+                  `SELECT CAST(substr(id, 5) AS INTEGER), ${sel} FROM main.nodes WHERE id LIKE 'ctx-%'`,
+              );
+            }
+          } catch { /* FTS is a search index, not source of truth — degrade to empty */ }
+        }
       });
       tx();
 
-      // Rebuild FTS virtual tables in the live DB from the freshly-published
-      // rows. Virtual tables are excluded from the row-copy loop above because
-      // their shadow tables cannot be written via plain SQL. Instead we:
-      //   1. DROP the virtual table in the live DB (takes its shadow tables)
-      //   2. Re-CREATE it using the exact DDL from staging
-      //   3. Re-populate it via the FTS5 external-content INSERT API
-      for (const entry of allTables.filter((r) => virtualNames.has(r.name))) {
-        try {
-          db.exec(`DROP TABLE IF EXISTS main.${q(entry.name)}`);
-          db.exec(entry.sql); // CREATE VIRTUAL TABLE ... (exact DDL from staging)
-          // Use FTS5 external-content insert: rowid matches the numeric suffix of
-          // the node id ("ctx-<n>"); only rows with a ctx- id were FTS-indexed.
-          db.exec(
-            `INSERT INTO ${q(entry.name)}(rowid, name, qualified_name, kind, file_path) ` +
-              `SELECT CAST(substr(id, 5) AS INTEGER), name, qualified_name, kind, file_path ` +
-              `FROM nodes WHERE id LIKE 'ctx-%'`,
-          );
-        } catch { /* non-fatal: FTS is a read-speed index, not source of truth */ }
-      }
-
       db.pragma("wal_checkpoint(PASSIVE)");
-      return { tablesReplaced: tables };
+      return { tablesReplaced: regular };
     } finally {
       db.exec("DETACH stage");
     }
