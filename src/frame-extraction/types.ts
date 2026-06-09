@@ -118,6 +118,9 @@ export interface ClusterAssignment {
   cluster_id: number;
   /** File paths in this cluster, relative to the repo root. Sorted. */
   member_paths: string[];
+  /** Subset of `member_paths` added by graph reclamation (not topical core).
+   *  Absent/empty for clusters straight from HDBSCAN. */
+  reclaimed_paths?: string[];
 }
 
 /** Output of one clustering run. Algorithm name + parameters are stamped

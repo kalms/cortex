@@ -311,9 +311,9 @@ describe("buildFrameAssignments", () => {
   it("emits one assignment per file in non-noise clusters", () => {
     const assignments = buildFrameAssignments(cluster);
     expect(assignments).toEqual([
-      { file_path: "src/auth/a.ts", frame_id: 0, frame_label: "auth", frame_confidence: 1.0 },
-      { file_path: "src/auth/b.ts", frame_id: 0, frame_label: "auth", frame_confidence: 1.0 },
-      { file_path: "src/billing/c.ts", frame_id: 1, frame_label: "billing", frame_confidence: 1.0 },
+      { file_path: "src/auth/a.ts", frame_id: 0, frame_label: "auth", frame_confidence: 1.0, reclaimed: false },
+      { file_path: "src/auth/b.ts", frame_id: 0, frame_label: "auth", frame_confidence: 1.0, reclaimed: false },
+      { file_path: "src/billing/c.ts", frame_id: 1, frame_label: "billing", frame_confidence: 1.0, reclaimed: false },
     ]);
   });
 
@@ -422,5 +422,73 @@ describe("injectFrames", () => {
     db.close();
     expect(rows.every((r) => r.fid === 3)).toBe(true);
     expect(rows.every((r) => r.label === "auth")).toBe(true);
+  });
+});
+
+describe("injectFrames — reclaimed marker", () => {
+  let dbDir: string;
+  let dbPath: string;
+  beforeEach(() => {
+    dbDir = mkdtempSync(join(tmpdir(), "inject-reclaim-"));
+    dbPath = join(dbDir, "graph.db");
+    const db = new Database(dbPath);
+    db.exec(`CREATE TABLE nodes (id INTEGER PRIMARY KEY, kind TEXT, name TEXT, file_path TEXT, project TEXT, data TEXT);`);
+    const ins = db.prepare("INSERT INTO nodes (kind, name, file_path, project, data) VALUES ('file', ?, ?, 'p', '{}')");
+    ins.run("core.ts", "core.ts");
+    ins.run("recl.ts", "recl.ts");
+    db.close();
+  });
+  afterEach(() => rmSync(dbDir, { recursive: true, force: true }));
+
+  it("marks reclaimed files with data.reclaimed = true and core files without it", () => {
+    const cluster: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"], reclaimed_paths: ["recl.ts"] }],
+      total_files: 2, noise_count: 0,
+    };
+    injectFrames({ cluster, project: "p", dbPath });
+    const db = new Database(dbPath);
+    const rows = db.prepare("SELECT file_path, data FROM nodes").all() as { file_path: string; data: string }[];
+    db.close();
+    const byPath = Object.fromEntries(rows.map((r) => [r.file_path, JSON.parse(r.data)]));
+    expect(byPath["recl.ts"].reclaimed).toBe(true);
+    expect(byPath["recl.ts"].frame_id).toBe(0);
+    expect(byPath["core.ts"].reclaimed).toBeUndefined();
+    expect(byPath["core.ts"].frame_id).toBe(0);
+  });
+
+  it("is idempotent: a second run keeps reclaimed=true and core flagless", () => {
+    const cluster: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"], reclaimed_paths: ["recl.ts"] }],
+      total_files: 2, noise_count: 0,
+    };
+    injectFrames({ cluster, project: "p", dbPath });
+    injectFrames({ cluster, project: "p", dbPath }); // second run
+    const db = new Database(dbPath);
+    const rows = db.prepare("SELECT file_path, data FROM nodes").all() as { file_path: string; data: string }[];
+    db.close();
+    const byPath = Object.fromEntries(rows.map((r) => [r.file_path, JSON.parse(r.data)]));
+    expect(byPath["recl.ts"].reclaimed).toBe(true);
+    expect(byPath["core.ts"].reclaimed).toBeUndefined();
+  });
+
+  it("clears a stale reclaimed flag when a file is no longer reclaimed", () => {
+    const asReclaimed: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"], reclaimed_paths: ["recl.ts"] }],
+      total_files: 2, noise_count: 0,
+    };
+    const asCore: ClusterResult = {
+      algorithm: "tfidf+hdbscan", parameters: { top_tokens_per_cluster: { "0": ["core"] } },
+      clusters: [{ cluster_id: 0, member_paths: ["core.ts", "recl.ts"] }], // recl.ts now core
+      total_files: 2, noise_count: 0,
+    };
+    injectFrames({ cluster: asReclaimed, project: "p", dbPath });
+    injectFrames({ cluster: asCore, project: "p", dbPath });
+    const db = new Database(dbPath);
+    const row = db.prepare("SELECT data FROM nodes WHERE file_path = 'recl.ts'").get() as { data: string };
+    db.close();
+    expect(JSON.parse(row.data).reclaimed).toBeUndefined();
   });
 });
