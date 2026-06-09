@@ -40,8 +40,9 @@ export interface RunOptions {
   max_df?: number;
   min_cluster_size?: number;
   /** HDBSCAN min_samples. Decoupled from min_cluster_size; the wrapper
-   *  defaults it to 1 (the conservative HDBSCAN default of
-   *  min_cluster_size=5 caused ~70% noise — see the frame-coverage spec). */
+   *  defaults it to 1. HDBSCAN otherwise defaults min_samples to
+   *  min_cluster_size (=5), which was over-conservative and caused ~70%
+   *  noise on real corpora — see the frame-coverage spec. */
   min_samples?: number;
   /** Path to a co-change JSONL ({a, b, count} per line). If undefined,
    *  the orchestrator looks under .tmp/frame-extraction/co-change/<slug>.jsonl
