@@ -90,14 +90,31 @@ describe("resolveGraphDbForRead", () => {
     expect(resolveGraphDbForRead(repo)).toBe(db);
   });
 
-  it("skips an empty .cortex/db and returns a populated .cortex/graph.db", () => {
-    writeGraphDb(join(repo, ".cortex", "db"), false); // exists, 0 nodes
+  it("prefers an empty-but-valid .cortex/db over a populated legacy graph.db", () => {
+    // Canonical store wins unconditionally once it's an openable SQLite file:
+    // an empty .cortex/db means "reindex needed" and must surface as empty,
+    // never be shadowed by a stale sibling graph.db (the 2026-06-09 viewer
+    // stale-map bug). graph.db is consulted ONLY when .cortex/db is absent or
+    // unopenable garbage.
+    writeGraphDb(join(repo, ".cortex", "db"), false); // exists, valid, 0 nodes
     const graph = join(repo, ".cortex", "graph.db");
     writeGraphDb(graph, true);
-    expect(resolveGraphDbForRead(repo)).toBe(graph);
+    expect(resolveGraphDbForRead(repo)).toBe(join(repo, ".cortex", "db"));
   });
 
-  it("ignores a non-DB file at a candidate path and uses the populated one", () => {
+  it("prefers a 0-byte .cortex/db over a populated graph.db (drift → reindex, not stale shadow)", () => {
+    // A 0-byte .cortex/db is an openable (empty) SQLite DB — the documented
+    // drift mode. It must resolve to .cortex/db so freshness flags it `empty`
+    // and prompts a reindex, instead of silently serving the stale sibling.
+    writeFileSync(join(repo, ".cortex", "db"), "");
+    const graph = join(repo, ".cortex", "graph.db");
+    writeGraphDb(graph, true);
+    expect(resolveGraphDbForRead(repo)).toBe(join(repo, ".cortex", "db"));
+  });
+
+  it("falls back to a populated graph.db when .cortex/db is unopenable garbage", () => {
+    // Only a structurally-unusable canonical file (not a SQLite DB) cedes to
+    // the legacy fallback — a 0-byte or valid-empty .cortex/db does not.
     writeFileSync(join(repo, ".cortex", "db"), "not a sqlite db");
     const graph = join(repo, ".cortex", "graph.db");
     writeGraphDb(graph, true);
