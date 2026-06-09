@@ -301,7 +301,13 @@ export function startViewerServer(
         try {
           const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
           const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
-          const file_edges = buildFileEdges(nodes, edges);
+          // Draw the same connectivity the force layout rolls up — CALLS +
+          // USAGE + IMPORTS — not CALLS alone. USAGE (symbol references) is the
+          // densest relation in a real graph; omitting it left the map looking
+          // nearly edgeless. Weights from all three combine per file-pair.
+          const file_edges = buildFileEdges(nodes, edges, {
+            relations: ["CALLS", "USAGE", "IMPORTS"],
+          });
           res.writeHead(200, {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
