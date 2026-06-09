@@ -16,6 +16,7 @@ import { captureIndexMeta } from "../../graph/capture-index-meta.js";
 import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
+import { withIndexLock } from "../../db/index-lock.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -51,53 +52,56 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
     const repoPath = resolve(cmd.positionals[0] ?? ctx.cwd);
     const mode = resolveIndexMode(cmd.flags);
     const dbPath = resolveCortexDbPath(repoPath); // <repo>/.cortex/db — canonical READ/PUBLISH target
-    const stagePath = stagingDbPath(repoPath);    // build target — no live handle holds it
-    for (const ext of ["", "-wal", "-shm"]) {
-      try { unlinkSync(stagePath + ext); } catch { /* no stale staging */ }
-    }
 
-    const indexerArgs = mode ? { repo_path: repoPath, mode } : { repo_path: repoPath };
-    const raw = execFileSync(
-      INDEXER_BIN,
-      ["cli", "index_repository", JSON.stringify(indexerArgs)],
-      {
-        encoding: "utf-8",
-        stdio: ["inherit", "pipe", "inherit"],
-        env: { ...process.env, CORTEX_DB: stagePath },
-      },
-    );
-    const result = unwrapIndexerResult(raw);
-    process.stdout.write(renderIndexerResult(result) + "\n");
-    // renderIndexerResult throws on a failed index today, but guard explicitly
-    // so a future refactor can't let frames/register run against an empty
-    // .cortex/db (which would leave a registry row pointing at no graph).
-    if (result.isError) return;
+    await withIndexLock(repoPath, async () => {
+      const stagePath = stagingDbPath(repoPath);    // build target — no live handle holds it
+      for (const ext of ["", "-wal", "-shm"]) {
+        try { unlinkSync(stagePath + ext); } catch { /* no stale staging */ }
+      }
 
-    // Frames + contracts build INTO staging, so the published graph is complete.
-    const project = deriveProjectName(repoPath);
-    const frames = await runFrameExtraction({ repoPath, project, dbPath: stagePath });
-    process.stdout.write(renderFramesLine(frames) + "\n");
-    const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
-    process.stdout.write(renderContractsLine(contracts) + "\n");
+      const indexerArgs = mode ? { repo_path: repoPath, mode } : { repo_path: repoPath };
+      const raw = execFileSync(
+        INDEXER_BIN,
+        ["cli", "index_repository", JSON.stringify(indexerArgs)],
+        {
+          encoding: "utf-8",
+          stdio: ["inherit", "pipe", "inherit"],
+          env: { ...process.env, CORTEX_DB: stagePath },
+        },
+      );
+      const result = unwrapIndexerResult(raw);
+      process.stdout.write(renderIndexerResult(result) + "\n");
+      // renderIndexerResult throws on a failed index today, but guard explicitly
+      // so a future refactor can't let frames/register run against an empty
+      // .cortex/db (which would leave a registry row pointing at no graph).
+      if (result.isError) return;
 
-    // Checkpoint staging, then publish its contents into the canonical db via
-    // one libsqlite3 transaction (corruption-impossible; visible to open handles).
-    try {
-      const conn = new Database(stagePath);
-      try { conn.pragma("wal_checkpoint(TRUNCATE)"); } finally { conn.close(); }
-    } catch { /* non-fatal */ }
-    publishStagedDb({ stagePath, liveDbPath: dbPath });
-    for (const ext of ["", "-wal", "-shm"]) {
-      try { unlinkSync(stagePath + ext); } catch { /* best-effort cleanup */ }
-    }
+      // Frames + contracts build INTO staging, so the published graph is complete.
+      const project = deriveProjectName(repoPath);
+      const frames = await runFrameExtraction({ repoPath, project, dbPath: stagePath });
+      process.stdout.write(renderFramesLine(frames) + "\n");
+      const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
+      process.stdout.write(renderContractsLine(contracts) + "\n");
 
-    captureIndexMeta(dbPath, repoPath); // freshness baseline on the canonical path
+      // Checkpoint staging, then publish its contents into the canonical db via
+      // one libsqlite3 transaction (corruption-impossible; visible to open handles).
+      try {
+        const conn = new Database(stagePath);
+        try { conn.pragma("wal_checkpoint(TRUNCATE)"); } finally { conn.close(); }
+      } catch { /* non-fatal */ }
+      publishStagedDb({ stagePath, liveDbPath: dbPath });
+      for (const ext of ["", "-wal", "-shm"]) {
+        try { unlinkSync(stagePath + ext); } catch { /* best-effort cleanup */ }
+      }
 
-    // Register in the master registry (best-effort; never fail the index).
-    try {
-      const reg = new Registry();
-      try { reg.register(project, repoPath); } finally { reg.close(); }
-    } catch { /* non-fatal */ }
+      captureIndexMeta(dbPath, repoPath); // freshness baseline on the canonical path
+
+      // Register in the master registry (best-effort; never fail the index).
+      try {
+        const reg = new Registry();
+        try { reg.register(project, repoPath); } finally { reg.close(); }
+      } catch { /* non-fatal */ }
+    });
     return;
   }
   switch (cmd.command) {
