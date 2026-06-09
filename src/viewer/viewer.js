@@ -36,6 +36,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
     return (d.seq != null) ? ('D-' + d.seq) : d.id;
   }
 
+  // Max file-dots rendered per frame. Raising it surfaces more nodes per frame
+  // and, because edges only draw between visible dots, recovers more of the
+  // graph's connectivity on the map (the cap is the dominant edge filter).
+  const MAX_FRAME_NODES = 22;
+
   let FRAMES = [];
   let NODE_CFG = {};
   let FILE_NAMES = {};
@@ -121,17 +126,17 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
         count: f.count,
       }));
 
-    // 4. NODE_CFG.count = how many file basenames to show per frame (cap at 16).
-    //    Track the canonical file_path alongside the basename so edge lookups
-    //    don't have to disambiguate by basename alone.
+    // 4. NODE_CFG.count = how many file basenames to show per frame (cap at
+    //    MAX_FRAME_NODES). Track the canonical file_path alongside the basename
+    //    so edge lookups don't have to disambiguate by basename alone.
     NODE_CFG = {};
     FILE_NAMES = {};
     FRAME_FILE_PATHS = {};
     for (const s of summaries) {
       const sid = String(s.frame_id);
-      const visibleMembers = s.members.slice(0, 16);
+      const visibleMembers = s.members.slice(0, MAX_FRAME_NODES);
       NODE_CFG[sid] = { count: visibleMembers.length };
-      FILE_NAMES[sid] = basenames(visibleMembers, 16);
+      FILE_NAMES[sid] = basenames(visibleMembers, MAX_FRAME_NODES);
       FRAME_FILE_PATHS[sid] = visibleMembers.map((m) => m.file_path || null);
     }
 
@@ -222,8 +227,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
 
     // Real edges from /api/file-edges. Each FileEdge already has a weight
     // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
-    // Edges where either endpoint isn't on canvas (file beyond the 16-per-
-    // frame cap, or in noise / auxiliary content) are silently dropped.
+    // Edges where either endpoint isn't on canvas (file beyond the per-frame
+    // cap MAX_FRAME_NODES, or in noise / auxiliary content) are silently dropped.
     for (const fe of FILE_EDGES) {
       const a = pathToIdx.get(fe.from_path);
       const b = pathToIdx.get(fe.to_path);
