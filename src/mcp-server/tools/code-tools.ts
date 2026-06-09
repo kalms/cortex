@@ -28,6 +28,8 @@ import { registerTool, type RepoContext, type RepoContextResolver } from "../rep
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
 import { invalidateFreshness } from "../freshness.js";
+import { stagingDbPath } from "../../db/staging-path.js";
+import { publishStagedDb } from "../../db/swap-graph-db.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -355,22 +357,27 @@ function formatNodes(nodes: IndexerNode[]): string {
     .join("\n");
 }
 
-/** Run frame extraction for an already-indexed repo and fold a structured
- *  `frames` field into the tool's text response. The MCP envelope is text;
- *  we append a machine-readable JSON line so agents can parse status. */
+/** Run frame extraction + contract extraction against the STAGING DB, then
+ *  publish the staged DB atomically to the canonical live path.
+ *
+ *  All passes target `stagePath` so no partial write ever touches `liveDbPath`
+ *  mid-run. `publishStagedDb` is the single chokepoint that promotes the
+ *  finished artifact into place. */
 async function withFrames(
   baseText: string,
   repoPath: string,
-  dbPath: string,
+  stagePath: string,
+  liveDbPath: string,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   const project = deriveProjectName(repoPath);
   let frames: FrameResult;
   try {
-    frames = await runFrameExtraction({ repoPath, project, dbPath });
+    frames = await runFrameExtraction({ repoPath, project, dbPath: stagePath });
   } catch (e) {
     frames = { status: "failed", reason: e instanceof Error ? e.message : String(e) };
   }
-  const contracts = await runContractExtraction({ repoPath, project, dbPath });
+  const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
+  publishStagedDb({ stagePath, liveDbPath });
   return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}\ncontracts: ${JSON.stringify(contracts)}` }] };
 }
 
@@ -437,6 +444,15 @@ export function registerCodeTools(
           );
         }
 
+        // Build into a private staging DB so every write (cache import, indexer
+        // run, frame/contract passes) targets the staging path. publishStagedDb
+        // (called inside withFrames) is the single chokepoint that atomically
+        // promotes the finished artifact onto the canonical liveDbPath.
+        const stagePath = stagingDbPath(repoPath);
+        for (const ext of ["", "-wal", "-shm"]) {
+          try { unlinkSync(stagePath + ext); } catch { /* no stale staging */ }
+        }
+
         // Cache requires a git tree to key on. Without it, computeCacheKey()
         // returns the same value for every non-git directory — which would
         // let an unrelated repo serve stale results. Skip cache entirely when
@@ -451,30 +467,28 @@ export function registerCodeTools(
         }
 
         if (cacheKey && hasCacheEntry(cacheKey)) {
-          // Ensure .cortex/ exists before copying (fresh repos have no .cortex/ yet).
-          mkdirSync(dirname(dbPath), { recursive: true });
-          readCacheEntry(cacheKey, dbPath);
-          // Remove any stale WAL sidecars left over from a previous indexer run.
-          for (const ext of ["-wal", "-shm"]) {
-            const sidecar = dbPath + ext;
-            if (existsSync(sidecar)) {
-              try { unlinkSync(sidecar); } catch { /* non-fatal */ }
-            }
-          }
+          // Import the cached snapshot INTO staging, never directly onto the
+          // live db. withFrames will run passes against staging and then
+          // publish to dbPath atomically.
+          mkdirSync(dirname(stagePath), { recursive: true });
+          readCacheEntry(cacheKey, stagePath);
+          const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
+          for (const ext of ["", "-wal", "-shm"]) { try { unlinkSync(stagePath + ext); } catch { /* cleanup */ } }
           captureIndexMeta(dbPath, repoPath);
           invalidateFreshness(repoPath);
           registerRepo();
-          return await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, dbPath);
+          return out;
         }
 
-        const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, dbPath);
+        const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, stagePath);
         if (!result.isError && cacheKey) {
           // The indexer DB runs in WAL mode (see src/graph/store.ts).
-          // Checkpoint WAL into the main file before copying so the cached
-          // snapshot is self-contained.
+          // Checkpoint WAL into the staging file before snapshotting so the
+          // cached copy is self-contained. We checkpoint staging (not the live
+          // db) because publish hasn't happened yet at this point.
           let checkpointed = false;
           try {
-            const conn = new Database(dbPath);
+            const conn = new Database(stagePath);
             try {
               conn.pragma("wal_checkpoint(TRUNCATE)");
               checkpointed = true;
@@ -482,24 +496,22 @@ export function registerCodeTools(
               conn.close();
             }
           } catch { /* non-fatal; skip cache write */ }
-          if (!checkpointed) {
-            captureIndexMeta(dbPath, repoPath);
-            invalidateFreshness(repoPath);
-            registerRepo();
-            return result;
-          }
-          try {
-            writeCacheEntry(cacheKey, dbPath);
-          } catch {
-            // Cache write failure is non-fatal.
+          if (checkpointed) {
+            try {
+              writeCacheEntry(cacheKey, stagePath);
+            } catch {
+              // Cache write failure is non-fatal.
+            }
           }
         }
         if (result.isError) return result;
         const baseText = result.content?.[0]?.text ?? "indexed";
+        const out = await withFrames(baseText, repoPath, stagePath, dbPath);
+        for (const ext of ["", "-wal", "-shm"]) { try { unlinkSync(stagePath + ext); } catch { /* cleanup */ } }
         captureIndexMeta(dbPath, repoPath);
         invalidateFreshness(repoPath);
         registerRepo();
-        return await withFrames(baseText, repoPath, dbPath);
+        return out;
       },
       { resolver, allowUnindexed: true },
     ),
