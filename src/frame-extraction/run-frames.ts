@@ -92,7 +92,10 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
       } finally {
         store.close();
       }
-    } catch {
+    } catch (e) {
+      // Best-effort: fall back to the raw cluster result (Phase 1 coverage
+      // still applies). Warn so a genuine reclamation failure isn't silent.
+      console.warn(`[frames] graph reclamation skipped: ${e instanceof Error ? e.message : String(e)}`);
       reclaimed = result;
     }
 
