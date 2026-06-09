@@ -20,3 +20,6 @@ scripts/frame-extraction/python/.venv/
 # Eval harness output and cache
 /evals/reports/
 /evals/cache/
+
+# Native worktree tool location
+.claude/worktrees/
