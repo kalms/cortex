@@ -17,6 +17,8 @@ import { hasVenv } from "./venv.js";
 import { collectCoChange, writeCoChangeJsonl } from "./co-change.js";
 import { runTfIdfHdbscan } from "./cluster-tfidf-hdbscan.js";
 import { injectFrames } from "./inject-frames.js";
+import { reclaimNoise } from "./frame-reclamation.js";
+import { GraphStore } from "../graph/store.js";
 
 export type FrameResult =
   | { status: "ok"; framesAssigned: number; clusters: number; elapsedMs: number }
@@ -76,9 +78,30 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
       co_change_path: existsSync(ccPath) ? ccPath : null,
     });
 
+    // 2b. Graph reclamation — pull HDBSCAN noise files into the cluster they
+    //     are most connected to via CALLS/USAGE/IMPORTS (frame-coverage spec).
+    //     Best-effort: any read failure falls back to the raw cluster result
+    //     (Phase 1 coverage still applies).
+    let reclaimed = result;
+    try {
+      const store = new GraphStore(opts.dbPath, { readonly: true });
+      try {
+        const nodes = store.getAllNodesUnified(opts.project);
+        const edges = store.getAllEdgesUnified(opts.project);
+        reclaimed = reclaimNoise(result, nodes, edges);
+      } finally {
+        store.close();
+      }
+    } catch (e) {
+      // Best-effort: fall back to the raw cluster result (Phase 1 coverage
+      // still applies). Warn so a genuine reclamation failure isn't silent.
+      console.warn(`[frames] graph reclamation skipped: ${e instanceof Error ? e.message : String(e)}`);
+      reclaimed = result;
+    }
+
     // 3. inject frame_id into the same DB.
-    const framesAssigned = injectFrames({ cluster: result, project: opts.project, dbPath: opts.dbPath });
-    const clusters = result.clusters.filter((c) => c.cluster_id !== -1).length;
+    const framesAssigned = injectFrames({ cluster: reclaimed, project: opts.project, dbPath: opts.dbPath });
+    const clusters = reclaimed.clusters.filter((c) => c.cluster_id !== -1).length;
     return { status: "ok", framesAssigned, clusters, elapsedMs: Date.now() - start };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

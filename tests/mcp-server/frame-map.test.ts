@@ -92,3 +92,28 @@ describe("buildFrameMap", () => {
     expect(map.frames[0].name).toBe("frame:5");
   });
 });
+
+describe("buildFrameMap — reclaimed members", () => {
+  const fileR = (id: string, path: string, frameId: number, label: string, reclaimed = false): NodeRow => ({
+    id, kind: "file", name: path, qualified_name: null, file_path: path,
+    data: JSON.stringify({ frame_id: frameId, frame_label: label, ...(reclaimed ? { reclaimed: true } : {}) }),
+    tier: "tier1", created_at: "", updated_at: "",
+  });
+
+  it("counts reclaimed members but a reclaimed off-topic file does not lower the score", () => {
+    const mk = (reclaimed: boolean): NodeRow[] => ([
+      fileR("f1", "src/checkout/cart.ts", 0, "checkout"),
+      fileR("f2", "src/checkout/pay.ts", 0, "checkout"),
+      fileR("f3", "src/zzz/unrelated.ts", 0, "checkout", reclaimed),
+    ]);
+    const reclaimedMap = buildFrameMap(mk(true), []);
+    const countedMap = buildFrameMap(mk(false), []);
+    const reclaimedFrame = reclaimedMap.frames.find((f) => f.id === 0)!;
+    const countedFrame = countedMap.frames.find((f) => f.id === 0)!;
+    // All three members counted either way.
+    expect(reclaimedFrame.count).toBe(3);
+    // With the off-topic file reclaimed, nameability is scored on the 2 checkout
+    // files only, so the score is strictly > the version where it dilutes the label.
+    expect(reclaimedFrame.score).toBeGreaterThan(countedFrame.score);
+  });
+});

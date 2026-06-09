@@ -26,6 +26,10 @@ export interface FrameRecord {
   frame_id: number;
   frame_label: string;
   member_paths: string[];
+  /** Non-reclaimed (topical core) members. Nameability scores against these;
+   *  defaults to `member_paths` when omitted. structural_weight always uses
+   *  the full `member_paths`. */
+  core_member_paths?: string[];
 }
 
 /** Explainability breakdown — kept so the viewer can answer "why is X ambient
@@ -61,7 +65,8 @@ export function rankFrames(records: readonly FrameRecord[], corpus: CorpusIndex)
   const budget = ambientBudget(records.length);
 
   const scored = records.map((r) => {
-    const f1 = scoreLabel(r.frame_label, r.member_paths, corpus).f1;
+    const labelPaths = r.core_member_paths ?? r.member_paths;
+    const f1 = scoreLabel(r.frame_label, labelPaths, corpus).f1;
     const generic_penalty = genericPenalty(r.frame_label);
     const nameability = f1 * generic_penalty;
     const structural_weight = Math.sqrt(r.member_paths.length);
