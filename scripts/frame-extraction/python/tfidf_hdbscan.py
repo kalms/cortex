@@ -85,6 +85,9 @@ def main() -> int:
                         help="TF-IDF max document frequency")
     parser.add_argument("--min-cluster-size", type=int, default=5,
                         help="HDBSCAN min_cluster_size")
+    parser.add_argument("--min-samples", type=int, default=None,
+                        help="HDBSCAN min_samples (default: HDBSCAN's own "
+                             "default, which equals min_cluster_size)")
     parser.add_argument("--co-change", dest="co_change", type=Path, default=None,
                         help="Optional co-change JSONL (pair_count records). "
                              "When provided, combined with topical distance via --gamma.")
@@ -177,6 +180,7 @@ def main() -> int:
 
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
         metric="precomputed",
     )
     labels = clusterer.fit_predict(dist.astype(np.float64))
@@ -236,6 +240,7 @@ def main() -> int:
             "min_df": args.min_df,
             "max_df": args.max_df,
             "min_cluster_size": args.min_cluster_size,
+            "min_samples": args.min_samples,
             "vocabulary_size": len(vectorizer.vocabulary_),
             "silhouette_score": silhouette,
             "top_tokens_per_cluster": top_tokens_per_cluster,
