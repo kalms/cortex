@@ -149,7 +149,7 @@ user input.
    ceremony.
 3. **Content signals.** Function-name patterns (`render*`, `migrate*`,
    `transport*`), file-extension patterns (`.test.ts` → ceremony;
-   `.tsx` → interface for React projects), and CBM-derived structural
+   `.tsx` → interface for React projects), and indexer-derived structural
    markers (presence of class methods only invoked by tests → ceremony).
 4. **Low-confidence fallback.** When 1–3 produce nothing definitive,
    the kind defaults to `domain` (the highest-weight layer) with
@@ -227,7 +227,7 @@ softened. It's just canvas space, not a bordered region.
 ## Properties of the ranker
 
 - **Deterministic.** Every input is a pure function of shared state
-  (the extracted frame set, CBM graph, decision graph, intrinsic
+  (the extracted frame set, indexer graph, decision graph, intrinsic
   label sources). No wall-clock, no viewer state, no external
   dependencies.
 - **Stable.** Changes only when the underlying extraction changes.
@@ -370,9 +370,9 @@ implementation lands:
 - **Schema migration.** New entity types (`Frame`, `Aggregate`,
   `Todo`) are real migrations on the existing Cortex SQLite schema.
   Existing v0.2.0 deployments need a migration path. Not designed.
-- **CBM coverage gaps.** Auxiliary content (images, fonts, lockfiles)
-  isn't parsed by CBM. Discovery happens via filesystem walk, parallel
-  to CBM. Reconciliation rules between the two data sources are not
+- **Indexer coverage gaps.** Auxiliary content (images, fonts, lockfiles)
+  isn't parsed by the indexer. Discovery happens via filesystem walk, parallel
+  to the indexer. Reconciliation rules between the two data sources are not
   yet designed.
 - **No formal quality gate.** Verification is intrinsic-only;
   algorithm quality is judged informally by maintainers and through
