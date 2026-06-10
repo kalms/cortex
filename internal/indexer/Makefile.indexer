@@ -66,7 +66,13 @@ CFLAGS_PROD = $(CFLAGS_COMMON) -O2 $(CFLAGS_EXTRA)
 CXXFLAGS_PROD = $(CXXFLAGS_COMMON) -O2
 
 # Test flags: debug + sanitizers (override SANITIZE= to disable on Windows)
-SANITIZE = -fsanitize=address,undefined -fno-omit-frame-pointer
+# -fno-sanitize=vptr: the test-runner is link-compiled with $(CC) (it compiles
+# the C sources), but contains vendored C++ objects (simplecpp/preprocessor).
+# UBSan's vptr check emits __ubsan_handle_dynamic_type_cache_miss, whose runtime
+# lives in clang's C++-only ubsan lib — not pulled by the C driver — so the link
+# fails on Linux clang (macOS happens to resolve it). vptr only instruments the
+# vendored C++ here, so disabling it costs ~nothing and keeps the link portable.
+SANITIZE = -fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer
 CFLAGS_TEST = $(CFLAGS_COMMON) -g -O1 $(SANITIZE)
 CXXFLAGS_TEST = $(CXXFLAGS_COMMON) -g -O1 $(SANITIZE)
 
