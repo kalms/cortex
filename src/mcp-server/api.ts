@@ -13,6 +13,8 @@ import { Registry } from "../db/registry.js";
 import { migrateCacheToRegistry, importLegacyRegistry } from "../db/registry-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
+import { openDecisionsDb } from "../decisions/db.js";
+import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "./frame-map.js";
@@ -52,6 +54,56 @@ export interface ViewerServerHandle {
 
 /** Outcome of a single bind attempt. */
 export type BindOutcome = { ok: true } | { ok: false; error: NodeJS.ErrnoException };
+
+/** A decisions repo pair resolved for one viewer request, plus a `close` the
+ *  caller MUST invoke (a no-op for the server-bound home repo). */
+export interface ProjectDecisions {
+  decisions: DecisionsRepository;
+  links: DecisionLinksRepository;
+  owned: boolean;
+  close(): void;
+}
+
+const NOOP_CLOSE = () => {};
+
+/**
+ * Resolve the decisions repos for a viewer request's `project`, mirroring
+ * {@link openProjectStore}.
+ *
+ * The server-bound (home) repos are returned for the bound project or a project
+ * unknown to the registry; any OTHER registered project has its own durable
+ * decisions DB (`~/.cortex/<repo-id>/decisions.db`, the same path the write
+ * path resolves) opened, and the caller MUST `close()` it (`owned: true`).
+ *
+ * Without this, `/api/decisions` served the startup-bound home repo's decisions
+ * for every project — the project switcher changed the graph but never the
+ * decisions, so e.g. cortex-indexer's decisions were invisible in the viewer.
+ */
+export function openProjectDecisions(
+  boundDecisions: DecisionsRepository,
+  boundLinks: DecisionLinksRepository,
+  boundProject: string | null | undefined,
+  requestedProject: string | null | undefined,
+  registry: { findByName(name: string): { root_path: string } | null },
+): ProjectDecisions {
+  if (!requestedProject || requestedProject === boundProject) {
+    return { decisions: boundDecisions, links: boundLinks, owned: false, close: NOOP_CLOSE };
+  }
+  const rootPath = registry.findByName(requestedProject)?.root_path ?? null;
+  if (!rootPath) {
+    // Unknown to the registry — best-effort fall back to the bound repo rather
+    // than fabricate an empty store. Registered projects (the switcher only
+    // lists those) always resolve above.
+    return { decisions: boundDecisions, links: boundLinks, owned: false, close: NOOP_CLOSE };
+  }
+  const db = openDecisionsDb(resolveDecisionsDbPath(rootPath), legacyDecisionsDbPath(rootPath));
+  return {
+    decisions: new DecisionsRepository(db),
+    links: new DecisionLinksRepository(db),
+    owned: true,
+    close: () => db.close(),
+  };
+}
 
 /** Default retry policy for the viewer port. Tuned for the common failure we
  *  hit in practice: a stale/dying sibling instance still holding the port for
@@ -182,27 +234,36 @@ export function startViewerServer(
           res.end(JSON.stringify({ error: "decisions repos unavailable" }));
           return;
         }
-        const pathname = new NodeURL(url, "http://localhost").pathname;
-        const id = decodeURIComponent(pathname.slice("/api/decisions/".length));
-        const rec = decisionsRepo.get(id);
-        if (!rec) {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "decision not found" }));
-          return;
-        }
-        const links = decisionLinksRepo.findByDecision(id);
-        const resolved = openProjectStore(store, indexerProject, indexerProject, { registry });
-        const nodes = resolved ? resolved.store.getAllNodesUnified(indexerProject ?? undefined) : [];
+        const parsed = new NodeURL(url, "http://localhost");
+        const projectParam = parsed.searchParams.get("project");
+        const project = projectParam ?? indexerProject ?? undefined;
+        const id = decodeURIComponent(parsed.pathname.slice("/api/decisions/".length));
+        // Project-scoped, same as the list endpoint: a decision id only exists
+        // in its own project's store.
+        const pd = openProjectDecisions(decisionsRepo, decisionLinksRepo, indexerProject, project, registry);
         try {
-          const { nodesByPath, framesByPath } = buildPathIndices(nodes);
-          const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify(adapted));
+          const rec = pd.decisions.get(id);
+          if (!rec) {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "decision not found" }));
+            return;
+          }
+          const links = pd.links.findByDecision(id);
+          const resolved = openProjectStore(store, indexerProject, project, { registry });
+          const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
+          try {
+            const { nodesByPath, framesByPath } = buildPathIndices(nodes);
+            const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
+            res.writeHead(200, {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            });
+            res.end(JSON.stringify(adapted));
+          } finally {
+            if (resolved?.owned) resolved.store.close();
+          }
         } finally {
-          if (resolved?.owned) resolved.store.close();
+          pd.close();
         }
         return;
       }
@@ -216,11 +277,14 @@ export function startViewerServer(
         const parsed = new NodeURL(url, "http://localhost");
         const projectParam = parsed.searchParams.get("project");
         const project = projectParam ?? indexerProject ?? undefined;
-        const records = decisionsRepo.list();
-        const allLinks = records.flatMap((r) => decisionLinksRepo.findByDecision(r.id));
+        // Decisions are project-scoped: open the requested project's own store,
+        // not the server-bound home repo's.
+        const pd = openProjectDecisions(decisionsRepo, decisionLinksRepo, indexerProject, project, registry);
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
+          const records = pd.decisions.list();
+          const allLinks = records.flatMap((r) => pd.links.findByDecision(r.id));
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
           const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
           res.writeHead(200, {
@@ -230,6 +294,7 @@ export function startViewerServer(
           res.end(JSON.stringify({ decisions }));
         } finally {
           if (resolved?.owned) resolved.store.close();
+          pd.close();
         }
         return;
       }
