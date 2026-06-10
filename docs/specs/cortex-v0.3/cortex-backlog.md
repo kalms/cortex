@@ -173,7 +173,7 @@ LLM-driven task at the plugin level:
 - **Output**: `match` | `partial-match` | `drift` with optional list of specific
   nonconformant nodes
 - **Cache invalidation**: triggered when any governed file's content hash changes
-  (via `codebase-memory-mcp` or equivalent watcher)
+  (via the indexer or equivalent watcher)
 - **Performance**: decisions reconcile lazily on demand (when a frame is focused
   or the decision is queried), not continuously
 
@@ -224,7 +224,7 @@ the data model should be designed so the bolt-on doesn't require restructuring
 
 The `governs` field uses typed `EntityRef`s: `file`, `function`, `frame`, later
 possibly `concept` or `line-range`. Current Cortex likely indexes at file
-granularity (via `codebase-memory-mcp`); function-level indexing is needed for the
+granularity (via the indexer); function-level indexing is needed for the
 decision card's pointer pills to target specific functions. This may already be
 in place for some languages — confirm at implementation time and extend if needed.
 
