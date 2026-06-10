@@ -95,6 +95,55 @@ export function buildFrameGovernance(decisions) {
   return out;
 }
 
+// Default footprint (stage px) for a promoted frame when the frame-map carries
+// no size for it.
+const PROMOTED_FRAME_W = 150;
+const PROMOTED_FRAME_H = 120;
+
+/**
+ * Ensure every decision-governed frame is actually rendered.
+ *
+ * The server frame-ranking marks only the top frames `ambient` (positioned);
+ * the rest are never drawn. A decision can govern a non-ambient frame (a
+ * low-ranked cluster, an unnamed `cluster:N`, or a duplicate-label twin) — its
+ * governance pills then have no on-screen frame to attach to, so the decision
+ * is invisible (this is exactly why cortex-indexer's decisions didn't show: its
+ * two governed frames were both non-ambient). A frame that carries a decision
+ * is important enough to render, so promote any governed frame missing from the
+ * rendered set, laid out in a reserved strip along the top (normalized x/y;
+ * the renderer clamps them fully on-screen).
+ *
+ * Pure: returns a NEW array (ambient frames first, then promoted). `frameMeta`
+ * is `Map<frameIdStr, {name,w,h,count}>` over ALL frames (ambient + not).
+ *
+ * NOTE: a stopgap until frames+decisions get their planned redesign (how
+ * governance renders at 200+ decisions, grouping, etc.). It guarantees
+ * reachability, not optimal placement.
+ */
+export function withGovernedFramesRendered(ambientFrames, frameGovernance, frameMeta) {
+  const present = new Set(ambientFrames.map((f) => String(f.id)));
+  const missing = Object.keys(frameGovernance || {}).filter((id) => !present.has(String(id)));
+  if (missing.length === 0) return ambientFrames;
+
+  const meta = frameMeta || new Map();
+  const n = missing.length;
+  const promoted = missing.map((id, i) => {
+    const m = meta.get(String(id)) || {};
+    return {
+      id: String(id),
+      name: m.name || `frame ${id}`,
+      // Reserved top strip, evenly spread; renderer clamps to keep on-screen.
+      x: n === 1 ? 0.5 : 0.1 + (0.8 * i) / (n - 1),
+      y: 0.07,
+      w: m.w || PROMOTED_FRAME_W,
+      h: m.h || PROMOTED_FRAME_H,
+      count: m.count || 0,
+      promotedForGovernance: true,
+    };
+  });
+  return [...ambientFrames, ...promoted];
+}
+
 /**
  * Build a `file_path → frameIdStr` lookup from grouped frame summaries
  * (the `groupNodesIntoFrames` shape; `members[].file_path`). Frame ids are
