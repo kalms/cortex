@@ -20,7 +20,7 @@ export interface EventEnvelope {
   actor: string;
   /** Unix milliseconds. */
   created_at: number;
-  /** CBM project name if attached, else ''. */
+  /** Indexer project name if attached, else ''. */
   project_id: string;
 }
 

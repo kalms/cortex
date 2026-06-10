@@ -31,6 +31,7 @@ import { invalidateFreshness } from "../freshness.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
+import { resolveIndexerBinary } from "../../indexer/binary.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -213,12 +214,7 @@ async function readSnippet(
 
 const execFileAsync = promisify(execFile);
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const LOCAL_INDEXER = join(__dirname, "..", "..", "..", "bin", "cortex-indexer");
-// CBM_BINARY_PATH retained as deprecated alias; remove in Phase 9.
-const INDEXER_BINARY = process.env.CORTEX_INDEXER_PATH || process.env.CBM_BINARY_PATH || LOCAL_INDEXER;
 const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 export function buildRgArgs(pattern: string): string[] {
@@ -328,8 +324,9 @@ async function invokeIndexer(
   args: Record<string, unknown>,
   subprocEnv: NodeJS.ProcessEnv,
 ): Promise<IndexerCallResult> {
+  const binary = resolveIndexerBinary();
   try {
-    const { stdout } = await execFileAsync(INDEXER_BINARY, ["cli", tool, JSON.stringify(args)], {
+    const { stdout } = await execFileAsync(binary, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,
       env: subprocEnv,
     });

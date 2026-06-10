@@ -263,7 +263,7 @@ export class GraphStore {
    * Return all nodes (decision/PR/TODO/code-entity), optionally filtered to a project.
    *
    * After Phase 4, code rows live in `nodes` directly with `kind` discriminator —
-   * no CBM_LABEL_MAP collapse, no separate cbm_nodes table. Decision/PR/TODO rows
+   * no label-map collapse, no separate node-kind table. Decision/PR/TODO rows
    * have project=NULL; code rows have project=<name>. Passing a project filter
    * drops decision rows; omitting it returns all rows.
    */
