@@ -9,7 +9,7 @@ const src = readFileSync(
 );
 
 describe("code-tools indexer wiring", () => {
-  it("resolves the binary via resolveIndexerBinary", () => {
-    expect(src).toContain("resolveIndexerBinary");
+  it("resolves the binary via the ensureIndexer guard", () => {
+    expect(src).toContain("ensureIndexer");
   });
 });

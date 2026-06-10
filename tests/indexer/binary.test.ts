@@ -65,6 +65,15 @@ function fakeLegacyIndexer(): string {
   return bin;
 }
 
+/** Write a fake indexer that crashes (exit 1) on `--version`. */
+function fakeBrokenIndexer(): string {
+  const dir = trackedTmp("fake-broken-");
+  const bin = join(dir, "cortex-indexer");
+  writeFileSync(bin, `#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo "boom" >&2; exit 1; fi\n`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
 describe("ensureIndexer", () => {
   afterEach(() => { delete process.env.CORTEX_INDEXER_PATH; });
 
@@ -94,6 +103,11 @@ describe("ensureIndexer", () => {
   it("treats a non-JSON --version as a legacy binary and does not throw", async () => {
     const bin = fakeLegacyIndexer();
     await expect(ensureIndexer({ noCache: true, binaryPath: bin, assertVersion: true })).resolves.toBe(bin);
+  });
+
+  it("surfaces an error when --version fails to run (non-zero exit), not treated as legacy", async () => {
+    const bin = fakeBrokenIndexer();
+    await expect(ensureIndexer({ noCache: true, binaryPath: bin, assertVersion: true })).rejects.toThrow();
   });
 
   it("throws IndexerNotInstalledError when the binary exists but is not executable", async () => {

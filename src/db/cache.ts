@@ -17,12 +17,15 @@ function indexerVersion(): string {
 }
 
 function grammarPackHash(): string {
-  // Phase 9 may relocate this. If the dir is missing the key is still
-  // deterministic, but grammar updates no longer invalidate it — log loudly
-  // so a future path-break doesn't silently kill cache correctness.
+  // Post-split the grammars live in the separate cortex-indexer repo, not here,
+  // so this dir is normally absent in cortex — that's expected, not an error.
+  // Grammar changes ship via a new indexer release with a bumped version, and
+  // indexerVersion() (the binary's --version, which includes the version) is
+  // already part of the cache key, so it invalidates on grammar changes. The
+  // constant below keeps the key stable; the branch survives only for repos
+  // that still vendor grammars in-tree (e.g. a local cortex-indexer checkout).
   const grammarRoot = join(process.cwd(), "internal", "indexer", "vendored", "grammars");
   if (!existsSync(grammarRoot)) {
-    process.stderr.write(`Cortex cache: grammar dir not found at ${grammarRoot}; cache keys will not invalidate on grammar changes\n`);
     return "no-grammars";
   }
   const h = createHash("sha256");
