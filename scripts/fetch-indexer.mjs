@@ -7,7 +7,10 @@ import { createHash } from "node:crypto";
 // MUST equal CORTEX_INDEXER_VERSION in src/indexer/version.ts (drift-guard test).
 export const FETCH_INDEXER_VERSION = "0.3.0";
 
-const SUPPORTED = new Set(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
+// Mirror of SUPPORTED in src/indexer/version.ts (drift-guard test enforces it).
+// darwin-x64 intentionally absent — no prebuilt is published (macos-13 runners
+// no longer dispatch); Intel-Mac users build from source.
+const SUPPORTED = new Set(["darwin-arm64", "linux-x64", "linux-arm64"]);
 
 export function assetNameFor(platform, arch) {
   const key = `${platform}-${arch}`;
