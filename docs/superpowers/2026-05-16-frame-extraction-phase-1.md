@@ -435,7 +435,7 @@ Expected: all tests pass, including the two new ones.
 - [ ] **Step 10: Rebuild the bin and smoke-test from the project root**
 
 ```bash
-CORTEX_FORCE_REBUILD=1 bash scripts/build-indexer.sh
+npm run fetch-indexer   # downloads the prebuilt cortex-indexer (was build-indexer.sh)
 bin/cortex-indexer cli index_repository '{"repo_path":"/tmp/nonexistent-cortex"}' 2>&1 | tail -3
 ```
 

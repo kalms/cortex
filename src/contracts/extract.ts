@@ -5,6 +5,11 @@ import type { Binding } from "./types.js";
 
 // Dirs scanned for each side. Kept narrow on purpose: these are the only places
 // the indexer RPC convention appears. Extend here if new call sites are added.
+// NOTE: post-split the C side lives in the separate cortex-indexer repo, so this
+// path is absent in the cortex tree — walk() guards with existsSync and simply
+// finds zero C providers (check_contracts degrades to TS-only here). Cross-repo
+// contract verification against cortex-indexer is a follow-up. The path is
+// retained because the contracts unit tests construct fixtures under it.
 const TS_DIRS = ["src", "scripts/frame-extraction"];
 const C_DIRS = ["internal/indexer/src/handlers"];
 
