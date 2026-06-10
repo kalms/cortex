@@ -11,6 +11,10 @@ describe("mainWorktreeRoot", () => {
   beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "cortex-gitroot-")));
     execFileSync("git", ["init", "-q"], { cwd: root });
+    // Hermetic identity — the worktree test commits, which fails with
+    // "Author identity unknown" on machines/CI with no global git user set.
+    execFileSync("git", ["config", "user.email", "ci@cortex.test"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Cortex CI"], { cwd: root });
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
