@@ -1274,9 +1274,9 @@ TEST(cypher_exec_where_in) {
     ctx_store_t *s = setup_cypher_store();
     ctx_cypher_result_t r = {0};
     int rc = ctx_cypher_execute(
-        s, "MATCH (f) WHERE f.label IN [\"Function\", \"Module\"] RETURN f.name", "test", 0, &r);
+        s, "MATCH (f) WHERE f.label IN [\"function\", \"module\"] RETURN f.name", "test", 0, &r);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(r.row_count, 5); /* 4 Functions + 1 Module */
+    ASSERT_EQ(r.row_count, 5); /* 4 functions + 1 module (kind is lowercase) */
     ctx_cypher_result_free(&r);
     ctx_store_close(s);
     PASS();
@@ -1285,10 +1285,10 @@ TEST(cypher_exec_where_in) {
 TEST(cypher_exec_where_not_in) {
     ctx_store_t *s = setup_cypher_store();
     ctx_cypher_result_t r = {0};
-    int rc = ctx_cypher_execute(s, "MATCH (f) WHERE NOT f.label IN [\"Module\"] RETURN f.name",
+    int rc = ctx_cypher_execute(s, "MATCH (f) WHERE NOT f.label IN [\"module\"] RETURN f.name",
                                 "test", 0, &r);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(r.row_count, 4); /* 4 Functions only */
+    ASSERT_EQ(r.row_count, 4); /* 4 functions only (kind is lowercase) */
     ctx_cypher_result_free(&r);
     ctx_store_close(s);
     PASS();
@@ -1419,10 +1419,10 @@ TEST(cypher_exec_where_or) {
 TEST(cypher_exec_where_complex_bool) {
     ctx_store_t *s = setup_cypher_store();
     ctx_cypher_result_t r = {0};
-    /* (name CONTAINS "Order" OR name = "LogError") AND label = "Function" */
+    /* (name CONTAINS "Order" OR name = "LogError") AND label = "function" (lowercase kind) */
     int rc = ctx_cypher_execute(s,
                                 "MATCH (f) WHERE (f.name CONTAINS \"Order\" OR f.name = "
-                                "\"LogError\") AND f.label = \"Function\" "
+                                "\"LogError\") AND f.label = \"function\" "
                                 "RETURN f.name",
                                 "test", 0, &r);
     ASSERT_EQ(rc, 0);

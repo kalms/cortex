@@ -150,6 +150,9 @@ TEST(store_file_persistence) {
     /* Write data */
     ctx_store_t *s1 = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s1);
+    /* Standalone file store — no Cortex/sqlite_writer provisioned the graph
+     * tables, so create them explicitly before writing nodes. */
+    ASSERT_EQ(ctx_store_ensure_graph_schema(s1), CTX_STORE_OK);
     ctx_store_upsert_project(s1, "proj", "/tmp");
     ctx_node_t n = {.project = "proj",
                     .label = "Function",
@@ -184,6 +187,8 @@ TEST(store_bulk_persistence) {
     /* Verify: begin_bulk + explicit txn + end_bulk persists to file */
     ctx_store_t *s = ctx_store_open_path(db_path);
     ASSERT_NOT_NULL(s);
+    /* Standalone file store — provision the Cortex-owned graph tables. */
+    ASSERT_EQ(ctx_store_ensure_graph_schema(s), CTX_STORE_OK);
 
     ctx_store_upsert_project(s, "proj", "/tmp");
     ctx_store_begin_bulk(s);
@@ -240,7 +245,7 @@ TEST(pipeline_structure_nodes) {
     ctx_node_t proj_node = {0};
     rc = ctx_store_find_node_by_qn(s, project, project, &proj_node);
     ASSERT_EQ(rc, CTX_STORE_OK);
-    ASSERT_STR_EQ(proj_node.label, "Project");
+    ASSERT_STR_EQ(proj_node.label, "project"); /* kind is canonically lowercase post-Phase-4 */
     ctx_node_free_fields(&proj_node);
 
     /* Verify folder nodes */
@@ -1719,7 +1724,7 @@ TEST(pipeline_docstring_go_function) {
     /* Check properties_json contains docstring */
     bool found_docstring = false;
     for (int i = 0; i < nc; i++) {
-        if (strcmp(nodes[i].label, "Function") == 0 && nodes[i].properties_json &&
+        if (strcmp(nodes[i].label, "function") == 0 && nodes[i].properties_json &&
             strstr(nodes[i].properties_json, "docstring") &&
             strstr(nodes[i].properties_json, "Compute does something")) {
             found_docstring = true;
@@ -1759,7 +1764,7 @@ TEST(pipeline_docstring_python_function) {
 
     bool found_docstring = false;
     for (int i = 0; i < nc; i++) {
-        if (strcmp(nodes[i].label, "Function") == 0 && nodes[i].properties_json &&
+        if (strcmp(nodes[i].label, "function") == 0 && nodes[i].properties_json &&
             strstr(nodes[i].properties_json, "docstring") &&
             strstr(nodes[i].properties_json, "Does something")) {
             found_docstring = true;
@@ -1800,7 +1805,7 @@ TEST(pipeline_docstring_java_method) {
 
     bool found_docstring = false;
     for (int i = 0; i < nc; i++) {
-        if (strcmp(nodes[i].label, "Method") == 0 && nodes[i].properties_json &&
+        if (strcmp(nodes[i].label, "method") == 0 && nodes[i].properties_json &&
             strstr(nodes[i].properties_json, "docstring") &&
             strstr(nodes[i].properties_json, "Computes result")) {
             found_docstring = true;
@@ -1839,7 +1844,7 @@ TEST(pipeline_docstring_kotlin_function) {
 
     bool found_docstring = false;
     for (int i = 0; i < nc; i++) {
-        if (strcmp(nodes[i].label, "Function") == 0 && nodes[i].properties_json &&
+        if (strcmp(nodes[i].label, "function") == 0 && nodes[i].properties_json &&
             strstr(nodes[i].properties_json, "docstring") &&
             strstr(nodes[i].properties_json, "Computes result")) {
             found_docstring = true;
@@ -1879,7 +1884,7 @@ TEST(pipeline_docstring_go_class) {
 
     bool found_docstring = false;
     for (int i = 0; i < nc; i++) {
-        if (strcmp(nodes[i].label, "Class") == 0 && nodes[i].properties_json &&
+        if (strcmp(nodes[i].label, "class") == 0 && nodes[i].properties_json &&
             strstr(nodes[i].properties_json, "docstring") &&
             strstr(nodes[i].properties_json, "MyStruct is documented")) {
             found_docstring = true;

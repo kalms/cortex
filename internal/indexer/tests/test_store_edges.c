@@ -66,13 +66,14 @@ TEST(store_edge_dedup) {
     int64_t ids[2];
     ctx_store_t *s = setup_store_with_nodes(2, ids);
 
-    /* Insert same edge twice — should not duplicate */
+    /* Post-Phase-4 the store does NOT dedup edges on insert (plain INSERT;
+     * upstream prevents dupes). Inserting the same edge twice yields two rows. */
     ctx_edge_t e = {.project = "test", .source_id = ids[0], .target_id = ids[1], .type = "CALLS"};
     ctx_store_insert_edge(s, &e);
     ctx_store_insert_edge(s, &e);
 
     int ecnt = ctx_store_count_edges(s, "test");
-    ASSERT_EQ(ecnt, 1);
+    ASSERT_EQ(ecnt, 2);
 
     ctx_store_close(s);
     PASS();
@@ -255,11 +256,12 @@ TEST(store_edge_batch_insert) {
     int ecnt = ctx_store_count_edges(s, "test");
     ASSERT_EQ(ecnt, 9);
 
-    /* Re-insert should not duplicate */
+    /* Re-inserting the same batch does NOT dedup (plain INSERT, post-Phase-4):
+     * the edge count doubles. */
     rc = ctx_store_insert_edge_batch(s, edges, 9);
     ASSERT_EQ(rc, CTX_STORE_OK);
     ecnt = ctx_store_count_edges(s, "test");
-    ASSERT_EQ(ecnt, 9);
+    ASSERT_EQ(ecnt, 18);
 
     ctx_store_close(s);
     PASS();

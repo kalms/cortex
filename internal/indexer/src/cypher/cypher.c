@@ -2174,7 +2174,10 @@ static void process_edges(ctx_store_t *store, ctx_edge_t *edges, int edge_count,
         if (ctx_store_find_node_by_id(store, tid, &found) != CTX_STORE_OK) {
             continue;
         }
-        if (target_node->label && strcmp(found.label, target_node->label) != 0) {
+        /* Node labels (kind) are stored canonically lowercase; the store's
+         * find_nodes_by_label folds with LOWER(?), so endpoint-label matching
+         * must be case-insensitive to stay consistent with MATCH (n:Label). */
+        if (target_node->label && strcasecmp(found.label, target_node->label) != 0) {
             node_fields_free(&found);
             continue;
         }
@@ -2208,7 +2211,8 @@ static void expand_var_length(ctx_store_t *store, ctx_rel_pattern_t *rel,
         if (hop->hop < rel->min_hops) {
             continue;
         }
-        if (target_node->label && strcmp(hop->node.label, target_node->label) != 0) {
+        /* Case-insensitive label match — see note at the fixed-length site. */
+        if (target_node->label && strcasecmp(hop->node.label, target_node->label) != 0) {
             continue;
         }
         if (!check_inline_props(&hop->node, target_node->props, target_node->prop_count)) {
