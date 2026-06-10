@@ -8,10 +8,15 @@
  */
 export const CORTEX_INDEXER_VERSION = "0.3.0";
 
-/** Supported (platform, arch) targets → release asset basename, else null. */
+/**
+ * Supported (platform, arch) targets → release asset basename, else null.
+ *
+ * darwin-x64 (Intel Mac) is intentionally absent: GitHub's macos-13 runners no
+ * longer dispatch reliably, so cortex-indexer publishes no darwin-x64 asset.
+ * Intel-Mac users hit the actionable "build from source" path, not a 404.
+ */
 const SUPPORTED = new Set([
   "darwin-arm64",
-  "darwin-x64",
   "linux-x64",
   "linux-arm64",
 ]);
