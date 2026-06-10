@@ -5,6 +5,7 @@ of the system; read the matching doc before working in that area.
 
 | Doc | When to read |
 |---|---|
+| [../mcp-tools.md](../mcp-tools.md) | The full MCP tool catalog — every tool's purpose, params, return shape, and the `repo_path` routing contract + error shapes. Read before working under `src/mcp-server/tools/`. |
 | [graph-ui.md](graph-ui.md) | Event pipeline, WebSocket server, worker thread, frames viewer. Anything under `src/events/`, `src/ws/`, `src/viewer/`, or the HTTP layer in `src/mcp-server/api*.ts`. |
 | [graph-storage.md](graph-storage.md) | Where graphs live: canonical `<repo>/.cortex/db`, the central project registry (`_registry.db`), the legacy cache + migration, the read/write path resolution, and the **freshness signal** (per-read staleness verdict + SessionStart auto-refresh). Anything under `src/db/` or the index write/read paths. |
 | [decisions-storage.md](decisions-storage.md) | The sidecar `.cortex/decisions.db` model — why decisions are not in the graph DB. Anything under `src/decisions/` or that touches the decision schema. |
