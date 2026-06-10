@@ -9,6 +9,7 @@
   },
   "scripts": {
     "postinstall": "bash scripts/build-indexer.sh",
+    "fetch-indexer": "node scripts/fetch-indexer.mjs",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "CORTEX_VIEWER_PORT=3334 tsx src/index.ts",
