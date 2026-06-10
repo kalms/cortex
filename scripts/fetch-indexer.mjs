@@ -19,10 +19,11 @@ export function sha256Hex(buf) {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-import { mkdirSync, writeFileSync, copyFileSync, chmodSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, chmodSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_BASE_URL =
   process.env.CORTEX_INDEXER_BASE_URL ||
@@ -59,11 +60,22 @@ export async function fetchIndexer({ baseUrl = DEFAULT_BASE_URL, destDir, cacheD
       const got = sha256Hex(tgz);
       if (want !== got) throw new Error(`checksum mismatch for ${asset}: want ${want}, got ${got}`);
 
-      mkdirSync(join(cacheBin, ".."), { recursive: true });
-      const tmpTgz = `${cacheBin}.tar.gz`;
-      writeFileSync(tmpTgz, tgz);
-      execFileSync("tar", ["-xzf", tmpTgz, "-C", join(cacheBin, ".."), "cortex-indexer"]);
-      chmodSync(cacheBin, 0o755);
+      const cacheParent = join(cacheBin, "..");
+      mkdirSync(cacheParent, { recursive: true });
+      // Extract into a staging dir on the same filesystem, then atomically
+      // rename into place — so existsSync(cacheBin) implies a COMPLETE binary
+      // (an interrupted extraction leaves only the staging dir, never cacheBin).
+      const stageDir = mkdtempSync(join(cacheParent, ".stage-"));
+      try {
+        const tmpTgz = join(stageDir, "asset.tar.gz");
+        writeFileSync(tmpTgz, tgz);
+        execFileSync("tar", ["-xzf", tmpTgz, "-C", stageDir, "cortex-indexer"]);
+        const stagedBin = join(stageDir, "cortex-indexer");
+        chmodSync(stagedBin, 0o755);
+        renameSync(stagedBin, cacheBin);
+      } finally {
+        rmSync(stageDir, { recursive: true, force: true });
+      }
     }
     copyFileSync(cacheBin, join(destDir, "cortex-indexer"));
     chmodSync(join(destDir, "cortex-indexer"), 0o755);
@@ -74,8 +86,8 @@ export async function fetchIndexer({ baseUrl = DEFAULT_BASE_URL, destDir, cacheD
 }
 
 // CLI entry: only runs when invoked directly (postinstall), not on import.
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const root = join(new URL(".", import.meta.url).pathname, "..");
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const root = join(fileURLToPath(new URL(".", import.meta.url)), "..");
   const result = await fetchIndexer({
     destDir: join(root, "bin"),
     cacheDir: join(homedir(), ".cache", "cortex-indexer", "bin"),
