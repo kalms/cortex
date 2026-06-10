@@ -95,11 +95,11 @@ Cortex indexes a repository into a single SQLite file at `<repo>/.cortex/db`.
 The schema is unified: `nodes`, `edges`, `decisions`, and `prs` tables live in
 the same file — no ATTACH, no legacy table prefix.
 
-The native indexer is bundled with Cortex as `bin/cortex-indexer` (built by
-`npm install` via `scripts/build-indexer.sh`). A per-checkout cache of indexed
-databases lives at `~/.cache/cortex/<key>.db`, where `<key>` is computed from
-`(indexerVersion, grammarPackHash, gitTreeHash)`. The pre-Phase-7 cache at
-`~/.cache/codebase-memory-mcp/` is no longer used.
+The native indexer is installed as `bin/cortex-indexer` by `npm install` via
+`scripts/fetch-indexer.mjs` (it downloads the prebuilt binary from the
+cortex-indexer GitHub release pinned in `src/indexer/version.ts`). A per-checkout
+cache of indexed databases lives at `~/.cache/cortex/<key>.db`, where `<key>` is
+computed from `(indexerVersion, grammarPackHash, gitTreeHash)`.
 
 ```bash
 # Index the current project via the bundled binary
