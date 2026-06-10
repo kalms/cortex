@@ -6,7 +6,7 @@ An agentic substrate — a knowledge graph of decisions, code, and the *why* beh
 
 Answers the question agents can't today: **"why was this built this way?"** — not just "what does this code do."
 
-The indexer ships in-tree under `internal/indexer/` and writes directly to Cortex's SQLite database — no external dependency, no separate subprocess. Cortex is the substrate underneath **Mesh** — the IDE built to harness it.
+The indexer is a prebuilt native binary — maintained as the separate **cortex-indexer** project and fetched at install — that writes directly to Cortex's SQLite database (a single shared file, no separate cache). Cortex is the substrate underneath **Mesh** — the IDE built to harness it.
 
 ## Installation
 
@@ -212,12 +212,12 @@ The simulation features in the prototype (multi-agent demo, synapse animations, 
 
 ## Native indexer
 
-Cortex builds and bundles its own structural indexer at `bin/cortex-indexer`. The indexer source lives in-tree at `internal/indexer/`. `npm install` runs `scripts/build-indexer.sh` (postinstall) which compiles the indexer locally — no network download and no separate subprocess.
+Cortex consumes a prebuilt structural indexer at `bin/cortex-indexer`. The indexer is maintained as a separate project, **cortex-indexer** (MIT-licensed). `npm install` runs `scripts/fetch-indexer.mjs` (postinstall), which downloads the platform binary from the cortex-indexer GitHub release pinned in `src/indexer/version.ts` (checksum-verified and cached). A runtime guard (`ensureIndexer`) asserts the binary's `--version` matches the pin; set `CORTEX_INDEXER_PATH` to point at a locally built binary for development.
 
 The indexer and Cortex's TypeScript layer share a single SQLite file (`.cortex/db` by default; override via `CORTEX_DB_PATH`). The indexer writes code entities into Cortex's `nodes`/`edges` tables directly (with `'ctx-<int>'` text IDs and lowercase `kind` values like `function`, `class`, `method`); PRs use the same tables with their own kinds. Indexer-internal bookkeeping (project metadata, file hashes, FTS5 over names, semantic vectors) lives in `ctx_*`-prefixed tables alongside.
 
 - **Single-file architecture:** no SQLite ATTACH, no separate cache file. The indexer and TS layer operate on the same DB with WAL concurrency.
-- **Bulk-write fast path:** `internal/indexer/extract/sqlite_writer.c` constructs the SQLite file via raw B-tree page writes for full-index runs. Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
+- **Bulk-write fast path:** the indexer's `extract/sqlite_writer.c` (in the cortex-indexer repo) constructs the SQLite file via raw B-tree page writes for full-index runs. Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
 - **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` pointing at the same SQLite file.
 
 There is **no decision data in `.cortex/db`** — decisions live in the sidecar `.cortex/decisions.db` and are never overwritten by reindexing. See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md) for the rationale.
@@ -377,8 +377,7 @@ plugin.json                         # Claude Code plugin manifest
 CLAUDE.md                           # Agent instructions (cortex-routing rules)
 .claude/rules/workflow.md           # Branching + review + QA gates
 
-bin/                                # cortex-indexer binary + MCP-launch wrapper
-internal/indexer/                   # Native C indexer (MIT-licensed subtree)
+bin/                                # fetched cortex-indexer binary + MCP-launch wrapper
 
 src/
   index.ts                          # Entry: MCP server, viewer HTTP, event worker boot
@@ -440,7 +439,7 @@ src/
     layout.js                       # gridLayout(frames, w, h) (pure)
 
 scripts/
-  build-indexer.sh                  # Postinstall: builds bin/cortex-indexer
+  fetch-indexer.mjs                 # Postinstall: downloads the prebuilt cortex-indexer
   seed.ts                           # Seeds development data
   corpus/
     run-survey.ts                   # Phase 1 corpus survey driver (high-level wrapper)
