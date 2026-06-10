@@ -30,7 +30,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_BASE_URL =
   process.env.CORTEX_INDEXER_BASE_URL ||
-  // TODO(cut-over): confirm the GitHub owner/repo slug before wiring postinstall.
   "https://github.com/ruevu/cortex-indexer/releases/download";
 
 async function download(url) {
@@ -100,7 +99,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     console.warn(
       `WARN: cortex-indexer not installed (${result.reason}). ` +
-      `It will be fetched on first use, or set CORTEX_INDEXER_PATH. See docs.`,
+      `Run \`npm run fetch-indexer\` to retry, or set CORTEX_INDEXER_PATH to a ` +
+      `locally built binary. Cortex tools will report indexer_unavailable until then.`,
     );
   }
 }
