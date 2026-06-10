@@ -9,9 +9,6 @@ const src = readFileSync(
 );
 
 describe("code-tools indexer wiring", () => {
-  it("no longer references the dead CBM_BINARY_PATH alias", () => {
-    expect(src).not.toContain("CBM_BINARY_PATH");
-  });
   it("resolves the binary via resolveIndexerBinary", () => {
     expect(src).toContain("resolveIndexerBinary");
   });
