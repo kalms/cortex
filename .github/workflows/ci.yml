@@ -27,14 +27,28 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          # build-essential: gcc/g++/make (LDFLAGS uses -lstdc++).
+          # clang: the toolchain the codebase is developed and shipped with;
+          #   CI matches it rather than relying on the runner's default gcc,
+          #   whose stricter -Werror flags differ (e.g. -Werror=nonnull).
+          # build-essential: make + libstdc++ (LDFLAGS uses -lstdc++).
           # zlib1g-dev: -lz. libgit2-dev: optional fast git-history path
-          # (Makefile auto-detects via pkg-config; falls back to `git log`).
-          sudo apt-get install -y build-essential pkg-config zlib1g-dev libgit2-dev
+          #   (Makefile auto-detects via pkg-config; falls back to `git log`).
+          sudo apt-get install -y clang build-essential pkg-config zlib1g-dev libgit2-dev
 
-      - name: Build + run C test suite (asan + ubsan)
+      - name: Configure git identity (integration tests clone + commit)
+        run: |
+          git config --global user.email "ci@cortex.test"
+          git config --global user.name "Cortex CI"
+
+      - name: Build + run C test suite (clang, asan + ubsan)
         working-directory: internal/indexer
-        run: make -f Makefile.indexer test
+        # Pin clang to match local/production builds. detect_leaks=0 keeps parity
+        # with macOS asan (which has no LeakSanitizer); enabling LSan and gcc
+        # portability is a tracked follow-up, not a release blocker.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: make -f Makefile.indexer CC=clang CXX=clang++ test
 
   ts-suite:
     name: TypeScript suite (vitest)
@@ -53,6 +67,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config zlib1g-dev libgit2-dev
+
+      - name: Configure git identity (some tests create repos + commit)
+        run: |
+          git config --global user.email "ci@cortex.test"
+          git config --global user.name "Cortex CI"
 
       - name: Install npm dependencies (builds the indexer via postinstall)
         run: npm ci
