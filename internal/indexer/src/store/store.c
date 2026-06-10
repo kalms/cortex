@@ -324,6 +324,69 @@ static int create_user_indexes(ctx_store_t *s) {
     return CTX_STORE_OK;
 }
 
+/* Provision the Cortex-owned graph tables (nodes/edges/edge_annotations + their
+ * indexes) in a *standalone* store that has no external Cortex GraphStore to
+ * create them — i.e. an in-memory store (see init_schema's Phase-4 note).
+ *
+ * The DDL below MUST stay in sync with src/graph/schema.ts (CREATE_TABLES +
+ * CREATE_INDEXES); it is the same schema sqlite_writer.c lays down for fresh
+ * file DBs. Everything is `IF NOT EXISTS`, so calling it on a DB whose schema
+ * Cortex already created (e.g. a restored file DB) is a harmless no-op. */
+static int ensure_graph_schema(ctx_store_t *s) {
+    const char *ddl =
+        "CREATE TABLE IF NOT EXISTS nodes ("
+        "  id          TEXT PRIMARY KEY,"
+        "  kind        TEXT NOT NULL,"
+        "  name        TEXT NOT NULL,"
+        "  qualified_name TEXT,"
+        "  file_path   TEXT,"
+        "  data        TEXT NOT NULL DEFAULT '{}',"
+        "  tier        TEXT NOT NULL DEFAULT 'personal',"
+        "  created_at  TEXT NOT NULL,"
+        "  updated_at  TEXT NOT NULL,"
+        "  start_line  INTEGER,"
+        "  end_line    INTEGER,"
+        "  project     TEXT"
+        ");"
+        "CREATE TABLE IF NOT EXISTS edges ("
+        "  id          TEXT PRIMARY KEY,"
+        "  source_id   TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,"
+        "  target_id   TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,"
+        "  relation    TEXT NOT NULL,"
+        "  data        TEXT NOT NULL DEFAULT '{}',"
+        "  created_at  TEXT NOT NULL,"
+        "  project     TEXT"
+        ");"
+        "CREATE TABLE IF NOT EXISTS edge_annotations ("
+        "  id          TEXT PRIMARY KEY,"
+        "  decision_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,"
+        "  edge_id     TEXT NOT NULL REFERENCES edges(id) ON DELETE CASCADE,"
+        "  created_at  TEXT NOT NULL"
+        ");"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name ON nodes(qualified_name);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes(file_path);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_tier ON nodes(tier);"
+        "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);"
+        "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);"
+        "CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_kind_project ON nodes(kind, project);"
+        "CREATE INDEX IF NOT EXISTS idx_nodes_kind_file ON nodes(kind, file_path);"
+        "CREATE INDEX IF NOT EXISTS idx_edges_project_relation ON edges(project, relation);";
+    return exec_sql(s, ddl);
+}
+
+/* Public entry point — see store.h. Lets standalone file-store callers (tests)
+ * provision the Cortex-owned graph schema that GraphStore.migrate() would
+ * otherwise create. */
+int ctx_store_ensure_graph_schema(ctx_store_t *s) {
+    if (!s || !s->db) {
+        return CTX_STORE_ERR;
+    }
+    return ensure_graph_schema(s);
+}
+
 static int configure_pragmas(ctx_store_t *s, bool in_memory) {
     int rc;
     rc = exec_sql(s, "PRAGMA foreign_keys = ON;");
@@ -568,6 +631,17 @@ static ctx_store_t *store_open_internal(const char *path, bool in_memory) {
 
     if (configure_pragmas(s, in_memory) != CTX_STORE_OK || init_schema(s) != CTX_STORE_OK ||
         create_user_indexes(s) != CTX_STORE_OK) {
+        sqlite3_close(s->db);
+        free((void *)s->db_path);
+        free(s);
+        return NULL;
+    }
+
+    /* A fresh in-memory store is standalone — no external Cortex GraphStore will
+     * ever open it to create the Cortex-owned nodes/edges tables, so provision
+     * them here. File-backed stores are left untouched: Cortex (or a prior
+     * sqlite_writer run) owns that schema. */
+    if (in_memory && ensure_graph_schema(s) != CTX_STORE_OK) {
         sqlite3_close(s->db);
         free((void *)s->db_path);
         free(s);
@@ -1768,7 +1842,7 @@ void ctx_store_node_degree(ctx_store_t *s, int64_t node_id, int *in_deg, int *ou
     char node_id_buf[32];
     snprintf(node_id_buf, sizeof(node_id_buf), "ctx-%lld", (long long)node_id);
 
-    const char *in_sql = "SELECT COUNT(*) FROM edges WHERE target_id = ?1 AND relation = 'calls'";
+    const char *in_sql = "SELECT COUNT(*) FROM edges WHERE target_id = ?1 AND relation = 'CALLS'";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(s->db, in_sql, CTX_NOT_FOUND, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, SKIP_ONE, node_id_buf, CTX_NOT_FOUND, SQLITE_STATIC);
@@ -1778,7 +1852,7 @@ void ctx_store_node_degree(ctx_store_t *s, int64_t node_id, int *in_deg, int *ou
         sqlite3_finalize(stmt);
     }
 
-    const char *out_sql = "SELECT COUNT(*) FROM edges WHERE source_id = ?1 AND relation = 'calls'";
+    const char *out_sql = "SELECT COUNT(*) FROM edges WHERE source_id = ?1 AND relation = 'CALLS'";
     if (sqlite3_prepare_v2(s->db, out_sql, CTX_NOT_FOUND, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, SKIP_ONE, node_id_buf, CTX_NOT_FOUND, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1874,14 +1948,14 @@ int ctx_store_node_neighbor_names(ctx_store_t *s, int64_t node_id, int limit, ch
     query_neighbor_names(
         s->db,
         "SELECT DISTINCT n.name FROM edges e JOIN nodes n ON e.source_id = n.id "
-        "WHERE e.target_id = ?1 AND e.relation IN ('calls','http_calls','async_calls') "
+        "WHERE e.target_id = ?1 AND e.relation IN ('CALLS','HTTP_CALLS','ASYNC_CALLS') "
         "ORDER BY n.name LIMIT ?2",
         node_id, limit, out_callers, caller_count);
 
     query_neighbor_names(
         s->db,
         "SELECT DISTINCT n.name FROM edges e JOIN nodes n ON e.target_id = n.id "
-        "WHERE e.source_id = ?1 AND e.relation IN ('calls','http_calls','async_calls') "
+        "WHERE e.source_id = ?1 AND e.relation IN ('CALLS','HTTP_CALLS','ASYNC_CALLS') "
         "ORDER BY n.name LIMIT ?2",
         node_id, limit, out_callees, callee_count);
 
@@ -2310,9 +2384,9 @@ static void search_where_advanced(const ctx_search_params_t *params, char *where
          * Dead code (degree=0) is NOT excluded — only true entry points. */
         *wlen = where_append(where, where_sz, *wlen, nparams,
                              "NOT (NOT EXISTS(SELECT 1 FROM edges e WHERE e.target_id = n.id "
-                             "AND e.relation = 'calls') "
+                             "AND e.relation = 'CALLS') "
                              "AND EXISTS(SELECT 1 FROM edges e2 WHERE e2.source_id = n.id "
-                             "AND e2.relation = 'calls'))");
+                             "AND e2.relation = 'CALLS'))");
     }
     if (params->exclude_labels) {
         char excl_clause[CTX_SZ_512];
@@ -2347,9 +2421,9 @@ int ctx_store_search(ctx_store_t *s, const ctx_search_params_t *params, ctx_sear
     const char *select_cols = "SELECT n.id, n.project, n.kind, n.name, n.qualified_name, "
                               "n.file_path, n.start_line, n.end_line, n.data, "
                               "(SELECT COUNT(*) FROM edges e WHERE e.target_id = n.id AND "
-                              "e.relation = 'calls') AS in_deg, "
+                              "e.relation = 'CALLS') AS in_deg, "
                               "(SELECT COUNT(*) FROM edges e WHERE e.source_id = n.id AND "
-                              "e.relation = 'calls') AS out_deg ";
+                              "e.relation = 'CALLS') AS out_deg ";
 
     char where[CTX_SZ_2K] = "";
     search_bind_t binds[ST_SEARCH_MAX_BINDS];
@@ -2600,7 +2674,7 @@ int ctx_store_bfs(ctx_store_t *s, int64_t start_id, const char *direction, const
             bind_text(stmt, i + SKIP_ONE, edge_types[i]);
         }
     } else {
-        bind_text(stmt, SKIP_ONE, "calls");
+        bind_text(stmt, SKIP_ONE, "CALLS"); /* relations are canonically UPPERCASE */
     }
 
     int cap = ST_INIT_CAP_16;
@@ -3164,7 +3238,7 @@ static int arch_routes(ctx_store_t *s, const char *project, ctx_architecture_inf
 
 static int arch_hotspots(ctx_store_t *s, const char *project, ctx_architecture_info_t *out) {
     const char *sql = "SELECT n.name, n.qualified_name, COUNT(*) as fan_in "
-                      "FROM nodes n JOIN edges e ON e.target_id = n.id AND e.relation = 'calls' "
+                      "FROM nodes n JOIN edges e ON e.target_id = n.id AND e.relation = 'CALLS' "
                       "WHERE n.project=?1 AND n.kind IN ('function', 'method') "
                       "AND (json_extract(n.data, '$.is_test') IS NULL OR "
                       "json_extract(n.data, '$.is_test') != 1) "
@@ -3257,7 +3331,7 @@ static int arch_boundaries(ctx_store_t *s, const char *project, ctx_cross_pkg_bo
     sqlite3_finalize(nstmt);
 
     /* Scan edges, count cross-package calls */
-    const char *esql = "SELECT source_id, target_id FROM edges WHERE project=?1 AND relation='calls'";
+    const char *esql = "SELECT source_id, target_id FROM edges WHERE project=?1 AND relation='CALLS'";
     sqlite3_stmt *estmt = NULL;
     if (sqlite3_prepare_v2(s->db, esql, CTX_NOT_FOUND, &estmt, NULL) != SQLITE_OK) {
         for (int i = 0; i < nn; i++) {
