@@ -12,11 +12,15 @@ describe("RPC contract seam (real repo)", () => {
   const repo = resolve(__dirname, "../..");
   const { bindings, unrecognized } = scanRepoContracts(repo);
 
-  it("finds the seam (non-empty contracts on both sides)", () => {
+  it("finds the TS consumer side of the seam", () => {
     const cov = summarizeCoverage(bindings, unrecognized);
-    expect(cov.matched).toBeGreaterThan(0);
-    expect(cov.providers).toBeGreaterThan(0);
+    // The TS consumer side lives in this repo and must be detected.
     expect(cov.consumers).toBeGreaterThan(0);
+    // Post-split: the C provider side moved to the separate cortex-indexer repo,
+    // so scanning the cortex tree alone finds zero providers (and thus zero
+    // matched). Cross-repo contract verification against cortex-indexer is a
+    // documented follow-up; until then this guards the TS side from regressing.
+    expect(cov.providers).toBe(0);
   });
 
   it("has no contract mismatches beyond the known allowlist", () => {
