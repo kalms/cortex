@@ -1,14 +1,12 @@
 name: CI
 
-# Runs the native C indexer suite and the TypeScript suite. Each suite runs ONLY
-# when files it depends on change (see the `changes` job), so a TS-only or docs
-# PR skips the ~8-13 min C build entirely. A single always-running `ci-gate` job
-# aggregates the results — make THAT the required status check (not the
-# individual suites: they are path-skipped and a skipped *required* check would
-# otherwise block every merge that doesn't touch it).
-#
-# The C suite is pinned to clang (the toolchain the codebase is developed and
-# shipped with) with asan/ubsan; ccache + parallel make speed up the rebuild.
+# Runs the TypeScript suite (vitest). The native C indexer now lives in the
+# separate ruevu/cortex-indexer repo (with its own CI matrix); cortex consumes
+# its prebuilt binary, so there is no C build here. The TS suite runs ONLY when
+# files it depends on change (see the `changes` job), so a docs-only PR skips it.
+# A single always-running `ci-gate` job aggregates the result — make THAT the
+# required status check (not ts-suite itself: it is path-skipped, and a skipped
+# *required* check would otherwise block every docs-only merge).
 
 on:
   push:
@@ -21,11 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Decide which suites need to run, from the changed paths ──────────────
+  # ── Decide whether the TS suite needs to run, from the changed paths ──────
   changes:
     runs-on: ubuntu-latest
     outputs:
-      c: ${{ steps.filter.outputs.c }}
       ts: ${{ steps.filter.outputs.ts }}
     steps:
       - uses: actions/checkout@v4
@@ -35,71 +32,18 @@ jobs:
         run: |
           base="${{ github.event.pull_request.base.sha || github.event.before }}"
           # Unknown / nonexistent base (first push, force-push, new branch) →
-          # run everything (safe default; never silently skip a gate).
+          # run the suite (safe default; never silently skip the gate).
           if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            echo "c=true"  >> "$GITHUB_OUTPUT"
             echo "ts=true" >> "$GITHUB_OUTPUT"
-            echo "base unknown → running all suites"
+            echo "base unknown → running TS suite"
             exit 0
           fi
           changed="$(git diff --name-only "$base" HEAD)"
           echo "changed files:"; echo "$changed"
-          c=false; ts=false
-          echo "$changed" | grep -qE '^(internal/indexer/|\.github/workflows/ci\.yml$)' && c=true
-          echo "$changed" | grep -qE '^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|\.github/workflows/ci\.yml$)' && ts=true
-          echo "c=$c"   >> "$GITHUB_OUTPUT"
+          ts=false
+          echo "$changed" | grep -qE '^(src/|tests/|scripts/|package\.json$|package-lock\.json$|vitest\.config\.ts$|\.github/workflows/ci\.yml$)' && ts=true
           echo "ts=$ts" >> "$GITHUB_OUTPUT"
-          echo "→ run C=$c  TS=$ts"
-
-  # ── C indexer suite (clang, asan+ubsan, ccache + parallel make) ─────────
-  c-suite:
-    name: C indexer suite (make test)
-    needs: changes
-    if: needs.changes.outputs.c == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          # clang: toolchain the codebase is developed/shipped with (the runner's
-          #   default gcc has stricter -Werror flags that differ).
-          # ccache: cache the large, rarely-changing vendored object compiles
-          #   (sqlite3 amalgamation, 64 tree-sitter grammars, mimalloc).
-          # build-essential: make + libstdc++ (LDFLAGS uses -lstdc++).
-          # zlib1g-dev: -lz. libgit2-dev: optional fast git-history path.
-          sudo apt-get install -y clang ccache build-essential pkg-config zlib1g-dev libgit2-dev
-
-      - name: Point ccache at a cacheable dir
-        run: echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
-
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: ccache-c-${{ github.sha }}
-          restore-keys: |
-            ccache-c-
-
-      - name: Configure git identity (integration tests clone + commit)
-        run: |
-          git config --global user.email "ci@cortex.test"
-          git config --global user.name "Cortex CI"
-
-      - name: Build + run C test suite
-        working-directory: internal/indexer
-        # detect_leaks=0 keeps parity with macOS asan (no LeakSanitizer there).
-        # ccache caches the vendored .o; -j parallelises them. The monolithic
-        # project-source compile is still serial — splitting it into cached .o
-        # targets is a deeper follow-up if the C-change case stays slow.
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          ccache --max-size=800M --zero-stats
-          make -f Makefile.indexer CC="ccache clang" CXX="ccache clang++" -j"$(nproc)" test
-          ccache --show-stats
+          echo "→ run TS=$ts"
 
   # ── TypeScript suite (vitest) ───────────────────────────────────────────
   ts-suite:
@@ -115,46 +59,48 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install build dependencies
-        # `npm ci` runs postinstall (scripts/build-indexer.sh) which compiles
-        # bin/cortex-indexer — the MCP-contract tests exercise it.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config zlib1g-dev libgit2-dev
-
       - name: Configure git identity (some tests create repos + commit)
         run: |
           git config --global user.email "ci@cortex.test"
           git config --global user.name "Cortex CI"
 
-      - name: Install npm dependencies (builds the indexer via postinstall)
+      - name: Install npm dependencies
+        # postinstall runs scripts/fetch-indexer.mjs (downloads the prebuilt
+        # cortex-indexer). It is intentionally soft-warn for end users, so the
+        # next step makes the fetch GATING in CI.
         run: npm ci
+
+      - name: Fetch + verify the prebuilt indexer (gating in CI)
+        # The MCP-contract tests exercise the real binary. postinstall may have
+        # soft-warned; ensure the linux-x64 asset is actually present so CI runs
+        # with full coverage instead of silently skipping binary-backed tests.
+        run: |
+          npm run fetch-indexer
+          test -x bin/cortex-indexer || { echo "::error::cortex-indexer prebuilt not fetched"; exit 1; }
+          ./bin/cortex-indexer --version
 
       - name: Run TypeScript test suite
         run: npm test
 
   # ── Required-check aggregator ────────────────────────────────────────────
-  # Always runs (even when a suite is path-skipped) so it can safely be THE
-  # required status check. Fails iff a suite that ran failed/was cancelled, or
+  # Always runs (even when the suite is path-skipped) so it can safely be THE
+  # required status check. Fails iff the suite that ran failed/was cancelled, or
   # the changes job errored. Mark this job ("CI gate") required in branch rules.
   ci-gate:
     name: CI gate
-    needs: [changes, c-suite, ts-suite]
+    needs: [changes, ts-suite]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify required suites
         run: |
           ch="${{ needs.changes.result }}"
-          c="${{ needs.c-suite.result }}"
           ts="${{ needs.ts-suite.result }}"
-          echo "changes=$ch  c-suite=$c  ts-suite=$ts"
+          echo "changes=$ch  ts-suite=$ts"
           if [ "$ch" != "success" ]; then
             echo "::error::changes job did not succeed ($ch)"; exit 1
           fi
-          for r in "$c" "$ts"; do
-            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "::error::a required suite did not pass"; exit 1
-            fi
-          done
-          echo "OK — all suites that ran passed (skipped suites are fine)"
+          if [ "$ts" = "failure" ] || [ "$ts" = "cancelled" ]; then
+            echo "::error::the TS suite did not pass"; exit 1
+          fi
+          echo "OK — the TS suite passed (a path-skipped suite is fine)"
