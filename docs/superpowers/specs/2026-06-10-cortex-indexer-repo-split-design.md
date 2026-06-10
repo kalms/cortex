@@ -211,7 +211,11 @@ with the TS/MCP work.
 
 ## Open items
 
-- Exact CI runners for `linux-arm64` (native ARM runner vs. cross-compile vs.
-  QEMU) — resolved in the implementation plan.
 - Whether the first `cortex-indexer` tag is `v0.1.0` or mirrors an existing
-  internal version number.
+  internal version number — resolved in the implementation plan.
+
+## Resolved
+
+- **`linux-arm64` CI:** native GitHub-hosted ARM runners (`ubuntu-24.04-arm`).
+  Lets the C test suite execute on-arch (not just cross-compile) and avoids
+  QEMU emulation overhead.
