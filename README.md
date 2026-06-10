@@ -358,12 +358,16 @@ Seeds a small set of code entities + decisions for development.
 
 ## License & attribution
 
-Cortex is split into two licensing zones:
+Cortex is **proprietary, all rights reserved** (see the root [`LICENSE`](./LICENSE)) —
+its TypeScript code, viewer, MCP server, decision tooling, build scripts,
+plugin manifest, and documentation.
 
-- **`internal/indexer/`** — the native structural indexer. **MIT-licensed** (see [`internal/indexer/LICENSE`](./internal/indexer/LICENSE)); upstream attribution and full provenance in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
-- **Everything else** — Cortex's TypeScript code, viewer, MCP server, decision tooling, build scripts, plugin manifest, and documentation. **Proprietary, all rights reserved** (see the root [`LICENSE`](./LICENSE)).
-
-The indexer additionally vendors several C libraries (mimalloc, SQLite, TRE, xxHash, yyjson, tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary), each retaining its own upstream license. Full attribution, upstream licenses, and per-component sources are documented in [`THIRD_PARTY.md`](./THIRD_PARTY.md).
+The native structural indexer Cortex consumes at runtime is maintained as a
+separate project, **cortex-indexer** (MIT-licensed), with its own third-party
+attributions (vendored C libraries: mimalloc, SQLite, TRE, xxHash, yyjson,
+tree-sitter runtime + grammars, LZ4, simplecpp, nomic embedding vocabulary).
+Cortex downloads its prebuilt binary at install time; see
+[`scripts/fetch-indexer.mjs`](./scripts/fetch-indexer.mjs).
 
 ## Project structure
 
