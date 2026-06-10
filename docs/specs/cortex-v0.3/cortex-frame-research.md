@@ -19,7 +19,7 @@ Cortex (github.com/kalms/cortex) is a multiplayer engineering canvas that render
 ### Signals available
 - Filesystem tree (names, nesting, file counts)
 - Framework/convention detection via manifests and marker files
-- Import/call graph from `codebase-memory-mcp` (CBM)
+- Import/call graph from cortex-indexer
 - File type distribution
 - Naming patterns
 
@@ -30,25 +30,25 @@ Cortex (github.com/kalms/cortex) is a multiplayer engineering canvas that render
 
 ---
 
-## 2. Cortex indexing architecture — CBM handoff
+## 2. Cortex indexing architecture — indexer handoff
 
-Cortex does NOT re-parse code. A Go binary does that:
+Cortex does NOT re-parse code. A separate binary does that:
 
-**CBM (`codebase-memory-mcp`):** Go binary, tree-sitter grammars (TS/JS/Python/Go/Rust/etc.), emits a graph of nodes (files, functions, classes, methods, symbols, markdown sections) and edges (`CALLS`, `IMPORTS`, `EXTENDS`, `CONTAINS`). Writes to `~/.cache/codebase-memory-mcp/<project>.db`. Handles incremental reindex via git-watch + file-hash diffing.
+**cortex-indexer:** Go binary, tree-sitter grammars (TS/JS/Python/Go/Rust/etc.), emits a graph of nodes (files, functions, classes, methods, symbols, markdown sections) and edges (`CALLS`, `IMPORTS`, `EXTENDS`, `CONTAINS`). Writes to the indexer's cache directory per project. Handles incremental reindex via git-watch + file-hash diffing.
 
-**Cortex (TS):** Discovers the CBM DB via `src/graph/cbm-discovery.ts`, does `ATTACH DATABASE <cbm.db> AS cbm` read-only (`src/graph/store.ts:330`). Writes OWN native tables for decisions, PRs, events, relationships. Queries `cbm.*` for structural code data.
+**Cortex (TS):** Discovers the indexer DB via the indexer-DB discovery logic, does `ATTACH DATABASE <indexer.db>` read-only (attached read-only; `src/graph/store.ts:330`). Writes OWN native tables for decisions, PRs, events, relationships. Queries the indexer's `nodes` and `edges` tables for structural code data.
 
-**Plausible CBM schema (confirm exact names before coding):**
+**Plausible indexer schema (confirm exact names before coding):**
 ```
-cbm.nodes(id, kind, file_path, qualified_name, name, start_line, end_line)
+nodes(id, kind, file_path, qualified_name, name, start_line, end_line)
   kind ∈ ('file','function','class','method','symbol','markdown_section')
-cbm.edges(src_id, dst_id, kind)
+edges(src_id, dst_id, kind)
   kind ∈ ('CALLS','IMPORTS','EXTENDS','CONTAINS', ...)
 ```
 
-**Implication:** ACDC's whole pattern set (dominator, support-library, dispatcher, orphan adoption) becomes executable SQL against `cbm.edges`. No parsing, no new infra.
+**Implication:** ACDC's whole pattern set (dominator, support-library, dispatcher, orphan adoption) becomes executable SQL against the indexer's `edges` table. No parsing, no new infra.
 
-**Future direction (parked):** replace CBM with native TS + tree-sitter-WASM. Write the frame extractor as an adapter over "a queryable edges table" so the migration is trivial; don't bake CBM-specific edge-type names into algorithm code.
+**Future direction (parked):** replace the indexer with native TS + tree-sitter-WASM. Write the frame extractor as an adapter over "a queryable edges table" so the migration is trivial; don't bake indexer-specific edge-type names into algorithm code.
 
 ---
 
@@ -81,7 +81,7 @@ Almost every shipping tool uses directory structure verbatim or lets the user ed
 > six-stage pipeline into three distinct tiers with clear selection criteria. This
 > section preserves the original CFX-1 framing for reference.
 
-Deterministic pipeline, runs as one Cortex-side script that opens the CBM read-only attach and writes native tables.
+Deterministic pipeline, runs as one Cortex-side script that opens the indexer DB read-only (attached read-only) and writes native tables.
 
 ### Native tables Cortex writes
 ```sql
@@ -104,7 +104,7 @@ Templates discard frames with <3 files; unmatched files flow to Stage 3.
 
 **Stage 3 — Directory fallback.** For unmatched files (or `unknown` repos): take top-level dirs; if one dominates (>60% of files), descend; tiny dirs park in `scaffolding` for Stage 4 orphan adoption. Promote `src/` children, prettify names.
 
-**Stage 4 — ACDC patterns via SQL on `cbm.edges`.**
+**Stage 4 — ACDC patterns via SQL on the indexer's `edges` table.**
 
 *Subgraph-dominator* — a file with lots of in-directory dependents, few out-of-dir:
 ```
@@ -117,7 +117,7 @@ Threshold: in_dir_dependents >= 5 AND out_dir_dependents <= 2
 
 **Stage 5 — Cap at 5–12.**
 - Target by repo size: ≤50 files → 3–5; 50–500 → 5–8; 500–5000 → 7–10; >5000 → 10–12.
-- **Over 12:** merge pair with highest inter-frame coupling (from `cbm.edges`). Only within same tier. Never merge template-distinct frames.
+- **Over 12:** merge pair with highest inter-frame coupling (from the indexer's `edges` table). Only within same tier. Never merge template-distinct frames.
 - **Under 5:** *(the spec's position is: just show fewer frames, don't invent padding)*
 
 **Stage 6 — Labeling, in priority order:**
@@ -188,7 +188,7 @@ For each: expected frame count, expected frame names (from 2-3 engineers), and t
 - **Naming-pattern auto-splitting** (e.g. big `models/` → `user-models`, `billing-models`). Needs confidence threshold + minimum-cluster floor or it over-applies. Where most bug reports will come from.
 - **Stability vs. recency trade-off.** When frames update, is it noise or progress? Product question driving algorithm policy (e.g. "frames stable unless partition changes >20%, then re-label with announcement commit").
 - **Evaluation ground-truth** — for conventional repos experts agree; for research/hybrid they won't. Can hit ≥70 MoJoFM on conventional corpus and still miss ambiguous ones.
-- **CBM ordering** — tree-sitter may emit nodes in parse order, which depends on FS traversal order. Audit every query for explicit `ORDER BY`.
+- **Indexer ordering** — tree-sitter may emit nodes in parse order, which depends on FS traversal order. Audit every query for explicit `ORDER BY`.
 
 ---
 
@@ -196,7 +196,7 @@ For each: expected frame count, expected frame names (from 2-3 engineers), and t
 
 Two highest-leverage follow-ups:
 
-1. **Prototype on one repo.** Pick one well-understood Next.js codebase (cal.com or trimmed fixture). Have CBM index it. Wire up the SQL queries against a real `cbm.*` attach. Hand-run each stage. Compare to frames you'd draw yourself. Most interesting failures surface in first 90 minutes.
+1. **Prototype on one repo.** Pick one well-understood Next.js codebase (cal.com or trimmed fixture). Have the indexer index it. Wire up the SQL queries against a real read-only attach of the indexer DB. Hand-run each stage. Compare to frames you'd draw yourself. Most interesting failures surface in first 90 minutes.
 
 2. **Draft the template library.** 6-8 templates for v1: `nextjs-app`, `nuxt-app`, `rails-app`, `django-project`, `monorepo-js-turbo`, `monorepo-js-nx`, `go-stdlib-service`, `rust-crate`. Each is ~20 lines of YAML (glob → frame-name + match predicate).
 
@@ -211,7 +211,7 @@ Two highest-leverage follow-ups:
 ## 8. Directives for future conversations
 
 - Do NOT propose user-editable frames. Ruled out.
-- Do NOT propose replacing CBM in the critical path. Parked, not blocking.
+- Do NOT propose replacing the indexer in the critical path. Parked, not blocking.
 - Algorithm must be deterministic. Every tie-break lexicographic. Every SQL has explicit ORDER BY.
 - Framework templates are hand-authored content, not inferred. That's a feature.
 - ACDC is the intellectual anchor. Everything else sits on top of or feeds into ACDC's pattern set.

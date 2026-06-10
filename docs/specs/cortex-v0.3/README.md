@@ -76,7 +76,7 @@ The prototype HTML is the visual truth — open it in a browser when designing v
 
 **First build target** (recommended, when transitioning out of design):
 - Finish and merge the in-flight `feature/api/pr-entity-and-decision-extensions` branch
-- Then start Phase 1: a small Node script that clones N active GitHub repos, runs CBM index, computes `(entity_count, edge_density, directory_depth, language_mix)` per repo. Output is the calibration data the rest of the work depends on.
+- Then start Phase 1: a small Node script that clones N active GitHub repos, runs the indexer, computes `(entity_count, edge_density, directory_depth, language_mix)` per repo. Output is the calibration data the rest of the work depends on.
 
 ---
 
