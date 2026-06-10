@@ -396,8 +396,8 @@ TEST(store_search_exclude_labels) {
     ASSERT_EQ(total, 4);
     ctx_store_search_free(&out);
 
-    /* Search with Route excluded */
-    const char *excl[] = {"Route", NULL};
+    /* Search with route excluded (kind is canonically lowercase post-Phase-4). */
+    const char *excl[] = {"route", NULL};
     ctx_search_params_t params2 = {.project = "test",
                                    .limit = 100,
                                    .min_degree = -1,
@@ -408,9 +408,9 @@ TEST(store_search_exclude_labels) {
     ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_TRUE(out2.total < total);
 
-    /* Verify no Route nodes in results */
+    /* Verify no route nodes in results */
     for (int i = 0; i < out2.count; i++) {
-        ASSERT_FALSE(strcmp(out2.results[i].node.label, "Route") == 0);
+        ASSERT_FALSE(strcmp(out2.results[i].node.label, "route") == 0);
     }
     ctx_store_search_free(&out2);
 
