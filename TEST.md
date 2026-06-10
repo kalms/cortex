@@ -93,7 +93,7 @@ The viewer shows the full graph — decisions, code entities, and all edges. Cli
 
 Cortex indexes a repository into a single SQLite file at `<repo>/.cortex/db`.
 The schema is unified: `nodes`, `edges`, `decisions`, and `prs` tables live in
-the same file — no ATTACH, no `cbm_*` prefix.
+the same file — no ATTACH, no legacy table prefix.
 
 The native indexer is bundled with Cortex as `bin/cortex-indexer` (built by
 `npm install` via `scripts/build-indexer.sh`). A per-checkout cache of indexed
@@ -156,7 +156,6 @@ get_graph_schema({})
 | `CORTEX_DB_PATH` | `.cortex/db` | Cortex unified SQLite database |
 | `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the native indexer binary |
-| `CBM_BINARY_PATH` | _(unset)_ | _(deprecated alias for `CORTEX_INDEXER_PATH`)_ |
 
 ---
 
