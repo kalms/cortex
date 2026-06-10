@@ -154,6 +154,13 @@ void ctx_extract_sfc(CtxExtractCtx *ctx) {
 // ---------------------------------------------------------------------------
 
 static bool script_has_lang_ts(TSNode start_tag, const char *source) {
+    /* source is the file-content base; a NULL here would make `source + off`
+     * a bogus pointer passed to memcmp/memmem (UB). Guard explicitly — this
+     * also silences GCC's -Werror=nonnull, which infers a NULL path via inlining
+     * into sfc_extract_scripts. */
+    if (!source) {
+        return false;
+    }
     uint32_t count = ts_node_named_child_count(start_tag);
     for (uint32_t i = 0; i < count; i++) {
         TSNode attr = ts_node_named_child(start_tag, i);
