@@ -132,6 +132,19 @@ grep -rniI 'cbm' src/ scripts/ tests/ hooks/ bin/ package.json docs/ \
 `code-graph-mcp` / `codebase-memory-mcp` fork name remains anywhere in the
 cortex tree. `cortex-indexer` is the only name.
 
+**Attribution caveat (cut-over decision, not the `cbm` scrub):** `LICENSE`
+and `THIRD_PARTY.md` carry the MIT attribution to
+`DeusData/codebase-memory-mcp`. While `internal/indexer/` (the MIT-derived
+code) is still in the cortex tree, this attribution is **legally required and
+must be retained** — the `cbm` functional scrub (consumption layer) does not
+touch it. At cut-over, when the derived code physically moves to
+`cortex-indexer`, the attribution moves with it to that repo; cortex — then
+pure original TypeScript — can have the `codebase-memory-mcp` attribution
+removed. This is a legal judgment for the user to confirm at cut-over, not an
+automatic scrub. The broader `codebase-memory-mcp` fork-name references in
+`docs/` and `internal/indexer/docs/` are likewise handled at cut-over (docs
+sweep / repo removal), not by the code-dir `cbm` gate.
+
 ## History surgery
 
 cortex has **two root commits** (merged histories):
