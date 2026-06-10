@@ -31,7 +31,7 @@ import { invalidateFreshness } from "../freshness.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
-import { resolveIndexerBinary } from "../../indexer/binary.js";
+import { ensureIndexer } from "../../indexer/binary.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -324,7 +324,13 @@ async function invokeIndexer(
   args: Record<string, unknown>,
   subprocEnv: NodeJS.ProcessEnv,
 ): Promise<IndexerCallResult> {
-  const binary = resolveIndexerBinary();
+  let binary: string;
+  try {
+    binary = await ensureIndexer();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return errorResponse("indexer_unavailable", msg);
+  }
   try {
     const { stdout } = await execFileAsync(binary, ["cli", tool, JSON.stringify(args)], {
       timeout: 120_000,

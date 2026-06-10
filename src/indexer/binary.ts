@@ -75,16 +75,24 @@ export async function ensureIndexer(opts: EnsureOpts = {}): Promise<string> {
 
   const shouldAssert = opts.assertVersion || !usingOverride;
   if (shouldAssert) {
+    let stdout: string;
+    try {
+      ({ stdout } = await execFileAsync(binary, ["--version"], { timeout: 10_000 }));
+    } catch (e) {
+      // The binary exists (accessSync passed) but failed to RUN --version:
+      // spawn error, non-zero exit, or timeout. That's a broken binary, not a
+      // legacy one — surface it rather than silently tolerating.
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `cortex-indexer --version failed (${msg}). The binary may be corrupt; ` +
+        `run \`npm run fetch-indexer\` to reinstall the pinned version.`,
+      );
+    }
     let reported: string | undefined;
     try {
-      const { stdout } = await execFileAsync(binary, ["--version"], { timeout: 10_000 });
       reported = (JSON.parse(stdout) as { version?: string }).version;
     } catch {
-      // TODO(cut-over): narrow this once the release pipeline ships a
-      // --version-emitting binary — tolerate only non-JSON/missing-field
-      // (SyntaxError), but surface spawn errors, non-zero exits, and timeouts
-      // instead of silently treating them as "legacy".
-      reported = undefined; // legacy binary without --version JSON
+      reported = undefined; // non-JSON --version: a legacy/plaintext binary — tolerated.
     }
     if (reported && reported !== CORTEX_INDEXER_VERSION) {
       throw new IndexerVersionMismatchError(reported, CORTEX_INDEXER_VERSION);

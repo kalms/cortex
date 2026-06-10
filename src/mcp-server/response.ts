@@ -35,7 +35,8 @@ export type ErrorReason =
   | "internal_error"
   | "fs_error"
   | "ambiguous_input"
-  | "not_reconcilable";
+  | "not_reconcilable"
+  | "indexer_unavailable";
 
 export function ok(text: string) {
   return { content: [{ type: "text" as const, text }] };
