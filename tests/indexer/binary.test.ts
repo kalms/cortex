@@ -9,7 +9,6 @@ const ORIG = process.env.CORTEX_INDEXER_PATH;
 afterEach(() => {
   if (ORIG === undefined) delete process.env.CORTEX_INDEXER_PATH;
   else process.env.CORTEX_INDEXER_PATH = ORIG;
-  delete process.env.CBM_BINARY_PATH;
 });
 
 describe("resolveIndexerBinary", () => {
@@ -23,10 +22,9 @@ describe("resolveIndexerBinary", () => {
     expect(resolveIndexerBinary()).toMatch(/[/\\]bin[/\\]cortex-indexer$/);
   });
 
-  it("ignores the dead CBM_BINARY_PATH alias", () => {
+  it("ignores unrecognised env vars and falls back to bundled path", () => {
     delete process.env.CORTEX_INDEXER_PATH;
-    process.env.CBM_BINARY_PATH = "/legacy/cbm";
-    expect(resolveIndexerBinary()).not.toBe("/legacy/cbm");
+    expect(resolveIndexerBinary()).toMatch(/[/\\]bin[/\\]cortex-indexer$/);
   });
 });
 
@@ -46,7 +44,7 @@ function fakeIndexer(versionJson: object): string {
 function fakeLegacyIndexer(): string {
   const dir = mkdtempSync(join(tmpdir(), "fake-legacy-"));
   const bin = join(dir, "cortex-indexer");
-  writeFileSync(bin, `#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo 'cbm version 0.5 (legacy plaintext)'; fi\n`);
+  writeFileSync(bin, `#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo 'legacy-indexer version 0.5 (plaintext, not JSON)'; fi\n`);
   chmodSync(bin, 0o755);
   return bin;
 }

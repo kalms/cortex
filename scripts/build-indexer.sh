@@ -5,8 +5,7 @@
 # The indexer Makefile is not relocatable: rules reference src/ paths relative
 # to the Makefile's own directory. We cd into internal/indexer/ to invoke it.
 # The Makefile's `indexer` target produces a binary named `cortex-indexer` at
-# build/c/cortex-indexer; we copy it to bin/cortex-indexer for Cortex. The
-# Makefile retains `cbm` as a backwards-compatible alias for `indexer`.
+# build/c/cortex-indexer; we copy it to bin/cortex-indexer for Cortex.
 #
 # Skips the build if bin/cortex-indexer is already present and newer than
 # anything in internal/indexer/src/ or the Makefile. Set CORTEX_FORCE_REBUILD=1

@@ -14,7 +14,7 @@ const baseDecision: DecisionRecord = {
   description: null,
   rationale: "Cross-platform, file-based, fast for read-heavy workloads.",
   problem: "Need a persistent graph store accessible from multiple agents.",
-  resolution: "SQLite via better-sqlite3, attached read-only from CBM.",
+  resolution: "SQLite via better-sqlite3, attached read-only from the indexer.",
   alternatives: JSON.stringify([
     { name: "Neo4j", reason_rejected: "Operationally heavy" },
     { name: "Postgres", reason_rejected: "Server process required" },
