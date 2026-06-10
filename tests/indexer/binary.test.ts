@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { resolveIndexerBinary, ensureIndexer, IndexerNotInstalledError, IndexerVersionMismatchError } from "../../src/indexer/binary.js";
 import { CORTEX_INDEXER_VERSION } from "../../src/indexer/version.js";
-import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,15 @@ afterEach(() => {
   if (ORIG === undefined) delete process.env.CORTEX_INDEXER_PATH;
   else process.env.CORTEX_INDEXER_PATH = ORIG;
 });
+
+const tmpDirs: string[] = [];
+/** mkdtemp that records the dir for afterAll cleanup. */
+function trackedTmp(prefix: string): string {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+}
+afterAll(() => { for (const d of tmpDirs) rmSync(d, { recursive: true, force: true }); });
 
 describe("resolveIndexerBinary", () => {
   it("honors CORTEX_INDEXER_PATH override", () => {
@@ -37,7 +46,7 @@ describe("resolveIndexerBinary", () => {
 
 /** Write a fake indexer that prints the given JSON for `--version`. */
 function fakeIndexer(versionJson: object): string {
-  const dir = mkdtempSync(join(tmpdir(), "fake-indexer-"));
+  const dir = trackedTmp("fake-indexer-");
   const bin = join(dir, "cortex-indexer");
   writeFileSync(
     bin,
@@ -49,7 +58,7 @@ function fakeIndexer(versionJson: object): string {
 
 /** Write a fake indexer that prints non-JSON garbage for `--version`. */
 function fakeLegacyIndexer(): string {
-  const dir = mkdtempSync(join(tmpdir(), "fake-legacy-"));
+  const dir = trackedTmp("fake-legacy-");
   const bin = join(dir, "cortex-indexer");
   writeFileSync(bin, `#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo 'legacy-indexer version 0.5 (plaintext, not JSON)'; fi\n`);
   chmodSync(bin, 0o755);
@@ -88,7 +97,7 @@ describe("ensureIndexer", () => {
   });
 
   it("throws IndexerNotInstalledError when the binary exists but is not executable", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "noexec-"));
+    const dir = trackedTmp("noexec-");
     const bin = join(dir, "cortex-indexer");
     writeFileSync(bin, "not executable\n");
     chmodSync(bin, 0o644);
