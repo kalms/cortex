@@ -81,6 +81,10 @@ export async function ensureIndexer(opts: EnsureOpts = {}): Promise<string> {
       const { stdout } = await execFileAsync(binary, ["--version"], { timeout: 10_000 });
       reported = (JSON.parse(stdout) as { version?: string }).version;
     } catch {
+      // TODO(cut-over): narrow this once the release pipeline ships a
+      // --version-emitting binary — tolerate only non-JSON/missing-field
+      // (SyntaxError), but surface spawn errors, non-zero exits, and timeouts
+      // instead of silently treating them as "legacy".
       reported = undefined; // legacy binary without --version JSON
     }
     if (reported && reported !== CORTEX_INDEXER_VERSION) {

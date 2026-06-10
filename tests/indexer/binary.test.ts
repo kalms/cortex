@@ -42,6 +42,15 @@ function fakeIndexer(versionJson: object): string {
   return bin;
 }
 
+/** Write a fake indexer that prints non-JSON garbage for `--version`. */
+function fakeLegacyIndexer(): string {
+  const dir = mkdtempSync(join(tmpdir(), "fake-legacy-"));
+  const bin = join(dir, "cortex-indexer");
+  writeFileSync(bin, `#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo 'cbm version 0.5 (legacy plaintext)'; fi\n`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
 describe("ensureIndexer", () => {
   afterEach(() => { delete process.env.CORTEX_INDEXER_PATH; });
 
@@ -66,5 +75,31 @@ describe("ensureIndexer", () => {
     const bin = fakeIndexer({ version: "9.9.9", schema: 1, protocol: 1 });
     process.env.CORTEX_INDEXER_PATH = bin;
     await expect(ensureIndexer({ noCache: true })).resolves.toBe(bin);
+  });
+
+  it("treats a non-JSON --version as a legacy binary and does not throw", async () => {
+    const bin = fakeLegacyIndexer();
+    await expect(ensureIndexer({ noCache: true, binaryPath: bin, assertVersion: true })).resolves.toBe(bin);
+  });
+
+  it("throws IndexerNotInstalledError when the binary exists but is not executable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "noexec-"));
+    const bin = join(dir, "cortex-indexer");
+    writeFileSync(bin, "not executable\n");
+    chmodSync(bin, 0o644);
+    await expect(ensureIndexer({ noCache: true, binaryPath: bin, assertVersion: true }))
+      .rejects.toBeInstanceOf(IndexerNotInstalledError);
+  });
+
+  it("returns the cached path on the second call without re-checking (cache hit)", async () => {
+    const bin = fakeIndexer({ version: CORTEX_INDEXER_VERSION, schema: 1, protocol: 1 });
+    process.env.CORTEX_INDEXER_PATH = bin;
+    // First call (caching enabled) populates the module cache.
+    const first = await ensureIndexer();
+    expect(first).toBe(bin);
+    // Point the env elsewhere; a cache HIT must ignore it and return the cached path.
+    process.env.CORTEX_INDEXER_PATH = "/nonexistent/changed-indexer";
+    const second = await ensureIndexer();
+    expect(second).toBe(bin);
   });
 });
