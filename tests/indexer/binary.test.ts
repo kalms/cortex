@@ -22,9 +22,16 @@ describe("resolveIndexerBinary", () => {
     expect(resolveIndexerBinary()).toMatch(/[/\\]bin[/\\]cortex-indexer$/);
   });
 
-  it("ignores unrecognised env vars and falls back to bundled path", () => {
+  it("ignores env vars other than CORTEX_INDEXER_PATH and falls back to bundled path", () => {
     delete process.env.CORTEX_INDEXER_PATH;
-    expect(resolveIndexerBinary()).toMatch(/[/\\]bin[/\\]cortex-indexer$/);
+    process.env.SOME_UNRELATED_INDEXER_PATH = "/should/be/ignored";
+    try {
+      const resolved = resolveIndexerBinary();
+      expect(resolved).not.toBe("/should/be/ignored");
+      expect(resolved).toMatch(/[/\\]bin[/\\]cortex-indexer$/);
+    } finally {
+      delete process.env.SOME_UNRELATED_INDEXER_PATH;
+    }
   });
 });
 
