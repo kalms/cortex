@@ -114,7 +114,11 @@ static void (*ctx_sqlite_transient_fn(void))(void *) {
 #define TAR_SIZE_LEN 13     /* octal size field: bytes 124-135 + NUL */
 #define TAR_TYPE_OFFSET 156 /* type flag byte */
 #define TAR_BINARY_NAME "cortex-indexer"
-#define TAR_BINARY_NAME_LEN 19
+/* Prefix length of the binary name within a tar entry like
+ * "cortex-indexer-<os>-<arch>". Derived from the name so it can't drift out of
+ * sync again (it was left at 19 — len of the old "codebase-memory-mcp" — after
+ * the rename, which over-ran the 14-char name into its NUL and broke matching). */
+#define TAR_BINARY_NAME_LEN (sizeof(TAR_BINARY_NAME) - 1)
 #define TAR_BLOCK_SIZE CTX_SZ_512 /* tar record alignment */
 #define TAR_BLOCK_MASK 511        /* TAR_BLOCK_SIZE - 1 */
 
