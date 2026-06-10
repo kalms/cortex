@@ -174,6 +174,21 @@ live in:
 See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md)
 for the full architecture rationale.
 
+## The indexer binary (prebuilt, fetched — not in-tree)
+
+The native code indexer is **no longer in this repo**. It lives in the separate
+**cortex-indexer** repo and ships as a prebuilt binary. `npm install` runs
+`scripts/fetch-indexer.mjs` (postinstall), which downloads the platform binary
+from the cortex-indexer GitHub release pinned by `CORTEX_INDEXER_VERSION` in
+[src/indexer/version.ts](src/indexer/version.ts) (checksum-verified, cached under
+`~/.cache/cortex-indexer/bin/`), installing it at `bin/cortex-indexer`. The MCP
+server resolves + version-checks it lazily via `ensureIndexer()` in
+[src/indexer/binary.ts](src/indexer/binary.ts); `CORTEX_INDEXER_PATH` overrides
+to a locally built binary for dev. Don't look for `internal/indexer/` or
+`scripts/build-indexer.sh` — they were removed when the indexer was split out
+(decision `D-chfd`). To change the indexer, work in the cortex-indexer repo, cut
+a release, and bump `CORTEX_INDEXER_VERSION`.
+
 ## Graph storage & the project registry
 
 The canonical graph store is **`<repo>/.cortex/db`** (per repo). Both writers —
