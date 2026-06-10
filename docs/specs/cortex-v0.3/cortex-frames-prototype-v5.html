@@ -882,8 +882,8 @@
       summary: 'sqlite as graph store',
       state: 'active',
       problem: 'Needed a persistent store for the knowledge graph — nodes, edges, decisions, provenance — accessible to multiple agents.',
-      resolution: 'SQLite via better-sqlite3, attached read-only from codebase-memory-mcp for structural code data, native tables for decisions and events.',
-      rationale: 'Single-file, no server, cross-platform, fast for the workload. Attaching CBM read-only keeps code-structural data authoritative to that system while Cortex owns the decision graph.',
+      resolution: 'SQLite via better-sqlite3, attached read-only from cortex-indexer for structural code data, native tables for decisions and events.',
+      rationale: 'Single-file, no server, cross-platform, fast for the workload. Attaching the indexer DB read-only keeps code-structural data authoritative to that system while Cortex owns the decision graph.',
       alternatives: [
         { title: 'Neo4j',    reason: 'Operationally heavy for a personal MCP server' },
         { title: 'Postgres', reason: 'Overkill for single-user; server process required' },

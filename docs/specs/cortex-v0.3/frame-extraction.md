@@ -35,7 +35,7 @@ Before extraction runs, the indexer splits the repo's contents into two
 streams. Only one participates in semantic frame extraction.
 
 - **Code content.** Source files containing functions, classes, methods,
-  symbols indexed by CBM. Primary clustering, name-token similarity,
+  symbols indexed by the indexer. Primary clustering, name-token similarity,
   co-change matrix, dominator analysis all operate here.
 - **Auxiliary content.** Assets, locales, fixtures, generated code,
   snapshot tests, lockfiles, build artefacts, vendored dependencies.
@@ -69,7 +69,7 @@ The aggregate node is a new entity type in the rendering grammar:
 | Node type | Represents |
 |---|---|
 | File | Source file (code container) |
-| Function / class / method | CBM code entity |
+| Function / class / method | Indexer code entity |
 | Aggregate | Collection of same-kind auxiliary entities, one dot with count badge |
 
 This cleanly separates "what the codebase does" (frames over code
@@ -86,7 +86,7 @@ defines the data model.
 
 ## Granularity: code entities, not files
 
-Extraction operates over the CBM graph's entity nodes — functions,
+Extraction operates over the indexer graph's entity nodes — functions,
 classes, methods, symbols — not files. A file is a container; its
 functions can belong to different semantic frames.
 
@@ -110,9 +110,9 @@ code and its git history. No external control.
 |---|---|
 | Path structure (directories, nesting, counts) | Filesystem |
 | Filename tokens (after framework-aware stripping) | Filesystem |
-| Symbol names (functions, classes, methods) | CBM |
-| Import / call graph topology | CBM |
-| File and entity sizes | CBM |
+| Symbol names (functions, classes, methods) | Indexer |
+| Import / call graph topology | Indexer |
+| File and entity sizes | Indexer |
 | Git co-change history | git log |
 
 Explicitly rejected as extraction signals:
@@ -237,7 +237,7 @@ Two files with no shared imports and never co-changing might still be
 a tight topical unit if their content vocabulary overlaps heavily —
 or vice versa.
 
-Per file, extract: identifiers from CBM (function/class/method/symbol
+Per file, extract: identifiers from the indexer (function/class/method/symbol
 names), comments (block, line, JSDoc, docstrings), path tokens after
 framework-aware stripping. The result is a text blob per file.
 
@@ -268,7 +268,7 @@ All tiers intrinsic and deterministic.
 
 ### 1. Meta-metrics pass (free)
 
-Read from the existing CBM index. Entity count, edge density, degree
+Read from the existing indexer index. Entity count, edge density, degree
 distribution skew, directory depth and breadth, language/type
 heterogeneity. Compute a complexity score for observability and
 reporting only — it does NOT gate any downstream step. Earlier drafts
@@ -284,7 +284,7 @@ combined distance described in "Co-change as semantic signal."
 
 | Algorithm | Approach | Trade-off |
 |---|---|---|
-| Weighted community detection (Leiden) | Community detection on CBM edges, edge weights combine imports + name-tokens + co-change | Graph-native, original spec direction, well-understood — note: this is *inspired by* ACDC's pattern-driven approach but uses Leiden rather than being a literal ACDC pattern |
+| Weighted community detection (Leiden) | Community detection on the indexer's edges, edge weights combine imports + name-tokens + co-change | Graph-native, original spec direction, well-understood — note: this is *inspired by* ACDC's pattern-driven approach but uses Leiden rather than being a literal ACDC pattern |
 | TF-IDF + HDBSCAN | Vectorise text per file, cluster by cosine distance combined with co-change | Cheap, deterministic, no model dependency |
 | Pinned-embedding + HDBSCAN | Sentence-transformer per file, cluster by cosine distance combined with co-change | Stronger topical signal at higher cost |
 
@@ -559,9 +559,9 @@ intrinsic data plus maintainer judgement.
    Leiden case: Jaccard on stripped filename + symbol-name sets
    (deterministic, cheap), edit distance (deterministic, slower).
    Lean: Jaccard for v1.
-6. **Auxiliary content not in CBM.** Images, fonts, lockfiles aren't
-   parsed by CBM grammars and have no graph presence. Discovery is via
-   filesystem walk, not the CBM index. The auxiliary detection layer
+6. **Auxiliary content not in the indexer.** Images, fonts, lockfiles aren't
+   parsed by the indexer's grammars and have no graph presence. Discovery is via
+   filesystem walk, not the indexer index. The auxiliary detection layer
    needs both data sources with consistent rules between them. Not yet
    designed.
 7. **α, β, γ tuning per pipeline.** Edge-weight (Leiden) and

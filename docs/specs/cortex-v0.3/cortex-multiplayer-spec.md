@@ -3,7 +3,7 @@
 **Status:** Design spec complete, prototype shipped
 **Date:** April 2026
 **Owner:** Rasmus / @kalms
-**Context:** Cortex v0.2.0 (CBM-integrated MCP server with 3D viewer) extended into a multiplayer engineering surface
+**Context:** Cortex v0.2.0 (indexer-integrated MCP server with 3D viewer) extended into a multiplayer engineering surface
 
 **Artifacts:**
 - `cortex-frames-prototype-v5.html` — canonical 2D prototype (dark mode + light mode, toggle in controls panel)
@@ -359,12 +359,12 @@ This section is written with the caveat that I'm working from memory of prior co
 ### 7.1 What exists in `github.com/kalms/cortex` (inferred)
 
 - TypeScript codebase, Node 20+
-- `better-sqlite3` as storage, with `codebase-memory-mcp` (CBM) attached read-only for structural code data
+- `better-sqlite3` as storage, with cortex-indexer's DB attached read-only for structural code data
 - MCP SDK with `zod` for schema validation
 - 18 MCP tools exposed (as of v0.2.0 in April 2026)
 - 3 skills, 2 hooks shipped as a Claude Code plugin
 - 3D WebGL viewer using Three.js / 3d-force-graph
-- CBM integration for Vue/Svelte indexing added in v0.2.0
+- Indexer integration for Vue/Svelte indexing added in v0.2.0
 - Native decision tracking in a unified SQLite graph
 - Positioned as a decision-provenance substrate consumable by agent platforms via MCP
 
@@ -386,7 +386,7 @@ Comparing the prototype's data model to what's likely in the repo:
 **Probably exists:**
 - Decision entity with id, summary, state, governs, supersession edges
 - Agent identity and provenance tracking
-- Some form of code-structural graph via CBM
+- Some form of code-structural graph via the indexer
 
 **Probably missing / needs extension:**
 - Rich decision narrative fields: `problem`, `resolution`, `rationale`, `alternatives[]`
@@ -468,7 +468,7 @@ The extraction algorithm runs as a deterministic cascade. Cheap checks first, ex
 
 Files matching no template glob are left unassigned (section 8.5). Templates are versioned content — adding a new framework is a template library addition, not an algorithm change.
 
-**Tier 3 — ACDC on demand.** Pattern-driven clustering derived from Tzerpos & Holt's ACDC (2000). Runs the dominator, support-library, dispatcher, and orphan-adoption patterns against the import graph from CBM. Does NOT run automatically. Invoked explicitly by an agent or human operator via an MCP tool, scoped to a whole repo or a subset (typically the unassigned files from baseline extraction).
+**Tier 3 — ACDC on demand.** Pattern-driven clustering derived from Tzerpos & Holt's ACDC (2000). Runs the dominator, support-library, dispatcher, and orphan-adoption patterns against the import graph from the indexer. Does NOT run automatically. Invoked explicitly by an agent or human operator via an MCP tool, scoped to a whole repo or a subset (typically the unassigned files from baseline extraction).
 
 The rationale for making Tier 3 opt-in rather than automatic: baseline Tier 1/2 is fast and predictable; Tier 3 requires graph queries that may be expensive on large codebases; and most repos don't benefit enough from Tier 3 to justify always paying its cost. Agents invoking Tier 3 is a first-class use case — an agent trying to understand an unfamiliar repo can request deeper analysis when baseline output leaves too much unassigned.
 
@@ -501,11 +501,11 @@ Unassigned is not a warning. It's a legitimate ongoing state. A codebase with 60
 
 ### 8.6 Determinism requirements
 
-Team consistency is achieved through determinism, not through shared state. Every client runs the same algorithm against the same committed code and the same CBM graph, producing identical output. This is a load-bearing property.
+Team consistency is achieved through determinism, not through shared state. Every client runs the same algorithm against the same committed code and the same indexer graph, producing identical output. This is a load-bearing property.
 
 Requirements:
 
-- Every SQL query against CBM must have explicit `ORDER BY` clauses
+- Every SQL query against the indexer must have explicit `ORDER BY` clauses
 - All tie-breaking is lexicographic (sort by ID, then by path, deterministically)
 - No use of random seeds or hash-table iteration order
 - Template library is versioned; output records the template version used
@@ -545,7 +545,7 @@ frame_extraction_runs(
 )
 ```
 
-The cache key is a hash of inputs: git HEAD + CBM graph version + template library version + extractor algorithm version. If any input changes, the cache is stale and extraction re-runs.
+The cache key is a hash of inputs: git HEAD + indexer graph version + template library version + extractor algorithm version. If any input changes, the cache is stale and extraction re-runs.
 
 ### 8.8 Re-run policy — always wipe
 
@@ -557,7 +557,7 @@ Rationale: keeps the mental model clean. Baseline extraction is ground truth; Ti
 
 Triggers for re-extraction:
 
-- **CBM reindex completes** — the graph changed, cache is stale, recompute
+- **Indexer reindex completes** — the graph changed, cache is stale, recompute
 - **Git HEAD advances** — the committed code changed, cache is stale, recompute
 - **Template library version bumps** — algorithm changed, recompute
 - **Explicit invocation** — agent or user requested a re-run (possibly with a Tier override)
@@ -638,17 +638,17 @@ The following are genuine uncertainties at the time of writing. A new agent shou
 
 **Will Tier 1/2 produce output meaningfully better than "just use top-level directories"?** Unknown. Most well-organized codebases have already structured their `src/` reasonably. The marginal value of Tier 2's framework templates over pure directory output is an open empirical question. This should be tested early — run "top-level dirs only" as a baseline against the test corpus before investing heavily in Tier 2 template library breadth.
 
-**Performance at scale.** Tier 3 ACDC queries against CBM's import graph for a large repo (e.g. Kubernetes, ~60k files) have not been benchmarked. "Expensive" is an assumption, not a measurement. If Tier 3 turns out to be fast even at scale, the rationale for making it opt-in weakens.
+**Performance at scale.** Tier 3 ACDC queries against the indexer's import graph for a large repo (e.g. Kubernetes, ~60k files) have not been benchmarked. "Expensive" is an assumption, not a measurement. If Tier 3 turns out to be fast even at scale, the rationale for making it opt-in weakens.
 
 **ML/research codebases are underserved.** Baseline output on a codebase like `transformers` or `scikit-learn` will be something like `{src, tests, docs, examples, scripts}` — technically correct but uninformative. This effectively positions Cortex as a web-app tool unless ML-specific templates are added. Not a blocker for v1, but a significant scope limitation that should be honest about.
 
 **Markdown labeling hit rate.** The README-section-matching signal is novel and promising, but has unknown hit rate. Many repos have bad READMEs or no README structure that matches code files. The signal is a bonus when it fires, not load-bearing.
 
-**CBM schema assumptions.** The queries proposed for Tier 3 (dominator, support-library, etc.) assume specific table and column names in the CBM SQLite schema (e.g. `cbm.nodes`, `cbm.edges`, `kind`, `src_id`). These names should be verified against the actual CBM output before coding. The research brief flagged this explicitly — don't bake CBM-specific edge type names into algorithm code; treat CBM as an adapter over "a queryable edges table" so a future native implementation is easy.
+**Indexer schema assumptions.** The queries proposed for Tier 3 (dominator, support-library, etc.) assume specific table and column names in the indexer's SQLite schema (e.g. the indexer's `nodes` table, the indexer's `edges` table, `kind`, `src_id`). These names should be verified against the actual indexer output before coding. The research brief flagged this explicitly — don't bake indexer-specific edge type names into algorithm code; treat the indexer as an adapter over "a queryable edges table" so a future native implementation is easy.
 
 **The fragmented-domain problem is not solved.** If auth code lives in `middleware/`, `models/`, and `routes/`, Tier 1 and Tier 2 will produce three separate frames, none of them called "auth." The research brief's position is that frames are structural ("where things are") and semantic cross-cutting ("show me auth") is a separate feature handled by search and decisions. This is a reasonable architectural split but will be a real product gap — users will ask for it. Name the concern explicitly rather than hoping users don't notice.
 
-**Re-extraction frequency vs. stability trade-off.** Always-wipe is clean, but if CBM reindexes trigger re-extraction and re-extraction produces slightly different frames (because, e.g., new files tipped a tier decision), the canvas visibly reshuffles. This hasn't been observed yet but is predictable. Possible mitigation: hysteresis on tier selection (don't switch tiers unless the decision criteria are exceeded by a margin, not just barely).
+**Re-extraction frequency vs. stability trade-off.** Always-wipe is clean, but if indexer reindexes trigger re-extraction and re-extraction produces slightly different frames (because, e.g., new files tipped a tier decision), the canvas visibly reshuffles. This hasn't been observed yet but is predictable. Possible mitigation: hysteresis on tier selection (don't switch tiers unless the decision criteria are exceeded by a margin, not just barely).
 
 ### 8.13 Implementation order
 
@@ -660,7 +660,7 @@ When a new agent picks up this work, recommended order:
 4. **Stand up the agent MCP surface.** `get_frame_for_file`, `get_files_in_frame`, `list_frames`. Agents can read frames even though only Tier 1 produces them.
 5. **Add Tier 2 for one framework.** Pick Next.js or Rails — both well-documented, both common. Template + confident framework detection. Iterate until output is obviously better than Tier 1 on that framework's repos.
 6. **Expand the template library.** 6–8 frameworks for v1: `nextjs-app`, `nuxt-app`, `rails-app`, `django-project`, `monorepo-js-turbo`, `monorepo-js-nx`, `go-stdlib-service`, `rust-crate`.
-7. **Implement Tier 3 as a manually-invoked tool.** ACDC patterns over CBM graph. Confirm the CBM schema before coding queries. Start with the dominator pattern only — it's the most load-bearing.
+7. **Implement Tier 3 as a manually-invoked tool.** ACDC patterns over the indexer graph. Confirm the indexer schema before coding queries. Start with the dominator pattern only — it's the most load-bearing.
 8. **Run the test corpus.** Score Tier 1 output, Tier 2 output, and Tier 3 output across 25 repos. Use both MoJoFM and the casual-viewer test. Iterate on the parts that score worst.
 
 Steps 1–4 unblock the ambient canvas against real data. Steps 5–8 earn the algorithmic claim.
@@ -864,7 +864,7 @@ Needed to make the `state` derivation story real:
 
 - **Input**: decision (text) + current source of governed files/functions
 - **Output**: `match` | `partial-match` | `drift` with optional list of specific nonconformant nodes
-- **Cache invalidation**: triggered when any governed file's content hash changes (via CBM or equivalent watcher)
+- **Cache invalidation**: triggered when any governed file's content hash changes (via the indexer or equivalent watcher)
 - **Performance**: lazy — decisions reconcile on demand (when focused, when queried), not continuously
 - **First version**: crude string matching on key phrases; mark stale when matches drop below threshold
 - **Mature version**: LLM-driven semantic comparison; cache results per decision+source-hash pair

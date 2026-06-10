@@ -30,7 +30,7 @@ Force-directed simulation with the following forces:
 |---|---|---|
 | Layer adjacency | Taxonomy (`frame-ranking.md`) | Spring-force between same-layer frames; medium between adjacent layers (vertical slice); repulsion between non-adjacent |
 | Bare-node bridges | Affinity (`frame-extraction.md`) | Attractive force between frame pairs proportional to bridging entity count |
-| Import neighbourhoods | CBM edge graph | Secondary attractive force between frames with high cross-frame import density |
+| Import neighbourhoods | Indexer edge graph | Secondary attractive force between frames with high cross-frame import density |
 | Decision governance | Decision graph | Tertiary attractive force between frames sharing governing decisions |
 | Frame mass | Entity count | Heavier frames move less under applied forces (inertia) |
 | Collision | Frame bounding boxes | Frames don't overlap (hard constraint) |
@@ -240,7 +240,7 @@ Inputs:
 Layout is deterministic from shared state, so re-layout fires
 whenever the inputs change:
 
-- Extraction re-run (CBM reindex, git HEAD advance, algorithm version
+- Extraction re-run (indexer reindex, git HEAD advance, algorithm version
   bump)
 - Ranking re-run (taxonomy classification update, ambient budget
   change)

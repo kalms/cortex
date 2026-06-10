@@ -149,7 +149,7 @@ Cortex emits structured events for decision lifecycle and git activity, persists
 
 ### Why two threads, not a single-threaded event loop
 
-MCP latency must stay sub-10ms. Event persistence + mutation derivation + WebSocket fan-out add non-trivial work after each `DecisionService` write. On a single thread, a 10-client broadcast with slow sockets would stall the next MCP call. The worker boundary isolates all of that. The extension surface (gap detection, Louvain, CBM re-index) slots in without any future refactor.
+MCP latency must stay sub-10ms. Event persistence + mutation derivation + WebSocket fan-out add non-trivial work after each `DecisionService` write. On a single thread, a 10-client broadcast with slow sockets would stall the next MCP call. The worker boundary isolates all of that. The extension surface (gap detection, Louvain, indexer re-index) slots in without any future refactor.
 
 Alternative considered: async queue on main thread. Rejected because SQLite `better-sqlite3` is synchronous and would block the event loop on every insert.
 
