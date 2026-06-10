@@ -134,7 +134,7 @@ TEST(store_node_crud) {
     int rc = ctx_store_find_node_by_qn(s, "test", "test.main.Foo", &found);
     ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_STR_EQ(found.name, "Foo");
-    ASSERT_STR_EQ(found.label, "Function");
+    ASSERT_STR_EQ(found.label, "function"); /* kind is canonically lowercase post-Phase-4 */
     ASSERT_STR_EQ(found.file_path, "main.go");
     ASSERT_EQ(found.start_line, 10);
     ASSERT_EQ(found.end_line, 20);
@@ -181,15 +181,10 @@ TEST(store_node_dedup) {
     ctx_store_upsert_node(s, &n2);
 
     int cnt = ctx_store_count_nodes(s, "test");
-    ASSERT_EQ(cnt, 1);
-
-    /* Verify it was updated */
-    ctx_node_t found = {0};
-    ctx_store_find_node_by_qn(s, "test", "test.main.Foo", &found);
-    ASSERT_NOT_NULL(found.properties_json);
-    /* Should contain "updated" */
-    ASSERT(strstr(found.properties_json, "updated") != NULL);
-    ctx_node_free_fields(&found);
+    /* Post-Phase-4 the store does NOT dedup on insert — it is a plain INSERT;
+     * dedup moved upstream (delete-by-file + file-hash skipping). Two upserts of
+     * the same QN therefore yield two distinct rows. */
+    ASSERT_EQ(cnt, 2);
 
     ctx_store_close(s);
     PASS();
@@ -366,16 +361,18 @@ TEST(store_node_batch_upsert) {
     int cnt = ctx_store_count_nodes(s, "test");
     ASSERT_EQ(cnt, 150);
 
-    /* Re-upsert should not duplicate */
+    /* Re-inserting the same batch does NOT dedup (plain INSERT, post-Phase-4):
+     * the count doubles and a fresh set of ids is assigned. */
     int64_t ids2[150];
     rc = ctx_store_upsert_node_batch(s, nodes, 150, ids2);
     ASSERT_EQ(rc, CTX_STORE_OK);
     cnt = ctx_store_count_nodes(s, "test");
-    ASSERT_EQ(cnt, 150);
+    ASSERT_EQ(cnt, 300);
 
-    /* IDs should be the same */
+    /* IDs are distinct from the first batch (new rows, not updated in place). */
     for (int i = 0; i < 150; i++) {
-        ASSERT_EQ(ids[i], ids2[i]);
+        ASSERT_GT(ids2[i], 0);
+        ASSERT(ids[i] != ids2[i]);
     }
 
     ctx_store_close(s);
@@ -407,8 +404,11 @@ TEST(store_cascade_delete) {
     ctx_edge_t e = {.project = "test", .source_id = id1, .target_id = id2, .type = "CALLS"};
     ctx_store_insert_edge(s, &e);
 
-    /* Delete project — should cascade */
-    ctx_store_delete_project(s, "test");
+    /* Post-Phase-4, nodes/edges are Cortex-owned with no FK to ctx_projects, so
+     * delete_project only drops the registry row. Node cleanup goes through
+     * delete_nodes_by_project; deleting the nodes cascades to their edges via
+     * edges.source_id/target_id REFERENCES nodes(id) ON DELETE CASCADE. */
+    ctx_store_delete_nodes_by_project(s, "test");
 
     int ncnt = ctx_store_count_nodes(s, "test");
     int ecnt = ctx_store_count_edges(s, "test");
@@ -1274,12 +1274,12 @@ TEST(store_delete_by_label_verify_remaining) {
     ctx_node_t found = {0};
     rc = ctx_store_find_node_by_qn(s, "test", "test.ClassB", &found);
     ASSERT_EQ(rc, CTX_STORE_OK);
-    ASSERT_STR_EQ(found.label, "Class");
+    ASSERT_STR_EQ(found.label, "class"); /* kind is canonically lowercase post-Phase-4 */
     ctx_node_free_fields(&found);
 
     rc = ctx_store_find_node_by_qn(s, "test", "test.MethodD", &found);
     ASSERT_EQ(rc, CTX_STORE_OK);
-    ASSERT_STR_EQ(found.label, "Method");
+    ASSERT_STR_EQ(found.label, "method");
     ctx_node_free_fields(&found);
 
     /* Deleted ones should be gone */
@@ -1366,23 +1366,30 @@ TEST(store_node_upsert_updates_fields) {
                      .end_line = 60,
                      .properties_json = "{\"version\":2}"};
     int64_t id2 = ctx_store_upsert_node(s, &n2);
-    ASSERT_EQ(id1, id2); /* Same ID — updated, not duplicated */
+    /* Post-Phase-4 the store does NOT update in place — re-inserting the same QN
+     * creates a distinct row (dedup moved upstream). id1 keeps its original
+     * fields; id2 holds the new ones. */
+    ASSERT(id1 != id2);
 
-    /* Count should still be 1 */
     int cnt = ctx_store_count_nodes(s, "test");
-    ASSERT_EQ(cnt, 1);
+    ASSERT_EQ(cnt, 2);
 
-    /* Verify fields were updated */
+    /* id1 retains the ORIGINAL fields (not mutated). */
     ctx_node_t found = {0};
     int rc = ctx_store_find_node_by_id(s, id1, &found);
     ASSERT_EQ(rc, CTX_STORE_OK);
-    ASSERT_STR_EQ(found.label, "Method");
-    ASSERT_STR_EQ(found.file_path, "new.go");
-    ASSERT_EQ(found.start_line, 50);
-    ASSERT_EQ(found.end_line, 60);
-    ASSERT(strstr(found.properties_json, "version") != NULL);
-    ASSERT(strstr(found.properties_json, "2") != NULL);
+    ASSERT_STR_EQ(found.file_path, "old.go");
     ctx_node_free_fields(&found);
+
+    /* id2 holds the new fields. */
+    ctx_node_t found2 = {0};
+    rc = ctx_store_find_node_by_id(s, id2, &found2);
+    ASSERT_EQ(rc, CTX_STORE_OK);
+    ASSERT_STR_EQ(found2.label, "method"); /* kind is canonically lowercase */
+    ASSERT_STR_EQ(found2.file_path, "new.go");
+    ASSERT_EQ(found2.start_line, 50);
+    ASSERT(strstr(found2.properties_json, "version") != NULL);
+    ctx_node_free_fields(&found2);
 
     ctx_store_close(s);
     PASS();

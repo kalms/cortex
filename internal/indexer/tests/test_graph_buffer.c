@@ -780,12 +780,12 @@ TEST(gbuf_flush_verify_store_data) {
     rc = ctx_store_find_node_by_qn(store, "proj", "proj::alpha", &out);
     ASSERT_EQ(rc, CTX_STORE_OK);
     ASSERT_STR_EQ(out.name, "alpha");
-    ASSERT_STR_EQ(out.label, "Function");
+    ASSERT_STR_EQ(out.label, "function"); /* kind is canonically lowercase post-Phase-4 */
     ctx_node_free_fields(&out);
 
     rc = ctx_store_find_node_by_qn(store, "proj", "proj::Beta", &out);
     ASSERT_EQ(rc, CTX_STORE_OK);
-    ASSERT_STR_EQ(out.label, "Class");
+    ASSERT_STR_EQ(out.label, "class");
     ctx_node_free_fields(&out);
 
     ctx_store_close(store);
