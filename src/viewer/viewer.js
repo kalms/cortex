@@ -1,5 +1,5 @@
 import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -146,6 +146,17 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, frameCoverage, b
       DECISIONS[d.id] = d;
     }
     FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+
+    // 5b. A decision-governed frame the ranking left non-ambient would never
+    //     render, hiding its decisions (e.g. cortex-indexer's governed frames
+    //     were all non-ambient). Promote any such frame into the render set.
+    const frameMeta = new Map(
+      (frameMap.frames || []).map((f) => [
+        String(f.id),
+        { name: f.name, w: f.w, h: f.h, count: f.count },
+      ]),
+    );
+    FRAMES = withGovernedFramesRendered(FRAMES, FRAME_GOVERNANCE, frameMeta);
 
     // 6. Rebuild the in-canvas graph (re-uses existing buildGraph; that fn
     // already reads from FRAMES/NODE_CFG/FILE_NAMES/FRAME_GOVERNANCE/DECISIONS).
