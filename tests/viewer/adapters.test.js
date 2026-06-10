@@ -4,6 +4,7 @@ import {
   groupNodesIntoFrames,
   basenames,
   buildFrameGovernance,
+  withGovernedFramesRendered,
   edgesInternalIndex,
   frameCoverage,
   buildFramePathIndex,
@@ -163,5 +164,41 @@ describe("frameCoverage", () => {
       { id: "2", kind: "file", file_path: "src/b.ts", data: { frame_id: "0" } },
     ];
     expect(frameCoverage(nodes)).toEqual({ fileNodes: 2, framedNodes: 0, zeroFrames: true });
+  });
+});
+
+describe("withGovernedFramesRendered", () => {
+  const meta = new Map([
+    ["5", { name: "extract", w: 90, h: 70, count: 11 }],
+    ["8", { name: "cluster:8", w: 80, h: 60, count: 4 }],
+  ]);
+
+  it("promotes governed frames missing from the rendered (ambient) set", () => {
+    const ambient = [{ id: "6", name: "extract", x: 0.5, y: 0.5, w: 100, h: 80 }];
+    const gov = { "5": ["D-42kw"], "8": ["D-sheh"] };
+    const out = withGovernedFramesRendered(ambient, gov, meta);
+    const ids = out.map((f) => String(f.id));
+    expect(ids).toContain("5");
+    expect(ids).toContain("8");
+    expect(ids).toContain("6"); // ambient preserved
+    const five = out.find((f) => f.id === "5");
+    expect(five.promotedForGovernance).toBe(true);
+    expect(five.name).toBe("extract");
+    // positioned (normalized, on the reserved strip) so the renderer can draw it
+    expect(five.x).toBeGreaterThanOrEqual(0);
+    expect(five.x).toBeLessThanOrEqual(1);
+    expect(five.y).toBeGreaterThan(0);
+  });
+
+  it("does not duplicate a governed frame already in the ambient set", () => {
+    const ambient = [{ id: "5", name: "extract", x: 0.4, y: 0.4, w: 100, h: 80 }];
+    const out = withGovernedFramesRendered(ambient, { "5": ["D-42kw"] }, meta);
+    expect(out.filter((f) => String(f.id) === "5")).toHaveLength(1);
+    expect(out).toBe(ambient); // nothing missing → same array, no work
+  });
+
+  it("returns the input unchanged when there is no governance", () => {
+    const ambient = [{ id: "1", x: 0.2, y: 0.2, w: 100, h: 80 }];
+    expect(withGovernedFramesRendered(ambient, {}, meta)).toBe(ambient);
   });
 });
