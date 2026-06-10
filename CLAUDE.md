@@ -225,11 +225,21 @@ explicit user ratification (`update_decision`). See
 
 ## Tools Available
 
+For the full per-tool reference — params, return shapes, the `repo_path`
+routing contract, and error shapes — see
+[docs/mcp-tools.md](docs/mcp-tools.md).
+
 ### Decision tools
 `create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`, `record_reconciliation`, `pending_reconciliations`
 
-### Code tools
-`search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `list_projects`, `index_status`, `index_repository`, `detect_changes`, `delete_project`
+### Code & graph tools
+`search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `check_contracts`
+
+### Index lifecycle tools
+`index_repository`, `detect_changes`, `index_status`, `list_projects`, `delete_project`, `ingest_traces`
+
+### Pull-request tools
+`open_pr`, `add_pr_touch`, `merge_pr`, `get_pr`
 
 ## Viewer
 
