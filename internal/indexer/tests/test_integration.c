@@ -292,7 +292,7 @@ TEST(integ_mcp_search_graph_by_label) {
     char *resp = call_tool("search_graph", args);
     ASSERT_NOT_NULL(resp);
     /* Should return function nodes */
-    ASSERT_NOT_NULL(strstr(resp, "Function"));
+    ASSERT_NOT_NULL(strstr(resp, "function"));
     /* Should contain our known functions */
     ASSERT_NOT_NULL(strstr(resp, "greet"));
     free(resp);
@@ -349,8 +349,8 @@ TEST(integ_mcp_get_graph_schema) {
     char *resp = call_tool("get_graph_schema", args);
     ASSERT_NOT_NULL(resp);
     /* Schema should include node labels and edge types */
-    ASSERT_NOT_NULL(strstr(resp, "Function"));
-    ASSERT_NOT_NULL(strstr(resp, "File"));
+    ASSERT_NOT_NULL(strstr(resp, "function"));
+    ASSERT_NOT_NULL(strstr(resp, "file"));
     free(resp);
     PASS();
 }

@@ -53,7 +53,16 @@ TEST(system_info_idempotent) {
 TEST(default_worker_count_initial) {
     ctx_system_info_t info = ctx_system_info();
     int count = ctx_default_worker_count(true);
-    ASSERT_EQ(count, info.total_cores);
+    /* Initial indexing uses all cores, capped by RAM headroom (~2 GB/worker) so
+     * we don't OOM — see ctx_default_worker_count. Mirror that formula here so
+     * the assertion is correct on RAM-constrained machines, not just core==count. */
+    size_t ram_gb = info.total_ram / ((size_t)1024 * 1024 * 1024);
+    int by_ram = (int)(ram_gb / 2);
+    int expected = info.total_cores < by_ram ? info.total_cores : by_ram;
+    if (expected < 1) {
+        expected = 1;
+    }
+    ASSERT_EQ(count, expected);
     PASS();
 }
 

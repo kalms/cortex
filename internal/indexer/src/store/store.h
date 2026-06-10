@@ -213,6 +213,13 @@ bool ctx_store_check_integrity(ctx_store_t *s);
 /* Open database for a named project in the default cache dir. */
 ctx_store_t *ctx_store_open(const char *project);
 
+/* Provision the Cortex-owned graph tables (nodes/edges/edge_annotations + their
+ * indexes) in this store. In-memory stores get them automatically at open time;
+ * file-backed stores normally inherit them from Cortex's GraphStore.migrate() or
+ * sqlite_writer. Call this only for a *standalone* file store that no Cortex
+ * process will manage (e.g. a focused persistence test). Idempotent. */
+int ctx_store_ensure_graph_schema(ctx_store_t *s);
+
 /* Close the store and free all resources. NULL-safe. */
 void ctx_store_close(ctx_store_t *s);
 

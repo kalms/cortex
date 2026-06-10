@@ -1,0 +1,61 @@
+name: CI
+
+# Runs the native C indexer test suite and the TypeScript suite on every push to
+# main and every PR. The C suite (`make -f Makefile.indexer test`) had silently
+# rotted to 196 failures because nothing ran it; this workflow is the gate that
+# keeps it honest. Make these two jobs required status checks in branch
+# protection so a red suite blocks merge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  c-suite:
+    name: C indexer suite (make test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # build-essential: gcc/g++/make (LDFLAGS uses -lstdc++).
+          # zlib1g-dev: -lz. libgit2-dev: optional fast git-history path
+          # (Makefile auto-detects via pkg-config; falls back to `git log`).
+          sudo apt-get install -y build-essential pkg-config zlib1g-dev libgit2-dev
+
+      - name: Build + run C test suite (asan + ubsan)
+        working-directory: internal/indexer
+        run: make -f Makefile.indexer test
+
+  ts-suite:
+    name: TypeScript suite (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install build dependencies
+        # `npm ci` runs the postinstall hook (scripts/build-indexer.sh), which
+        # compiles bin/cortex-indexer — the MCP-contract tests exercise it.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config zlib1g-dev libgit2-dev
+
+      - name: Install npm dependencies (builds the indexer via postinstall)
+        run: npm ci
+
+      - name: Run TypeScript test suite
+        run: npm test
