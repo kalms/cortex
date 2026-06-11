@@ -13,7 +13,7 @@
 The plugin's SessionStart hook (`hooks/check-index.sh`) will tell you the
 current index state; act on it.
 
-## Tool routing — read this before reaching for Grep or Read
+## Tool routing — READ THIS BEFORE REACHING FOR GREP OR READ
 
 | If you want to… | Use | Not |
 |---|---|---|
@@ -29,6 +29,31 @@ Fall back to `Grep`/`Glob`/`Read` only when:
 - the target is a non-code file (config, JSON, Markdown, log)
 - you need a regex feature `search_code` doesn't support
 - the Cortex tool returned empty AND you've confirmed the index is current
+
+### This routing is hook-enforced, not just advisory
+
+On an **indexed** repo, a `PreToolUse` hook
+([hooks/prefer-cortex.sh](hooks/prefer-cortex.sh), wired in
+[hooks/hooks.json](hooks/hooks.json) on `Grep`, `Glob`, and `Bash`) **blocks
+code-targeted searches** and redirects you to the Cortex tool — the redirect
+text comes back as the tool-denial reason, so re-issue with the named tool. The
+policy is **block code, allow non-code**:
+
+- **Denied:** `Grep`/`Glob` over code, and `Bash` code searches (`grep`/`rg`/
+  `ag`/`ack`, including `git grep`, `xargs grep`, etc.) — including a bare,
+  unscoped `Grep(pattern=…)`. Use `search_code` / `search_graph` / `trace_path`
+  instead.
+- **Allowed:** searches scoped to non-code files (a non-code `glob`/`type`/path,
+  e.g. `*.md`, `*.json`); greps that only filter a pipe (`ps aux | grep node`);
+  anything on an **unindexed** repo (Cortex can't answer there).
+- **Escape hatch** for a genuine code grep Cortex can't do (a regex feature
+  `search_code` lacks, or Cortex already returned empty on a current index):
+  run it as a `Bash` `grep`/`rg` command containing the token `cortex:grep-ok`.
+
+The hook is degrade-safe (missing `jq` / any failure → allows) and loads at
+**session start**, so changes to it take effect on the next session. It does
+*not* touch `Read`/`Edit` or MCP tools. Rationale + alternatives: decision
+`D-sq61`.
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
@@ -91,21 +116,6 @@ even if your shell cwd is in `cortex`.
 - **`PathNotFoundError`** / **`NotAGitRepoError`** — bad path or
   subdirectory; the latter carries the inferred `gitRoot` so you can
   re-issue without a second lookup.
-
-### Why this matters
-
-Before this contract, the MCP server pinned `repoPath` at startup, so
-every decision write from a cortex-plugin session pooled into the home
-repo's `.cortex/decisions.db` regardless of which project the agent was
-actually reasoning about. The historical 14+ mis-routed decisions in
-this repo are evidence; use `cortex decision rehome <id> --to=<path>`
-to move them to the right repo's DB when you spot one.
-
-See:
-- Design spec: [docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md)
-- Implementation plan: [docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md](docs/superpowers/plans/2026-06-04-mcp-multi-project-routing.md)
-- Field report: [docs/field reports/field-report-2026-05-26-mcp-multi-project-routing.md](docs/field%20reports/field-report-2026-05-26-mcp-multi-project-routing.md)
-- Regression test: [tests/regression/decisions-cross-repo-isolation.test.ts](tests/regression/decisions-cross-repo-isolation.test.ts)
 
 ## Decision capture — when to use it
 
