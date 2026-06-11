@@ -36,6 +36,7 @@ export type ErrorReason =
   | "fs_error"
   | "ambiguous_input"
   | "not_reconcilable"
+  | "invalid_pattern"
   | "indexer_unavailable";
 
 export function ok(text: string) {
