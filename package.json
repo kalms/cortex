@@ -10,7 +10,7 @@
   "scripts": {
     "postinstall": "node scripts/fetch-indexer.mjs",
     "fetch-indexer": "node scripts/fetch-indexer.mjs",
-    "build": "tsc",
+    "build": "tsc && cp src/events/worker-bootstrap.mjs dist/events/ && cp src/events/worker/schema.sql dist/events/worker/",
     "start": "node dist/index.js",
     "dev": "CORTEX_VIEWER_PORT=3334 tsx src/index.ts",
     "eval": "tsx evals/src/cli.ts",
