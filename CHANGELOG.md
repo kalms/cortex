@@ -4,6 +4,18 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-06-11
+
+### Fixed
+
+- **Clean builds produced a `dist/` that crashed at startup**: `npm run build`
+  (`tsc` alone) copied neither `src/events/worker/schema.sql` (read by
+  `EventPersister` at boot) nor `src/events/worker-bootstrap.mjs` (spawned by
+  the worker supervisor) into `dist/`. The build script now copies both.
+  Surfaced by Mesh, which spawns `node dist/index.js` as its substrate
+  sidecar; verified by a clean-build spawn + `/api/projects` health check +
+  stdin-EOF shutdown.
+
 ## [0.3.1] — 2026-06-11
 
 A reliability + enforcement patch: make `search_code` robust to bad patterns and
@@ -148,6 +160,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.2]: https://github.com/ruevu/cortex/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ruevu/cortex/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ruevu/cortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ruevu/cortex/releases/tag/v0.2.0
