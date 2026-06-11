@@ -4,6 +4,47 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-06-11
+
+A reliability + enforcement patch: make `search_code` robust to bad patterns and
+timed-out searches, and **enforce** the Cortex-over-grep routing at the harness
+instead of merely documenting it — plus a complete MCP tool reference.
+
+### Added
+
+- **Cortex-over-grep enforcement hook** (`hooks/prefer-cortex.sh`): a `PreToolUse`
+  hook on `Grep` / `Glob` / `Bash` that, on an indexed repo, **denies
+  code-targeted searches** and redirects to `search_code` / `search_graph` (the
+  redirect rides back as the denial reason). Policy: _block code, allow non-code_
+  — non-code-scoped searches, pipe-filter greps (`ps aux | grep`), and unindexed
+  repos pass; a `cortex:grep-ok` token escapes a deliberate code grep. Catches
+  `git grep` / `xargs grep` / path-prefixed greps. Degrade-safe (any failure →
+  allow). Replaces the prior no-op `echo` hint. (decision `D-sq61`)
+- **MCP tools reference** ([`docs/mcp-tools.md`](docs/mcp-tools.md)): every tool's
+  purpose, params, return shape, the `repo_path` routing contract, and error
+  shapes; linked from `CLAUDE.md` and the architecture index. Synced the
+  `CLAUDE.md` tool list (added the previously-omitted PR/contract tools:
+  `open_pr`, `add_pr_touch`, `merge_pr`, `get_pr`, `ingest_traces`,
+  `check_contracts`).
+
+### Fixed
+
+- **`search_code` returned opaque `internal_error`** mid-traversal on invalid
+  regex patterns (rg exit 2) and timed-out searches (SIGTERM). A pure
+  `classifySearchExec` now maps rg/grep failures to
+  `output | empty | missing | invalid_pattern | error`, routed through by both
+  binaries: bad patterns return an actionable `invalid_pattern`; timeouts and
+  `maxBuffer` overflows degrade to partial-output-or-empty; only genuinely
+  unexpected, output-less failures are errors. `REGEX_ERROR_RE` is anchored to
+  phrases the engines actually emit (verified live against rg + GNU/BSD grep).
+  (decision `D-2exa`)
+
+### Changed
+
+- **Workflow rule**: every merge to `main` now requires a semver bump (default
+  **patch** unless stated minor/major) across `package.json`, `plugin.json`, and
+  `.claude-plugin/marketplace.json`, **plus a `CHANGELOG.md` entry**.
+
 ## [0.3.0] — 2026-06-10
 
 The v0.3 cycle: Cortex grows from a code-graph MCP server into a **decision-provenance
@@ -107,5 +148,6 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.1]: https://github.com/ruevu/cortex/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ruevu/cortex/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ruevu/cortex/releases/tag/v0.2.0

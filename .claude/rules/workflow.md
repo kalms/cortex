@@ -170,8 +170,14 @@ Bump all three version fields together so they never drift:
 - [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json)
 
 (Do **not** touch `CORTEX_INDEXER_VERSION` in `src/indexer/version.ts` — that
-pins the external indexer binary, not the plugin.) Commit the bump as part of
-the merge, e.g. `chore(release): 0.3.1`.
+pins the external indexer binary, not the plugin.)
+
+**Also add a [`CHANGELOG.md`](../../CHANGELOG.md) entry** for the new version —
+**every** release deserves one, patches included. Follow the existing
+[Keep a Changelog](https://keepachangelog.com/) format (`## [x.y.z] — DATE` with
+`Added` / `Changed` / `Fixed` / `Removed` sections as applicable) and add the
+version link reference at the bottom. Commit the bump + changelog as part of the
+merge, e.g. `chore(release): 0.3.1`.
 
 ### Steps
 
