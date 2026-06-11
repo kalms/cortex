@@ -40,12 +40,20 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Grep",
+        "matcher": "Grep|Glob",
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Tip: search_code MCP tool does the same search but annotates each match with the enclosing function/class. Use it for code searches; use Grep for configs, docs, and non-code files.'",
-            "if": "Grep(type:ts)|Grep(type:js)|Grep(type:py)|Grep(type:go)|Grep(type:rust)|Grep(glob:*.vue)|Grep(glob:*.svelte)"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/prefer-cortex.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/prefer-cortex.sh"
           }
         ]
       }
