@@ -156,9 +156,30 @@ QA may be skipped for branches that involve **only**:
 
 ## Merge protocol
 
+### Version bump (required on every merge to `main`)
+
+Every merge to `main` MUST bump the semver version. **Default to a patch bump**
+(`0.3.0` → `0.3.1`) unless the user explicitly states the change is a **minor**
+(`0.3.0` → `0.4.0`, new backward-compatible capability) or **major** (`0.3.0` →
+`1.0.0`, breaking change) release.
+
+Bump all three version fields together so they never drift:
+
+- [`package.json`](../../package.json)
+- [`plugin.json`](../../plugin.json)
+- [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json)
+
+(Do **not** touch `CORTEX_INDEXER_VERSION` in `src/indexer/version.ts` — that
+pins the external indexer binary, not the plugin.) Commit the bump as part of
+the merge, e.g. `chore(release): 0.3.1`.
+
+### Steps
+
 ```bash
 git checkout main
 git merge --no-ff <branch-name>    # preserves branch history
+# bump package.json / plugin.json / .claude-plugin/marketplace.json, then:
+git commit -am "chore(release): <new-version>"
 git branch -d <branch-name>        # clean up local branch
 ```
 
