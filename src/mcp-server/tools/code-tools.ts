@@ -282,6 +282,93 @@ export function resolveRgBinary(): string {
   return cachedRgBinary ?? "rg";
 }
 
+// ---------------------------------------------------------------------------
+// search_code subprocess error classification.
+//
+// rg/grep failures arrive as rejected exec errors with a grab-bag of shapes
+// (numeric exit code, string Node error code, POSIX signal, partial stdout).
+// Before this classifier, the primary rg path mapped *every* non-ENOENT,
+// non-exit-1, no-stdout error to an opaque `internal_error` — so an invalid
+// regex (exit 2) and a timed-out search (SIGTERM) both surfaced as crashes,
+// hiding the actionable "your pattern is bad" signal and masking incomplete
+// searches. The grep-fallback branch already degraded gracefully; this lifts
+// that handling into one pure, tested function used by BOTH binaries.
+//
+// Outcomes:
+//  - output            → use this stdout (full result, or partial from an
+//                        interrupted/over-buffered run — better than nothing)
+//  - empty             → no matches, OR an incomplete search (timeout / read
+//                        error) that produced nothing. Not a crash.
+//  - missing           → binary absent (ENOENT); caller falls back.
+//  - invalid_pattern   → the regex engine rejected the pattern (exit 2 +
+//                        a parse-error stderr). Actionable: fix the pattern.
+//  - error             → genuinely unexpected; only the true-unknown bucket.
+export type SearchExecError = {
+  code?: number | string | null;
+  signal?: string | null;
+  killed?: boolean;
+  stdout?: string;
+  stderr?: string;
+  message?: string;
+};
+
+export type SearchExecOutcome =
+  | { kind: "output"; stdout: string }
+  | { kind: "empty" }
+  | { kind: "missing" }
+  | { kind: "invalid_pattern"; detail: string }
+  | { kind: "error"; detail: string };
+
+// Strong, low-false-positive signals that a non-zero exit was a *pattern*
+// rejection rather than a filesystem/read error. Anchored to phrases the regex
+// engines actually emit, NOT bare words like "unmatched"/"unbalanced" that also
+// appear in read-error paths (`rg: ./unmatched: Permission denied`):
+//   - rg always prefixes pattern errors with "regex parse error:".
+//   - GNU grep: "Invalid regular expression", "brackets ([ ]) not balanced",
+//     "Unmatched ( or \(", "Trailing backslash", "Invalid content of \{\}".
+//   - BSD grep (macOS /usr/bin/grep): "repetition-operator operand invalid",
+//     "parentheses not balanced", "trailing backslash (\)".
+// "unmatched" is matched only when an actual bracket char follows, so a file
+// literally named "unmatched" in a read-error message can't trip it.
+const REGEX_ERROR_RE =
+  /regex parse error|error parsing regex|regular expression|not balanced|trailing backslash|unclosed|invalid repetition|repetition[- ]operator|unmatched\s*[[\](){}]/i;
+
+export function classifySearchExec(err: SearchExecError): SearchExecOutcome {
+  // Binary not on PATH — the caller decides whether to fall back.
+  if (err.code === "ENOENT") return { kind: "missing" };
+
+  const stdout = typeof err.stdout === "string" ? err.stdout : "";
+  const stderr = typeof err.stderr === "string" ? err.stderr : "";
+  const hasOutput = stdout.trim().length > 0;
+
+  // Exit 1 = no matches (rg + grep convention). Normally stdout is empty, but
+  // honor any buffered output if present.
+  if (err.code === 1) return hasOutput ? { kind: "output", stdout } : { kind: "empty" };
+
+  // Exit 2 = a search error. A regex parse error is actionable — surface it so
+  // the agent can fix the pattern. Other exit-2 causes (unreadable file, etc.)
+  // are incomplete searches: prefer partial output, else report empty.
+  if (err.code === 2) {
+    if (!hasOutput && REGEX_ERROR_RE.test(stderr)) {
+      return { kind: "invalid_pattern", detail: stderr.trim() };
+    }
+    return hasOutput ? { kind: "output", stdout } : { kind: "empty" };
+  }
+
+  // Killed by our timeout (SIGTERM) or over the stdout maxBuffer cap. Both mean
+  // an incomplete search — keep whatever completed, else report empty rather
+  // than masquerading as a crash.
+  if (err.killed || err.signal === "SIGTERM" || err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return hasOutput ? { kind: "output", stdout } : { kind: "empty" };
+  }
+
+  // Any other error that still produced usable output: use it.
+  if (hasOutput) return { kind: "output", stdout };
+
+  // Genuinely unexpected and empty — the only true-error bucket.
+  return { kind: "error", detail: err.message ?? String(err) };
+}
+
 // 5B: callIndexer now handles binary in-stdout errors and returns structured responses
 type IndexerCallResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -957,28 +1044,47 @@ export function registerCodeTools(
           // PATH can't hide it; fall back to grep only if rg is truly absent.
           const { stdout } = await execFileAsync(resolveRgBinary(), buildRgArgs(pattern), execOpts);
           grepOutput = stdout;
-        } catch (err: any) {
-          if (err.code === "ENOENT") {
+        } catch (rgErr) {
+          // classifySearchExec turns rg's grab-bag of exit codes/signals into a
+          // small set of outcomes (see its docstring). This is the fix for the
+          // witnessed flaky `internal_error`: a bad regex or a timed-out search
+          // now degrades gracefully instead of surfacing as a crash.
+          const outcome = classifySearchExec(rgErr as SearchExecError);
+          if (outcome.kind === "output") {
+            grepOutput = outcome.stdout;
+          } else if (outcome.kind === "empty") {
+            return empty(`search_code(${pattern})`);
+          } else if (outcome.kind === "invalid_pattern") {
+            return errorResponse(
+              "invalid_pattern",
+              `Pattern rejected by ripgrep: ${outcome.detail}\n` +
+                "search_code uses ripgrep regex syntax — escape regex metacharacters " +
+                "(e.g. \\( \\[ \\. \\*) to match them literally.",
+            );
+          } else if (outcome.kind === "missing") {
+            // rg absent → fall back to grep, classified the same way.
             try {
               const { stdout } = await execFileAsync("grep", buildGrepFallbackArgs(pattern), execOpts);
               grepOutput = stdout;
-            } catch (err2: any) {
-              if (err2.code === "ENOENT") {
+            } catch (grepErr) {
+              const o2 = classifySearchExec(grepErr as SearchExecError);
+              if (o2.kind === "output") grepOutput = o2.stdout;
+              else if (o2.kind === "missing") {
                 return errorResponse("internal_error", "Neither rg nor grep available on PATH.");
+              } else if (o2.kind === "invalid_pattern") {
+                return errorResponse(
+                  "invalid_pattern",
+                  `Pattern rejected by grep: ${o2.detail}\n` +
+                    "Escape regex metacharacters (e.g. \\( \\[ \\. \\*) to match them literally.",
+                );
+              } else if (o2.kind === "empty") {
+                return empty(`search_code(${pattern})`);
+              } else {
+                return errorResponse("internal_error", o2.detail);
               }
-              // grep exit 1 = no matches. Anything else (2 = read error, or a
-              // 10 s timeout → killed/SIGTERM) means an incomplete search.
-              // Prefer whatever partial output we captured; otherwise return
-              // empty so a degraded fallback never masquerades as a crash.
-              grepOutput = err2.stdout ?? "";
-              if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
             }
-          } else if (err.stdout) {
-            grepOutput = err.stdout;
-          } else if (err.code === 1) {
-            return empty(`search_code(${pattern})`);
           } else {
-            return errorResponse("internal_error", err.message ?? String(err));
+            return errorResponse("internal_error", outcome.detail);
           }
         }
 
