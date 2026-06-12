@@ -4,6 +4,19 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.6] — 2026-06-13
+
+### Changed
+
+- **Progress assessment + session handoff refreshed**
+  ([`docs/specs/progress.md`](docs/specs/progress.md), [`HANDOFF.md`](HANDOFF.md)):
+  frame-layers milestone 1 and deterministic rendering recorded as shipped; the
+  taxonomy follow-up re-staged as classify → observe → enable with **observe as
+  the current phase**; the former "0.3.5" feature line (TODO entity,
+  floating-entity placement, record drawer for TODOs) renumbered **0.3.6+**;
+  long-resolved known issues (stale `graph.db` shadowing, contracts
+  `database disk image is malformed`) marked resolved per decision `D-47xb`.
+
 ## [0.3.5] — 2026-06-12
 
 ### Fixed
@@ -216,6 +229,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.6]: https://github.com/ruevu/cortex/releases/tag/v0.3.6
 [0.3.5]: https://github.com/ruevu/cortex/releases/tag/v0.3.5
 [0.3.4]: https://github.com/ruevu/cortex/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ruevu/cortex/releases/tag/v0.3.3
