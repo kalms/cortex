@@ -1,131 +1,113 @@
 # Cortex — Session Handoff
 
-## ✅ DONE (2026-06-10 — graph DB transactional-swap publish, read this first; SUPERSEDES the in-place section below)
+## ✅ DONE (2026-06-12 → 13 — frame layers milestone 1, deterministic viewer, field report)
 
-Fixed a **graph-DB index-corruption** bug (contracts failing every reindex with
-`database disk image is malformed`; stale/partial frames) and the **viewer
-stale-map** read bug, and merged to `main` (`--no-ff`, merge `501ce72`).
+Three merges to `main`, all gated (Gate 0 visual QA + reviews + green suite),
+**none pushed** (`main` is ~25 commits ahead of origin).
 
-- **Root cause:** the C indexer wrote `.cortex/db` via `fopen(path,"wb")` — an
-  out-of-band truncate-rewrite — while the long-lived MCP server held the file
-  open in WAL mode. That bypassed SQLite's coherence protocol, so the next
-  libsqlite3 write desynced the index b-trees. The 2026-06-07 in-place approach
-  below (`04c848f0`, page-copy into the **live inode** via the SQLite backup API)
-  was the *same class* of out-of-band write into the open live file — it is
-  **superseded**, not extended.
-- **Fix (transactional staging-swap):** indexing now builds into a **private
-  staging DB** (`.cortex/db.stage-<pid>`) — the C indexer, cache import, and
-  frame/contract passes all target it — then `publishStagedDb`
-  ([src/db/swap-graph-db.ts](src/db/swap-graph-db.ts)) reloads the canonical
-  `.cortex/db` via **one libsqlite3 WAL transaction** (`ATTACH` + per-table
-  `DELETE`/`INSERT…SELECT`). Every byte reaching the live file goes through
-  libsqlite3, so corruption is impossible, the cutover is crash-atomic, and the
-  server's open handle sees the new snapshot with **no reopen**. Serialized
-  per-repo by `withIndexLock` ([src/db/index-lock.ts](src/db/index-lock.ts)).
-  **The C writer (`sqlite_writer.c`) is unchanged.**
-- **Also:** `resolveGraphDbForRead` now prefers an openable `.cortex/db` over a
-  stale legacy `graph.db` (`f1950d3`); `busy_timeout=5000` on all graph-DB
-  handles; contentless FTS5 `ctx_nodes_fts` recreated + repopulated from `nodes`.
-- **Verified:** TS suite green (967); end-to-end `cortex index` with the server
-  holding the DB open → `integrity_check ok`, contracts `0 mismatches`, frames
-  restored, no staging leftovers. Single-write-path invariant reviewed
-  end-to-end (TS → C subprocess → staging → publish).
-- **Spec:** [docs/.../2026-06-09-graphdb-transactional-swap-design.md](docs/superpowers/specs/2026-06-09-graphdb-transactional-swap-design.md) ·
-  **Plan:** [docs/.../2026-06-09-graphdb-transactional-swap.md](docs/superpowers/plans/2026-06-09-graphdb-transactional-swap.md) ·
-  **Decision:** `D-47xb`.
+### 0.3.4 — Frame layers taxonomy, milestone 1: classify + observe
+- **Deterministic 6-layer classifier**
+  ([src/frame-extraction/frame-kind.ts](src/frame-extraction/frame-kind.ts)):
+  agreement-based combination (NOT the original first-match chain — its
+  dominator source is unbuildable, and measurement showed topology owns the
+  surface↔substrate ends while lexicon owns the middle) of three sources:
+  directed graph position ([frame-flow-rollup.ts](src/mcp-server/frame-flow-rollup.ts),
+  fan-in/fan-out sink ratio), curated path patterns, content signals.
+  Argmax + canonical tie-break + `domain` fallback below `MIN_SIGNAL`.
+- **`layer` rides every `/api/frames` entry** (read-time in `buildFrameMap`,
+  nothing persisted). Internals (confidence/contributions) **never serialize**
+  — negative test enforces it.
+- **Viewer `layers` menu**: toolbar item → dropdown with `show layers` switch
+  + the only legend. On = quiet per-layer tint (fill 0.032 / border 0.22 /
+  label 0.55, palette softened ~20%); **off (default) = pixel-identical**
+  (draw-path `else` branches are the literal pre-lens expressions).
+  localStorage-persisted; ARIA + keyboard on the switch.
+- **Regression net**: frozen fixture
+  ([tests/fixtures/frame-layers/cortex-frames.json](tests/fixtures/frame-layers/cortex-frames.json),
+  generator `scripts/frame-extraction/dump-frame-kind-inputs.ts`) +
+  hand-labeled `anyOf` expectations
+  ([expected-layers.test.ts](tests/frame-extraction/expected-layers.test.ts))
+  with a console agreement report on every `npm test`. It caught two real
+  bugs pre-merge: test-path tokens leaked ceremony onto mixed frames
+  (removed from Source B — test-ness is Source C's exclusively, gated 0.8),
+  and `MIN_SIGNAL` 0.25 let boundary-grazing topology claim `decisions`
+  (raised to 0.4).
+- **Ranking and layout deliberately untouched** — classify → observe →
+  enable rollout, per the approved spec.
+- Decisions **`D-qn7z`** (agreement combination), **`D-24p0`** (read-time
+  placement), **`D-b1gd`** (determinism / no-internals contract).
+  Spec: [docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md) ·
+  Plan: [docs/superpowers/plans/2026-06-12-frame-layers-taxonomy.md](docs/superpowers/plans/2026-06-12-frame-layers-taxonomy.md)
+
+### 0.3.5 — Deterministic collision-aware dot placement
+- Viewer dots were `Math.random` per load → ~1–2 dot pairs per dense frame
+  rendered as one dot, faking "duplicate edges" to a single target. Dots now
+  sit on a jitter-bounded grid (cell from member index, jitter seeded from
+  file path, fnv1a + mulberry32 — D-pzc8's seeding approach); decision anchor
+  dots seeded too. **Last `Math.random` removed from the render data path**;
+  verified by byte-identical screenshots across reloads.
+- ⚠ numbering: this consumed the version `0.3.5`; the feature line progress.md
+  used to call "0.3.5" (TODO entity etc.) is now **0.3.6+** (progress.md updated).
+
+### 0.3.3 — Field report + improvement plan (docs)
+- [docs/field reports/field-report-2026-06-12-mesh-m1-platform-consumer.md](docs/field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md)
+  — first report from the platform-consumer seat (Mesh consumes the HTTP API
+  as a sidecar). Honest token-economics ledger + prioritized **P1–P8 plan**:
+  context_pack composite tool · search ranking · target-repo-aware grep hook ·
+  warm-path decision drafting · cross-repo decision search · **versioned HTTP
+  contract + freshness over HTTP** (gates Mesh) · token-tax reduction ·
+  temporal layer.
+
+### Measurements worth keeping (2026-06-12 session)
+- **Graph communities**: multi-level Louvain over the real import/call graph
+  confirms the shipped clustering's cores and finds cross-cutting subsystems
+  lexical signals can't see (13-file freshness community scattered across 5
+  frames). `ctx_louvain` in cortex-indexer is **dead code** (test-only,
+  single-level). Candidate: hybrid signal into frame extraction +
+  `FrameKind.concern` axis.
+- **IMPORTS edges stay**: 23% of import-coupled file pairs are import-only
+  (type imports — irreplaceable coupling); removing IMPORTS flips 5/15 frame
+  layer bands. Settled: keep. (The drawn web was already CALLS-only.)
 
 ## ▶ NEXT STEP
 
-1. **Restart Claude Code / the MCP server.** The live server still runs the
-   pre-merge code (issue #2, dev-reload). The **CLI path is fixed + verified**,
-   but the MCP `index_repository` tool keeps using the old in-place-truncate code
-   (which can still corrupt `.cortex/db`) **until restart** — avoid MCP-triggered
-   reindex until then. `main` is **not pushed** (40 commits ahead of origin).
-2. **#2 dev-reload (optional follow-up):** run the post-index frame/contract
-   passes in a fresh subprocess so a stale long-lived server can't reindex with
-   stale in-memory code. Lower priority now that the swap makes any reindex
-   corruption-safe; restart-before-reindex is the interim discipline.
-3. **The viewer / Mesh.** The substrate is now corruption-safe and the
-   `/api/*` HTTP boundary is the intended embedding seam (webview+HTTP). See
-   [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md). Note the
-   deferred **#1 part-B** (viewer default-path reopen-on-change) folds into this
-   rework — though with the swap, an open handle already sees the refresh.
+1. **Restart Claude Code / the MCP server** (dev-reload, again): the plugin
+   server on :3333 still runs pre-layers code — the `layer` field and the
+   lens only work against a restarted server. Then flip the `layers` switch
+   in the viewer and **start the observe phase**: validate layer assignments
+   on cortex + anthill-cloud. Watch list: `frame-extraction` (now splits into
+   a domain frame + a tooling frame), `contracts` (domain via fallback),
+   `mcp`. Tuning loop: edit constants in `frame-kind.ts` → `npm test` (the
+   fixture prints the agreement report) → look. Regenerate the fixture
+   against the current 17-frame graph first
+   (`npx tsx scripts/frame-extraction/dump-frame-kind-inputs.ts > tests/fixtures/frame-layers/cortex-frames.json`,
+   relabel per the in-file judgment rules).
+2. **Enable slice** (after observe verdict): kind-weight + layer-diversity in
+   `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per `frame-ranking.md`
+   (domain 1.00 … ceremony 0.20). Mind the trap recorded in D-qn7z: `domain`
+   is both the fallback layer and the highest weight.
+3. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
+   *measured* adjacency from `rollupFrameFlows` (not categorical), then
+   floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
+   End-state visual direction was previewed + approved in the 2026-06-12
+   brainstorm (`.superpowers/brainstorm/` mockups).
+4. **Co-change lens** (parallel, small): `FILE_CHANGES_WITH` minus structural
+   edges = hidden coupling — a sibling row in the layers menu, dashed quiet
+   style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
+   identical) is established; follow it.
+5. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
+   aware grep hook (P3), search ranking (P2) — then `context_pack` (P1).
+   **P6 (versioned HTTP contract + freshness header) should land before
+   Mesh's viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
+6. **Push to origin** when ready — `main` is ~25 commits ahead, all local.
+7. **Mesh side** (separate repo, waiting on Figma): faithful viewer
+   adaptation + threads-to-top; keep pan/zoom. Mesh consumes the `layer`
+   field for free once its sidecar runs ≥0.3.4.
 
 ---
 
-## ⚑ PRIOR (2026-06-07 — in-place incremental persist + post-commit refresh) — SUPERSEDED by the 2026-06-10 section above
-
-Made incremental indexing **inode-preserving** and shipped the deferred
-post-commit refresh (decision `04c848f0`;
-[spec](docs/superpowers/specs/2026-06-07-incremental-in-place-persist-design.md),
-[plan](docs/superpowers/plans/2026-06-07-incremental-in-place-persist.md)). This is
-the durable fix that lets the graph self-heal **mid-session**, not just at SessionStart.
-
-- **What changed (Approach A2):** `dump_and_persist`
-  ([pipeline_incremental.c](internal/indexer/src/pipeline/pipeline_incremental.c))
-  no longer `unlink`s `.cortex/db`. It B-tree-dumps the merged graph to a temp
-  sibling DB (nodes+edges+vectors), backfills hashes + FTS on the temp, then
-  page-copies it into the **live inode** via `ctx_store_restore_from` (SQLite online
-  backup) + `ctx_store_checkpoint`. The live file/handle survives, so the MCP
-  server sees the refresh on its next read. `snprintf` truncation is guarded and a
-  retry/backoff loop layers on the live connection's `busy_timeout`; on any failure
-  the live DB is left untouched.
-- **Task 10 shipped:** `hooks/post-commit-refresh.sh` (gated by `CORTEX_AUTO_REFRESH`)
-  runs `cortex index` after every `git commit`, registered as a sibling on the
-  existing `PostToolUse → Bash` `git commit*` matcher in
-  [hooks/hooks.json](hooks/hooks.json).
-- **Verified:** new TDD test `incr_inplace_preserves_inode` (inode unchanged + a
-  handle opened *before* the refresh sees the new data) passes; full C suite shows
-  **no new failures** vs baseline. End-to-end with the rebuilt binary: an incremental
-  index keeps `.cortex/db` at the **same inode** and `cortex freshness` = `fresh`.
-  The SessionStart hook-vs-server bind race (prior "secondary follow-up") is
-  dissolved — the live file is never unlinked.
-- **Deferred (documented):** Approach C (true per-file delta) remains a future
-  *optimization* — not an unblocker — needing incremental load+resolve and its own
-  cycle. See the spec's "Deferred: Approach C" section.
-
-### (prior next-step note — the viewer; now folded into the 2026-06-10 NEXT STEP above)
-
-The internal API / tooling + reliability groundwork is now sealed off (contract
-edges, freshness signal, transactional-swap publish). The next frontier
-is the **viewer**. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md).
-
----
-
-## ⚑ PRIOR (2026-06-07 — graph freshness signal + auto-refresh)
-
-Shipped Phase 1 (the trust signal) + Task 9 of Phase 2 (SessionStart
-auto-refresh) of the freshness plan
-([plan](docs/superpowers/plans/2026-06-07-graph-freshness-and-auto-refresh.md),
-[spec](docs/superpowers/specs/2026-06-07-graph-freshness-and-auto-refresh-design.md);
-decision `bbf0fce5`). This is the durable fix for the "stale/empty DB read
-silently" watch-for that bit the previous session.
-
-- **What it does:** both index paths write a baseline (`indexed_commit`,
-  `indexed_dirty_sig`, `indexed_at`) into a `cortex_index_meta` table
-  (`src/graph/index-meta.ts`, captured by `src/graph/capture-index-meta.ts`).
-  A pure classifier + 2s-memoized per-repo resolver (`src/mcp-server/freshness.ts`)
-  computes a verdict; `registerTool` attaches it to the 7 read tools at the
-  single chokepoint (`freshnessAware: true`). Fresh → result unchanged; stale/
-  empty/unknown → a `⚠ cortex freshness: …` note is appended + a structured
-  `freshness` field added. `RepoContext.canonical` (new field) drives the
-  `empty` (degraded fallback DB) verdict.
-- **CLI + banner:** `cortex freshness` prints the cwd repo's verdict;
-  `hooks/check-index.sh` folds it into the SessionStart banner and now uses
-  `-s` (non-empty) so a **0-byte `.cortex/db` reads as not-indexed** (the exact
-  drift from last session).
-- **Auto-refresh (SessionStart only):** when `CORTEX_AUTO_REFRESH != 0`, the
-  hook runs `cortex index` (auto-routes full for empty/unknown, incremental for
-  stale) before the agent reads. Gates: `CORTEX_FRESHNESS=0`, `CORTEX_AUTO_REFRESH=0`.
-- **Task 10 (post-commit in-session refresh) deliberately NOT shipped.** The
-  Phase-2 prerequisite investigation found the indexer's incremental path is
-  **delete+recreate, not in-place** (`pipeline_incremental.c:265 ctx_unlink`,
-  `pipeline.c:691`): it loads the graph into memory, merges, then unlinks
-  `.cortex/db` and re-dumps. Refreshing mid-session under the MCP server's open
-  pooled handle would reproduce the stale-reads bug. SessionStart (separate
-  process, before reads) is the safe boundary. Full rationale + alternatives in
-  decision `bbf0fce5`.
-- **Status:** `tsc` clean; **802/802 TS tests** green; RPC-seam regression guard
-  green. Cortex's own index reindexed → `cortex freshness` = `fresh`.
-- **Follow-up (now DONE):** the "make incremental truly in-place" + Task 10 work
-  this section flagged shipped in the same day — see the ✅ DONE section at the top.
+_Previous handoff content (graph-DB transactional-swap publish, 2026-06-10,
+decision `D-47xb`; freshness signal + auto-refresh, 2026-06-07, decision
+`bbf0fce5`) is superseded-and-stable: shipped, verified, and documented in
+[docs/architecture/graph-storage.md](docs/architecture/graph-storage.md) and
+CLAUDE.md. progress.md's Known-issues section now reflects their resolution._
