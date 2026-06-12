@@ -242,7 +242,53 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     await loadGraph(active);
   }
 
-  function rand(a, b) { return a + Math.random() * (b - a); }
+  // Deterministic placement primitives: same graph → same dot positions on
+  // every load (no Math.random in the render data path), and a jitter-bounded
+  // grid guarantees dots never land close enough to read as one dot — which
+  // previously made a hub's distinct edges look like duplicate edges to the
+  // same target. Same seeding approach as the server frame layout (D-pzc8).
+  function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Usable dot area inside a frame box (normalized), matching the previous
+  // rand() bounds so the visual envelope is unchanged.
+  const DOT_AREA = { x0: 0.16, x1: 0.84, y0: 0.22, y1: 0.78 };
+  // Jitter stays within ±JITTER of a cell's half-extent, so two neighboring
+  // dots are always ≥ (1 − 2·JITTER) cells apart — never coincident.
+  const DOT_JITTER = 0.3;
+
+  /** Grid cell + seeded jitter for dot i of n in a frame. Jitter is seeded
+   *  from the file path (stable across reloads and member reordering); the
+   *  cell comes from the member index. */
+  function dotPosition(i, n, seedStr) {
+    const w = DOT_AREA.x1 - DOT_AREA.x0;
+    const h = DOT_AREA.y1 - DOT_AREA.y0;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(n * (w / h))));
+    const rows = Math.max(1, Math.ceil(n / cols));
+    const cw = w / cols;
+    const ch = h / rows;
+    const rng = mulberry32(fnv1a(seedStr));
+    const cx = DOT_AREA.x0 + (i % cols) * cw + cw / 2;
+    const cy = DOT_AREA.y0 + Math.floor(i / cols) * ch + ch / 2;
+    return {
+      rx: cx + (rng() * 2 - 1) * cw * DOT_JITTER,
+      ry: cy + (rng() * 2 - 1) * ch * DOT_JITTER,
+    };
+  }
 
   function buildGraph() {
     nodes.length = 0; edges.length = 0;
@@ -253,13 +299,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const paths = FRAME_FILE_PATHS[frame.id] || [];
       const names = FILE_NAMES[frame.id] || [];
       for (let i = 0; i < cfg.count; i++) {
+        const pos = dotPosition(i, cfg.count, paths[i] || frame.id + '-' + i);
         nodes.push({
           id: frame.id + '-' + i,
           frameId: frame.id,
           kind: 'file',
           file_path: paths[i] || null,
-          rx: rand(0.16, 0.84),
-          ry: rand(0.22, 0.78),
+          rx: pos.rx,
+          ry: pos.ry,
           name: names[i] || 'n-' + i,
         });
         adjacency[nodes.length - 1] = [];
@@ -297,9 +344,16 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       decIds.forEach((decId) => {
         const dec = DECISIONS[decId];
         if (!dec) return;
-        const targetCount = Math.min(2 + Math.floor(Math.random() * 2), frameNodes.length);
-        const shuffled = [...frameNodes].sort(() => Math.random() - 0.5);
-        dec._nodeIdxs = shuffled.slice(0, targetCount).map(o => o.i);
+        // Seeded anchor selection: same decision + frame → same anchor dots
+        // every load (was Math.random shuffle).
+        const rng = mulberry32(fnv1a(decId + ':' + frameId));
+        const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
+        const pool = [...frameNodes];
+        const picked = [];
+        for (let k = 0; k < targetCount; k++) {
+          picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+        }
+        dec._nodeIdxs = picked.map(o => o.i);
       });
     }
   }
