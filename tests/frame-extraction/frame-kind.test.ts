@@ -107,6 +107,13 @@ describe("content signals", () => {
     ]);
     expect(r.layer).toBe("data"); // label token 'events' → data via W_LABEL
   });
+
+  it("a member firing both a layer token and the test signal: ceremony wins at full test fraction", () => {
+    // Source B: 'cli' → interface 0.8; Source C: testFrac 1.0 ≥ 0.8 → ceremony 0.9.
+    // Pins W_TEST > W_PATH; lowering W_TEST below W_PATH would flip this.
+    const [r] = classifyFrames([input({ frame_id: 14, member_paths: ["src/cli/x.test.ts"] })]);
+    expect(r.layer).toBe("ceremony");
+  });
 });
 
 describe("combination + contract", () => {

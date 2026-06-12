@@ -89,6 +89,8 @@ const PATH_LAYER_TABLE: ReadonlyArray<[FrameLayer, ReadonlySet<string>]> = [
   ["ceremony", new Set(["test", "tests", "__tests__", "evals", "scripts", "build", "hooks", "config", "integration"])],
 ];
 
+/** Does NOT match `__tests__/` — those directories are ceremony via the
+ *  path-token table (Source B), not the content signal. */
 const TEST_PATH_RE = /\.test\.|\.spec\.|(^|\/)tests?\//;
 const NON_RUNTIME_EXT_RE = /\.(sh|ya?ml|json|md)$/;
 
@@ -173,7 +175,7 @@ function classifyOne(input: FrameKindInput): FrameKindInternal {
   for (const layer of LAYER_ORDER) {
     if (layer !== best && c[layer] > second) second = c[layer];
   }
-  const confidence = bestScore > 0 ? (bestScore - second) / bestScore : 0;
+  const confidence = (bestScore - second) / bestScore;
   return { frame_id: input.frame_id, layer: best, confidence, contributions: c };
 }
 
