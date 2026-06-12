@@ -138,6 +138,7 @@ export function withGovernedFramesRendered(ambientFrames, frameGovernance, frame
       w: m.w || PROMOTED_FRAME_W,
       h: m.h || PROMOTED_FRAME_H,
       count: m.count || 0,
+      layer: m.layer,
       promotedForGovernance: true,
     };
   });
