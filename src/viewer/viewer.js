@@ -18,6 +18,22 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   function primaryLabelRGB()      { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function subLabelRGB()          { return isLight() ? [113, 113, 122] : [161, 161, 170]; }
   function countIdleRGB()         { return isLight() ? [161, 161, 170] : [82, 82, 91]; }
+
+  // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
+  // neutral; values pinned by the approved design spec. Off = the exact
+  // pre-existing draw constants (pixel-identical).
+  const LAYER_RGB = {
+    interface:      [92, 161, 237],
+    orchestration:  [171, 130, 237],
+    domain:         [234, 186, 95],
+    data:           [92, 204, 167],
+    infrastructure: [131, 141, 163],
+    ceremony:       [99, 105, 121],
+  };
+  const LAYERS_LS_KEY = 'cortex.viewer.layers';
+  let layersOn = false;
+  try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
+
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillBgRGB()       { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillTextPrimaryRGB() { return isLight() ? [237, 237, 237] : [24, 24, 27]; }
@@ -124,6 +140,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         w: f.w,
         h: f.h,
         count: f.count,
+        layer: f.layer,
       }));
 
     // 4. NODE_CFG.count = how many file basenames to show per frame (cap at
@@ -153,7 +170,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const frameMeta = new Map(
       (frameMap.frames || []).map((f) => [
         String(f.id),
-        { name: f.name, w: f.w, h: f.h, count: f.count },
+        { name: f.name, w: f.w, h: f.h, count: f.count, layer: f.layer },
       ]),
     );
     FRAMES = withGovernedFramesRendered(FRAMES, FRAME_GOVERNANCE, frameMeta);
@@ -186,6 +203,33 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     }
     select.addEventListener('change', () => loadGraph(select.value || null));
     themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
+
+    const layersBtn = document.getElementById('layers-toggle');
+    const layersMenu = document.getElementById('layers-menu');
+    const layersSwitch = document.getElementById('layers-switch');
+    layersSwitch.classList.toggle('on', layersOn);
+    layersSwitch.setAttribute('aria-checked', String(layersOn));
+    layersBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      layersMenu.hidden = !layersMenu.hidden;
+    });
+    document.addEventListener('click', (e) => {
+      if (!layersMenu.hidden && !layersMenu.contains(e.target) && e.target !== layersBtn) {
+        layersMenu.hidden = true;
+      }
+    });
+    layersSwitch.addEventListener('click', () => {
+      layersOn = !layersOn;
+      layersSwitch.classList.toggle('on', layersOn);
+      layersSwitch.setAttribute('aria-checked', String(layersOn));
+      try { localStorage.setItem(LAYERS_LS_KEY, layersOn ? '1' : '0'); } catch { /* sandboxed */ }
+    });
+    layersSwitch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        layersSwitch.click();
+      }
+    });
 
     const framesDismiss = document.getElementById('frames-warning-dismiss');
     if (framesDismiss) {
@@ -925,11 +969,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.save();
       ctx.translate(f.cx, f.cy);
 
+      const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
+
       const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
       const fillAlpha = baseFillAlpha + hoverLevel * 0.18;
       const ff = frameFillRGB();
       const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
-      ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+      if (lc) {
+        // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
+        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
+      } else {
+        ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+      }
       ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
       const baseBorderAlpha = 0.08;
@@ -939,7 +990,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult;
 
       const fb = frameBorderRGB();
-      ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+      if (lc) {
+        ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
+      } else {
+        ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+      }
       ctx.lineWidth = isFocused ? 1.2 : 1;
       roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
       ctx.stroke();
@@ -971,7 +1026,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const leftBudget = f.w - countW - gap;
       const pathText = truncateMiddle(ctx, frame.name, leftBudget);
       const pl = primaryLabelRGB();
-      ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
+      if (lc) {
+        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
+      } else {
+        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
+      }
       ctx.fillText(pathText, -f.w / 2, primaryY);
 
       ctx.restore();
