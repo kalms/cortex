@@ -267,8 +267,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // Usable dot area inside a frame box (normalized), matching the previous
   // rand() bounds so the visual envelope is unchanged.
   const DOT_AREA = { x0: 0.16, x1: 0.84, y0: 0.22, y1: 0.78 };
-  // Jitter stays within ±JITTER of a cell's half-extent, so two neighboring
-  // dots are always ≥ (1 − 2·JITTER) cells apart — never coincident.
+  // Jitter stays within ±JITTER of a cell's extent, so axis-aligned neighbors
+  // are always ≥ (1 − 2·JITTER) = 0.4 cells apart (diagonal neighbors more) —
+  // never coincident.
   const DOT_JITTER = 0.3;
 
   /** Grid cell + seeded jitter for dot i of n in a frame. Jitter is seeded
@@ -277,7 +278,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   function dotPosition(i, n, seedStr) {
     const w = DOT_AREA.x1 - DOT_AREA.x0;
     const h = DOT_AREA.y1 - DOT_AREA.y0;
-    const cols = Math.max(1, Math.ceil(Math.sqrt(n * (w / h))));
+    // Clamp cols to n so small frames (esp. n=1) stay centered, not left-biased.
+    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * (w / h)))));
     const rows = Math.max(1, Math.ceil(n / cols));
     const cw = w / cols;
     const ch = h / rows;
