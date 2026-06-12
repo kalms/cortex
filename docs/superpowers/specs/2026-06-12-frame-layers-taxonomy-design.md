@@ -156,6 +156,15 @@ a member counts toward each layer it matches). v1 table:
 `transport|infra|mcp-server|server|cache|queue|indexer → infrastructure` ·
 `evals|scripts|build|hooks|config|integration → ceremony`.
 Test-path tokens are deliberately excluded from this table (observation-phase finding, 2026-06-12): tests co-cluster with their subjects, so test-shadow paths fired ceremony on mixed frames in defiance of the TEST_FRACTION_MIN intent — test-ness belongs to Source C exclusively.
+Source B additionally detects Nitro/h3 method-suffixed route files
+(`*.{get,post,put,patch,delete,head,options}.{ts,js,…}`, case-insensitive,
+**scoped to paths containing an `api` or `routes` segment**) as
+**orchestration** at `W_HANDLER = W_PATH` × fraction (observation-phase
+finding, 2026-06-13, on anthill-cloud): these handler frames are pure sources
+(sink 0.0), the surface pair always tied, and the canonical tie-break starved
+orchestration to zero frames — no path token matches the Nitro idiom. The
+route-dir scoping exists because `<thing>.get.ts` is also a typed-accessor
+idiom outside route dirs; unscoped, it flipped data-substrate frames.
 (No path tokens map to `domain` — domain is what remains when a frame is
 neither surface plumbing nor substrate plumbing nor ceremony; it wins via
 fallback or content signals, never via directory ceremony.)
@@ -219,8 +228,15 @@ orchestration  rgb(171, 130, 237)
 domain         rgb(234, 186, 95)
 data           rgb(92, 204, 167)
 infrastructure rgb(131, 141, 163)
-ceremony       rgb(99, 105, 121)
+ceremony       rgb(125, 110, 93)
 ```
+
+Ceremony was originally `rgb(99, 105, 121)` — a cool gray that proved
+indistinguishable from infrastructure's slate at lens alphas (observation
+finding, 2026-06-13: a correct `infrastructure` frame on anthill-cloud read
+as `ceremony` to the eye). Revised to a warm dim taupe: warm-vs-cool hue
+separates where lightness alone washed out, and ceremony remains the dimmest
+layer.
 
 Light theme uses the same palette (the alphas are low enough; revisit in
 observation if light-mode contrast disappoints).
