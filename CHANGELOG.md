@@ -4,6 +4,31 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] — 2026-06-12
+
+### Added
+
+- **Frame layer lens (taxonomy milestone 1: classify + observe)** — every frame
+  now carries a deterministic architectural `layer`
+  (`interface | orchestration | domain | data | infrastructure | ceremony`),
+  classified at read time behind `/api/frames` by
+  [`frame-kind.ts`](src/frame-extraction/frame-kind.ts): an agreement-based
+  combination of directed graph position (new
+  [`frame-flow-rollup.ts`](src/mcp-server/frame-flow-rollup.ts) fan-in/fan-out),
+  curated path patterns, and content signals. The viewer gains a `layers`
+  toolbar menu (show-layers switch + the only legend); on = quiet per-layer
+  tint of frame fill/border/label, off (default) = pixel-identical to the
+  lens-less viewer. Classifier internals (confidence, contributions) are never
+  serialized or rendered — enforced by a negative serialization test. Ranking
+  and layout are deliberately untouched (classify → observe → enable; the
+  kind-weight, layer-adjacency layout, and floating-entity slices come later).
+  Regression net: frozen cortex fixture + hand-labeled `anyOf` expectations
+  ([`expected-layers.test.ts`](tests/frame-extraction/expected-layers.test.ts)),
+  which already caught and fixed two classifier bugs pre-merge (ceremony
+  leakage via test-path tokens; weak-plurality override at MIN_SIGNAL 0.25).
+  Decisions `D-qn7z`, `D-24p0`, `D-b1gd`; design spec
+  [2026-06-12-frame-layers-taxonomy-design.md](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md).
+
 ## [0.3.3] — 2026-06-12
 
 ### Added
@@ -176,6 +201,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.4]: https://github.com/ruevu/cortex/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ruevu/cortex/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ruevu/cortex/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ruevu/cortex/releases/tag/v0.3.1
