@@ -33,13 +33,20 @@ const EXPECTED: Record<string, { anyOf: FrameLayer[] }> = {
 describe("expected layers — cortex regression fixture", () => {
   const inputs: FrameKindInput[] = JSON.parse(readFileSync(FIXTURE, "utf8"));
   const results = classifyFramesInternal(inputs);
-  const byLabel = new Map(inputs.map((i, idx) => [i.frame_label, results[idx]]));
+  // A label can map to MULTIPLE frames (the fixture has two `evals/assertions`);
+  // every frame carrying the label must satisfy its expectation.
+  const byLabel = new Map<string, typeof results>();
+  inputs.forEach((i, idx) => {
+    const arr = byLabel.get(i.frame_label) ?? [];
+    arr.push(results[idx]);
+    byLabel.set(i.frame_label, arr);
+  });
 
   for (const [label, exp] of Object.entries(EXPECTED)) {
     it(`${label} → ${exp.anyOf.join(" | ")}`, () => {
-      const r = byLabel.get(label);
-      if (!r) return; // frame no longer exists on this graph — skip, don't fail
-      expect(exp.anyOf).toContain(r.layer);
+      const rs = byLabel.get(label);
+      if (!rs) return; // frame no longer exists on this graph — skip, don't fail
+      for (const r of rs) expect(exp.anyOf).toContain(r.layer);
     });
   }
 
@@ -50,13 +57,13 @@ describe("expected layers — cortex regression fixture", () => {
 
   it("agreement report (eval visibility — internals allowed HERE only)", () => {
     // Not an assertion: prints the per-frame verdicts for the observe loop.
-    for (const i of inputs) {
-      const r = byLabel.get(i.frame_label)!;
+    inputs.forEach((i, idx) => {
+      const r = results[idx];
       // eslint-disable-next-line no-console
       console.log(
         `${i.frame_label.padEnd(22)} → ${r.layer.padEnd(14)} conf=${r.confidence.toFixed(2)}`,
       );
-    }
+    });
     expect(true).toBe(true);
   });
 });
