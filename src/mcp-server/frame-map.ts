@@ -16,6 +16,8 @@ import { buildCorpusIndex } from "../frame-extraction/label-quality.js";
 import { splitSymbol } from "../frame-extraction/text-blob.js";
 import { rankFrames, type FrameRecord } from "../frame-extraction/frame-ranker.js";
 import { rollupFramePairs } from "./frame-pair-rollup.js";
+import { rollupFrameFlows } from "./frame-flow-rollup.js";
+import { classifyFrames, type FrameLayer } from "../frame-extraction/frame-kind.js";
 import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
 
 export interface FrameMapEntry {
@@ -30,6 +32,8 @@ export interface FrameMapEntry {
   ambient: boolean;
   rank: number;
   score: number;
+  /** Architectural layer (taxonomy milestone 1). Deterministic; no internals exposed. */
+  layer: FrameLayer;
 }
 
 export interface FrameMap {
@@ -88,6 +92,19 @@ export function buildFrameMap(nodes: readonly NodeRow[], edges: readonly EdgeRow
   const corpus = buildCorpusIndex(buildFileBlobs(nodes));
   const ranked = rankFrames(records, corpus);
 
+  const { stats } = rollupFrameFlows(nodes, edges);
+  const statsById = new Map(stats.map((s) => [s.frame_id, s]));
+  const kinds = classifyFrames(
+    records.map((r) => ({
+      frame_id: r.frame_id,
+      frame_label: r.frame_label,
+      member_paths: r.member_paths,
+      fanIn: statsById.get(r.frame_id)?.fanIn ?? 0,
+      fanOut: statsById.get(r.frame_id)?.fanOut ?? 0,
+    })),
+  );
+  const layerById = new Map(kinds.map((k) => [k.frame_id, k.layer]));
+
   const ambient = ranked.filter((r) => r.ambient);
   const pairs = rollupFramePairs(nodes, edges);
   const positioned = layoutFrames(
@@ -113,6 +130,7 @@ export function buildFrameMap(nodes: readonly NodeRow[], edges: readonly EdgeRow
       ambient: r.ambient,
       rank: r.rank,
       score: r.score,
+      layer: layerById.get(r.frame_id) ?? "domain",
     };
   });
 
