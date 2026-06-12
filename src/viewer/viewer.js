@@ -22,13 +22,16 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
   // neutral; values pinned by the approved design spec. Off = the exact
   // pre-existing draw constants (pixel-identical).
+  // Ceremony is a WARM dim taupe (observe-phase fix, 2026-06-13): the
+  // original cool gray was indistinguishable from infrastructure's slate at
+  // lens alphas — warm-vs-cool separates where lightness alone washed out.
   const LAYER_RGB = {
     interface:      [92, 161, 237],
     orchestration:  [171, 130, 237],
     domain:         [234, 186, 95],
     data:           [92, 204, 167],
     infrastructure: [131, 141, 163],
-    ceremony:       [99, 105, 121],
+    ceremony:       [125, 110, 93],
   };
   const LAYERS_LS_KEY = 'cortex.viewer.layers';
   let layersOn = false;
@@ -209,6 +212,12 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const layersSwitch = document.getElementById('layers-switch');
     layersSwitch.classList.toggle('on', layersOn);
     layersSwitch.setAttribute('aria-checked', String(layersOn));
+    // Legend swatches derive from LAYER_RGB — the palette's single runtime
+    // source. (The CSS used to carry a second hand-synced copy; it drifted.)
+    layersMenu.querySelectorAll('.lm-row i[data-layer]').forEach((sw) => {
+      const rgb = LAYER_RGB[sw.dataset.layer];
+      if (rgb) sw.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+    });
     layersBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       layersMenu.hidden = !layersMenu.hidden;
