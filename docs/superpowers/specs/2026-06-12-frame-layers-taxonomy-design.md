@@ -162,7 +162,11 @@ fallback or content signals, never via directory ceremony.)
 **Source C — content signals**:
 
 - test-file fraction of members (`*.test.*`, `*.spec.*`, `/test/`):
-  adds `W_TEST × fraction` to **ceremony** when fraction ≥ 0.5.
+  adds `W_TEST × fraction` to **ceremony** when fraction ≥ 0.8. (0.8, not
+  0.5: cortex's clustering co-locates tests with their subjects — the
+  `decisions` frame is 65% test files yet is the product's subject. Only a
+  near-all-tests frame is ceremony *by content*; mixed frames must win or
+  lose on other signals.)
 - non-runtime extensions fraction (`.sh`, `.yml`, `.json`, `.md` majority):
   adds `W_CEREMONY_EXT` to **ceremony**.
 - `frame_label` vocabulary: the label's tokens run through the same
