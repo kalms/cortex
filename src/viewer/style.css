@@ -494,3 +494,57 @@ body.light .frames-warning {
   border-color: rgba(180, 83, 9, 0.5);
   color: #b45309;
 }
+
+/* ── Layers menu (taxonomy milestone 1). Legend lives HERE only. ── */
+.layers-wrap { position: relative; }
+.layers-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 40;
+  min-width: 148px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+body.light .layers-menu { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10); }
+.lm-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text);
+}
+.lm-toggle:hover { background: rgba(255, 255, 255, 0.04); }
+body.light .lm-toggle:hover { background: rgba(0, 0, 0, 0.04); }
+.lm-toggle .sw {
+  width: 22px; height: 12px; border-radius: 6px;
+  background: var(--border-3);
+  position: relative; flex: 0 0 auto;
+  transition: background 0.12s;
+}
+.lm-toggle .sw::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-3);
+  transition: left 0.12s, background 0.12s;
+}
+.lm-toggle.on .sw { background: #2f4f3a; }
+.lm-toggle.on .sw::after { left: 12px; background: #4ade80; }
+.lm-sep { height: 1px; background: var(--border); margin: 5px 2px; }
+.lm-row { display: flex; align-items: center; gap: 8px; padding: 4px 7px; color: var(--text-3); }
+.lm-row i { width: 6px; height: 6px; border-radius: 1.5px; flex: 0 0 auto; }
+.lm-row i[data-layer="interface"]      { background: rgb(92, 161, 237); }
+.lm-row i[data-layer="orchestration"]  { background: rgb(171, 130, 237); }
+.lm-row i[data-layer="domain"]         { background: rgb(234, 186, 95); }
+.lm-row i[data-layer="data"]           { background: rgb(92, 204, 167); }
+.lm-row i[data-layer="infrastructure"] { background: rgb(131, 141, 163); }
+.lm-row i[data-layer="ceremony"]       { background: rgb(99, 105, 121); }
