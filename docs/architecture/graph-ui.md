@@ -272,6 +272,24 @@ animations, PR floating nodes, auto-loop, presence avatars, merge
 animation, cursor traversal) are not in this iteration — explicit
 non-goals per [docs/superpowers/specs/2026-05-17-frames-viewer-design.md](../superpowers/specs/2026-05-17-frames-viewer-design.md).
 
+### Layer lens (taxonomy milestone 1)
+
+Every frame carries a deterministic architectural `layer`
+(`interface | orchestration | domain | data | infrastructure | ceremony`),
+classified at read time in `buildFrameMap` by
+[`frame-kind.ts`](../../src/frame-extraction/frame-kind.ts) from directed
+frame flows ([`frame-flow-rollup.ts`](../../src/mcp-server/frame-flow-rollup.ts)),
+path patterns, and content signals. The viewer's `layers` toolbar menu holds a
+show-layers switch and the only legend; when on, frame fill/border/label take
+a quiet per-layer hue — when off, rendering is pixel-identical to the lens-less
+viewer (the draw path's `else` branches are the literal pre-lens expressions).
+Classifier internals (confidence, per-source contributions) are deliberately
+never serialized or rendered; they exist only in the eval harness
+(`tests/frame-extraction/expected-layers.test.ts`, whose frozen fixture is the
+regression net for classifier tuning). Ranking and layout are NOT affected by
+layers in this milestone (classify → observe → enable; see
+[the design spec](../superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md)).
+
 ### Render loop
 
 `mainLoop` runs once per `requestAnimationFrame`:
