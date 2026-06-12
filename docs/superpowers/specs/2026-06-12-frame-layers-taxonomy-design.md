@@ -154,7 +154,8 @@ a member counts toward each layer it matches). v1 table:
 `handlers|controllers|services|workflows|seed → orchestration` ·
 `models|schemas|db|store|persistence|events → data` ·
 `transport|infra|mcp-server|server|cache|queue|indexer → infrastructure` ·
-`test|tests|__tests__|evals|scripts|build|hooks|config|integration → ceremony`.
+`evals|scripts|build|hooks|config|integration → ceremony`.
+Test-path tokens are deliberately excluded from this table (observation-phase finding, 2026-06-12): tests co-cluster with their subjects, so test-shadow paths fired ceremony on mixed frames in defiance of the TEST_FRACTION_MIN intent — test-ness belongs to Source C exclusively.
 (No path tokens map to `domain` — domain is what remains when a frame is
 neither surface plumbing nor substrate plumbing nor ceremony; it wins via
 fallback or content signals, never via directory ceremony.)
@@ -178,7 +179,8 @@ loose (72 "entry points" in frame-extraction alone).
 
 Starter constants (tuned during observation, committed as code):
 `W_GRAPH = 1.0`, `W_PATH = 0.8`, `W_TEST = 0.9`, `W_CEREMONY_EXT = 0.5`,
-`W_LABEL = 0.4`, `MIN_SIGNAL = 0.25`.
+`W_LABEL = 0.4`, `MIN_SIGNAL = 0.4`.
+MIN_SIGNAL was raised from 0.25 to 0.4 after the cortex fixture showed boundary-grazing topology alone (sink 0.33 → strength 0.34) claiming the `decisions` frame; a weak plurality must not override the domain fallback.
 
 ### 3. Orchestration + API — `frame-map.ts`
 

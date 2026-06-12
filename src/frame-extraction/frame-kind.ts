@@ -71,7 +71,10 @@ const W_PATH = 0.8;
 const W_TEST = 0.9;
 const W_CEREMONY_EXT = 0.5;
 const W_LABEL = 0.4;
-const MIN_SIGNAL = 0.25;
+/** 0.4: a weak plurality must not override the domain fallback — measured on
+ *  the cortex fixture, boundary-grazing topology alone (sink 0.33 → 0.34
+ *  strength) wrongly claimed the `decisions` frame for 'interface'. */
+const MIN_SIGNAL = 0.4;
 /** 0.8, not 0.5: clustering co-locates tests with their subjects (the
  *  `decisions` frame is 65% tests yet is the product's subject). Only a
  *  near-all-tests frame is ceremony BY CONTENT. */
@@ -80,17 +83,20 @@ const EXT_FRACTION_MIN = 0.5;
 
 /** Curated path-segment → layer table (frame-ranking.md §classification-sources,
  *  v1). No tokens map to 'domain': domain is what remains when a frame is
- *  neither surface plumbing, substrate plumbing, nor ceremony. */
+ *  neither surface plumbing, substrate plumbing, nor ceremony. Test-ness is
+ *  deliberately NOT a path token: tests co-cluster with their subjects, so
+ *  test-shadow paths are not an independent ceremony signal — Source C owns
+ *  test detection behind TEST_FRACTION_MIN. */
 const PATH_LAYER_TABLE: ReadonlyArray<[FrameLayer, ReadonlySet<string>]> = [
   ["interface", new Set(["routes", "pages", "views", "components", "cli", "ui"])],
   ["orchestration", new Set(["handlers", "controllers", "services", "workflows", "seed"])],
   ["data", new Set(["models", "schemas", "db", "store", "persistence", "events"])],
   ["infrastructure", new Set(["transport", "infra", "mcp-server", "server", "cache", "queue", "indexer"])],
-  ["ceremony", new Set(["test", "tests", "__tests__", "evals", "scripts", "build", "hooks", "config", "integration"])],
+  ["ceremony", new Set(["evals", "scripts", "build", "hooks", "config", "integration"])],
 ];
 
-/** Does NOT match `__tests__/` — those directories are ceremony via the
- *  path-token table (Source B), not the content signal. */
+/** Source C's test detector. Matches .test./.spec. files and tests/ dirs;
+ *  gated behind TEST_FRACTION_MIN so only near-all-tests frames qualify. */
 const TEST_PATH_RE = /\.test\.|\.spec\.|(^|\/)tests?\//;
 const NON_RUNTIME_EXT_RE = /\.(sh|ya?ml|json|md)$/;
 
