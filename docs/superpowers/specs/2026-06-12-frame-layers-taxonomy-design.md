@@ -256,12 +256,14 @@ viewer
    source in isolation, agreement combination, canonical tie-break, fallback,
    empty inputs, and a determinism test (two runs over shuffled input order →
    identical output).
-2. **Layer fixture (regression)** — `scripts/frame-extraction/` gains
-   `expected-layers.json`: hand-labeled expected layers for cortex's current
-   frames (contested frames marked `contested: true` and asserted only as
-   "not ceremony"-style constraints). An eval script in the existing
-   harness pattern reports agreement; this is the only place
-   `FrameKindInternal.confidence` is ever printed.
+2. **Layer fixture (regression)** — as built: a frozen snapshot of cortex's
+   frame inputs at `tests/fixtures/frame-layers/cortex-frames.json` (generated
+   once by `scripts/frame-extraction/dump-frame-kind-inputs.ts` against a
+   running server, then committed) plus hand-labeled expectations in
+   `tests/frame-extraction/expected-layers.test.ts` — contested frames assert
+   an `anyOf` set with written justification. The test's console agreement
+   report is the only place `FrameKindInternal.confidence` is ever printed,
+   and it runs in `npm test` (no network, no live graph).
 3. **Gate 0 visual QA** — Playwright drive of the running viewer: toggle
    off → screenshot-compare against pre-change baseline (must be identical);
    toggle on → tint present, legend only in menu, console clean; reload →
