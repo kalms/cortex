@@ -208,6 +208,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const layersMenu = document.getElementById('layers-menu');
     const layersSwitch = document.getElementById('layers-switch');
     layersSwitch.classList.toggle('on', layersOn);
+    layersSwitch.setAttribute('aria-checked', String(layersOn));
     layersBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       layersMenu.hidden = !layersMenu.hidden;
@@ -220,7 +221,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     layersSwitch.addEventListener('click', () => {
       layersOn = !layersOn;
       layersSwitch.classList.toggle('on', layersOn);
+      layersSwitch.setAttribute('aria-checked', String(layersOn));
       try { localStorage.setItem(LAYERS_LS_KEY, layersOn ? '1' : '0'); } catch { /* sandboxed */ }
+    });
+    layersSwitch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        layersSwitch.click();
+      }
     });
 
     const framesDismiss = document.getElementById('frames-warning-dismiss');
