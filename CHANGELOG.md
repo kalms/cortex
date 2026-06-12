@@ -4,6 +4,22 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] — 2026-06-12
+
+### Added
+
+- **Field report: Mesh M1 platform-consumer perspective**
+  ([`docs/field reports/field-report-2026-06-12-mesh-m1-platform-consumer.md`](docs/field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md)):
+  the first report written from the seat of a product *built on* Cortex (Mesh
+  consumes the HTTP API as a managed sidecar). Documents the decision layer as
+  the behavioral moat, an honest token-economics ledger (roughly neutral for a
+  build-elsewhere session; the fixed per-turn schema tax is the largest single
+  item), search-noise and grep-hook cross-repo friction, and the undocumented
+  HTTP surface — with a prioritized P1–P8 mitigation plan (`context_pack`
+  composite tool, search ranking, target-repo-aware hook, warm-path decision
+  drafting, cross-repo decision search, versioned HTTP contract + freshness
+  over HTTP, token-tax reduction, temporal layer).
+
 ## [0.3.2] — 2026-06-11
 
 ### Fixed
@@ -160,6 +176,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.3]: https://github.com/ruevu/cortex/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ruevu/cortex/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ruevu/cortex/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ruevu/cortex/releases/tag/v0.3.0
