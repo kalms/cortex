@@ -58,8 +58,12 @@ export interface FrameKind {
 
 /** Internal result — eval harness + tests only. Never serialize. */
 export interface FrameKindInternal extends FrameKind {
-  /** argmax margin over runner-up, 0–1; 0 for fallback. */
+  /** argmax margin over runner-up, 0–1; 0 for fallback AND for ties. */
   confidence: number;
+  /** true = no signal cleared MIN_SIGNAL (layer is the domain fallback);
+   *  false + confidence 0 = a within-pair tie (strong signal, unsplit pair).
+   *  Observe-phase addition: conf=0.00 alone conflated the two states. */
+  fallback: boolean;
   contributions: Record<FrameLayer, number>;
 }
 
@@ -99,6 +103,24 @@ const PATH_LAYER_TABLE: ReadonlyArray<[FrameLayer, ReadonlySet<string>]> = [
  *  gated behind TEST_FRACTION_MIN so only near-all-tests frames qualify. */
 const TEST_PATH_RE = /\.test\.|\.spec\.|(^|\/)tests?\//;
 const NON_RUNTIME_EXT_RE = /\.(sh|ya?ml|json|md)$/;
+
+/** Nitro/h3 method-suffixed route files (`server/api/*.{get,post,…}.ts`) are
+ *  handlers — orchestration BY IDIOM. Observe-phase finding (anthill-cloud,
+ *  2026-06-13): these frames are pure sources (sink 0.0), the surface pair
+ *  always tied, and canonical order starved orchestration to zero frames —
+ *  no token in PATH_LAYER_TABLE matches the Nitro idiom.
+ *  Scoped to route dirs: `<thing>.get.ts` is also a typed-accessor idiom
+ *  outside `api/`/`routes/`, and unscoped it flipped data-substrate frames.
+ *  Case-insensitive, matching pathSegments' lowercasing. */
+const HANDLER_SUFFIX_RE = /\.(get|post|put|patch|delete|head|options)\.[cm]?[jt]sx?$/i;
+const ROUTE_DIR_TOKENS: ReadonlySet<string> = new Set(["api", "routes"]);
+/** Same weight as a path-token match — aliased, not restated, so tuning
+ *  W_PATH keeps the documented equality. */
+const W_HANDLER = W_PATH;
+
+function isRouteHandler(path: string): boolean {
+  return HANDLER_SUFFIX_RE.test(path) && pathSegments(path).some((seg) => ROUTE_DIR_TOKENS.has(seg));
+}
 
 /** Lowercased directory segments + basename sans extension. */
 function pathSegments(path: string): string[] {
@@ -146,6 +168,8 @@ function classifyOne(input: FrameKindInput): FrameKindInternal {
       }
       if (matching > 0) c[layer] += W_PATH * (matching / members.length);
     }
+    const handlerFrac = members.filter(isRouteHandler).length / members.length;
+    if (handlerFrac > 0) c.orchestration += W_HANDLER * handlerFrac;
   }
 
   // ── Source C: content signals
@@ -175,14 +199,14 @@ function classifyOne(input: FrameKindInput): FrameKindInternal {
     }
   }
   if (bestScore < MIN_SIGNAL) {
-    return { frame_id: input.frame_id, layer: "domain", confidence: 0, contributions: c };
+    return { frame_id: input.frame_id, layer: "domain", confidence: 0, fallback: true, contributions: c };
   }
   let second = 0;
   for (const layer of LAYER_ORDER) {
     if (layer !== best && c[layer] > second) second = c[layer];
   }
   const confidence = (bestScore - second) / bestScore;
-  return { frame_id: input.frame_id, layer: best, confidence, contributions: c };
+  return { frame_id: input.frame_id, layer: best, confidence, fallback: false, contributions: c };
 }
 
 /** Eval harness + tests only — never serialize this shape. */
