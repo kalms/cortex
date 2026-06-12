@@ -4,6 +4,21 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] — 2026-06-12
+
+### Fixed
+
+- **Viewer dots could render as one dot, faking duplicate edges**: file-dot
+  placement inside frames was `Math.random()` per load, so dense frames
+  reliably produced dot pairs within ~5px that read as a single dot — making
+  a hub file's distinct edges look like multiple edges to the same target.
+  Dots now sit on a jitter-bounded grid (cell from member index, jitter
+  seeded from the file path via fnv1a + mulberry32 — the frame layout's
+  seeding approach), so neighbors can never coincide and the same graph
+  renders identical dot positions on every load. Decision anchor dots take
+  the same seeded treatment, removing the last `Math.random()` from the
+  render data path. Verified by byte-identical screenshots across reloads.
+
 ## [0.3.4] — 2026-06-12
 
 ### Added
@@ -201,6 +216,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.5]: https://github.com/ruevu/cortex/releases/tag/v0.3.5
 [0.3.4]: https://github.com/ruevu/cortex/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ruevu/cortex/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ruevu/cortex/releases/tag/v0.3.2
