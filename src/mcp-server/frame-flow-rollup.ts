@@ -9,10 +9,7 @@
  * PURE — no I/O.
  */
 import type { NodeRow, EdgeRow } from "../graph/store.js";
-import { buildNodeFrameIndex } from "./frame-pair-rollup.js";
-
-/** Same relation set as the undirected rollup. */
-const ROLLUP_RELATIONS = new Set(["CALLS", "USAGE", "IMPORTS"]);
+import { buildNodeFrameIndex, ROLLUP_RELATIONS } from "./frame-pair-rollup.js";
 
 export interface FrameFlow {
   from: number;

@@ -60,7 +60,8 @@ describe("rollupFrameFlows", () => {
   });
 
   it("stats include every framed file's frame, even with zero flows", () => {
-    const { stats } = rollupFrameFlows(nodes, []);
+    const { flows, stats } = rollupFrameFlows(nodes, []);
+    expect(flows).toEqual([]);
     expect(stats).toEqual([
       { frame_id: 0, fanIn: 0, fanOut: 0 },
       { frame_id: 1, fanIn: 0, fanOut: 0 },

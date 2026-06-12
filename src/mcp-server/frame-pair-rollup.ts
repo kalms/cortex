@@ -12,7 +12,7 @@
 import type { NodeRow, EdgeRow } from "../graph/store.js";
 
 /** Relations rolled up into frame-pair affinity (spec §B force 1). */
-const ROLLUP_RELATIONS = new Set(["CALLS", "USAGE", "IMPORTS"]);
+export const ROLLUP_RELATIONS = new Set(["CALLS", "USAGE", "IMPORTS"]);
 
 export interface FramePairWeight {
   /** Smaller frame_id. */
