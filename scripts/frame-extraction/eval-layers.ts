@@ -24,6 +24,7 @@ import { runTfIdfHdbscan, deriveProjectName } from "../../src/frame-extraction/c
 import { buildFrameAssignments, injectFrames } from "../../src/frame-extraction/inject-frames.js";
 import { rollupFrameFlows } from "../../src/mcp-server/frame-flow-rollup.js";
 import { classifyFramesInternal, type FrameKindInput, type FrameLayer } from "../../src/frame-extraction/frame-kind.js";
+import { buildFrameMap } from "../../src/mcp-server/frame-map.js";
 import { GraphStore } from "../../src/graph/store.js";
 import { cachePathForProject } from "../../src/cli/context.js";
 import { hasVenv } from "../../src/frame-extraction/venv.js";
@@ -49,6 +50,7 @@ interface RepoRow {
   dist?: Record<string, number>;
   earnedDomain?: number; fallbackDomain?: number;
   midbandFrames?: FrameRow[];
+  entered?: string[]; left?: string[]; ambientOff?: Record<string, number>; ambientOn?: Record<string, number>;
 }
 
 function runtimeFracOf(paths: string[]): number {
@@ -108,7 +110,22 @@ function evalRepo(repo: RepoSpec): RepoRow {
         members: i.member_paths.length, sink, runtimeFrac: runtimeFracOf(i.member_paths), midband,
       });
     }
-    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames };
+    const off = buildFrameMap(nodes, edges, { applyKindWeight: false });
+    const on = buildFrameMap(nodes, edges, { applyKindWeight: true });
+    const offAmbient = new Set(off.frames.filter((f) => f.ambient).map((f) => f.id));
+    const onFrames = new Map(on.frames.map((f) => [f.id, f]));
+    const onAmbient = new Set(on.frames.filter((f) => f.ambient).map((f) => f.id));
+    const desc = (id: number) => { const f = onFrames.get(id)!; return `${f.name}(${f.layer})`; };
+    const entered = [...onAmbient].filter((id) => !offAmbient.has(id)).map(desc);
+    const left = [...offAmbient].filter((id) => !onAmbient.has(id)).map(desc);
+    const ambientLayerDist = (ids: Set<number>) => {
+      const d: Record<string, number> = {};
+      for (const id of ids) { const l = onFrames.get(id)!.layer; d[l] = (d[l] ?? 0) + 1; }
+      return d;
+    };
+    const ambientOff = ambientLayerDist(offAmbient), ambientOn = ambientLayerDist(onAmbient);
+
+    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames, entered, left, ambientOff, ambientOn };
   } catch (err) {
     return { ...base, error: err instanceof Error ? err.message : String(err) };
   }
@@ -134,6 +151,7 @@ function main() {
     if (!row.ok) { console.log(`[eval-layers]   ✗ ${(row.error ?? "").slice(0, 140)}`); continue; }
     const earned = row.earnedDomain ?? 0, fb = row.fallbackDomain ?? 0;
     console.log(`[eval-layers]   ✓ frames=${row.frames} dist=${JSON.stringify(row.dist)} domain(earned/fallback)=${earned}/${fb}`);
+    console.log(`[eval-layers]   ambient Δ: +[${(row.entered ?? []).join(", ")}] -[${(row.left ?? []).join(", ")}]  off=${JSON.stringify(row.ambientOff ?? {})} on=${JSON.stringify(row.ambientOn ?? {})}`);
     const nearMiss = (row.midbandFrames ?? []).filter((f) => f.layer === "domain" && f.fallback && f.runtimeFrac >= 0.6);
     if (nearMiss.length) console.log(`[eval-layers]     near-miss (mid-band fallback, runtimeFrac≥0.6): ${nearMiss.map((f) => `${f.label}(${f.runtimeFrac.toFixed(2)})`).join(", ")}`);
   }
