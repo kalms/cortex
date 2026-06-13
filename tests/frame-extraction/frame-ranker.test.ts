@@ -133,3 +133,32 @@ describe("rankFrames — reclaimed members", () => {
     expect(r.member_count).toBe(1);
   });
 });
+
+describe("kind_weight factor (enable slice)", () => {
+  it("omitted kind_weight is inert (≡ 1.0): identical ranks/scores to no field", () => {
+    // Inert holds at any nameability — even 0 — since with×1 == without.
+    const recs = [
+      { frame_id: 1, frame_label: "auth", member_paths: ["a/auth.ts", "a/auth2.ts"] },
+      { frame_id: 2, frame_label: "billing", member_paths: ["b/billing.ts", "b/billing2.ts"] },
+    ];
+    const corpus = corpusFromPaths(recs.flatMap((r) => r.member_paths));
+    const withField = rankFrames(recs.map((r) => ({ ...r, kind_weight: 1 })), corpus);
+    const without = rankFrames(recs, corpus);
+    expect(withField).toEqual(without);
+  });
+
+  it("a higher kind_weight outranks an equal-base-score frame", () => {
+    // Identical labels + member counts → identical nameability×structural;
+    // corpusFromPaths makes "auth" score nonzero, so kind_weight is the only
+    // differentiator (0 scores would tie-break by frame_id and mask the effect).
+    const recs = [
+      { frame_id: 1, frame_label: "auth", member_paths: ["a/auth.ts", "a/auth2.ts"], kind_weight: 0.5 },
+      { frame_id: 2, frame_label: "auth", member_paths: ["b/auth.ts", "b/auth2.ts"], kind_weight: 1.0 },
+    ];
+    const ranked = rankFrames(recs, corpusFromPaths(recs.flatMap((r) => r.member_paths)));
+    expect(ranked[0].frame_id).toBe(2);
+    expect(ranked[0].components.kind_weight).toBe(1.0);
+    expect(ranked.find((r) => r.frame_id === 1)!.score)
+      .toBeCloseTo(ranked.find((r) => r.frame_id === 2)!.score * 0.5, 10);
+  });
+});

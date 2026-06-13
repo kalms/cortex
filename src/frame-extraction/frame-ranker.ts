@@ -2,9 +2,12 @@
 /**
  * Deterministic, taxonomy-free frame ranker (Path 1).
  *
- * score = nameability × structural_weight
+ * score = nameability × structural_weight × kind_weight
  *   nameability      = scoreLabel F1 (label-quality.ts) × genericPenalty
  *   structural_weight = sqrt(member_count)
+ *   kind_weight       = per-layer multiplier from FrameRecord; defaults to 1
+ *                       (inert) when omitted — ranking is byte-identical to
+ *                       pre-slice output when the field is absent
  *
  * The ambient set is the top `ambientBudget(extracted_count)` frames by score;
  * ties break lexicographically on the (stringified) frame_id (spec §8.6).
@@ -30,6 +33,9 @@ export interface FrameRecord {
    *  defaults to `member_paths` when omitted. structural_weight always uses
    *  the full `member_paths`. */
   core_member_paths?: string[];
+  /** Per-layer ranking multiplier (taxonomy). Omitted (≡ 1) when the
+   *  kind-weight feature is off → ranking is byte-identical to pre-slice. */
+  kind_weight?: number;
 }
 
 /** Explainability breakdown — kept so the viewer can answer "why is X ambient
@@ -43,6 +49,8 @@ export interface RankComponents {
   f1: number;
   /** Fraction of label tokens that are topic-bearing. */
   generic_penalty: number;
+  /** Per-layer multiplier applied to the score (1 when the feature is off). */
+  kind_weight: number;
 }
 
 export interface RankedFrame {
@@ -57,7 +65,9 @@ export interface RankedFrame {
 }
 
 /**
- * Rank every frame by `score = nameability × structural_weight` and mark the
+ * Rank every frame by `score = nameability × structural_weight × kind_weight`
+ * (kind_weight defaults to 1 when omitted, keeping output byte-identical to
+ * pre-slice ranking) and mark the
  * top `ambientBudget(records.length)` as ambient. Deterministic: ties on score
  * break lexicographically on the stringified frame_id (spec §8.6).
  */
@@ -70,13 +80,14 @@ export function rankFrames(records: readonly FrameRecord[], corpus: CorpusIndex)
     const generic_penalty = genericPenalty(r.frame_label);
     const nameability = f1 * generic_penalty;
     const structural_weight = Math.sqrt(r.member_paths.length);
-    const score = nameability * structural_weight;
+    const kind_weight = r.kind_weight ?? 1;
+    const score = nameability * structural_weight * kind_weight;
     return {
       frame_id: r.frame_id,
       frame_label: r.frame_label,
       member_count: r.member_paths.length,
       score,
-      components: { nameability, structural_weight, f1, generic_penalty },
+      components: { nameability, structural_weight, f1, generic_penalty, kind_weight },
     };
   });
 
