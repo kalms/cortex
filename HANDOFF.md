@@ -112,18 +112,23 @@ Findings, by nature:
 
 ## ▶ NEXT STEP
 
-1. **Land the observe-polish branch** (`fix/component/layers-observe-polish`):
-   fixture regenerated to the current 17-frame graph + full-coverage guard,
-   handler-suffix orchestration signal, palette separation, tie/fallback in
-   the agreement report.
-2. **Decide the domain question** (gates the enable slice): how does `domain`
-   ever win on merit? Candidates: positive domain signal, demoted fallback,
-   or reduced kind-weight for fallback-domain. Frame-quality work
-   (fragmentation, co-cluster noise) may be the prerequisite rather than the
-   follow-up — consider reordering.
-3. **Enable slice** (after the domain decision): kind-weight +
-   layer-diversity in `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per
-   `frame-ranking.md` (domain 1.00 … ceremony 0.20).
+1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
+   handler-suffix orchestration signal, palette separation, tie/fallback report.
+2. ✅ **Domain question resolved** — earnable domain via an *earned-fallback*
+   runtime signal in the middle sink band (decision **`D-8vbv`**, spec
+   [2026-06-13-earnable-domain-signal-design.md](docs/superpowers/specs/2026-06-13-earnable-domain-signal-design.md)).
+   `W_DOMAIN_RUNTIME = 0.5` (earn bar ≈80% runtime), held aside so any real
+   layer signal still wins. **Measured:** earns domain for anthill's
+   `dsl/primitives` / `rbac-policies` / `activator`; earns nothing on cortex
+   (test-co-clustering depresses runtimeFrac — the frame-quality ceiling, not a
+   defect). Substrate-band core domain (`dsl/compiler`) still needs the deferred
+   Louvain `concern` axis. Enable-slice weights settled: **earned domain 1.00,
+   fallback domain 0.50.**
+3. **Enable slice** (now unblocked): kind-weight + layer-diversity in
+   `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per `frame-ranking.md`
+   (domain 1.00 … ceremony 0.20), with **fallback-domain at 0.50** (use the
+   `fallback` flag — `classifyFramesInternal` exposes it; production strips it).
+   Run its own classify→observe→**enable** loop.
 4. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
    *measured* adjacency from `rollupFrameFlows` (not categorical), then
    floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
