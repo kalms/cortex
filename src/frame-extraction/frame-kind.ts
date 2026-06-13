@@ -84,6 +84,14 @@ const MIN_SIGNAL = 0.4;
  *  near-all-tests frame is ceremony BY CONTENT. */
 const TEST_FRACTION_MIN = 0.8;
 const EXT_FRACTION_MIN = 0.5;
+/** 0.5: domain as the earned-fallback residual in the otherwise-silent middle
+ *  sink band. Override-protection is STRUCTURAL, not weight-based — the residual
+ *  is applied only when no layer-specific source cleared MIN_SIGNAL (see the
+ *  combine step), so any real signal wins regardless of this magnitude. 0.5
+ *  sets the bar: 0.5 × 0.8 = MIN_SIGNAL, so a frame earns domain (vs defaulting
+ *  to fallback-domain) at ~80% runtime content. Test-/tooling-heavy frames stay
+ *  below threshold (fallback or ceremony). */
+const W_DOMAIN_RUNTIME = 0.5;
 
 /** Curated path-segment → layer table (frame-ranking.md §classification-sources,
  *  v1). No tokens map to 'domain': domain is what remains when a frame is
@@ -158,6 +166,18 @@ function classifyOne(input: FrameKindInput): FrameKindInternal {
     c.data += s;
     c.infrastructure += s;
   }
+  // Domain residual (middle band only): runtime code sitting topologically
+  // between surface and substrate. Held aside, NOT summed into c here — domain
+  // is the *earned fallback*, applied at combine time only if no layer-specific
+  // source (B/C) cleared MIN_SIGNAL. This keeps a real signal (even a weak
+  // W_LABEL one) from being overridden by the generic residual.
+  let domainResidual = 0;
+  if (sink > SINK_SURFACE && sink < SINK_SUBSTRATE && members.length > 0) {
+    const runtimeFrac =
+      members.filter((p) => !TEST_PATH_RE.test(p) && !NON_RUNTIME_EXT_RE.test(p)).length /
+      members.length;
+    domainResidual = W_DOMAIN_RUNTIME * runtimeFrac;
+  }
 
   // ── Source B: path patterns (fraction of members matching each layer's tokens)
   if (members.length > 0) {
@@ -199,7 +219,15 @@ function classifyOne(input: FrameKindInput): FrameKindInternal {
     }
   }
   if (bestScore < MIN_SIGNAL) {
-    return { frame_id: input.frame_id, layer: "domain", confidence: 0, fallback: true, contributions: c };
+    // No layer-specific source cleared the bar. If the middle-band runtime
+    // residual does, domain is EARNED (not defaulted); otherwise fall back.
+    if (domainResidual >= MIN_SIGNAL) {
+      c.domain += domainResidual;
+      best = "domain";
+      bestScore = c.domain;
+    } else {
+      return { frame_id: input.frame_id, layer: "domain", confidence: 0, fallback: true, contributions: c };
+    }
   }
   let second = 0;
   for (const layer of LAYER_ORDER) {
