@@ -84,12 +84,13 @@ const MIN_SIGNAL = 0.4;
  *  near-all-tests frame is ceremony BY CONTENT. */
 const TEST_FRACTION_MIN = 0.8;
 const EXT_FRACTION_MIN = 0.5;
-/** 0.5: domain as the positive residual in the otherwise-silent middle sink
- *  band. Below W_PATH (0.8) so a typed frame (Source B) always outranks it —
- *  domain only takes the untyped case. 0.5 × 0.8 = MIN_SIGNAL, so the bar to
- *  EARN domain is ~80% runtime content in a mid-band, untyped frame. Converts
- *  the former silent→fallback into an earned signal for genuine domain frames;
- *  test-/tooling-heavy frames stay below threshold (fallback or ceremony). */
+/** 0.5: domain as the earned-fallback residual in the otherwise-silent middle
+ *  sink band. Override-protection is STRUCTURAL, not weight-based — the residual
+ *  is applied only when no layer-specific source cleared MIN_SIGNAL (see the
+ *  combine step), so any real signal wins regardless of this magnitude. 0.5
+ *  sets the bar: 0.5 × 0.8 = MIN_SIGNAL, so a frame earns domain (vs defaulting
+ *  to fallback-domain) at ~80% runtime content. Test-/tooling-heavy frames stay
+ *  below threshold (fallback or ceremony). */
 const W_DOMAIN_RUNTIME = 0.5;
 
 /** Curated path-segment → layer table (frame-ranking.md §classification-sources,
