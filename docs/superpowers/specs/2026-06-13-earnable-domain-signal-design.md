@@ -119,20 +119,32 @@ New constant: `W_DOMAIN_RUNTIME = 0.5`.
 `runtimeFrac` is a pure fraction over sorted member paths; no randomness, no
 timestamps. The determinism contract (spec, non-negotiable) is preserved.
 
-## Expected effect (cortex, against live numbers)
+## Measured effect (verified against live graphs, 2026-06-13)
 
-| frame | sink | today | after |
-|---|---|---|---|
-| `frame-extraction` (7-member src split) | 0.42 | domain (fallback) | **domain (earned)** |
-| `cluster:12` | 0.49 | domain (fallback) | **domain (earned)** if ≥80% runtime |
-| `extraction/eval` | 0.36 | domain (fallback) | domain (fallback) — runtime-light eval harness |
-| `decisions` | 0.33 | domain (fallback) | domain (fallback) — 65% tests, surface-band; frame-quality casualty |
-| `contracts` | 0.69 | domain (fallback) | unchanged — substrate band, not middle |
-| typed/ceremony frames | — | their layer | unchanged — those signals exceed 0.5 |
+**The signal demonstrates on anthill-cloud, not on cortex.** Measured
+mid-band runtime fractions:
 
-No currently-correct assignment regresses: ceremony frames keep their stronger
-content signal, typed frames keep their `W_PATH` signal, and substrate/surface
-bands are untouched.
+| repo · frame | sink | runtimeFrac | residual | verdict |
+|---|---|---|---|---|
+| anthill · `dsl/primitives` | 0.43 | 1.00 | 0.50 | **domain (earned)** — DSL core |
+| anthill · `rbac-policies` | 0.50 | 1.00 | 0.50 | **domain (earned)** — authz policies |
+| anthill · `activator` | 0.50 | 1.00 | 0.50 | **domain (earned)** |
+| cortex · `frame-extraction` (7) | 0.42 | 0.57 | 0.29 | fallback — below bar |
+| cortex · `cluster:12` | 0.49 | 0.75 | 0.38 | fallback — just below bar |
+| cortex · `frame-extraction` (23) | 0.54 | 0.83 | 0.41 | ceremony — real content signal wins |
+| cortex · `extraction/eval` | 0.36 | 0.47 | 0.24 | fallback — runtime-light eval harness |
+
+The anthill frames are exactly the ones that were fallback-domain in the
+original observe analysis — now upgraded to *earned*. **cortex earns no
+domain**: its clusters co-locate tests with their subjects, so runtimeFrac
+sits below the 0.8 bar (0.57 / 0.75 / 0.47). That is the documented
+frame-quality ceiling, not a defect of the signal — and `W_DOMAIN_RUNTIME`
+is deliberately **not** lowered to fit cortex (that would overfit one corpus
+and assert confidence the frame quality doesn't support). cortex's regression
+fixture therefore shows no reclassification — which is the conservative-
+correctness evidence: no currently-correct assignment regresses (ceremony
+keeps its stronger content signal, typed frames keep `W_PATH`, substrate /
+surface bands untouched).
 
 ## Weight-table decision (recorded now, wired in step 3's enable slice)
 
