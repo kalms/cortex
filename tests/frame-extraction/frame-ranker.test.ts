@@ -144,8 +144,7 @@ describe("kind_weight factor (enable slice)", () => {
     const corpus = corpusFromPaths(recs.flatMap((r) => r.member_paths));
     const withField = rankFrames(recs.map((r) => ({ ...r, kind_weight: 1 })), corpus);
     const without = rankFrames(recs, corpus);
-    expect(withField.map((r) => [r.frame_id, r.score, r.rank]))
-      .toEqual(without.map((r) => [r.frame_id, r.score, r.rank]));
+    expect(withField).toEqual(without);
   });
 
   it("a higher kind_weight outranks an equal-base-score frame", () => {
