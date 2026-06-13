@@ -55,3 +55,29 @@ describe("buildFrameMap layer field", () => {
     for (const f of map.frames) expect(typeof f.layer).toBe("string");
   });
 });
+
+describe("kind-weight gating", () => {
+  it("flag OFF: scores identical to no kind-weight (inert by default)", () => {
+    const off = buildFrameMap(nodes, edges, { applyKindWeight: false });
+    const dflt = buildFrameMap(nodes, edges); // env unset in test → off
+    expect(off.frames.map((f) => [f.id, f.score])).toEqual(dflt.frames.map((f) => [f.id, f.score]));
+  });
+
+  it("flag ON: each frame's score is its off-score × kindWeight(layer)", () => {
+    const off = buildFrameMap(nodes, edges, { applyKindWeight: false });
+    const on = buildFrameMap(nodes, edges, { applyKindWeight: true });
+    const offById = new Map(off.frames.map((f) => [f.id, f]));
+    for (const f of on.frames) {
+      const base = offById.get(f.id)!;
+      const w = f.layer === "interface" ? 0.9 : f.layer === "data" ? 0.75 : 1.0;
+      expect(f.score).toBeCloseTo(base.score * w, 10);
+    }
+  });
+
+  it("flag ON still serializes no classifier internals", () => {
+    const json = JSON.stringify(buildFrameMap(nodes, edges, { applyKindWeight: true }));
+    expect(json).not.toContain("fallback");
+    expect(json).not.toContain("confidence");
+    expect(json).not.toContain("contributions");
+  });
+});

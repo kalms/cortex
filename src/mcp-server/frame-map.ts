@@ -17,7 +17,7 @@ import { splitSymbol } from "../frame-extraction/text-blob.js";
 import { rankFrames, type FrameRecord } from "../frame-extraction/frame-ranker.js";
 import { rollupFramePairs } from "./frame-pair-rollup.js";
 import { rollupFrameFlows } from "./frame-flow-rollup.js";
-import { classifyFrames, type FrameLayer } from "../frame-extraction/frame-kind.js";
+import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-extraction/frame-kind.js";
 import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
 
 export interface FrameMapEntry {
@@ -87,14 +87,18 @@ function buildFileBlobs(nodes: readonly NodeRow[]): FileBlob[] {
   return blobs;
 }
 
-export function buildFrameMap(nodes: readonly NodeRow[], edges: readonly EdgeRow[]): FrameMap {
+export function buildFrameMap(
+  nodes: readonly NodeRow[],
+  edges: readonly EdgeRow[],
+  opts: { applyKindWeight?: boolean } = {},
+): FrameMap {
+  const applyKindWeight = opts.applyKindWeight ?? process.env.CORTEX_KIND_WEIGHT === "1";
+
   const records = buildFrameRecords(nodes);
   const corpus = buildCorpusIndex(buildFileBlobs(nodes));
-  const ranked = rankFrames(records, corpus);
-
   const { stats } = rollupFrameFlows(nodes, edges);
   const statsById = new Map(stats.map((s) => [s.frame_id, s]));
-  const kinds = classifyFrames(
+  const kinds = classifyFramesInternal(
     records.map((r) => ({
       frame_id: r.frame_id,
       frame_label: r.frame_label,
@@ -103,7 +107,17 @@ export function buildFrameMap(nodes: readonly NodeRow[], edges: readonly EdgeRow
       fanOut: statsById.get(r.frame_id)?.fanOut ?? 0,
     })),
   );
-  const layerById = new Map(kinds.map((k) => [k.frame_id, k.layer]));
+  const kindById = new Map(kinds.map((k) => [k.frame_id, k]));
+  const layerById = new Map<number, FrameLayer>(kinds.map((k) => [k.frame_id, k.layer]));
+
+  const ranked = rankFrames(
+    records.map((r) => {
+      if (!applyKindWeight) return r;
+      const k = kindById.get(r.frame_id);
+      return k ? { ...r, kind_weight: kindWeight(k.layer, k.fallback) } : r;
+    }),
+    corpus,
+  );
 
   const ambient = ranked.filter((r) => r.ambient);
   const pairs = rollupFramePairs(nodes, edges);
