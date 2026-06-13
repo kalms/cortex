@@ -15,8 +15,9 @@
  *
  * Determinism contract (spec, non-negotiable): no randomness, no timestamps,
  * named constants, stable sorts, canonical tie-break. Internal machinery
- * (confidence, contributions) exists for the eval harness ONLY — production
- * consumers use classifyFrames, which strips it.
+ * (confidence, contributions) exists for the eval harness ONLY — the public
+ * `classifyFrames` strips it; frame-map reads the internal shape (for `fallback`)
+ * but never serializes those fields.
  *
  * Spec: docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md
  * PURE — no I/O.
@@ -39,6 +40,25 @@ export const LAYER_ORDER: readonly FrameLayer[] = [
   "infrastructure",
   "ceremony",
 ];
+
+/** Per-layer ranking multiplier (frame-ranking.md taxonomy table). Used by the
+ *  enable slice (kind-weight) to tilt the ambient set toward narrative layers. */
+export const KIND_WEIGHT: Record<FrameLayer, number> = {
+  interface: 0.9,
+  orchestration: 0.85,
+  domain: 1.0,
+  data: 0.75,
+  infrastructure: 0.55,
+  ceremony: 0.2,
+};
+
+/** Kind-weight for a classified frame. Fallback-domain is demoted to 0.5: a
+ *  frame that earned nothing (D-8vbv) must not carry domain's top weight —
+ *  the D-qn7z trap. Total over the FrameLayer union. */
+export function kindWeight(layer: FrameLayer, fallback: boolean): number {
+  if (layer === "domain" && fallback) return 0.5;
+  return KIND_WEIGHT[layer];
+}
 
 export interface FrameKindInput {
   frame_id: number;
