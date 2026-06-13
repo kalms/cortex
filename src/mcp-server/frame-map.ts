@@ -9,7 +9,8 @@
  * still score ~0 by construction (label-quality.ts), preserving the signal.
  *
  * Mostly pure; reads process.env.CORTEX_KIND_WEIGHT only when opts.applyKindWeight
- * is not supplied (tests pass it explicitly). The endpoint supplies nodes/edges.
+ * is not supplied (tests pass it explicitly). Kind-weight ranking defaults ON;
+ * the env var is an opt-out ("0" disables). The endpoint supplies nodes/edges.
  */
 import type { NodeRow, EdgeRow } from "../graph/store.js";
 import type { FileBlob } from "../frame-extraction/types.js";
@@ -93,7 +94,10 @@ export function buildFrameMap(
   edges: readonly EdgeRow[],
   opts: { applyKindWeight?: boolean } = {},
 ): FrameMap {
-  const applyKindWeight = opts.applyKindWeight ?? process.env.CORTEX_KIND_WEIGHT === "1";
+  // Kind-weight ranking is ON by default (taxonomy enable slice, observe verdict
+  // positive — D-g4qb). CORTEX_KIND_WEIGHT is now an OPT-OUT: set it to "0" to
+  // restore the pre-slice nameability×structural ranking.
+  const applyKindWeight = opts.applyKindWeight ?? process.env.CORTEX_KIND_WEIGHT !== "0";
 
   const records = buildFrameRecords(nodes);
   const corpus = buildCorpusIndex(buildFileBlobs(nodes));
