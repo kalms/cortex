@@ -2,9 +2,12 @@
 /**
  * Deterministic, taxonomy-free frame ranker (Path 1).
  *
- * score = nameability × structural_weight
+ * score = nameability × structural_weight × kind_weight
  *   nameability      = scoreLabel F1 (label-quality.ts) × genericPenalty
  *   structural_weight = sqrt(member_count)
+ *   kind_weight       = per-layer multiplier from FrameRecord; defaults to 1
+ *                       (inert) when omitted — ranking is byte-identical to
+ *                       pre-slice output when the field is absent
  *
  * The ambient set is the top `ambientBudget(extracted_count)` frames by score;
  * ties break lexicographically on the (stringified) frame_id (spec §8.6).
@@ -62,7 +65,9 @@ export interface RankedFrame {
 }
 
 /**
- * Rank every frame by `score = nameability × structural_weight` and mark the
+ * Rank every frame by `score = nameability × structural_weight × kind_weight`
+ * (kind_weight defaults to 1 when omitted, keeping output byte-identical to
+ * pre-slice ranking) and mark the
  * top `ambientBudget(records.length)` as ambient. Deterministic: ties on score
  * break lexicographically on the stringified frame_id (spec §8.6).
  */
