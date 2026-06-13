@@ -1,6 +1,7 @@
 // tests/mcp-server/frame-map-layer.test.ts
 import { describe, it, expect } from "vitest";
 import { buildFrameMap } from "../../src/mcp-server/frame-map.js";
+import { kindWeight } from "../../src/frame-extraction/frame-kind.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 function fileNode(id: string, path: string, frameId: number, label: string): NodeRow {
@@ -69,7 +70,7 @@ describe("kind-weight gating", () => {
     const offById = new Map(off.frames.map((f) => [f.id, f]));
     for (const f of on.frames) {
       const base = offById.get(f.id)!;
-      const w = f.layer === "interface" ? 0.9 : f.layer === "data" ? 0.75 : 1.0;
+      const w = kindWeight(f.layer, false);
       expect(f.score).toBeCloseTo(base.score * w, 10);
     }
   });
