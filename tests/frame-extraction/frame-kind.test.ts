@@ -179,6 +179,54 @@ describe("handler-suffix signal (Nitro/h3 method-suffixed route files)", () => {
   });
 });
 
+describe("positive mid-band domain signal", () => {
+  it("mid-band runtime frame with no layer tokens EARNS domain (not fallback)", () => {
+    // sink 0.5 (middle band), members are runtime .ts with no PATH_LAYER_TABLE
+    // token → domain = W_DOMAIN_RUNTIME(0.5) × runtimeFrac(1.0) = 0.5 ≥ MIN_SIGNAL.
+    const [r] = classifyFramesInternal([
+      input({ frame_id: 40, fanIn: 5, fanOut: 5, member_paths: ["src/foo/alpha.ts", "src/foo/beta.ts"] }),
+    ]);
+    expect(r.layer).toBe("domain");
+    expect(r.fallback).toBe(false);
+    expect(r.confidence).toBeGreaterThan(0);
+  });
+
+  it("does NOT override a typed mid-band frame (W_DOMAIN_RUNTIME < W_PATH)", () => {
+    // 'store' → data token at W_PATH(0.8); domain residual only 0.5 → data wins.
+    const [r] = classifyFrames([
+      input({ frame_id: 41, fanIn: 5, fanOut: 5, member_paths: ["src/store/alpha.ts", "src/store/beta.ts"] }),
+    ]);
+    expect(r.layer).toBe("data");
+  });
+
+  it("a mostly-test mid-band frame stays fallback (runtime signal below MIN_SIGNAL)", () => {
+    // 3 tests + 1 runtime → runtimeFrac 0.25 → domain 0.125 < 0.4; testFrac 0.75 < 0.8 → no ceremony.
+    const [r] = classifyFramesInternal([
+      input({
+        frame_id: 42, fanIn: 5, fanOut: 5,
+        member_paths: ["a/w.test.ts", "a/x.test.ts", "a/y.test.ts", "a/z.ts"],
+      }),
+    ]);
+    expect(r.layer).toBe("domain");
+    expect(r.fallback).toBe(true);
+  });
+
+  it("does NOT fire outside the middle band — a substrate frame gets no domain contribution", () => {
+    // sink 0.8 ≥ SINK_SUBSTRATE → substrate branch only; domain contribution stays 0.
+    const [r] = classifyFramesInternal([
+      input({ frame_id: 43, fanIn: 8, fanOut: 2, member_paths: ["src/foo/alpha.ts", "src/foo/beta.ts"] }),
+    ]);
+    expect(r.contributions.domain).toBe(0);
+    expect(r.layer).toBe("data");
+  });
+
+  it("an empty-member mid-band frame is still a fallback (guarded on members.length)", () => {
+    const [r] = classifyFramesInternal([input({ frame_id: 44, fanIn: 5, fanOut: 5 })]);
+    expect(r.layer).toBe("domain");
+    expect(r.fallback).toBe(true);
+  });
+});
+
 describe("combination + contract", () => {
   it("returns one result per input, sorted by frame_id", () => {
     const out = classifyFrames([input({ frame_id: 9 }), input({ frame_id: 1 })]);

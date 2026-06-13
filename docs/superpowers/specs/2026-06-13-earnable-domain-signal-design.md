@@ -54,34 +54,53 @@ Within "earnable" there are two signals:
 
 ## Architecture — the signal
 
-One addition to Source A (graph position) in `classifyOne`, in the existing
-middle-band branch that is currently silent:
+Domain is the **earned fallback**: the middle-band runtime residual is held
+aside, and applied at combine time *only if no layer-specific source (B/C)
+cleared `MIN_SIGNAL`*. This is the faithful form of "domain only takes a frame
+where no layer-specific signal exists." (An earlier additive sketch —
+`c.domain += residual` in Source A — was rejected because it let the generic
+residual override a real-but-weak signal: a frame with a `W_LABEL` data hint
+0.4 and runtime content 0.5 wrongly flipped to domain. A unit test caught it.)
+
+In `classifyOne`, the middle-band branch computes but holds the residual:
 
 ```ts
-// ── Source A: graph position
-// ...surface and substrate branches unchanged...
-else if (members.length > 0) {                  // middle band — was silent
-  // Domain is the positive residual: runtime code sitting topologically
-  // between surface and substrate, with no layer-specific signal of its own.
+// ── Source A: graph position — surface/substrate branches unchanged.
+// Domain residual (middle band only), held aside — NOT summed here:
+let domainResidual = 0;
+if (sink > SINK_SURFACE && sink < SINK_SUBSTRATE && members.length > 0) {
   const runtimeFrac =
     members.filter((p) => !TEST_PATH_RE.test(p) && !NON_RUNTIME_EXT_RE.test(p)).length /
     members.length;
-  c.domain += W_DOMAIN_RUNTIME * runtimeFrac;
+  domainResidual = W_DOMAIN_RUNTIME * runtimeFrac;
+}
+```
+
+and the combine step applies it only as a fallback rescue:
+
+```ts
+if (bestScore < MIN_SIGNAL) {           // nothing layer-specific cleared the bar
+  if (domainResidual >= MIN_SIGNAL) {   // ...but runtime residual does → EARNED
+    c.domain += domainResidual; best = "domain"; bestScore = c.domain;
+  } else {
+    return { ...fallback domain, confidence: 0, fallback: true };
+  }
 }
 ```
 
 New constant: `W_DOMAIN_RUNTIME = 0.5`.
 
-### Why 0.5 — domain as positive residual, not override
+### Why 0.5 — the threshold to earn domain
 
-- **Below `W_PATH` (0.8):** a typed mid-band frame keeps its layer. A 100%
-  runtime `store/` frame scores data `0.8` > domain `0.5` — Source B still
-  wins. Domain only takes a frame where no layer-specific signal exists, which
-  is exactly today's fallback condition — now *earned* instead of defaulted.
-- **`0.5 × 0.8 = 0.4 = MIN_SIGNAL`:** the bar to earn domain is "**≥ 80%
-  runtime content**, mid-band, untyped." A frame that is mostly tests/tooling
-  scores below `MIN_SIGNAL` on this signal and stays fallback (or wins ceremony
-  on its own content signal) — correctly.
+- **Override-protection is structural, not weight-based:** because the residual
+  is applied only when no layer-specific source cleared `MIN_SIGNAL`, *any* real
+  signal (path `W_PATH`, label `W_LABEL`, content) wins regardless of the
+  residual's magnitude. A typed mid-band frame keeps its layer; the residual
+  never competes with it.
+- **`0.5 × 0.8 = 0.4 = MIN_SIGNAL`:** the bar to *earn* domain (vs. default to
+  fallback-domain) is "**≥ 80% runtime content**, mid-band, untyped." A frame
+  that is mostly tests/tooling scores below `MIN_SIGNAL` on the residual and
+  stays fallback (or wins ceremony on its own content signal) — correctly.
 
 ### Reuse and continuity
 
