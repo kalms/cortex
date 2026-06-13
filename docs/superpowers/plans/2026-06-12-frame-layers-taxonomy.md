@@ -1016,6 +1016,13 @@ body.light .lm-toggle:hover { background: rgba(0, 0, 0, 0.04); }
 .lm-row i[data-layer="ceremony"]       { background: rgb(99, 105, 121); }
 ```
 
+> **Amended 2026-06-13 (observe phase):** ceremony is now `rgb(125, 110, 93)`
+> (warm taupe — the cool gray was indistinguishable from infrastructure at
+> lens alphas), and the per-layer CSS rules above were REMOVED: legend
+> swatches now derive from `LAYER_RGB` in viewer.js, the palette's single
+> runtime source. Do not copy these snippets verbatim — the spec doc carries
+> the canonical palette.
+
 - [ ] **Step 3: `viewer.js` — palette, state, data pass-through**
 
 (a) Near the color helpers (after line ~20, the `countIdleRGB` helper), add:

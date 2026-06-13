@@ -69,38 +69,76 @@ Three merges to `main`, all gated (Gate 0 visual QA + reviews + green suite),
   (type imports — irreplaceable coupling); removing IMPORTS flips 5/15 frame
   layer bands. Settled: keep. (The drawn web was already CALLS-only.)
 
+## 🔬 OBSERVE PHASE — findings (2026-06-13, cortex + anthill-cloud)
+
+The :3333 plugin server **is restarted and serving `layer`** (the old
+"restart needed" step is done). Observe ran on both repos: live `/api/frames`
++ the internal classifier (`classifyFramesInternal`) over regenerated inputs.
+No-internals contract verified live (nothing beyond `layer` serializes).
+
+**Verdict: classifier behaves as designed; do NOT enable kind-weight yet.**
+Findings, by nature:
+
+- **`domain` is never earned, only fallen into.** Cortex: all 5 domain
+  frames are `MIN_SIGNAL` fallbacks (conf 0.00) — including the #1 ambient
+  frame `extraction/eval`. Anthill: `dsl/compiler` (the product's core) is
+  an *exact* data=0.66 / infrastructure=0.66 tie, coin-flipped to `data` by
+  canonical order; sink 0.83 because everything imports it. **Cross-repo
+  confirmed: heavily-imported core domain reads topologically as substrate.**
+  This gates the enable slice — `domain` carries the highest kind-weight
+  (1.00) and is currently awarded precisely for the absence of signal
+  (D-qn7z's trap, now quantified). Options to decide: a positive domain
+  signal (per-repo tokens? Louvain `concern` axis from the 06-12
+  measurements?), demote the fallback, or lower fallback-domain's weight.
+- **Orchestration starves on framework idioms.** Anthill: 10/21 frames
+  interface, 0 orchestration — Nuxt/Nitro `server/api/*.{get,post}.ts`
+  handlers (sink 0.00, conf 0.00) tie the surface pair and canonical order
+  always picks `interface`; no orchestration token matches Nitro paths.
+  Cortex's only orchestration frame exists via the literal token "seed".
+  → fixed on this branch (handler-suffix signal).
+- **Infra/ceremony grays are visually confusable** — `arcane/server` (a
+  correct `infrastructure`, conf 0.60) read as `ceremony` to the user's eye;
+  the two hues are near-identical at lens alphas. → fixed on this branch.
+- **`conf=0.00` conflates two states**: pure fallback (no signal → domain)
+  vs within-pair tie (strong signal, unsplit pair, e.g. `api/post`). → eval
+  report now distinguishes them (this branch).
+- **Frame quality is the real ceiling** (upstream of the classifier):
+  cortex's core domain fragments into 3 frames (`frame-extraction` ×2 +
+  `extraction/eval`; the 23-member one is 64% tooling → honestly classified
+  `ceremony` at ambient rank 9); anthill's `dsl/compiler` frame contains 4
+  unrelated Vue modals from `apps/cloud`. Tuning classifier constants cannot
+  fix clustering. Defensible-but-odd, accepted for now: `drizzle` →
+  `ceremony` (7 generated `meta/*_snapshot.json` files).
+
 ## ▶ NEXT STEP
 
-1. **Restart Claude Code / the MCP server** (dev-reload, again): the plugin
-   server on :3333 still runs pre-layers code — the `layer` field and the
-   lens only work against a restarted server. Then flip the `layers` switch
-   in the viewer and **start the observe phase**: validate layer assignments
-   on cortex + anthill-cloud. Watch list: `frame-extraction` (now splits into
-   a domain frame + a tooling frame), `contracts` (domain via fallback),
-   `mcp`. Tuning loop: edit constants in `frame-kind.ts` → `npm test` (the
-   fixture prints the agreement report) → look. Regenerate the fixture
-   against the current 17-frame graph first
-   (`npx tsx scripts/frame-extraction/dump-frame-kind-inputs.ts > tests/fixtures/frame-layers/cortex-frames.json`,
-   relabel per the in-file judgment rules).
-2. **Enable slice** (after observe verdict): kind-weight + layer-diversity in
-   `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per `frame-ranking.md`
-   (domain 1.00 … ceremony 0.20). Mind the trap recorded in D-qn7z: `domain`
-   is both the fallback layer and the highest weight.
-3. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
+1. **Land the observe-polish branch** (`fix/component/layers-observe-polish`):
+   fixture regenerated to the current 17-frame graph + full-coverage guard,
+   handler-suffix orchestration signal, palette separation, tie/fallback in
+   the agreement report.
+2. **Decide the domain question** (gates the enable slice): how does `domain`
+   ever win on merit? Candidates: positive domain signal, demoted fallback,
+   or reduced kind-weight for fallback-domain. Frame-quality work
+   (fragmentation, co-cluster noise) may be the prerequisite rather than the
+   follow-up — consider reordering.
+3. **Enable slice** (after the domain decision): kind-weight +
+   layer-diversity in `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per
+   `frame-ranking.md` (domain 1.00 … ceremony 0.20).
+4. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
    *measured* adjacency from `rollupFrameFlows` (not categorical), then
    floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
    End-state visual direction was previewed + approved in the 2026-06-12
    brainstorm (`.superpowers/brainstorm/` mockups).
-4. **Co-change lens** (parallel, small): `FILE_CHANGES_WITH` minus structural
+5. **Co-change lens** (parallel, small): `FILE_CHANGES_WITH` minus structural
    edges = hidden coupling — a sibling row in the layers menu, dashed quiet
    style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
    identical) is established; follow it.
-5. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
+6. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
    aware grep hook (P3), search ranking (P2) — then `context_pack` (P1).
    **P6 (versioned HTTP contract + freshness header) should land before
    Mesh's viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
-6. **Push to origin** when ready — `main` is ~25 commits ahead, all local.
-7. **Mesh side** (separate repo, waiting on Figma): faithful viewer
+7. **Push to origin** when ready — `main` is ~25 commits ahead, all local.
+8. **Mesh side** (separate repo, waiting on Figma): faithful viewer
    adaptation + threads-to-top; keep pan/zoom. Mesh consumes the `layer`
    field for free once its sidecar runs ≥0.3.4.
 

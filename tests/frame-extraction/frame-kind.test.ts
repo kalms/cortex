@@ -116,6 +116,69 @@ describe("content signals", () => {
   });
 });
 
+describe("handler-suffix signal (Nitro/h3 method-suffixed route files)", () => {
+  it("method-suffixed route files break the topological surface tie toward orchestration", () => {
+    // Observe-phase finding (anthill-cloud, 2026-06-13): Nuxt/Nitro
+    // server/api/*.{get,post}.ts frames are pure sources (sink 0.0) and the
+    // surface-pair tie always broke to interface — orchestration starved.
+    // sink 0.0 → interface+orchestration 1.0 each; handler suffixes add to
+    // orchestration only.
+    const [r] = classifyFrames([
+      input({
+        frame_id: 20,
+        fanIn: 0, fanOut: 8,
+        member_paths: ["server/api/users.get.ts", "server/api/users.post.ts"],
+      }),
+    ]);
+    expect(r.layer).toBe("orchestration");
+  });
+
+  it("handler files alone clear MIN_SIGNAL without topology", () => {
+    // 'api' is deliberately NOT a PATH_LAYER_TABLE token, so this isolates
+    // the handler signal — orchestration wins on margin, not tie-break.
+    const [r] = classifyFrames([
+      input({ frame_id: 21, member_paths: ["api/a.get.ts", "api/b.delete.ts"] }),
+    ]);
+    expect(r.layer).toBe("orchestration");
+  });
+
+  it("requires a route-dir segment — method-suffixed accessor utilities do NOT fire orchestration", () => {
+    // `<thing>.get.ts` is also a common typed-accessor idiom outside route
+    // dirs; without scoping, a data-substrate frame would flip orchestration.
+    const [r] = classifyFrames([
+      input({ frame_id: 23, member_paths: ["src/store/cache.get.ts", "src/store/cache.delete.ts"] }),
+    ]);
+    expect(r.layer).toBe("data"); // 'store' token only; no handler contribution
+  });
+
+  it("matches method suffixes case-insensitively, like every other path signal", () => {
+    const [r] = classifyFrames([
+      input({
+        frame_id: 24,
+        fanIn: 0, fanOut: 8,
+        member_paths: ["server/api/users.GET.ts", "server/api/users.POST.ts"],
+      }),
+    ]);
+    expect(r.layer).toBe("orchestration");
+  });
+
+  it("scales by fraction — a mostly-UI frame with one handler stays interface", () => {
+    // 3/4 'components' → interface 0.6; 1/4 handler → orchestration 0.2.
+    const [r] = classifyFrames([
+      input({
+        frame_id: 22,
+        member_paths: [
+          "app/components/A.vue",
+          "app/components/B.vue",
+          "app/components/C.vue",
+          "server/api/x.get.ts",
+        ],
+      }),
+    ]);
+    expect(r.layer).toBe("interface");
+  });
+});
+
 describe("combination + contract", () => {
   it("returns one result per input, sorted by frame_id", () => {
     const out = classifyFrames([input({ frame_id: 9 }), input({ frame_id: 1 })]);
@@ -143,5 +206,23 @@ describe("combination + contract", () => {
 
   it("empty input → empty output", () => {
     expect(classifyFrames([])).toEqual([]);
+  });
+
+  it("internal result distinguishes fallback (no signal) from within-pair tie (strong, unsplit signal)", () => {
+    // Observe-phase finding (2026-06-13): conf=0.00 conflated two states.
+    // Pure fallback: middle-band sink, no lexical signal → domain, fallback=true.
+    const [fb] = classifyFramesInternal([input({ frame_id: 30, fanIn: 5, fanOut: 5 })]);
+    expect(fb.layer).toBe("domain");
+    expect(fb.fallback).toBe(true);
+    // Within-pair tie: sink 0.8 → data+infrastructure 0.6 each, conf 0 — but NOT fallback.
+    const [tie] = classifyFramesInternal([input({ frame_id: 31, fanIn: 8, fanOut: 2 })]);
+    expect(tie.layer).toBe("data");
+    expect(tie.confidence).toBe(0);
+    expect(tie.fallback).toBe(false);
+  });
+
+  it("fallback flag never reaches the production surface", () => {
+    const [r] = classifyFrames([input({ frame_id: 32, fanIn: 5, fanOut: 5 })]);
+    expect(Object.keys(r).sort()).toEqual(["frame_id", "layer"]);
   });
 });
