@@ -47,6 +47,7 @@ describe("buildFrameMap layer field", () => {
     const json = JSON.stringify(buildFrameMap(nodes, edges));
     expect(json).not.toContain("confidence");
     expect(json).not.toContain("contributions");
+    expect(json).not.toContain("fallback");
   });
 
   it("classifies frames with zero flows too", () => {

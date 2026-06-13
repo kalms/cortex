@@ -13,40 +13,11 @@
       "tests/hooks/check-index.test.ts",
       "tests/hooks/prefer-cortex.test.ts"
     ],
-    "fanIn": 34,
+    "fanIn": 33,
     "fanOut": 19
   },
   {
     "frame_id": 1,
-    "frame_label": "evals/assertions",
-    "member_paths": [
-      "evals/baselines/anthill-cloud.json",
-      "evals/src/assertions/runner.ts",
-      "evals/src/assertions/tool-runner.ts",
-      "evals/src/assertions/types.ts",
-      "evals/src/queries.ts",
-      "evals/src/scorecard.ts"
-    ],
-    "fanIn": 20,
-    "fanOut": 17
-  },
-  {
-    "frame_id": 2,
-    "frame_label": "evals/assertions",
-    "member_paths": [
-      "evals/src/assertions/fix-2-http-calls.ts",
-      "evals/src/assertions/fix-3-auto-imports.ts",
-      "evals/src/assertions/fix-4-sfc-functions.ts",
-      "evals/src/assertions/fix-5-nitro-handlers.ts",
-      "evals/src/assertions/fix-6-route-poison.ts",
-      "evals/src/assertions/fix-8-decision-promotion.ts",
-      "evals/src/assertions/registry.ts"
-    ],
-    "fanIn": 1,
-    "fanOut": 7
-  },
-  {
-    "frame_id": 3,
     "frame_label": "decisions",
     "member_paths": [
       "cortex.json",
@@ -71,73 +42,36 @@
     "fanOut": 77
   },
   {
-    "frame_id": 4,
-    "frame_label": "frame-extraction",
+    "frame_id": 2,
+    "frame_label": "evals/assertions",
     "member_paths": [
-      ".github/workflows/ci.yml",
-      "evals/src/cli.ts",
-      "evals/src/report.ts",
-      "scripts/corpus/run-survey.ts",
-      "scripts/frame-extraction/clone.ts",
-      "scripts/frame-extraction/eval-all.ts",
-      "scripts/frame-extraction/eval-edges.ts",
-      "scripts/frame-extraction/eval-metrics.ts",
-      "scripts/frame-extraction/eval-report.ts",
-      "scripts/frame-extraction/eval.ts",
-      "scripts/frame-extraction/fs-stats.ts",
-      "scripts/frame-extraction/graph-stats.ts",
-      "scripts/frame-extraction/indexer.ts",
-      "scripts/frame-extraction/intruder.ts",
-      "scripts/frame-extraction/merge-indexed-db.ts",
-      "scripts/frame-extraction/python/setup-venv.sh",
-      "scripts/frame-extraction/python/tfidf_hdbscan.py",
-      "scripts/frame-extraction/report.ts",
-      "scripts/frame-extraction/survey.ts",
-      "scripts/frame-extraction/validate-labels.ts",
-      "src/cli/format.ts",
-      "src/cli/install.ts",
-      "src/db/git-root.ts",
-      "src/decisions/repository.ts",
-      "src/frame-extraction/auxiliary-detection.ts",
-      "src/frame-extraction/cluster-tfidf-hdbscan.ts",
-      "src/frame-extraction/co-change.ts",
-      "src/frame-extraction/eval-gate.ts",
-      "src/frame-extraction/eval-labels.ts",
-      "src/frame-extraction/frame-ranker.ts",
-      "src/frame-extraction/inject-frames.ts",
-      "src/frame-extraction/label-quality.ts",
-      "src/frame-extraction/path-tokenize.ts",
-      "src/frame-extraction/run-frames.ts",
-      "src/frame-extraction/structural-tokens.ts",
-      "src/frame-extraction/text-blob.ts",
-      "src/frame-extraction/types.ts",
-      "src/frame-extraction/venv.ts",
-      "src/git/worktree-state.ts",
-      "src/mcp-server/repo-context.ts",
-      "tests/evals/report.test.ts",
-      "tests/frame-extraction/cluster-tfidf-hdbscan.test.ts",
-      "tests/frame-extraction/co-change.test.ts",
-      "tests/frame-extraction/eval-edges.test.ts",
-      "tests/frame-extraction/eval-gate.test.ts",
-      "tests/frame-extraction/eval-labels.test.ts",
-      "tests/frame-extraction/eval-metrics.test.ts",
-      "tests/frame-extraction/eval-report.test.ts",
-      "tests/frame-extraction/eval-teardown.test.ts",
-      "tests/frame-extraction/frame-ranker.test.ts",
-      "tests/frame-extraction/fs-stats.test.ts",
-      "tests/frame-extraction/intruder.test.ts",
-      "tests/frame-extraction/label-quality.test.ts",
-      "tests/frame-extraction/merge-indexed-db.test.ts",
-      "tests/frame-extraction/report.test.ts",
-      "tests/frame-extraction/run-frames.test.ts",
-      "tests/frame-extraction/text-blob.test.ts",
-      "tests/git/worktree-state.test.ts"
+      "evals/baselines/anthill-cloud.json",
+      "evals/src/assertions/runner.ts",
+      "evals/src/assertions/tool-runner.ts",
+      "evals/src/assertions/types.ts",
+      "evals/src/queries.ts",
+      "evals/src/scorecard.ts"
     ],
-    "fanIn": 257,
-    "fanOut": 106
+    "fanIn": 19,
+    "fanOut": 17
   },
   {
-    "frame_id": 5,
+    "frame_id": 3,
+    "frame_label": "evals/assertions",
+    "member_paths": [
+      "evals/src/assertions/fix-2-http-calls.ts",
+      "evals/src/assertions/fix-3-auto-imports.ts",
+      "evals/src/assertions/fix-4-sfc-functions.ts",
+      "evals/src/assertions/fix-5-nitro-handlers.ts",
+      "evals/src/assertions/fix-6-route-poison.ts",
+      "evals/src/assertions/fix-8-decision-promotion.ts",
+      "evals/src/assertions/registry.ts"
+    ],
+    "fanIn": 1,
+    "fanOut": 7
+  },
+  {
+    "frame_id": 4,
     "frame_label": "integration",
     "member_paths": [
       "src/events/types.ts",
@@ -151,11 +85,11 @@
       "tests/integration/ws-server.test.ts",
       "tests/ws/client-registry.test.ts"
     ],
-    "fanIn": 28,
+    "fanIn": 26,
     "fanOut": 42
   },
   {
-    "frame_id": 6,
+    "frame_id": 5,
     "frame_label": "events",
     "member_paths": [
       "src/cli/router.ts",
@@ -174,16 +108,32 @@
       "tests/events/persister.test.ts",
       "tests/indexer/fetch-indexer.test.ts"
     ],
-    "fanIn": 96,
+    "fanIn": 95,
     "fanOut": 57
+  },
+  {
+    "frame_id": 6,
+    "frame_label": "frame-extraction",
+    "member_paths": [
+      "scripts/frame-extraction/dump-frame-kind-inputs.ts",
+      "scripts/frame-extraction/intruder.ts",
+      "scripts/frame-extraction/validate-labels.ts",
+      "src/frame-extraction/frame-kind.ts",
+      "tests/frame-extraction/expected-layers.test.ts",
+      "tests/frame-extraction/frame-kind.test.ts",
+      "tests/frame-extraction/intruder.test.ts"
+    ],
+    "fanIn": 10,
+    "fanOut": 14
   },
   {
     "frame_id": 7,
     "frame_label": "server/frame",
     "member_paths": [
       "src/decisions/migration.ts",
-      "src/frame-extraction/frame-kind.ts",
+      "src/frame-extraction/frame-ranker.ts",
       "src/frame-extraction/frame-reclamation.ts",
+      "src/frame-extraction/text-blob.ts",
       "src/graph/store.ts",
       "src/mcp-server/api-edges.ts",
       "src/mcp-server/frame-flow-rollup.ts",
@@ -198,8 +148,8 @@
       "tests/mcp-server/frame-map.test.ts",
       "tests/mcp-server/frame-pair-rollup.test.ts"
     ],
-    "fanIn": 98,
-    "fanOut": 62
+    "fanIn": 107,
+    "fanOut": 68
   },
   {
     "frame_id": 8,
@@ -218,6 +168,62 @@
   },
   {
     "frame_id": 9,
+    "frame_label": "frame-extraction",
+    "member_paths": [
+      "evals/src/cli.ts",
+      "evals/src/report.ts",
+      "scripts/corpus/run-survey.ts",
+      "scripts/frame-extraction/clone.ts",
+      "scripts/frame-extraction/eval-all.ts",
+      "scripts/frame-extraction/eval.ts",
+      "scripts/frame-extraction/fs-stats.ts",
+      "scripts/frame-extraction/graph-stats.ts",
+      "scripts/frame-extraction/indexer.ts",
+      "scripts/frame-extraction/merge-indexed-db.ts",
+      "scripts/frame-extraction/python/setup-venv.sh",
+      "scripts/frame-extraction/python/tfidf_hdbscan.py",
+      "scripts/frame-extraction/report.ts",
+      "scripts/frame-extraction/survey.ts",
+      "src/cli/install.ts",
+      "src/frame-extraction/cluster-tfidf-hdbscan.ts",
+      "src/frame-extraction/run-frames.ts",
+      "src/frame-extraction/types.ts",
+      "src/frame-extraction/venv.ts",
+      "src/mcp-server/repo-context.ts",
+      "tests/frame-extraction/cluster-tfidf-hdbscan.test.ts",
+      "tests/frame-extraction/merge-indexed-db.test.ts",
+      "tests/frame-extraction/run-frames.test.ts"
+    ],
+    "fanIn": 142,
+    "fanOut": 120
+  },
+  {
+    "frame_id": 10,
+    "frame_label": "extraction/eval",
+    "member_paths": [
+      "scripts/frame-extraction/eval-edges.ts",
+      "scripts/frame-extraction/eval-metrics.ts",
+      "scripts/frame-extraction/eval-report.ts",
+      "src/frame-extraction/eval-gate.ts",
+      "src/frame-extraction/eval-labels.ts",
+      "src/frame-extraction/inject-frames.ts",
+      "src/frame-extraction/label-quality.ts",
+      "src/frame-extraction/structural-tokens.ts",
+      "tests/frame-extraction/eval-edges.test.ts",
+      "tests/frame-extraction/eval-gate.test.ts",
+      "tests/frame-extraction/eval-labels.test.ts",
+      "tests/frame-extraction/eval-metrics.test.ts",
+      "tests/frame-extraction/eval-report.test.ts",
+      "tests/frame-extraction/eval-teardown.test.ts",
+      "tests/frame-extraction/frame-ranker.test.ts",
+      "tests/frame-extraction/label-quality.test.ts",
+      "tests/frame-extraction/report.test.ts"
+    ],
+    "fanIn": 33,
+    "fanOut": 59
+  },
+  {
+    "frame_id": 11,
     "frame_label": "decisions/seed",
     "member_paths": [
       "src/decisions/seed/commit-clustering.ts",
@@ -234,8 +240,8 @@
     "fanOut": 23
   },
   {
-    "frame_id": 10,
-    "frame_label": "cluster:10",
+    "frame_id": 12,
+    "frame_label": "cluster:12",
     "member_paths": [
       "src/decisions/promotion.ts",
       "src/decisions/search.ts",
@@ -250,12 +256,14 @@
     "fanOut": 38
   },
   {
-    "frame_id": 11,
+    "frame_id": 13,
     "frame_label": "mcp-server",
     "member_paths": [
       "src/db/registry-migration.ts",
       "src/db/registry.ts",
       "src/decisions/reconciliation.ts",
+      "src/frame-extraction/auxiliary-detection.ts",
+      "src/git/worktree-state.ts",
       "src/mcp-server/api-decisions.ts",
       "src/mcp-server/api.ts",
       "src/mcp-server/freshness.ts",
@@ -272,12 +280,12 @@
       "tests/mcp-server/freshness.test.ts",
       "tests/mcp-server/viewer-bind-retry.test.ts"
     ],
-    "fanIn": 73,
-    "fanOut": 76
+    "fanIn": 80,
+    "fanOut": 74
   },
   {
-    "frame_id": 12,
-    "frame_label": "cluster:12",
+    "frame_id": 14,
+    "frame_label": "cluster:14",
     "member_paths": [
       "src/db/cache.ts",
       "src/db/staging-path.ts",
@@ -297,7 +305,7 @@
     "fanOut": 162
   },
   {
-    "frame_id": 13,
+    "frame_id": 15,
     "frame_label": "cli",
     "member_paths": [
       "evals/src/target.ts",
@@ -311,23 +319,24 @@
       "src/cli/commands/reconcile.ts",
       "src/cli/context.ts",
       "src/cli/errors.ts",
+      "src/cli/format.ts",
       "src/cli/help.ts",
       "src/cli/indexer-output.ts",
       "src/cli/main.ts",
       "src/cli/paths.ts",
       "src/cli/resolve-input.ts",
-      "src/db/resolve-path.ts",
-      "tests/frame-extraction/frame-kind.test.ts"
+      "src/db/resolve-path.ts"
     ],
-    "fanIn": 44,
-    "fanOut": 112
+    "fanIn": 41,
+    "fanOut": 100
   },
   {
-    "frame_id": 14,
-    "frame_label": "mcp",
+    "frame_id": 16,
+    "frame_label": "repo",
     "member_paths": [
       "src/cli/commands/decision-rehome.ts",
       "src/decisions/links-repository.ts",
+      "src/decisions/repository.ts",
       "src/ids/allocator.ts",
       "tests/cli/commands/decision-rehome.test.ts",
       "tests/mcp-contract/harness.ts",
@@ -336,7 +345,7 @@
       "tests/mcp-server/repo-context-pool.test.ts",
       "tests/mcp-server/repo-context-resolver.test.ts"
     ],
-    "fanIn": 46,
-    "fanOut": 93
+    "fanIn": 181,
+    "fanOut": 85
   }
 ]
