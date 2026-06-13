@@ -4,6 +4,54 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.7] — 2026-06-13
+
+### Added
+
+- **Handler-suffix orchestration signal** in the frame-layer classifier
+  ([`src/frame-extraction/frame-kind.ts`](src/frame-extraction/frame-kind.ts)):
+  Nitro/h3 method-suffixed route files (`*.{get,post,put,patch,delete,head,options}.{ts,js,…}`,
+  case-insensitive) whose path contains an `api`/`routes` segment now contribute
+  to **orchestration**. Observe-phase measurement on anthill-cloud found these
+  handler frames are pure sources (sink 0.0), so the surface pair tied and the
+  canonical tie-break starved orchestration to zero frames. Weight is aliased to
+  `W_PATH` (not a restated literal) so the documented "same weight as a path
+  token" intent survives tuning. Route-dir scoping prevents the typed-accessor
+  idiom (`cache.get.ts`) outside route dirs from flipping substrate frames.
+  Decision `D-gbqj`.
+
+### Changed
+
+- **Ceremony layer tint → warm taupe** `rgb(125, 110, 93)`
+  ([`src/viewer/viewer.js`](src/viewer/viewer.js)): the former cool gray
+  `rgb(99, 105, 121)` was indistinguishable from infrastructure's slate at lens
+  alphas (a correct `infrastructure` frame read as `ceremony` to the eye).
+  Warm-vs-cool hue separates where lightness alone washed out.
+- **Legend swatches single-sourced from `LAYER_RGB`**: the six per-layer
+  swatch colors are now injected from the viewer's palette constant at init
+  rather than hand-synced in CSS — collapsing three copies of the palette to
+  one runtime source.
+- **`FrameKindInternal` distinguishes fallback from tie**: the internal eval
+  shape gained a `fallback` flag so the agreement report separates a pure
+  `MIN_SIGNAL` fallback from a within-pair tie (both previously printed
+  `conf=0.00`). Production `/api/frames` still serializes only `{ frame_id,
+  layer }` (negative test extended to the new field).
+- **Observe-phase findings + verdict recorded** ([`HANDOFF.md`](HANDOFF.md),
+  [frame-layers spec](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md)):
+  cross-repo measurement shows `domain` is only ever reached by fallback (never
+  earned), orchestration starved on framework idioms, and frame quality is the
+  ceiling. Verdict: **do not enable kind-weight** until the domain question is
+  resolved. The stale "restart the MCP server" handoff step was removed (the
+  server already serves the `layer` field).
+
+### Fixed
+
+- **Frame-layer regression net blind spot**: the layer fixture was regenerated
+  against the current 17-frame graph (was 15) with hand labels for the new
+  frames, and the test now **fails if a named fixture frame lacks an `EXPECTED`
+  entry** (`Object.hasOwn`, not `in`) — previously, new frames passed silently
+  by being skipped. Unnamed `cluster:*` blobs remain exempt by prefix.
+
 ## [0.3.6] — 2026-06-13
 
 ### Changed
@@ -229,6 +277,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.7]: https://github.com/ruevu/cortex/releases/tag/v0.3.7
 [0.3.6]: https://github.com/ruevu/cortex/releases/tag/v0.3.6
 [0.3.5]: https://github.com/ruevu/cortex/releases/tag/v0.3.5
 [0.3.4]: https://github.com/ruevu/cortex/releases/tag/v0.3.4
