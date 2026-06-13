@@ -4,6 +4,32 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.8] — 2026-06-13
+
+### Added
+
+- **Earnable `domain` layer** — frame-layer taxonomy step 2
+  ([`src/frame-extraction/frame-kind.ts`](src/frame-extraction/frame-kind.ts),
+  decision `D-8vbv`). Runtime code in the classifier's previously-silent middle
+  sink band now *earns* `domain` instead of only ever falling into it. The
+  residual (`W_DOMAIN_RUNTIME = 0.5 × runtimeFrac`, ~80% runtime bar) is an
+  **earned fallback** — held aside and applied only when no layer-specific
+  source cleared `MIN_SIGNAL`, so any real path/label/content signal still wins.
+  Earned vs fallback domain are distinguished by the internal `fallback` flag
+  (production `/api/frames` still serializes only `{ frame_id, layer }`).
+- **Corpus-wide layer eval** ([`scripts/frame-extraction/eval-layers.ts`](scripts/frame-extraction/eval-layers.ts)):
+  clone→index→cluster→classify across `corpus.json`, reporting per-repo + corpus
+  layer distributions and the mid-band `runtimeFrac` distribution. Validated the
+  signal across 11 repos (TS/Vue/React/Nuxt/Python/Django): earns domain on 8/11,
+  with the 0.8 runtime bar sitting in a natural distributional gap (fallback
+  frames cluster at 0.5–0.7 runtime, earned at 0.9–1.0).
+
+### Changed
+
+- **Enable-slice weights settled** for the future kind-weight ranking
+  (`HANDOFF.md`): earned domain `1.00`, fallback domain `0.50`. The domain
+  question that gated the enable slice is resolved; step 3 is unblocked.
+
 ## [0.3.7] — 2026-06-13
 
 ### Added
@@ -277,6 +303,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.8]: https://github.com/ruevu/cortex/releases/tag/v0.3.8
 [0.3.7]: https://github.com/ruevu/cortex/releases/tag/v0.3.7
 [0.3.6]: https://github.com/ruevu/cortex/releases/tag/v0.3.6
 [0.3.5]: https://github.com/ruevu/cortex/releases/tag/v0.3.5
