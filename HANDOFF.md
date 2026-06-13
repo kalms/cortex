@@ -124,26 +124,40 @@ Findings, by nature:
    defect). Substrate-band core domain (`dsl/compiler`) still needs the deferred
    Louvain `concern` axis. Enable-slice weights settled: **earned domain 1.00,
    fallback domain 0.50.**
-3. **Enable slice** (now unblocked): kind-weight + layer-diversity in
-   `rankFrames` behind `CORTEX_KIND_WEIGHT=1`. Weights per `frame-ranking.md`
-   (domain 1.00 … ceremony 0.20), with **fallback-domain at 0.50** (use the
-   `fallback` flag — `classifyFramesInternal` exposes it; production strips it).
-   Run its own classify→observe→**enable** loop.
-4. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
+3. ✅ **Enable slice 3a — kind-weight shipped** (flag-gated, decision **`D-g4qb`**,
+   spec [2026-06-13-kind-weight-enable-slice-design.md](docs/superpowers/specs/2026-06-13-kind-weight-enable-slice-design.md)).
+   `score ×= kind_weight` (earned domain 1.00 / interface 0.90 / orchestration
+   0.85 / data 0.75 / infra 0.55 / fallback-domain 0.50 / ceremony 0.20), behind
+   `CORTEX_KIND_WEIGHT` **default off (inert — ranking byte-identical when off)**.
+   Ranker stays pure (kind_weight a plain number on `FrameRecord`); weights +
+   flag at the call site. **Observe verdict (corpus, 11 repos, `eval-layers.ts`
+   ambient before/after):** kind-weight ON consistently evicts ceremony/config
+   noise (eslint-config, playwright-config, tsconfig, training/scripts, test
+   cassettes, json-schemas) and tilts ambient toward interface/domain/data; the
+   0.50 fallback-domain demotion correctly yields fallback-domain to interface
+   (rubygems `mailer`); **no junk leapfrogged into ambient** (D-qn7z trap held).
+   Neutral on tiny/already-diverse repos (cobra/click/vueuse).
+   **→ Verdict is positive; recommended next step is to FLIP THE DEFAULT ON** (a
+   small follow-up: change the `CORTEX_KIND_WEIGHT` default in `buildFrameMap`,
+   re-run Gate 0).
+4. **Enable slice 3b — layer-diversity** (deferred): the `× diversity` term —
+   greedy selection guaranteeing ≥1 of domain/interface/data, cap ceremony at
+   one, decay repeats of an already-represented layer. Stateful; its own slice.
+5. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
    *measured* adjacency from `rollupFrameFlows` (not categorical), then
    floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
    End-state visual direction was previewed + approved in the 2026-06-12
    brainstorm (`.superpowers/brainstorm/` mockups).
-5. **Co-change lens** (parallel, small): `FILE_CHANGES_WITH` minus structural
+6. **Co-change lens** (parallel, small): `FILE_CHANGES_WITH` minus structural
    edges = hidden coupling — a sibling row in the layers menu, dashed quiet
    style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
    identical) is established; follow it.
-6. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
+7. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
    aware grep hook (P3), search ranking (P2) — then `context_pack` (P1).
    **P6 (versioned HTTP contract + freshness header) should land before
    Mesh's viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
-7. **Push to origin** when ready — `main` is ~25 commits ahead, all local.
-8. **Mesh side** (separate repo, waiting on Figma): faithful viewer
+8. **Push to origin** when ready — `main` is ~25 commits ahead, all local.
+9. **Mesh side** (separate repo, waiting on Figma): faithful viewer
    adaptation + threads-to-top; keep pan/zoom. Mesh consumes the `layer`
    field for free once its sidecar runs ≥0.3.4.
 
