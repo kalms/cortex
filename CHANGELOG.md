@@ -4,6 +4,19 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.10] — 2026-06-13
+
+### Changed
+
+- **Kind-weight frame ranking is now ON by default**
+  ([`src/mcp-server/frame-map.ts`](src/mcp-server/frame-map.ts)). The taxonomy
+  enable slice's kind-weighted ambient set (decision `D-g4qb`) is the default
+  user-visible ranking after a positive corpus observe verdict. `CORTEX_KIND_WEIGHT`
+  flips from an opt-in to an **opt-out** — set it to `"0"` to restore the
+  pre-slice `nameability × structural_weight` ranking. The pure ranker is
+  unchanged; `opts.applyKindWeight` still overrides for tests. Gate 0 visual
+  confirmed a clean render with the new default.
+
 ## [0.3.9] — 2026-06-13
 
 ### Added
@@ -328,6 +341,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.10]: https://github.com/ruevu/cortex/releases/tag/v0.3.10
 [0.3.9]: https://github.com/ruevu/cortex/releases/tag/v0.3.9
 [0.3.8]: https://github.com/ruevu/cortex/releases/tag/v0.3.8
 [0.3.7]: https://github.com/ruevu/cortex/releases/tag/v0.3.7

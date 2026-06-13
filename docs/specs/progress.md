@@ -77,7 +77,7 @@ The "multiplayer canvas" half of the v0.3 design corpus is **not being pursued**
 |---|---|---|
 | **Layer classifier + lens (milestone 1)** | ✅ Shipped (0.3.4) | The `FrameKind` classifier + viewer lens, zero ranking/layout effect. |
 | **Observe phase** | ✅ Done (0.3.7–0.3.8) | Validated on cortex + anthill, then corpus-wide (11 repos via `eval-layers.ts`). Findings drove three fixes that shipped: handler-orchestration signal, ceremony/infra palette separation, and the **earnable-domain** resolution to the contested `domain` fallback (`D-8vbv`). The watch-list frames are settled; `frame-extraction` fragmentation + `contracts`-via-fallback are recorded as the upstream **frame-quality** ceiling. |
-| **Enable slice 3a — kind-weight** | ✅ Shipped (0.3.9) | `score ×= kind_weight` behind `CORTEX_KIND_WEIGHT` (default off). The `domain`-is-both-fallback-and-top-weight trap (`D-qn7z`) is resolved by the earned/fallback split (1.00 / **0.50**). Corpus-validated. Decision `D-g4qb`. **▶ Immediate follow-up: flip the default on** (the observe verdict is positive) — small change in `buildFrameMap` + a Gate 0 visual pass. |
+| **Enable slice 3a — kind-weight** | ✅ Shipped (0.3.9) + **default-on (0.3.10)** | `score ×= kind_weight` (default off in 0.3.9, **flipped ON in 0.3.10** after the positive observe verdict — `CORTEX_KIND_WEIGHT` is now an opt-out, `"0"` restores pre-slice ranking). The `domain`-is-both-fallback-and-top-weight trap (`D-qn7z`) is resolved by the earned/fallback split (1.00 / **0.50**). Corpus-validated; Gate 0 confirmed clean render on default-on. Decision `D-g4qb`. |
 | **Enable slice 3b — layer-diversity** | ⏭ Next | The `× diversity` term, deferred from 3a as its own increment: greedy ambient selection guaranteeing ≥1 of domain/interface/data, cap ceremony at one, decay repeats of an already-represented layer. Stateful (depends on what's already selected), so it can't be a static factor like kind-weight. |
 | **Layout slice** (layer-adjacency force) | ⏭ After 3b | Use *measured* adjacency from `rollupFrameFlows` (which cross-layer flows actually exist), not categorical adjacency. Subsumes floating-entity placement per the approved end-state preview. |
 | **Cross-cutting concern axis** (graph communities) | ◑ Candidate / deferred | The reserved `FrameKind.concern` axis. Also the only signal that would rescue **substrate-band core domain** (heavily-imported product cores that read topologically as substrate — anthill's `dsl/compiler` at sink 0.83, cortex's 23-member `frame-extraction`), which the earnable-domain middle-band signal deliberately can't reach. Measured 2026-06-12: import-graph communities confirm the shipped clustering's cores and surface cross-cutting subsystems (e.g. a 13-file freshness community across 5 frames). `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it would need a Leiden-grade upgrade. Explicitly deferred in `D-8vbv` ("walk before run"). |
@@ -123,19 +123,19 @@ plus a generic `decision_links` table (handles `governs` / `supersedes` /
 ## Recommended next step
 
 The taxonomy follow-up is in its final stretch — classify + observe + enable-3a
-are shipped; finish the arc before opening the post-taxonomy line:
+(incl. **default-on**, 0.3.10) are shipped; finish the arc before opening the
+post-taxonomy line:
 
-1. **Flip the kind-weight default on** (immediate): the corpus observe verdict is
-   positive, so change the `CORTEX_KIND_WEIGHT` default in `buildFrameMap`, re-run
-   Gate 0 visual, ship a patch. This is what makes the kind-weighted ambient set
-   the default user-visible behavior.
-2. **Enable slice 3b — layer-diversity**: the stateful `× diversity` term.
-3. **Layout slice**: layer-adjacency force from measured `rollupFrameFlows`
+1. **Enable slice 3b — layer-diversity** (next): the stateful `× diversity` term —
+   greedy ambient selection guaranteeing ≥1 of domain/interface/data, cap ceremony
+   at one, decay repeats of an already-represented layer. Now the headline open
+   item in the arc.
+2. **Layout slice**: layer-adjacency force from measured `rollupFrameFlows`
    adjacency; subsumes floating-entity placement.
-4. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
+3. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
    fragmented/test-mixed clusters and substrate-band core domain — the ceiling
    the observe phase repeatedly hit.
-5. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
+4. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
    adoption) as the headline, record-drawer adoption for TODOs.
 
 Parallel candidates that don't block the arc: the **co-change lens**
