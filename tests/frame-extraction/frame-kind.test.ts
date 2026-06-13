@@ -3,6 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   classifyFrames,
   classifyFramesInternal,
+  KIND_WEIGHT,
+  kindWeight,
+  LAYER_ORDER,
   type FrameKindInput,
 } from "../../src/frame-extraction/frame-kind.js";
 
@@ -272,5 +275,29 @@ describe("combination + contract", () => {
   it("fallback flag never reaches the production surface", () => {
     const [r] = classifyFrames([input({ frame_id: 32, fanIn: 5, fanOut: 5 })]);
     expect(Object.keys(r).sort()).toEqual(["frame_id", "layer"]);
+  });
+});
+
+describe("kind weight (enable slice)", () => {
+  it("returns the taxonomy weight per layer", () => {
+    expect(kindWeight("domain", false)).toBe(1.0);
+    expect(kindWeight("interface", false)).toBe(0.9);
+    expect(kindWeight("orchestration", false)).toBe(0.85);
+    expect(kindWeight("data", false)).toBe(0.75);
+    expect(kindWeight("infrastructure", false)).toBe(0.55);
+    expect(kindWeight("ceremony", false)).toBe(0.2);
+  });
+
+  it("demotes fallback-domain to 0.5 (D-qn7z: earned nothing → not top weight)", () => {
+    expect(kindWeight("domain", true)).toBe(0.5);
+  });
+
+  it("fallback flag only affects domain", () => {
+    expect(kindWeight("interface", true)).toBe(0.9);
+    expect(kindWeight("ceremony", true)).toBe(0.2);
+  });
+
+  it("KIND_WEIGHT covers every FrameLayer", () => {
+    for (const layer of LAYER_ORDER) expect(typeof KIND_WEIGHT[layer]).toBe("number");
   });
 });
