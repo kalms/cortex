@@ -81,4 +81,35 @@ describe("kind-weight gating", () => {
     expect(json).not.toContain("confidence");
     expect(json).not.toContain("contributions");
   });
+
+  // Fallback-domain integration: a frame that earns NO layer signal (mid-band
+  // sink, no path/label tokens, runtimeFrac below the 0.8 earned-domain bar)
+  // should be flagged fallback=true by classifyFramesInternal and demoted to
+  // ×0.5 through the full buildFrameMap path. This covers the gap where the
+  // fallback-domain branch was only unit-tested in frame-kind.test.ts.
+  it("flag ON: a fallback-domain frame is demoted to ×0.5 through frame-map", () => {
+    // Two isolated frames, no inter-frame edges → sink=0.5 (middle band).
+    // 'widget' frame: two runtime files + one test file (testFrac=1/3 < 0.8,
+    // runtimeFrac=2/3 → domainResidual=0.333 < MIN_SIGNAL=0.4) → fallback-domain.
+    // Paths use generic names — no PATH_LAYER_TABLE tokens, no label tokens.
+    const fbNodes: NodeRow[] = [
+      fileNode("g1", "src/widget/alpha.ts", 0, "widget"),
+      fileNode("g2", "src/widget/beta.ts", 0, "widget"),
+      fileNode("g3", "src/widget/alpha.test.ts", 0, "widget"),
+      symNode("gs1", "src/widget/alpha.ts"),
+      fileNode("g4", "src/gamma/one.ts", 1, "gamma"),
+      fileNode("g5", "src/gamma/two.test.ts", 1, "gamma"),
+    ];
+    const fbEdges: EdgeRow[] = [];
+
+    const off = buildFrameMap(fbNodes, fbEdges, { applyKindWeight: false });
+    const on = buildFrameMap(fbNodes, fbEdges, { applyKindWeight: true });
+
+    const w = on.frames.find((f) => f.id === 0)!;
+    expect(w.layer).toBe("domain"); // fallback-domain still reports layer=domain
+
+    const offW = off.frames.find((f) => f.id === 0)!;
+    // fallback-domain → kindWeight("domain", true) = 0.5, not 1.0 (earned domain)
+    expect(w.score).toBeCloseTo(offW.score * 0.5, 10);
+  });
 });
