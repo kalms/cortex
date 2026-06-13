@@ -58,10 +58,38 @@ describe("buildFrameMap layer field", () => {
 });
 
 describe("kind-weight gating", () => {
-  it("flag OFF: scores identical to no kind-weight (inert by default)", () => {
+  it("default ON: no opts (env unset) matches explicit applyKindWeight:true", () => {
+    const prev = process.env.CORTEX_KIND_WEIGHT;
+    delete process.env.CORTEX_KIND_WEIGHT;
+    try {
+      const on = buildFrameMap(nodes, edges, { applyKindWeight: true });
+      const dflt = buildFrameMap(nodes, edges); // no opts, env unset → default ON
+      expect(dflt.frames.map((f) => [f.id, f.score])).toEqual(on.frames.map((f) => [f.id, f.score]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_KIND_WEIGHT;
+      else process.env.CORTEX_KIND_WEIGHT = prev;
+    }
+  });
+
+  it("explicit applyKindWeight:false disables the layer effect (differs from on)", () => {
     const off = buildFrameMap(nodes, edges, { applyKindWeight: false });
-    const dflt = buildFrameMap(nodes, edges); // env unset in test → off
-    expect(off.frames.map((f) => [f.id, f.score])).toEqual(dflt.frames.map((f) => [f.id, f.score]));
+    const on = buildFrameMap(nodes, edges, { applyKindWeight: true });
+    const offById = new Map(off.frames.map((f) => [f.id, f.score]));
+    // cli(interface 0.9) and events(data 0.75) both ≠ 1.0 → at least one score moves.
+    expect(on.frames.some((f) => Math.abs(f.score - offById.get(f.id)!) > 1e-9)).toBe(true);
+  });
+
+  it("CORTEX_KIND_WEIGHT=0 opts out of the new default", () => {
+    const prev = process.env.CORTEX_KIND_WEIGHT;
+    process.env.CORTEX_KIND_WEIGHT = "0";
+    try {
+      const envOff = buildFrameMap(nodes, edges); // env "0" → off
+      const off = buildFrameMap(nodes, edges, { applyKindWeight: false });
+      expect(envOff.frames.map((f) => [f.id, f.score])).toEqual(off.frames.map((f) => [f.id, f.score]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_KIND_WEIGHT;
+      else process.env.CORTEX_KIND_WEIGHT = prev;
+    }
   });
 
   it("flag ON: each frame's score is its off-score × kindWeight(layer)", () => {
