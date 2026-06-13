@@ -8,7 +8,8 @@
  * it defines (the closest available token surface). Opaque `cluster:N` labels
  * still score ~0 by construction (label-quality.ts), preserving the signal.
  *
- * PURE — no I/O; the endpoint supplies nodes/edges.
+ * Mostly pure; reads process.env.CORTEX_KIND_WEIGHT only when opts.applyKindWeight
+ * is not supplied (tests pass it explicitly). The endpoint supplies nodes/edges.
  */
 import type { NodeRow, EdgeRow } from "../graph/store.js";
 import type { FileBlob } from "../frame-extraction/types.js";
