@@ -117,12 +117,10 @@ Findings, by nature:
 
 ## ▶ NEXT STEP
 
-**▶▶ IMMEDIATE:** flip the `CORTEX_KIND_WEIGHT` default to **on** in
-`buildFrameMap` (it's the `opts.applyKindWeight ?? process.env… === "1"` line) —
-the corpus observe verdict (item 3) is positive, so this is the small,
-high-visibility change that makes the kind-weighted ambient set the default.
-Re-run Gate 0 visual (flag now on by default; confirm the tilt + console clean),
-bump a patch, merge. Then pick up 3b (diversity) or the parallel candidates.
+**▶▶ IMMEDIATE:** ✅ done (0.3.10) — kind-weight ranking is now **on by default**
+(`CORTEX_KIND_WEIGHT` is an opt-out, `"0"` disables); Gate 0 confirmed clean
+render. **Next open item: enable slice 3b — layer-diversity** (item 4 below) —
+the stateful `× diversity` term, now the headline of the taxonomy arc.
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.
@@ -149,9 +147,9 @@ bump a patch, merge. Then pick up 3b (diversity) or the parallel candidates.
    0.50 fallback-domain demotion correctly yields fallback-domain to interface
    (rubygems `mailer`); **no junk leapfrogged into ambient** (D-qn7z trap held).
    Neutral on tiny/already-diverse repos (cobra/click/vueuse).
-   **→ Verdict is positive; recommended next step is to FLIP THE DEFAULT ON** (a
-   small follow-up: change the `CORTEX_KIND_WEIGHT` default in `buildFrameMap`,
-   re-run Gate 0).
+   **→ Default flipped ON in 0.3.10** (`CORTEX_KIND_WEIGHT` now an opt-out, `"0"`
+   disables; Gate 0 confirmed clean render). The kind-weighted ambient set is
+   the default user-visible ranking.
 4. **Enable slice 3b — layer-diversity** (deferred): the `× diversity` term —
    greedy selection guaranteeing ≥1 of domain/interface/data, cap ceremony at
    one, decay repeats of an already-represented layer. Stateful; its own slice.
