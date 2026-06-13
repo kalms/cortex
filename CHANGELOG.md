@@ -4,6 +4,31 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.9] — 2026-06-13
+
+### Added
+
+- **Kind-weight frame ranking** — taxonomy enable slice 3a
+  ([`src/frame-extraction/frame-ranker.ts`](src/frame-extraction/frame-ranker.ts),
+  [`frame-kind.ts`](src/frame-extraction/frame-kind.ts),
+  [`frame-map.ts`](src/mcp-server/frame-map.ts); decision `D-g4qb`). Frame
+  ranking score gains a per-layer `kind_weight` multiplier (earned domain 1.00,
+  interface 0.90, orchestration 0.85, data 0.75, infrastructure 0.55,
+  fallback-domain 0.50, ceremony 0.20) so the ambient set tilts toward narrative
+  layers and away from substrate/ceremony. Gated behind `CORTEX_KIND_WEIGHT`,
+  **default off** — with the flag off, ranking is byte-identical to before (an
+  enforced test guarantee). The ranker stays pure: `kind_weight` is threaded as a
+  plain number on `FrameRecord` (omitted ≡ 1); the weights table + env flag live
+  at the call site (`frame-map` classifies before ranking and reads the
+  `fallback` flag only to pick the weight — never serialized).
+- **Corpus ambient-diff in the layer eval**
+  ([`scripts/frame-extraction/eval-layers.ts`](scripts/frame-extraction/eval-layers.ts)):
+  reports the ambient set flag-off vs flag-on per repo. Observe over 11 repos
+  confirmed kind-weight evicts ceremony/config noise (eslint-config,
+  playwright-config, tsconfig, training/scripts, test cassettes, json-schemas),
+  tilts toward interface/domain/data, and demotes fallback-domain to interface —
+  with no junk leapfrogging into the ambient set.
+
 ## [0.3.8] — 2026-06-13
 
 ### Added
@@ -303,6 +328,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.9]: https://github.com/ruevu/cortex/releases/tag/v0.3.9
 [0.3.8]: https://github.com/ruevu/cortex/releases/tag/v0.3.8
 [0.3.7]: https://github.com/ruevu/cortex/releases/tag/v0.3.7
 [0.3.6]: https://github.com/ruevu/cortex/releases/tag/v0.3.6
