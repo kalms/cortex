@@ -15,8 +15,9 @@
  *
  * Determinism contract (spec, non-negotiable): no randomness, no timestamps,
  * named constants, stable sorts, canonical tie-break. Internal machinery
- * (confidence, contributions) exists for the eval harness ONLY — production
- * consumers use classifyFrames, which strips it.
+ * (confidence, contributions) exists for the eval harness ONLY — the public
+ * `classifyFrames` strips it; frame-map reads the internal shape (for `fallback`)
+ * but never serializes those fields.
  *
  * Spec: docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md
  * PURE — no I/O.
