@@ -1,28 +1,30 @@
 # Cortex v0.3 — Progress Assessment
 
-_Assessment date: 2026-06-13 — refreshed after **frame layers taxonomy
-milestone 1** (0.3.4: classify + observe) and the **deterministic dot
-placement** fix (0.3.5) landed on top of the 0.3.0 cut (native-indexer split,
-frame ranking Path 1, frame-coverage retune, reconciliation engine). Derived
-from the live Cortex graph, the v0.3 design corpus in
-[`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
+_Assessment date: 2026-06-13 — refreshed after the **frame-layers taxonomy arc
+advanced from milestone 1 through enable slice 3a**: 0.3.4 classify+observe ·
+0.3.5 deterministic dots · 0.3.6 docs · **0.3.7** observe-phase polish · **0.3.8**
+earnable domain · **0.3.9** kind-weight ranking — all on top of the 0.3.0 cut
+(native-indexer split, frame ranking Path 1, frame-coverage retune,
+reconciliation engine). Derived from the live Cortex graph, the v0.3 design
+corpus in [`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
 
 Version metadata is consistent: `package.json`, `plugin.json`, and
-`.claude-plugin/marketplace.json` are all `0.3.5`. **Numbering note:** `0.3.5`
-was consumed by a viewer patch release; the feature line this document
-previously labelled "0.3.5" (TODO entity, floating-entity placement, record
-drawer for TODOs) is renumbered **0.3.6+** below.
+`.claude-plugin/marketplace.json` are all `0.3.9`. **Numbering note:** the feature
+line this document once labelled "0.3.5" (TODO entity, floating-entity placement,
+record drawer for TODOs) was renumbered **0.3.6+**; the 0.3.6–0.3.9 releases went
+to the taxonomy follow-up (docs, then the observe→enable slices) instead, so the
+TODO line is now best read as **post-taxonomy** (see Future).
 
 The shorthand: **0.3.x ships the structural / data / provenance half of v0.3 —
 the decision-provenance system (storage, multi-project routing, cold-start
 seeding, flag-gated reconciliation), the frame pipeline (ranker + gravity layout
-+ coverage reclamation + the milestone-1 layer classifier), the 2D frames viewer
-(now with the layers lens, fully deterministic rendering), and the
-native-indexer split. The "multiplayer canvas" half is descoped: the scenario
-DSL and the multiplayer canvas chrome (merge animation, agent cursors) are NOT
-pursued; the remaining single-player items (the TODO entity, floating-entity
-placement, and adopting the existing record drawer for TODOs) are deferred to
-0.3.6+.**
++ coverage reclamation + the layer classifier, now **earnable-domain** + a
+flag-gated **kind-weight** ranking effect), the 2D frames viewer (layers lens,
+fully deterministic rendering), and the native-indexer split. The "multiplayer
+canvas" half is descoped: the scenario DSL and the multiplayer canvas chrome
+(merge animation, agent cursors) are NOT pursued; the remaining single-player
+items (the TODO entity, floating-entity placement, and adopting the existing
+record drawer for TODOs) are deferred to post-taxonomy.**
 
 ---
 
@@ -42,20 +44,23 @@ placement, and adopting the existing record drawer for TODOs) are deferred to
 | **Decision record drawer** (decisions) | ✅ Shipped | The focused-frame governance pill + decision card/marginalia in the 2D viewer ([`src/viewer/viewer.js`](../../src/viewer/viewer.js) `renderDecisionCard`, `/api/decisions/:id`) **is** the record drawer for decisions. Project-scoped per the viewer multi-project fix (`openProjectDecisions`, `D-edf7`); decision-governed frames the ranker left non-ambient are promoted so their decisions always render (`withGovernedFramesRendered`, `D-xwxj`). Adopting the same drawer for the TODO entity is deferred to 0.3.6+. |
 | **Frame layers — taxonomy milestone 1** (classify + observe) | ✅ Shipped (0.3.4) | Deterministic 6-layer classifier ([`src/frame-extraction/frame-kind.ts`](../../src/frame-extraction/frame-kind.ts)): agreement-based combination of directed graph position ([`frame-flow-rollup.ts`](../../src/mcp-server/frame-flow-rollup.ts) fan-in/fan-out), curated path patterns, and content signals; `layer` rides every `/api/frames` entry; viewer `layers` toolbar menu (switch + the only legend) with a quiet per-layer tint — off (default) is pixel-identical. Internals (confidence/contributions) never serialize (negative test). Regression net: frozen cortex fixture + hand-labeled `anyOf` expectations ([`expected-layers.test.ts`](../../tests/frame-extraction/expected-layers.test.ts)) — caught two classifier bugs pre-merge. **Ranking and layout deliberately untouched** (classify → observe → enable). Decisions `D-qn7z`, `D-24p0`, `D-b1gd`; [design spec](../superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md). |
 | **Deterministic viewer rendering** | ✅ Shipped (0.3.5) | Dot placement moved from `Math.random` to a jitter-bounded grid (cell from member index, jitter seeded from file path via fnv1a + mulberry32); decision anchor dots seeded the same way. No two dots can render coincident (which faked "duplicate edges" to one target), and the same graph renders byte-identical screenshots across reloads — the last `Math.random` is out of the render data path. |
+| **Frame layers — observe-phase polish** | ✅ Shipped (0.3.7) | Handler-suffix orchestration signal (Nitro/h3 `api/routes/*.{get,post,…}.ts` → orchestration, `W_HANDLER`=`W_PATH`, route-dir-scoped, case-insensitive); ceremony tint separated from infrastructure (warm taupe — the cool grays were indistinguishable at lens alphas); legend swatches single-sourced from `LAYER_RGB`; internal `fallback` flag distinguishing pure-fallback domain from within-pair ties in the eval report; regression fixture regenerated to the 17-frame graph + a coverage guard (every named frame must have a hand label). Decision `D-gbqj`. |
+| **Frame layers — earnable domain** | ✅ Shipped (0.3.8) | `domain` was only ever reached by fallback; now runtime code in the silent middle sink band *earns* it via an **earned-fallback** residual (`W_DOMAIN_RUNTIME`=0.5, ~80% runtime bar), applied only when no layer-specific source clears `MIN_SIGNAL` so any real signal still wins. Corpus-validated ([`scripts/frame-extraction/eval-layers.ts`](../../scripts/frame-extraction/eval-layers.ts), 11 repos): earns domain on 8/11 (TS/Vue/React/Nuxt/Python/Django); cortex earns none (its clusters co-locate tests with subjects → the frame-quality ceiling, not a defect). Decision `D-8vbv`; [design](../superpowers/specs/2026-06-13-earnable-domain-signal-design.md). |
+| **Frame layers — kind-weight ranking (enable slice 3a)** | ✅ Shipped (0.3.9) | `score ×= kind_weight` (earned domain 1.00 / interface 0.90 / orchestration 0.85 / data 0.75 / infra 0.55 / **fallback-domain 0.50** / ceremony 0.20), behind `CORTEX_KIND_WEIGHT` **default off (inert — ranking byte-identical when off, enforced by test)**. The ranker stays pure: `kind_weight` is a plain number on `FrameRecord` (omitted ≡ 1); the table (`KIND_WEIGHT`/`kindWeight` in [`frame-kind.ts`](../../src/frame-extraction/frame-kind.ts)) + flag live at the call site, where [`frame-map.ts`](../../src/mcp-server/frame-map.ts) now classifies before ranking and reads `fallback` only to pick the weight (never serialized). Corpus observe: evicts ceremony/config noise, tilts ambient to narrative layers, fallback-domain demotion works, no junk leapfrogging. Decision `D-g4qb`; [design](../superpowers/specs/2026-06-13-kind-weight-enable-slice-design.md). |
 
 ---
 
-## Deferred to 0.3.6+ (formerly the "0.3.5" line — renumbered)
+## Deferred to post-taxonomy (the single-player line — renumbered out of 0.3.5)
 
-The remaining single-player items, now sequenced **after the layer
-enable/layout slices** (see Future below), which build directly on the
-shipped milestone-1 foundation:
+The remaining single-player items, sequenced **after the taxonomy arc**
+(enable-3b → layout → frame-quality; see Future below), which build directly
+on the shipped layer foundation:
 
 | Spec area | Status | Notes |
 |---|---|---|
-| **TODO entity** | ⏭ 0.3.6+ | [`todo-entity.md`](cortex-v0.3/todo-entity.md): schema, state machine, tools, and external bridge. No code yet. The headline feature of this line. |
-| **Floating-entity placement** (bare nodes + aggregates) | ⏭ 0.3.6+ | `frame-ranking.md`/`frame-layout.md` call for placing the genuinely-peripheral residual (post-reclamation ~49 files on Cortex) + auxiliary aggregates near connected frames via a gravity-centroid, instead of the fixed bottom strip. Reclamation shrank this set; placing what remains is the next slice. (Related: the 0.3.0 stopgap promotes decision-governed non-ambient frames — `D-xwxj` — which this should subsume. Previewed and approved as an end-state direction in the 2026-06-12 layers brainstorm.) |
-| **Record drawer — adopt for TODO** | ⏭ 0.3.6+ | The record drawer already ships for decisions (see Shipped). Reuses the same drawer for the TODO entity once TODOs exist. |
+| **TODO entity** | ⏭ post-taxonomy | [`todo-entity.md`](cortex-v0.3/todo-entity.md): schema, state machine, tools, and external bridge. No code yet. The headline feature of this line. |
+| **Floating-entity placement** (bare nodes + aggregates) | ⏭ post-taxonomy | `frame-ranking.md`/`frame-layout.md` call for placing the genuinely-peripheral residual (post-reclamation ~49 files on Cortex) + auxiliary aggregates near connected frames via a gravity-centroid, instead of the fixed bottom strip. (Related: the 0.3.0 stopgap promotes decision-governed non-ambient frames — `D-xwxj` — which this should subsume. Folded into the **layout slice** above per the 2026-06-12 layers brainstorm.) |
+| **Record drawer — adopt for TODO** | ⏭ post-taxonomy | The record drawer already ships for decisions (see Shipped). Reuses the same drawer for the TODO entity once TODOs exist. |
 
 ## Removed from scope
 
@@ -66,15 +71,16 @@ The "multiplayer canvas" half of the v0.3 design corpus is **not being pursued**
 | **Multiplayer-test mode / scenario DSL** | ✖ Removed | Spec §9.3 TS scenario runner. Dropped — not pursuing a multiplayer test harness. |
 | **Multiplayer canvas chrome** (merge animation, agent cursors) | ✖ Removed | Live in `cortex-frames-prototype-v5.html` only. The shipped viewer is the single-player frames/decisions canvas; the realtime multi-agent surface is not pursued. |
 
-## Taxonomy follow-up — in progress (classify → observe → enable)
+## Taxonomy follow-up — classify → observe → enable (arc nearly complete)
 
 | Spec area | Status | Notes |
 |---|---|---|
-| **Layer classifier + lens (milestone 1)** | ✅ Shipped (0.3.4) | See Shipped. The `FrameKind` classifier exists and is observable in the viewer with zero ranking/layout effect. |
-| **Observe phase** | ▶ Current | Visually validate layer assignments on real repos (cortex + anthill-cloud). Watch list from the regression fixture: `frame-extraction` (splits into a domain frame + a tooling frame on the live graph), `contracts` (domain via fallback at MIN_SIGNAL 0.4), `mcp`. Tuning loop: edit constants in `frame-kind.ts` → `npm test` (the fixture prints the agreement report) → look. Regenerate the fixture (`scripts/frame-extraction/dump-frame-kind-inputs.ts`) against the current 17-frame graph when starting. |
-| **Enable slice** (kind-weight + layer-diversity) | ⏭ Next after observe | Flag-gated (`CORTEX_KIND_WEIGHT=1`) change to `rankFrames`: kind weights per `frame-ranking.md` (domain 1.00 … ceremony 0.20) + the layer-diversity term. Gated on the observation verdict; mind that `domain` is both the fallback layer AND the highest weight — low-signal frames must not be over-ranked. |
-| **Layout slice** (layer-adjacency force) | ⏭ After enable | Use *measured* adjacency from `rollupFrameFlows` (which cross-layer flows actually exist), not categorical adjacency. Subsumes floating-entity placement per the approved end-state preview. |
-| **Cross-cutting concern axis** (graph communities) | ◑ Candidate | Measured 2026-06-12: import-graph communities (Louvain/Leiden) confirm the shipped clustering's cores and find cross-cutting subsystems lexical signals can't see (e.g. a 13-file freshness community scattered across 5 frames). Candidate inputs to `FrameKind.concern: 'cross-cutting'` and to frame-boundary refinement. Note: `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it as a frame-extraction signal would need a Leiden-grade upgrade. Measurement scripts preserved in the 2026-06-12 session record. |
+| **Layer classifier + lens (milestone 1)** | ✅ Shipped (0.3.4) | The `FrameKind` classifier + viewer lens, zero ranking/layout effect. |
+| **Observe phase** | ✅ Done (0.3.7–0.3.8) | Validated on cortex + anthill, then corpus-wide (11 repos via `eval-layers.ts`). Findings drove three fixes that shipped: handler-orchestration signal, ceremony/infra palette separation, and the **earnable-domain** resolution to the contested `domain` fallback (`D-8vbv`). The watch-list frames are settled; `frame-extraction` fragmentation + `contracts`-via-fallback are recorded as the upstream **frame-quality** ceiling. |
+| **Enable slice 3a — kind-weight** | ✅ Shipped (0.3.9) | `score ×= kind_weight` behind `CORTEX_KIND_WEIGHT` (default off). The `domain`-is-both-fallback-and-top-weight trap (`D-qn7z`) is resolved by the earned/fallback split (1.00 / **0.50**). Corpus-validated. Decision `D-g4qb`. **▶ Immediate follow-up: flip the default on** (the observe verdict is positive) — small change in `buildFrameMap` + a Gate 0 visual pass. |
+| **Enable slice 3b — layer-diversity** | ⏭ Next | The `× diversity` term, deferred from 3a as its own increment: greedy ambient selection guaranteeing ≥1 of domain/interface/data, cap ceremony at one, decay repeats of an already-represented layer. Stateful (depends on what's already selected), so it can't be a static factor like kind-weight. |
+| **Layout slice** (layer-adjacency force) | ⏭ After 3b | Use *measured* adjacency from `rollupFrameFlows` (which cross-layer flows actually exist), not categorical adjacency. Subsumes floating-entity placement per the approved end-state preview. |
+| **Cross-cutting concern axis** (graph communities) | ◑ Candidate / deferred | The reserved `FrameKind.concern` axis. Also the only signal that would rescue **substrate-band core domain** (heavily-imported product cores that read topologically as substrate — anthill's `dsl/compiler` at sink 0.83, cortex's 23-member `frame-extraction`), which the earnable-domain middle-band signal deliberately can't reach. Measured 2026-06-12: import-graph communities confirm the shipped clustering's cores and surface cross-cutting subsystems (e.g. a 13-file freshness community across 5 frames). `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it would need a Leiden-grade upgrade. Explicitly deferred in `D-8vbv` ("walk before run"). |
 
 ---
 
@@ -116,17 +122,21 @@ plus a generic `decision_links` table (handles `governs` / `supersedes` /
 
 ## Recommended next step
 
-The taxonomy follow-up is mid-arc — finish it before opening the 0.3.6+ line:
+The taxonomy follow-up is in its final stretch — classify + observe + enable-3a
+are shipped; finish the arc before opening the post-taxonomy line:
 
-1. **Observe phase** (current): restart the MCP server, validate the layers
-   lens on cortex + anthill-cloud, settle the contested frames, tune
-   `frame-kind.ts` constants against the regression fixture.
-2. **Enable slice**: kind-weight + layer-diversity behind `CORTEX_KIND_WEIGHT`,
-   gated on the observation verdict.
+1. **Flip the kind-weight default on** (immediate): the corpus observe verdict is
+   positive, so change the `CORTEX_KIND_WEIGHT` default in `buildFrameMap`, re-run
+   Gate 0 visual, ship a patch. This is what makes the kind-weighted ambient set
+   the default user-visible behavior.
+2. **Enable slice 3b — layer-diversity**: the stateful `× diversity` term.
 3. **Layout slice**: layer-adjacency force from measured `rollupFrameFlows`
    adjacency; subsumes floating-entity placement.
-4. Then the **0.3.6+ line**: TODO entity (schema → tools → drawer adoption) as
-   the headline, record-drawer adoption for TODOs.
+4. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
+   fragmented/test-mixed clusters and substrate-band core domain — the ceiling
+   the observe phase repeatedly hit.
+5. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
+   adoption) as the headline, record-drawer adoption for TODOs.
 
 Parallel candidates that don't block the arc: the **co-change lens**
 (`FILE_CHANGES_WITH` minus structural edges = hidden coupling, rendered as a
@@ -135,5 +145,9 @@ sibling row in the layers menu — measured 2026-06-12), and the
 [2026-06-12 field report](../field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md)
 (quick wins first: target-repo-aware grep hook, search ranking; `context_pack`;
 versioned HTTP contract + freshness header — the latter gates Mesh's
-viewer-adaptation milestone)._See [HANDOFF.md](../../HANDOFF.md) for the
-session-level handoff._
+viewer-adaptation milestone).
+
+**Housekeeping:** `vercel/commerce` silently fails the Python clustering step
+(exit 1) and drops out of every corpus eval — worth a standalone look.
+
+_See [HANDOFF.md](../../HANDOFF.md) for the session-level handoff._
