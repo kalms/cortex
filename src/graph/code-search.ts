@@ -216,7 +216,7 @@ export async function runCodeSearch(opts: {
   for (const line of stdout.split("\n")) {
     const m = line.match(HIT_LINE_RE);
     if (!m) continue;
-    hits.push({ file: m[1], line: parseInt(m[2], 10), text: m[3] });
+    hits.push({ file: m[1], line: parseInt(m[2], 10), text: m[3].replace(/\r$/, "") });
     if (hits.length >= maxHits) break;
   }
   if (hits.length === 0) return { kind: "empty" };
