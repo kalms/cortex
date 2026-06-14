@@ -62,19 +62,29 @@ Semantics:
   allow-list, decision/pr/todo are excluded unless explicitly named; naming
   them is unsupported (decisions have their own tools) and out of scope —
   no special-case rejection, the result is simply whatever matches.
-- **Remove the `LIMIT 100`** — return the full matching row set. The
+- **Replace the `LIMIT 100` with a 1000-row safety ceiling** — return the
+  matching row set as before (`IndexerNode[]`), so the existing
+  `get_code_snippet` callers (which use `.length`/`[0]`) are unaffected. The
   LIKE-filtered, kind-filtered set is small relative to total nodes; ranking
-  and windowing happen above. (Safety cap: hard ceiling of 1000 rows fetched
-  to bound pathological queries; if hit, the suppressed/total counts still
-  reflect the true `COUNT(*)`.)
-- Return both the rows and a `suppressed_sections` count: a scalar
-  `COUNT(*)` of section rows that matched the name/qn pattern but were
-  excluded by the default filter. Computed **only** when sections are
-  excluded (no `kinds`), else 0.
+  and windowing happen above. `total_matches` is derived in the tool as
+  `rows.length` (the ceiling is effectively unreachable for a name search;
+  documented for safety only).
 
-Return shape: `{ rows: IndexerNode[]; total: number; suppressedSections: number }`
-where `total` is the count of matching rows under the effective kind filter
-(pre-window), and `rows` is capped at the 1000 safety ceiling.
+**Return type stays `IndexerNode[]`.** A *separate* exported helper supplies
+the suppression metric:
+
+```ts
+// Count of section rows that matched the pattern but were excluded by the
+// default (no-kinds) filter. 0 when sections were opted in via kinds.
+export function countSuppressedSections(
+  store: GraphStore, project: string,
+  params: { name_pattern?: string; qn_pattern?: string },
+): number;
+```
+
+This keeps `searchGraph` single-responsibility (rows matching a filter) and
+leaves the `get_code_snippet` call sites untouched — they call `searchGraph`
+with `qn_pattern` only and never need the count.
 
 ### 2. `rankNodes` (src/graph/node-ranker.ts) — NEW pure module
 
@@ -126,10 +136,12 @@ number>` argument in P2.1 without changing existing call sites.
 ### 3. Tool handler (src/mcp-server/tools/code-tools.ts) — modified
 
 ```
-searchGraph(...) → { rows, total, suppressedSections }
-ranked = rankNodes(rows, name_pattern ?? qn_pattern)
-window = ranked.slice(offset, offset + limit)
-text   = header + formatNodes(window)
+rows    = searchGraph(...)                       // IndexerNode[]
+total   = rows.length
+ranked  = rankNodes(rows, name_pattern ?? qn_pattern)
+window  = ranked.slice(offset, offset + limit)
+suppr   = kinds ? 0 : countSuppressedSections(...) // section opt-in → 0
+text    = header(total, offset, window, suppr) + formatNodes(window)
 ```
 
 `limit` clamped to [1, 100]; `offset` floored at 0.
