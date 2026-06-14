@@ -45,15 +45,32 @@ policy is **block code, allow non-code**:
   instead.
 - **Allowed:** searches scoped to non-code files (a non-code `glob`/`type`/path,
   e.g. `*.md`, `*.json`); greps that only filter a pipe (`ps aux | grep node`);
-  anything on an **unindexed** repo (Cortex can't answer there).
+  anything whose **search target** repo is **unindexed** (Cortex can't answer
+  there).
 - **Escape hatch** for a genuine code grep Cortex can't do (a regex feature
   `search_code` lacks, or Cortex already returned empty on a current index):
   run it as a `Bash` `grep`/`rg` command containing the token `cortex:grep-ok`.
 
-The hook is degrade-safe (missing `jq` / any failure → allows) and loads at
-**session start**, so changes to it take effect on the next session. It does
-*not* touch `Read`/`Edit` or MCP tools. Rationale + alternatives: decision
-`D-sq61`.
+**Target-aware gate + sibling auto-index.** The index check keys on the
+**search target** repo, not the cwd — the target is resolved from the
+`Grep`/`Glob` `path` arg or the first path-like token of a `Bash` command (cwd
+for a bare pattern). So a code grep against an **unindexed sibling** repo is
+allowed (the cwd's index no longer wrongly blocks it), while a grep against a
+*second indexed* repo still redirects. When that unindexed target is a
+high-certainty git repo (real root, not under `.tmp`/`tmp`/`node_modules`/
+`vendor`/`dist`/`build`/`.cache`), the hook **fires a detached background
+`cortex index`** for it — so the next query gets the graph — and allows the
+current grep immediately. Guards: deduped by a 60-min sentinel
+(`<root>/.cortex/.auto-index-attempted`), logged to
+`<root>/.cortex/auto-index.log`, the CLI resolved via `CORTEX_BIN` →
+`command -v cortex` (no-op if unresolvable). Opt out with `CORTEX_AUTO_INDEX=0`.
+Rationale + alternatives: decision `D-sq61` (original gate) and the
+sibling-auto-index decision.
+
+The hook is degrade-safe (missing `jq` / any failure → allows; a failed/absent
+indexer just skips the background index) and loads at **session start**, so
+changes to it take effect on the next session. It does *not* touch `Read`/`Edit`
+or MCP tools.
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
