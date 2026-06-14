@@ -41,21 +41,140 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
-# Index gate — mirror check-index.sh detection (`-s`: exists AND non-empty, so a
-# 0-byte degraded DB does not count). No index → Cortex can't answer → allow.
-# Anchored to the SEARCHED repo (cwd / its git root), NOT $CORTEX_DB: that env
-# var can point at a different repo's DB and would wrongly mark an unindexed cwd
-# as indexed.
-indexed=0
-if [ -s "$CWD/.cortex/db" ] || [ -s "$CWD/.cortex/graph.db" ]; then
+# --- Target resolution -------------------------------------------------------
+# Resolve a path arg (absolute / ~ / relative-to-cwd; file or dir) to its git
+# root, printed on stdout. Returns non-zero (prints nothing) when the path
+# doesn't exist or isn't in a git repo.
+# Prefers `git rev-parse --show-toplevel`; falls back to walking up the tree
+# looking for a .git entry (handles bare/fake .git dirs created in tests and
+# on-disk repos not yet initialized by git).
+git_root_of() {
+  local p="$1"
+  case "$p" in
+    /*) ;;
+    "~"/*) p="$HOME/${p#\~/}" ;;
+    *) p="$CWD/$p" ;;
+  esac
+  local dir="$p"
+  [ -f "$dir" ] && dir="$(dirname "$dir")"
+  # Walk up to the first existing ancestor (handles paths like /repo/src/new
+  # where /src doesn't exist yet but /repo does).
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && ! [ -d "$dir" ]; do
+    dir="${dir%/*}"
+  done
+  [ -d "$dir" ] || return 1
+  # Try git first (works for real repos).
+  local root
+  root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)"
+  if [ -n "$root" ]; then
+    printf '%s' "$root"
+    return 0
+  fi
+  # Fallback: walk up looking for a .git entry (covers fake/bare repos in tests).
+  local d="$dir"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ -e "$d/.git" ]; then
+      printf '%s' "$d"
+      return 0
+    fi
+    d="${d%/*}"
+  done
+  return 1
+}
+
+# `-s`: exists AND non-empty, so a 0-byte degraded DB reads as not-indexed.
+repo_indexed() { [ -s "$1/.cortex/db" ] || [ -s "$1/.cortex/graph.db" ]; }
+
+# First path-like token in a Bash command: starts with / ./ ../ ~ or contains
+# a slash; not a -flag; not an =assignment. Quoted literals already stripped by
+# the caller. Prints the first match (empty if none).
+first_path_token() {
+  local tok
+  for tok in $1; do
+    case "$tok" in
+      -*) continue ;;
+      *=*) continue ;;
+      /*|./*|../*|"~"/*) printf '%s' "$tok"; return 0 ;;
+      */*) printf '%s' "$tok"; return 0 ;;
+    esac
+  done
+  return 0
+}
+
+# Denylist: never auto-index junk/vendored/tmp trees.
+AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+
+# Best-effort detached index of an unindexed, high-certainty git root.
+# Degrade-safe: any failure simply skips indexing — the grep is already allowed.
+maybe_bg_index() {
+  local root="$1"
+  [ -n "$root" ] || return 0
+  [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
+  printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
+
+  local bin="${CORTEX_BIN:-}"
+  [ -n "$bin" ] || bin="$(command -v cortex 2>/dev/null)"
+  [ -n "$bin" ] || return 0
+
+  local sentinel="$root/.cortex/.auto-index-attempted"
+  # Skip only when the sentinel is provably FRESH: `-mmin -60` prints the file
+  # when it's younger than 60 min. Positive-match (vs. `-z` of `-mmin +60`) so a
+  # broken/absent `find` fails toward re-attempting, never toward permanent
+  # suppression. (Retry is bounded by the CLI's withIndexLock and self-ends once
+  # the first index succeeds — the repo then reads as indexed.)
+  if [ -f "$sentinel" ] && find "$sentinel" -mmin -60 2>/dev/null | grep -q .; then
+    return 0   # fresh attempt (<60 min) — skip
+  fi
+  mkdir -p "$root/.cortex" 2>/dev/null || return 0
+  : > "$sentinel" 2>/dev/null || true
+
+  local log="$root/.cortex/auto-index.log"
+  # Detached subshell so the index survives this hook's exit (recipe verified
+  # on macOS in the Gate 0 detachment probe). CLI form: `cortex index . <path>`
+  # — the `.` makes "index" the command and <path> the positional target
+  # (src/cli/commands/index.ts line 50-51). `index <path>` WITHOUT the `.` makes
+  # <path> the command and errors; `index repository --path=…` is NOT a real
+  # subcommand (a stale hint in RepoNotIndexedError). Verified end-to-end against
+  # a throwaway repo before shipping.
+  ( nohup "$bin" index . "$root" >"$log" 2>&1 </dev/null & ) 2>/dev/null || true
+  return 0
+}
+
+# Resolve the SEARCH TARGET (not necessarily the cwd) and its git root.
+TARGET_PATH=""
+case "$TOOL" in
+  Grep|Glob)
+    TARGET_PATH="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.path // empty' 2>/dev/null)"
+    ;;
+  Bash)
+    _CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
+    _CMD_STRIPPED="$(printf '%s' "$_CMD" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g")"
+    # Pass the stripped command as a SINGLE quoted arg: first_path_token splits
+    # it internally via `for tok in $1`. Unquoting here would make $1 only the
+    # first word (the tool name), so the path token is never seen.
+    TARGET_PATH="$(first_path_token "$_CMD_STRIPPED")"
+    ;;
+esac
+
+TARGET_ROOT=""
+if [ -n "$TARGET_PATH" ]; then
+  TARGET_ROOT="$(git_root_of "$TARGET_PATH")"
+fi
+# Bare pattern (no path arg) or unresolvable target → fall back to cwd's root.
+if [ -z "$TARGET_ROOT" ]; then
+  TARGET_ROOT="$(git_root_of "$CWD")"
+fi
+
+# Index gate, now anchored to the TARGET repo. Unindexed → kick off a detached
+# index for next time (if it's a real git root), then allow immediately.
+if [ -n "$TARGET_ROOT" ] && repo_indexed "$TARGET_ROOT"; then
   indexed=1
 else
-  GIT_ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)"
-  if [ -n "$GIT_ROOT" ] && { [ -s "$GIT_ROOT/.cortex/db" ] || [ -s "$GIT_ROOT/.cortex/graph.db" ]; }; then
-    indexed=1
-  fi
+  # Unindexed target. If it's a real git root (high-certainty), kick off a
+  # detached index for next time. Either way, allow the grep now.
+  if [ -n "$TARGET_ROOT" ]; then maybe_bg_index "$TARGET_ROOT"; fi
+  exit 0
 fi
-[ "$indexed" = "1" ] || exit 0
 
 # Code vs non-code file signals. NONCODE = grep is the right tool; CODE =
 # redirect. Anchored to a separator/end so "config" in a path doesn't match

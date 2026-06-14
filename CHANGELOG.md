@@ -4,6 +4,42 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.17] — 2026-06-15
+
+Agentic-experience field report §5 items **P1** and **P3**, shipped together.
+
+### Added
+
+- **`context_pack` MCP tool (P1)** — one call returns a symbol's full context
+  bundle as five labeled text sections: `## SNIPPET`, `## CALLERS` (direct,
+  cap 10), `## CALLEES` (direct, cap 10), `## GOVERNING DECISIONS` (cap 5), and
+  `## RECENT COMMITS` (last 5 touching the file). Capped lists show
+  `(showing N of M)` when truncated. It resolves the `qualified_name` **once**
+  and composes existing reads (`get_code_snippet` + `trace_path` ×2 +
+  `why_was_this_built` + `git log`); each section is best-effort, so one failing
+  source degrades to `- (none)` / `(unavailable)` rather than sinking the pack.
+  Collapses the 4-roundtrip symbol-exploration loop into one turn. Freshness-aware.
+  New [`src/mcp-server/tools/context-pack.ts`](src/mcp-server/tools/context-pack.ts);
+  `readSnippet`/`projectFromCtx` lifted into
+  [`code-tools-shared.ts`](src/mcp-server/tools/code-tools-shared.ts). Decision `D-bptf`.
+
+### Changed
+
+- **`prefer-cortex` hook is target-aware (P3)** — the index gate now keys on the
+  **search target** repo (resolved from the `Grep`/`Glob` `path` arg or the
+  first path-like token of a `Bash` command; cwd for bare patterns), not the cwd
+  repo. A code grep against an **unindexed sibling** is no longer wrongly denied
+  because the cwd repo happened to be indexed; a grep against a *second indexed*
+  repo still redirects. Decision `D-mmtb`.
+- **Sibling auto-index (P3)** — when a code search targets an unindexed
+  high-certainty git repo (real root, not under `.tmp`/`tmp`/`node_modules`/
+  `vendor`/`dist`/`build`/`.cache`), the hook fires a **detached background
+  `cortex index . <path>`** for it and allows the grep immediately. Deduped by a
+  60-min sentinel (`<root>/.cortex/.auto-index-attempted`, fails toward retry),
+  logged to `<root>/.cortex/auto-index.log`, CLI resolved via `CORTEX_BIN` →
+  `command -v cortex` (no-op if unresolvable). Opt out with `CORTEX_AUTO_INDEX=0`.
+  Degrade-safe: any failure still allows the grep.
+
 ## [0.3.16] — 2026-06-14
 
 ### Changed
@@ -458,6 +494,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.17]: https://github.com/ruevu/cortex/releases/tag/v0.3.17
 [0.3.16]: https://github.com/ruevu/cortex/releases/tag/v0.3.16
 [0.3.15]: https://github.com/ruevu/cortex/releases/tag/v0.3.15
 [0.3.14]: https://github.com/ruevu/cortex/releases/tag/v0.3.14

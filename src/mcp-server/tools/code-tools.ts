@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import {
@@ -10,12 +9,13 @@ import {
   countSuppressedSections,
   tracePath,
   getGraphSchema,
-  IndexerNode,
 } from "../../graph/code-queries.js";
 import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
+import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
+import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
@@ -170,61 +170,6 @@ const ingestTracesShape = {
   traces: z.array(z.unknown()).describe("Array of trace records"),
 } as const;
 const ingestTracesSchema = z.object(ingestTracesShape);
-
-/**
- * Derive the project name from the addressed repo's graph DB.
- *
- * Each `.cortex/db` written by the indexer holds rows for exactly one project
- * (its `ctx_projects` table). We pick the first row rather than filtering by
- * `root_path` because the path stored at indexing time can diverge from the
- * agent's current absolute path (symlinks, copied fixtures, moved trees) —
- * but the DB always contains a single project, so LIMIT 1 is unambiguous.
- * Returns null when the table is missing (pre-migration DB) or empty.
- */
-function projectFromCtx(ctx: RepoContext): string | null {
-  try {
-    const rows = ctx.store.queryRaw<{ name: string }>(
-      "SELECT name FROM ctx_projects LIMIT 1",
-    );
-    return rows[0]?.name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read a code snippet for a resolved node off disk.
- *
- * Honors the stored `ctx_projects.root_path` because the indexer wrote
- * `file_path` relative to *that* root, not relative to the path the caller
- * addressed (`ctx.repoPath`). The two can diverge when a fixture clones the
- * graph DB into a tmp tree without copying the source files alongside.
- */
-async function readSnippet(
-  ctx: RepoContext,
-  project: string,
-  node: IndexerNode,
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
-  try {
-    const projectRow = ctx.store.queryRaw<{ root_path: string }>(
-      "SELECT root_path FROM ctx_projects WHERE name = ?",
-      [project],
-    );
-    if (projectRow.length === 0) {
-      return errorResponse("project_not_found", `Project ${project} not found in indexer DB`);
-    }
-    const fullPath = join(projectRow[0].root_path, node.file_path);
-    const content = await readFile(fullPath, "utf-8");
-    const lines = content.split("\n");
-    const start = Math.max(0, node.start_line - 1);
-    const end = Math.min(lines.length, node.end_line);
-    const snippet = lines.slice(start, end).join("\n");
-    const display = denormalize(node.qualified_name, node.file_path);
-    return ok(`// ${display} (${node.file_path}:${node.start_line}-${node.end_line})\n${snippet}`);
-  } catch (e) {
-    return errorResponse("fs_error", e instanceof Error ? e.message : String(e));
-  }
-}
 
 const execFileAsync = promisify(execFile);
 import { join, dirname } from "node:path";
@@ -932,4 +877,8 @@ export function registerCodeTools(
       { resolver, freshnessAware: true },
     ),
   );
+
+  // context_pack — composite read (P1). Registered here so both server.ts and
+  // the contract harness pick it up via the single registerCodeTools call.
+  registerContextPackTool(server, resolver);
 }
