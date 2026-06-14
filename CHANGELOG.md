@@ -4,6 +4,18 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.14] — 2026-06-14
+
+### Fixed
+
+- **`prefer-cortex` hook no longer denies commands that merely mention a search
+  word in a quoted argument** ([hooks/prefer-cortex.sh](hooks/prefer-cortex.sh)).
+  A `git commit -m "…grep…"` (or `echo "rg …"`) was misread as a code search and
+  blocked. The Bash branch now strips quoted string literals before probing for a
+  command-position search tool; a real code search keeps its tool word unquoted
+  so it still redirects, and scope detection still runs against the original
+  command (quoted non-code globs like `--glob '*.md'` are preserved). +4 tests.
+
 ## [0.3.13] — 2026-06-14
 
 ### Fixed
@@ -427,6 +439,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.14]: https://github.com/ruevu/cortex/releases/tag/v0.3.14
 [0.3.13]: https://github.com/ruevu/cortex/releases/tag/v0.3.13
 [0.3.12]: https://github.com/ruevu/cortex/releases/tag/v0.3.12
 [0.3.11]: https://github.com/ruevu/cortex/releases/tag/v0.3.11
