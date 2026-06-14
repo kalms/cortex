@@ -106,6 +106,30 @@ describe("prefer-cortex.sh — block code, allow non-code", () => {
   });
 });
 
+describe("prefer-cortex.sh — quoted search words are not invocations", () => {
+  const repo = indexedRepo();
+  const bash = (command: string) => run({ tool_name: "Bash", cwd: repo, tool_input: { command } });
+
+  it("allows a git commit whose message mentions grep/rg", () => {
+    expect(bash('git commit -m "fix: grep over-match in search"')).toBe("allow");
+    expect(bash("git commit -m 'refactor: move rg helpers to graph'")).toBe("allow");
+  });
+
+  it("allows echo/printf of a search word", () => {
+    expect(bash('echo "use rg or grep here"')).toBe("allow");
+  });
+
+  it("still denies a real code grep that has a quoted pattern", () => {
+    expect(bash('grep -rn "TODO" src/index.ts')).toBe("deny");
+    expect(bash('rg "searchGraph" src/')).toBe("deny");
+  });
+
+  it("still honors a quoted non-code scope and the escape token", () => {
+    expect(bash("rg foo --glob '*.md'")).toBe("allow");
+    expect(bash("rg 'lookahead(?=x)' src/ # cortex:grep-ok")).toBe("allow");
+  });
+});
+
 describe("prefer-cortex.sh — index gate", () => {
   it("allows everything on an unindexed repo (Cortex can't answer)", () => {
     const repo = unindexedRepo();
