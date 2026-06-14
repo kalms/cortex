@@ -33,6 +33,19 @@ describe("code-tools contract", () => {
       const res = await callTool(h, "search_graph", { label: "Class" });
       expect(res.content[0].text).toContain("Router");
     });
+
+    it("default filter reports suppressed sections in the header", async () => {
+      // "Overview" is a markdown section in the fixture (docs/guide.md), not code.
+      const res = await callTool(h, "search_graph", { name_pattern: "Overview" });
+      expect(res.content[0].text).toContain("section nodes suppressed");
+    });
+
+    it("explicit kinds filter does not report suppressed sections", async () => {
+      // The caller scoped to functions; sections weren't hidden by a default,
+      // so the suppression note must not appear.
+      const res = await callTool(h, "search_graph", { name_pattern: "Overview", kinds: ["function"] });
+      expect(res.content[0].text).not.toContain("suppressed");
+    });
   });
 
   describe("get_code_snippet", () => {
