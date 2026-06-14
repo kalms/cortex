@@ -110,10 +110,24 @@ Read-path tools for navigating the indexed knowledge graph. Prefer these over
 
 ### `search_graph`
 Find code entities by name, label, or qualified-name pattern.
-- **Params:** `repo_path`, `name_pattern?`, `label?`, `qn_pattern?`
-- **Returns:** matching nodes as `kind qualified-name (file:start-end)`.
+- **Params:** `repo_path`, `name_pattern?`, `label?`, `qn_pattern?`,
+  `kinds?` (string[]), `limit?` (default 30, max 100), `offset?` (default 0).
+- **Returns:** results **ranked by relevance** (kind priority × name-match
+  quality — exact > prefix > substring), led by a header line
+  `showing A–B of N · offset M`, then matching nodes as
+  `kind qualified-name (file:start-end)`.
+- **Sections excluded by default:** doc/plan/markdown `section` nodes (the
+  largest, noisiest kind) are omitted from name/qn results; the header reports
+  `· K section nodes suppressed` when any were. Pass `kinds: ["section"]` (or
+  a list containing it) to include them. An explicit `kinds` list *replaces*
+  the default filter — e.g. `kinds: ["route","function"]` narrows to those.
+  The legacy `label` param is a single-kind alias folded into `kinds`.
+- **Pagination:** `limit`/`offset` page the ranked results; `total_matches`
+  is the `N` in the header, so pages = `ceil(N / limit)`. Ranking is
+  deterministic, so a given query yields a stable order across pages. An
+  `offset` past the end returns `showing 0 of N · offset M`.
 - **Why:** the entry point for "where is X" — replaces `Grep`/`Glob` for
-  symbol lookup with structural results.
+  symbol lookup with structural, ranked, code-first results.
 
 ### `get_code_snippet`
 Read the source for a known symbol.
