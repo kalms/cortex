@@ -51,8 +51,11 @@ export function searchGraph(
   // Effective kind filter: an explicit kinds list (incl. the legacy `label`
   // alias) replaces the default; otherwise default to code kinds with
   // sections excluded.
-  const kinds = [...(params.kinds ?? []), ...(params.label ? [params.label] : [])]
-    .map((k) => k.toLowerCase());
+  const kinds = [
+    ...new Set(
+      [...(params.kinds ?? []), ...(params.label ? [params.label] : [])].map((k) => k.toLowerCase()),
+    ),
+  ];
   if (kinds.length > 0) {
     conditions.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
     values.push(...kinds);
@@ -77,8 +80,8 @@ export function searchGraph(
 }
 
 /** Count section nodes matching the name/qn pattern — i.e. how many results
- *  the default (no-kinds) filter suppressed. Callers pass 0 to the renderer
- *  when sections were opted in. */
+ *  the default (no-kinds) filter suppressed. The search_graph handler skips
+ *  this call (reports 0) when the caller opted sections in via `kinds`. */
 export function countSuppressedSections(
   store: GraphStore,
   project: string,
