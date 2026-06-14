@@ -62,3 +62,35 @@ describe("runCodeSearch", () => {
     expect(out.kind).toBe("invalid_pattern");
   });
 });
+
+import { rankSearchHits } from "../../src/graph/code-search.js";
+import type { SearchHit } from "../../src/graph/code-search.js";
+
+describe("rankSearchHits", () => {
+  const fn = (over: Partial<SearchHit>): SearchHit => ({ file: "f", line: 1, text: "t", ...over });
+
+  it("ranks function-enclosed hits above module-enclosed above unenclosed", () => {
+    const hits = [
+      fn({ file: "z.md", enclosing: undefined }),
+      fn({ file: "m.ts", enclosing: { kind: "module", qualified_name: "m", file_path: "m.ts" } }),
+      fn({ file: "a.ts", enclosing: { kind: "function", qualified_name: "a.fn", file_path: "a.ts" } }),
+    ];
+    const ranked = rankSearchHits(hits);
+    expect(ranked.map((h) => h.file)).toEqual(["a.ts", "m.ts", "z.md"]);
+  });
+
+  it("is a stable file/line tiebreak at equal weight", () => {
+    const e = { kind: "function", qualified_name: "x", file_path: "x" };
+    const hits = [fn({ file: "b.ts", line: 2, enclosing: e }), fn({ file: "b.ts", line: 1, enclosing: e }), fn({ file: "a.ts", line: 9, enclosing: e })];
+    const ranked = rankSearchHits(hits);
+    expect(ranked.map((h) => `${h.file}:${h.line}`)).toEqual(["a.ts:9", "b.ts:1", "b.ts:2"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const e = { kind: "function", qualified_name: "x", file_path: "x" };
+    const hits = [fn({ file: "b.ts", enclosing: e }), fn({ file: "a.ts", enclosing: e })];
+    const before = hits.map((h) => h.file);
+    rankSearchHits(hits);
+    expect(hits.map((h) => h.file)).toEqual(before);
+  });
+});

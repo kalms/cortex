@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { accessSync, constants as fsConstants } from "node:fs";
 import type { GraphStore } from "./store.js";
 import type { IndexerNode } from "./code-queries.js";
+import { KIND_WEIGHT } from "./node-ranker.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -236,4 +237,20 @@ export async function runCodeSearch(opts: {
     }
   }
   return { kind: "hits", hits };
+}
+
+const UNENCLOSED_WEIGHT = 0;
+
+/** Order hits code-first: by enclosing-symbol kind weight (function/class/method
+ *  high, module low, unenclosed lowest), then file, then line. Pure; new array.
+ *  This demotes Markdown/doc hits (which enclose to a `module` node or nothing)
+ *  beneath real code hits without a doc-extension list. */
+export function rankSearchHits(hits: SearchHit[]): SearchHit[] {
+  const weight = (h: SearchHit) => (h.enclosing ? (KIND_WEIGHT[h.enclosing.kind] ?? 0.5) : UNENCLOSED_WEIGHT);
+  return [...hits].sort(
+    (a, b) =>
+      weight(b) - weight(a) ||
+      a.file.localeCompare(b.file) ||
+      a.line - b.line,
+  );
 }
