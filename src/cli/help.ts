@@ -17,11 +17,16 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
       seeAlso: ["cortex code find", "cortex code show"],
     },
     find: {
-      usage: "cortex code find <name>",
-      description: "Find a symbol by name (function, module, class).",
+      usage: "cortex code find <name> [--kind=a,b | --kinds=a,b] [--limit=N] [--offset=N]",
+      description:
+        "Find a symbol by name, ranked by relevance (kind priority × name match). " +
+        "Doc/plan sections are excluded by default (a stderr note reports how many " +
+        "and how to opt in); --kind/--kinds narrows to an explicit kind list.",
       examples: [
         "cortex code find handleRequest",
         "cortex code find 'use%' --kind=function",
+        "cortex code find serve --kind=function,route --limit=10",
+        "cortex code find lifecycle --kind=section",
       ],
       seeAlso: ["cortex code show", "cortex code search"],
     },
