@@ -106,7 +106,8 @@ describe("cortex code commands", () => {
       vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       await runCodeCommand({ command: "search", positionals: ["foo"], flags: { format: "plain" } }, ctx);
       const out = outSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(out).toContain("thing.ts");
+      const firstLine = out.trim().split("\n")[0];
+      expect(firstLine).toContain("thing.ts"); // function-enclosed hit ranks first
       expect(out.indexOf("thing.ts")).toBeLessThan(out.indexOf("notes.md")); // code before doc
       vi.restoreAllMocks();
     });
