@@ -156,9 +156,10 @@ QA may be skipped for branches that involve **only**:
 
 ## Merge protocol
 
-### Version bump (required on every merge to `main`)
+### Version bump (required on every code merge to `main`)
 
-Every merge to `main` MUST bump the semver version. **Default to a patch bump**
+Every merge to `main` that changes **code** MUST bump the semver version
+(docs-only merges are exempt — see below). **Default to a patch bump**
 (`0.3.0` → `0.3.1`) unless the user explicitly states the change is a **minor**
 (`0.3.0` → `0.4.0`, new backward-compatible capability) or **major** (`0.3.0` →
 `1.0.0`, breaking change) release.
@@ -178,6 +179,20 @@ pins the external indexer binary, not the plugin.)
 `Added` / `Changed` / `Fixed` / `Removed` sections as applicable) and add the
 version link reference at the bottom. Commit the bump + changelog as part of the
 merge, e.g. `chore(release): 0.3.1`.
+
+### Exception — documentation-only merges skip the bump
+
+A merge whose diff touches **only** documentation or memory files — anything
+under `docs/`, root docs like [`HANDOFF.md`](../../HANDOFF.md) / `README.md`,
+the `.claude/` rules, or other `*.md` — and **no** source, test, config, or
+shipped asset, does **not** bump the version and does **not** add a CHANGELOG
+entry. (Same spirit as the QA and code-review skips above: a stale-section trim
+or a status-doc refresh isn't a release.) Merge it `--no-ff` with a plain
+`docs(...)` message and no `chore(release)` commit.
+
+The moment a merge **also** touches code / tests / config / a shipped asset, it
+is a release: bump + add the CHANGELOG entry as normal, and let the docs changes
+ride along in that release. When in doubt (mixed diff), bump.
 
 ### Steps
 
