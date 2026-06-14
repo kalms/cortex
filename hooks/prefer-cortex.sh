@@ -110,6 +110,9 @@ case "$TOOL" in
   Bash)
     _CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
     _CMD_STRIPPED="$(printf '%s' "$_CMD" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g")"
+    # Pass the stripped command as a SINGLE quoted arg: first_path_token splits
+    # it internally via `for tok in $1`. Unquoting here would make $1 only the
+    # first word (the tool name), so the path token is never seen.
     TARGET_PATH="$(first_path_token "$_CMD_STRIPPED")"
     ;;
 esac
