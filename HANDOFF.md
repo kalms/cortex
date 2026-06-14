@@ -1,5 +1,56 @@
 # Cortex — Session Handoff
 
+## ✅ DONE (2026-06-14 — search-noise line: field-report P2 + follow-ons)
+
+Four gated merges to `main`, **all pushed to origin** (`1104351`, 2026-06-14),
+each through the full design → plan → subagent-driven TDD → two-stage review →
+gated release cycle. This closes the field report's **§2 "search is noisy and
+unranked" / P2** item and the follow-ons it surfaced. Decisions **`D-fq9g`**
+(search_graph ranking) and **`D-qfz9`** (shared code_search engine), both linked
+to the frame kind-weight lineage.
+
+- **0.3.11 — `search_graph` ranking + section exclusion + pagination (P2).**
+  New pure ranker [`src/graph/node-ranker.ts`](src/graph/node-ranker.ts)
+  (`KIND_WEIGHT × nameMatchQuality`, deterministic tie-break → stable across
+  pages); doc/plan `section` nodes (1771 vs 528 functions here) excluded from
+  name/qn results by default with a `K section nodes suppressed` header hint;
+  new `kinds`/`limit`/`offset` params + `showing A–B of N` header. Pure
+  render/clamp in [`src/mcp-server/tools/search-format.ts`](src/mcp-server/tools/search-format.ts);
+  `countSuppressedSections` in [`code-queries.ts`](src/graph/code-queries.ts).
+  Decision `D-fq9g`; [design](docs/superpowers/specs/2026-06-14-search-graph-ranking-design.md).
+- **0.3.12 — suppression-note scoping fix + search-syntax docs + `cortex code
+  find` parity.** The suppression hint now fires only under the default filter
+  (an explicit `kinds`/`label` no longer misreports hidden sections). Documented
+  the previously-undocumented match syntax in [`docs/mcp-tools.md`](docs/mcp-tools.md)
+  (`name_pattern` = ci substring/LIKE wildcards; `qn_pattern` = non-auto-wrapped
+  LIKE; exact kind match). `cortex code find` brought to parity with the tool:
+  ranked, section-excluded-by-default, `--kind`/`--kinds`/`--limit`/`--offset`
+  (honors the `--kind` flag the help already advertised but the command ignored);
+  `clampLimit`/`clampOffset` relocated to
+  [`src/graph/search-params.ts`](src/graph/search-params.ts) so the CLI doesn't
+  depend on mcp-server.
+- **0.3.13 — shared ripgrep engine; `cortex code search` fixed (the "only .md"
+  report).** Root cause: the CLI ran the indexer binary's `search_code`, which
+  caps at ~10 results and orders doc-first — `extract` (91 code files) returned
+  only `.md`. Extracted the MCP tool's ripgrep + enclosing-symbol engine into a
+  shared [`src/graph/code-search.ts`](src/graph/code-search.ts) (`runCodeSearch`
+  + `rankSearchHits`); the MCP `search_code` tool is now a thin wrapper over it
+  (**output byte-identical** — contract tests are the guard); the CLI `search`
+  command runs the same engine, ranks **code-first** (markdown hits enclose to a
+  `module` node and sink), renders structured rows, redirects `--kind` to `find`.
+  Decision `D-qfz9`; [design](docs/superpowers/specs/2026-06-14-shared-code-search-engine-design.md).
+- **0.3.14 — `prefer-cortex` hook over-match fix.** A `git commit -m "…grep…"`
+  was misread as a code search and denied; the Bash branch now strips quoted
+  string literals before probing for a command-position search tool (a real code
+  search keeps its tool word unquoted, so it still redirects; scope detection
+  still uses the original command). +4 tests.
+  ⚠ **NOT the field report's P3** (the *target-repo-aware cross-repo* hook) —
+  that blind spot is still open. Hooks load at SessionStart, so this fix is live
+  next session.
+
+Full suite **1131/1131** throughout; live Gate 0 confirmed `cortex code search
+extract` now leads with code instead of `.md`.
+
 ## ✅ DONE (2026-06-12 → 13 — frame layers taxonomy: milestone 1 → enable slice 3a)
 
 Six gated merges to `main` (Gate 0 visual QA + per-task reviews + green suite),
@@ -162,10 +213,13 @@ the stateful `× diversity` term, now the headline of the taxonomy arc.
    edges = hidden coupling — a sibling row in the layers menu, dashed quiet
    style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
    identical) is established; follow it.
-7. **Agentic-experience P1–P8** (parallel): quick wins first — target-repo-
-   aware grep hook (P3), search ranking (P2) — then `context_pack` (P1).
-   **P6 (versioned HTTP contract + freshness header) should land before
-   Mesh's viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
+7. **Agentic-experience P1–P8** (parallel): ✅ **P2 (search ranking) shipped**
+   (0.3.11–0.3.13 — `search_graph` + `cortex code search`/`find`, decisions
+   `D-fq9g`/`D-qfz9`). Still open: **P3 target-repo-aware grep hook** (the
+   *cross-repo* blind spot — keys policy on cwd, not the search target; distinct
+   from the 0.3.14 quoted-word fix), then **`context_pack` (P1)**. **P6
+   (versioned HTTP contract + freshness header) should land before Mesh's
+   viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
 8. ✅ **Pushed to origin** (`785bcbe`, 2026-06-13). Note: pushing `main`
    directly **bypasses** the branch-protection rule (PR + "CI gate" status
    check) — the account has bypass permission. Consider routing future
