@@ -161,8 +161,12 @@ route   /api/serve   (src/server/routes.ts:88-95)
 - `showing A–B of TOTAL · offset N` where `A = offset+1` (or `0` when the
   window is empty), `B = offset + window.length`, `TOTAL = total`.
 - Suppression note appended **only** when `suppressedSections > 0`.
-- Empty result set (no matches at all): existing `empty(queryDesc)` path,
-  unchanged.
+- **No code rows but sections matched:** render the header-only line
+  (`showing 0 of 0 · offset 0 · K section nodes suppressed (pass kinds=["section"])`)
+  rather than a bare "no results" — otherwise a query that hit only sections
+  would hide retrievable matches (the inverse of the noise problem).
+- **Genuinely empty** (no code rows *and* no suppressed sections): existing
+  `empty(queryDesc)` path, unchanged.
 
 ## Error / edge handling
 
@@ -172,9 +176,10 @@ route   /api/serve   (src/server/routes.ts:88-95)
 - **`limit` out of range:** clamp silently (1–100); never error.
 - **`offset` negative:** floor to 0.
 - **No project / unindexed:** unchanged existing `project_not_found` path.
-- **Safety ceiling hit (>1000 matches):** window still served from the first
-  1000 ranked rows; `total` reflects the true count so the agent knows more
-  exist. (Realistically unreachable for a name search; documented for safety.)
+- **Safety ceiling hit (>1000 matches):** window served from the first 1000
+  ranked rows; `total` is `rows.length` (i.e. capped at the ceiling), matching
+  the Component-1 contract above. Realistically unreachable for a LIKE name
+  search; documented for safety only.
 
 ## Testing (TDD)
 
