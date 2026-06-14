@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { GraphStore } from "../../src/graph/store.js";
-import { runCodeSearch } from "../../src/graph/code-search.js";
+import { runCodeSearch, rankSearchHits } from "../../src/graph/code-search.js";
+import type { SearchHit } from "../../src/graph/code-search.js";
 
 describe("runCodeSearch", () => {
   let dir: string;
@@ -62,9 +63,6 @@ describe("runCodeSearch", () => {
     expect(out.kind).toBe("invalid_pattern");
   });
 });
-
-import { rankSearchHits } from "../../src/graph/code-search.js";
-import type { SearchHit } from "../../src/graph/code-search.js";
 
 describe("rankSearchHits", () => {
   const fn = (over: Partial<SearchHit>): SearchHit => ({ file: "f", line: 1, text: "t", ...over });
