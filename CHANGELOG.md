@@ -6,6 +6,20 @@ All notable changes to Cortex are documented here. The format follows
 
 ## [0.3.12] — 2026-06-14
 
+### Added
+
+- **`cortex code find` reaches parity with the `search_graph` tool**
+  ([`src/cli/commands/code.ts`](src/cli/commands/code.ts)). Results are now
+  ranked (`rankNodes`), doc/plan `section` nodes are excluded by default with a
+  stderr note reporting how many were hidden and how to opt in, and the command
+  gains `--kind`/`--kinds` (comma-separated), `--limit`, and `--offset` flags.
+  This also honors the `--kind` flag that the help text already advertised but
+  the command ignored. Structured output (`--format json|plain|table`) is
+  preserved; the status line goes to stderr so stdout stays pipe-clean.
+- **`clampLimit`/`clampOffset` relocated to**
+  [`src/graph/search-params.ts`](src/graph/search-params.ts) so both the CLI and
+  the MCP tool share them without the CLI depending on the mcp-server layer.
+
 ### Fixed
 
 - **`search_graph` suppression note no longer fires under an explicit filter**
