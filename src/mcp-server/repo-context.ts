@@ -165,7 +165,7 @@ export class RepoNotIndexedError extends Error {
   constructor(path: string, readonly availableProjects: AvailableProject[]) {
     super(`repo_path '${path}' has no .cortex/ — repo not indexed`);
     this.name = "RepoNotIndexedError";
-    this.hint = `Run cortex index repository --path=${path} first.`;
+    this.hint = `Run cortex index . ${path} first.`;
   }
 }
 
