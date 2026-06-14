@@ -51,7 +51,7 @@ export function cmdRehome(cmd: DecisionCommand, ctx: ProjectContext): void {
   if (!existsSync(sourceDbPath)) {
     throw new EnvironmentError(
       `source repo ${sourceRepoPath} isn't indexed — no .cortex/decisions.db found`,
-      `cortex index repository --path=${sourceRepoPath}`,
+      `cortex index . ${sourceRepoPath}`,
     );
   }
 
@@ -69,7 +69,7 @@ export function cmdRehome(cmd: DecisionCommand, ctx: ProjectContext): void {
   if (!existsSync(targetDbPath)) {
     throw new EnvironmentError(
       `target ${targetRepoPath} isn't indexed — no .cortex/decisions.db found`,
-      `cortex index repository --path=${targetRepoPath}`,
+      `cortex index . ${targetRepoPath}`,
     );
   }
 

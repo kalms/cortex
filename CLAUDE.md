@@ -129,8 +129,8 @@ even if your shell cwd is in `cortex`.
   right one without a second `list_projects` round-trip.
 - **`RepoNotIndexedError`** — path is a real git root but
   `.cortex/db` is missing. Same `available_projects` payload; the
-  message tells you to run `cortex index repository --path=<path>`
-  first.
+  message tells you to run `cortex index . <path>` first (the `.` is the
+  command, `<path>` the positional target — `index <path>` without it errors).
 - **`PathNotFoundError`** / **`NotAGitRepoError`** — bad path or
   subdirectory; the latter carries the inferred `gitRoot` so you can
   re-issue without a second lookup.
