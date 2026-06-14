@@ -4,6 +4,33 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.11] — 2026-06-14
+
+### Added
+
+- **`search_graph` result ranking, section exclusion & pagination** — field
+  report P2 (decision `D-fq9g`). Results are now ranked by a pure scorer
+  ([`src/graph/node-ranker.ts`](src/graph/node-ranker.ts)) — `KIND_WEIGHT[kind] ×
+  nameMatchQuality` (exact > prefix > substring), with a deterministic tie-break
+  (score → shorter name → qualified-name) so pagination is stable. Doc/plan
+  `section` nodes (the largest, noisiest kind — 1771 vs 528 functions in this
+  repo) are **excluded from name/qn results by default**; the response header
+  reports `K section nodes suppressed (pass kinds=["section"])`. New `kinds`
+  (string[]), `limit` (default 30, max 100) and `offset` params; the legacy
+  `label` param is folded into the `kinds` union. A query matching only sections
+  returns the header-only opt-in hint instead of a bare "no results".
+- **Pure render/clamp helpers**
+  ([`src/mcp-server/tools/search-format.ts`](src/mcp-server/tools/search-format.ts))
+  and `countSuppressedSections`
+  ([`src/graph/code-queries.ts`](src/graph/code-queries.ts)).
+
+### Changed
+
+- `search_graph` output now leads with a `showing A–B of N · offset M` header.
+  `searchGraph` keeps its `IndexerNode[]` return shape, so `get_code_snippet`
+  and other callers are unaffected. Frame/layer-aware ranking is deferred to a
+  follow-on (P2.1), gated on frame-coverage quality.
+
 ## [0.3.10] — 2026-06-13
 
 ### Changed
@@ -341,6 +368,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.11]: https://github.com/ruevu/cortex/releases/tag/v0.3.11
 [0.3.10]: https://github.com/ruevu/cortex/releases/tag/v0.3.10
 [0.3.9]: https://github.com/ruevu/cortex/releases/tag/v0.3.9
 [0.3.8]: https://github.com/ruevu/cortex/releases/tag/v0.3.8
