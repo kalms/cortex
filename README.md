@@ -20,7 +20,7 @@ claude plugin add github:ruevu/cortex
 
 This single install registers, in one go:
 
-- **29 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, `check_contracts`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
+- **30 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, `check_contracts`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
 - **The SessionStart hook** (`hooks/check-index.sh`) — prints the active repo, its index state, and routing reminders into every new conversation.
 - **The skill library** under `skills/` — `seed-decisions` (cold-start bootstrap), `capture-decision`, `search-decisions`, `explain-architecture`.
 - **The decision-capture flow** under `bin/` — `cortex decision create / link / why / list / rehome / propose / supersede / update / delete / show / candidates`, plus `cortex code find / show / where / why`.
@@ -145,7 +145,7 @@ npm rebuild better-sqlite3
 
 ## MCP Tools
 
-### Code tools (14)
+### Code tools (15)
 
 These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 
@@ -154,6 +154,7 @@ These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 | `search_graph` | Find code entities by name, label, or qualified name pattern |
 | `trace_path` | Trace call chains via recursive CTE (mode: `calls` or `callers`) |
 | `get_code_snippet` | Read source code for a fully qualified name |
+| `context_pack` | One-call symbol bundle: snippet + callers + callees + governing decisions + recent commits |
 | `get_graph_schema` | List node labels and edge types with counts |
 | `search_code` | Grep with graph enrichment — annotates matches with enclosing function/class |
 | `query_graph` | Run a Cypher-flavoured query against the unified graph |
