@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { GraphStore } from "../../graph/store.js";
-import { searchGraph, getGraphSchema, tracePath } from "../../graph/code-queries.js";
+import { searchGraph, countSuppressedSections, getGraphSchema, tracePath } from "../../graph/code-queries.js";
+import { rankNodes } from "../../graph/node-ranker.js";
+import { clampLimit, clampOffset } from "../../mcp-server/tools/search-format.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { resolveInput, type Disambiguation } from "../resolve-input.js";
@@ -84,16 +86,49 @@ function cmdFind(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
   const pattern = cmd.positionals[0];
   if (!pattern) throw new UsageError("missing <name-pattern>", "Usage: cortex code find <name>");
+
+  // --kind / --kinds: comma-separated kind allow-list (e.g. --kind=function,route).
+  // An explicit list replaces the default (which excludes doc/plan sections).
+  const kindsFlag = (cmd.flags.kinds ?? cmd.flags.kind) as string | boolean | undefined;
+  const kinds = typeof kindsFlag === "string"
+    ? kindsFlag.split(",").map((k) => k.trim()).filter(Boolean)
+    : undefined;
+  const usesDefaultFilter = !kinds || kinds.length === 0;
+  const limit = clampLimit(cmd.flags.limit !== undefined ? Number(cmd.flags.limit) : undefined);
+  const offset = clampOffset(cmd.flags.offset !== undefined ? Number(cmd.flags.offset) : undefined);
+
   const store = new GraphStore(ctx.graphDbPath);
-  const results = searchGraph(store, ctx.projectName, { name_pattern: pattern });
-  const rows = results.map((r) => ({
+  const ranked = rankNodes(searchGraph(store, ctx.projectName, { name_pattern: pattern, kinds }), pattern);
+  const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
+
+  // Sections are hidden only by the default filter; report the count so the
+  // user knows they exist and how to opt in (mirrors the search_graph tool).
+  const suppressed = usesDefaultFilter
+    ? countSuppressedSections(store, ctx.projectName, { name_pattern: pattern })
+    : 0;
+
+  if (ranked.length === 0) {
+    const msg = suppressed > 0
+      ? `no code symbols matched '${pattern}' — ${suppressed} section(s) match (--kind=section to include)`
+      : `no symbols matched '${pattern}' in ${ctx.projectName}`;
+    writeRows([], fmt, msg);
+    return;
+  }
+
+  const page = ranked.slice(offset, offset + limit);
+  const rows = page.map((r) => ({
     name: r.name,
     kind: r.kind,
     qualified_name: r.qualified_name,
     file_path: r.file_path,
   }));
-  const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
-  writeRows(rows, fmt, `no symbols matched '${pattern}' in ${ctx.projectName}`);
+  writeRows(rows, fmt, `offset ${offset} is past the ${ranked.length} match(es)`);
+
+  // Status line on stderr — keeps stdout clean for pipes / --format json.
+  const range = page.length === 0 ? "0" : `${offset + 1}–${offset + page.length}`;
+  let note = `# showing ${range} of ${ranked.length}`;
+  if (suppressed > 0) note += ` · ${suppressed} section node(s) hidden (--kind=section to include)`;
+  process.stderr.write(note + "\n");
 }
 
 function cmdShow(cmd: CodeCommand, ctx: ProjectContext): void {
