@@ -65,8 +65,8 @@ current grep immediately. Guards: deduped by a 60-min sentinel
 (`<root>/.cortex/.auto-index-attempted`), logged to
 `<root>/.cortex/auto-index.log`, the CLI resolved via `CORTEX_BIN` →
 `command -v cortex` (no-op if unresolvable). Opt out with `CORTEX_AUTO_INDEX=0`.
-Rationale + alternatives: decision `D-sq61` (original gate) and the
-sibling-auto-index decision.
+Rationale + alternatives: decisions `D-sq61` (original gate) and `D-mmtb`
+(target-aware + sibling auto-index).
 
 The hook is degrade-safe (missing `jq` / any failure → allows; a failed/absent
 indexer just skips the background index) and loads at **session start**, so

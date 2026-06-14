@@ -130,9 +130,13 @@ maybe_bg_index() {
 
   local log="$root/.cortex/auto-index.log"
   # Detached subshell so the index survives this hook's exit (recipe verified
-  # on macOS in the Gate 0 detachment probe). cortex CLI form per the
-  # RepoNotIndexedError hint: `cortex index repository --path=<root>`.
-  ( nohup "$bin" index repository --path="$root" >"$log" 2>&1 </dev/null & ) 2>/dev/null || true
+  # on macOS in the Gate 0 detachment probe). CLI form: `cortex index . <path>`
+  # — the `.` makes "index" the command and <path> the positional target
+  # (src/cli/commands/index.ts line 50-51). `index <path>` WITHOUT the `.` makes
+  # <path> the command and errors; `index repository --path=…` is NOT a real
+  # subcommand (a stale hint in RepoNotIndexedError). Verified end-to-end against
+  # a throwaway repo before shipping.
+  ( nohup "$bin" index . "$root" >"$log" 2>&1 </dev/null & ) 2>/dev/null || true
   return 0
 }
 
