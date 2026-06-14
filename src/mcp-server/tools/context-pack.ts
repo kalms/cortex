@@ -73,7 +73,7 @@ async function recentCommits(repoPath: string, filePath: string): Promise<string
   }
 }
 
-function sectionHeader(label: string, shown: number, total: number): string {
+export function sectionHeader(label: string, shown: number, total: number): string {
   return total > shown ? `## ${label} (showing ${shown} of ${total})` : `## ${label} (${total})`;
 }
 
@@ -96,6 +96,8 @@ export async function buildContextPack(ctx: RepoContext, qualified_name: string)
   }
 
   const node = resolved.node;
+  // Stored qns are dot-form, so in practice only the `.` split fires here; the
+  // `::` alternation is defensive — `::` appears only in the input display form.
   const bareName = node.qualified_name.split(/::|\./).pop() ?? qualified_name;
 
   const snippetRes = await readSnippet(ctx, project, node);
