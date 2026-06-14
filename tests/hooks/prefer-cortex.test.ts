@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -133,10 +133,18 @@ describe("prefer-cortex.sh — quoted search words are not invocations", () => {
 describe("prefer-cortex.sh — index gate", () => {
   it("allows everything on an unindexed repo (Cortex can't answer)", () => {
     const repo = unindexedRepo();
-    expect(run({ tool_name: "Grep", cwd: repo, tool_input: { pattern: "foo" } })).toBe("allow");
-    expect(run({ tool_name: "Bash", cwd: repo, tool_input: { command: "rg foo src/" } })).toBe(
-      "allow",
-    );
+    const grepOut = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd: repo, tool_input: { pattern: "foo" } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    expect(grepOut).toBe("");
+    const bashOut = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Bash", cwd: repo, tool_input: { command: "rg foo src/" } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    expect(bashOut).toBe("");
   });
 
   it("does NOT treat an unindexed cwd as indexed just because $CORTEX_DB is set", () => {
@@ -196,6 +204,98 @@ describe("prefer-cortex.sh — target-repo-aware gate", () => {
       }),
       encoding: "utf-8",
       env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    expect(out).toBe("");
+  });
+});
+
+/** A fake `cortex` CLI that touches the marker and exits 0. */
+function stubCortex(markerPath: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "cortex-stub-"));
+  const bin = join(dir, "cortex");
+  writeFileSync(bin, `#!/bin/sh\ntouch "${markerPath}"\n`);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+/** Poll for a file up to timeoutMs (detached spawn is async). */
+function waitForFile(p: string, timeoutMs = 3000): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(p)) return true;
+    execFileSync("sleep", ["0.05"]);
+  }
+  return existsSync(p);
+}
+
+describe("prefer-cortex.sh — sibling auto-index", () => {
+  it("background-indexes an unindexed high-certainty git sibling, then allows", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    const marker = join(sibling, ".index-fired");
+    const bin = stubCortex(marker);
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    }).trim();
+    expect(out).toBe("");
+    expect(waitForFile(marker)).toBe(true);
+    expect(existsSync(join(sibling, ".cortex", ".auto-index-attempted"))).toBe(true);
+  });
+
+  it("does NOT spawn for a denylisted target (node_modules)", () => {
+    const cwd = indexedRepo();
+    const base = unindexedRepo();
+    const nm = join(base, "node_modules", "pkg");
+    mkdirSync(nm, { recursive: true });
+    mkdirSync(join(nm, ".git"), { recursive: true });
+    const marker = join(base, ".should-not-fire");
+    const bin = stubCortex(marker);
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: nm } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    }).trim();
+    expect(out).toBe("");
+    expect(waitForFile(marker, 600)).toBe(false);
+  });
+
+  it("does NOT spawn when CORTEX_AUTO_INDEX=0", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    const marker = join(sibling, ".should-not-fire");
+    const bin = stubCortex(marker);
+    execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "0" },
+    });
+    expect(waitForFile(marker, 600)).toBe(false);
+  });
+
+  it("does NOT spawn when the sentinel is fresh", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    mkdirSync(join(sibling, ".cortex"), { recursive: true });
+    writeFileSync(join(sibling, ".cortex", ".auto-index-attempted"), "");
+    const marker = join(sibling, ".should-not-fire");
+    const bin = stubCortex(marker);
+    execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    });
+    expect(waitForFile(marker, 600)).toBe(false);
+  });
+
+  it("does NOT spawn when no cortex CLI is resolvable (degrade-safe allow)", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: "", CORTEX_AUTO_INDEX: "1", PATH: "/usr/bin:/bin" },
     }).trim();
     expect(out).toBe("");
   });

@@ -101,6 +101,36 @@ first_path_token() {
   return 0
 }
 
+# Denylist: never auto-index junk/vendored/tmp trees.
+AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+
+# Best-effort detached index of an unindexed, high-certainty git root.
+# Degrade-safe: any failure simply skips indexing — the grep is already allowed.
+maybe_bg_index() {
+  local root="$1"
+  [ -n "$root" ] || return 0
+  [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
+  printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
+
+  local bin="${CORTEX_BIN:-}"
+  [ -n "$bin" ] || bin="$(command -v cortex 2>/dev/null)"
+  [ -n "$bin" ] || return 0
+
+  local sentinel="$root/.cortex/.auto-index-attempted"
+  if [ -f "$sentinel" ] && [ -z "$(find "$sentinel" -mmin +60 2>/dev/null)" ]; then
+    return 0   # fresh attempt (<60 min) — skip
+  fi
+  mkdir -p "$root/.cortex" 2>/dev/null || return 0
+  : > "$sentinel" 2>/dev/null || true
+
+  local log="$root/.cortex/auto-index.log"
+  # Detached subshell so the index survives this hook's exit (recipe verified
+  # on macOS in the Gate 0 detachment probe). cortex CLI form per the
+  # RepoNotIndexedError hint: `cortex index repository --path=<root>`.
+  ( nohup "$bin" index repository --path="$root" >"$log" 2>&1 </dev/null & ) 2>/dev/null || true
+  return 0
+}
+
 # Resolve the SEARCH TARGET (not necessarily the cwd) and its git root.
 TARGET_PATH=""
 case "$TOOL" in
@@ -126,15 +156,16 @@ if [ -z "$TARGET_ROOT" ]; then
   TARGET_ROOT="$(git_root_of "$CWD")"
 fi
 
-# Index gate, now anchored to the TARGET repo. Unindexed → Cortex can't answer
-# (yet) → fall through and allow (a later task adds a background-index side
-# effect here).
+# Index gate, now anchored to the TARGET repo. Unindexed → kick off a detached
+# index for next time (if it's a real git root), then allow immediately.
 if [ -n "$TARGET_ROOT" ] && repo_indexed "$TARGET_ROOT"; then
   indexed=1
 else
-  indexed=0
+  # Unindexed target. If it's a real git root (high-certainty), kick off a
+  # detached index for next time. Either way, allow the grep now.
+  if [ -n "$TARGET_ROOT" ]; then maybe_bg_index "$TARGET_ROOT"; fi
+  exit 0
 fi
-[ "$indexed" = "1" ] || exit 0
 
 # Code vs non-code file signals. NONCODE = grep is the right tool; CODE =
 # redirect. Anchored to a separator/end so "config" in a path doesn't match
