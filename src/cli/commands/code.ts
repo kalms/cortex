@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { GraphStore } from "../../graph/store.js";
 import { searchGraph, countSuppressedSections, getGraphSchema, tracePath } from "../../graph/code-queries.js";
 import { rankNodes } from "../../graph/node-ranker.js";
-import { clampLimit, clampOffset } from "../../mcp-server/tools/search-format.js";
+import { clampLimit, clampOffset } from "../../graph/search-params.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { resolveInput, type Disambiguation } from "../resolve-input.js";
@@ -124,9 +124,12 @@ function cmdFind(cmd: CodeCommand, ctx: ProjectContext): void {
   }));
   writeRows(rows, fmt, `offset ${offset} is past the ${ranked.length} match(es)`);
 
+  // On overshoot, writeRows already emitted the past-the-end message; don't
+  // also print a status line (one diagnostic per event).
+  if (page.length === 0) return;
+
   // Status line on stderr — keeps stdout clean for pipes / --format json.
-  const range = page.length === 0 ? "0" : `${offset + 1}–${offset + page.length}`;
-  let note = `# showing ${range} of ${ranked.length}`;
+  let note = `# showing ${offset + 1}–${offset + page.length} of ${ranked.length}`;
   if (suppressed > 0) note += ` · ${suppressed} section node(s) hidden (--kind=section to include)`;
   process.stderr.write(note + "\n");
 }

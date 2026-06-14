@@ -17,7 +17,7 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
       seeAlso: ["cortex code find", "cortex code show"],
     },
     find: {
-      usage: "cortex code find <name> [--kind=a,b] [--limit=N] [--offset=N]",
+      usage: "cortex code find <name> [--kind=a,b | --kinds=a,b] [--limit=N] [--offset=N]",
       description:
         "Find a symbol by name, ranked by relevance (kind priority × name match). " +
         "Doc/plan sections are excluded by default (a stderr note reports how many " +
