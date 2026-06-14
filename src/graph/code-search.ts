@@ -239,6 +239,8 @@ export async function runCodeSearch(opts: {
   return { kind: "hits", hits };
 }
 
+// Below the 0.5 unknown-kind fallback in `weight` below — a hit with no
+// enclosing symbol sinks beneath every real symbol hit.
 const UNENCLOSED_WEIGHT = 0;
 
 /** Order hits code-first: by enclosing-symbol kind weight (function/class/method
