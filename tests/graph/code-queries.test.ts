@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { GraphStore } from "../../src/graph/store.js";
-import { searchGraph, tracePath, getGraphSchema, listProjects, listProjectsUnified, indexStatus } from "../../src/graph/code-queries.js";
+import { searchGraph, countSuppressedSections, tracePath, getGraphSchema, listProjects, listProjectsUnified, indexStatus } from "../../src/graph/code-queries.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -50,6 +50,30 @@ describe("code-queries against unified cortex.db", () => {
     const results = searchGraph(store, project, { name_pattern: "handleRequest" });
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].name).toContain("handleRequest");
+  });
+
+  it("searchGraph excludes section nodes by default", () => {
+    const results = searchGraph(store, project, {});
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((n) => n.kind === "section")).toBe(false);
+  });
+
+  it("searchGraph includes sections when kinds requests them", () => {
+    const results = searchGraph(store, project, { kinds: ["section"] });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((n) => n.kind === "section")).toBe(true);
+    expect(results.some((n) => n.name === "Usage")).toBe(true);
+  });
+
+  it("searchGraph narrows to the requested kinds", () => {
+    const results = searchGraph(store, project, { kinds: ["function"] });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((n) => n.kind === "function")).toBe(true);
+  });
+
+  it("countSuppressedSections counts pattern-matching sections", () => {
+    expect(countSuppressedSections(store, project, { name_pattern: "Usage" })).toBeGreaterThanOrEqual(1);
+    expect(countSuppressedSections(store, project, { name_pattern: "zzz-no-match" })).toBe(0);
   });
 
   it("getGraphSchema returns label and edge type counts", () => {
