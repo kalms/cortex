@@ -213,13 +213,23 @@ the stateful `× diversity` term, now the headline of the taxonomy arc.
    edges = hidden coupling — a sibling row in the layers menu, dashed quiet
    style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
    identical) is established; follow it.
-7. **Agentic-experience P1–P8** (parallel): ✅ **P2 (search ranking) shipped**
-   (0.3.11–0.3.13 — `search_graph` + `cortex code search`/`find`, decisions
-   `D-fq9g`/`D-qfz9`). Still open: **P3 target-repo-aware grep hook** (the
-   *cross-repo* blind spot — keys policy on cwd, not the search target; distinct
-   from the 0.3.14 quoted-word fix), then **`context_pack` (P1)**. **P6
-   (versioned HTTP contract + freshness header) should land before Mesh's
-   viewer-adaptation milestone** consumes `/api/frames`/`/api/file-edges`.
+7. **Agentic-experience P1–P8** (from the [2026-06-12 field report](docs/field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md) §5).
+   1 of 8 shipped. Remaining, in suggested sequence:
+
+   | # | Item | Status | What it is | Effort |
+   |---|---|---|---|---|
+   | **P2** | Search ranking + kind weighting | ✅ **Shipped** (0.3.11–0.3.13) | Ranked, section-excluded, paginated `search_graph` + `cortex code search`/`find`. Decisions `D-fq9g` / `D-qfz9`. | — |
+   | **P3** | Target-repo-aware grep hook | ⬜ **Open — next quick win** | `prefer-cortex.sh` keys allow/deny on the **cwd** repo's index, not the **search target's** — so a grep against an unindexed sibling repo is wrongly denied. Fix: resolve the target's git root (from Grep/Glob `path` or the Bash command's path args; cwd only for bare patterns) and gate on *that* repo's `.cortex/db`. **Distinct from the 0.3.14 quoted-word fix.** | small (shell) + careful tests |
+   | **P1** | `context_pack(qualified_name)` composite | ⬜ Open | One tool returning `{ snippet, callers, callees, governing_decisions, recent_commits }` (capped + `truncated` marker). Pure composition of `get_code_snippet` + `trace_path` + `why_was_this_built`; cuts the 3-roundtrip symbol pattern to 1. Would become the most-used tool. | small |
+   | **P6** | Versioned HTTP contract + freshness over HTTP | ⬜ Open — **gates Mesh** | (a) Freeze JSON Schemas for `/api/projects`/`/api/graph`/`/api/decisions` (+ `/api/frames`/`/api/file-edges`) under `docs/api/` with a response `version`; (b) expose freshness as `X-Cortex-Freshness:` header or `/api/freshness` so Mesh drops its blind TTL cache. **Land before Mesh's viewer-adaptation milestone consumes `/api/frames`.** | small |
+   | **P4** | Warm-path decision drafting | ⬜ Open | At merge/PR time, run `decision_candidates` over the branch diff and draft `status:"proposed"`, `author:"cortex:draft"` decisions for one-tap ratification — re-aims the existing `seed-decisions` machinery + suggest-capture hook from *reminder* to *drafter*. Compounds the decision moat. | medium |
+   | **P5** | Cross-repo decision search | ⬜ Open | `crossRepo:true` mode on `search_decisions` that fans out over the registry's `root_path` entries and merges FTS hits with a `repo` field. Unlocks the now-normal multi-repo workflow (cortex + mesh + client repos). | small–medium |
+   | **P7** | Reduce the fixed token tax | ⬜ Open — **needs a decision first** | ~30 tool schemas + routing docs ride every turn. (a) Consolidate low-traffic tools (`promote`/`propose`, the PR quartet) behind a `mode` param; (b) tighten descriptions that restate `docs/mcp-tools.md`; (c) mark the long tail deferred where the host supports lazy schema loading. (a) is a breaking prompt change → capture a decision. | medium |
+   | **P8** | Temporal layer | ⬜ Open — long pole | `changes_since(ref_or_date, scope?)` joining commit history against graph nodes + decisions made/reconciled in the window. Completes the why-layer with a when-layer; pairs with `CORTEX_RECONCILE`. Sequence after P1–P6. | large |
+
+   **Reaffirmed operational items ⏩** (not new P-items):
+   - **Frame ranking / extraction coverage** — the `SRC·863` mega-frame / frame-quality ceiling. Being chipped at by the taxonomy arc (NEXT STEP items 3b–4 above); the deferred Louvain `concern` axis is the real fix for substrate-band core domain.
+   - **C test suite rot** (~196 red, not in CI) — either fix against the Phase-4 schema or formally retire the suite so its redness stops signaling.
 8. ✅ **Pushed to origin** (`785bcbe`, 2026-06-13). Note: pushing `main`
    directly **bypasses** the branch-protection rule (PR + "CI gate" status
    check) — the account has bypass permission. Consider routing future
