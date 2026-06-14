@@ -40,6 +40,17 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   `command -v cortex` (no-op if unresolvable). Opt out with `CORTEX_AUTO_INDEX=0`.
   Degrade-safe: any failure still allows the grep.
 
+### Fixed
+
+- **Stale "index a repo" CLI hint** — corrected the non-existent
+  `cortex index repository --path=<path>` form (which the CLI rejects as an
+  unknown subcommand) to the supported `cortex index . <path>` in the
+  `RepoNotIndexedError` hint ([`repo-context.ts`](src/mcp-server/repo-context.ts)),
+  the `decision rehome` not-indexed errors
+  ([`decision-rehome.ts`](src/cli/commands/decision-rehome.ts)), and the
+  CLAUDE.md MCP-routing docs. These had been misdirecting agents/users to a
+  command that errors out.
+
 ## [0.3.16] — 2026-06-14
 
 ### Changed
