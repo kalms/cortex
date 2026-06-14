@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -209,11 +209,14 @@ describe("prefer-cortex.sh — target-repo-aware gate", () => {
   });
 });
 
-/** A fake `cortex` CLI that touches the marker and exits 0. */
+/** A fake `cortex` CLI that records its argv (one per line, to
+ *  `${markerPath}.args`), touches the marker, and exits 0 — so tests can assert
+ *  both that it spawned AND that the invocation form is one the real CLI
+ *  accepts. */
 function stubCortex(markerPath: string): string {
   const dir = mkdtempSync(join(tmpdir(), "cortex-stub-"));
   const bin = join(dir, "cortex");
-  writeFileSync(bin, `#!/bin/sh\ntouch "${markerPath}"\n`);
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${markerPath}.args"\ntouch "${markerPath}"\n`);
   chmodSync(bin, 0o755);
   return bin;
 }
@@ -242,6 +245,11 @@ describe("prefer-cortex.sh — sibling auto-index", () => {
     expect(out).toBe("");
     expect(waitForFile(marker)).toBe(true);
     expect(existsSync(join(sibling, ".cortex", ".auto-index-attempted"))).toBe(true);
+    // The invocation MUST be a form the real `cortex` CLI supports: `index . <path>`
+    // (the `.` makes "index" the command and <path> the positional target).
+    // Guards against re-introducing the non-existent `index repository --path=` form.
+    const recordedArgs = readFileSync(`${marker}.args`, "utf-8").trim().split("\n");
+    expect(recordedArgs).toEqual(["index", ".", sibling]);
   });
 
   it("does NOT spawn for a denylisted target (node_modules)", () => {
