@@ -4,6 +4,32 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.13] — 2026-06-14
+
+### Fixed
+
+- **`cortex code search` now finds code, not just docs** (decision `D-qfz9`).
+  The CLI's full-text search was routed through the indexer binary's
+  `search_code`, which caps at ~10 results and orders doc-first — a common term
+  like `extract` (91 code files) returned only `.md` files. It now runs the same
+  ripgrep engine as the MCP `search_code` tool and ranks **code-first**, so code
+  hits lead.
+
+### Added
+
+- **Shared `src/graph/code-search.ts` engine** — `runCodeSearch` (ripgrep →
+  grep fallback → parse → enclosing-symbol annotation) and `rankSearchHits`
+  (orders by `KIND_WEIGHT[enclosing.kind]`; Markdown/doc hits enclose to a
+  `module` node or nothing and sink below real code). The rg helpers moved here
+  from `code-tools.ts` (re-exported there for compatibility). The MCP
+  `search_code` tool is now a thin wrapper over it — **output byte-identical**.
+- **`cortex code search` structured output + flags** — results render as ranked
+  rows (`file`, `line`, `symbol`, `text`) via `writeRows` (respects
+  `--format json|plain|table`), with `--limit`/`--offset` pagination and a
+  `# showing A–B of N` stderr status line. A misused `--kind` on `search` now
+  prints a redirect to `cortex code find` instead of being silently ignored;
+  the `search` help entry is corrected.
+
 ## [0.3.12] — 2026-06-14
 
 ### Added
@@ -401,6 +427,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.13]: https://github.com/ruevu/cortex/releases/tag/v0.3.13
 [0.3.12]: https://github.com/ruevu/cortex/releases/tag/v0.3.12
 [0.3.11]: https://github.com/ruevu/cortex/releases/tag/v0.3.11
 [0.3.10]: https://github.com/ruevu/cortex/releases/tag/v0.3.10
