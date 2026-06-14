@@ -788,6 +788,8 @@ export function registerCodeTools(
         const rows = searchGraph(ctx.store, project, searchParams);
         const queryDesc = `search_graph(${JSON.stringify(params)})`;
         if (rows.length === 0) return empty(queryDesc);
+        // Mirrors the kinds+label union inside searchGraph: a request that
+        // names "section" opted those nodes in, so nothing was suppressed.
         const optedInSections = [...(params.kinds ?? []), ...(params.label ? [params.label] : [])]
           .map((k) => k.toLowerCase())
           .includes("section");
@@ -795,7 +797,9 @@ export function registerCodeTools(
           ? 0
           : countSuppressedSections(ctx.store, project, { name_pattern: params.name_pattern, qn_pattern: qn });
         const text = renderNodeSearch(rows, {
-          query: params.name_pattern ?? qn,
+          // qn is a structural identifier, not a name to match — only a
+          // name_pattern drives name-relevance; qn-only searches rank by kind.
+          query: params.name_pattern,
           limit: clampLimit(limit),
           offset: clampOffset(offset),
           suppressedSections,
