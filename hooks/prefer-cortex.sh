@@ -113,7 +113,15 @@ case "$TOOL" in
     # extension inside the search PATTERN can still over-trigger a deny — use the
     # cortex:grep-ok escape for those.)
     # NB: BSD/macOS sed has no \b — bound the tool with whitespace/end instead.
-    STRIPPED="$(printf '%s' "$CMD" | sed -E 's/\|[[:space:]]*(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)/ /g')"
+    # First strip quoted string literals so a search word inside an argument
+    # (e.g. `git commit -m "…grep…"`, `echo "rg …"`) is not mistaken for a
+    # command-position search invocation; a real code grep has the tool word
+    # UNQUOTED at a command position, so it survives the strip. (Scope detection
+    # below still runs against the original $CMD, so a quoted non-code glob like
+    # `--glob '*.md'` is preserved.) Then delete pipe-fed search invocations.
+    STRIPPED="$(printf '%s' "$CMD" \
+      | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" \
+      | sed -E 's/\|[[:space:]]*(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)/ /g')"
     printf '%s' "$STRIPPED" \
       | grep -Eq '(^|[[:space:];&(/])(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)' \
       || exit 0
