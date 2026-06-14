@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -17,7 +17,7 @@ describe("cortex code commands", () => {
     dir = mkdtempSync(join(tmpdir(), "cortex-code-cmd-"));
     dbPath = join(dir, "graph.db");
     store = new GraphStore(dbPath);
-    ctx = { state: "indexed", cwd: dir, projectName: "test", graphDbPath: dbPath };
+    ctx = { state: "indexed", cwd: dir, gitRoot: dir, projectName: "test", graphDbPath: dbPath };
 
     // GraphStore.createNode does not set the `project` column; code-query helpers
     // filter by project = ?, so we set it directly after insert.
@@ -25,8 +25,12 @@ describe("cortex code commands", () => {
     const n2 = store.createNode({ kind: "function", name: "bar", qualified_name: "test.src.bar", file_path: "src/bar.ts" });
     const n3 = store.createNode({ kind: "route", name: "fooRoute", qualified_name: "test.src.fooRoute", file_path: "src/r.ts" });
     const n4 = store.createNode({ kind: "section", name: "foofoo", qualified_name: "test.docs.foofoo", file_path: "docs/x.md" });
+    const n5 = store.createNode({ kind: "function", name: "fooThing", qualified_name: "test.thing.fooThing", file_path: "thing.ts" });
+    writeFileSync(join(dir, "thing.ts"), "export function fooThing() {\n  return 1;\n}\n");
+    writeFileSync(join(dir, "notes.md"), "# Notes\nfoo appears in prose here\n");
     const db = new Database(dbPath);
-    db.prepare("UPDATE nodes SET project = ? WHERE id IN (?, ?, ?, ?)").run("test", n1.id, n2.id, n3.id, n4.id);
+    db.prepare("UPDATE nodes SET project = ? WHERE id IN (?, ?, ?, ?, ?)").run("test", n1.id, n2.id, n3.id, n4.id, n5.id);
+    db.prepare("UPDATE nodes SET start_line = 1, end_line = 3 WHERE id = ?").run(n5.id);
     db.close();
   });
 
@@ -94,5 +98,27 @@ describe("cortex code commands", () => {
   it("unknown sub-command throws UsageError", async () => {
     await expect(runCodeCommand({ command: "badcmd", positionals: [], flags: {} }, ctx))
       .rejects.toThrow("unknown command");
+  });
+
+  describe("cmdSearch", () => {
+    it("ranks code-symbol hits above doc/prose hits", async () => {
+      const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runCodeCommand({ command: "search", positionals: ["foo"], flags: { format: "plain" } }, ctx);
+      const out = outSpy.mock.calls.map((c) => String(c[0])).join("");
+      const firstLine = out.trim().split("\n")[0];
+      expect(firstLine).toContain("thing.ts"); // function-enclosed hit ranks first
+      expect(out.indexOf("thing.ts")).toBeLessThan(out.indexOf("notes.md")); // code before doc
+      vi.restoreAllMocks();
+    });
+
+    it("emits a redirect-to-find hint on stderr when --kind is passed", async () => {
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await runCodeCommand({ command: "search", positionals: ["foo"], flags: { kind: "function", format: "plain" } }, ctx);
+      const err = errSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(err).toContain("cortex code find");
+      vi.restoreAllMocks();
+    });
   });
 });
