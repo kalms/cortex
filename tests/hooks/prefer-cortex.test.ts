@@ -152,3 +152,51 @@ describe("prefer-cortex.sh — index gate", () => {
     expect(out).toBe("");
   });
 });
+
+describe("prefer-cortex.sh — target-repo-aware gate", () => {
+  it("ALLOWS a code Grep whose path targets an UNINDEXED sibling (cwd is indexed)", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({
+        tool_name: "Grep",
+        cwd,
+        tool_input: { pattern: "foo", type: "ts", path: sibling },
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    expect(out).toBe("");
+  });
+
+  it("DENIES a code Grep whose path targets a SECOND indexed repo", () => {
+    const cwd = unindexedRepo();
+    const target = indexedRepo();
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({
+        tool_name: "Grep",
+        cwd,
+        tool_input: { pattern: "foo", type: "ts", path: target },
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    const parsed = out === "" ? null : JSON.parse(out);
+    expect(parsed?.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+
+  it("ALLOWS a Bash code grep targeting an unindexed sibling by path arg", () => {
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({
+        tool_name: "Bash",
+        cwd,
+        tool_input: { command: `rg foo ${sibling}/src` },
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
+    }).trim();
+    expect(out).toBe("");
+  });
+});
