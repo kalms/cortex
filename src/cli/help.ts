@@ -8,11 +8,14 @@ type CommandDoc = {
 const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
   code: {
     search: {
-      usage: "cortex code search <pattern>",
-      description: "Full-text search across indexed source.",
+      usage: "cortex code search <pattern> [--limit=N] [--offset=N]",
+      description:
+        "Full-text search across ALL indexed files (including docs/Markdown), " +
+        "each hit annotated with its enclosing symbol and ranked code-first. " +
+        "For symbols by name — and for --kind filtering — use 'cortex code find'.",
       examples: [
         "cortex code search ribbon",
-        "cortex code search 'useFetch' --kind=function",
+        "cortex code search 'parseBody'",
       ],
       seeAlso: ["cortex code find", "cortex code show"],
     },
