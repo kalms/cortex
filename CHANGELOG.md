@@ -4,6 +4,16 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.15] — 2026-06-14
+
+### Changed
+
+- **Docs sync** — refreshed [`HANDOFF.md`](HANDOFF.md) and
+  [`docs/specs/progress.md`](docs/specs/progress.md) to record the 0.3.11–0.3.14
+  search-noise line (field-report P2 + follow-ons), and corrected the stale
+  "search ranking (P2) — future" references now that P2 has shipped. No code
+  change.
+
 ## [0.3.14] — 2026-06-14
 
 ### Fixed
@@ -439,6 +449,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.15]: https://github.com/ruevu/cortex/releases/tag/v0.3.15
 [0.3.14]: https://github.com/ruevu/cortex/releases/tag/v0.3.14
 [0.3.13]: https://github.com/ruevu/cortex/releases/tag/v0.3.13
 [0.3.12]: https://github.com/ruevu/cortex/releases/tag/v0.3.12
