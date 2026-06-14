@@ -9,6 +9,7 @@ import { resolveInput, type Disambiguation } from "../resolve-input.js";
 import { writeRows, chooseFormat } from "../format.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
+import { runCodeSearch, rankSearchHits } from "../../graph/code-search.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -75,11 +76,49 @@ function runIndexer(tool: string, payload: object, ctx: ProjectContext & { graph
   return renderIndexerResult(unwrapIndexerResult(raw));
 }
 
-function cmdSearch(cmd: CodeCommand, ctx: ProjectContext): void {
+async function cmdSearch(cmd: CodeCommand, ctx: ProjectContext): Promise<void> {
   requireIndexed(ctx);
   const pattern = cmd.positionals[0];
   if (!pattern) throw new UsageError("missing <pattern>", "Usage: cortex code search <pattern>");
-  process.stdout.write(runIndexer("search_code", { pattern, project: ctx.projectName }, ctx) + "\n");
+
+  // `search` is full-text; kind filtering belongs to symbol search (`find`).
+  if (cmd.flags.kind !== undefined || cmd.flags.kinds !== undefined) {
+    process.stderr.write(
+      "note: --kind has no effect on 'search' (full-text). " +
+        `Use: cortex code find ${pattern} --kind=…  (symbol search)\n`,
+    );
+  }
+
+  const store = new GraphStore(ctx.graphDbPath);
+  const outcome = await runCodeSearch({
+    pattern,
+    repoRoot: ctx.gitRoot ?? ctx.cwd,
+    store,
+    project: ctx.projectName,
+    maxHits: 500,
+  });
+  if (outcome.kind === "invalid_pattern") {
+    throw new DomainError(`pattern rejected: ${outcome.detail}`, "Escape regex metacharacters (e.g. \\( \\[ \\. \\*) to match them literally.");
+  }
+  if (outcome.kind === "error") throw new DomainError(outcome.detail);
+
+  const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
+  const ranked = rankSearchHits(outcome.kind === "hits" ? outcome.hits : []);
+  const limit = clampLimit(cmd.flags.limit !== undefined ? Number(cmd.flags.limit) : undefined);
+  const offset = clampOffset(cmd.flags.offset !== undefined ? Number(cmd.flags.offset) : undefined);
+  const page = ranked.slice(offset, offset + limit);
+  const rows = page.map((h) => ({
+    file: h.file,
+    line: h.line,
+    symbol: h.enclosing ? `${h.enclosing.kind} ${h.enclosing.qualified_name}` : "",
+    text: h.text.trim(),
+  }));
+  writeRows(rows, fmt, ranked.length === 0
+    ? `no matches for '${pattern}' in ${ctx.projectName}`
+    : `offset ${offset} is past the ${ranked.length} match(es)`);
+  if (page.length > 0) {
+    process.stderr.write(`# showing ${offset + 1}–${offset + page.length} of ${ranked.length}\n`);
+  }
 }
 
 function cmdFind(cmd: CodeCommand, ctx: ProjectContext): void {
