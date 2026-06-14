@@ -48,4 +48,9 @@ describe("renderNodeSearch", () => {
     const text = renderNodeSearch(rows, { query: "serve", limit: 10, offset: 200, suppressedSections: 0 });
     expect(text.split("\n")[0]).toBe("showing 0 of 3 · offset 200");
   });
+
+  it("renders a header-only opt-in hint when only sections matched (no code rows)", () => {
+    const text = renderNodeSearch([], { query: "Usage", limit: 30, offset: 0, suppressedSections: 2 });
+    expect(text).toBe('showing 0 of 0 · offset 0 · 2 section nodes suppressed (pass kinds=["section"])');
+  });
 });
