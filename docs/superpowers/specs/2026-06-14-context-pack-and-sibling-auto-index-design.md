@@ -230,12 +230,18 @@ Stub `cortex` via `CORTEX_BIN` pointing at a script that writes a marker file:
 
 ## Rollout
 
-| Branch | Item | Merge |
-|---|---|---|
-| `feature/api/context-pack` | P1 | gated merge + patch version bump + CHANGELOG |
-| `feature/config/sibling-auto-index` | P3 | gated merge + patch version bump + CHANGELOG |
+**Single release.** P1 and P3 ship together in **one** version bump + **one**
+CHANGELOG entry, per the user's instruction. The implementation may be split
+(the two touch disjoint files — `src/mcp-server/**` for P1, `hooks/` +
+`tests/hooks/` for P3 — so they can be built in parallel without conflict), but
+they integrate before a single `chore(release)` commit.
 
-Order is independent; either may land first. Each follows the full
-Gate 0 → Gate 1 → Gate 2 cycle per `.claude/rules/workflow.md` (P3's Gate 0 is
-the detachment-survival check above; P1's is unit + contract tests since it has
-no UI surface).
+Mechanics: build both on one feature branch (`feature/agentic-experience/p1-p3`)
+with atomic commits per item, or build on two topic branches and merge both
+into main `--no-ff` followed by a single combined bump + CHANGELOG. Either way:
+**one release covering both items.**
+
+Each item still passes its own Gate 0 → Gate 1 before integration: P3's Gate 0
+is the detachment-survival check above; P1's is unit + contract tests (no UI
+surface). Two decisions are still captured (one per item) regardless of the
+single-release packaging.
