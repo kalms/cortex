@@ -19,6 +19,7 @@ current index state; act on it.
 |---|---|---|
 | Find a function/class/route by name | `search_graph(name_pattern="…")` | `Grep`, `Glob` |
 | Read source for a known symbol | `get_code_snippet(qualified_name="…")` | `Read`, `cat`, `head` |
+| Get full context for a symbol (code + callers + callees + decisions + commits) | `context_pack(qualified_name="…")` | 3–4 separate calls |
 | Find who calls X / what X calls | `trace_path(function_name, mode="callers"\|"calls")` | `Grep` for call sites |
 | Understand project shape | `get_architecture(aspects=…)` | manual `ls`/`find` |
 | Text search across code with structural annotation | `search_code(pattern="…")` | `Grep` |

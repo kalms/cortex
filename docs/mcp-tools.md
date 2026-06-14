@@ -88,7 +88,7 @@ All tools return MCP content blocks via three helpers
   `internal_error`, `project_not_found`).
 
 Read tools marked **freshness-aware** (`search_graph`, `get_code_snippet`,
-`trace_path`, `query_graph`, `search_code`, `get_architecture`,
+`trace_path`, `context_pack`, `query_graph`, `search_code`, `get_architecture`,
 `why_was_this_built`) append a freshness verdict to their result when the graph
 no longer matches HEAD + working tree:
 
@@ -160,6 +160,23 @@ Trace call chains from a function.
   `ambiguous_input` if the name is not unique.
 - **Why:** answers "who calls X / what does X call" without grepping call
   sites — the core impact-analysis primitive.
+
+### `context_pack`
+Full context bundle for a symbol in **one** call — the preferred first call when
+orienting on an unfamiliar symbol.
+- **Params:** `repo_path`, `qualified_name` (qn, file path, dotted suffix, or
+  bare name).
+- **Returns:** five labeled text sections — `## SNIPPET` (source), `## CALLERS`
+  (direct, cap 10), `## CALLEES` (direct, cap 10), `## GOVERNING DECISIONS`
+  (cap 5), `## RECENT COMMITS` (last 5 touching the file). Capped lists show
+  `(showing N of M)` when truncated. `ambiguous_input` with candidates when a
+  bare name matches more than one symbol; `empty` when it matches none.
+- **Behavior:** resolves the name **once**, then composes `get_code_snippet` +
+  `trace_path` (callers & callees, depth 1) + `why_was_this_built` + `git log`.
+  Each section is best-effort: a failing source degrades to `- (none)` /
+  `(unavailable)` rather than sinking the pack. Freshness-aware.
+- **Why:** collapses the 4-roundtrip symbol-exploration loop into one turn. Use
+  `trace_path` directly when you need a deeper call chain than depth 1.
 
 ### `search_code`
 Graph-enriched text search.
@@ -409,7 +426,7 @@ Fetch a PR with resolved decision refs and linked PRs.
 
 | Tool | Mode | Freshness-aware |
 |---|---|---|
-| `search_graph`, `get_code_snippet`, `trace_path`, `search_code`, `query_graph`, `get_architecture`, `why_was_this_built` | default | ✅ |
+| `search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `search_code`, `query_graph`, `get_architecture`, `why_was_this_built` | default | ✅ |
 | `get_graph_schema`, `check_contracts`, `detect_changes`, `ingest_traces` | default | — |
 | `index_repository`, `index_status` | allowUnindexed | — |
 | `list_projects`, `delete_project` | crossRepo | — |
