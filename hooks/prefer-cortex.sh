@@ -117,7 +117,12 @@ maybe_bg_index() {
   [ -n "$bin" ] || return 0
 
   local sentinel="$root/.cortex/.auto-index-attempted"
-  if [ -f "$sentinel" ] && [ -z "$(find "$sentinel" -mmin +60 2>/dev/null)" ]; then
+  # Skip only when the sentinel is provably FRESH: `-mmin -60` prints the file
+  # when it's younger than 60 min. Positive-match (vs. `-z` of `-mmin +60`) so a
+  # broken/absent `find` fails toward re-attempting, never toward permanent
+  # suppression. (Retry is bounded by the CLI's withIndexLock and self-ends once
+  # the first index succeeds — the repo then reads as indexed.)
+  if [ -f "$sentinel" ] && find "$sentinel" -mmin -60 2>/dev/null | grep -q .; then
     return 0   # fresh attempt (<60 min) — skip
   fi
   mkdir -p "$root/.cortex" 2>/dev/null || return 0
