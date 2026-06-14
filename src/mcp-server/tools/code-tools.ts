@@ -2,9 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync, accessSync, constants as fsConstants } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import {
   searchGraph,
@@ -28,11 +27,9 @@ import { computeContractReport } from "./contract-tools.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import {
-  buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec,
+  buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec, runCodeSearch,
 } from "../../graph/code-search.js";
 import type { SearchExecError, SearchExecOutcome } from "../../graph/code-search.js";
-export { buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec };
-export type { SearchExecError, SearchExecOutcome };
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
 import { invalidateFreshness } from "../freshness.js";
@@ -40,6 +37,11 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { ensureIndexer } from "../../indexer/binary.js";
+
+// Re-exported for the contract tests, which assert on the shared search
+// helpers' arg-building / error-classification behavior.
+export { buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec };
+export type { SearchExecError, SearchExecOutcome };
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -226,8 +228,6 @@ async function readSnippet(
 
 const execFileAsync = promisify(execFile);
 import { join, dirname } from "node:path";
-
-const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 // 5B: callIndexer now handles binary in-stdout errors and returns structured responses
 type IndexerCallResult = {
@@ -901,95 +901,33 @@ export function registerCodeTools(
       searchCodeSchema,
       async (ctx, args) => {
         const { pattern } = args;
-        // Anchor the shell-out to the addressed repo so `.` resolves to
-        // ctx.repoPath instead of process.cwd(). This is the Field Report
-        // rec #5 fix.
-        const execOpts = {
-          timeout: 10_000,
-          maxBuffer: RG_MAX_BUFFER,
-          cwd: ctx.repoPath,
-        };
-        let grepOutput = "";
-        try {
-          // Prefer the bundled ripgrep (absolute path) so a stripped server
-          // PATH can't hide it; fall back to grep only if rg is truly absent.
-          const { stdout } = await execFileAsync(resolveRgBinary(), buildRgArgs(pattern), execOpts);
-          grepOutput = stdout;
-        } catch (rgErr) {
-          // classifySearchExec turns rg's grab-bag of exit codes/signals into a
-          // small set of outcomes (see its docstring). This is the fix for the
-          // witnessed flaky `internal_error`: a bad regex or a timed-out search
-          // now degrades gracefully instead of surfacing as a crash.
-          const outcome = classifySearchExec(rgErr as SearchExecError);
-          if (outcome.kind === "output") {
-            grepOutput = outcome.stdout;
-          } else if (outcome.kind === "empty") {
-            return empty(`search_code(${pattern})`);
-          } else if (outcome.kind === "invalid_pattern") {
-            return errorResponse(
-              "invalid_pattern",
-              `Pattern rejected by ripgrep: ${outcome.detail}\n` +
-                "search_code uses ripgrep regex syntax — escape regex metacharacters " +
-                "(e.g. \\( \\[ \\. \\*) to match them literally.",
-            );
-          } else if (outcome.kind === "missing") {
-            // rg absent → fall back to grep, classified the same way.
-            try {
-              const { stdout } = await execFileAsync("grep", buildGrepFallbackArgs(pattern), execOpts);
-              grepOutput = stdout;
-            } catch (grepErr) {
-              const o2 = classifySearchExec(grepErr as SearchExecError);
-              if (o2.kind === "output") grepOutput = o2.stdout;
-              else if (o2.kind === "missing") {
-                return errorResponse("internal_error", "Neither rg nor grep available on PATH.");
-              } else if (o2.kind === "invalid_pattern") {
-                return errorResponse(
-                  "invalid_pattern",
-                  `Pattern rejected by grep: ${o2.detail}\n` +
-                    "Escape regex metacharacters (e.g. \\( \\[ \\. \\*) to match them literally.",
-                );
-              } else if (o2.kind === "empty") {
-                return empty(`search_code(${pattern})`);
-              } else {
-                return errorResponse("internal_error", o2.detail);
-              }
-            }
-          } else {
-            return errorResponse("internal_error", outcome.detail);
-          }
-        }
-
-        if (!grepOutput.trim()) return empty(`search_code(${pattern})`);
-
-        // Graph enrichment uses the addressed repo's graph DB (ctx.store)
-        // and its in-graph project name. Without an indexed project, we
-        // surface the raw grep output rather than failing outright — the
-        // caller still gets file:line hits.
         const project = projectFromCtx(ctx);
-        if (!project) {
-          return ok(grepOutput);
-        }
-
-        const lines = grepOutput.trim().split("\n").slice(0, 50);
-        const enriched = lines.map((line) => {
-          const match = line.match(/^\.\/(.+?):(\d+):/);
-          if (!match) return line;
-          const [, filePath, lineNum] = match;
-          const lineNumber = parseInt(lineNum, 10);
-          const enclosing = ctx.store.queryRaw<IndexerNode>(
-            `SELECT * FROM nodes
-             WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
-               AND kind NOT IN ('decision', 'pr', 'todo')
-             ORDER BY (end_line - start_line) ASC LIMIT 1`,
-            [project, filePath, lineNumber, lineNumber]
-          );
-          if (enclosing.length > 0) {
-            return `${line}  // in ${enclosing[0].kind} ${denormalize(enclosing[0].qualified_name, enclosing[0].file_path)}`;
-          }
-          return line;
+        const outcome = await runCodeSearch({
+          pattern,
+          repoRoot: ctx.repoPath,
+          store: ctx.store,
+          project: project ?? undefined,
+          maxHits: 50,
         });
-
-        return ok(enriched.join("\n"));
+        if (outcome.kind === "empty") return empty(`search_code(${pattern})`);
+        if (outcome.kind === "invalid_pattern") {
+          return errorResponse(
+            "invalid_pattern",
+            `Pattern rejected by ripgrep: ${outcome.detail}\n` +
+              "search_code uses ripgrep regex syntax — escape regex metacharacters " +
+              "(e.g. \\( \\[ \\. \\*) to match them literally.",
+          );
+        }
+        if (outcome.kind === "error") return errorResponse("internal_error", outcome.detail);
+        const text = outcome.hits
+          .map((h) => {
+            const base = `./${h.file}:${h.line}:${h.text}`;
+            return h.enclosing
+              ? `${base}  // in ${h.enclosing.kind} ${denormalize(h.enclosing.qualified_name, h.enclosing.file_path)}`
+              : base;
+          })
+          .join("\n");
+        return ok(text);
       },
       { resolver, freshnessAware: true },
     ),
