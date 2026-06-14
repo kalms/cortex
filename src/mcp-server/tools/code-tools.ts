@@ -15,6 +15,7 @@ import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
 import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
+import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
@@ -876,4 +877,8 @@ export function registerCodeTools(
       { resolver, freshnessAware: true },
     ),
   );
+
+  // context_pack — composite read (P1). Registered here so both server.ts and
+  // the contract harness pick it up via the single registerCodeTools call.
+  registerContextPackTool(server, resolver);
 }
