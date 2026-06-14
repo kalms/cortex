@@ -4,6 +4,15 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.16] — 2026-06-14
+
+### Changed
+
+- **Docs** — rewrote [`HANDOFF.md`](HANDOFF.md) NEXT-STEP point 7 (the
+  field-report P1–P8 agentic-experience plan) as a status table: P2 shipped;
+  P3/P1/P6/P4/P5/P7/P8 outlined with what-it-is + effort, in suggested sequence,
+  plus the reaffirmed ⏩ operational items. No code change.
+
 ## [0.3.15] — 2026-06-14
 
 ### Changed
@@ -449,6 +458,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.16]: https://github.com/ruevu/cortex/releases/tag/v0.3.16
 [0.3.15]: https://github.com/ruevu/cortex/releases/tag/v0.3.15
 [0.3.14]: https://github.com/ruevu/cortex/releases/tag/v0.3.14
 [0.3.13]: https://github.com/ruevu/cortex/releases/tag/v0.3.13
