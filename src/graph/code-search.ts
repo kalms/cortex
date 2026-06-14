@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { accessSync, constants as fsConstants } from "node:fs";
+import type { GraphStore } from "./store.js";
+import type { IndexerNode } from "./code-queries.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,4 +161,79 @@ export function classifySearchExec(err: SearchExecError): SearchExecOutcome {
   return { kind: "error", detail: err.message ?? String(err) };
 }
 
-void execFileAsync;
+export type SearchHit = {
+  file: string;
+  line: number;
+  text: string;
+  enclosing?: { kind: string; qualified_name: string; file_path: string };
+};
+
+export type SearchOutcome =
+  | { kind: "hits"; hits: SearchHit[] }
+  | { kind: "empty" }
+  | { kind: "invalid_pattern"; detail: string }
+  | { kind: "error"; detail: string };
+
+const HIT_LINE_RE = /^\.\/(.+?):(\d+):(.*)$/;
+
+export async function runCodeSearch(opts: {
+  pattern: string;
+  repoRoot: string;
+  store?: GraphStore;
+  project?: string;
+  maxHits?: number;
+}): Promise<SearchOutcome> {
+  const maxHits = opts.maxHits ?? 50;
+  const execOpts = { timeout: 10_000, maxBuffer: RG_MAX_BUFFER, cwd: opts.repoRoot };
+
+  let stdout = "";
+  try {
+    const r = await execFileAsync(resolveRgBinary(), buildRgArgs(opts.pattern), execOpts);
+    stdout = r.stdout;
+  } catch (rgErr) {
+    const outcome = classifySearchExec(rgErr as SearchExecError);
+    if (outcome.kind === "output") stdout = outcome.stdout;
+    else if (outcome.kind === "empty") return { kind: "empty" };
+    else if (outcome.kind === "invalid_pattern") return { kind: "invalid_pattern", detail: outcome.detail };
+    else if (outcome.kind === "missing") {
+      try {
+        const r2 = await execFileAsync("grep", buildGrepFallbackArgs(opts.pattern), execOpts);
+        stdout = r2.stdout;
+      } catch (grepErr) {
+        const o2 = classifySearchExec(grepErr as SearchExecError);
+        if (o2.kind === "output") stdout = o2.stdout;
+        else if (o2.kind === "empty") return { kind: "empty" };
+        else if (o2.kind === "invalid_pattern") return { kind: "invalid_pattern", detail: o2.detail };
+        else if (o2.kind === "missing") return { kind: "error", detail: "Neither rg nor grep available on PATH." };
+        else return { kind: "error", detail: o2.detail };
+      }
+    } else return { kind: "error", detail: outcome.detail };
+  }
+
+  if (!stdout.trim()) return { kind: "empty" };
+
+  const hits: SearchHit[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(HIT_LINE_RE);
+    if (!m) continue;
+    hits.push({ file: m[1], line: parseInt(m[2], 10), text: m[3] });
+    if (hits.length >= maxHits) break;
+  }
+  if (hits.length === 0) return { kind: "empty" };
+
+  if (opts.store && opts.project) {
+    for (const hit of hits) {
+      const enclosing = opts.store.queryRaw<IndexerNode>(
+        `SELECT * FROM nodes
+         WHERE project = ? AND file_path = ? AND start_line <= ? AND end_line >= ?
+           AND kind NOT IN ('decision', 'pr', 'todo')
+         ORDER BY (end_line - start_line) ASC LIMIT 1`,
+        [opts.project, hit.file, hit.line, hit.line],
+      );
+      if (enclosing.length > 0) {
+        hit.enclosing = { kind: enclosing[0].kind, qualified_name: enclosing[0].qualified_name, file_path: enclosing[0].file_path };
+      }
+    }
+  }
+  return { kind: "hits", hits };
+}
