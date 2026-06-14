@@ -787,14 +787,13 @@ export function registerCodeTools(
         const searchParams = { ...params, qn_pattern: qn };
         const rows = searchGraph(ctx.store, project, searchParams);
         const queryDesc = `search_graph(${JSON.stringify(params)})`;
-        // Mirrors the kinds+label union inside searchGraph: a request that
-        // names "section" opted those nodes in, so nothing was suppressed.
-        const optedInSections = [...(params.kinds ?? []), ...(params.label ? [params.label] : [])]
-          .map((k) => k.toLowerCase())
-          .includes("section");
-        const suppressedSections = optedInSections
-          ? 0
-          : countSuppressedSections(ctx.store, project, { name_pattern: params.name_pattern, qn_pattern: qn });
+        // Sections are hidden only by the DEFAULT filter. Any explicit kinds
+        // or label means the caller controls kind selection — they didn't
+        // suppress sections by accepting a default, so report no suppression.
+        const usesDefaultFilter = (params.kinds ?? []).length === 0 && !params.label;
+        const suppressedSections = usesDefaultFilter
+          ? countSuppressedSections(ctx.store, project, { name_pattern: params.name_pattern, qn_pattern: qn })
+          : 0;
         // Genuinely empty only when no code rows AND no sections were hidden.
         // If sections matched, render the header-only opt-in hint instead of a
         // bare "no results" (which would hide retrievable matches).
