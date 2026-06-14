@@ -38,25 +38,32 @@ export interface IndexerProject {
 }
 
 const CODE_KIND_FILTER = "kind NOT IN ('decision', 'pr', 'todo')";
+const MAX_SEARCH_ROWS = 1000;
 
 export function searchGraph(
   store: GraphStore,
   project: string,
-  params: { name_pattern?: string; label?: string; qn_pattern?: string }
+  params: { name_pattern?: string; label?: string; qn_pattern?: string; kinds?: string[] }
 ): IndexerNode[] {
-  const conditions: string[] = ["project = ?", CODE_KIND_FILTER];
+  const conditions: string[] = ["project = ?"];
   const values: unknown[] = [project];
+
+  // Effective kind filter: an explicit kinds list (incl. the legacy `label`
+  // alias) replaces the default; otherwise default to code kinds with
+  // sections excluded.
+  const kinds = [...(params.kinds ?? []), ...(params.label ? [params.label] : [])]
+    .map((k) => k.toLowerCase());
+  if (kinds.length > 0) {
+    conditions.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
+    values.push(...kinds);
+  } else {
+    conditions.push(CODE_KIND_FILTER);
+    conditions.push("kind != 'section'");
+  }
 
   if (params.name_pattern) {
     conditions.push("name LIKE ?");
     values.push(`%${params.name_pattern}%`);
-  }
-  if (params.label) {
-    // The tool's input parameter is named `label` for backwards compatibility,
-    // but the storage column is `kind`. Lowercase the value to match the
-    // post-Phase-4 lowercase-kind convention.
-    conditions.push("kind = ?");
-    values.push(params.label.toLowerCase());
   }
   if (params.qn_pattern) {
     conditions.push("qualified_name LIKE ?");
@@ -64,9 +71,34 @@ export function searchGraph(
   }
 
   return store.queryRaw<IndexerNode>(
-    `SELECT * FROM nodes WHERE ${conditions.join(" AND ")} LIMIT 100`,
+    `SELECT * FROM nodes WHERE ${conditions.join(" AND ")} LIMIT ${MAX_SEARCH_ROWS}`,
     values
   );
+}
+
+/** Count section nodes matching the name/qn pattern — i.e. how many results
+ *  the default (no-kinds) filter suppressed. Callers pass 0 to the renderer
+ *  when sections were opted in. */
+export function countSuppressedSections(
+  store: GraphStore,
+  project: string,
+  params: { name_pattern?: string; qn_pattern?: string }
+): number {
+  const conditions: string[] = ["project = ?", "kind = 'section'"];
+  const values: unknown[] = [project];
+  if (params.name_pattern) {
+    conditions.push("name LIKE ?");
+    values.push(`%${params.name_pattern}%`);
+  }
+  if (params.qn_pattern) {
+    conditions.push("qualified_name LIKE ?");
+    values.push(params.qn_pattern);
+  }
+  const row = store.queryRaw<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM nodes WHERE ${conditions.join(" AND ")}`,
+    values
+  )[0];
+  return row?.n ?? 0;
 }
 
 export function getGraphSchema(
