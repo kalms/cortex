@@ -17,13 +17,18 @@ describe("context_pack", () => {
     expect(text).toContain("## RECENT COMMITS");
   });
 
-  it("returns ambiguous_input once for a multi-match bare name", async () => {
-    const res = await callTool(h, "context_pack", { qualified_name: "handler" });
-    if (res.isError) {
-      expect(res.content[0].text).toContain("Multiple matches");
-    } else {
-      expect(res.content[0].text).toContain("## SNIPPET");
-    }
+  it("returns ambiguous_input with a candidate list for a multi-match bare name", async () => {
+    // `route` resolves to multiple symbols in the fixture: the bare-name LIKE
+    // ('%route%') matches the `router` module/file/class nodes plus the
+    // `Router.route` method — so resolveInput returns `multi` and we exercise
+    // the candidate-list ("Multiple matches") formatting path unconditionally.
+    const res = await callTool(h, "context_pack", { qualified_name: "route" });
+    expect(res.isError).toBeTruthy();
+    const text = res.content[0].text;
+    expect(text).toContain("Multiple matches");
+    // The candidate list is numbered "1.", "2.", … — assert ≥2 candidates.
+    const candidateLines = text.split("\n").filter((l) => /^\s+\d+\.\s/.test(l));
+    expect(candidateLines.length).toBeGreaterThanOrEqual(2);
   });
 
   it("returns empty for an unresolvable name", async () => {
