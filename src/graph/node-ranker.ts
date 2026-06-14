@@ -28,6 +28,7 @@ export function nameMatchQuality(name: string, query?: string): number {
   const q = query.toLowerCase();
   if (n === q) return 1.0;
   if (n.startsWith(q)) return 0.7;
+  // contains (LIKE already guaranteed a hit) and no-relationship both → 0.4 by design
   return 0.4;
 }
 
@@ -38,10 +39,10 @@ export function scoreNode(node: IndexerNode, query?: string): number {
 
 /** Returns a new array sorted by relevance; never mutates the input. */
 export function rankNodes(nodes: IndexerNode[], query?: string): IndexerNode[] {
-  return [...nodes].sort((a, b) => {
-    const sb = scoreNode(b, query) - scoreNode(a, query);
-    if (sb !== 0) return sb;
-    if (a.name.length !== b.name.length) return a.name.length - b.name.length;
-    return a.qualified_name < b.qualified_name ? -1 : a.qualified_name > b.qualified_name ? 1 : 0;
-  });
+  return [...nodes].sort(
+    (a, b) =>
+      scoreNode(b, query) - scoreNode(a, query) ||
+      a.name.length - b.name.length ||
+      a.qualified_name.localeCompare(b.qualified_name),
+  );
 }
