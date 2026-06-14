@@ -117,15 +117,29 @@ Find code entities by name, label, or qualified-name pattern.
   `showing A–B of N · offset M`, then matching nodes as
   `kind qualified-name (file:start-end)`.
 - **Sections excluded by default:** doc/plan/markdown `section` nodes (the
-  largest, noisiest kind) are omitted from name/qn results; the header reports
-  `· K section nodes suppressed` when any were. Pass `kinds: ["section"]` (or
-  a list containing it) to include them. An explicit `kinds` list *replaces*
-  the default filter — e.g. `kinds: ["route","function"]` narrows to those.
+  largest, noisiest kind) are omitted from name/qn results. **Only when no
+  explicit `kinds`/`label` is given** (i.e. the default filter is in effect),
+  the header reports `· K section nodes suppressed` and how to opt in. Pass
+  `kinds: ["section"]` (or a list containing it) to include them. An explicit
+  `kinds` list *replaces* the default filter — e.g. `kinds: ["route","function"]`
+  narrows to those (and emits no suppression note, since you chose the scope).
   The legacy `label` param is a single-kind alias folded into `kinds`.
 - **Pagination:** `limit`/`offset` page the ranked results; `total_matches`
   is the `N` in the header, so pages = `ceil(N / limit)`. Ranking is
   deterministic, so a given query yields a stable order across pages. An
   `offset` past the end returns `showing 0 of N · offset M`.
+- **Search syntax** (each provided param is AND-ed):
+  - `name_pattern` — **case-insensitive substring** (SQL `LIKE '%pattern%'`).
+    `%` (any run) and `_` (one char) inside the pattern act as wildcards.
+    Example: `name_pattern="serve"` matches `serveViewer`, `httpServe`,
+    `ServerMsg`.
+  - `qn_pattern` — `LIKE` against the (normalized) qualified name, **not**
+    auto-wrapped: a bare value matches the *whole* qn, so add `%` yourself for
+    a partial match (`qn_pattern="%::handle%"`). Both `::` and dotted forms are
+    accepted (normalized before matching).
+  - `kinds` / `label` — **exact** kind match (case-insensitive); `kinds` is an
+    allow-list of node kinds (`function`, `class`, `method`, `interface`,
+    `type`, `route`, `module`, `file`, `folder`, `variable`, `section`, …).
 - **Why:** the entry point for "where is X" — replaces `Grep`/`Glob` for
   symbol lookup with structural, ranked, code-first results.
 

@@ -4,6 +4,25 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.12] — 2026-06-14
+
+### Fixed
+
+- **`search_graph` suppression note no longer fires under an explicit filter**
+  ([`src/mcp-server/tools/code-tools.ts`](src/mcp-server/tools/code-tools.ts)).
+  The `K section nodes suppressed` hint now appears **only when the default
+  filter is in effect** (no `kinds`/`label`). Previously a scoped query like
+  `kinds: ["route"]` still reported suppressed sections — misleading, since the
+  caller chose the scope rather than accepting a section-hiding default.
+
+### Changed
+
+- **Documented `search_graph` search syntax**
+  ([`docs/mcp-tools.md`](docs/mcp-tools.md)): `name_pattern` is a
+  case-insensitive substring (`LIKE '%…%'`, `%`/`_` wildcards); `qn_pattern` is
+  a non-auto-wrapped `LIKE` against the normalized qualified name (add `%`
+  yourself); `kinds`/`label` are exact kind matches; params are AND-ed.
+
 ## [0.3.11] — 2026-06-14
 
 ### Added
@@ -368,6 +387,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.12]: https://github.com/ruevu/cortex/releases/tag/v0.3.12
 [0.3.11]: https://github.com/ruevu/cortex/releases/tag/v0.3.11
 [0.3.10]: https://github.com/ruevu/cortex/releases/tag/v0.3.10
 [0.3.9]: https://github.com/ruevu/cortex/releases/tag/v0.3.9
