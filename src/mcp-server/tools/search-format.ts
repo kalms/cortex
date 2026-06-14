@@ -7,18 +7,9 @@ import type { IndexerNode } from "../../graph/code-queries.js";
 import { rankNodes } from "../../graph/node-ranker.js";
 import { denormalize } from "../qualified-name.js";
 
-const DEFAULT_LIMIT = 30;
-const MAX_LIMIT = 100;
-
-export function clampLimit(limit?: number): number {
-  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
-  return Math.min(MAX_LIMIT, Math.max(1, Math.floor(limit)));
-}
-
-export function clampOffset(offset?: number): number {
-  if (offset === undefined || !Number.isFinite(offset)) return 0;
-  return Math.max(0, Math.floor(offset));
-}
+// Re-exported for existing importers; the canonical home is the graph layer so
+// the CLI can use them without depending on mcp-server.
+export { clampLimit, clampOffset } from "../../graph/search-params.js";
 
 function formatLine(n: IndexerNode): string {
   return `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`;
