@@ -35,4 +35,12 @@ describe("context_pack", () => {
     const res = await callTool(h, "context_pack", { repo_path: undefined, qualified_name: "x" });
     expect(res.isError).toBeTruthy();
   });
+
+  it("always renders a RECENT COMMITS section and never errors on a resolvable symbol", async () => {
+    const res = await callTool(h, "context_pack", { qualified_name: "handleRequest" });
+    expect(res.isError).toBeFalsy();
+    const text = res.content[0].text;
+    expect(text).toMatch(/## RECENT COMMITS( \(|\n)/);
+    expect(text).toContain("## SNIPPET");
+  });
 });
