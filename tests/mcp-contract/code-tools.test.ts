@@ -43,8 +43,9 @@ describe("code-tools contract", () => {
 
     it("round-trip: search_graph output feeds get_code_snippet", async () => {
       const search = await callTool(h, "search_graph", { name_pattern: "handleRequest" });
-      const firstLine = search.content[0].text.split("\n")[0];
-      const qnMatch = firstLine.match(/(\S+\.ts::\S+)/);
+      // search_graph output now leads with a "showing …" header line; the qn
+      // appears on the ranked result rows below it, so match the full text.
+      const qnMatch = search.content[0].text.match(/(\S+\.ts::\S+)/);
       expect(qnMatch).not.toBeNull();
       const res = await callTool(h, "get_code_snippet", { qualified_name: qnMatch![1] });
       expect(res.content[0].text).toContain("export function handleRequest");

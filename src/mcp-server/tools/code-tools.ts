@@ -8,10 +8,12 @@ import { existsSync, mkdirSync, accessSync, constants as fsConstants } from "nod
 import Database from "better-sqlite3";
 import {
   searchGraph,
+  countSuppressedSections,
   tracePath,
   getGraphSchema,
   IndexerNode,
 } from "../../graph/code-queries.js";
+import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
@@ -56,6 +58,10 @@ const searchGraphShape = {
   name_pattern: z.string().optional(),
   label: z.string().optional(),
   qn_pattern: z.string().optional(),
+  kinds: z.array(z.string()).optional()
+    .describe("Restrict to these node kinds (e.g. [\"function\",\"route\"]). Pass [\"section\"] to include doc/plan headings, which are excluded by default."),
+  limit: z.number().int().optional().describe("Page size (default 30, max 100)."),
+  offset: z.number().int().optional().describe("Result offset for pagination (default 0)."),
 } as const;
 const searchGraphSchema = z.object(searchGraphShape);
 
@@ -440,14 +446,6 @@ async function invokeIndexer(
   }
 }
 
-// 5D: formatNodes emits colon form via denormalize
-function formatNodes(nodes: IndexerNode[]): string {
-  if (nodes.length === 0) return "";
-  return nodes
-    .map((n) => `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`)
-    .join("\n");
-}
-
 /** Run frame extraction + contract extraction against the STAGING DB, then
  *  publish the staged DB atomically to the canonical live path.
  *
@@ -784,12 +782,32 @@ export function registerCodeTools(
         if (!project) {
           return errorResponse("project_not_found", "Repository not indexed. Run index_repository first.");
         }
-        const { repo_path: _repoPath, ...params } = args;
+        const { repo_path: _repoPath, limit, offset, ...params } = args;
         const qn = params.qn_pattern ? normalize(params.qn_pattern, project) : undefined;
-        const results = searchGraph(ctx.store, project, { ...params, qn_pattern: qn });
-        const text = formatNodes(results);
+        const searchParams = { ...params, qn_pattern: qn };
+        const rows = searchGraph(ctx.store, project, searchParams);
         const queryDesc = `search_graph(${JSON.stringify(params)})`;
-        return text ? ok(text) : empty(queryDesc);
+        // Mirrors the kinds+label union inside searchGraph: a request that
+        // names "section" opted those nodes in, so nothing was suppressed.
+        const optedInSections = [...(params.kinds ?? []), ...(params.label ? [params.label] : [])]
+          .map((k) => k.toLowerCase())
+          .includes("section");
+        const suppressedSections = optedInSections
+          ? 0
+          : countSuppressedSections(ctx.store, project, { name_pattern: params.name_pattern, qn_pattern: qn });
+        // Genuinely empty only when no code rows AND no sections were hidden.
+        // If sections matched, render the header-only opt-in hint instead of a
+        // bare "no results" (which would hide retrievable matches).
+        if (rows.length === 0 && suppressedSections === 0) return empty(queryDesc);
+        const text = renderNodeSearch(rows, {
+          // qn is a structural identifier, not a name to match — only a
+          // name_pattern drives name-relevance; qn-only searches rank by kind.
+          query: params.name_pattern,
+          limit: clampLimit(limit),
+          offset: clampOffset(offset),
+          suppressedSections,
+        });
+        return ok(text);
       },
       { resolver, freshnessAware: true },
     ),
