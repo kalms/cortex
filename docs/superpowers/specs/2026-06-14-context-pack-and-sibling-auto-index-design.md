@@ -171,8 +171,12 @@ are unchanged throughout.
 Auto-index only when **all** hold:
 - `git -C <target> rev-parse --show-toplevel` resolves to a real root,
 - the root exists on disk,
-- the root is **not** under a denylist fragment: `.tmp/`, `/tmp/`,
-  `node_modules`, `vendor`, `dist`, `build`, `.cache`.
+- the root is **not** under a denylist fragment: `.tmp/` (cortex's eval-clone
+  convention), `node_modules`, `vendor`, `dist`, `build`, `.cache`.
+
+(Bare system `/tmp` was dropped from the denylist in 0.3.18: it wrongly excluded
+every Linux `os.tmpdir()` repo, and a git repo a user actively greps under
+`/tmp` is a legitimate index target. The `.tmp` eval-clone guard remains.)
 
 Otherwise → plain allow, no spawn.
 

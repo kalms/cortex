@@ -252,6 +252,26 @@ describe("prefer-cortex.sh — sibling auto-index", () => {
     expect(recordedArgs).toEqual(["index", ".", sibling]);
   });
 
+  // Regression: a sibling under the SYSTEM temp dir (`/tmp` on Linux, where
+  // `os.tmpdir()` lives) must still auto-index. Bare `tmp` was once in the
+  // denylist, which silently blocked every Linux temp-dir repo (CI-only failure;
+  // macOS temp is /var/folders so it slipped through). Build the repo under an
+  // explicit `/tmp` path so the `tmp` path-segment is present on both platforms.
+  it("background-indexes a sibling under system /tmp (bare tmp not denylisted)", () => {
+    const cwd = indexedRepo();
+    const sibling = mkdtempSync("/tmp/cortex-noidx-systmp-");
+    mkdirSync(join(sibling, ".git"), { recursive: true });
+    const marker = join(sibling, ".index-fired");
+    const bin = stubCortex(marker);
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    }).trim();
+    expect(out).toBe("");
+    expect(waitForFile(marker)).toBe(true);
+  });
+
   it("does NOT spawn for a denylisted target (node_modules)", () => {
     const cwd = indexedRepo();
     const base = unindexedRepo();
