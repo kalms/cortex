@@ -293,14 +293,15 @@ the **enable slices** have since wired the layer into ranking:
 
 - **Kind-weight (slice 3a, on by default)** — `score ×= kind_weight` per layer;
   `CORTEX_KIND_WEIGHT=0` opts out. Decision `D-g4qb`.
-- **Layer-diversity (slice 3b, flag-gated, default off)** — a greedy
+- **Layer-diversity (slice 3b, on by default since 0.3.20)** — a greedy
   layer-aware ambient-set *selection* in
   [`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts)
   (`selectAmbientByDiversity`), consumed in `buildFrameMap`: geometric
   repeat-decay + ceremony cap, then bounded coverage repair (≥1 of
-  domain/interface/data when present). `CORTEX_LAYER_DIVERSITY=1` enables it;
-  off (default) the ambient set is byte-identical to the ranker's. Decision
-  `D-wvsz`; [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
+  domain/interface/data when present). `CORTEX_LAYER_DIVERSITY=0` opts out
+  (restores the ranker's kind-weighted top-budget set). Flipped on after a
+  positive corpus observe verdict. Decision `D-wvsz`;
+  [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
 
 Layout is still layer-agnostic — the layer-adjacency force is a future slice.
 

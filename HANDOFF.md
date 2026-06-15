@@ -53,15 +53,17 @@ extract` now leads with code instead of `.md`.
 
 ## ▶ NEXT STEP
 
-**▶▶ IMMEDIATE:** ✅ done (0.3.19) — **enable slice 3b — layer-diversity**
-shipped (item 4 below), flag-gated `CORTEX_LAYER_DIVERSITY` **default off**,
-decision **`D-wvsz`**. **Next open item: run the corpus observe pass**
-(`eval-layers` now emits a diversity off-vs-on delta) and, if the verdict holds
-(coverage gained, ceremony ≤1, no junk promoted on coverage alone), **flip the
-default on** in a follow-up — then the **layout slice** (item 5). Two follow-ups
-noted at flip time: a multi-layer simultaneous-promotion test and a zero-score
-floor edge case (final-review I3/I1, both non-blocking — measure-zero under
-geometric decay).
+**▶▶ IMMEDIATE:** ✅ done — **enable slice 3b — layer-diversity** shipped (0.3.19)
+**and flipped default-ON (0.3.20)** after a positive corpus observe verdict
+(decision **`D-wvsz`** resolution). `CORTEX_LAYER_DIVERSITY` is now an opt-out
+(`"0"` restores the kind-weighted-only ambient set). Observe highlights: vueuse
+interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor interface 7→3 +data,
+rubygems re-surfaces a domain frame; ceremony cap held everywhere, no junk
+promoted on coverage alone, neutral on already-diverse/tiny repos. **Next open
+item: the layout slice** (item 5) — layer-adjacency force in `frame-layout.ts`.
+Two deferred test follow-ups (non-blocking, measure-zero under geometric decay):
+a multi-layer simultaneous-promotion test and a zero-score floor edge case
+(final-review I3/I1).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.
@@ -91,18 +93,23 @@ geometric decay).
    **→ Default flipped ON in 0.3.10** (`CORTEX_KIND_WEIGHT` now an opt-out, `"0"`
    disables; Gate 0 confirmed clean render). The kind-weighted ambient set is
    the default user-visible ranking.
-4. ✅ **Enable slice 3b — layer-diversity shipped** (0.3.19, flag-gated
-   `CORTEX_LAYER_DIVERSITY` **default off**, decision **`D-wvsz`**, spec
-   [2026-06-15-layer-diversity-enable-slice-design.md](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md)).
+4. ✅ **Enable slice 3b — layer-diversity shipped (0.3.19) + default-ON (0.3.20)**,
+   decision **`D-wvsz`**, spec
+   [2026-06-15-layer-diversity-enable-slice-design.md](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
    The `× diversity` term as a new pure module `frame-diversity.ts`
    (`selectAmbientByDiversity`) consumed at the frame-map call site (ranker stays
    layer-free). Two phases: greedy fill with **geometric repeat-decay**
    (`× 0.6^k`) + **ceremony cap** (≤1); then **bounded coverage repair** —
    guarantees ≥1 of domain/interface/data when present by promoting over the
    weakest safely-displaceable frame, but only above a `0.5 ×` floor (D-qn7z
-   guard). Gate 0 (flag on, cortex): ceremony capped 2→1, domain 4→3, interface
-   1→2, ambient held at budget. **Observe verdict still pending** — run
-   `eval-layers` (diversity Δ now reported) before flipping the default on.
+   guard). **Observe verdict POSITIVE** (corpus `eval-layers` diversity Δ): on
+   interface-heavy repos it collapses redundant interface and surfaces
+   domain/data (vueuse interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor
+   interface 7→3 +data, rubygems re-surfaces a domain frame), ceremony cap held
+   everywhere, no junk promoted on coverage alone, neutral on already-diverse/
+   tiny repos. **→ Default flipped ON in 0.3.20** (`CORTEX_LAYER_DIVERSITY` now an
+   opt-out, `"0"` restores the kind-weighted-only ambient set); Gate 0 confirmed a
+   clean default-on render.
 5. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
    *measured* adjacency from `rollupFrameFlows` (not categorical), then
    floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
