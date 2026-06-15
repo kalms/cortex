@@ -4,6 +4,30 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.19] — 2026-06-15
+
+### Added
+
+- **Layer-diversity ambient selection (taxonomy step 3b)** — the `× diversity`
+  term of the frame-ranking formula. A new pure module
+  [`src/frame-extraction/frame-diversity.ts`](src/frame-extraction/frame-diversity.ts)
+  (`selectAmbientByDiversity`) makes the viewer's ambient frame-set selection
+  layer-aware via a deterministic two-phase greedy: Phase 1 fills the budget by
+  effective score `score × DECAY^k` (geometric repeat-decay, `DECAY=0.6`) with a
+  ceremony cap (≤1, relaxed only to avoid an empty canvas); Phase 2 does
+  **bounded coverage repair** — guarantees ≥1 of domain/interface/data when the
+  repo has them by promoting the missing layer's best frame over the weakest
+  safely-displaceable one, but only if it clears `0.5 × displaced score` (refuses
+  weak promotions — the D-qn7z junk-leapfrogging guard). Wired into
+  [`src/mcp-server/frame-map.ts`](src/mcp-server/frame-map.ts) behind
+  `CORTEX_LAYER_DIVERSITY`, **default off** (inert — ambient set byte-identical
+  to pre-slice when off). `eval-layers` gained a diversity off-vs-on ambient
+  delta for the observe pass. Decision `D-wvsz`; relates to `D-g4qb` (kind-weight)
+  and `D-qn7z`.
+  [Design](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
+  Measured on cortex (flag on): ceremony correctly capped 2→1, over-represented
+  domain yields a slot, interface gains a second frame, ambient held at budget.
+
 ## [0.3.18] — 2026-06-15
 
 ### Fixed
@@ -520,6 +544,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.19]: https://github.com/ruevu/cortex/releases/tag/v0.3.19
 [0.3.18]: https://github.com/ruevu/cortex/releases/tag/v0.3.18
 [0.3.17]: https://github.com/ruevu/cortex/releases/tag/v0.3.17
 [0.3.16]: https://github.com/ruevu/cortex/releases/tag/v0.3.16

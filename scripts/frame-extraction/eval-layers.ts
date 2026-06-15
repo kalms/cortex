@@ -51,6 +51,7 @@ interface RepoRow {
   earnedDomain?: number; fallbackDomain?: number;
   midbandFrames?: FrameRow[];
   entered?: string[]; left?: string[]; ambientOff?: Record<string, number>; ambientOn?: Record<string, number>;
+  divEntered?: string[]; divLeft?: string[]; divAmbientOff?: Record<string, number>; divAmbientOn?: Record<string, number>;
 }
 
 function runtimeFracOf(paths: string[]): number {
@@ -125,7 +126,24 @@ function evalRepo(repo: RepoSpec): RepoRow {
     };
     const ambientOff = ambientLayerDist(offAmbient), ambientOn = ambientLayerDist(onAmbient);
 
-    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames, entered, left, ambientOff, ambientOn };
+    // Diversity off-vs-on (kind-weight at its default ON in both — this isolates
+    // the `× diversity` effect on top of the shipped baseline).
+    const divOff = buildFrameMap(nodes, edges, { applyDiversity: false });
+    const divOn = buildFrameMap(nodes, edges, { applyDiversity: true });
+    const divOffAmbient = new Set(divOff.frames.filter((f) => f.ambient).map((f) => f.id));
+    const divOnFrames = new Map(divOn.frames.map((f) => [f.id, f]));
+    const divOnAmbient = new Set(divOn.frames.filter((f) => f.ambient).map((f) => f.id));
+    const divDesc = (id: number) => { const f = divOnFrames.get(id)!; return `${f.name}(${f.layer})`; };
+    const divEntered = [...divOnAmbient].filter((id) => !divOffAmbient.has(id)).map(divDesc);
+    const divLeft = [...divOffAmbient].filter((id) => !divOnAmbient.has(id)).map(divDesc);
+    const divDist = (ids: Set<number>) => {
+      const d: Record<string, number> = {};
+      for (const id of ids) { const l = divOnFrames.get(id)!.layer; d[l] = (d[l] ?? 0) + 1; }
+      return d;
+    };
+    const divAmbientOff = divDist(divOffAmbient), divAmbientOn = divDist(divOnAmbient);
+
+    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames, entered, left, ambientOff, ambientOn, divEntered, divLeft, divAmbientOff, divAmbientOn };
   } catch (err) {
     return { ...base, error: err instanceof Error ? err.message : String(err) };
   }
@@ -152,6 +170,7 @@ function main() {
     const earned = row.earnedDomain ?? 0, fb = row.fallbackDomain ?? 0;
     console.log(`[eval-layers]   ✓ frames=${row.frames} dist=${JSON.stringify(row.dist)} domain(earned/fallback)=${earned}/${fb}`);
     console.log(`[eval-layers]   ambient Δ: +[${(row.entered ?? []).join(", ")}] -[${(row.left ?? []).join(", ")}]  off=${JSON.stringify(row.ambientOff ?? {})} on=${JSON.stringify(row.ambientOn ?? {})}`);
+    console.log(`[eval-layers]   diversity Δ: +[${(row.divEntered ?? []).join(", ")}] -[${(row.divLeft ?? []).join(", ")}]  off=${JSON.stringify(row.divAmbientOff ?? {})} on=${JSON.stringify(row.divAmbientOn ?? {})}`);
     const nearMiss = (row.midbandFrames ?? []).filter((f) => f.layer === "domain" && f.fallback && f.runtimeFrac >= 0.6);
     if (nearMiss.length) console.log(`[eval-layers]     near-miss (mid-band fallback, runtimeFrac≥0.6): ${nearMiss.map((f) => `${f.label}(${f.runtimeFrac.toFixed(2)})`).join(", ")}`);
   }
