@@ -4,6 +4,21 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.18] — 2026-06-15
+
+### Fixed
+
+- **CI: sibling auto-index denylist was too broad** — the `prefer-cortex` hook's
+  auto-index denylist matched a bare `tmp` path segment, so on Linux (where
+  `os.tmpdir()` is `/tmp`) it silently excluded **every** temp-dir git repo —
+  including the test fixtures, which failed only on the Linux CI runner (macOS
+  temp is `/var/folders/…`, so it passed locally and hid the gap). Dropped bare
+  `tmp` from the denylist; `.tmp` (cortex's eval-clone convention) and
+  `node_modules`/`vendor`/`dist`/`build`/`.cache` remain. A git repo a user
+  actively greps under `/tmp` is now a legitimate auto-index target. Added a
+  regression test that exercises a sibling under system `/tmp`. Decision `D-mmtb`
+  updated.
+
 ## [0.3.17] — 2026-06-15
 
 Agentic-experience field report §5 items **P1** and **P3**, shipped together.
@@ -505,6 +520,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.18]: https://github.com/ruevu/cortex/releases/tag/v0.3.18
 [0.3.17]: https://github.com/ruevu/cortex/releases/tag/v0.3.17
 [0.3.16]: https://github.com/ruevu/cortex/releases/tag/v0.3.16
 [0.3.15]: https://github.com/ruevu/cortex/releases/tag/v0.3.15
