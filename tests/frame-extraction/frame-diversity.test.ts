@@ -125,3 +125,25 @@ describe("selectAmbientByDiversity — Phase 2 (bounded coverage repair)", () =>
     expect(got).toEqual(new Set([1, 3, 4]));
   });
 });
+
+describe("selectAmbientByDiversity — determinism", () => {
+  it("returns the same set regardless of input order", () => {
+    const frames: DiversityInput[] = [
+      f(1, 10, "interface"), f(2, 9, "interface"), f(3, 8, "ceremony"),
+      f(4, 7, "data"), f(5, 6, "domain"), f(6, 5, "ceremony"), f(7, 4, "infrastructure"),
+    ];
+    const shuffled = [frames[3], frames[6], frames[0], frames[5], frames[2], frames[4], frames[1]];
+    const a = selectAmbientByDiversity(frames, 5);
+    const b = selectAmbientByDiversity(shuffled, 5);
+    expect([...a].sort()).toEqual([...b].sort());
+  });
+
+  it("breaks score ties on stringified frame_id (lexicographically lowest wins)", () => {
+    // budget 1, two equal-score interface frames. Tie-break is the codebase's
+    // String(id).localeCompare convention (matches frame-ranker.ts); for these
+    // single-digit ids that coincides with numeric order → "3" < "7" → pick 3.
+    // Input order is reversed (7 first) to prove order-independence.
+    const got = selectAmbientByDiversity([f(7, 5, "interface"), f(3, 5, "interface")], 1);
+    expect(got).toEqual(new Set([3]));
+  });
+});
