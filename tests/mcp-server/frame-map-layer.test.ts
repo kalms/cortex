@@ -141,3 +141,75 @@ describe("kind-weight gating", () => {
     expect(w.score).toBeCloseTo(offW.score * 0.5, 10);
   });
 });
+
+describe("layer-diversity gating", () => {
+  it("default OFF: no opts (env unset) matches explicit applyDiversity:false", () => {
+    const prev = process.env.CORTEX_LAYER_DIVERSITY;
+    delete process.env.CORTEX_LAYER_DIVERSITY;
+    try {
+      const off = buildFrameMap(nodes, edges, { applyDiversity: false });
+      const dflt = buildFrameMap(nodes, edges); // env unset → default OFF
+      expect(dflt.frames.map((f) => [f.id, f.ambient])).toEqual(off.frames.map((f) => [f.id, f.ambient]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_LAYER_DIVERSITY;
+      else process.env.CORTEX_LAYER_DIVERSITY = prev;
+    }
+  });
+
+  it("CORTEX_LAYER_DIVERSITY=1 matches explicit applyDiversity:true", () => {
+    const prev = process.env.CORTEX_LAYER_DIVERSITY;
+    process.env.CORTEX_LAYER_DIVERSITY = "1";
+    try {
+      const envOn = buildFrameMap(nodes, edges);
+      const on = buildFrameMap(nodes, edges, { applyDiversity: true });
+      expect(envOn.frames.map((f) => [f.id, f.ambient])).toEqual(on.frames.map((f) => [f.id, f.ambient]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_LAYER_DIVERSITY;
+      else process.env.CORTEX_LAYER_DIVERSITY = prev;
+    }
+  });
+
+  it("flag ON caps ceremony in the ambient set end-to-end (OFF does not)", () => {
+    // NOTE: kind-weight is OFF here (applyKindWeight:false) on BOTH sides — with
+    // kind-weight on, ceremony is already demoted by its 0.2 multiplier and the
+    // cap rarely binds. Disabling it isolates the diversity ceremony-cap as the
+    // sole intervention so the test is robust to scoring details.
+    //
+    // 4 ceremony frames (scripts/, high member counts) outscore 8 interface
+    // frames (cli/, fewer members) on raw nameability×structural. Budget for 12
+    // frames = ceil(12·0.7)=9. OFF: the top-9 includes all 4 ceremony. ON: the
+    // cap holds — exactly 1 ceremony, and the 8 interface fill the rest (8+1=9,
+    // so the cap never relaxes).
+    const big: NodeRow[] = [];
+    for (let fr = 0; fr < 4; fr++) {
+      const n = 12 - fr; // 12,11,10,9 members → high structural weight
+      for (let m = 0; m < n; m++) big.push(fileNode(`c${fr}_${m}`, `src/scripts/f${fr}/m${m}.ts`, fr, `scripts${fr}`));
+    }
+    for (let fr = 4; fr < 12; fr++) {
+      for (let m = 0; m < 5; m++) big.push(fileNode(`u${fr}_${m}`, `src/cli/f${fr}/m${m}.ts`, fr, `cli${fr}`));
+    }
+    const opts = { applyKindWeight: false as const };
+    const off = buildFrameMap(big, [], { ...opts, applyDiversity: false });
+    const on = buildFrameMap(big, [], { ...opts, applyDiversity: true });
+    const ceremonyAmbient = (m: ReturnType<typeof buildFrameMap>) =>
+      m.frames.filter((f) => f.ambient && f.layer === "ceremony").length;
+    // Sanity: the fixture really did classify the scripts frames as ceremony.
+    expect(off.frames.some((f) => f.layer === "ceremony")).toBe(true);
+    expect(ceremonyAmbient(off)).toBeGreaterThan(1);
+    expect(ceremonyAmbient(on)).toBeLessThanOrEqual(1);
+    expect(on.frames.filter((f) => f.ambient).length).toBeLessThanOrEqual(9);
+  });
+
+  it("flag ON is deterministic across repeated builds", () => {
+    const a = buildFrameMap(nodes, edges, { applyDiversity: true });
+    const b = buildFrameMap(nodes, edges, { applyDiversity: true });
+    expect(a.frames.map((f) => [f.id, f.ambient])).toEqual(b.frames.map((f) => [f.id, f.ambient]));
+  });
+
+  it("flag ON still serializes no classifier internals", () => {
+    const json = JSON.stringify(buildFrameMap(nodes, edges, { applyDiversity: true }));
+    expect(json).not.toContain("fallback");
+    expect(json).not.toContain("confidence");
+    expect(json).not.toContain("contributions");
+  });
+});
