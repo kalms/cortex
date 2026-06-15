@@ -375,10 +375,15 @@ describe("selectAmbientByDiversity — determinism", () => {
     expect([...a].sort()).toEqual([...b].sort());
   });
 
-  it("breaks score ties on stringified frame_id (lower id wins the slot)", () => {
-    // budget 1, two equal-score interface frames → id 2 < id 10 → pick 2.
-    const got = selectAmbientByDiversity([f(10, 5, "interface"), f(2, 5, "interface")], 1);
-    expect(got).toEqual(new Set([2]));
+  it("breaks score ties on stringified frame_id (lexicographically lowest wins)", () => {
+    // budget 1, two equal-score interface frames. Tie-break is the codebase's
+    // String(id).localeCompare convention (matches frame-ranker.ts); for these
+    // single-digit ids that coincides with numeric order → "3" < "7" → pick 3.
+    // Input order is reversed (7 first) to prove order-independence.
+    // NOTE: do NOT use multi-digit ids here — lexicographically "10" < "2", so a
+    // {10,2}→expect 2 fixture would (correctly) fail against the convention.
+    const got = selectAmbientByDiversity([f(7, 5, "interface"), f(3, 5, "interface")], 1);
+    expect(got).toEqual(new Set([3]));
   });
 });
 ```
