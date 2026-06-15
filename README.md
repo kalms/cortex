@@ -31,7 +31,7 @@ After the install, `/mcp` lists cortex as connected and `cortex decision --help`
 
 Every routed MCP tool (everything except `list_projects` / `delete_project`) requires an absolute `repo_path` argument naming the git root the call is about. The session-start banner prints this path for the active session; agents working across multiple repos pass the explicit path of the repo each call concerns. Calls without `repo_path` return a structured `MissingRepoPathError` payload listing every indexed repo the resolver knows about — agents can paste the right value back without a second tool call.
 
-The full design is in [`docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`](docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md).
+The full contract — routing modes, the `repo_path` requirement, and the error shapes — is documented in [`docs/mcp-tools.md`](docs/mcp-tools.md#the-repo_path-contract).
 
 ### Manual setup (advanced / development)
 
@@ -303,7 +303,7 @@ The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a s
 
 - **Cold-start decision seeding** — fresh repos auto-detect zero decisions
   and offer to bootstrap them from git + docs via the `seed-decisions` skill;
-  see [the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
+  see [the decisions-storage architecture doc](docs/architecture/decisions-storage.md#cold-start-seeding-machine-proposed-decisions).
 
 ## Hooks
 
