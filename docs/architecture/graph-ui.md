@@ -286,9 +286,23 @@ viewer (the draw path's `else` branches are the literal pre-lens expressions).
 Classifier internals (confidence, per-source contributions) are deliberately
 never serialized or rendered; they exist only in the eval harness
 (`tests/frame-extraction/expected-layers.test.ts`, whose frozen fixture is the
-regression net for classifier tuning). Ranking and layout are NOT affected by
-layers in this milestone (classify → observe → enable; see
-[the design spec](../superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md)).
+regression net for classifier tuning). Milestone 1 left ranking and layout
+untouched (classify → observe → enable; see
+[the design spec](../superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md));
+the **enable slices** have since wired the layer into ranking:
+
+- **Kind-weight (slice 3a, on by default)** — `score ×= kind_weight` per layer;
+  `CORTEX_KIND_WEIGHT=0` opts out. Decision `D-g4qb`.
+- **Layer-diversity (slice 3b, flag-gated, default off)** — a greedy
+  layer-aware ambient-set *selection* in
+  [`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts)
+  (`selectAmbientByDiversity`), consumed in `buildFrameMap`: geometric
+  repeat-decay + ceremony cap, then bounded coverage repair (≥1 of
+  domain/interface/data when present). `CORTEX_LAYER_DIVERSITY=1` enables it;
+  off (default) the ambient set is byte-identical to the ranker's. Decision
+  `D-wvsz`; [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
+
+Layout is still layer-agnostic — the layer-adjacency force is a future slice.
 
 ### Render loop
 
