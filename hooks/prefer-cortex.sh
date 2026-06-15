@@ -101,8 +101,13 @@ first_path_token() {
   return 0
 }
 
-# Denylist: never auto-index junk/vendored/tmp trees.
-AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+# Denylist: never auto-index junk/vendored/eval-clone trees. `.tmp` is cortex's
+# eval-corpus clone convention (the real pollution source); the others are
+# build/dependency dirs that aren't real project roots. Bare system `/tmp` is
+# intentionally NOT denylisted — a git repo a user actively greps there is a
+# legitimate index target (and `os.tmpdir()` is `/tmp` on Linux, so denylisting
+# it would also wrongly exclude every Linux temp-dir repo).
+AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
 
 # Best-effort detached index of an unindexed, high-certainty git root.
 # Degrade-safe: any failure simply skips indexing — the grep is already allowed.
