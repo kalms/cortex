@@ -58,7 +58,7 @@ policy is **block code, allow non-code**:
 for a bare pattern). So a code grep against an **unindexed sibling** repo is
 allowed (the cwd's index no longer wrongly blocks it), while a grep against a
 *second indexed* repo still redirects. When that unindexed target is a
-high-certainty git repo (real root, not under `.tmp`/`tmp`/`node_modules`/
+high-certainty git repo (real root, not under `.tmp`/`node_modules`/
 `vendor`/`dist`/`build`/`.cache`), the hook **fires a detached background
 `cortex index`** for it — so the next query gets the graph — and allows the
 current grep immediately. Guards: deduped by a 60-min sentinel
