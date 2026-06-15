@@ -53,10 +53,15 @@ extract` now leads with code instead of `.md`.
 
 ## ▶ NEXT STEP
 
-**▶▶ IMMEDIATE:** ✅ done (0.3.10) — kind-weight ranking is now **on by default**
-(`CORTEX_KIND_WEIGHT` is an opt-out, `"0"` disables); Gate 0 confirmed clean
-render. **Next open item: enable slice 3b — layer-diversity** (item 4 below) —
-the stateful `× diversity` term, now the headline of the taxonomy arc.
+**▶▶ IMMEDIATE:** ✅ done (0.3.19) — **enable slice 3b — layer-diversity**
+shipped (item 4 below), flag-gated `CORTEX_LAYER_DIVERSITY` **default off**,
+decision **`D-wvsz`**. **Next open item: run the corpus observe pass**
+(`eval-layers` now emits a diversity off-vs-on delta) and, if the verdict holds
+(coverage gained, ceremony ≤1, no junk promoted on coverage alone), **flip the
+default on** in a follow-up — then the **layout slice** (item 5). Two follow-ups
+noted at flip time: a multi-layer simultaneous-promotion test and a zero-score
+floor edge case (final-review I3/I1, both non-blocking — measure-zero under
+geometric decay).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.
@@ -86,9 +91,18 @@ the stateful `× diversity` term, now the headline of the taxonomy arc.
    **→ Default flipped ON in 0.3.10** (`CORTEX_KIND_WEIGHT` now an opt-out, `"0"`
    disables; Gate 0 confirmed clean render). The kind-weighted ambient set is
    the default user-visible ranking.
-4. **Enable slice 3b — layer-diversity** (deferred): the `× diversity` term —
-   greedy selection guaranteeing ≥1 of domain/interface/data, cap ceremony at
-   one, decay repeats of an already-represented layer. Stateful; its own slice.
+4. ✅ **Enable slice 3b — layer-diversity shipped** (0.3.19, flag-gated
+   `CORTEX_LAYER_DIVERSITY` **default off**, decision **`D-wvsz`**, spec
+   [2026-06-15-layer-diversity-enable-slice-design.md](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md)).
+   The `× diversity` term as a new pure module `frame-diversity.ts`
+   (`selectAmbientByDiversity`) consumed at the frame-map call site (ranker stays
+   layer-free). Two phases: greedy fill with **geometric repeat-decay**
+   (`× 0.6^k`) + **ceremony cap** (≤1); then **bounded coverage repair** —
+   guarantees ≥1 of domain/interface/data when present by promoting over the
+   weakest safely-displaceable frame, but only above a `0.5 ×` floor (D-qn7z
+   guard). Gate 0 (flag on, cortex): ceremony capped 2→1, domain 4→3, interface
+   1→2, ambient held at budget. **Observe verdict still pending** — run
+   `eval-layers` (diversity Δ now reported) before flipping the default on.
 5. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
    *measured* adjacency from `rollupFrameFlows` (not categorical), then
    floating-entity placement (subsumes the `D-xwxj` promotion stopgap).
