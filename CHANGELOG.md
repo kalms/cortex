@@ -4,6 +4,22 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.20] — 2026-06-15
+
+### Changed
+
+- **Layer-diversity ambient selection is now ON by default** (taxonomy slice 3b,
+  the default-on flip). `CORTEX_LAYER_DIVERSITY` is now an **opt-out**: set it to
+  `"0"` to restore the kind-weighted-only ambient set (the ranker's top-budget).
+  Backs the positive corpus observe verdict (decision `D-wvsz`): across the
+  eval-layers corpus, diversity collapses redundant interface frames and surfaces
+  domain/data on interface-heavy repos (vueuse interface 7→4 / data 1→3, nuxt/ui
+  2 layers → 5, saleor interface 7→3 +data, rubygems re-surfaces a domain frame),
+  with the ceremony cap holding everywhere (≤1), no junk promoted on coverage
+  alone (the `0.5×` floor), and no churn on already-diverse/tiny repos. The
+  diversity selector and its mechanism shipped in 0.3.19; this release only flips
+  the default. Gate 0 confirmed a clean default-on render on cortex.
+
 ## [0.3.19] — 2026-06-15
 
 ### Added
@@ -544,6 +560,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.20]: https://github.com/ruevu/cortex/releases/tag/v0.3.20
 [0.3.19]: https://github.com/ruevu/cortex/releases/tag/v0.3.19
 [0.3.18]: https://github.com/ruevu/cortex/releases/tag/v0.3.18
 [0.3.17]: https://github.com/ruevu/cortex/releases/tag/v0.3.17

@@ -143,26 +143,26 @@ describe("kind-weight gating", () => {
 });
 
 describe("layer-diversity gating", () => {
-  it("default OFF: no opts (env unset) matches explicit applyDiversity:false", () => {
+  it("default ON: no opts (env unset) matches explicit applyDiversity:true", () => {
     const prev = process.env.CORTEX_LAYER_DIVERSITY;
     delete process.env.CORTEX_LAYER_DIVERSITY;
     try {
-      const off = buildFrameMap(nodes, edges, { applyDiversity: false });
-      const dflt = buildFrameMap(nodes, edges); // env unset → default OFF
-      expect(dflt.frames.map((f) => [f.id, f.ambient])).toEqual(off.frames.map((f) => [f.id, f.ambient]));
+      const on = buildFrameMap(nodes, edges, { applyDiversity: true });
+      const dflt = buildFrameMap(nodes, edges); // env unset → default ON (opt-out flag)
+      expect(dflt.frames.map((f) => [f.id, f.ambient])).toEqual(on.frames.map((f) => [f.id, f.ambient]));
     } finally {
       if (prev === undefined) delete process.env.CORTEX_LAYER_DIVERSITY;
       else process.env.CORTEX_LAYER_DIVERSITY = prev;
     }
   });
 
-  it("CORTEX_LAYER_DIVERSITY=1 matches explicit applyDiversity:true", () => {
+  it("CORTEX_LAYER_DIVERSITY=0 opts out (matches explicit applyDiversity:false)", () => {
     const prev = process.env.CORTEX_LAYER_DIVERSITY;
-    process.env.CORTEX_LAYER_DIVERSITY = "1";
+    process.env.CORTEX_LAYER_DIVERSITY = "0";
     try {
-      const envOn = buildFrameMap(nodes, edges);
-      const on = buildFrameMap(nodes, edges, { applyDiversity: true });
-      expect(envOn.frames.map((f) => [f.id, f.ambient])).toEqual(on.frames.map((f) => [f.id, f.ambient]));
+      const envOff = buildFrameMap(nodes, edges); // env "0" → off
+      const off = buildFrameMap(nodes, edges, { applyDiversity: false });
+      expect(envOff.frames.map((f) => [f.id, f.ambient])).toEqual(off.frames.map((f) => [f.id, f.ambient]));
     } finally {
       if (prev === undefined) delete process.env.CORTEX_LAYER_DIVERSITY;
       else process.env.CORTEX_LAYER_DIVERSITY = prev;

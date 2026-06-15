@@ -125,10 +125,12 @@ export function buildFrameMap(
     corpus,
   );
 
-  // Layer-diversity ambient selection (taxonomy step 3b). Default OFF — when off
-  // the ambient flag is exactly what the ranker set, so output is byte-identical
-  // to pre-slice. When on, a greedy layer-aware selection overrides membership.
-  const applyDiversity = opts.applyDiversity ?? process.env.CORTEX_LAYER_DIVERSITY === "1";
+  // Layer-diversity ambient selection (taxonomy step 3b) is ON by default
+  // (positive corpus observe verdict — decision D-wvsz). CORTEX_LAYER_DIVERSITY
+  // is now an OPT-OUT: set it to "0" to restore the kind-weighted-only ambient
+  // set (the ranker's top-budget). When off, the ambient flag is exactly what the
+  // ranker set; when on, a greedy layer-aware selection overrides membership.
+  const applyDiversity = opts.applyDiversity ?? process.env.CORTEX_LAYER_DIVERSITY !== "0";
   const ambientIds = applyDiversity
     ? selectAmbientByDiversity(
         ranked.map((r) => ({
