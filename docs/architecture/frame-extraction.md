@@ -156,8 +156,7 @@ combined_distance = (1 − γ) · topical_distance + γ · co_change_distance
   pairs ("no evidence these belong together").
 - `γ ∈ [0, 1]` controls the mix. `γ = 0` reproduces the topical-only
   baseline (cold-start case — no co-change file). On cortex itself,
-  `γ = 0.3` was the eyeball winner per
-  [`docs/superpowers/2026-05-17-frame-extraction-co-change-combination.md`](../superpowers/2026-05-17-frame-extraction-co-change-combination.md).
+  `γ = 0.3` was the eyeball winner.
 
 The combined matrix is fed to HDBSCAN with `metric='precomputed'`.
 

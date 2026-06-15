@@ -94,11 +94,8 @@ The harness is **scaffolded but not wired together**. The pieces:
 - ❌ `evals/src/cli.ts` — currently just `console.error("not implemented yet")`. Wiring up clone → index → score → assert → diff baseline is the next chunk.
 - ❌ `evals/baselines/` — empty; populated on first end-to-end run.
 
-The full plan (clone → index → score → assert → baseline diff) is in
-[`docs/superpowers/2026-05-17-frame-extraction-eval-harness.md`](../superpowers/2026-05-17-frame-extraction-eval-harness.md)
-and the spec it derives from is
-[`docs/specs/cortex-v0.3/nuxt-impact-eval-harness.md`](../specs/cortex-v0.3/)
-(if present) plus the [field assessment](../field%20reports/field-assessment-nuxt-monorepo.md).
+The end-to-end flow (clone → index → score → assert → baseline diff) is
+informed by the [field assessment](../field%20reports/field-assessment-nuxt-monorepo.md).
 
 ## Why the killer queries look the way they do
 
