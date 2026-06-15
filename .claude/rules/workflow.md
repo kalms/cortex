@@ -39,6 +39,28 @@ Examples:
 
 ---
 
+## Worktree-first rule (features, fixes, refactors)
+
+Every new **feature, fix, or refactor** MUST be developed in a dedicated git
+**worktree**, created *before* any file modification — not merely a branch in
+the main checkout. A worktree isolates in-progress work from the main checkout
+(which may hold unrelated uncommitted edits) and lets independent efforts run
+without colliding.
+
+```bash
+git worktree add -b <type>/<scope>/<desc> ../cortex-wt-<desc> main
+cd ../cortex-wt-<desc>
+```
+
+Use the branch naming convention above. When the work has merged, remove the
+worktree: `git worktree remove ../cortex-wt-<desc>` then `git worktree prune`.
+
+**Exempt** (a plain branch — or a direct edit on a `docs/` branch — suffices):
+documentation-only, memory, and one-off chore/CI edits that touch no `src/` or
+`tests/`. When in doubt, use a worktree.
+
+---
+
 ## Gate 0 — Visual QA before code review (for any UI-visible change)
 
 **Rule:** Before running code review or marking a UI-visible task complete,
@@ -194,17 +216,41 @@ The moment a merge **also** touches code / tests / config / a shipped asset, it
 is a release: bump + add the CHANGELOG entry as normal, and let the docs changes
 ride along in that release. When in doubt (mixed diff), bump.
 
-### Steps
+### Pull-request requirement (every release / semver bump)
+
+Every merge to `main` that bumps the semver — i.e. **any release** — MUST go
+through a GitHub **pull request**, not a direct local `git merge` into `main`.
+Open the PR from the feature branch, let the required **"CI gate"** check run
+and **pass on the PR**, then merge via the PR. This guarantees CI gates every
+release and leaves a reviewable record. **Do not** use the branch-protection
+bypass to push a release straight to `main`.
+
+Docs-only / no-bump merges (which skip the version bump, per the exception
+above) may still be merged locally `--no-ff` as before — though routing them
+through a PR is encouraged.
+
+### Steps — release (semver bump) via PR
+
+```bash
+# On the feature worktree's branch: bump all three version fields + CHANGELOG.
+git commit -am "chore(release): <new-version>"
+git push -u origin <branch-name>
+gh pr create --base main --title "<summary>" --body "<what + why>"
+# Wait for the "CI gate" check to pass on the PR, then:
+gh pr merge <branch-name> --merge   # --no-ff merge; preserves branch history
+git worktree remove ../cortex-wt-<desc> && git worktree prune
+```
+
+### Steps — docs-only / no-bump merge (local, no PR required)
 
 ```bash
 git checkout main
-git merge --no-ff <branch-name>    # preserves branch history
-# bump package.json / plugin.json / .claude-plugin/marketplace.json, then:
-git commit -am "chore(release): <new-version>"
-git branch -d <branch-name>        # clean up local branch
+git merge --no-ff <branch-name>     # preserves branch history
+git branch -d <branch-name>         # clean up local branch
 ```
 
-Push to remote only when explicitly requested by the user.
+Push to remote only when explicitly requested by the user (docs-only merges);
+release PRs are pushed as part of the PR flow above.
 
 ---
 
