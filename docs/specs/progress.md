@@ -136,10 +136,10 @@ only the layout slice remains before the post-taxonomy line:
    (Two deferred 3b test follow-ups remain, both non-blocking / measure-zero
    under geometric decay: a multi-layer simultaneous-promotion test and a
    zero-score floor edge case.)
-3. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
+2. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
    fragmented/test-mixed clusters and substrate-band core domain — the ceiling
    the observe phase repeatedly hit.
-4. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
+3. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
    adoption) as the headline, record-drawer adoption for TODOs.
 
 Parallel candidates that don't block the arc: the **co-change lens**
