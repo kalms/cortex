@@ -99,7 +99,7 @@ export function selectAmbientByDiversity(
     const idx = selected.findIndex((s) => s.frame_id === weakest.frame_id);
     selected.splice(idx, 1);
     used.delete(weakest.frame_id);
-    counts.set(weakest.layer, (counts.get(weakest.layer) ?? 1) - 1);
+    counts.set(weakest.layer, (counts.get(weakest.layer) ?? 0) - 1);
     selected.push(candidate);
     used.add(candidate.frame_id);
     counts.set(candidate.layer, (counts.get(candidate.layer) ?? 0) + 1);
