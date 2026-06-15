@@ -16,7 +16,8 @@ import type { NodeRow, EdgeRow } from "../graph/store.js";
 import type { FileBlob } from "../frame-extraction/types.js";
 import { buildCorpusIndex } from "../frame-extraction/label-quality.js";
 import { splitSymbol } from "../frame-extraction/text-blob.js";
-import { rankFrames, type FrameRecord } from "../frame-extraction/frame-ranker.js";
+import { rankFrames, ambientBudget, type FrameRecord } from "../frame-extraction/frame-ranker.js";
+import { selectAmbientByDiversity } from "../frame-extraction/frame-diversity.js";
 import { rollupFramePairs } from "./frame-pair-rollup.js";
 import { rollupFrameFlows } from "./frame-flow-rollup.js";
 import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-extraction/frame-kind.js";
@@ -92,7 +93,7 @@ function buildFileBlobs(nodes: readonly NodeRow[]): FileBlob[] {
 export function buildFrameMap(
   nodes: readonly NodeRow[],
   edges: readonly EdgeRow[],
-  opts: { applyKindWeight?: boolean } = {},
+  opts: { applyKindWeight?: boolean; applyDiversity?: boolean } = {},
 ): FrameMap {
   // Kind-weight ranking is ON by default (taxonomy enable slice, observe verdict
   // positive — D-g4qb). CORTEX_KIND_WEIGHT is now an OPT-OUT: set it to "0" to
@@ -124,7 +125,22 @@ export function buildFrameMap(
     corpus,
   );
 
-  const ambient = ranked.filter((r) => r.ambient);
+  // Layer-diversity ambient selection (taxonomy step 3b). Default OFF — when off
+  // the ambient flag is exactly what the ranker set, so output is byte-identical
+  // to pre-slice. When on, a greedy layer-aware selection overrides membership.
+  const applyDiversity = opts.applyDiversity ?? process.env.CORTEX_LAYER_DIVERSITY === "1";
+  const ambientIds = applyDiversity
+    ? selectAmbientByDiversity(
+        ranked.map((r) => ({
+          frame_id: r.frame_id,
+          score: r.score,
+          layer: layerById.get(r.frame_id) ?? "domain",
+        })),
+        ambientBudget(ranked.length),
+      )
+    : new Set(ranked.filter((r) => r.ambient).map((r) => r.frame_id));
+
+  const ambient = ranked.filter((r) => ambientIds.has(r.frame_id));
   const pairs = rollupFramePairs(nodes, edges);
   const positioned = layoutFrames(
     ambient.map((r) => ({
@@ -146,7 +162,7 @@ export function buildFrameMap(
       y: p ? p.y : null,
       w: p ? p.w : null,
       h: p ? p.h : null,
-      ambient: r.ambient,
+      ambient: ambientIds.has(r.frame_id),
       rank: r.rank,
       score: r.score,
       layer: layerById.get(r.frame_id) ?? "domain",
