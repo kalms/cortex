@@ -73,5 +73,37 @@ export function selectAmbientByDiversity(
     counts.set(best.layer, (counts.get(best.layer) ?? 0) + 1);
   }
 
+  // Phase 2 — bounded coverage repair. For each required layer the repo HAS but
+  // Phase 1 left out, promote its best omitted candidate by displacing the
+  // weakest safely-displaceable selected frame — only if it clears the floor.
+  const present = new Set(frames.map((x) => x.layer));
+  for (const layer of REQUIRED_LAYERS) {
+    if (!present.has(layer)) continue; // repo doesn't have this layer
+    if (selected.some((s) => s.layer === layer)) continue; // already covered
+
+    const candidate = byScore.find((x) => x.layer === layer && !used.has(x.frame_id));
+    if (!candidate) continue;
+
+    // Displaceable = a selected frame whose removal won't drop another required
+    // layer to zero (non-required layer, or a required layer with ≥2 reps).
+    const displaceable = selected
+      .filter((s) => {
+        if (!REQUIRED_LAYERS.includes(s.layer)) return true;
+        return selected.filter((x) => x.layer === s.layer).length >= 2;
+      })
+      .sort((a, b) => a.score - b.score || byIdAsc(a, b));
+    const weakest = displaceable[0];
+    if (!weakest) continue; // nothing safe to displace
+    if (candidate.score < PROMOTION_FLOOR * weakest.score) continue; // below floor — refuse
+
+    const idx = selected.findIndex((s) => s.frame_id === weakest.frame_id);
+    selected.splice(idx, 1);
+    used.delete(weakest.frame_id);
+    counts.set(weakest.layer, (counts.get(weakest.layer) ?? 1) - 1);
+    selected.push(candidate);
+    used.add(candidate.frame_id);
+    counts.set(candidate.layer, (counts.get(candidate.layer) ?? 0) + 1);
+  }
+
   return new Set(selected.map((x) => x.frame_id));
 }
