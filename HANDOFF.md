@@ -45,8 +45,8 @@ to the frame kind-weight lineage.
   search keeps its tool word unquoted, so it still redirects; scope detection
   still uses the original command). +4 tests.
   ⚠ **NOT the field report's P3** (the *target-repo-aware cross-repo* hook) —
-  that blind spot is still open. Hooks load at SessionStart, so this fix is live
-  next session.
+  that was a separate fix, since **shipped** (decision `D-mmtb`). Hooks load at
+  SessionStart, so this fix is live next session.
 
 Full suite **1131/1131** throughout; live Gate 0 confirmed `cortex code search
 extract` now leads with code instead of `.md`.
@@ -99,13 +99,13 @@ the stateful `× diversity` term, now the headline of the taxonomy arc.
    style, ~55 edges of ink. The lens pattern (menu + deterministic + off =
    identical) is established; follow it.
 7. **Agentic-experience P1–P8** (from the [2026-06-12 field report](docs/field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md) §5).
-   1 of 8 shipped. Remaining, in suggested sequence:
+   3 of 8 shipped. Remaining, in suggested sequence:
 
    | # | Item | Status | What it is | Effort |
    |---|---|---|---|---|
    | **P2** | Search ranking + kind weighting | ✅ **Shipped** (0.3.11–0.3.13) | Ranked, section-excluded, paginated `search_graph` + `cortex code search`/`find`. Decisions `D-fq9g` / `D-qfz9`. | — |
-   | **P3** | Target-repo-aware grep hook | ⬜ **Open — next quick win** | `prefer-cortex.sh` keys allow/deny on the **cwd** repo's index, not the **search target's** — so a grep against an unindexed sibling repo is wrongly denied. Fix: resolve the target's git root (from Grep/Glob `path` or the Bash command's path args; cwd only for bare patterns) and gate on *that* repo's `.cortex/db`. **Distinct from the 0.3.14 quoted-word fix.** | small (shell) + careful tests |
-   | **P1** | `context_pack(qualified_name)` composite | ⬜ Open | One tool returning `{ snippet, callers, callees, governing_decisions, recent_commits }` (capped + `truncated` marker). Pure composition of `get_code_snippet` + `trace_path` + `why_was_this_built`; cuts the 3-roundtrip symbol pattern to 1. Would become the most-used tool. | small |
+   | **P3** | Target-repo-aware grep hook | ✅ **Shipped** | `prefer-cortex.sh` now gates on the **search-target** repo's index (resolved from Grep/Glob `path` or the Bash command's path args; cwd only for bare patterns), and background-indexes high-certainty git siblings on first grep. Decision `D-mmtb` (+ 0.3.18 `/tmp` denylist follow-up). **Distinct from the 0.3.14 quoted-word fix.** | — |
+   | **P1** | `context_pack(qualified_name)` composite | ✅ **Shipped** | One tool returning `{ snippet, callers, callees, governing_decisions, recent_commits }` (caps 10/10/5/5 + truncation note). Pure composition of `get_code_snippet` + `trace_path` + `why_was_this_built` + git log; cuts the 4-roundtrip symbol pattern to 1. Decision `D-bptf`. | — |
    | **P6** | Versioned HTTP contract + freshness over HTTP | ⬜ Open — **gates Mesh** | (a) Freeze JSON Schemas for `/api/projects`/`/api/graph`/`/api/decisions` (+ `/api/frames`/`/api/file-edges`) under `docs/api/` with a response `version`; (b) expose freshness as `X-Cortex-Freshness:` header or `/api/freshness` so Mesh drops its blind TTL cache. **Land before Mesh's viewer-adaptation milestone consumes `/api/frames`.** | small |
    | **P4** | Warm-path decision drafting | ⬜ Open | At merge/PR time, run `decision_candidates` over the branch diff and draft `status:"proposed"`, `author:"cortex:draft"` decisions for one-tap ratification — re-aims the existing `seed-decisions` machinery + suggest-capture hook from *reminder* to *drafter*. Compounds the decision moat. | medium |
    | **P5** | Cross-repo decision search | ⬜ Open | `crossRepo:true` mode on `search_decisions` that fans out over the registry's `root_path` entries and merges FTS hits with a `repo` field. Unlocks the now-normal multi-repo workflow (cortex + mesh + client repos). | small–medium |
