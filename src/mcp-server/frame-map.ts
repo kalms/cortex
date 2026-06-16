@@ -40,7 +40,10 @@ export interface FrameMapEntry {
   id: number;
   name: string;
   count: number;
-  /** Integer px in virtual-stage coords; null for non-ambient (unpositioned). */
+  /** Integer px in virtual-stage coords. Ambient frames: force-sim position.
+   *  Non-ambient frames: gravity-centroid satellite position (layout slice
+   *  part 2). null only in degenerate cases (a frame the placement couldn't
+   *  position at all). */
   x: number | null;
   y: number | null;
   w: number | null;

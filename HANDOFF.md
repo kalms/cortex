@@ -73,7 +73,14 @@ positions, not strips), zero console errors. **Next open items, in order:** (1) 
 `SRC·863` mega-frame / substrate-band core domain); (2) optional layout **observe
 pass** for the centroid quality + a future **network layout mode** (seam ready).
 Older deferred 3b test follow-ups still stand (multi-layer promotion test,
-zero-score floor edge case — non-blocking).
+zero-score floor edge case — non-blocking). **0.3.23 fast-follow polish**
+(non-blocking, from the final review): (a) `/api/aggregates` re-runs the ambient
+force-sim that `/api/frames` already computes — share one frame-map or derive
+aggregate anchors viewer-side from the already-fetched `/api/frames` positions;
+(b) the aggregate path-tie matches only top-level aux dirs (host = parent-of-aux
+vs frame top-level rep-dir), so a nested aux path like `src/components/locales/`
+conservatively drops to the margin — deepen the ancestry match if nested layouts
+need it.
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.
