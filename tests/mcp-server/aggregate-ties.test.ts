@@ -37,6 +37,12 @@ describe("buildAggregateEdgeTies", () => {
     const ties = buildAggregateEdgeTies(nodes, edges);
     expect(ties.size).toBe(0);
   });
+  it("counts each direction of a symmetric aux↔frame edge pair", () => {
+    const nodes: NodeRow[] = [fileNode("a", "app/locales/en.json"), fileNode("f1", "app/ui/menu.ts", 1)];
+    const edges: EdgeRow[] = [edge("a", "f1", "IMPORTS"), edge("f1", "a", "USAGE")];
+    const ties = buildAggregateEdgeTies(nodes, edges);
+    expect(ties.get("aux:locales:locales")!.get(1)).toBe(2);
+  });
 });
 
 describe("frameRepDirs", () => {

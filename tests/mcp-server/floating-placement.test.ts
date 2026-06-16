@@ -123,4 +123,26 @@ describe("placeAggregates", () => {
     );
     expect(out.get("aux:vendor:vendor")!.y).toBe(800 - 28); // MARGIN_Y
   });
+
+  it("ignores edge ties to non-ambient frames and falls through to margin", () => {
+    // frame 99 is not in ambientPositions and there is no path tie → margin slot.
+    const edgeTies = new Map([["aux:x:x", new Map([[99, 5]])]]);
+    const out = placeAggregates([{ id: "aux:x:x", member_count: 1 }], edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes);
+    expect(out.get("aux:x:x")!.y).toBe(800 - 28); // MARGIN_Y (no ambient anchor)
+  });
+
+  it("path tie centroids all ambient frames sharing the host dir", () => {
+    const reps = new Map([[1, "app"], [2, "app"]]); // both frames share host "app"
+    const aggDirs = new Map([["aux:assets:assets", "app"]]);
+    const out = placeAggregates([{ id: "aux:assets:assets", member_count: 1 }], new Map(), aggDirs, reps, ambientPositions, ambientBoxes);
+    expect(out.get("aux:assets:assets")!).toEqual({ x: 500, y: 300 }); // centroid of (200,300)&(800,300)
+  });
+
+  it("is deterministic across runs", () => {
+    const edgeTies = new Map([["aux:locales:locales", new Map([[1, 2], [2, 1]])]]);
+    const args = [[{ id: "aux:locales:locales", member_count: 3 }], edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes] as const;
+    const a = placeAggregates(...args);
+    const b = placeAggregates(...args);
+    expect([...a]).toEqual([...b]);
+  });
 });

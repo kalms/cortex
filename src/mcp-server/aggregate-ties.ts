@@ -111,11 +111,8 @@ export function frameRepDirs(nodes: readonly NodeRow[]): Map<number, string> {
   }
   const out = new Map<number, string>();
   for (const [fid, m] of counts) {
-    let best = "", bestN = -1;
-    for (const [dir, n] of [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
-      if (n > bestN) { best = dir; bestN = n; }
-    }
-    out.set(fid, best);
+    const sorted = [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    out.set(fid, sorted[0]![0]);
   }
   return out;
 }
