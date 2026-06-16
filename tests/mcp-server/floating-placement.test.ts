@@ -87,3 +87,40 @@ describe("placeNonAmbientFrames", () => {
     expect([...a]).toEqual([...b]);
   });
 });
+
+import { placeAggregates } from "../../src/mcp-server/floating-placement.js";
+
+describe("placeAggregates", () => {
+  const ambientPositions = [
+    { id: 1, x: 200, y: 300 }, { id: 2, x: 800, y: 300 },
+  ];
+  const ambientBoxes = ambientPositions.map((p) => ({ ...p, w: 120, h: 120 }));
+  const frameRepDirsMap = new Map([[1, "app"], [2, "src"]]);
+
+  it("uses edge ties first: centroid of edge-linked frames", () => {
+    const edgeTies = new Map([["aux:locales:locales", new Map([[1, 3], [2, 1]])]]);
+    const out = placeAggregates(
+      [{ id: "aux:locales:locales", member_count: 4 }],
+      edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes,
+    );
+    expect(out.get("aux:locales:locales")!.x).toBe(350); // (200*3 + 800*1)/4
+  });
+
+  it("falls back to path tie when there are no edges", () => {
+    const aggDirs = new Map([["aux:locales:locales", "app"]]);
+    const out = placeAggregates(
+      [{ id: "aux:locales:locales", member_count: 2 }],
+      new Map(), aggDirs, frameRepDirsMap, ambientPositions, ambientBoxes,
+    );
+    expect(out.get("aux:locales:locales")!.x).toBe(200); // frame 1 (repDir "app")
+  });
+
+  it("falls back to a margin slot when neither edge nor path ties resolve", () => {
+    const out = placeAggregates(
+      [{ id: "aux:vendor:vendor", member_count: 9 }],
+      new Map(), new Map([["aux:vendor:vendor", "nonexistent"]]), frameRepDirsMap,
+      ambientPositions, ambientBoxes,
+    );
+    expect(out.get("aux:vendor:vendor")!.y).toBe(800 - 28); // MARGIN_Y
+  });
+});

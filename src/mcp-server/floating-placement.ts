@@ -85,6 +85,53 @@ export function marginSlot(index: number, total: number, size: number): { x: num
   return { x: q(clampedX), y: q(MARGIN_Y) };
 }
 
+/** Position each aggregate via the edge→path→margin tie cascade, relative to the
+ *  AMBIENT frame positions. Aggregates tie only to ambient frames (stable
+ *  anchors). Returns aggregate id → integer center {x, y}. */
+export function placeAggregates(
+  aggregates: readonly { id: string; member_count: number }[],
+  edgeTies: Map<string, Map<number, number>>,
+  aggregateDirs: Map<string, string>,
+  frameRepDirs: Map<number, string>,
+  ambientPositions: readonly { id: number; x: number; y: number }[],
+  ambientBoxes: readonly Box[],
+): Map<string, { x: number; y: number }> {
+  const ambientPos = new Map(ambientPositions.map((p) => [p.id, p]));
+  const ordered = [...aggregates].sort((a, b) => a.id.localeCompare(b.id));
+
+  const edgeCentroid = (id: string): { x: number; y: number } | null => {
+    const ties = edgeTies.get(id);
+    if (!ties) return null;
+    const anchors: WeightedAnchor[] = [];
+    for (const [fid, w] of ties) {
+      const p = ambientPos.get(fid);
+      if (p) anchors.push({ x: p.x, y: p.y, weight: w });
+    }
+    return weightedCentroid(anchors);
+  };
+  const pathCentroid = (id: string): { x: number; y: number } | null => {
+    const host = aggregateDirs.get(id);
+    if (!host) return null;
+    const anchors: WeightedAnchor[] = [];
+    for (const p of ambientPositions) {
+      if (frameRepDirs.get(p.id) === host) anchors.push({ x: p.x, y: p.y, weight: 1 });
+    }
+    return weightedCentroid(anchors);
+  };
+
+  const seeds = new Map<string, { x: number; y: number } | null>();
+  for (const a of ordered) seeds.set(a.id, edgeCentroid(a.id) ?? pathCentroid(a.id));
+  const tieless = ordered.filter((a) => seeds.get(a.id) === null).map((a) => a.id);
+  const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
+
+  const out = new Map<string, { x: number; y: number }>();
+  for (const a of ordered) {
+    const seed = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+    out.set(a.id, repelFromBoxes(seed.x, seed.y, AGG_RADIUS * 2, ambientBoxes));
+  }
+  return out;
+}
+
 /** Position each non-ambient frame at the pair-weighted centroid of the AMBIENT
  *  frames it connects to (frame-repulsion applied; margin fallback when it has
  *  no ambient partner). Returns frame_id → integer center {x, y}. Satellites are
