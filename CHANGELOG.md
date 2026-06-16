@@ -4,6 +4,28 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.21] — 2026-06-16
+
+### Added
+
+- **Layer-adjacency layout force (taxonomy layout slice, part 1)** — a vertical
+  stratification force in [`src/mcp-server/frame-layout.ts`](src/mcp-server/frame-layout.ts):
+  ambient frames settle into a surface→substrate slice (sources high, sinks low)
+  via a new `forceY(yTarget(sink))` on the existing d3-force base (pair-link
+  clustering, charge, collide/AABB tail unchanged). The position is **measured**,
+  not categorical — each frame's target `y` comes from its sink ratio
+  `fanIn/(fanIn+fanOut)` (the same flow signal the classifier uses), with a
+  per-layer `NOMINAL_SINK` fallback only for flowless frames. The layout module
+  stays layer-agnostic (it receives a plain `sink` number); `frame-map.ts`
+  computes the effective sink and reads the flag. Gated behind
+  `CORTEX_LAYER_LAYOUT`, **default off** (inert — positions byte-identical when
+  off, golden-tested; `forceCenter` is swapped for a horizontal-only `forceX`
+  only when stratifying). `eval-layers` gained a Spearman(y, sink) stratification
+  metric for the observe pass. Decision `D-marq`; relates to `D-wvsz` / `D-g4qb`.
+  [Design](docs/superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md).
+  Floating-entity placement (replacing the fixed bottom strip; subsuming the
+  `D-xwxj` governed-frame promotion) is a separate follow-on slice.
+
 ## [0.3.20] — 2026-06-15
 
 ### Changed
@@ -560,6 +582,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.21]: https://github.com/ruevu/cortex/releases/tag/v0.3.21
 [0.3.20]: https://github.com/ruevu/cortex/releases/tag/v0.3.20
 [0.3.19]: https://github.com/ruevu/cortex/releases/tag/v0.3.19
 [0.3.18]: https://github.com/ruevu/cortex/releases/tag/v0.3.18
