@@ -81,6 +81,10 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
+  // Permits the viewer's Geist / Geist Mono web fonts (fonts.googleapis.com CSS +
+  // fonts.gstatic.com files) while keeping script-src locked to 'self' (the real
+  // XSS protection). Without the font allowances the viewer falls back to system
+  // fonts — a visible regression caught in Gate 0 visual QA.
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'",
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'",
 };
