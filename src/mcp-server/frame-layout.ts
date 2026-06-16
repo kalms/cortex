@@ -32,8 +32,10 @@ export interface LayoutInputFrame {
   frame_label: string;
   member_count: number;
   /** Effective sink ratio in [0,1] (surface 0 → substrate 1). When present on
-   *  ANY frame, the vertical stratification force is applied; omitted (default)
-   *  → layout takes the exact pre-slice forceCenter path (byte-identical). */
+   *  ANY frame, the vertical stratification force is applied; omitted on EVERY
+   *  frame (default) → layout takes the exact pre-slice forceCenter path
+   *  (byte-identical). In a stratified layout, a frame that omits `sink` is
+   *  assigned 0.5 (band midpoint). */
   sink?: number;
 }
 
@@ -70,8 +72,14 @@ const RELAX_ITERATIONS = 120;
 const TOP_Y = STAGE_H * 0.14;     // 112
 const BOTTOM_Y = STAGE_H * 0.86;  // 688
 /** forceY pull strength — stratifies vertically while the pair-link force still
- *  groups connected frames horizontally. */
+ *  groups connected frames horizontally. Weak enough that the link spring can
+ *  override it for strongly-connected co-layer frames; strong enough to produce
+ *  visible stratification within the fixed 300 ticks. */
 const STRENGTH_Y = 0.18;
+/** Horizontal recentre strength (stratify path only) — replaces forceCenter's
+ *  vertical pull; weak so it nudges the cloud to mid-stage on x without
+ *  clustering unlinked frames. */
+const STRENGTH_X = 0.05;
 
 /** Target y for a frame from its sink ratio (clamped to [0,1]). */
 function yTargetFor(sink: number): number {
@@ -160,7 +168,7 @@ export function layoutFrames(
     // Vertical axis owned by the sink force; centering becomes horizontal-only so
     // forceCenter's mean-recentering doesn't fight the vertical distribution.
     sim
-      .force("x", forceX<SimNode>(STAGE_W / 2).strength(0.05))
+      .force("x", forceX<SimNode>(STAGE_W / 2).strength(STRENGTH_X))
       .force("y", forceY<SimNode>((d) => yTargetFor(d.sink)).strength(STRENGTH_Y));
   } else {
     sim.force("center", forceCenter(STAGE_W / 2, STAGE_H / 2));
