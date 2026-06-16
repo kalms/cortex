@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE } from "../../src/mcp-server/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames } from "../../src/mcp-server/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -56,5 +56,34 @@ describe("marginSlot", () => {
     expect(marginSlot(1, 3, SATELLITE_SIZE)).toEqual({ x: 500, y: 772 });
     expect(marginSlot(2, 3, SATELLITE_SIZE)).toEqual({ x: 900, y: 772 });
     expect(marginSlot(0, 1, SATELLITE_SIZE)).toEqual({ x: 500, y: 772 }); // total<=1 → centered
+  });
+});
+
+describe("placeNonAmbientFrames", () => {
+  const ambientBoxes = [
+    { id: 1, x: 200, y: 300, w: 120, h: 120 },
+    { id: 2, x: 800, y: 300, w: 120, h: 120 },
+  ];
+  const ambientPositions = ambientBoxes.map((b) => ({ id: b.id, x: b.x, y: b.y }));
+
+  it("centroids a non-ambient frame toward its ambient partners by pair weight", () => {
+    const pairs = [{ a: 1, b: 9, weight: 3 }, { a: 2, b: 9, weight: 1 }];
+    const out = placeNonAmbientFrames([{ frame_id: 9 }], pairs, ambientPositions, ambientBoxes);
+    const p = out.get(9)!;
+    expect(p.x).toBe(350);
+    expect(p.y).toBe(300);
+  });
+
+  it("sends a frame with no ambient partner to a margin slot", () => {
+    const out = placeNonAmbientFrames([{ frame_id: 9 }], [{ a: 7, b: 9, weight: 5 }], ambientPositions, ambientBoxes);
+    // marginSlot → y=MARGIN_Y(=800-28=772), then repelFromBoxes clamps to STAGE_H - half(=800-42=758)
+    expect(out.get(9)!.y).toBe(800 - 42);
+  });
+
+  it("is deterministic across runs", () => {
+    const pairs = [{ a: 1, b: 9, weight: 2 }];
+    const a = placeNonAmbientFrames([{ frame_id: 9 }], pairs, ambientPositions, ambientBoxes);
+    const b = placeNonAmbientFrames([{ frame_id: 9 }], pairs, ambientPositions, ambientBoxes);
+    expect([...a]).toEqual([...b]);
   });
 });

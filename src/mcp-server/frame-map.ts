@@ -22,6 +22,7 @@ import { rollupFramePairs } from "./frame-pair-rollup.js";
 import { rollupFrameFlows } from "./frame-flow-rollup.js";
 import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-extraction/frame-kind.js";
 import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
+import { placeNonAmbientFrames, SATELLITE_SIZE } from "./floating-placement.js";
 
 /** Per-layer nominal sink for the layout's vertical force, used ONLY for frames
  *  with no measured inter-frame flow (the categorical fallback). Surface→substrate
@@ -184,19 +185,31 @@ export function buildFrameMap(
   );
   const posById = new Map(positioned.map((p) => [p.id, p]));
 
+  // Floating placement (layout slice part 2): position the NON-ambient frames at
+  // the pair-weighted centroid of the ambient frames they connect to, so they
+  // drift near related content instead of an arbitrary strip. Ambient positions
+  // (above) are untouched — byte-identical to the pre-slice output.
+  const ambientPositions = positioned.map((p) => ({ id: p.id, x: p.x, y: p.y }));
+  const ambientBoxes = positioned.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h }));
+  const nonAmbient = ranked.filter((r) => !ambientIds.has(r.frame_id)).map((r) => ({ frame_id: r.frame_id }));
+  const floatPos = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+
   const frames: FrameMapEntry[] = ranked.map((r) => {
     const p = posById.get(r.frame_id);
+    if (p) {
+      return {
+        id: r.frame_id, name: r.frame_label, count: r.member_count,
+        x: p.x, y: p.y, w: p.w, h: p.h,
+        ambient: true, rank: r.rank, score: r.score,
+        layer: layerById.get(r.frame_id) ?? "domain",
+      };
+    }
+    const fp = floatPos.get(r.frame_id) ?? null;
     return {
-      id: r.frame_id,
-      name: r.frame_label,
-      count: r.member_count,
-      x: p ? p.x : null,
-      y: p ? p.y : null,
-      w: p ? p.w : null,
-      h: p ? p.h : null,
-      ambient: ambientIds.has(r.frame_id),
-      rank: r.rank,
-      score: r.score,
+      id: r.frame_id, name: r.frame_label, count: r.member_count,
+      x: fp ? fp.x : null, y: fp ? fp.y : null,
+      w: fp ? SATELLITE_SIZE : null, h: fp ? SATELLITE_SIZE : null,
+      ambient: false, rank: r.rank, score: r.score,
       layer: layerById.get(r.frame_id) ?? "domain",
     };
   });
