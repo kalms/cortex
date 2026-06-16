@@ -383,14 +383,37 @@ endpoints), fail-closed response validation (rejected — runtime fragility).
 `governs`: `src/mcp-server/api-schemas.ts`, `api.ts::startViewerServer`,
 `docs/api/`.
 
-## 13. Rollout
+## 13. Rollout & release sequencing
 
 A code release: bump `package.json` / `plugin.json` /
 `.claude-plugin/marketplace.json` + CHANGELOG entry, merged via PR with the CI
 gate, per workflow.md. Gate 0 (visual QA) + Gate 1 (review) + Gate 2 (QA) apply.
+**Version: minor — `0.4.0`** (confirmed: a new backward-compatible capability).
 
-**Version bump size — confirm at merge.** workflow.md defaults to a **patch**
-bump unless the user states otherwise. This is a substantial, backward-compatible
-new capability (new endpoints + contract), so a **minor** (`0.3.x` → `0.4.0`) is
-the better semantic fit — but per the default rule it stays a patch unless you
-say minor. Decide at merge time.
+### Hard prerequisite — floating-entity (0.3.23) lands first
+
+P6 is branched off `main` at **0.3.22**. The `feature/layout/floating-entity-placement`
+branch sits unmerged at **0.3.23** (pushed to origin, 12 commits ahead, no PR
+yet) and it **modifies files P6 refactors**:
+
+- `src/mcp-server/api.ts` — the `/api/aggregates` handler (`feat(api): serve
+  aggregates at their gravity-centroid positions`).
+- `src/mcp-server/frame-map.ts` — consumed by `/api/frames`.
+- adds `aggregate-positioning.ts`, `aggregate-ties.ts`, `floating-placement.ts`.
+
+So the order is not just version cosmetics — building P6's `api.ts` refactor on a
+pre-0.3.23 base would conflict. **Sequence:**
+
+1. Land `feature/layout/floating-entity-placement` to `main` as its own **0.3.23**
+   release (its bump commit already exists; open its PR, pass the CI gate, merge).
+2. **Rebase** the P6 branch onto the new `main` so it includes 0.3.23 (notably the
+   updated `/api/aggregates` handler + `frame-map.ts`), and the refactor builds on
+   top of them.
+3. Implement P6 and release as **`0.3.23` → `0.4.0`** via PR + CI gate.
+
+The floating-entity merge + rebase is a **release-time** gate, not a plan-time
+one. The implementation plan is authored **now against current `main` (0.3.22)**;
+its `api.ts` / `frame-map.ts` / `/api/aggregates` touch-points are explicitly
+flagged to **reconcile against floating-entity's changes at rebase time**, before
+the `0.4.0` bump. P6 implementation can proceed in parallel — only the release is
+gated on floating-entity landing first.
