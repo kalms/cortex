@@ -16,15 +16,9 @@
  * edge generator with real connectivity.
  */
 import type { NodeRow, EdgeRow } from "../graph/store.js";
+import type { FileEdge } from "./api-schemas.js";
 
-export interface FileEdge {
-  /** Lexically smaller of the two file paths. */
-  from_path: string;
-  /** Lexically larger of the two file paths. */
-  to_path: string;
-  /** Number of underlying entity-level edges between these files. */
-  weight: number;
-}
+export type { FileEdge } from "./api-schemas.js";
 
 export interface BuildFileEdgesOptions {
   /** Edge relations to include. Default `["CALLS"]` — the most semantically
