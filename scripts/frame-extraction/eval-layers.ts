@@ -52,6 +52,36 @@ interface RepoRow {
   midbandFrames?: FrameRow[];
   entered?: string[]; left?: string[]; ambientOff?: Record<string, number>; ambientOn?: Record<string, number>;
   divEntered?: string[]; divLeft?: string[]; divAmbientOff?: Record<string, number>; divAmbientOn?: Record<string, number>;
+  layoutSpearman?: number;
+}
+
+/** Spearman rank correlation between two equal-length numeric series. Returns 0
+ *  for n < 2. Pure; ties get average ranks. */
+function spearman(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  if (n < 2 || ys.length !== n) return 0;
+  const rank = (v: number[]): number[] => {
+    const idx = v.map((val, i) => [val, i] as const).sort((a, b) => a[0] - b[0]);
+    const r = new Array(n).fill(0);
+    let i = 0;
+    while (i < n) {
+      let j = i;
+      while (j + 1 < n && idx[j + 1][0] === idx[i][0]) j++;
+      const avg = (i + j) / 2 + 1; // average rank (1-based)
+      for (let k = i; k <= j; k++) r[idx[k][1]] = avg;
+      i = j + 1;
+    }
+    return r;
+  };
+  const rx = rank(xs), ry = rank(ys);
+  const mean = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
+  const mx = mean(rx), my = mean(ry);
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = rx[i] - mx, ay = ry[i] - my;
+    num += ax * ay; dx += ax * ax; dy += ay * ay;
+  }
+  return dx === 0 || dy === 0 ? 0 : num / Math.sqrt(dx * dy);
 }
 
 function runtimeFracOf(paths: string[]): number {
@@ -143,7 +173,21 @@ function evalRepo(repo: RepoSpec): RepoRow {
     };
     const divAmbientOff = divDist(divOffAmbient), divAmbientOn = divDist(divOnAmbient);
 
-    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames, entered, left, ambientOff, ambientOn, divEntered, divLeft, divAmbientOff, divAmbientOn };
+    // Layout off-vs-on: Spearman(y, sink) of the ambient set with the vertical
+    // force ON. A strong positive value = frames stratify by surface→substrate.
+    const layoutOn = buildFrameMap(nodes, edges, { applyLayout: true });
+    const sinkOf = (id: number) => {
+      const s = statsById.get(id);
+      const flow = (s?.fanIn ?? 0) + (s?.fanOut ?? 0);
+      return flow > 0 ? s!.fanIn / flow : 0.5;
+    };
+    const ambientOnLayout = layoutOn.frames.filter((f) => f.ambient && f.y != null);
+    const layoutSpearman = spearman(
+      ambientOnLayout.map((f) => f.y as number),
+      ambientOnLayout.map((f) => sinkOf(f.id)),
+    );
+
+    return { ...base, ok: true, project, frames: inputs.length, dist, earnedDomain, fallbackDomain, midbandFrames, entered, left, ambientOff, ambientOn, divEntered, divLeft, divAmbientOff, divAmbientOn, layoutSpearman };
   } catch (err) {
     return { ...base, error: err instanceof Error ? err.message : String(err) };
   }
@@ -171,6 +215,7 @@ function main() {
     console.log(`[eval-layers]   ✓ frames=${row.frames} dist=${JSON.stringify(row.dist)} domain(earned/fallback)=${earned}/${fb}`);
     console.log(`[eval-layers]   ambient Δ: +[${(row.entered ?? []).join(", ")}] -[${(row.left ?? []).join(", ")}]  off=${JSON.stringify(row.ambientOff ?? {})} on=${JSON.stringify(row.ambientOn ?? {})}`);
     console.log(`[eval-layers]   diversity Δ: +[${(row.divEntered ?? []).join(", ")}] -[${(row.divLeft ?? []).join(", ")}]  off=${JSON.stringify(row.divAmbientOff ?? {})} on=${JSON.stringify(row.divAmbientOn ?? {})}`);
+    console.log(`[eval-layers]   layout: Spearman(y, sink) on = ${(row.layoutSpearman ?? 0).toFixed(3)} (→1 = clean surface→substrate stratification)`);
     const nearMiss = (row.midbandFrames ?? []).filter((f) => f.layer === "domain" && f.fallback && f.runtimeFrac >= 0.6);
     if (nearMiss.length) console.log(`[eval-layers]     near-miss (mid-band fallback, runtimeFrac≥0.6): ${nearMiss.map((f) => `${f.label}(${f.runtimeFrac.toFixed(2)})`).join(", ")}`);
   }
