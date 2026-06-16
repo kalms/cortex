@@ -406,3 +406,19 @@ iteration to keep the diff focused.
   `groupAuxiliaryPaths(src/frame-extraction/auxiliary-detection.ts)` — one
   entry per auxiliary segment (e.g. `locales`, `vendored`,
   `__snapshots__`) with the list of contained file ids.
+
+### HTTP API contract (v1)
+
+As of contract v1 the `/api/*` surface above is a **versioned, Zod-enforced,
+hardened contract**, not a set of hand-built `JSON.stringify` responses. One Zod
+schema per response in `src/mcp-server/api-schemas.ts` is the single source of
+truth: it validates at runtime, derives the TS types via `z.infer`, and
+*generates* the JSON Schema docs under `docs/api/`. Every response goes through
+the `respond()` chokepoint, which stamps `version` + freshness + `ETag`, honors
+`If-None-Match` → `304`, and validates the payload; a middleware chain
+(loopback-default bind, method gate, opt-in bearer auth, CORS allowlist,
+traversal guard, security headers) hardens the surface, all inert by default for
+local single-user use. See
+[http-api-contract.md](http-api-contract.md) for the full model and the
+"add an endpoint" maintenance workflow, and
+[docs/api/README.md](../api/README.md) for the consumer reference.
