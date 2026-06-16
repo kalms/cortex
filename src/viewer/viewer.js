@@ -128,13 +128,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     FRAME_PATH_INDEX = buildFramePathIndex(summaries);
     updateFramesWarning(graph.nodes);
 
-    // 2. Consume server-computed force-directed positions. Only ambient frames
-    //    are positioned + rendered on the first map; the rest stay reachable
-    //    via search. Positions are integer px in a fixed virtual stage; the
-    //    viewer normalizes by the stage dims the server reports.
+    // 2. Consume server-computed force-directed positions. All positioned frames
+    //    (ambient + non-ambient) are rendered; non-ambient ones are tagged
+    //    deemphasized so drawFrames can reduce their visual prominence.
+    //    Positions are integer px in a fixed virtual stage; the viewer normalizes
+    //    by the stage dims the server reports.
     const stage = frameMap.stage || { w: 1000, h: 800 };
     FRAMES = (frameMap.frames || [])
-      .filter((f) => f.ambient && f.x !== null && f.y !== null)
+      .filter((f) => f.x !== null && f.y !== null)
       .map((f) => ({
         id: String(f.id),
         name: f.name,
@@ -144,6 +145,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         h: f.h,
         count: f.count,
         layer: f.layer,
+        deemphasized: !f.ambient,
       }));
 
     // 4. NODE_CFG.count = how many file basenames to show per frame (cap at
@@ -388,7 +390,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // toolbar.
   const EDGE_MARGIN = 40;
   const LABEL_HEADROOM = 16;
-  const BOTTOM_MARGIN = 50; // room for the aggregate strip
+  const BOTTOM_MARGIN = EDGE_MARGIN;
 
   function framePxBase(frame) {
     const stageW = canvas.clientWidth;
@@ -1007,6 +1009,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     FRAMES.forEach(frame => {
       const f = framePx(frame);
       const isFocused = frame.id === sharpFrameId;
+      // Satellite (non-ambient) frames are drawn at half prominence so they
+      // don't compete visually with the ambient frames that anchor the layout.
+      const alphaMul = frame.deemphasized ? 0.5 : 1;
 
       let dimLevel = 0;
       if (hasFocus && !isFocused) {
@@ -1037,7 +1042,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
 
       const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
-      const fillAlpha = baseFillAlpha + hoverLevel * 0.18;
+      const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
       const ff = frameFillRGB();
       const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
       if (lc) {
@@ -1052,7 +1057,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const focusBoost = isFocused ? 0.12 : 0;
       const hoverBorderBoost = hoverLevel * 0.2;
       const borderAlphaMult = isLight() ? 3.0 : 1;
-      const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult;
+      const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
 
       const fb = frameBorderRGB();
       if (lc) {
@@ -1065,7 +1070,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.stroke();
 
       const isLabelHovered = hoveredLabelFrameId === frame.id;
-      const labelAlpha = 0.5 * (1 - dimLevel * 0.55);
+      const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
       const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
       const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
       const primaryY = -f.h / 2 - 7;
@@ -1079,10 +1084,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const countW = ctx.measureText(countText).width;
       if (isLabelHovered) {
         const pl = primaryLabelRGB();
-        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, 0.95)`;
+        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${0.95 * alphaMul})`;
       } else {
         const ci = countIdleRGB();
-        ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55)})`;
+        ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55) * alphaMul})`;
       }
       ctx.fillText(countText, f.w / 2, primaryY);
 
@@ -1523,27 +1528,25 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   /**
-   * Draw auxiliary aggregates as bare dots in a bottom strip — spec
-   * §"Two content streams": each aggregate is a peer entity to frames,
-   * one dot with a count badge. Dots scale by sqrt(count).
+   * Draw auxiliary aggregates at their server-provided positions.
+   * Each aggregate is a dot scaled by sqrt(count), with a label and count badge.
    */
   function drawAggregates(now) {
     if (!AGGREGATES || AGGREGATES.length === 0) return;
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
-    const stripTop = stageH - 90;
-    const slotW = stageW / Math.max(AGGREGATES.length, 1);
+    const STAGE = { w: 1000, h: 800 }; // server virtual stage (matches frameMap.stage)
     let maxCount = 1;
-    for (const a of AGGREGATES) {
-      if (a.member_count > maxCount) maxCount = a.member_count;
-    }
+    for (const a of AGGREGATES) if (a.member_count > maxCount) maxCount = a.member_count;
 
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      const cx = slotW * (i + 0.5);
-      const cy = stripTop + 28;
       const dotR = 5 + 10 * Math.sqrt(agg.member_count / maxCount);
+      const nx = typeof agg.x === "number" ? agg.x / STAGE.w : (i + 0.5) / Math.max(AGGREGATES.length, 1);
+      const ny = typeof agg.y === "number" ? agg.y / STAGE.h : 0.96;
+      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, nx * stageW));
+      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, ny * stageH));
 
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
@@ -1559,8 +1562,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.font = '10px "Geist Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const labelMax = slotW - 6;
-      ctx.fillText(truncateMiddle(ctx, agg.label, labelMax), cx, cy + dotR + 6);
+      ctx.fillText(truncateMiddle(ctx, agg.label, 120), cx, cy + dotR + 6);
 
       const countRgb = countIdleRGB();
       ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;

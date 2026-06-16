@@ -214,6 +214,46 @@ describe("layer-diversity gating", () => {
   });
 });
 
+describe("floating non-ambient frame placement", () => {
+  // Need ≥6 frames so ambientBudget(6)=5 leaves ≥1 non-ambient.
+  // Use frame ids 0..5; frames 0-4 get multiple members (score well → ambient);
+  // frame 5 gets a single generic member (scores low → non-ambient).
+  const floatNodes: NodeRow[] = [
+    fileNode("ff1", "src/cli/run.ts", 0, "cli"),
+    fileNode("ff2", "src/cli/args.ts", 0, "cli"),
+    symNode("fs1", "src/cli/run.ts"),
+    fileNode("ff3", "src/events/log.ts", 1, "events"),
+    symNode("fs2", "src/events/log.ts"),
+    fileNode("ff4", "src/store/db.ts", 2, "store"),
+    fileNode("ff5", "src/store/query.ts", 2, "store"),
+    symNode("fs3", "src/store/db.ts"),
+    fileNode("ff6", "src/api/server.ts", 3, "api"),
+    fileNode("ff7", "src/api/routes.ts", 3, "api"),
+    symNode("fs4", "src/api/server.ts"),
+    fileNode("ff8", "src/util/helpers.ts", 4, "util"),
+    fileNode("ff9", "src/util/format.ts", 4, "util"),
+    symNode("fs5", "src/util/helpers.ts"),
+    // frame 5: single member, opaque label → low score → non-ambient
+    fileNode("ff10", "src/cluster5/x.ts", 5, "cluster:5"),
+  ];
+  const floatEdges: EdgeRow[] = [
+    edge("fs1", "fs2", "CALLS"),
+    edge("fs3", "fs4", "CALLS"),
+  ];
+
+  it("keeps ambient positions and now positions non-ambient frames at satellite size", () => {
+    const map = buildFrameMap(floatNodes, floatEdges);
+    const nonAmbient = map.frames.filter((f) => !f.ambient);
+    expect(nonAmbient.length).toBeGreaterThan(0); // fixture must produce ≥1 non-ambient frame
+    for (const f of nonAmbient) {
+      expect(f.x).not.toBeNull();
+      expect(f.y).not.toBeNull();
+      expect(f.w).toBe(84);
+      expect(f.h).toBe(84);
+    }
+  });
+});
+
 describe("layer-layout gating + stratification", () => {
   it("default ON: no opts (env unset) matches explicit applyLayout:true", () => {
     const prev = process.env.CORTEX_LAYER_LAYOUT;

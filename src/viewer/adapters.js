@@ -132,14 +132,15 @@ export function withGovernedFramesRendered(ambientFrames, frameGovernance, frame
     return {
       id: String(id),
       name: m.name || `frame ${id}`,
-      // Reserved top strip, evenly spread; renderer clamps to keep on-screen.
-      x: n === 1 ? 0.5 : 0.1 + (0.8 * i) / (n - 1),
-      y: 0.07,
+      // Bottom-right margin band; renderer clamps to keep on-screen.
+      x: n === 1 ? 0.9 : 0.1 + (0.8 * i) / (n - 1),
+      y: 0.93,
       w: m.w || PROMOTED_FRAME_W,
       h: m.h || PROMOTED_FRAME_H,
       count: m.count || 0,
       layer: m.layer,
       promotedForGovernance: true,
+      deemphasized: true,
     };
   });
   return [...ambientFrames, ...promoted];

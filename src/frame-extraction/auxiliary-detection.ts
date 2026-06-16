@@ -66,6 +66,10 @@ export interface Aggregate {
   /** First 5 paths from the input (insertion order). Used for drill-in
    *  previews on hover or in a drawer surface. */
   sample_paths: string[];
+  /** Integer virtual-stage px (center), set by the server's floating placement.
+   *  Absent on the raw grouping output; populated by /api/aggregates. */
+  x?: number;
+  y?: number;
 }
 
 /** Group an arbitrary list of paths into aggregates by their auxiliary

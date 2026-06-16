@@ -19,7 +19,7 @@ import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./a
 import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "./frame-map.js";
 import { STAGE_W, STAGE_H } from "./frame-layout.js";
-import { groupAuxiliaryPaths } from "../frame-extraction/auxiliary-detection.js";
+import { positionAggregates } from "./aggregate-positioning.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -306,11 +306,9 @@ export function startViewerServer(
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
-          const paths: string[] = [];
-          for (const n of nodes) {
-            if (n.kind === "file" && n.file_path) paths.push(n.file_path);
-          }
-          const aggregates = groupAuxiliaryPaths(paths);
+          const edges = resolved ? resolved.store.getAllEdgesUnified(project ?? undefined) : [];
+          const frameMap = buildFrameMap(nodes, edges);
+          const aggregates = positionAggregates(nodes, edges, frameMap);
           res.writeHead(200, {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",

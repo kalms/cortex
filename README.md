@@ -204,7 +204,7 @@ The viewer at `/viewer` renders the codebase as semantic *frames* — clusters o
 - **Frames** come from cluster output (`data.frame_id` / `data.frame_label` on file nodes, written by `scripts/frame-extraction/inject-frames.ts`).
 - **Decisions** come from `.cortex/decisions.db` via `/api/decisions`, surfaced as governance pills attached to the focused frame.
 - **Edges** are real CALLS edges from the indexer, filtered to intra- and inter-frame pairs.
-- **Aggregates** (auxiliary content like `locales/`, `vendored/`, `__snapshots__/`) are rendered as bare dots in a bottom strip — present but visually de-emphasised.
+- **Aggregates** (auxiliary content like `locales/`, `vendored/`, `__snapshots__/`) are positioned server-side at a gravity centroid near the frames they relate to (edge→path→margin tie cascade) and rendered as bare dots — present but visually de-emphasised.
 - **Project switcher** in the toolbar reads `/api/projects` and re-fetches `/api/graph?project=<name>` on change.
 
 Pure modules (`adapters.js`, `layout.js`, `data-fetch.js`) are unit-tested in vitest. The render loop in `viewer.js` is hand-verified against the running dev server.
