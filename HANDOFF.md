@@ -80,7 +80,14 @@ aggregate anchors viewer-side from the already-fetched `/api/frames` positions;
 (b) the aggregate path-tie matches only top-level aux dirs (host = parent-of-aux
 vs frame top-level rep-dir), so a nested aux path like `src/components/locales/`
 conservatively drops to the margin — deepen the ancestry match if nested layouts
-need it.
+need it. **0.3.24** fixed a P0 from this slice: floating frames/aggregates were
+overlapping each other + ambient frames (per-satellite repulsion ignored other
+satellites); placement now uses `separateMovables` (deterministic greedy
+free-slot) so frames never stack. **Remaining fast-follows:** (c) aggregate dots
+and non-ambient frames are placed in *separate* endpoints, so a dot can still
+overlap a satellite frame across the two passes — unify the placement (relates to
+fast-follow (a)) to close it; (d) a pre-existing ~1px ambient/ambient corner clip
+from `layoutFrames`' bounded AABB tail (independent of floating placement).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.

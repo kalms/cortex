@@ -324,8 +324,11 @@ the **enable slices** have since wired the layer into ranking:
   **edge → path → margin** tie cascade
   ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts): CALLS/USAGE/IMPORTS
   edges to frames, else shared directory ancestry, else a de-emphasized margin
-  slot). `repelFromBoxes` keeps a satellite from landing inside an unrelated
-  frame. Positions are emitted in `/api/frames` (non-ambient frames) and
+  slot). `separateMovables` then guarantees **no satellite overlaps an ambient
+  frame or another satellite** (0.3.24): a deterministic greedy free-slot placer —
+  each satellite keeps its seed if free, else takes the nearest unoccupied spot
+  found by scanning outward in integer grid rings (no trig → cross-platform
+  deterministic). Positions are emitted in `/api/frames` (non-ambient frames) and
   `/api/aggregates` (via `aggregate-positioning.ts`); the viewer renders
   satellites de-emphasized **and the two fixed strips are gone**. Governance
   *selection* stays client-side (the viewer picks which non-ambient frames to
