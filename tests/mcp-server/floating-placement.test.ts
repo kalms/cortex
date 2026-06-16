@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames } from "../../src/mcp-server/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables } from "../../src/mcp-server/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -106,13 +106,20 @@ describe("placeAggregates", () => {
     expect(out.get("aux:locales:locales")!.x).toBe(350); // (200*3 + 800*1)/4
   });
 
-  it("falls back to path tie when there are no edges", () => {
+  it("falls back to path tie — placed near the host frame, not the margin", () => {
     const aggDirs = new Map([["aux:locales:locales", "app"]]);
     const out = placeAggregates(
       [{ id: "aux:locales:locales", member_count: 2 }],
       new Map(), aggDirs, frameRepDirsMap, ambientPositions, ambientBoxes,
     );
-    expect(out.get("aux:locales:locales")!.x).toBe(200); // frame 1 (repDir "app")
+    const p = out.get("aux:locales:locales")!;
+    // Path-tied to frame 1 (200,300) — its centroid IS frame 1's center, so the
+    // dot is displaced to the nearest free slot: not the bottom margin, not
+    // overlapping frame 1's box, and close to it.
+    expect(p.y).not.toBe(800 - 28);
+    const dx = Math.abs(p.x - 200), dy = Math.abs(p.y - 300);
+    expect(dx >= (120 + 16) / 2 || dy >= (120 + 16) / 2).toBe(true); // 16 = AGG dot size
+    expect(Math.hypot(p.x - 200, p.y - 300)).toBeLessThan(200);
   });
 
   it("falls back to a margin slot when neither edge nor path ties resolve", () => {
@@ -144,5 +151,78 @@ describe("placeAggregates", () => {
     const a = placeAggregates(...args);
     const b = placeAggregates(...args);
     expect([...a]).toEqual([...b]);
+  });
+});
+
+describe("placeNonAmbientFrames — non-overlap invariant", () => {
+  // 3 ambient frames; 6 non-ambient frames ALL pairing with the same ambient
+  // frame (id 1) → identical centroid before the fix → they used to stack.
+  const ambientPositions = [
+    { id: 1, x: 500, y: 400 },
+    { id: 2, x: 180, y: 180 },
+    { id: 3, x: 820, y: 620 },
+  ];
+  const ambientBoxes = ambientPositions.map((p) => ({ ...p, w: 120, h: 120 }));
+  const nonAmbient = [7, 8, 9, 10, 11, 12].map((frame_id) => ({ frame_id }));
+  const pairs = nonAmbient.map((f) => ({ a: 1, b: f.frame_id, weight: 1 }));
+
+  it("produces no two satellite frames directly on top of each other", () => {
+    const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    const sats = [...out.values()];
+    for (let i = 0; i < sats.length; i++) {
+      for (let j = i + 1; j < sats.length; j++) {
+        const dx = Math.abs(sats[i].x - sats[j].x);
+        const dy = Math.abs(sats[i].y - sats[j].y);
+        // two 84px square frames don't overlap iff separated ≥84 on either axis
+        expect(dx >= SATELLITE_SIZE || dy >= SATELLITE_SIZE).toBe(true);
+      }
+    }
+  });
+
+  it("places no satellite frame on top of an ambient frame", () => {
+    const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    for (const s of out.values()) {
+      for (const b of ambientBoxes) {
+        const dx = Math.abs(s.x - b.x);
+        const dy = Math.abs(s.y - b.y);
+        const minX = (SATELLITE_SIZE + b.w) / 2;
+        const minY = (SATELLITE_SIZE + b.h) / 2;
+        expect(dx >= minX || dy >= minY).toBe(true);
+      }
+    }
+  });
+
+  it("stays deterministic across runs", () => {
+    const a = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    const b = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    expect([...a]).toEqual([...b]);
+  });
+});
+
+describe("placeAggregates — no two aggregate dots stack", () => {
+  it("separates two aggregates tied to the same single frame", () => {
+    const ambientPositions = [{ id: 1, x: 200, y: 300 }];
+    const ambientBoxes = [{ id: 1, x: 200, y: 300, w: 120, h: 120 }];
+    const edgeTies = new Map([
+      ["aux:a:a", new Map([[1, 1]])],
+      ["aux:b:b", new Map([[1, 1]])],
+    ]); // both seed at frame 1's center → must not coincide after placement
+    const out = placeAggregates(
+      [{ id: "aux:a:a", member_count: 1 }, { id: "aux:b:b", member_count: 1 }],
+      edgeTies, new Map(), new Map([[1, "app"]]), ambientPositions, ambientBoxes,
+    );
+    const a = out.get("aux:a:a")!, b = out.get("aux:b:b")!;
+    const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+    expect(dx >= 16 || dy >= 16).toBe(true); // two 16px dots don't overlap
+  });
+});
+
+describe("separateMovables — saturated stage", () => {
+  it("returns an on-stage integer position without throwing when no slot is free", () => {
+    const fixed = [{ x: 500, y: 400, w: 1000, h: 800 }]; // covers the entire stage
+    const out = separateMovables([{ id: "x", x: 500, y: 400, size: 84 }], fixed);
+    const m = out[0]!;
+    expect(Number.isInteger(m.x) && Number.isInteger(m.y)).toBe(true);
+    expect(m.x >= 42 && m.x <= 958 && m.y >= 42 && m.y <= 758).toBe(true); // clamped on-stage
   });
 });

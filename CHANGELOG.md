@@ -4,6 +4,28 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.24] — 2026-06-16
+
+### Fixed
+
+- **Floating frames/aggregates no longer overlap each other or ambient frames.**
+  0.3.23 positioned each satellite independently (`repelFromBoxes` against ambient
+  boxes only), so co-anchored satellites resolved to the same centroid and
+  **stacked** — and pushing one off an ambient frame could drop it onto another.
+  Placement now runs through `separateMovables` in
+  [`src/mcp-server/floating-placement.ts`](src/mcp-server/floating-placement.ts):
+  a deterministic **greedy free-slot** placer that keeps a satellite's seed if
+  free, else takes the nearest unoccupied spot found by scanning outward in
+  expanding integer grid rings (no trig → cross-platform deterministic), treating
+  ambient frames **and already-placed satellites** as occupied. The "frames never
+  sit on top of each other" invariant now holds by construction whenever the
+  stage has room (a force-relaxation approach was tried first and rejected — it
+  deadlocked in dense ambient clusters). New tests assert zero satellite/ambient
+  and satellite/satellite overlap, plus determinism and the saturated-stage
+  fallback. (Known follow-up: aggregate dots and non-ambient frames are placed in
+  separate endpoints, so a dot can still land on a satellite frame — a dot can
+  overlap a box across the two passes; not addressed here.)
+
 ## [0.3.23] — 2026-06-16
 
 ### Added
@@ -634,6 +656,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.24]: https://github.com/ruevu/cortex/releases/tag/v0.3.24
 [0.3.23]: https://github.com/ruevu/cortex/releases/tag/v0.3.23
 [0.3.22]: https://github.com/ruevu/cortex/releases/tag/v0.3.22
 [0.3.21]: https://github.com/ruevu/cortex/releases/tag/v0.3.21
