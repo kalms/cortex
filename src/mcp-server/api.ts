@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
-import { listProjects, listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
+import { listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
 import { Registry } from "../db/registry.js";
 import { migrateCacheToRegistry, importLegacyRegistry } from "../db/registry-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
@@ -20,6 +20,17 @@ import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "./frame-map.js";
 import { STAGE_W, STAGE_H } from "./frame-layout.js";
 import { positionAggregates } from "./aggregate-positioning.js";
+import { respond, respondError } from "./api-respond.js";
+import { httpFreshnessFor } from "./api-freshness.js";
+import {
+  resolveBindHost, methodAllowed, corsHeadersFor, checkAuth, safeStaticPath, SECURITY_HEADERS, urlTooLong,
+} from "./api-middleware.js";
+import {
+  CONTRACT_VERSION, GraphResponseSchema, ProjectsResponseSchema, FramesResponseSchema,
+  FileEdgesResponseSchema, AggregatesResponseSchema, DecisionsResponseSchema,
+  DecisionDetailResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
+  ProjectParamSchema, DecisionIdParamSchema,
+} from "./api-schemas.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -173,92 +184,94 @@ export function startViewerServer(
 
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
+      const parsed = new NodeURL(url, "http://localhost");
+      const pathname = parsed.pathname;
+      const origin = req.headers["origin"] as string | undefined;
+      const cors = corsHeadersFor(origin, process.env);
 
-      if (url.startsWith("/api/graph")) {
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
+      // Oversized request-target guard (cheap DoS/abuse limit, spec §4 row 7).
+      if (urlTooLong(req.url)) { respondError(res, 414, "request-target too long", cors); return; }
+
+      // CORS preflight (only answered for allowlisted origins; cors is {} otherwise).
+      if (req.method === "OPTIONS") {
+        if (Object.keys(cors).length > 0) { res.writeHead(204, cors); res.end(); }
+        else respondError(res, 405, "method not allowed");
+        return;
+      }
+      // Method gate.
+      if (!methodAllowed(req.method)) { respondError(res, 405, "method not allowed", cors); return; }
+      // Auth (API paths only; static viewer is public).
+      if (pathname.startsWith("/api/") && !checkAuth(pathname, req.headers["authorization"], process.env)) {
+        respondError(res, 401, "unauthorized", cors);
+        return;
+      }
+
+      // Validate the shared `project` query param once (fail-closed 400).
+      const projectParamRaw = parsed.searchParams.get("project") ?? undefined;
+      const projectParam = ProjectParamSchema.safeParse(projectParamRaw);
+      if (!projectParam.success) { respondError(res, 400, "invalid project parameter", cors); return; }
+      const project = projectParam.data ?? indexerProject ?? undefined;
+      const freshCtx = () => {
+        const { verdict, etag } = httpFreshnessFor(project ?? null, registry);
+        return { req, freshness: verdict, etag, headers: cors };
+      };
+
+      // ── /api/health (unauthenticated liveness) ──
+      if (pathname === "/api/health") {
+        respond(res, HealthResponseSchema, { version: CONTRACT_VERSION, ok: true as const }, { ...freshCtx() });
+        return;
+      }
+
+      // ── /api/freshness ──
+      if (pathname === "/api/freshness") {
+        const { verdict, etag } = httpFreshnessFor(project ?? null, registry);
+        respond(res, FreshnessResponseSchema, { version: CONTRACT_VERSION, ...verdict }, { req, freshness: verdict, etag, headers: cors });
+        return;
+      }
+
+      // ── /api/graph ──
+      if (pathname === "/api/graph") {
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         if (!resolved) {
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ nodes: [], edges: [], project: project ?? null }));
+          respond(res, GraphResponseSchema, { version: CONTRACT_VERSION, nodes: [], edges: [], project: project ?? null }, freshCtx());
           return;
         }
         try {
           const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
           const rawEdges = resolved.store.getAllEdgesUnified(project ?? undefined);
-          const edges = rawEdges.map((e) => ({
-            ...e,
-            source: e.source_id,
-            target: e.target_id,
-          }));
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ nodes, edges, project: project ?? null }));
+          const edges = rawEdges.map((e) => ({ ...e, source: e.source_id, target: e.target_id }));
+          respond(res, GraphResponseSchema, { version: CONTRACT_VERSION, nodes, edges, project: project ?? null }, freshCtx());
         } finally {
           if (resolved.owned) resolved.store.close();
         }
         return;
       }
 
-      if (url === "/api/projects") {
-        // Union of bound store (Cortex-Vue's local .cortex/db) + indexer cache.
-        // Previously only the bound store was queried, so cache-resident
-        // projects (everything indexed via the cortex CLI from elsewhere)
-        // were invisible to the viewer's project switcher.
-        let projects: ReturnType<typeof listProjects> = [];
-        try {
-          projects = listProjectsUnified(store);
-        } catch {
-          // No ctx_projects table yet — return empty.
-        }
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({
-          projects,
-          active: indexerProject ?? null,
-        }));
+      // ── /api/projects ──
+      if (pathname === "/api/projects") {
+        let projects: ReturnType<typeof listProjectsUnified> = [];
+        try { projects = listProjectsUnified(store); } catch { /* no ctx_projects yet */ }
+        respond(res, ProjectsResponseSchema, { version: CONTRACT_VERSION, projects, active: indexerProject ?? null }, freshCtx());
         return;
       }
 
-      if (url.startsWith("/api/decisions/")) {
-        if (!decisionsRepo || !decisionLinksRepo) {
-          res.writeHead(503, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
-          return;
-        }
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
-        const id = decodeURIComponent(parsed.pathname.slice("/api/decisions/".length));
-        // Project-scoped, same as the list endpoint: a decision id only exists
-        // in its own project's store.
+      // ── /api/decisions/:id ── (must precede the list route)
+      if (pathname.startsWith("/api/decisions/")) {
+        if (!decisionsRepo || !decisionLinksRepo) { respondError(res, 503, "decisions repos unavailable", cors); return; }
+        const idRaw = decodeURIComponent(pathname.slice("/api/decisions/".length));
+        const idParsed = DecisionIdParamSchema.safeParse(idRaw);
+        if (!idParsed.success) { respondError(res, 400, "invalid decision id", cors); return; }
         const pd = openProjectDecisions(decisionsRepo, decisionLinksRepo, indexerProject, project, registry);
         try {
-          const rec = pd.decisions.get(id);
-          if (!rec) {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "decision not found" }));
-            return;
-          }
-          const links = pd.links.findByDecision(id);
+          const rec = pd.decisions.get(idParsed.data);
+          if (!rec) { respondError(res, 404, "decision not found", cors); return; }
+          const links = pd.links.findByDecision(idParsed.data);
           const resolved = openProjectStore(store, indexerProject, project, { registry });
           const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
           try {
             const { nodesByPath, framesByPath } = buildPathIndices(nodes);
-            const adapted = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
-            res.writeHead(200, {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            });
-            res.end(JSON.stringify(adapted));
+            const decision = buildAdaptedDecision(rec, links, nodesByPath, framesByPath);
+            respond(res, DecisionDetailResponseSchema, { version: CONTRACT_VERSION, decision }, freshCtx());
           } finally {
             if (resolved?.owned) resolved.store.close();
           }
@@ -268,17 +281,9 @@ export function startViewerServer(
         return;
       }
 
-      if (url.startsWith("/api/decisions")) {
-        if (!decisionsRepo || !decisionLinksRepo) {
-          res.writeHead(503, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "decisions repos unavailable" }));
-          return;
-        }
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
-        // Decisions are project-scoped: open the requested project's own store,
-        // not the server-bound home repo's.
+      // ── /api/decisions ──
+      if (pathname === "/api/decisions") {
+        if (!decisionsRepo || !decisionLinksRepo) { respondError(res, 503, "decisions repos unavailable", cors); return; }
         const pd = openProjectDecisions(decisionsRepo, decisionLinksRepo, indexerProject, project, registry);
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
@@ -287,11 +292,7 @@ export function startViewerServer(
           const allLinks = records.flatMap((r) => pd.links.findByDecision(r.id));
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
           const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ decisions }));
+          respond(res, DecisionsResponseSchema, { version: CONTRACT_VERSION, decisions }, freshCtx());
         } finally {
           if (resolved?.owned) resolved.store.close();
           pd.close();
@@ -299,118 +300,82 @@ export function startViewerServer(
         return;
       }
 
-      if (url.startsWith("/api/aggregates")) {
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
+      // ── /api/aggregates ── (positionAggregates + buildFrameMap are ALREADY imported;
+      // do NOT switch to groupAuxiliaryPaths — that drops the x/y the viewer renders.)
+      if (pathname === "/api/aggregates") {
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
           const edges = resolved ? resolved.store.getAllEdgesUnified(project ?? undefined) : [];
           const frameMap = buildFrameMap(nodes, edges);
           const aggregates = positionAggregates(nodes, edges, frameMap);
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ aggregates }));
+          respond(res, AggregatesResponseSchema, { version: CONTRACT_VERSION, aggregates }, freshCtx());
         } finally {
           if (resolved?.owned) resolved.store.close();
         }
         return;
       }
 
-      if (url.startsWith("/api/frames")) {
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
+      // ── /api/frames ──
+      if (pathname === "/api/frames") {
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         if (!resolved) {
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ frames: [], stage: { w: STAGE_W, h: STAGE_H } }));
+          respond(res, FramesResponseSchema, { version: CONTRACT_VERSION, frames: [], stage: { w: STAGE_W, h: STAGE_H } }, freshCtx());
           return;
         }
         try {
           const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
           const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
           const map = buildFrameMap(nodes, edges);
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify(map));
+          respond(res, FramesResponseSchema, { version: CONTRACT_VERSION, ...map }, freshCtx());
         } finally {
           if (resolved.owned) resolved.store.close();
         }
         return;
       }
 
-      if (url.startsWith("/api/file-edges")) {
-        const parsed = new NodeURL(url, "http://localhost");
-        const projectParam = parsed.searchParams.get("project");
-        const project = projectParam ?? indexerProject ?? undefined;
+      // ── /api/file-edges ──
+      if (pathname === "/api/file-edges") {
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         if (!resolved) {
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ file_edges: [] }));
+          respond(res, FileEdgesResponseSchema, { version: CONTRACT_VERSION, file_edges: [] }, freshCtx());
           return;
         }
         try {
           const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
           const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
-          // Draw the same connectivity the force layout rolls up — CALLS +
-          // USAGE + IMPORTS — not CALLS alone. USAGE (symbol references) is the
-          // densest relation in a real graph; omitting it left the map looking
-          // nearly edgeless. Weights from all three combine per file-pair.
-          const file_edges = buildFileEdges(nodes, edges, {
-            relations: ["CALLS", "USAGE", "IMPORTS"],
-          });
-          res.writeHead(200, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          res.end(JSON.stringify({ file_edges }));
+          const file_edges = buildFileEdges(nodes, edges, { relations: ["CALLS", "USAGE", "IMPORTS"] });
+          respond(res, FileEdgesResponseSchema, { version: CONTRACT_VERSION, file_edges }, freshCtx());
         } finally {
           if (resolved.owned) resolved.store.close();
         }
         return;
       }
 
-      if (url === "/" || url.startsWith("/viewer")) {
-        // Map URL → disk file under VIEWER_DIR.
-        // /            → index.html
-        // /viewer      → index.html
-        // /viewer/     → index.html
-        // /viewer/<p>  → <p>  (e.g., /viewer/viewer.js, /viewer/style.css)
-        let rel: string;
-        if (url === "/" || url === "/viewer" || url === "/viewer/") {
-          rel = "index.html";
-        } else {
-          rel = url.replace(/^\/viewer\//, "");
-        }
-        const filePath = join(VIEWER_DIR, rel);
-
+      // ── static viewer (traversal-safe) ──
+      if (pathname === "/" || pathname.startsWith("/viewer")) {
+        const rel = (pathname === "/" || pathname === "/viewer" || pathname === "/viewer/")
+          ? "index.html"
+          : pathname.replace(/^\/viewer\//, "");
+        const filePath = safeStaticPath(VIEWER_DIR, rel);
+        if (!filePath) { respondError(res, 404, "not found", cors); return; }
         try {
           const content = await readFile(filePath);
           const ext = extname(filePath);
-          res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" });
+          res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream", ...SECURITY_HEADERS, ...cors });
           res.end(content);
         } catch {
-          res.writeHead(404);
-          res.end("Not found");
+          respondError(res, 404, "not found", cors);
         }
         return;
       }
 
-      res.writeHead(302, { Location: "/viewer" });
+      res.writeHead(302, { Location: "/viewer", ...cors });
       res.end();
     });
+
+    httpServer.requestTimeout = 30_000;   // ms — whole-request ceiling
+    httpServer.headersTimeout = 35_000;   // ms — must exceed requestTimeout
 
     const port = parseInt(process.env.CORTEX_VIEWER_PORT || "3333", 10);
     const log = (msg: string) => process.stderr.write(msg + "\n");
@@ -430,14 +395,16 @@ export function startViewerServer(
         };
         httpServer.once("error", onError);
         httpServer.once("listening", onListening);
-        httpServer.listen(port);
+        httpServer.listen(port, resolveBindHost(process.env));
       });
 
     void bindWithRetry(attempt, { port, retries: VIEWER_BIND_RETRIES, delayMs: VIEWER_BIND_DELAY_MS, log })
       .then((ok) => {
         if (ok) {
+          const addr = httpServer.address();
+          const actualPort = addr && typeof addr === "object" ? addr.port : port;
           resolve({
-            port,
+            port: actualPort,
             httpServer,
             close() {
               httpServer.close();
