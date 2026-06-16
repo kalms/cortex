@@ -7,6 +7,7 @@
  * layout-mode extensibility seam).
  */
 import { STAGE_W, STAGE_H } from "./frame-layout.js";
+import type { FramePairWeight } from "./frame-pair-rollup.js";
 
 /** Fixed satellite frame size (px) — smaller than the ambient 110–160 band so
  *  non-ambient frames read as de-emphasized. */
@@ -82,4 +83,36 @@ export function marginSlot(index: number, total: number, size: number): { x: num
   const x = total <= 1 ? STAGE_W / 2 : STAGE_W * (0.1 + (0.8 * index) / (total - 1));
   const clampedX = Math.min(STAGE_W - half, Math.max(half, x));
   return { x: q(clampedX), y: q(MARGIN_Y) };
+}
+
+/** Position each non-ambient frame at the pair-weighted centroid of the AMBIENT
+ *  frames it connects to (frame-repulsion applied; margin fallback when it has
+ *  no ambient partner). Returns frame_id → integer center {x, y}. Satellites are
+ *  anchored only to AMBIENT frames (stable anchors) — never to each other. */
+export function placeNonAmbientFrames(
+  nonAmbient: readonly { frame_id: number }[],
+  framePairs: readonly FramePairWeight[],
+  ambientPositions: readonly { id: number; x: number; y: number }[],
+  ambientBoxes: readonly Box[],
+): Map<number, { x: number; y: number }> {
+  const ambientPos = new Map(ambientPositions.map((p) => [p.id, p]));
+  const partnersOf = new Map<number, WeightedAnchor[]>();
+  for (const f of nonAmbient) partnersOf.set(f.frame_id, []);
+  for (const p of framePairs) {
+    for (const [self, other] of [[p.a, p.b], [p.b, p.a]] as const) {
+      const bucket = partnersOf.get(self);
+      const anchor = ambientPos.get(other);
+      if (bucket && anchor) bucket.push({ x: anchor.x, y: anchor.y, weight: p.weight });
+    }
+  }
+  const sorted = [...nonAmbient].map((f) => f.frame_id).sort((x, y) => x - y);
+  const tieless = sorted.filter((id) => (partnersOf.get(id) ?? []).length === 0);
+  const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
+  const out = new Map<number, { x: number; y: number }>();
+  for (const id of sorted) {
+    const c = weightedCentroid(partnersOf.get(id) ?? []);
+    const seed = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    out.set(id, repelFromBoxes(seed.x, seed.y, SATELLITE_SIZE, ambientBoxes));
+  }
+  return out;
 }
