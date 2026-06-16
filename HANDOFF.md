@@ -53,17 +53,22 @@ extract` now leads with code instead of `.md`.
 
 ## ▶ NEXT STEP
 
-**▶▶ IMMEDIATE:** ✅ done — **enable slice 3b — layer-diversity** shipped (0.3.19)
-**and flipped default-ON (0.3.20)** after a positive corpus observe verdict
-(decision **`D-wvsz`** resolution). `CORTEX_LAYER_DIVERSITY` is now an opt-out
-(`"0"` restores the kind-weighted-only ambient set). Observe highlights: vueuse
-interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor interface 7→3 +data,
-rubygems re-surfaces a domain frame; ceremony cap held everywhere, no junk
-promoted on coverage alone, neutral on already-diverse/tiny repos. **Next open
-item: the layout slice** (item 5) — layer-adjacency force in `frame-layout.ts`.
-Two deferred test follow-ups (non-blocking, measure-zero under geometric decay):
-a multi-layer simultaneous-promotion test and a zero-score floor edge case
-(final-review I3/I1).
+**▶▶ IMMEDIATE:** ✅ done — **layout slice part 1 (layer-adjacency force)** shipped
+(0.3.21, flag-gated `CORTEX_LAYER_LAYOUT` **default off**, decision **`D-marq`**).
+A vertical `forceY(yTarget(sink))` in `frame-layout.ts` stratifies ambient frames
+surface→substrate from each frame's **measured** sink (`fanIn/(fanIn+fanOut)`,
+per-layer nominal fallback for flowless frames), on the proven force base; layout
+stays layer-agnostic (sink threaded as a plain number). Gate 0: clean render, zero
+console errors, vertical spread present (subtle on cortex's muddy measured-sink
+distribution — the frame-quality ceiling). `eval-layers` now reports Spearman(y,
+sink). **Next open items, in order:** (1) **run the layout observe pass**
+(`eval-layers` Spearman) and, if it stratifies cleanly, flip `CORTEX_LAYER_LAYOUT`
+default-on; (2) **layout slice part 2 — floating-entity placement** (replace the
+fixed bottom strip; below-cut frames + aggregates + residual files drift near
+their connected frames; **subsumes the `D-xwxj` governed-frame promotion**);
+(3) the **Louvain `concern` axis** (the deferred frame-quality fix). Older
+deferred 3b test follow-ups still stand (multi-layer promotion test, zero-score
+floor edge case — non-blocking).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.

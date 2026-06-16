@@ -213,3 +213,71 @@ describe("layer-diversity gating", () => {
     expect(json).not.toContain("contributions");
   });
 });
+
+describe("layer-layout gating + stratification", () => {
+  it("default OFF: no opts (env unset) matches explicit applyLayout:false", () => {
+    const prev = process.env.CORTEX_LAYER_LAYOUT;
+    delete process.env.CORTEX_LAYER_LAYOUT;
+    try {
+      const off = buildFrameMap(nodes, edges, { applyLayout: false });
+      const dflt = buildFrameMap(nodes, edges); // env unset → default OFF
+      expect(dflt.frames.map((f) => [f.id, f.x, f.y])).toEqual(off.frames.map((f) => [f.id, f.x, f.y]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_LAYER_LAYOUT;
+      else process.env.CORTEX_LAYER_LAYOUT = prev;
+    }
+  });
+
+  it("CORTEX_LAYER_LAYOUT=1 matches explicit applyLayout:true", () => {
+    const prev = process.env.CORTEX_LAYER_LAYOUT;
+    process.env.CORTEX_LAYER_LAYOUT = "1";
+    try {
+      const envOn = buildFrameMap(nodes, edges);
+      const on = buildFrameMap(nodes, edges, { applyLayout: true });
+      expect(envOn.frames.map((f) => [f.id, f.x, f.y])).toEqual(on.frames.map((f) => [f.id, f.x, f.y]));
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_LAYER_LAYOUT;
+      else process.env.CORTEX_LAYER_LAYOUT = prev;
+    }
+  });
+
+  it("layout ON: a measured pure-source frame sits above a pure-sink frame", () => {
+    // frame 0 (src/cli) imports frame 1 (src/events) → fanOut(0), fanIn(1).
+    // sink(0)=0 → top band; sink(1)=1 → bottom band. Both ambient (budget floor 4).
+    const srcSink: NodeRow[] = [
+      fileNode("a1", "src/cli/run.ts", 0, "cli"),
+      symNode("sa", "src/cli/run.ts"),
+      fileNode("b1", "src/events/log.ts", 1, "events"),
+      symNode("sb", "src/events/log.ts"),
+    ];
+    const e: EdgeRow[] = [edge("sa", "sb", "CALLS")]; // cli → events
+    const on = buildFrameMap(srcSink, e, { applyLayout: true });
+    const source = on.frames.find((f) => f.id === 0)!;
+    const sink = on.frames.find((f) => f.id === 1)!;
+    expect(source.y!).toBeLessThan(sink.y!);
+  });
+
+  it("layout ON: flowless frames stratify by their layer's nominal sink", () => {
+    // No inter-frame edges → both flowless → NOMINAL_SINK[layer].
+    // cli=interface(0.10) must sit above mcp-server=infrastructure(0.90).
+    const flowless: NodeRow[] = [
+      fileNode("c1", "src/cli/a.ts", 0, "cli"),
+      fileNode("c2", "src/cli/b.ts", 0, "cli"),
+      fileNode("m1", "src/mcp-server/x.ts", 1, "mcp-server"),
+      fileNode("m2", "src/mcp-server/y.ts", 1, "mcp-server"),
+    ];
+    const on = buildFrameMap(flowless, [], { applyLayout: true });
+    const iface = on.frames.find((f) => f.id === 0)!;
+    const infra = on.frames.find((f) => f.id === 1)!;
+    expect(iface.layer).toBe("interface");
+    expect(infra.layer).toBe("infrastructure");
+    expect(iface.y!).toBeLessThan(infra.y!);
+  });
+
+  it("layout ON serializes no extra internals (only x/y/w/h positions change)", () => {
+    const json = JSON.stringify(buildFrameMap(nodes, edges, { applyLayout: true }));
+    expect(json).not.toContain("sink");
+    expect(json).not.toContain("fanIn");
+    expect(json).not.toContain("fanOut");
+  });
+});
