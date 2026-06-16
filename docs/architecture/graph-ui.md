@@ -315,8 +315,25 @@ the **enable slices** have since wired the layer into ranking:
   positive corpus observe pass (Spearman(y, sink) mean ≈ 0.77). Decision `D-marq`;
   [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md).
 
-Floating-entity placement (replacing the fixed bottom strip; subsuming the
-`D-xwxj` governed-frame promotion) remains a future slice.
+- **Floating-entity placement (layout slice part 2, shipped 0.3.23)** — a pure
+  server-side **gravity-centroid** pass in
+  [`floating-placement.ts`](../../src/mcp-server/floating-placement.ts) runs
+  *after* the (byte-identical) ambient force-sim and positions the *satellites*:
+  non-ambient frames at the pair-weighted centroid of the ambient frames they
+  connect to (`rollupFramePairs`), and auxiliary aggregates via an
+  **edge → path → margin** tie cascade
+  ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts): CALLS/USAGE/IMPORTS
+  edges to frames, else shared directory ancestry, else a de-emphasized margin
+  slot). `repelFromBoxes` keeps a satellite from landing inside an unrelated
+  frame. Positions are emitted in `/api/frames` (non-ambient frames) and
+  `/api/aggregates` (via `aggregate-positioning.ts`); the viewer renders
+  satellites de-emphasized **and the two fixed strips are gone**. Governance
+  *selection* stays client-side (the viewer picks which non-ambient frames to
+  render from `FRAME_GOVERNANCE`), but their *position* comes from the server —
+  **supersedes the `D-xwxj` stopgap**. The pass depends only on `(final ambient
+  positions, ties)`, never on *how* those positions were produced, so a future
+  network/layered layout mode composes on top unchanged.
+  [design](../superpowers/specs/2026-06-16-floating-entity-placement-design.md).
 
 ### Render loop
 
@@ -336,8 +353,9 @@ real CALLS edges from `/api/graph`, filtered via
 `edgesInternalIndex` (`adapters.js`) to keep only pairs whose endpoints
 are both in the current frame set. Auxiliary content (locales, vendored,
 generated dirs, …) is grouped via `groupAuxiliaryPaths`
-(`src/frame-extraction/auxiliary-detection.ts`) and rendered as bare
-dots in a bottom strip — present but visually de-emphasised.
+(`src/frame-extraction/auxiliary-detection.ts`), positioned server-side at its
+gravity centroid (see floating-entity placement above), and rendered as bare
+dots near related frames — present but visually de-emphasised.
 
 ### Data flow
 
