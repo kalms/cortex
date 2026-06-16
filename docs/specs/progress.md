@@ -1,11 +1,12 @@
 # Cortex v0.3 — Progress Assessment
 
 _Assessment date: 2026-06-16 — refreshed after the **frame-layers taxonomy arc
-advanced through both enable slices (3a + 3b) and the layout slice part 1**: 0.3.4
+completed both enable slices (3a + 3b) and the full layout slice (parts 1 + 2)**: 0.3.4
 classify+observe · 0.3.5 deterministic dots · 0.3.6 docs · **0.3.7** observe-phase
 polish · **0.3.8** earnable domain · **0.3.9/0.3.10** kind-weight ranking
 (default-on) · **0.3.19/0.3.20** layer-diversity (default-on) · **0.3.21/0.3.22**
-layer-adjacency layout force (default-on) — all on top of the 0.3.0 cut
+layer-adjacency layout force (default-on) · **0.3.23** floating-entity placement
+— all on top of the 0.3.0 cut
 (native-indexer split, frame ranking Path 1, frame-coverage retune,
 reconciliation engine). Derived from the live Cortex graph, the v0.3 design
 corpus in [`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
@@ -64,7 +65,7 @@ on the shipped layer foundation:
 | Spec area | Status | Notes |
 |---|---|---|
 | **TODO entity** | ⏭ post-taxonomy | [`todo-entity.md`](cortex-v0.3/todo-entity.md): schema, state machine, tools, and external bridge. No code yet. The headline feature of this line. |
-| **Floating-entity placement** (bare nodes + aggregates) | ⏭ post-taxonomy | `frame-ranking.md`/`frame-layout.md` call for placing the genuinely-peripheral residual (post-reclamation ~49 files on Cortex) + auxiliary aggregates near connected frames via a gravity-centroid, instead of the fixed bottom strip. (Related: the 0.3.0 stopgap promotes decision-governed non-ambient frames — `D-xwxj` — which this should subsume. Folded into the **layout slice** above per the 2026-06-12 layers brainstorm.) |
+| **Floating-entity placement** (non-ambient frames + aggregates) | ✅ Shipped (0.3.23) — layout slice part 2 | A pure server-side **gravity-centroid** pass ([`floating-placement.ts`](../../src/mcp-server/floating-placement.ts)) runs after the (byte-identical) ambient force-sim: non-ambient frames settle at the pair-weighted centroid of the ambient frames they connect to; auxiliary aggregates via an **edge→path→margin** tie cascade ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts)); one-directional frame-repulsion keeps satellites out of unrelated frames. Positions ship via `/api/frames` + `/api/aggregates`; the viewer renders satellites de-emphasized and **both fixed strips are removed**. Governance selection stays client-side, position comes from the server — **supersedes the `D-xwxj` stopgap**. Pass depends only on (ambient positions + ties) → future network layout mode composes on top (seam documented). Gate 0: satellites + aggregates placed near related frames, 0 console errors. [Design](../superpowers/specs/2026-06-16-floating-entity-placement-design.md). |
 | **Record drawer — adopt for TODO** | ⏭ post-taxonomy | The record drawer already ships for decisions (see Shipped). Reuses the same drawer for the TODO entity once TODOs exist. |
 
 ## Removed from scope
@@ -84,7 +85,7 @@ The "multiplayer canvas" half of the v0.3 design corpus is **not being pursued**
 | **Observe phase** | ✅ Done (0.3.7–0.3.8) | Validated on cortex + anthill, then corpus-wide (11 repos via `eval-layers.ts`). Findings drove three fixes that shipped: handler-orchestration signal, ceremony/infra palette separation, and the **earnable-domain** resolution to the contested `domain` fallback (`D-8vbv`). The watch-list frames are settled; `frame-extraction` fragmentation + `contracts`-via-fallback are recorded as the upstream **frame-quality** ceiling. |
 | **Enable slice 3a — kind-weight** | ✅ Shipped (0.3.9) + **default-on (0.3.10)** | `score ×= kind_weight` (default off in 0.3.9, **flipped ON in 0.3.10** after the positive observe verdict — `CORTEX_KIND_WEIGHT` is now an opt-out, `"0"` restores pre-slice ranking). The `domain`-is-both-fallback-and-top-weight trap (`D-qn7z`) is resolved by the earned/fallback split (1.00 / **0.50**). Corpus-validated; Gate 0 confirmed clean render on default-on. Decision `D-g4qb`. |
 | **Enable slice 3b — layer-diversity** | ✅ Shipped (0.3.19) + **default-on (0.3.20)** | The `× diversity` term as a new pure module [`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts) (`selectAmbientByDiversity`) consumed in `buildFrameMap` — the ranker stays layer-free. Two-phase greedy: Phase 1 fills the budget by effective score `score × 0.6^k` (geometric repeat-decay) with a ceremony cap (≤1, relaxed only to avoid an empty canvas); Phase 2 **bounded coverage repair** guarantees ≥1 of domain/interface/data when present by promoting the missing layer's best frame over the weakest safely-displaceable one, but only above a `0.5 ×` floor (the `D-qn7z` junk-leapfrogging guard). Stateful (depends on what's already selected), so it's a selection step, not a static factor. **Observe verdict POSITIVE** (corpus `eval-layers` diversity off-vs-on): collapses redundant interface and surfaces domain/data on interface-heavy repos (vueuse interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor interface 7→3 +data, rubygems re-surfaces a domain frame), ceremony cap held everywhere, no junk promoted on coverage alone, neutral on already-diverse/tiny repos. **Flipped ON in 0.3.20** — `CORTEX_LAYER_DIVERSITY` is now an opt-out (`"0"` restores the kind-weighted-only ambient set); Gate 0 confirmed a clean default-on render. Decision `D-wvsz`; [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md). |
-| **Layout slice — layer-adjacency force** (part 1) | ✅ Shipped (0.3.21) + **default-on (0.3.22)** | A vertical `forceY(yTarget(sink))` in [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient frames surface→substrate on the proven d3-force base (pair-link clustering / charge / collide-AABB tail unchanged). Position is **measured** — `yTarget = lerp(top, bottom, sink)` from each frame's `fanIn/(fanIn+fanOut)` (per-layer `NOMINAL_SINK` fallback for flowless frames) — not categorical bands. Layout stays layer-agnostic (sink is a plain number); `frame-map.ts` reads `CORTEX_LAYER_LAYOUT` (**now an opt-out, default on**; `"0"` restores pre-slice layout) + computes effective sink; `forceCenter`→horizontal-only `forceX` only when stratifying. Byte-identical when off (golden-tested); deterministic. **Observe (0.3.22): positive corpus-wide** — Spearman(y, sink) mean ≈ 0.77, median ≈ 0.74, range 0.51–0.95, no negative/near-zero on any archetype (metric under-states the true effect via flowless-frame dilution). Gate 0 re-confirmed default-on: spread y 118→593 over an 800-tall stage, ceremony at substrate, 0 console errors. Decision `D-marq`; [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md). **Floating-entity placement is part 2 (next).** |
+| **Layout slice — layer-adjacency force** (part 1) | ✅ Shipped (0.3.21) + **default-on (0.3.22)** | A vertical `forceY(yTarget(sink))` in [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient frames surface→substrate on the proven d3-force base (pair-link clustering / charge / collide-AABB tail unchanged). Position is **measured** — `yTarget = lerp(top, bottom, sink)` from each frame's `fanIn/(fanIn+fanOut)` (per-layer `NOMINAL_SINK` fallback for flowless frames) — not categorical bands. Layout stays layer-agnostic (sink is a plain number); `frame-map.ts` reads `CORTEX_LAYER_LAYOUT` (**now an opt-out, default on**; `"0"` restores pre-slice layout) + computes effective sink; `forceCenter`→horizontal-only `forceX` only when stratifying. Byte-identical when off (golden-tested); deterministic. **Observe (0.3.22): positive corpus-wide** — Spearman(y, sink) mean ≈ 0.77, median ≈ 0.74, range 0.51–0.95, no negative/near-zero on any archetype (metric under-states the true effect via flowless-frame dilution). Gate 0 re-confirmed default-on: spread y 118→593 over an 800-tall stage, ceremony at substrate, 0 console errors. Decision `D-marq`; [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md). **Part 2 (floating-entity placement) shipped 0.3.23.** |
 | **Cross-cutting concern axis** (graph communities) | ◑ Candidate / deferred | The reserved `FrameKind.concern` axis. Also the only signal that would rescue **substrate-band core domain** (heavily-imported product cores that read topologically as substrate — anthill's `dsl/compiler` at sink 0.83, cortex's 23-member `frame-extraction`), which the earnable-domain middle-band signal deliberately can't reach. Measured 2026-06-12: import-graph communities confirm the shipped clustering's cores and surface cross-cutting subsystems (e.g. a 13-file freshness community across 5 frames). `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it would need a Leiden-grade upgrade. Explicitly deferred in `D-8vbv` ("walk before run"). |
 
 ---
@@ -127,20 +128,19 @@ plus a generic `decision_links` table (handles `governs` / `supersedes` /
 
 ## Recommended next step
 
-The taxonomy follow-up is nearly complete — classify + observe + enable-3a
+The taxonomy follow-up is essentially complete — classify + observe + enable-3a
 (incl. **default-on**, 0.3.10) + **enable-3b** (layer-diversity, 0.3.19, **flipped
-default-on in 0.3.20**) + the **layout slice part 1** (layer-adjacency force,
-0.3.21, **flipped default-on in 0.3.22** after a positive corpus observe pass —
-Spearman(y, sink) mean ≈ 0.77, no negative on any archetype) are all shipped:
+default-on in 0.3.20**) + the **full layout slice**: part 1 (layer-adjacency force,
+0.3.21, **default-on in 0.3.22**, Spearman(y, sink) mean ≈ 0.77) and part 2
+(**floating-entity placement, 0.3.23** — gravity-centroid for non-ambient frames +
+aggregates, both fixed strips removed, `D-xwxj` superseded) are all shipped:
 
-1. **Layout slice part 2 — floating-entity placement** (now the headline build
-   item): replace the fixed bottom strip; below-cut frames + aggregates +
-   post-reclamation residual files drift to a gravity centroid near their
-   connected frames; **subsumes the `D-xwxj` governed-frame promotion**
-   (`withGovernedFramesRendered` in the viewer).
-2. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
-   fragmented/test-mixed clusters and substrate-band core domain — the ceiling
-   the observe phase repeatedly hit.
+1. **Frame-quality + Louvain `concern` axis** (now the headline build item, larger):
+   the upstream fix for fragmented/test-mixed clusters and substrate-band core
+   domain — the ceiling the observe phase repeatedly hit (`SRC·863` mega-frame).
+2. Optional **layout observe pass** for centroid quality + a future **network /
+   layered layout mode** (the placement seam is ready: a base layout strategy
+   behind the position contract, with floating placement composing on top).
 3. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
    adoption) as the headline, record-drawer adoption for TODOs.
 
