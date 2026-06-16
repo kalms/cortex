@@ -4,6 +4,26 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.22] — 2026-06-16
+
+### Changed
+
+- **Layer-adjacency layout force is now ON by default** (taxonomy layout slice,
+  the default-on flip). `CORTEX_LAYER_LAYOUT` is now an **opt-out**: set it to
+  `"0"` to restore the pre-slice `forceCenter` layout (positions byte-identical
+  to the unstratified base). Backs the positive corpus observe verdict (decision
+  `D-marq`): across the eval-layers corpus, every successful repo stratifies
+  positively on Spearman(y, sink) — mean ≈ 0.77, median ≈ 0.74, range 0.51–0.95
+  (vueuse 0.95, TanStack/table 0.95, trpc 0.83, rubygems 0.78, cortex 0.74,
+  saleor 0.72, peft 0.71, click 0.70, anthill 0.58, nuxt/ui 0.51), with no
+  negative or near-zero result on any archetype (vue/react/ts-monorepo/nuxt/
+  go/python/django/rails). The metric under-states the real effect (it uses
+  `0.5` for flowless frames where the layout uses per-layer `NOMINAL_SINK`). The
+  layout force and its mechanism shipped in 0.3.21; this release only flips the
+  default. Gate 0 confirmed a clean default-on render on cortex (vertical spread
+  y 118→593 over an 800-tall stage, ceremony at the substrate, zero console
+  errors).
+
 ## [0.3.21] — 2026-06-16
 
 ### Added
@@ -582,6 +602,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.22]: https://github.com/ruevu/cortex/releases/tag/v0.3.22
 [0.3.21]: https://github.com/ruevu/cortex/releases/tag/v0.3.21
 [0.3.20]: https://github.com/ruevu/cortex/releases/tag/v0.3.20
 [0.3.19]: https://github.com/ruevu/cortex/releases/tag/v0.3.19
