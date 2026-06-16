@@ -206,4 +206,17 @@ describe("layoutFrames — vertical stratification (layer-adjacency force)", () 
       expect(f.y + f.h / 2).toBeLessThanOrEqual(STAGE_H);
     }
   });
+
+  it("in a mixed-sink layout, a sink=0 frame sits above a sinkless (→0.5 mid-band) frame", () => {
+    // Stratify fires because one frame carries sink; the sinkless frame defaults
+    // to 0.5 (band midpoint), so the sink=0 (surface) frame lands above it.
+    const mixed: LayoutInputFrame[] = [
+      { frame_id: 0, frame_label: "surface", member_count: 10, sink: 0.0 },
+      { frame_id: 1, frame_label: "unclassified", member_count: 10 }, // no sink → 0.5
+    ];
+    const out = layoutFrames(mixed, []);
+    const surface = out.find((f) => f.id === 0)!;
+    const mid = out.find((f) => f.id === 1)!;
+    expect(surface.y).toBeLessThan(mid.y);
+  });
 });
