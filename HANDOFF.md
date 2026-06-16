@@ -53,25 +53,27 @@ extract` now leads with code instead of `.md`.
 
 ## ▶ NEXT STEP
 
-**▶▶ IMMEDIATE:** ✅ done — **layout slice part 1 (layer-adjacency force)** shipped
-(0.3.21) and is now **ON by default** (0.3.22, `CORTEX_LAYER_LAYOUT` flipped to an
-**opt-out**; set `"0"` to restore the pre-slice layout). Decision **`D-marq`**.
-A vertical `forceY(yTarget(sink))` in `frame-layout.ts` stratifies ambient frames
-surface→substrate from each frame's **measured** sink (`fanIn/(fanIn+fanOut)`,
-per-layer nominal fallback for flowless frames), on the proven force base; layout
-stays layer-agnostic (sink threaded as a plain number). **Observe pass (0.3.22):**
-✅ positive across the whole eval-layers corpus — Spearman(y, sink) mean ≈ 0.77,
-median ≈ 0.74, range 0.51–0.95, no negative/near-zero on any archetype (vueuse
-0.95, TanStack 0.95, trpc 0.83, rubygems 0.78, cortex 0.74, saleor 0.72, peft
-0.71, click 0.70, anthill 0.58, nuxt/ui 0.51), and the metric *under*-states the
-true effect (flowless-frame dilution). Gate 0 re-confirmed default-on: vertical
-spread y 118→593 over an 800-tall stage, ceremony at the substrate, zero console
-errors. **Next open items, in order:** (1) **layout slice part 2 —
-floating-entity placement** (replace the fixed bottom strip; below-cut frames +
-aggregates + residual files drift near their connected frames; **subsumes the
-`D-xwxj` governed-frame promotion**); (2) the **Louvain `concern` axis** (the
-deferred frame-quality fix). Older deferred 3b test follow-ups still stand
-(multi-layer promotion test, zero-score floor edge case — non-blocking).
+**▶▶ IMMEDIATE:** ✅ done — the **layout slice is complete**. Part 1
+(layer-adjacency force, `D-marq`) shipped 0.3.21 and went default-on 0.3.22
+(`CORTEX_LAYER_LAYOUT` opt-out; observe pass positive corpus-wide, Spearman(y,
+sink) mean ≈ 0.77). **Part 2 — floating-entity placement** shipped **0.3.23**: a
+pure server-side **gravity-centroid** pass (`src/mcp-server/floating-placement.ts`,
+`src/mcp-server/aggregate-ties.ts`) positions non-ambient frames (pair-weighted
+centroid of connected ambient frames) and auxiliary aggregates (edge→path→margin
+tie cascade) near related content, with one-directional frame-repulsion; the
+ambient force-sim is untouched (byte-identical). Positions ship via `/api/frames`
++ `/api/aggregates`; the viewer renders satellites de-emphasized and **both fixed
+strips are gone**. Governance selection stays client-side, position comes from the
+server — **`D-xwxj` superseded** (new decision recorded post-merge). The placement
+pass depends only on (final ambient positions + ties), so a future network/layered
+layout mode composes on top unchanged (extensibility seam, documented in the
+design spec). Gate 0: satellites + aggregates placed near related frames (varied
+positions, not strips), zero console errors. **Next open items, in order:** (1) the
+**Louvain `concern` axis** (the deferred frame-quality fix — the real fix for the
+`SRC·863` mega-frame / substrate-band core domain); (2) optional layout **observe
+pass** for the centroid quality + a future **network layout mode** (seam ready).
+Older deferred 3b test follow-ups still stand (multi-layer promotion test,
+zero-score floor edge case — non-blocking).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.

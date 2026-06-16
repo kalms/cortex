@@ -4,6 +4,38 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.23] — 2026-06-16
+
+### Added
+
+- **Floating-entity placement (taxonomy layout slice, part 2)** — non-ambient
+  frames and auxiliary aggregates are now positioned by a deterministic
+  server-side **gravity centroid** near the ambient frames they relate to,
+  replacing the viewer's two fixed strips. A new pure module
+  [`src/mcp-server/floating-placement.ts`](src/mcp-server/floating-placement.ts)
+  runs *after* the (unchanged, byte-identical) ambient force-sim: each
+  non-ambient frame settles at the pair-weighted centroid of the ambient frames
+  it connects to (`rollupFramePairs`), and each aggregate via an
+  **edge → path → margin** tie cascade ([`src/mcp-server/aggregate-ties.ts`](src/mcp-server/aggregate-ties.ts):
+  CALLS/USAGE/IMPORTS edges to frames, else shared directory ancestry, else a
+  de-emphasized margin slot), with one-directional frame-repulsion so a satellite
+  never lands inside an unrelated frame. The placement pass depends only on the
+  final ambient positions + ties — never on *how* those positions were produced —
+  so a future network/layered layout mode composes on top unchanged. Positions
+  are emitted in `/api/frames` (non-ambient frames) and `/api/aggregates`
+  (positioned aggregates); the viewer renders satellites at those positions,
+  visually de-emphasized.
+  [Design](docs/superpowers/specs/2026-06-16-floating-entity-placement-design.md).
+
+### Changed
+
+- **The viewer's two fixed strips are gone** — the auxiliary-aggregate bottom
+  strip and the decision-governed-frame top strip are replaced by the
+  gravity-centroid placement above. Governance *selection* stays client-side
+  (the viewer still chooses which non-ambient frames to render from
+  `FRAME_GOVERNANCE`), but their *position* now comes from the server. This
+  **supersedes the `D-xwxj` governed-frame promotion stopgap**.
+
 ## [0.3.22] — 2026-06-16
 
 ### Changed
@@ -602,6 +634,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.3.23]: https://github.com/ruevu/cortex/releases/tag/v0.3.23
 [0.3.22]: https://github.com/ruevu/cortex/releases/tag/v0.3.22
 [0.3.21]: https://github.com/ruevu/cortex/releases/tag/v0.3.21
 [0.3.20]: https://github.com/ruevu/cortex/releases/tag/v0.3.20
