@@ -1,0 +1,60 @@
+{
+  "$ref": "#/definitions/aggregates",
+  "definitions": {
+    "aggregates": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "aggregates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "aux_segment": {
+                "type": "string"
+              },
+              "member_count": {
+                "type": "number"
+              },
+              "sample_paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "aux_segment",
+              "member_count",
+              "sample_paths"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "aggregates"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
