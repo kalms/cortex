@@ -22,8 +22,8 @@ describe("api-schemas", () => {
   it("GraphResponseSchema accepts a current-shape payload", () => {
     const ok = GraphResponseSchema.safeParse({
       version: 1,
-      nodes: [{ id: "n1", kind: "function", name: "f", qualified_name: "m::f", file_path: "a.ts", data: "{}", tier: "code", created_at: "t", updated_at: "t" }],
-      edges: [{ id: "e1", source_id: "n1", target_id: "n2", relation: "CALLS", data: "{}", created_at: "t", source: "n1", target: "n2" }],
+      nodes: [{ id: "n1", kind: "function", name: "f", qualified_name: "m::f", file_path: "a.ts", data: "{}", tier: "code", created_at: "t", updated_at: "t", start_line: 1, end_line: 5, project: null }],
+      edges: [{ id: "e1", source_id: "n1", target_id: "n2", relation: "CALLS", data: "{}", created_at: "t", project: null, source: "n1", target: "n2" }],
       project: "cortex",
     });
     expect(ok.success).toBe(true);

@@ -21,7 +21,11 @@ export const CONTRACT_VERSION = 1 as const;
 const Version = z.literal(CONTRACT_VERSION);
 
 // ── Graph ────────────────────────────────────────────────────────────────────
-/** Mirrors NodeRow (src/graph/store.ts). */
+/** Mirrors a row from `getAllNodesUnified` (`SELECT * FROM nodes`). The TS
+ *  `NodeRow` interface declares only the first 9 columns, but the wire ships the
+ *  full row — `start_line`/`end_line`/`project` are real columns that reach Mesh +
+ *  the viewer, so they're ratified here ("freeze, don't reshape"). Non-strict by
+ *  design: a future additive column stays within contract v1 (no break, no prod 500). */
 export const NodeSchema = z.object({
   id: z.string(),
   kind: z.string(),
@@ -32,8 +36,13 @@ export const NodeSchema = z.object({
   tier: z.string(),
   created_at: z.string(),
   updated_at: z.string(),
+  start_line: z.number().nullable(),
+  end_line: z.number().nullable(),
+  project: z.string().nullable(),
 });
-/** Mirrors EdgeRow + the viewer `source`/`target` aliases the handler adds. */
+/** Mirrors a row from `getAllEdgesUnified` (`SELECT * FROM edges`) + the viewer
+ *  `source`/`target` aliases the handler adds. `project` is a real column on the
+ *  wire (the TS `EdgeRow` interface omits it). Non-strict by design. */
 export const EdgeSchema = z.object({
   id: z.string(),
   source_id: z.string(),
@@ -41,6 +50,7 @@ export const EdgeSchema = z.object({
   relation: z.string(),
   data: z.string(),
   created_at: z.string(),
+  project: z.string().nullable(),
   source: z.string(),
   target: z.string(),
 });

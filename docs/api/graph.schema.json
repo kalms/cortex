@@ -45,6 +45,24 @@
               },
               "updated_at": {
                 "type": "string"
+              },
+              "start_line": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "end_line": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -56,7 +74,10 @@
               "data",
               "tier",
               "created_at",
-              "updated_at"
+              "updated_at",
+              "start_line",
+              "end_line",
+              "project"
             ],
             "additionalProperties": false
           }
@@ -84,6 +105,12 @@
               "created_at": {
                 "type": "string"
               },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": "string"
               },
@@ -98,6 +125,7 @@
               "relation",
               "data",
               "created_at",
+              "project",
               "source",
               "target"
             ],
