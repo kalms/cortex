@@ -18,14 +18,20 @@ const MARGIN_Y = STAGE_H - 28;
 /** Iteration cap for the repulsion solve (bounded → terminates, deterministic). */
 const REPEL_ITERATIONS = 24;
 
-/** A frame box: integer center x/y + square size w (== h). */
+/** A rectangular frame box: integer center x/y, width w, and height h. */
 export interface Box { x: number; y: number; w: number; h: number; }
 /** A weighted anchor for centroiding. */
 export interface WeightedAnchor { x: number; y: number; weight: number; }
 
 const q = (n: number): number => Math.round(n);
 
-/** Weighted centroid of anchors; null when there are none or total weight ≤ 0. */
+/**
+ * Weighted centroid of anchors; null when there are none or total weight ≤ 0.
+ *
+ * Floating-point accumulation proceeds in input order, so callers wanting
+ * order-independent output should pass anchors in a stable (e.g. sorted) order.
+ * The module's contract is same-input → same-output.
+ */
 export function weightedCentroid(anchors: readonly WeightedAnchor[]): { x: number; y: number } | null {
   let sw = 0, sx = 0, sy = 0;
   for (const a of anchors) {
@@ -36,8 +42,14 @@ export function weightedCentroid(anchors: readonly WeightedAnchor[]): { x: numbe
   return { x: q(sx / sw), y: q(sy / sw) };
 }
 
-/** Push a point of the given square size out of any overlapping box, along the
- *  axis of lesser penetration. Anchored boxes never move. Bounded + clamped. */
+/**
+ * Push a point of the given square size out of any overlapping box, along the
+ * axis of lesser penetration. Anchored boxes never move. Bounded + clamped.
+ *
+ * If the bounded loop hits the iteration cap without fully converging
+ * (pathological overlapping boxes), it returns the last position clamped
+ * on-stage — no error, no signal.
+ */
 export function repelFromBoxes(x: number, y: number, size: number, boxes: readonly Box[]): { x: number; y: number } {
   let px = x, py = y;
   const half = size / 2;
@@ -50,7 +62,8 @@ export function repelFromBoxes(x: number, y: number, size: number, boxes: readon
       const ox = halfW - Math.abs(dx);
       const oy = halfH - Math.abs(dy);
       if (ox > 0 && oy > 0) {
-        if (ox < oy) px = b.x + (dx >= 0 ? halfW : -halfW);
+        if (ox < oy) px = b.x + (dx >= 0 ? halfW : -halfW); // dx===0 (center) is pushed positive (deterministic)
+        // ox >= oy → push on y (equal penetration deterministically prefers the y-axis).
         else py = b.y + (dy >= 0 ? halfH : -halfH);
         moved = true;
       }
