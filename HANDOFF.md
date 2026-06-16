@@ -54,21 +54,24 @@ extract` now leads with code instead of `.md`.
 ## ▶ NEXT STEP
 
 **▶▶ IMMEDIATE:** ✅ done — **layout slice part 1 (layer-adjacency force)** shipped
-(0.3.21, flag-gated `CORTEX_LAYER_LAYOUT` **default off**, decision **`D-marq`**).
+(0.3.21) and is now **ON by default** (0.3.22, `CORTEX_LAYER_LAYOUT` flipped to an
+**opt-out**; set `"0"` to restore the pre-slice layout). Decision **`D-marq`**.
 A vertical `forceY(yTarget(sink))` in `frame-layout.ts` stratifies ambient frames
 surface→substrate from each frame's **measured** sink (`fanIn/(fanIn+fanOut)`,
 per-layer nominal fallback for flowless frames), on the proven force base; layout
-stays layer-agnostic (sink threaded as a plain number). Gate 0: clean render, zero
-console errors, vertical spread present (subtle on cortex's muddy measured-sink
-distribution — the frame-quality ceiling). `eval-layers` now reports Spearman(y,
-sink). **Next open items, in order:** (1) **run the layout observe pass**
-(`eval-layers` Spearman) and, if it stratifies cleanly, flip `CORTEX_LAYER_LAYOUT`
-default-on; (2) **layout slice part 2 — floating-entity placement** (replace the
-fixed bottom strip; below-cut frames + aggregates + residual files drift near
-their connected frames; **subsumes the `D-xwxj` governed-frame promotion**);
-(3) the **Louvain `concern` axis** (the deferred frame-quality fix). Older
-deferred 3b test follow-ups still stand (multi-layer promotion test, zero-score
-floor edge case — non-blocking).
+stays layer-agnostic (sink threaded as a plain number). **Observe pass (0.3.22):**
+✅ positive across the whole eval-layers corpus — Spearman(y, sink) mean ≈ 0.77,
+median ≈ 0.74, range 0.51–0.95, no negative/near-zero on any archetype (vueuse
+0.95, TanStack 0.95, trpc 0.83, rubygems 0.78, cortex 0.74, saleor 0.72, peft
+0.71, click 0.70, anthill 0.58, nuxt/ui 0.51), and the metric *under*-states the
+true effect (flowless-frame dilution). Gate 0 re-confirmed default-on: vertical
+spread y 118→593 over an 800-tall stage, ceremony at the substrate, zero console
+errors. **Next open items, in order:** (1) **layout slice part 2 —
+floating-entity placement** (replace the fixed bottom strip; below-cut frames +
+aggregates + residual files drift near their connected frames; **subsumes the
+`D-xwxj` governed-frame promotion**); (2) the **Louvain `concern` axis** (the
+deferred frame-quality fix). Older deferred 3b test follow-ups still stand
+(multi-layer promotion test, zero-score floor edge case — non-blocking).
 
 1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.

@@ -157,13 +157,15 @@ export function buildFrameMap(
   const ambient = ranked.filter((r) => ambientIds.has(r.frame_id));
   const pairs = rollupFramePairs(nodes, edges);
 
-  // Layer-adjacency layout force (taxonomy layout slice). Default OFF — when off,
-  // no `sink` is attached, so layoutFrames takes the pre-slice forceCenter path
-  // and positions are byte-identical. When on, each ambient frame gets an
+  // Layer-adjacency layout force (taxonomy layout slice). Default ON (opt-out
+  // via CORTEX_LAYER_LAYOUT=0) since the 0.3.22 observe pass — every corpus repo
+  // stratified positively (Spearman(y, sink) mean ~0.77, range 0.51–0.95). When
+  // off, no `sink` is attached, so layoutFrames takes the pre-slice forceCenter
+  // path and positions are byte-identical. When on, each ambient frame gets an
   // effective sink: measured (fanIn/(fanIn+fanOut)) when it has flows, else the
   // layer's NOMINAL_SINK. The env read lives here; the layout module stays
   // layer-agnostic (it only sees a number).
-  const applyLayout = opts.applyLayout ?? process.env.CORTEX_LAYER_LAYOUT === "1";
+  const applyLayout = opts.applyLayout ?? process.env.CORTEX_LAYER_LAYOUT !== "0";
   const effectiveSink = (frame_id: number): number => {
     const st = statsById.get(frame_id);
     const flow = (st?.fanIn ?? 0) + (st?.fanOut ?? 0);
