@@ -273,6 +273,8 @@ routing contract, and error shapes — see
 
 The frames viewer runs at http://localhost:3334/viewer during development (`npm run dev`), or http://localhost:3333/viewer when running as an MCP plugin. The viewer is derived from [docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html) and wired to live data via `/api/graph`, `/api/projects`, `/api/decisions`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md#frames-viewer) for module layout.
 
+The viewer's HTTP endpoints are a **versioned, Zod-enforced contract** (`src/mcp-server/api-schemas.ts` is the single source of truth). To change an endpoint, edit the Zod schema and run `npm run gen:api-schemas` — **never hand-edit `docs/api/*.schema.json`** (a drift-guard test enforces this). See [docs/architecture/http-api-contract.md](docs/architecture/http-api-contract.md). Hardening is env-gated and off by default for local use: `CORTEX_BIND_HOST`, `CORTEX_API_TOKEN`, `CORTEX_CORS_ORIGINS`, `CORTEX_API_STRICT`.
+
 ## Architecture docs
 
 When working on the event pipeline, WebSocket server, or graph/stream viewers, read [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) first. It documents the two-thread model, event flow, design rationale, and extension recipes.

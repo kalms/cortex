@@ -168,6 +168,28 @@ export async function bindWithRetry(
   return false;
 }
 
+/**
+ * Start the viewer HTTP server — the orchestrator for the v1 HTTP contract.
+ *
+ * It opens the master {@link Registry} once for the server's lifetime, then for
+ * each request runs the hardening middleware chain (oversized-URL → `414`,
+ * `OPTIONS` preflight, method gate → `405`, bearer auth → `401`), validates the
+ * shared `?project=` param (fail-closed `400`), and dispatches through an ordered
+ * route table whose order matters (`/api/decisions/:id` before `/api/decisions`,
+ * static viewer last). Every data route ends in {@link respond}, which validates
+ * the payload against its Zod schema and stamps the version/freshness/ETag
+ * headers; error paths use {@link respondError}. Binds `CORTEX_BIND_HOST`
+ * (loopback by default) via {@link bindWithRetry} and sets request/headers
+ * timeouts. See [docs/architecture/http-api-contract.md] for the full model.
+ *
+ * @param store The home graph store the server is bound to.
+ * @param indexerProject The bound (active) project name, used when a request
+ *   omits `?project=`.
+ * @param decisionsRepo Optional decisions repo for the home project (the
+ *   `/api/decisions*` routes return `503` without it).
+ * @param decisionLinksRepo Optional decision-links repo, paired with the above.
+ * @returns A {@link ViewerServerHandle}; `port` is `-1` when the bind failed.
+ */
 export function startViewerServer(
   store: GraphStore,
   indexerProject?: string | null,

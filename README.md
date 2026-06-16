@@ -346,6 +346,10 @@ Major suites:
 | `CORTEX_DECISIONS_DB` | `<git-root>/.cortex/decisions.db` | Sidecar decisions DB path |
 | `CORTEX_EVENTS_DB_PATH` | `.cortex/events.db` | Event log path (worker-owned) |
 | `CORTEX_VIEWER_PORT` | `3333` (plugin), `3334` (dev) | HTTP viewer port |
+| `CORTEX_BIND_HOST` | `127.0.0.1` | HTTP bind interface; `0.0.0.0` to deliberately expose on the LAN |
+| `CORTEX_API_TOKEN` | _(unset)_ | When set, every `/api/*` path except `/api/health` requires `Authorization: Bearer <token>` |
+| `CORTEX_CORS_ORIGINS` | _(unset)_ | Comma-separated browser-origin allowlist for `/api/*` (CORS) |
+| `CORTEX_API_STRICT` | _(unset)_ | `1` → HTTP response-validation failures return 500 in production too |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary |
 | `CORTEX_DB` | _(set by Cortex)_ | Same as `CORTEX_DB_PATH`, passed to the indexer subprocess |
 

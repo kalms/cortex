@@ -34,6 +34,12 @@ export interface RespondCtx {
   headers?: Record<string, string>;
 }
 
+/**
+ * The single JSON-response chokepoint: validate `data` against `schema` (per the
+ * strict posture), honor `If-None-Match` → `304`, stamp the version/freshness/
+ * ETag headers, and serialize (no body for `HEAD`). Every data handler routes
+ * through this so those cross-cutting concerns can't be forgotten on a new route.
+ */
 export function respond<T>(
   res: ServerResponse,
   schema: ZodTypeAny,
