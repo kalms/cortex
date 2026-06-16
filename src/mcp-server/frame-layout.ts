@@ -17,6 +17,8 @@ import {
   forceLink,
   forceCenter,
   forceCollide,
+  forceX,
+  forceY,
   type SimulationNodeDatum,
 } from "d3-force";
 import type { FramePairWeight } from "./frame-pair-rollup.js";
@@ -29,6 +31,12 @@ export interface LayoutInputFrame {
   frame_id: number;
   frame_label: string;
   member_count: number;
+  /** Effective sink ratio in [0,1] (surface 0 → substrate 1). When present on
+   *  ANY frame, the vertical stratification force is applied; omitted on EVERY
+   *  frame (default) → layout takes the exact pre-slice forceCenter path
+   *  (byte-identical). In a stratified layout, a frame that omits `sink` is
+   *  assigned 0.5 (band midpoint). */
+  sink?: number;
 }
 
 /** Mulberry32 — a small, fast, fully-deterministic 32-bit PRNG. */
@@ -60,6 +68,24 @@ const ITERATIONS = 300;
 const COLLIDE_PAD = 10;
 /** Extra collision-only ticks after the main sim to enforce non-overlap. */
 const RELAX_ITERATIONS = 120;
+/** Vertical band the stratification force targets (px), inside stage margins. */
+const TOP_Y = STAGE_H * 0.14;     // 112
+const BOTTOM_Y = STAGE_H * 0.86;  // 688
+/** forceY pull strength — stratifies vertically while the pair-link force still
+ *  groups connected frames horizontally. Weak enough that the link spring can
+ *  override it for strongly-connected co-layer frames; strong enough to produce
+ *  visible stratification within the fixed 300 ticks. */
+const STRENGTH_Y = 0.18;
+/** Horizontal recentre strength (stratify path only) — replaces forceCenter's
+ *  vertical pull; weak so it nudges the cloud to mid-stage on x without
+ *  clustering unlinked frames. */
+const STRENGTH_X = 0.05;
+
+/** Target y for a frame from its sink ratio (clamped to [0,1]). */
+function yTargetFor(sink: number): number {
+  const s = Math.max(0, Math.min(1, sink));
+  return TOP_Y + s * (BOTTOM_Y - TOP_Y);
+}
 
 export interface PositionedFrame {
   id: number;
@@ -79,6 +105,8 @@ interface SimNode extends SimulationNodeDatum {
   size: number;
   /** Normalized mass 0..1 for inertia damping. */
   mass: number;
+  /** Effective sink ratio carried from the input (default 0.5). */
+  sink: number;
 }
 
 /** sqrt-bounded size in the [FRAME_MIN, FRAME_MAX] band. Degenerate (all equal
@@ -115,6 +143,7 @@ export function layoutFrames(
     count: f.member_count,
     size: sizeFor(f.member_count, minC, maxC),
     mass: maxC <= minC ? 0.5 : (f.member_count - minC) / (maxC - minC),
+    sink: f.sink ?? 0.5,
     // Deterministic initial scatter around the center.
     x: STAGE_W / 2 + (init() - 0.5) * STAGE_W * 0.5,
     y: STAGE_H / 2 + (init() - 0.5) * STAGE_H * 0.5,
@@ -126,11 +155,26 @@ export function layoutFrames(
     .map((p) => ({ source: p.a, target: p.b, weight: p.weight }));
   const maxW = Math.max(1, ...links.map((l) => l.weight));
 
+  // Stratify when the caller attached sink data (the CORTEX_LAYER_LAYOUT gate is
+  // read at the call site, not here — this module stays layer-agnostic).
+  const stratify = frames.some((f) => f.sink !== undefined);
+
   const sim = forceSimulation<SimNode>(nodes)
     // Inject the deterministic PRNG so d3's coincident-node jiggle is reproducible.
     .randomSource(mulberry32((seed ^ 0x9e3779b9) >>> 0))
-    .force("charge", forceManyBody<SimNode>().strength(-320))
-    .force("center", forceCenter(STAGE_W / 2, STAGE_H / 2))
+    .force("charge", forceManyBody<SimNode>().strength(-320));
+
+  if (stratify) {
+    // Vertical axis owned by the sink force; centering becomes horizontal-only so
+    // forceCenter's mean-recentering doesn't fight the vertical distribution.
+    sim
+      .force("x", forceX<SimNode>(STAGE_W / 2).strength(STRENGTH_X))
+      .force("y", forceY<SimNode>((d) => yTargetFor(d.sink)).strength(STRENGTH_Y));
+  } else {
+    sim.force("center", forceCenter(STAGE_W / 2, STAGE_H / 2));
+  }
+
+  sim
     .force(
       "link",
       forceLink<SimNode, (typeof links)[number]>(links)

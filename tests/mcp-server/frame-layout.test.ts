@@ -166,3 +166,57 @@ describe("layoutFrames", () => {
     }
   });
 });
+
+describe("layoutFrames — vertical stratification (layer-adjacency force)", () => {
+  // The exact output of the PRE-CHANGE layoutFrames on this fixture (captured via
+  // the tsx one-liner). The flag-off path (no `sink`) must reproduce it byte-for-byte.
+  const GOLD_FRAMES = [
+    { frame_id: 0, frame_label: "checkout", member_count: 30 },
+    { frame_id: 1, frame_label: "viewer", member_count: 10 },
+    { frame_id: 2, frame_label: "graph", member_count: 5 },
+  ];
+  const GOLD_PAIRS = [{ a: 0, b: 1, weight: 12 }];
+  const GOLDEN = [{"id":0,"name":"checkout","count":30,"x":612,"y":377,"w":160,"h":160},{"id":1,"name":"viewer","count":10,"x":634,"y":216,"w":124,"h":124},{"id":2,"name":"graph","count":5,"x":254,"y":606,"w":110,"h":110}];
+
+  it("is byte-identical to pre-slice output when no frame carries a sink (inert guard)", () => {
+    expect(layoutFrames(GOLD_FRAMES, GOLD_PAIRS)).toEqual(GOLDEN);
+  });
+
+  const stratFrames: LayoutInputFrame[] = [
+    { frame_id: 0, frame_label: "surface", member_count: 10, sink: 0.0 },
+    { frame_id: 1, frame_label: "substrate", member_count: 10, sink: 1.0 },
+  ];
+
+  it("places a low-sink (source) frame above a high-sink (substrate) frame", () => {
+    const out = layoutFrames(stratFrames, []);
+    const surface = out.find((f) => f.id === 0)!;
+    const substrate = out.find((f) => f.id === 1)!;
+    expect(surface.y).toBeLessThan(substrate.y);
+  });
+
+  it("is deterministic with the sink force on (byte-identical across runs)", () => {
+    expect(layoutFrames(stratFrames, [])).toEqual(layoutFrames(stratFrames, []));
+  });
+
+  it("keeps stratified frames within the virtual stage", () => {
+    for (const f of layoutFrames(stratFrames, [])) {
+      expect(f.x - f.w / 2).toBeGreaterThanOrEqual(0);
+      expect(f.x + f.w / 2).toBeLessThanOrEqual(STAGE_W);
+      expect(f.y - f.h / 2).toBeGreaterThanOrEqual(0);
+      expect(f.y + f.h / 2).toBeLessThanOrEqual(STAGE_H);
+    }
+  });
+
+  it("in a mixed-sink layout, a sink=0 frame sits above a sinkless (→0.5 mid-band) frame", () => {
+    // Stratify fires because one frame carries sink; the sinkless frame defaults
+    // to 0.5 (band midpoint), so the sink=0 (surface) frame lands above it.
+    const mixed: LayoutInputFrame[] = [
+      { frame_id: 0, frame_label: "surface", member_count: 10, sink: 0.0 },
+      { frame_id: 1, frame_label: "unclassified", member_count: 10 }, // no sink → 0.5
+    ];
+    const out = layoutFrames(mixed, []);
+    const surface = out.find((f) => f.id === 0)!;
+    const mid = out.find((f) => f.id === 1)!;
+    expect(surface.y).toBeLessThan(mid.y);
+  });
+});
