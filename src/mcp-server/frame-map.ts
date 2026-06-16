@@ -23,6 +23,18 @@ import { rollupFrameFlows } from "./frame-flow-rollup.js";
 import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-extraction/frame-kind.js";
 import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
 
+/** Per-layer nominal sink for the layout's vertical force, used ONLY for frames
+ *  with no measured inter-frame flow (the categorical fallback). Surface→substrate
+ *  order; domain mid-band. Frames that HAVE flows use their measured sink ratio. */
+const NOMINAL_SINK: Record<FrameLayer, number> = {
+  interface: 0.1,
+  orchestration: 0.3,
+  domain: 0.5,
+  data: 0.7,
+  infrastructure: 0.9,
+  ceremony: 0.97,
+};
+
 export interface FrameMapEntry {
   id: number;
   name: string;
@@ -93,7 +105,7 @@ function buildFileBlobs(nodes: readonly NodeRow[]): FileBlob[] {
 export function buildFrameMap(
   nodes: readonly NodeRow[],
   edges: readonly EdgeRow[],
-  opts: { applyKindWeight?: boolean; applyDiversity?: boolean } = {},
+  opts: { applyKindWeight?: boolean; applyDiversity?: boolean; applyLayout?: boolean } = {},
 ): FrameMap {
   // Kind-weight ranking is ON by default (taxonomy enable slice, observe verdict
   // positive — D-g4qb). CORTEX_KIND_WEIGHT is now an OPT-OUT: set it to "0" to
@@ -144,11 +156,27 @@ export function buildFrameMap(
 
   const ambient = ranked.filter((r) => ambientIds.has(r.frame_id));
   const pairs = rollupFramePairs(nodes, edges);
+
+  // Layer-adjacency layout force (taxonomy layout slice). Default OFF — when off,
+  // no `sink` is attached, so layoutFrames takes the pre-slice forceCenter path
+  // and positions are byte-identical. When on, each ambient frame gets an
+  // effective sink: measured (fanIn/(fanIn+fanOut)) when it has flows, else the
+  // layer's NOMINAL_SINK. The env read lives here; the layout module stays
+  // layer-agnostic (it only sees a number).
+  const applyLayout = opts.applyLayout ?? process.env.CORTEX_LAYER_LAYOUT === "1";
+  const effectiveSink = (frame_id: number): number => {
+    const st = statsById.get(frame_id);
+    const flow = (st?.fanIn ?? 0) + (st?.fanOut ?? 0);
+    if (flow > 0) return st!.fanIn / flow;
+    return NOMINAL_SINK[layerById.get(frame_id) ?? "domain"];
+  };
+
   const positioned = layoutFrames(
     ambient.map((r) => ({
       frame_id: r.frame_id,
       frame_label: r.frame_label,
       member_count: r.member_count,
+      ...(applyLayout ? { sink: effectiveSink(r.frame_id) } : {}),
     })),
     pairs,
   );
