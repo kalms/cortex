@@ -1,0 +1,43 @@
+{
+  "$ref": "#/definitions/freshness",
+  "definitions": {
+    "freshness": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "fresh",
+            "stale:commits",
+            "stale:dirty",
+            "stale:both",
+            "empty",
+            "unknown"
+          ]
+        },
+        "commits_behind": {
+          "type": "number"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "indexed_at": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "state"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
