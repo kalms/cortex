@@ -176,6 +176,10 @@ function evalRepo(repo: RepoSpec): RepoRow {
     // Layout off-vs-on: Spearman(y, sink) of the ambient set with the vertical
     // force ON. A strong positive value = frames stratify by surface→substrate.
     const layoutOn = buildFrameMap(nodes, edges, { applyLayout: true });
+    // NOTE: for flowless frames this uses 0.5, whereas the layout's own
+    // effectiveSink uses NOMINAL_SINK[layer]. So on repos with many flowless
+    // frames this Spearman is a slight UNDER-estimate of the true y↔driver
+    // correlation (the metric is noisier than the layout it measures).
     const sinkOf = (id: number) => {
       const s = statsById.get(id);
       const flow = (s?.fanIn ?? 0) + (s?.fanOut ?? 0);
