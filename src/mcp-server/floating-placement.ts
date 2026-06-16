@@ -103,7 +103,8 @@ export function placeAggregates(
     const ties = edgeTies.get(id);
     if (!ties) return null;
     const anchors: WeightedAnchor[] = [];
-    for (const [fid, w] of ties) {
+    // sort by frameId so the weighted-centroid accumulation is insertion-order-independent (determinism).
+    for (const [fid, w] of [...ties].sort((x, y) => x[0] - y[0])) {
       const p = ambientPos.get(fid);
       if (p) anchors.push({ x: p.x, y: p.y, weight: w });
     }
