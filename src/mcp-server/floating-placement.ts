@@ -18,6 +18,9 @@ export const AGG_RADIUS = 8;
 const MARGIN_Y = STAGE_H - 28;
 /** Iteration cap for the repulsion solve (bounded → terminates, deterministic). */
 const REPEL_ITERATIONS = 24;
+/** Grid step (px) for the outward free-slot search in separateMovables. Integer
+ *  offsets only → cross-platform deterministic (no trig). */
+const SEARCH_STEP = 20;
 
 /** A rectangular frame box: integer center x/y, width w, and height h. */
 export interface Box { x: number; y: number; w: number; h: number; }
@@ -76,6 +79,67 @@ export function repelFromBoxes(x: number, y: number, size: number, boxes: readon
   return { x: q(px), y: q(py) };
 }
 
+/** A movable satellite: integer center x/y + square size. `id` is opaque (carried
+ *  through so the caller can re-key the result). */
+export interface Movable { id: number | string; x: number; y: number; size: number; }
+
+/** Two boxes overlap iff their centers are within the summed half-extents on
+ *  BOTH axes (touching edges = not overlapping). */
+function boxesOverlap(ax: number, ay: number, asz: number, b: Box): boolean {
+  return Math.abs(ax - b.x) < (b.w + asz) / 2 && Math.abs(ay - b.y) < (b.h + asz) / 2;
+}
+
+/**
+ * Place movable satellites so NONE overlaps a fixed (ambient) box OR another
+ * movable — the hard "frames never sit on top of each other" invariant. Greedy +
+ * deterministic: each satellite (in the caller's order) keeps its seed if that
+ * spot is already free; otherwise it takes the nearest free spot found by
+ * scanning OUTWARD from the seed in expanding integer grid rings. Already-placed
+ * satellites join the occupied set, so later satellites avoid earlier ones too.
+ *
+ * Unlike a force-relaxation pass (which deadlocks when a seed is buried deep in a
+ * dense ambient cluster — pushing a satellite off one frame drops it onto the
+ * next), the outward ring scan migrates a satellite all the way to genuine free
+ * space, so the invariant holds by construction whenever the stage has room. The
+ * scan uses integer offsets only (no trig) → cross-platform deterministic. If no
+ * free slot is found within the stage (saturated), the satellite falls back to
+ * its clamped seed (best effort). Mutates + returns `movables`; no PRNG.
+ */
+export function separateMovables(movables: Movable[], fixed: readonly Box[]): Movable[] {
+  const placed: Box[] = [...fixed.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }))];
+  const onStage = (x: number, y: number, half: number) =>
+    x >= half && x <= STAGE_W - half && y >= half && y <= STAGE_H - half;
+  const free = (x: number, y: number, size: number) =>
+    onStage(x, y, size / 2) && !placed.some((b) => boxesOverlap(x, y, size, b));
+
+  for (const m of movables) {
+    const half = m.size / 2;
+    let sx = q(Math.min(STAGE_W - half, Math.max(half, m.x)));
+    let sy = q(Math.min(STAGE_H - half, Math.max(half, m.y)));
+    if (!free(sx, sy, m.size)) {
+      let found = false;
+      // Expanding square rings around the seed; SEARCH_STEP-px grid, nearest first.
+      const maxR = Math.ceil(Math.max(STAGE_W, STAGE_H) / SEARCH_STEP);
+      for (let r = 1; r <= maxR && !found; r++) {
+        const d = r * SEARCH_STEP;
+        for (let off = -d; off <= d && !found; off += SEARCH_STEP) {
+          // top & bottom edges of the ring, then left & right edges
+          const cand: Array<[number, number]> = [
+            [sx + off, sy - d], [sx + off, sy + d], [sx - d, sy + off], [sx + d, sy + off],
+          ];
+          for (const [cx, cy] of cand) {
+            if (free(cx, cy, m.size)) { sx = cx; sy = cy; found = true; break; }
+          }
+        }
+      }
+      // If saturated (no free slot anywhere), keep the clamped seed (best effort).
+    }
+    m.x = sx; m.y = sy;
+    placed.push({ x: sx, y: sy, w: m.size, h: m.size });
+  }
+  return movables;
+}
+
 /** Deterministic slot in the bottom gutter for tie-less entities. Slots spread
  *  evenly across the inner 10%–90% of stage width. */
 export function marginSlot(index: number, total: number, size: number): { x: number; y: number } {
@@ -125,18 +189,25 @@ export function placeAggregates(
   const tieless = ordered.filter((a) => seeds.get(a.id) === null).map((a) => a.id);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
 
-  const out = new Map<string, { x: number; y: number }>();
-  for (const a of ordered) {
+  // Seed at the tie centroid (or margin), then separate the aggregate dots
+  // against the ambient anchors AND each other so dots don't stack either.
+  const movables: Movable[] = ordered.map((a) => {
     const seed = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
-    out.set(a.id, repelFromBoxes(seed.x, seed.y, AGG_RADIUS * 2, ambientBoxes));
-  }
+    return { id: a.id, x: seed.x, y: seed.y, size: AGG_RADIUS * 2 };
+  });
+  separateMovables(movables, ambientBoxes);
+  const out = new Map<string, { x: number; y: number }>();
+  for (const m of movables) out.set(m.id as string, { x: m.x, y: m.y });
   return out;
 }
 
 /** Position each non-ambient frame at the pair-weighted centroid of the AMBIENT
- *  frames it connects to (frame-repulsion applied; margin fallback when it has
- *  no ambient partner). Returns frame_id → integer center {x, y}. Satellites are
- *  anchored only to AMBIENT frames (stable anchors) — never to each other. */
+ *  frames it connects to (margin fallback when it has no ambient partner), then
+ *  separate all satellites so none overlaps an ambient frame OR another satellite
+ *  (separateMovables). Returns frame_id → integer center {x, y}. Satellites are
+ *  *anchored* only to AMBIENT frames (stable anchors), but the separation pass
+ *  also resolves satellite-vs-satellite collisions — co-anchored frames that
+ *  share a centroid no longer stack. */
 export function placeNonAmbientFrames(
   nonAmbient: readonly { frame_id: number }[],
   framePairs: readonly FramePairWeight[],
@@ -156,11 +227,15 @@ export function placeNonAmbientFrames(
   const sorted = [...nonAmbient].map((f) => f.frame_id).sort((x, y) => x - y);
   const tieless = sorted.filter((id) => (partnersOf.get(id) ?? []).length === 0);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
-  const out = new Map<number, { x: number; y: number }>();
-  for (const id of sorted) {
+  // Seed at the centroid (or margin), then separate the whole satellite set
+  // against the ambient anchors AND each other in one deterministic pass.
+  const movables: Movable[] = sorted.map((id) => {
     const c = weightedCentroid(partnersOf.get(id) ?? []);
     const seed = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
-    out.set(id, repelFromBoxes(seed.x, seed.y, SATELLITE_SIZE, ambientBoxes));
-  }
+    return { id, x: seed.x, y: seed.y, size: SATELLITE_SIZE };
+  });
+  separateMovables(movables, ambientBoxes);
+  const out = new Map<number, { x: number; y: number }>();
+  for (const m of movables) out.set(m.id as number, { x: m.x, y: m.y });
   return out;
 }
