@@ -20,7 +20,11 @@ describe("positionAggregates", () => {
     const a = aggs.find((x) => x.id === "aux:locales:locales")!;
     expect(Number.isInteger(a.x)).toBe(true);
     expect(Number.isInteger(a.y)).toBe(true);
-    expect(a.x).toBe(200); // edge-tied to frame 1 at x=200
+    // Edge-tied to frame 1 (200,300) — its centroid is frame 1's center, so the
+    // dot is displaced to the nearest free slot near it (never on top of it).
+    const dx = Math.abs((a.x as number) - 200), dy = Math.abs((a.y as number) - 300);
+    expect(dx >= (120 + 16) / 2 || dy >= (120 + 16) / 2).toBe(true);
+    expect(Math.hypot((a.x as number) - 200, (a.y as number) - 300)).toBeLessThan(200);
   });
 
   it("leaves aggregates present even when there are no ambient frames (margin)", () => {

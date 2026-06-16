@@ -106,13 +106,20 @@ describe("placeAggregates", () => {
     expect(out.get("aux:locales:locales")!.x).toBe(350); // (200*3 + 800*1)/4
   });
 
-  it("falls back to path tie when there are no edges", () => {
+  it("falls back to path tie — placed near the host frame, not the margin", () => {
     const aggDirs = new Map([["aux:locales:locales", "app"]]);
     const out = placeAggregates(
       [{ id: "aux:locales:locales", member_count: 2 }],
       new Map(), aggDirs, frameRepDirsMap, ambientPositions, ambientBoxes,
     );
-    expect(out.get("aux:locales:locales")!.x).toBe(200); // frame 1 (repDir "app")
+    const p = out.get("aux:locales:locales")!;
+    // Path-tied to frame 1 (200,300) — its centroid IS frame 1's center, so the
+    // dot is displaced to the nearest free slot: not the bottom margin, not
+    // overlapping frame 1's box, and close to it.
+    expect(p.y).not.toBe(800 - 28);
+    const dx = Math.abs(p.x - 200), dy = Math.abs(p.y - 300);
+    expect(dx >= (120 + 16) / 2 || dy >= (120 + 16) / 2).toBe(true); // 16 = AGG dot size
+    expect(Math.hypot(p.x - 200, p.y - 300)).toBeLessThan(200);
   });
 
   it("falls back to a margin slot when neither edge nor path ties resolve", () => {
@@ -143,6 +150,51 @@ describe("placeAggregates", () => {
     const args = [[{ id: "aux:locales:locales", member_count: 3 }], edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes] as const;
     const a = placeAggregates(...args);
     const b = placeAggregates(...args);
+    expect([...a]).toEqual([...b]);
+  });
+});
+
+describe("placeNonAmbientFrames — non-overlap invariant", () => {
+  // 3 ambient frames; 6 non-ambient frames ALL pairing with the same ambient
+  // frame (id 1) → identical centroid before the fix → they used to stack.
+  const ambientPositions = [
+    { id: 1, x: 500, y: 400 },
+    { id: 2, x: 180, y: 180 },
+    { id: 3, x: 820, y: 620 },
+  ];
+  const ambientBoxes = ambientPositions.map((p) => ({ ...p, w: 120, h: 120 }));
+  const nonAmbient = [7, 8, 9, 10, 11, 12].map((frame_id) => ({ frame_id }));
+  const pairs = nonAmbient.map((f) => ({ a: 1, b: f.frame_id, weight: 1 }));
+
+  it("produces no two satellite frames directly on top of each other", () => {
+    const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    const sats = [...out.values()];
+    for (let i = 0; i < sats.length; i++) {
+      for (let j = i + 1; j < sats.length; j++) {
+        const dx = Math.abs(sats[i].x - sats[j].x);
+        const dy = Math.abs(sats[i].y - sats[j].y);
+        // two 84px square frames don't overlap iff separated ≥84 on either axis
+        expect(dx >= SATELLITE_SIZE || dy >= SATELLITE_SIZE).toBe(true);
+      }
+    }
+  });
+
+  it("places no satellite frame on top of an ambient frame", () => {
+    const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    for (const s of out.values()) {
+      for (const b of ambientBoxes) {
+        const dx = Math.abs(s.x - b.x);
+        const dy = Math.abs(s.y - b.y);
+        const minX = (SATELLITE_SIZE + b.w) / 2;
+        const minY = (SATELLITE_SIZE + b.h) / 2;
+        expect(dx >= minX || dy >= minY).toBe(true);
+      }
+    }
+  });
+
+  it("stays deterministic across runs", () => {
+    const a = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    const b = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     expect([...a]).toEqual([...b]);
   });
 });
