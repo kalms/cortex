@@ -12,18 +12,17 @@
 
 ---
 
-## Pre-flight: branch & rebase note
+## Pre-flight: branch & base
 
 - Work happens in worktree `../cortex-wt-api-contract` on branch
-  `feature/api/versioned-contract-hardening` (already created off `main` @ 0.3.22).
-- **Release-time gate (NOT plan-time):** the `feature/layout/floating-entity-placement`
-  branch (0.3.23, unmerged) modifies `src/mcp-server/api.ts` (the `/api/aggregates`
-  handler) and `src/mcp-server/frame-map.ts`. Before the `0.4.0` release, land
-  floating-entity to `main`, then `git rebase main` this branch. **Task 6 and Task 7**
-  touch those same files — when the rebase happens, re-run their tests and reconcile
-  the `/api/aggregates` handler + any `FrameMapEntry`/aggregate shape change into the
-  schemas (Task 2) and the generated JSON (Task 7). Implementation can proceed now;
-  only the release waits.
+  `feature/api/versioned-contract-hardening`.
+- **Floating-entity (0.3.23) is already MERGED to `main`** (PR #23, `efc6799`) and this
+  branch has been **rebased onto it**. Its base now contains the merged `/api/aggregates`
+  handler (`positionAggregates`, from `src/mcp-server/aggregate-positioning.ts`, already
+  imported in `api.ts`) and the `Aggregate` shape with optional `x`/`y`. The plan below is
+  written against that post-rebase base: Task 6's `/api/aggregates` handler wraps the
+  merged `positionAggregates` body in `respond()` (do NOT revert to `groupAuxiliaryPaths`),
+  and Task 2's `AggregateSchema` includes `x`/`y`. The release is **0.3.23 → 0.4.0** (minor).
 
 ## File structure
 
@@ -141,7 +140,7 @@ describe("api-schemas", () => {
   it("ProjectsResponseSchema + FramesResponseSchema + AggregatesResponseSchema + FileEdgesResponseSchema accept current shapes", () => {
     expect(ProjectsResponseSchema.safeParse({ version: 1, projects: [{ name: "c", indexed_at: "t", root_path: "/r" }], active: "c" }).success).toBe(true);
     expect(FramesResponseSchema.safeParse({ version: 1, frames: [{ id: 1, name: "F", count: 3, x: 0, y: 0, w: 1, h: 1, ambient: true, rank: 0, score: 1, layer: "domain" }], stage: { w: 800, h: 600 } }).success).toBe(true);
-    expect(AggregatesResponseSchema.safeParse({ version: 1, aggregates: [{ id: "aux:dist:x", label: "x", aux_segment: "dist", member_count: 2, sample_paths: ["dist/x/a.js"] }] }).success).toBe(true);
+    expect(AggregatesResponseSchema.safeParse({ version: 1, aggregates: [{ id: "aux:dist:x", label: "x", aux_segment: "dist", member_count: 2, sample_paths: ["dist/x/a.js"], x: 120, y: 340 }] }).success).toBe(true);
     expect(FileEdgesResponseSchema.safeParse({ version: 1, file_edges: [{ from_path: "a.ts", to_path: "b.ts", weight: 3 }] }).success).toBe(true);
   });
 
@@ -275,13 +274,18 @@ export const FileEdgesResponseSchema = z.object({
 export type FileEdgesResponse = z.infer<typeof FileEdgesResponseSchema>;
 
 // ── Aggregates ─────────────────────────────────────────────────────────────
-/** Mirrors Aggregate (src/frame-extraction/auxiliary-detection.ts). */
+/** Mirrors Aggregate (src/frame-extraction/auxiliary-detection.ts). `x`/`y` are
+ *  the virtual-stage center px set by positionAggregates for placed aggregates
+ *  (absent for unplaced) — they MUST be in the schema or the generated doc
+ *  under-describes the real wire shape Mesh + the viewer receive. */
 export const AggregateSchema = z.object({
   id: z.string(),
   label: z.string(),
   aux_segment: z.string(),
   member_count: z.number(),
   sample_paths: z.array(z.string()),
+  x: z.number().optional(),
+  y: z.number().optional(),
 });
 export const AggregatesResponseSchema = z.object({
   version: Version,
@@ -388,7 +392,7 @@ Keep `BuildFileEdgesOptions` and the `buildFileEdges` implementation unchanged.
 - [ ] **Step 6: Typecheck the whole project**
 
 Run: `npx tsc --noEmit`
-Expected: exit 0 (the inferred types are structurally identical to the deleted interfaces, so `buildAdaptedDecision`/`buildFileEdges` still typecheck).
+Expected: exit 0. The inferred types are structurally **compatible** with the deleted interfaces. One deliberate widening: `provenance` goes from `ProvenanceMeta | null` to `Record<string, unknown> | null`. Safe — `buildAdaptedDecision` assigns `JSON.parse(...)` (type `any`) into it and no consumer reads `provenance.source`/`.confidence` — and intentional (forward-compatible per the schema's "kept permissive" TSDoc). Keep a one-line note in the `AdaptedDecisionSchema` TSDoc so the looseness reads as deliberate, not accidental.
 
 - [ ] **Step 7: Commit**
 
@@ -513,10 +517,9 @@ export function httpFreshnessFor(
 }
 ```
 
-> If `resolveGraphDbForRead` / `resolveCortexDbPath` are not the exact exported
-> names, confirm with `search_graph(name_pattern="resolveCortexDbPath")` and
-> `search_graph(name_pattern="resolveGraphDbForRead")` and adjust the import; both
-> live in `src/db/resolve-path.ts` (used by `openProjectStore` and the freshness CLI).
+> Verified against the source: `resolveGraphDbForRead` (returns `string | null`) and
+> `resolveCortexDbPath` (returns `string`) are both exported from `src/db/resolve-path.ts`,
+> so the `resolveGraphDbForRead(rootPath) ?? resolveCortexDbPath(rootPath)` fallback typechecks.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -685,8 +688,9 @@ export function respond<T>(
     return;
   }
 
+  // HEAD: stamp every header (incl. ETag) but send NO body, per HTTP semantics.
   res.writeHead(200, { ...baseHeaders, "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
+  res.end(ctx.req.method === "HEAD" ? undefined : JSON.stringify(data));
 }
 
 /** Error responses (no contract validation). */
@@ -729,7 +733,7 @@ Create `tests/api/api-middleware.test.ts`:
 ```ts
 import { describe, it, expect } from "vitest";
 import {
-  resolveBindHost, methodAllowed, corsHeadersFor, checkAuth, safeStaticPath, AUTH_EXEMPT,
+  resolveBindHost, methodAllowed, corsHeadersFor, checkAuth, safeStaticPath, AUTH_EXEMPT, urlTooLong,
 } from "../../src/mcp-server/api-middleware.js";
 import { join, resolve } from "node:path";
 
@@ -787,6 +791,14 @@ describe("safeStaticPath", () => {
     expect(safeStaticPath(dir, "../secret")).toBeNull();
   });
 });
+
+describe("urlTooLong", () => {
+  it("flags only over-limit request targets", () => {
+    expect(urlTooLong("/api/graph")).toBe(false);
+    expect(urlTooLong("/api/graph?project=" + "a".repeat(3000))).toBe(true);
+    expect(urlTooLong(undefined)).toBe(false);
+  });
+});
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -822,6 +834,13 @@ export function resolveBindHost(env: Env = process.env): string {
 
 export function methodAllowed(method: string | undefined): boolean {
   return method !== undefined && ALLOWED_METHODS.has(method);
+}
+
+/** Reject an over-long request target — cheap oversized-URL / request-line guard
+ *  (spec §4 row 7). */
+export const MAX_URL_LENGTH = 2048;
+export function urlTooLong(url: string | undefined): boolean {
+  return (url?.length ?? 0) > MAX_URL_LENGTH;
 }
 
 /** CORS headers for a request Origin. Empty unless the origin is allowlisted via
@@ -900,9 +919,9 @@ Wire everything into `startViewerServer`: a per-request middleware chain (method
 - Modify: `src/mcp-server/api.ts`
 - Test: `tests/api/api-server.test.ts` (new integration test)
 
-> **Rebase note:** floating-entity (0.3.23) edits the `/api/aggregates` handler and
-> `frame-map.ts`. After the pre-release rebase, re-derive the `/api/aggregates`
-> handler body from the merged version and re-run this task's tests.
+> **Note:** the branch is already rebased onto merged main (0.3.23), so `api.ts`'s base
+> has the `positionAggregates`-based `/api/aggregates` handler + the `frame-map.ts`
+> changes. The aggregates handler below simply wraps that merged body in `respond()`.
 
 - [ ] **Step 1: Write the failing integration test**
 
@@ -911,22 +930,28 @@ Create `tests/api/api-server.test.ts`:
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { startViewerServer, type ViewerServerHandle } from "../../src/mcp-server/api.js";
 import { GraphStore } from "../../src/graph/store.js";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Use an isolated, empty store on a temp db so the server starts deterministically.
 let handle: ViewerServerHandle;
 let base: string;
+let store: GraphStore;
+let dir: string;
 
 beforeAll(async () => {
-  process.env.CORTEX_VIEWER_PORT = "0"; // ephemeral port (see Step 3 — bind reads this)
-  const dir = mkdtempSync(join(tmpdir(), "cortex-api-"));
-  const store = new GraphStore(join(dir, "db"));
+  process.env.CORTEX_VIEWER_PORT = "0"; // ephemeral port (see Step 3(d))
+  dir = mkdtempSync(join(tmpdir(), "cortex-api-"));
+  store = new GraphStore(join(dir, "db"));
   handle = await startViewerServer(store, null);
   base = `http://127.0.0.1:${handle.port}`;
 });
-afterAll(() => handle?.close());
+afterAll(() => {
+  handle?.close();
+  store?.close();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 describe("viewer HTTP contract", () => {
   it("GET /api/health is unauthenticated and versioned", async () => {
@@ -970,6 +995,18 @@ describe("viewer HTTP contract", () => {
     const r = await fetch(`${base}/viewer/../../../../etc/passwd`);
     expect([400, 404]).toContain(r.status);
   });
+
+  it("HEAD /api/graph returns headers + ETag with no body", async () => {
+    const r = await fetch(`${base}/api/graph`, { method: "HEAD" });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("ETag")).toBeTruthy();
+    expect(await r.text()).toBe("");
+  });
+
+  it("rejects an oversized request target with 414", async () => {
+    const r = await fetch(`${base}/api/graph?project=${"a".repeat(3000)}`);
+    expect(r.status).toBe(414);
+  });
 });
 ```
 
@@ -987,7 +1024,7 @@ In `src/mcp-server/api.ts`:
 import { respond, respondError } from "./api-respond.js";
 import { httpFreshnessFor } from "./api-freshness.js";
 import {
-  resolveBindHost, methodAllowed, corsHeadersFor, checkAuth, safeStaticPath, SECURITY_HEADERS,
+  resolveBindHost, methodAllowed, corsHeadersFor, checkAuth, safeStaticPath, SECURITY_HEADERS, urlTooLong,
 } from "./api-middleware.js";
 import {
   CONTRACT_VERSION, GraphResponseSchema, ProjectsResponseSchema, FramesResponseSchema,
@@ -1006,6 +1043,9 @@ const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResp
   const pathname = parsed.pathname;
   const origin = req.headers["origin"] as string | undefined;
   const cors = corsHeadersFor(origin, process.env);
+
+  // Oversized request-target guard (cheap DoS/abuse limit, spec §4 row 7).
+  if (urlTooLong(req.url)) { respondError(res, 414, "request-target too long", cors); return; }
 
   // CORS preflight (only answered for allowlisted origins; cors is {} otherwise).
   if (req.method === "OPTIONS") {
@@ -1115,14 +1155,16 @@ const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResp
     return;
   }
 
-  // ── /api/aggregates ──  (REBASE: reconcile with floating-entity 0.3.23)
+  // ── /api/aggregates ── (positionAggregates + buildFrameMap are ALREADY imported
+  // at the top of api.ts post-rebase — wrap the merged 0.3.23 body in respond().
+  // Do NOT switch to groupAuxiliaryPaths; that drops the x/y the viewer renders.)
   if (pathname === "/api/aggregates") {
     const resolved = openProjectStore(store, indexerProject, project, { registry });
     const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
     try {
-      const paths: string[] = [];
-      for (const n of nodes) { if (n.kind === "file" && n.file_path) paths.push(n.file_path); }
-      const aggregates = groupAuxiliaryPaths(paths);
+      const edges = resolved ? resolved.store.getAllEdgesUnified(project ?? undefined) : [];
+      const frameMap = buildFrameMap(nodes, edges);
+      const aggregates = positionAggregates(nodes, edges, frameMap);
       respond(res, AggregatesResponseSchema, { version: CONTRACT_VERSION, aggregates }, freshCtx());
     } finally {
       if (resolved?.owned) resolved.store.close();
@@ -1198,13 +1240,30 @@ to:
 httpServer.listen(port, resolveBindHost(process.env));
 ```
 
-(d) **Allow an ephemeral port for tests.** Where `const port = parseInt(process.env.CORTEX_VIEWER_PORT || "3333", 10);` is computed, the resolved `handle.port` must reflect the OS-assigned port when `0` is requested. After a successful bind, set:
+(d) **Report the OS-assigned port** (needed so `CORTEX_VIEWER_PORT=0` in the integration tests yields a real `handle.port`). The handle is resolved inside the `bindWithRetry(...).then((ok) => { if (ok) { resolve({ port, … }) } … })` success branch (near api.ts:438), where the captured `port` is the *requested* value (0 in tests). Replace it with the actual bound port — computed ONLY in the success branch (never the `attempt()` closure, which has no handle; never the failure branch, which keeps `port: -1`):
 ```ts
-const actualPort = (httpServer.address() as import("node:net").AddressInfo).port;
+.then((ok) => {
+  if (ok) {
+    const addr = httpServer.address();
+    const actualPort = addr && typeof addr === "object" ? addr.port : port;
+    resolve({
+      port: actualPort,
+      httpServer,
+      close() { httpServer.close(); registry.close(); },
+    });
+  } else {
+    resolve({ port: -1, httpServer: null, close() { registry.close(); } });
+  }
+});
 ```
-and resolve the handle with `port: actualPort` instead of the requested `port`. (Leaves the default `3333`/`3334` behavior unchanged for non-zero ports.)
+`address()` is non-null here because the success branch runs only after the `listening` event. A non-zero `CORTEX_VIEWER_PORT` is unchanged (`actualPort` === requested).
 
-- [ ] **Step 4: Run the new integration test**
+(e) **Set request limits (spec §4 row 7).** Immediately after `const httpServer = createHttpServer(...)` (and before `bindWithRetry`), add finite timeouts so a slow-headers / Slowloris client can't pin a socket:
+```ts
+httpServer.requestTimeout = 30_000;   // ms — whole-request ceiling
+httpServer.headersTimeout = 35_000;   // ms — must exceed requestTimeout
+```
+The oversized-URL guard (`urlTooLong` → `414`) is already wired at the top of the request callback in (b). Together with the GET/HEAD method gate (which rejects request bodies before they're read), these complete the §4 "Limits" row.
 
 Run: `npx vitest run tests/api/api-server.test.ts`
 Expected: PASS (health, graph headers, 304, freshness, 405, traversal-404).
@@ -1212,7 +1271,7 @@ Expected: PASS (health, graph headers, 304, freshness, 405, traversal-404).
 - [ ] **Step 5: Run the FULL existing API suite to confirm no regression**
 
 Run: `npx vitest run tests/api/`
-Expected: PASS — the existing `tests/api/edges-adapter`, `decisions-adapter`, `decisions-routing` plus the new ones. If `decisions-routing.test.ts` asserts the old bare-`AdaptedDecision` body for `:id`, update it to expect `{ version, decision }`.
+Expected: PASS — the existing `tests/api/edges-adapter`, `decisions-adapter`, `decisions-routing` (all pure unit tests of the adapters / `openProjectDecisions`; none make an HTTP call or assert a wire body, so none need editing) plus the new ones. The only `/api/decisions/:id` wire-body coverage is the new `api-server.test.ts`; to cover `:id`, add an assertion there (the temp-db store has no decisions, so assert the `404` path, or seed one first).
 
 - [ ] **Step 6: Typecheck + full suite**
 
@@ -1222,7 +1281,7 @@ Expected: exit 0; full suite green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/mcp-server/api.ts tests/api/api-server.test.ts tests/api/decisions-routing.test.ts
+git add src/mcp-server/api.ts tests/api/api-server.test.ts
 git commit -m "feat(api): route table + middleware + /api/health + /api/freshness + bind host"
 ```
 
@@ -1432,6 +1491,11 @@ describe("input validation", () => {
 });
 ```
 
+> In both this and `api-conformance.test.ts`, mirror `api-server.test.ts`'s temp
+> cleanup: hoist `store`/`dir` to module scope and in `afterAll` add `store.close()`
+> + `rmSync(dir, { recursive: true, force: true })` after `handle?.close()` — avoids
+> leaking sqlite handles + temp dirs when the full suite runs in one pool.
+
 - [ ] **Step 3: Run both new tests**
 
 Run: `npx vitest run tests/api/api-conformance.test.ts tests/api/api-hardening.test.ts`
@@ -1480,7 +1544,7 @@ Create the onboarding doc with these sections (write real prose; no placeholders
 
 - [ ] **Step 2: Write `docs/api/README.md`**
 
-Consumer-facing reference: a table of endpoints (path, auth, body fields, conditional), the headers (`X-Cortex-API-Version`, `X-Cortex-Freshness`, `ETag`, `304`), the env-var table (from spec §6), and a one-paragraph "how to revalidate with `If-None-Match`" for clients. Link to the generated `*.schema.json` files.
+Consumer-facing reference: a table of endpoints (path, auth, body fields, conditional), the headers (`X-Cortex-API-Version`, `X-Cortex-Freshness`, `ETag`, `304`), the env-var table (from spec §6), and a one-paragraph "how to revalidate with `If-None-Match`" for clients. Link to the generated `*.schema.json` files. **Document `/api/freshness`'s optional `note?` field** (emitted on `unknown`/`empty` verdicts) — the Zod schema includes it, so the prose reference must too, keeping it in agreement with the generated `freshness.schema.json`.
 
 - [ ] **Step 3: Update `docs/architecture/graph-ui.md`**
 
@@ -1495,9 +1559,9 @@ Under the **Viewer** section, append:
 
 Add rows to the existing env-var tables: `CORTEX_BIND_HOST` (`127.0.0.1`), `CORTEX_API_TOKEN` (unset → no auth), `CORTEX_CORS_ORIGINS` (unset), `CORTEX_API_STRICT` (`1` → fail-closed responses).
 
-- [ ] **Step 6: Verify TSDoc exists on all new modules**
+- [ ] **Step 6: Verify / refresh TSDoc**
 
-Confirm `api-schemas.ts`, `api-respond.ts`, `api-middleware.ts`, `api-freshness.ts` each carry the module-level TSDoc written in Tasks 2–5, and that exported functions have a one-line doc. Add any missing.
+Confirm `api-schemas.ts`, `api-respond.ts`, `api-middleware.ts`, `api-freshness.ts` each carry the module-level TSDoc written in Tasks 2–5, and that exported functions have a one-line doc. **Also refresh the TSDoc on the refactored `startViewerServer` in `api.ts`** to describe its new orchestrator role (registry → route table → middleware chain → `respond`), per spec §11. Add any missing.
 
 - [ ] **Step 7: Commit (docs-only)**
 
@@ -1539,15 +1603,15 @@ link_decision({ repo_path: "<worktree abs path>", decision_id: "<id>", target: "
 
 ---
 
-## Task 11: Release (after floating-entity 0.3.23 lands)
+## Task 11: Release (0.4.0)
 
 **Files:** `package.json`, `plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`, `HANDOFF.md`.
 
-- [ ] **Step 1: Rebase onto main (post floating-entity merge)**
+- [ ] **Step 1: Re-sync with main (safety re-check — floating-entity 0.3.23 already merged + rebased)**
 
 ```bash
-git fetch origin && git rebase origin/main
-npx vitest run tests/api/    # reconcile /api/aggregates + frame-map if conflicts
+git fetch origin && git rebase origin/main   # branch is already on 0.3.23; a no-op unless main moved again
+npx vitest run tests/api/
 ```
 
 - [ ] **Step 2: Bump all three version fields to `0.4.0`** (per workflow.md; minor, confirmed).
@@ -1571,6 +1635,10 @@ git worktree remove ../cortex-wt-api-contract && git worktree prune
 
 ## Self-review notes
 
-- **Spec coverage:** §1 freshness → Tasks 3,6,8; §2 versioning → Task 2 (`z.literal`) + handlers in 6; §3 schemas+posture → Tasks 2,4; §4 hardening → Tasks 5,6,8; §5 docs-gen+drift → Task 7; §6 refactor → Task 6; §11 docs → Task 9; §12 decision → Task 10; §13 release/rebase → Task 11. All covered.
+- **Spec coverage:** §1 freshness → Tasks 3,6,8; §2 versioning → Task 2 (`z.literal`) + handlers in 6; §3 schemas+posture → Tasks 2,4; §4 hardening — **all 7 guards** incl. **Limits (`urlTooLong`→414 + request/headers timeouts, Tasks 5/6/8)** → Tasks 5,6,8; §5 docs-gen+drift → Task 7; §6 refactor → Task 6; §11 docs → Task 9; §12 decision → Task 10; §13 release → Task 11. All covered.
+- **§5 cross-repo conformance is intentionally out of scope for this branch** — it is the Mesh-side follow-up (spec §10 item 4: vendor `docs/api/*.schema.json` into `fake-cortex.mjs` / e2e fixtures). This branch produces + guards the Cortex-side artifact only.
+- **No `src/index.ts` change needed** (despite spec §7 listing it): the new env vars are read directly via `process.env` inside `api-middleware.ts` (`resolveBindHost`, `checkAuth`, `corsHeadersFor`) and `api-respond.ts` (`isStrict`), and the bind host at the `listen()` call in `api.ts`. No curated env passthrough is required.
+- **HEAD semantics:** `respond()` stamps headers (incl. ETag) but sends no body for `HEAD` (Task 4); covered by an `api-server.test.ts` assertion (Task 6).
+- **Adversarial verification (4-critic workflow, 2026-06-16):** applied — aggregates handler/schema corrected to the merged `positionAggregates`+`x`/`y` shape; §4 Limits gap closed; ephemeral-port edit made explicit; HEAD body fixed; decisions-routing false premise removed; `zod-to-json-schema` API confirmed via context7.
 - **Gate 0 (visual QA):** Task 6 changes the viewer server — before merge, run `npm run dev`, load `/viewer`, confirm it renders + switches projects with no console errors and the new headers are present (per workflow.md). Add a screenshot to `.playwright-mcp/`.
-- **Type consistency:** `CONTRACT_VERSION`, `RESPONSE_SCHEMAS`, `httpFreshnessFor`, `computeEtag`, `respond`/`respondError`, `resolveBindHost`/`methodAllowed`/`corsHeadersFor`/`checkAuth`/`safeStaticPath`/`AUTH_EXEMPT`/`SECURITY_HEADERS` are used consistently across tasks.
+- **Type consistency:** `CONTRACT_VERSION`, `RESPONSE_SCHEMAS`, `httpFreshnessFor`, `computeEtag`, `respond`/`respondError`, `resolveBindHost`/`methodAllowed`/`corsHeadersFor`/`checkAuth`/`safeStaticPath`/`urlTooLong`/`AUTH_EXEMPT`/`SECURITY_HEADERS` are used consistently across tasks.

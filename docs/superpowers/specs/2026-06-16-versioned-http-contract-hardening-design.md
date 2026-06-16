@@ -126,7 +126,8 @@ surfaced two ways:
 - **`X-Cortex-Freshness: <state>`** header on every `/api/*` response
   (`state ∈ fresh | stale:commits | stale:dirty | stale:both | empty | unknown`).
 - **`GET /api/freshness?project=`** → the full `Freshness` JSON
-  (`{ version, state, commits_behind?, dirty?, indexed_at? }`). Tiny, no graph
+  (`{ version, state, commits_behind?, dirty?, indexed_at?, note? }` — `note` is set
+  on `unknown`/`empty` verdicts). Tiny, no graph
   pull — Mesh polls it cheaply; the post-commit auto-refresh republishes → ETag
   flips → Mesh's next conditional GET returns fresh data instead of 304.
 
@@ -390,30 +391,16 @@ A code release: bump `package.json` / `plugin.json` /
 gate, per workflow.md. Gate 0 (visual QA) + Gate 1 (review) + Gate 2 (QA) apply.
 **Version: minor — `0.4.0`** (confirmed: a new backward-compatible capability).
 
-### Hard prerequisite — floating-entity (0.3.23) lands first
+### Floating-entity (0.3.23) — already merged + rebased ✅
 
-P6 is branched off `main` at **0.3.22**. The `feature/layout/floating-entity-placement`
-branch sits unmerged at **0.3.23** (pushed to origin, 12 commits ahead, no PR
-yet) and it **modifies files P6 refactors**:
+Update (2026-06-16): `feature/layout/floating-entity-placement` **merged to `main`**
+(PR #23, `efc6799`, 0.3.23), and the P6 branch has been **rebased onto it**. Its base
+now contains the merged `/api/aggregates` handler (`positionAggregates`, from
+`src/mcp-server/aggregate-positioning.ts`) and the `Aggregate` shape with optional
+`x`/`y`. The plan is written against that post-rebase base: the `/api/aggregates`
+handler wraps the merged `positionAggregates` body in `respond()`, and `AggregateSchema`
+includes `x`/`y`. No pre-release gate remains — implement P6 and release
+**0.3.23 → 0.4.0** via PR + CI gate.
 
-- `src/mcp-server/api.ts` — the `/api/aggregates` handler (`feat(api): serve
-  aggregates at their gravity-centroid positions`).
-- `src/mcp-server/frame-map.ts` — consumed by `/api/frames`.
-- adds `aggregate-positioning.ts`, `aggregate-ties.ts`, `floating-placement.ts`.
-
-So the order is not just version cosmetics — building P6's `api.ts` refactor on a
-pre-0.3.23 base would conflict. **Sequence:**
-
-1. Land `feature/layout/floating-entity-placement` to `main` as its own **0.3.23**
-   release (its bump commit already exists; open its PR, pass the CI gate, merge).
-2. **Rebase** the P6 branch onto the new `main` so it includes 0.3.23 (notably the
-   updated `/api/aggregates` handler + `frame-map.ts`), and the refactor builds on
-   top of them.
-3. Implement P6 and release as **`0.3.23` → `0.4.0`** via PR + CI gate.
-
-The floating-entity merge + rebase is a **release-time** gate, not a plan-time
-one. The implementation plan is authored **now against current `main` (0.3.22)**;
-its `api.ts` / `frame-map.ts` / `/api/aggregates` touch-points are explicitly
-flagged to **reconcile against floating-entity's changes at rebase time**, before
-the `0.4.0` bump. P6 implementation can proceed in parallel — only the release is
-gated on floating-entity landing first.
+(History: this was originally a release-time gate because floating-entity was
+unmerged; it landed mid-design, so the gate is satisfied and the rebase done.)
