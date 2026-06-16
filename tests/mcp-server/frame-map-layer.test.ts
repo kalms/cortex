@@ -215,26 +215,26 @@ describe("layer-diversity gating", () => {
 });
 
 describe("layer-layout gating + stratification", () => {
-  it("default OFF: no opts (env unset) matches explicit applyLayout:false", () => {
+  it("default ON: no opts (env unset) matches explicit applyLayout:true", () => {
     const prev = process.env.CORTEX_LAYER_LAYOUT;
     delete process.env.CORTEX_LAYER_LAYOUT;
     try {
-      const off = buildFrameMap(nodes, edges, { applyLayout: false });
-      const dflt = buildFrameMap(nodes, edges); // env unset → default OFF
-      expect(dflt.frames.map((f) => [f.id, f.x, f.y])).toEqual(off.frames.map((f) => [f.id, f.x, f.y]));
+      const on = buildFrameMap(nodes, edges, { applyLayout: true });
+      const dflt = buildFrameMap(nodes, edges); // env unset → default ON (opt-out flag)
+      expect(dflt.frames.map((f) => [f.id, f.x, f.y])).toEqual(on.frames.map((f) => [f.id, f.x, f.y]));
     } finally {
       if (prev === undefined) delete process.env.CORTEX_LAYER_LAYOUT;
       else process.env.CORTEX_LAYER_LAYOUT = prev;
     }
   });
 
-  it("CORTEX_LAYER_LAYOUT=1 matches explicit applyLayout:true", () => {
+  it("CORTEX_LAYER_LAYOUT=0 opts out (matches explicit applyLayout:false)", () => {
     const prev = process.env.CORTEX_LAYER_LAYOUT;
-    process.env.CORTEX_LAYER_LAYOUT = "1";
+    process.env.CORTEX_LAYER_LAYOUT = "0";
     try {
-      const envOn = buildFrameMap(nodes, edges);
-      const on = buildFrameMap(nodes, edges, { applyLayout: true });
-      expect(envOn.frames.map((f) => [f.id, f.x, f.y])).toEqual(on.frames.map((f) => [f.id, f.x, f.y]));
+      const envOff = buildFrameMap(nodes, edges); // env "0" → off
+      const off = buildFrameMap(nodes, edges, { applyLayout: false });
+      expect(envOff.frames.map((f) => [f.id, f.x, f.y])).toEqual(off.frames.map((f) => [f.id, f.x, f.y]));
     } finally {
       if (prev === undefined) delete process.env.CORTEX_LAYER_LAYOUT;
       else process.env.CORTEX_LAYER_LAYOUT = prev;

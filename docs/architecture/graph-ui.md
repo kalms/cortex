@@ -303,15 +303,16 @@ the **enable slices** have since wired the layer into ranking:
   positive corpus observe verdict. Decision `D-wvsz`;
   [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
 
-- **Layer-adjacency layout force (layout slice part 1, flag-gated, default off
-  since 0.3.21)** — a vertical `forceY(yTarget(sink))` in
+- **Layer-adjacency layout force (layout slice part 1, shipped 0.3.21, ON by
+  default since 0.3.22)** — a vertical `forceY(yTarget(sink))` in
   [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient
   frames surface→substrate from each frame's **measured** sink
   (`fanIn/(fanIn+fanOut)`; per-layer `NOMINAL_SINK` fallback for flowless frames),
   on the proven force base (pair-link clustering / charge / collide unchanged).
   The layout module stays layer-agnostic — `frame-map.ts` computes the effective
-  sink and reads `CORTEX_LAYER_LAYOUT=1` to enable; off (default) is byte-identical
-  (`forceCenter` path). Decision `D-marq`;
+  sink and reads `CORTEX_LAYER_LAYOUT` (now an **opt-out**; set `"0"` to restore
+  the byte-identical pre-slice `forceCenter` path). Flipped default-on after a
+  positive corpus observe pass (Spearman(y, sink) mean ≈ 0.77). Decision `D-marq`;
   [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md).
 
 Floating-entity placement (replacing the fixed bottom strip; subsuming the
