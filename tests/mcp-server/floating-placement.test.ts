@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames } from "../../src/mcp-server/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables } from "../../src/mcp-server/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -196,5 +196,33 @@ describe("placeNonAmbientFrames — non-overlap invariant", () => {
     const a = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     const b = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     expect([...a]).toEqual([...b]);
+  });
+});
+
+describe("placeAggregates — no two aggregate dots stack", () => {
+  it("separates two aggregates tied to the same single frame", () => {
+    const ambientPositions = [{ id: 1, x: 200, y: 300 }];
+    const ambientBoxes = [{ id: 1, x: 200, y: 300, w: 120, h: 120 }];
+    const edgeTies = new Map([
+      ["aux:a:a", new Map([[1, 1]])],
+      ["aux:b:b", new Map([[1, 1]])],
+    ]); // both seed at frame 1's center → must not coincide after placement
+    const out = placeAggregates(
+      [{ id: "aux:a:a", member_count: 1 }, { id: "aux:b:b", member_count: 1 }],
+      edgeTies, new Map(), new Map([[1, "app"]]), ambientPositions, ambientBoxes,
+    );
+    const a = out.get("aux:a:a")!, b = out.get("aux:b:b")!;
+    const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+    expect(dx >= 16 || dy >= 16).toBe(true); // two 16px dots don't overlap
+  });
+});
+
+describe("separateMovables — saturated stage", () => {
+  it("returns an on-stage integer position without throwing when no slot is free", () => {
+    const fixed = [{ x: 500, y: 400, w: 1000, h: 800 }]; // covers the entire stage
+    const out = separateMovables([{ id: "x", x: 500, y: 400, size: 84 }], fixed);
+    const m = out[0]!;
+    expect(Number.isInteger(m.x) && Number.isInteger(m.y)).toBe(true);
+    expect(m.x >= 42 && m.x <= 958 && m.y >= 42 && m.y <= 758).toBe(true); // clamped on-stage
   });
 });

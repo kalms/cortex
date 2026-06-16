@@ -53,6 +53,10 @@ export function weightedCentroid(anchors: readonly WeightedAnchor[]): { x: numbe
  * If the bounded loop hits the iteration cap without fully converging
  * (pathological overlapping boxes), it returns the last position clamped
  * on-stage — no error, no signal.
+ *
+ * NOTE: retained as a standalone single-point utility. The placement passes
+ * (placeNonAmbientFrames / placeAggregates) no longer use it — they use
+ * separateMovables, which also resolves satellite-vs-satellite collisions.
  */
 export function repelFromBoxes(x: number, y: number, size: number, boxes: readonly Box[]): { x: number; y: number } {
   let px = x, py = y;
@@ -104,6 +108,10 @@ function boxesOverlap(ax: number, ay: number, asz: number, b: Box): boolean {
  * scan uses integer offsets only (no trig) → cross-platform deterministic. If no
  * free slot is found within the stage (saturated), the satellite falls back to
  * its clamped seed (best effort). Mutates + returns `movables`; no PRNG.
+ *
+ * Within a ring the candidate order is top→bottom→left→right, so ties resolve
+ * toward −y first — a deterministic (not radially-symmetric) bias, which is fine
+ * for the non-overlap invariant.
  */
 export function separateMovables(movables: Movable[], fixed: readonly Box[]): Movable[] {
   const placed: Box[] = [...fixed.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }))];
