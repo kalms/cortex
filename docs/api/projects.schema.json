@@ -1,0 +1,50 @@
+{
+  "$ref": "#/definitions/projects",
+  "definitions": {
+    "projects": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "indexed_at": {
+                "type": "string"
+              },
+              "root_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "indexed_at",
+              "root_path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "active": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "projects",
+        "active"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

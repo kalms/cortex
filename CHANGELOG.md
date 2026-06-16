@@ -4,6 +4,48 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-06-16
+
+### Added
+
+- **Versioned, Zod-enforced HTTP contract for the viewer endpoints (P6).** The
+  seven viewer endpoints plus new `GET /api/health` and `GET /api/freshness` are
+  now a versioned contract (contract `version: 1`, decoupled from the package
+  semver). One Zod schema per response in
+  [`src/mcp-server/api-schemas.ts`](src/mcp-server/api-schemas.ts) is the single
+  source of truth: it validates at runtime, derives the TS type via `z.infer`, and
+  generates the committed JSON Schema docs under [`docs/api/`](docs/api/) (via
+  [`scripts/gen-api-schemas.ts`](scripts/gen-api-schemas.ts), `npm run gen:api-schemas`),
+  guarded by a byte-identity drift test. A `respond()` chokepoint
+  ([`src/mcp-server/api-respond.ts`](src/mcp-server/api-respond.ts)) validates every
+  payload (throw in test/CI or under `CORTEX_API_STRICT=1`, else log-and-send) and
+  stamps the version/freshness/ETag headers. Decision `D-tszm`;
+  [design](docs/superpowers/specs/2026-06-16-versioned-http-contract-hardening-design.md),
+  [onboarding doc](docs/architecture/http-api-contract.md).
+- **Freshness over HTTP** — a two-signal model: an `ETag` derived from the index
+  baseline drives `If-None-Match` → `304` conditional revalidation on the data
+  endpoints, while an `X-Cortex-Freshness` header + a lightweight `GET /api/freshness`
+  carry the live staleness verdict (reusing `freshnessForContext`). Lets a consumer
+  (Mesh) replace its blind TTL cache with verdict-keyed revalidation.
+- **HTTP hardening, env-gated and inert by default** — loopback-default bind
+  (`CORTEX_BIND_HOST`), GET/HEAD method gate, CORS origin allowlist
+  (`CORTEX_CORS_ORIGINS`), opt-in constant-time bearer auth (`CORTEX_API_TOKEN`,
+  `/api/health` exempt), traversal-safe static serving, security headers
+  (CSP / `X-Frame-Options` / `nosniff` / `Referrer-Policy`), oversized-request-target
+  → `414`, and request/headers timeouts. The CSP permits the viewer's Geist web
+  fonts while keeping `script-src 'self'`.
+
+### Changed
+
+- All viewer endpoint responses now carry a top-level `version` field (additive —
+  Mesh M1's existing reads are unaffected); `GET /api/decisions/:id` is wrapped as
+  `{ version, decision }`. The viewer HTTP server now binds `127.0.0.1` by default
+  (was all interfaces).
+- The hand-written `AdaptedDecision` / `GovernsRef` / `FileEdge` TypeScript
+  interfaces are now derived from the Zod schemas via `z.infer` (single source of
+  truth). New env vars: `CORTEX_BIND_HOST`, `CORTEX_API_TOKEN`, `CORTEX_CORS_ORIGINS`,
+  `CORTEX_API_STRICT`.
+
 ## [0.3.24] — 2026-06-16
 
 ### Fixed
@@ -656,6 +698,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[0.4.0]: https://github.com/ruevu/cortex/releases/tag/v0.4.0
 [0.3.24]: https://github.com/ruevu/cortex/releases/tag/v0.3.24
 [0.3.23]: https://github.com/ruevu/cortex/releases/tag/v0.3.23
 [0.3.22]: https://github.com/ruevu/cortex/releases/tag/v0.3.22

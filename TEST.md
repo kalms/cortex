@@ -155,6 +155,10 @@ get_graph_schema({})
 |----------|---------|---------|
 | `CORTEX_DB_PATH` | `.cortex/db` | Cortex unified SQLite database |
 | `CORTEX_VIEWER_PORT` | `3333` (MCP), `3334` (dev) | HTTP viewer port |
+| `CORTEX_BIND_HOST` | `127.0.0.1` | HTTP bind interface; `0.0.0.0` to deliberately expose on the LAN |
+| `CORTEX_API_TOKEN` | _(unset)_ | When set, every `/api/*` path except `/api/health` requires `Authorization: Bearer <token>` |
+| `CORTEX_CORS_ORIGINS` | _(unset)_ | Comma-separated browser-origin allowlist for `/api/*` (CORS) |
+| `CORTEX_API_STRICT` | _(unset)_ | `1` → HTTP response-validation failures return 500 in production too |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the native indexer binary |
 
 ---

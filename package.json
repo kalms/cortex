@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "0.3.24",
+  "version": "0.4.0",
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
     "eval": "tsx evals/src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "gen:api-schemas": "tsx scripts/gen-api-schemas.ts",
     "survey:phase1": "tsx scripts/frame-extraction/survey.ts",
     "survey:report": "tsx scripts/frame-extraction/report.ts",
     "co-change": "tsx src/frame-extraction/co-change.ts",
@@ -42,6 +43,7 @@
     "d3-force": "^3.0.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.2"
+    "vitest": "^3.1.2",
+    "zod-to-json-schema": "^3.25.2"
   }
 }

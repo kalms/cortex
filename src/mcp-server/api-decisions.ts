@@ -10,37 +10,10 @@
 import type { DecisionRecord } from "../decisions/repository.js";
 import type { DecisionLink } from "../decisions/links-repository.js";
 import type { NodeRow } from "../graph/store.js";
-import type { ProvenanceMeta } from "../decisions/types.js";
+import type { GovernsRef, AdaptedAlternative, AdaptedDecision } from "./api-schemas.js";
 
-export type GovernsRef =
-  | { kind: "frame"; id: string; label: string }
-  | { kind: "file"; path: string }
-  | { kind: "function"; path: string; name: string }
-  | { kind: "symbol"; path: string; name: string };
-
-export interface AdaptedAlternative {
-  title: string;
-  reason: string;
-}
-
-export interface AdaptedDecision {
-  id: string;
-  seq: number | null;
-  summary: string;
-  state: string;
-  problem: string | null;
-  resolution: string | null;
-  rationale: string;
-  alternatives: AdaptedAlternative[];
-  proposedBy: string | null;
-  proposedAt: string;
-  governs: GovernsRef[];
-  supersedes: string | null;
-  supersededBy: string | null;
-  relatedTo: string[];
-  dependsOn: string[];
-  provenance: ProvenanceMeta | null;
-}
+// Types now derive from the Zod single source of truth (api-schemas.ts).
+export type { GovernsRef, AdaptedAlternative, AdaptedDecision } from "./api-schemas.js";
 
 export interface FrameInfo {
   frame_id: number;

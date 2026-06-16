@@ -1,0 +1,43 @@
+{
+  "$ref": "#/definitions/file-edges",
+  "definitions": {
+    "file-edges": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "file_edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from_path": {
+                "type": "string"
+              },
+              "to_path": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "from_path",
+              "to_path",
+              "weight"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "file_edges"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

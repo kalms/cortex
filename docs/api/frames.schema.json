@@ -1,0 +1,104 @@
+{
+  "$ref": "#/definitions/frames",
+  "definitions": {
+    "frames": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "number"
+              },
+              "x": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "y": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "w": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "h": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "ambient": {
+                "type": "boolean"
+              },
+              "rank": {
+                "type": "number"
+              },
+              "score": {
+                "type": "number"
+              },
+              "layer": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "count",
+              "x",
+              "y",
+              "w",
+              "h",
+              "ambient",
+              "rank",
+              "score",
+              "layer"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "stage": {
+          "type": "object",
+          "properties": {
+            "w": {
+              "type": "number"
+            },
+            "h": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "w",
+            "h"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "frames",
+        "stage"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

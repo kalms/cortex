@@ -1,0 +1,152 @@
+{
+  "$ref": "#/definitions/graph",
+  "definitions": {
+    "graph": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "qualified_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "file_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "data": {
+                "type": "string"
+              },
+              "tier": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "start_line": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "end_line": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "qualified_name",
+              "file_path",
+              "data",
+              "tier",
+              "created_at",
+              "updated_at",
+              "start_line",
+              "end_line",
+              "project"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "target_id": {
+                "type": "string"
+              },
+              "relation": {
+                "type": "string"
+              },
+              "data": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "project": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "source_id",
+              "target_id",
+              "relation",
+              "data",
+              "created_at",
+              "project",
+              "source",
+              "target"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "nodes",
+        "edges",
+        "project"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
