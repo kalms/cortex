@@ -4,7 +4,7 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] — 2026-06-16
+## [0.9.0] — 2026-06-16
 
 ### Added
 
@@ -46,12 +46,12 @@ All notable changes to Cortex are documented here. The format follows
   truth). New env vars: `CORTEX_BIND_HOST`, `CORTEX_API_TOKEN`, `CORTEX_CORS_ORIGINS`,
   `CORTEX_API_STRICT`.
 
-## [0.3.24] — 2026-06-16
+## [0.8.24] — 2026-06-16
 
 ### Fixed
 
 - **Floating frames/aggregates no longer overlap each other or ambient frames.**
-  0.3.23 positioned each satellite independently (`repelFromBoxes` against ambient
+  0.8.23 positioned each satellite independently (`repelFromBoxes` against ambient
   boxes only), so co-anchored satellites resolved to the same centroid and
   **stacked** — and pushing one off an ambient frame could drop it onto another.
   Placement now runs through `separateMovables` in
@@ -68,7 +68,7 @@ All notable changes to Cortex are documented here. The format follows
   separate endpoints, so a dot can still land on a satellite frame — a dot can
   overlap a box across the two passes; not addressed here.)
 
-## [0.3.23] — 2026-06-16
+## [0.8.23] — 2026-06-16
 
 ### Added
 
@@ -100,7 +100,7 @@ All notable changes to Cortex are documented here. The format follows
   `FRAME_GOVERNANCE`), but their *position* now comes from the server. This
   **supersedes the `D-xwxj` governed-frame promotion stopgap**.
 
-## [0.3.22] — 2026-06-16
+## [0.8.22] — 2026-06-16
 
 ### Changed
 
@@ -115,12 +115,12 @@ All notable changes to Cortex are documented here. The format follows
   negative or near-zero result on any archetype (vue/react/ts-monorepo/nuxt/
   go/python/django/rails). The metric under-states the real effect (it uses
   `0.5` for flowless frames where the layout uses per-layer `NOMINAL_SINK`). The
-  layout force and its mechanism shipped in 0.3.21; this release only flips the
+  layout force and its mechanism shipped in 0.8.21; this release only flips the
   default. Gate 0 confirmed a clean default-on render on cortex (vertical spread
   y 118→593 over an 800-tall stage, ceremony at the substrate, zero console
   errors).
 
-## [0.3.21] — 2026-06-16
+## [0.8.21] — 2026-06-16
 
 ### Added
 
@@ -142,7 +142,7 @@ All notable changes to Cortex are documented here. The format follows
   Floating-entity placement (replacing the fixed bottom strip; subsuming the
   `D-xwxj` governed-frame promotion) is a separate follow-on slice.
 
-## [0.3.20] — 2026-06-15
+## [0.8.20] — 2026-06-15
 
 ### Changed
 
@@ -155,10 +155,10 @@ All notable changes to Cortex are documented here. The format follows
   2 layers → 5, saleor interface 7→3 +data, rubygems re-surfaces a domain frame),
   with the ceremony cap holding everywhere (≤1), no junk promoted on coverage
   alone (the `0.5×` floor), and no churn on already-diverse/tiny repos. The
-  diversity selector and its mechanism shipped in 0.3.19; this release only flips
+  diversity selector and its mechanism shipped in 0.8.19; this release only flips
   the default. Gate 0 confirmed a clean default-on render on cortex.
 
-## [0.3.19] — 2026-06-15
+## [0.8.19] — 2026-06-15
 
 ### Added
 
@@ -182,7 +182,7 @@ All notable changes to Cortex are documented here. The format follows
   Measured on cortex (flag on): ceremony correctly capped 2→1, over-represented
   domain yields a slot, interface gains a second frame, ambient held at budget.
 
-## [0.3.18] — 2026-06-15
+## [0.8.18] — 2026-06-15
 
 ### Fixed
 
@@ -197,7 +197,7 @@ All notable changes to Cortex are documented here. The format follows
   regression test that exercises a sibling under system `/tmp`. Decision `D-mmtb`
   updated.
 
-## [0.3.17] — 2026-06-15
+## [0.8.17] — 2026-06-15
 
 Agentic-experience field report §5 items **P1** and **P3**, shipped together.
 
@@ -244,7 +244,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   CLAUDE.md MCP-routing docs. These had been misdirecting agents/users to a
   command that errors out.
 
-## [0.3.16] — 2026-06-14
+## [0.8.16] — 2026-06-14
 
 ### Changed
 
@@ -253,17 +253,17 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   P3/P1/P6/P4/P5/P7/P8 outlined with what-it-is + effort, in suggested sequence,
   plus the reaffirmed ⏩ operational items. No code change.
 
-## [0.3.15] — 2026-06-14
+## [0.8.15] — 2026-06-14
 
 ### Changed
 
 - **Docs sync** — refreshed [`HANDOFF.md`](HANDOFF.md) and
-  [`docs/specs/progress.md`](docs/specs/progress.md) to record the 0.3.11–0.3.14
+  [`docs/specs/progress.md`](docs/specs/progress.md) to record the 0.8.11–0.8.14
   search-noise line (field-report P2 + follow-ons), and corrected the stale
   "search ranking (P2) — future" references now that P2 has shipped. No code
   change.
 
-## [0.3.14] — 2026-06-14
+## [0.8.14] — 2026-06-14
 
 ### Fixed
 
@@ -275,7 +275,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   so it still redirects, and scope detection still runs against the original
   command (quoted non-code globs like `--glob '*.md'` are preserved). +4 tests.
 
-## [0.3.13] — 2026-06-14
+## [0.8.13] — 2026-06-14
 
 ### Fixed
 
@@ -301,7 +301,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   prints a redirect to `cortex code find` instead of being silently ignored;
   the `search` help entry is corrected.
 
-## [0.3.12] — 2026-06-14
+## [0.8.12] — 2026-06-14
 
 ### Added
 
@@ -334,7 +334,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   a non-auto-wrapped `LIKE` against the normalized qualified name (add `%`
   yourself); `kinds`/`label` are exact kind matches; params are AND-ed.
 
-## [0.3.11] — 2026-06-14
+## [0.8.11] — 2026-06-14
 
 ### Added
 
@@ -361,7 +361,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   and other callers are unaffected. Frame/layer-aware ranking is deferred to a
   follow-on (P2.1), gated on frame-coverage quality.
 
-## [0.3.10] — 2026-06-13
+## [0.8.10] — 2026-06-13
 
 ### Changed
 
@@ -374,7 +374,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   unchanged; `opts.applyKindWeight` still overrides for tests. Gate 0 visual
   confirmed a clean render with the new default.
 
-## [0.3.9] — 2026-06-13
+## [0.8.9] — 2026-06-13
 
 ### Added
 
@@ -399,7 +399,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   tilts toward interface/domain/data, and demotes fallback-domain to interface —
   with no junk leapfrogging into the ambient set.
 
-## [0.3.8] — 2026-06-13
+## [0.8.8] — 2026-06-13
 
 ### Added
 
@@ -425,7 +425,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   (`HANDOFF.md`): earned domain `1.00`, fallback domain `0.50`. The domain
   question that gated the enable slice is resolved; step 3 is unblocked.
 
-## [0.3.7] — 2026-06-13
+## [0.8.7] — 2026-06-13
 
 ### Added
 
@@ -473,7 +473,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   entry** (`Object.hasOwn`, not `in`) — previously, new frames passed silently
   by being skipped. Unnamed `cluster:*` blobs remain exempt by prefix.
 
-## [0.3.6] — 2026-06-13
+## [0.8.6] — 2026-06-13
 
 ### Changed
 
@@ -481,12 +481,12 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   ([`docs/specs/progress.md`](docs/specs/progress.md), [`HANDOFF.md`](HANDOFF.md)):
   frame-layers milestone 1 and deterministic rendering recorded as shipped; the
   taxonomy follow-up re-staged as classify → observe → enable with **observe as
-  the current phase**; the former "0.3.5" feature line (TODO entity,
-  floating-entity placement, record drawer for TODOs) renumbered **0.3.6+**;
+  the current phase**; the former "0.8.5" feature line (TODO entity,
+  floating-entity placement, record drawer for TODOs) renumbered **0.8.6+**;
   long-resolved known issues (stale `graph.db` shadowing, contracts
   `database disk image is malformed`) marked resolved per decision `D-47xb`.
 
-## [0.3.5] — 2026-06-12
+## [0.8.5] — 2026-06-12
 
 ### Fixed
 
@@ -501,7 +501,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   the same seeded treatment, removing the last `Math.random()` from the
   render data path. Verified by byte-identical screenshots across reloads.
 
-## [0.3.4] — 2026-06-12
+## [0.8.4] — 2026-06-12
 
 ### Added
 
@@ -526,7 +526,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   Decisions `D-qn7z`, `D-24p0`, `D-b1gd`; design spec
   [2026-06-12-frame-layers-taxonomy-design.md](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md).
 
-## [0.3.3] — 2026-06-12
+## [0.8.3] — 2026-06-12
 
 ### Added
 
@@ -542,7 +542,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   drafting, cross-repo decision search, versioned HTTP contract + freshness
   over HTTP, token-tax reduction, temporal layer).
 
-## [0.3.2] — 2026-06-11
+## [0.8.2] — 2026-06-11
 
 ### Fixed
 
@@ -554,7 +554,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   sidecar; verified by a clean-build spawn + `/api/projects` health check +
   stdin-EOF shutdown.
 
-## [0.3.1] — 2026-06-11
+## [0.8.1] — 2026-06-11
 
 A reliability + enforcement patch: make `search_code` robust to bad patterns and
 timed-out searches, and **enforce** the Cortex-over-grep routing at the harness
@@ -595,14 +595,14 @@ instead of merely documenting it — plus a complete MCP tool reference.
   **patch** unless stated minor/major) across `package.json`, `plugin.json`, and
   `.claude-plugin/marketplace.json`, **plus a `CHANGELOG.md` entry**.
 
-## [0.3.0] — 2026-06-10
+## [0.8.0] — 2026-06-10
 
 The v0.3 cycle: Cortex grows from a code-graph MCP server into a **decision-provenance
 system** with a **2D frames viewer**, and the native indexer is **split into its own
 repository** and consumed as a prebuilt binary. This is the structural / data /
 provenance half of the v0.3 design; the "multiplayer canvas" half is descoped (see
 _Removed_), and the remaining single-player items (TODO entity, floating-entity
-placement, record drawer for TODOs) are deferred to 0.3.5.
+placement, record drawer for TODOs) are deferred to 0.8.5.
 
 ### Added
 
@@ -680,7 +680,7 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - **Decision-governed frames could be invisible**: a decision governing a frame the
   ranker left non-ambient had no on-screen frame to attach to. Such frames are now
   promoted into the render set (`withGovernedFramesRendered`) so their decisions
-  always surface. _(Stopgap ahead of the 0.3.5 floating-entity work.)_
+  always surface. _(Stopgap ahead of the 0.8.5 floating-entity work.)_
 - Removed the legacy `CBM_BINARY_PATH` alias and all `cbm` naming residue from the
   cortex tree.
 
@@ -691,37 +691,37 @@ placement, record drawer for TODOs) are deferred to 0.3.5.
 - `codebase-memory-mcp` MIT attribution moved out of cortex (into `cortex-indexer`,
   where the derived code now lives); cortex is wholly proprietary.
 
-### Deferred to 0.3.5
+### Deferred to 0.8.5
 
 - **TODO entity** (schema, state machine, tools, external bridge) — the headline
-  0.3.5 feature.
+  0.8.5 feature.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
-[0.4.0]: https://github.com/ruevu/cortex/releases/tag/v0.4.0
-[0.3.24]: https://github.com/ruevu/cortex/releases/tag/v0.3.24
-[0.3.23]: https://github.com/ruevu/cortex/releases/tag/v0.3.23
-[0.3.22]: https://github.com/ruevu/cortex/releases/tag/v0.3.22
-[0.3.21]: https://github.com/ruevu/cortex/releases/tag/v0.3.21
-[0.3.20]: https://github.com/ruevu/cortex/releases/tag/v0.3.20
-[0.3.19]: https://github.com/ruevu/cortex/releases/tag/v0.3.19
-[0.3.18]: https://github.com/ruevu/cortex/releases/tag/v0.3.18
-[0.3.17]: https://github.com/ruevu/cortex/releases/tag/v0.3.17
-[0.3.16]: https://github.com/ruevu/cortex/releases/tag/v0.3.16
-[0.3.15]: https://github.com/ruevu/cortex/releases/tag/v0.3.15
-[0.3.14]: https://github.com/ruevu/cortex/releases/tag/v0.3.14
-[0.3.13]: https://github.com/ruevu/cortex/releases/tag/v0.3.13
-[0.3.12]: https://github.com/ruevu/cortex/releases/tag/v0.3.12
-[0.3.11]: https://github.com/ruevu/cortex/releases/tag/v0.3.11
-[0.3.10]: https://github.com/ruevu/cortex/releases/tag/v0.3.10
-[0.3.9]: https://github.com/ruevu/cortex/releases/tag/v0.3.9
-[0.3.8]: https://github.com/ruevu/cortex/releases/tag/v0.3.8
-[0.3.7]: https://github.com/ruevu/cortex/releases/tag/v0.3.7
-[0.3.6]: https://github.com/ruevu/cortex/releases/tag/v0.3.6
-[0.3.5]: https://github.com/ruevu/cortex/releases/tag/v0.3.5
-[0.3.4]: https://github.com/ruevu/cortex/releases/tag/v0.3.4
-[0.3.3]: https://github.com/ruevu/cortex/releases/tag/v0.3.3
-[0.3.2]: https://github.com/ruevu/cortex/releases/tag/v0.3.2
-[0.3.1]: https://github.com/ruevu/cortex/releases/tag/v0.3.1
-[0.3.0]: https://github.com/ruevu/cortex/releases/tag/v0.3.0
+[0.9.0]: https://github.com/ruevu/cortex/releases/tag/v0.9.0
+[0.8.24]: https://github.com/ruevu/cortex/releases/tag/v0.8.24
+[0.8.23]: https://github.com/ruevu/cortex/releases/tag/v0.8.23
+[0.8.22]: https://github.com/ruevu/cortex/releases/tag/v0.8.22
+[0.8.21]: https://github.com/ruevu/cortex/releases/tag/v0.8.21
+[0.8.20]: https://github.com/ruevu/cortex/releases/tag/v0.8.20
+[0.8.19]: https://github.com/ruevu/cortex/releases/tag/v0.8.19
+[0.8.18]: https://github.com/ruevu/cortex/releases/tag/v0.8.18
+[0.8.17]: https://github.com/ruevu/cortex/releases/tag/v0.8.17
+[0.8.16]: https://github.com/ruevu/cortex/releases/tag/v0.8.16
+[0.8.15]: https://github.com/ruevu/cortex/releases/tag/v0.8.15
+[0.8.14]: https://github.com/ruevu/cortex/releases/tag/v0.8.14
+[0.8.13]: https://github.com/ruevu/cortex/releases/tag/v0.8.13
+[0.8.12]: https://github.com/ruevu/cortex/releases/tag/v0.8.12
+[0.8.11]: https://github.com/ruevu/cortex/releases/tag/v0.8.11
+[0.8.10]: https://github.com/ruevu/cortex/releases/tag/v0.8.10
+[0.8.9]: https://github.com/ruevu/cortex/releases/tag/v0.8.9
+[0.8.8]: https://github.com/ruevu/cortex/releases/tag/v0.8.8
+[0.8.7]: https://github.com/ruevu/cortex/releases/tag/v0.8.7
+[0.8.6]: https://github.com/ruevu/cortex/releases/tag/v0.8.6
+[0.8.5]: https://github.com/ruevu/cortex/releases/tag/v0.8.5
+[0.8.4]: https://github.com/ruevu/cortex/releases/tag/v0.8.4
+[0.8.3]: https://github.com/ruevu/cortex/releases/tag/v0.8.3
+[0.8.2]: https://github.com/ruevu/cortex/releases/tag/v0.8.2
+[0.8.1]: https://github.com/ruevu/cortex/releases/tag/v0.8.1
+[0.8.0]: https://github.com/ruevu/cortex/releases/tag/v0.8.0
 [0.2.0]: https://github.com/ruevu/cortex/releases/tag/v0.2.0
