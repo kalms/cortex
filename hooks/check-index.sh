@@ -62,13 +62,14 @@ fi
 # at SessionStart, BEFORE the agent reads — a clean boundary), then fold the
 # verdict into the banner so a stale/degraded graph is loud.
 #
-# Auto-refresh is SessionStart-only by design. The indexer's incremental path
-# delete+recreates .cortex/db (it is NOT in-place — see decision bbf0fce5), so
-# refreshing mid-session under the MCP server's open pooled handle would
-# reproduce the graph-db-stale-reads failure. SessionStart is a separate process
-# firing before any read, so it is safe. `cortex index` auto-selects incremental
-# when a populated DB exists and a full reindex otherwise — one verb covers both
-# the empty/degraded and the stale cases. Gated by CORTEX_AUTO_REFRESH=0.
+# Auto-refresh runs at SessionStart (here) AND mid-session after every commit
+# (hooks/post-commit-refresh.sh). Both are safe now that the write path builds
+# into a staging DB and publishes via a single WAL transaction (publishStagedDb,
+# decision D-syde supersedes D-qmv5): the live .cortex/db is never truncated or
+# unlinked out-of-band, so the MCP server's open pooled handle sees the new
+# snapshot with no reopen. `cortex index` auto-selects incremental when a
+# populated DB exists and a full reindex otherwise — one verb covers both the
+# empty/degraded and the stale cases. Gated by CORTEX_AUTO_REFRESH=0.
 if [ "$INDEX_STATE" = "indexed" ] && [ -n "$CORTEX_BIN" ]; then
     FRESHNESS="$(cd "$REPO" && "$CORTEX_BIN" freshness 2>/dev/null | head -1)"
     if [ "${CORTEX_AUTO_REFRESH:-1}" != "0" ]; then

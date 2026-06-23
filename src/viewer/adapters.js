@@ -103,22 +103,20 @@ const PROMOTED_FRAME_H = 120;
 /**
  * Ensure every decision-governed frame is actually rendered.
  *
- * The server frame-ranking marks only the top frames `ambient` (positioned);
- * the rest are never drawn. A decision can govern a non-ambient frame (a
- * low-ranked cluster, an unnamed `cluster:N`, or a duplicate-label twin) — its
- * governance pills then have no on-screen frame to attach to, so the decision
- * is invisible (this is exactly why cortex-indexer's decisions didn't show: its
- * two governed frames were both non-ambient). A frame that carries a decision
- * is important enough to render, so promote any governed frame missing from the
- * rendered set, laid out in a reserved strip along the top (normalized x/y;
- * the renderer clamps them fully on-screen).
+ * Reachability fallback for decision-governed frames the server did not
+ * position. Non-ambient frames are normally server-positioned (gravity-centroid
+ * placement, D-bj3n) and rendered de-emphasized by the caller, so a governed
+ * frame is almost always already in the rendered set. The rare exception — a
+ * governed frame with no server position at all (no frame-pair ties, or the
+ * degenerate zero-ambient case) — would otherwise be undrawn, hiding its
+ * decision's governance pills (this is why cortex-indexer's two non-ambient
+ * governed frames once didn't show). This appends any such still-missing
+ * governed frame in a de-emphasized bottom margin so its decision keeps an
+ * on-screen anchor; the renderer clamps it fully on-screen.
  *
- * Pure: returns a NEW array (ambient frames first, then promoted). `frameMeta`
- * is `Map<frameIdStr, {name,w,h,count}>` over ALL frames (ambient + not).
- *
- * NOTE: a stopgap until frames+decisions get their planned redesign (how
- * governance renders at 200+ decisions, grouping, etc.). It guarantees
- * reachability, not optimal placement.
+ * Pure: returns a NEW array (existing frames first, then any appended
+ * fallbacks). `frameMeta` is `Map<frameIdStr, {name,w,h,count,layer}>` over ALL
+ * frames. Guarantees reachability, not optimal placement (no longer a top strip).
  */
 export function withGovernedFramesRendered(ambientFrames, frameGovernance, frameMeta) {
   const present = new Set(ambientFrames.map((f) => String(f.id)));

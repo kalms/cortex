@@ -180,10 +180,20 @@ unreconciled") that reflects the latest verdict against the current source.
 
 ## Decision storage
 
-Decisions live in `.cortex/decisions.db`, a sibling of the canonical graph DB
-(`.cortex/db`). The graph DB is a fully replaceable derived artifact —
-`index_repository` cache imports and full reindexes copy or recreate it
-freely. The decisions DB is durable: it survives every indexing operation.
+The durable decisions store lives **out of the repo** at
+`~/.cortex/<repoId>/decisions.db`, resolved by `resolveDecisionsDbPath` from the
+`repoId` in the repo's committed `cortex.json` (so every worktree/clone of a repo
+shares one store; `$CORTEX_DECISIONS_DB` overrides, `$CORTEX_HOME` relocates the
+base). The in-repo `<repo>/.cortex/decisions.db` is **only the pre-relocation
+legacy migration source**, read once. Either way the decisions store is durable —
+decoupled from the fully-replaceable derived graph DB (`.cortex/db`), which
+`index_repository` cache imports and full reindexes copy or recreate freely;
+decisions survive every indexing operation.
+
+> ⚠️ Don't inspect decisions with raw `sqlite3` on the in-repo
+> `.cortex/decisions.db` — that reads the **stale legacy** store. Use the MCP
+> decision tools (they route via `resolveDecisionsDbPath`), or sqlite the
+> `~/.cortex/<repoId>/decisions.db` path named in `cortex.json`.
 
 Decision links to code use **string qualified-names or file paths**, not
 graph node IDs. `DecisionSearch.findGoverning(target)` walks up the qn/path
