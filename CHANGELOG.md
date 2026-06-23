@@ -4,6 +4,19 @@ All notable changes to Cortex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and Cortex aims for
 [Semantic Versioning](https://semver.org/).
 
+> **Note — 2026-06-23: repository cleanup & version renumber.** The project
+> history was cleaned up and the release line renumbered to a tidy, monotonic
+> range that better fits the release cadence going forward — the former `0.3.x`
+> series is now `0.8.x` and `0.4.0` is now `0.9.0` (current release: **0.9.0**).
+> CHANGELOG, version metadata, tags/releases, and commit history were all
+> brought onto the new scheme.
+>
+> **`cortex-indexer` is a separate project with its own versioning and is
+> deliberately untouched by this.** Its pinned `CORTEX_INDEXER_VERSION`
+> (`v0.3.0`) refers to the standalone
+> [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
+> stays as-is — it is not part of this repository's version line.
+
 ## [0.9.0] — 2026-06-16
 
 ### Added
