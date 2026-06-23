@@ -52,7 +52,7 @@ describe("openDecisionsDb", () => {
       const triggers = db
         .prepare("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
         .all() as Array<{ name: string }>;
-      expect(triggers.map((t) => t.name)).toEqual(["decisions_ad", "decisions_ai", "decisions_au"]);
+      expect(triggers.map((t) => t.name)).toEqual(["decisions_ad", "decisions_ai", "decisions_au", "todos_ad", "todos_ai", "todos_au"]);
       const v = db
         .prepare("SELECT value FROM schema_meta WHERE key='fts_version'")
         .get() as { value: string } | undefined;
@@ -105,7 +105,7 @@ describe("openDecisionsDb", () => {
       const triggers = db
         .prepare("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
         .all() as Array<{ name: string }>;
-      expect(triggers.map((t) => t.name)).toEqual(["decisions_ad", "decisions_ai", "decisions_au"]);
+      expect(triggers.map((t) => t.name)).toEqual(["decisions_ad", "decisions_ai", "decisions_au", "todos_ad", "todos_ai", "todos_au"]);
 
       // FTS search must now hit the pre-existing row. For external-content
       // FTS5, the id lives on the content table — join to verify the

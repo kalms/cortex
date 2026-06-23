@@ -48,6 +48,33 @@ CREATE TABLE IF NOT EXISTS id_sequences (
   entity_type TEXT PRIMARY KEY,   -- 'decision' | 'todo'
   next_val    INTEGER NOT NULL    -- next seq to hand out (1-based)
 );
+
+CREATE TABLE IF NOT EXISTS todos (
+  id           TEXT PRIMARY KEY,
+  seq          INTEGER,
+  summary      TEXT NOT NULL,
+  description  TEXT,
+  state        TEXT NOT NULL DEFAULT 'open',
+  state_reason TEXT,
+  proposed_by  TEXT,
+  proposed_at  TEXT NOT NULL,
+  started_at   TEXT,
+  closed_at    TEXT,
+  assignee     TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS todo_links (
+  rowid       INTEGER PRIMARY KEY AUTOINCREMENT,
+  todo_id     TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+  target_kind TEXT NOT NULL,
+  target_ref  TEXT NOT NULL,
+  relation    TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_todo_links_todo   ON todo_links(todo_id);
+CREATE INDEX IF NOT EXISTS idx_todo_links_target ON todo_links(target_kind, target_ref);
 `;
 
 /*
@@ -78,6 +105,28 @@ CREATE TRIGGER IF NOT EXISTS decisions_au AFTER UPDATE ON decisions BEGIN
   VALUES ('delete', old.rowid, old.title, old.description, old.rationale, old.problem, old.resolution);
   INSERT INTO decisions_fts(rowid, title, description, rationale, problem, resolution)
   VALUES (new.rowid, new.title, new.description, new.rationale, new.problem, new.resolution);
+END;
+`;
+
+const TODOS_FTS_SCHEMA = `
+CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts USING fts5(
+  summary, description,
+  content='todos',
+  content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS todos_ai AFTER INSERT ON todos BEGIN
+  INSERT INTO todos_fts(rowid, summary, description)
+  VALUES (new.rowid, new.summary, new.description);
+END;
+CREATE TRIGGER IF NOT EXISTS todos_ad AFTER DELETE ON todos BEGIN
+  INSERT INTO todos_fts(todos_fts, rowid, summary, description)
+  VALUES ('delete', old.rowid, old.summary, old.description);
+END;
+CREATE TRIGGER IF NOT EXISTS todos_au AFTER UPDATE ON todos BEGIN
+  INSERT INTO todos_fts(todos_fts, rowid, summary, description)
+  VALUES ('delete', old.rowid, old.summary, old.description);
+  INSERT INTO todos_fts(rowid, summary, description)
+  VALUES (new.rowid, new.summary, new.description);
 END;
 `;
 
@@ -157,6 +206,7 @@ export function openDecisionsDb(path: string, legacyPath?: string): Database.Dat
   // Ensure reconciliation columns exist before FTS migration,
   // which may try to read from them when rebuilding the index.
   ensureReconciliationColumns(db);
+  db.exec(TODOS_FTS_SCHEMA);
   if (readSchemaMeta(db, "fts_version") !== FTS_VERSION) {
     migrateFtsToTriggers(db);
   }
