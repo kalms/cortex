@@ -143,7 +143,7 @@ Building Mesh against Cortex surfaced gaps no tool-user session could:
 
 - **`npm run build` shipped a broken `dist/`** — `worker-bootstrap.mjs` and
   `schema.sql` weren't copied by `tsc`, so a clean checkout's sidecar crashed
-  on spawn. Fixed this session (0.3.2), but the bug existed because the
+  on spawn. Fixed this session (0.8.2), but the bug existed because the
   embedded-consumer path had zero coverage until Mesh became its de facto
   regression test.
 - **No versioned HTTP contract.** Mesh consumes `/api/projects`,
@@ -315,7 +315,7 @@ ride alongside. P7 needs a decision first; P8 is the long-pole follow-on.
 
 Findings come from a single extended session with the work still on screen:
 the Mesh M1 build (17-task plan, subagent-driven), the cortex `dist/` fix
-(0.3.2), and a deliberate retrospective prompted by the user. Token-ledger
+(0.8.2), and a deliberate retrospective prompted by the user. Token-ledger
 judgments are directional estimates from observed call patterns, not
 measured counts — the harness does not expose per-call token figures to the
 agent. Where a claim rests on a single incident (e.g. hook false positives:

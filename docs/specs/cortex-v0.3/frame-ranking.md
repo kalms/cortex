@@ -83,7 +83,7 @@ Score = nameability × structural weight × kind weight × diversity.
 - **Diversity** — within the ambient budget, prefer at least one frame
   from each of (domain, interface, data) when the repo has them; cap
   ceremony at one; penalise the 2nd+ frame of any layer already
-  represented. **Implemented** as enable slice 3b (0.3.19, flag-gated
+  represented. **Implemented** as enable slice 3b (0.8.19, flag-gated
   `CORTEX_LAYER_DIVERSITY`, default off): a stateful greedy *selection*
   step — geometric repeat-decay + ceremony cap, then **bounded** coverage
   repair (promote a missing required layer only above a `0.5×` floor, so a

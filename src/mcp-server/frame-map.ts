@@ -162,7 +162,7 @@ export function buildFrameMap(
   const pairs = rollupFramePairs(nodes, edges);
 
   // Layer-adjacency layout force (taxonomy layout slice). Default ON (opt-out
-  // via CORTEX_LAYER_LAYOUT=0) since the 0.3.22 observe pass — every corpus repo
+  // via CORTEX_LAYER_LAYOUT=0) since the 0.8.22 observe pass — every corpus repo
   // stratified positively (Spearman(y, sink) mean ~0.77, range 0.51–0.95). When
   // off, no `sink` is attached, so layoutFrames takes the pre-slice forceCenter
   // path and positions are byte-identical. When on, each ambient frame gets an

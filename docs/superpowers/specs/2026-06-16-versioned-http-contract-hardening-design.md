@@ -140,7 +140,7 @@ surfaced two ways:
 
 - **Contract version, not package version.** A single global integer, starting at
   `1`, independent of Cortex's semver — honors Mesh's D10 "no version/ABI
-  coupling" (Mesh can assert "I speak contract v1" without coupling to `0.3.x`).
+  coupling" (Mesh can assert "I speak contract v1" without coupling to `0.8.x`).
 - **Sibling field, never an envelope wrap.** Mesh reads `res.nodes`,
   `res.decisions`, etc. directly; wrapping in `{ version, data }` would break it.
   `version` joins the existing top-level fields:
@@ -389,18 +389,18 @@ endpoints), fail-closed response validation (rejected — runtime fragility).
 A code release: bump `package.json` / `plugin.json` /
 `.claude-plugin/marketplace.json` + CHANGELOG entry, merged via PR with the CI
 gate, per workflow.md. Gate 0 (visual QA) + Gate 1 (review) + Gate 2 (QA) apply.
-**Version: minor — `0.4.0`** (confirmed: a new backward-compatible capability).
+**Version: minor — `0.9.0`** (confirmed: a new backward-compatible capability).
 
-### Floating-entity (0.3.23) — already merged + rebased ✅
+### Floating-entity (0.8.23) — already merged + rebased ✅
 
 Update (2026-06-16): `feature/layout/floating-entity-placement` **merged to `main`**
-(PR #23, `efc6799`, 0.3.23), and the P6 branch has been **rebased onto it**. Its base
+(PR #23, `efc6799`, 0.8.23), and the P6 branch has been **rebased onto it**. Its base
 now contains the merged `/api/aggregates` handler (`positionAggregates`, from
 `src/mcp-server/aggregate-positioning.ts`) and the `Aggregate` shape with optional
 `x`/`y`. The plan is written against that post-rebase base: the `/api/aggregates`
 handler wraps the merged `positionAggregates` body in `respond()`, and `AggregateSchema`
 includes `x`/`y`. No pre-release gate remains — implement P6 and release
-**0.3.23 → 0.4.0** via PR + CI gate.
+**0.8.23 → 0.9.0** via PR + CI gate.
 
 (History: this was originally a release-time gate because floating-entity was
 unmerged; it landed mid-design, so the gate is satisfied and the rebase done.)

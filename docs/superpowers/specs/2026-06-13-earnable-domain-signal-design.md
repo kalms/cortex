@@ -4,7 +4,7 @@
 > [`HANDOFF.md`](../../../HANDOFF.md) records as the gate on the enable slice.
 > Builds on the milestone-1 classifier
 > ([`src/frame-extraction/frame-kind.ts`](../../../src/frame-extraction/frame-kind.ts))
-> and the observe-phase findings shipped in 0.3.7.
+> and the observe-phase findings shipped in 0.8.7.
 
 ## Problem
 
@@ -37,7 +37,7 @@ option that makes the layer mean what the taxonomy claims ("the product's
 actual subject") rather than conceding the layer is undetectable — and it
 **composes** with weight-demotion: once domain is earnable, the residual
 fallback-domain is separately down-weighted via the `fallback` flag already
-shipped in 0.3.7.
+shipped in 0.8.7.
 
 Within "earnable" there are two signals:
 

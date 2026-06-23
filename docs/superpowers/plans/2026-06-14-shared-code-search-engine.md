@@ -702,4 +702,4 @@ git commit -m "feat(cli): cortex code search uses shared ripgrep engine, ranked 
 - **Gate 0 (live):** `npx tsx src/cli/main.ts code search extract --format=plain` against this repo — confirm **code hits now appear and rank above `.md`** (the original bug), `--kind` prints the redirect hint, `--limit`/`--offset` page. Also spot-check the MCP tool output is unchanged via `tests/mcp-contract/code-tools.test.ts`.
 - **Gate 1:** `/review` on the diff since branch point.
 - **Decision capture:** `create_decision` for the shared-engine extraction + CLI-ranks/MCP-doesn't asymmetry, linked to `D-fq9g` (the search_graph ranking decision) and citing this spec.
-- **Gate 2 + merge:** full suite, version bump (patch → 0.3.13) across `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` + CHANGELOG entry, `--no-ff` merge.
+- **Gate 2 + merge:** full suite, version bump (patch → 0.8.13) across `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` + CHANGELOG entry, `--no-ff` merge.

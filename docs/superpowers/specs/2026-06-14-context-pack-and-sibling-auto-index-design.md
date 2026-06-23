@@ -174,7 +174,7 @@ Auto-index only when **all** hold:
 - the root is **not** under a denylist fragment: `.tmp/` (cortex's eval-clone
   convention), `node_modules`, `vendor`, `dist`, `build`, `.cache`.
 
-(Bare system `/tmp` was dropped from the denylist in 0.3.18: it wrongly excluded
+(Bare system `/tmp` was dropped from the denylist in 0.8.18: it wrongly excluded
 every Linux `os.tmpdir()` repo, and a git repo a user actively greps under
 `/tmp` is a legitimate index target. The `.tmp` eval-clone guard remains.)
 

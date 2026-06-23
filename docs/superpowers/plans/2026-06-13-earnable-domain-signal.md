@@ -229,7 +229,7 @@ create_decision({
   repo_path: "/Users/rka/Development/cortex",
   title: "Earnable domain via positive mid-band runtime signal",
   description: "Runtime content in the silent middle sink band positively earns domain at W_DOMAIN_RUNTIME=0.5; earned vs fallback domain are distinct (1.00 / 0.50 kind-weight for the enable slice).",
-  rationale: "Domain was only ever reached by fallback on real graphs yet carries the enable slice's highest kind-weight. A positive residual signal below W_PATH makes domain earnable without overriding typed frames; the fallback flag (0.3.7) keeps the residual distinct so the enable slice can down-weight it.",
+  rationale: "Domain was only ever reached by fallback on real graphs yet carries the enable slice's highest kind-weight. A positive residual signal below W_PATH makes domain earnable without overriding typed frames; the fallback flag (0.8.7) keeps the residual distinct so the enable slice can down-weight it.",
   alternatives: [
     { name: "Demote fallback-domain weight only", reason_rejected: "Concedes domain is undetectable; leaves the layer meaningless." },
     { name: "Louvain feature-community concern axis", reason_rejected: "Catches substrate-band core domain too, but requires reviving dead ctx_louvain + wiring community detection; deferred (walk before run)." }
@@ -259,5 +259,5 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 Do **not** run without explicit user approval to merge (per workflow rules).
 
 - [ ] **Step 1: Full suite** — `npm test` → expect all green.
-- [ ] **Step 2: Merge protocol** — `git checkout main && git merge --no-ff feature/component/domain-earnable-signal`, bump `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` to the next patch (0.3.8), add a `CHANGELOG.md` entry + version link, commit `chore(release): 0.3.8`, delete the branch.
+- [ ] **Step 2: Merge protocol** — `git checkout main && git merge --no-ff feature/component/domain-earnable-signal`, bump `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` to the next patch (0.8.8), add a `CHANGELOG.md` entry + version link, commit `chore(release): 0.8.8`, delete the branch.
 - [ ] **Step 3: Push** — only when the user explicitly asks.

@@ -579,4 +579,4 @@ git commit -m "docs(mcp-tools): document search_graph ranking, kinds, pagination
 - Gate 0 (visual/live QA): not a viewer change, but verify the tool live — start `npm run dev`, call `search_graph(name_pattern="serve")` against this repo via the MCP server (or the dev HTTP harness), and confirm: sections excluded, header present with a suppressed count, `kinds:["section"]` brings them back, `limit`/`offset` page correctly. This is the honest end-to-end check the unit tests can't give.
 - Gate 1: `/review` on the diff since branch point.
 - Capture a decision (`create_decision`) for the ranking model + section-default, linked to the frame kind-weight decision `D-qn7z` lineage and citing field-report P2.
-- Gate 2 + merge protocol: full suite, version bump (patch → 0.3.11) across `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` + CHANGELOG entry.
+- Gate 2 + merge protocol: full suite, version bump (patch → 0.8.11) across `package.json` / `plugin.json` / `.claude-plugin/marketplace.json` + CHANGELOG entry.

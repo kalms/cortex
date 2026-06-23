@@ -293,7 +293,7 @@ the **enable slices** have since wired the layer into ranking:
 
 - **Kind-weight (slice 3a, on by default)** — `score ×= kind_weight` per layer;
   `CORTEX_KIND_WEIGHT=0` opts out. Decision `D-g4qb`.
-- **Layer-diversity (slice 3b, on by default since 0.3.20)** — a greedy
+- **Layer-diversity (slice 3b, on by default since 0.8.20)** — a greedy
   layer-aware ambient-set *selection* in
   [`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts)
   (`selectAmbientByDiversity`), consumed in `buildFrameMap`: geometric
@@ -303,8 +303,8 @@ the **enable slices** have since wired the layer into ranking:
   positive corpus observe verdict. Decision `D-wvsz`;
   [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
 
-- **Layer-adjacency layout force (layout slice part 1, shipped 0.3.21, ON by
-  default since 0.3.22)** — a vertical `forceY(yTarget(sink))` in
+- **Layer-adjacency layout force (layout slice part 1, shipped 0.8.21, ON by
+  default since 0.8.22)** — a vertical `forceY(yTarget(sink))` in
   [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient
   frames surface→substrate from each frame's **measured** sink
   (`fanIn/(fanIn+fanOut)`; per-layer `NOMINAL_SINK` fallback for flowless frames),
@@ -315,7 +315,7 @@ the **enable slices** have since wired the layer into ranking:
   positive corpus observe pass (Spearman(y, sink) mean ≈ 0.77). Decision `D-marq`;
   [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md).
 
-- **Floating-entity placement (layout slice part 2, shipped 0.3.23)** — a pure
+- **Floating-entity placement (layout slice part 2, shipped 0.8.23)** — a pure
   server-side **gravity-centroid** pass in
   [`floating-placement.ts`](../../src/mcp-server/floating-placement.ts) runs
   *after* the (byte-identical) ambient force-sim and positions the *satellites*:
@@ -325,7 +325,7 @@ the **enable slices** have since wired the layer into ranking:
   ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts): CALLS/USAGE/IMPORTS
   edges to frames, else shared directory ancestry, else a de-emphasized margin
   slot). `separateMovables` then guarantees **no satellite overlaps an ambient
-  frame or another satellite** (0.3.24): a deterministic greedy free-slot placer —
+  frame or another satellite** (0.8.24): a deterministic greedy free-slot placer —
   each satellite keeps its seed if free, else takes the nearest unoccupied spot
   found by scanning outward in integer grid rings (no trig → cross-platform
   deterministic). Positions are emitted in `/api/frames` (non-ambient frames) and

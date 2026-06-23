@@ -1031,21 +1031,21 @@ create_decision({ title: "Server-side gravity-centroid placement for floating en
 supersede_decision({ decision_id: "D-xwxj", superseded_by: <new id>, repo_path })
 ```
 
-- [ ] **Step 2: Version bump (patch → 0.3.23) + CHANGELOG**
+- [ ] **Step 2: Version bump (patch → 0.8.23) + CHANGELOG**
 
-Bump all three version fields (`package.json`, `plugin.json`, `.claude-plugin/marketplace.json`) 0.3.22 → 0.3.23. Add a `## [0.3.23] — <date>` CHANGELOG entry (Added: server-side floating-entity placement; Changed: viewer drops both fixed strips; superseded D-xwxj) + the `[0.3.23]:` link reference. Do NOT touch `CORTEX_INDEXER_VERSION`.
+Bump all three version fields (`package.json`, `plugin.json`, `.claude-plugin/marketplace.json`) 0.8.22 → 0.8.23. Add a `## [0.8.23] — <date>` CHANGELOG entry (Added: server-side floating-entity placement; Changed: viewer drops both fixed strips; superseded D-xwxj) + the `[0.8.23]:` link reference. Do NOT touch `CORTEX_INDEXER_VERSION`.
 
 - [ ] **Step 3: Update living docs**
 
 - `HANDOFF.md` — mark layout slice part 2 shipped; next item becomes the Louvain `concern` axis. Note D-xwxj superseded.
-- `docs/specs/progress.md` — flip the "Floating-entity placement" row to ✅ Shipped (0.3.23); update the recommended-next-step list.
+- `docs/specs/progress.md` — flip the "Floating-entity placement" row to ✅ Shipped (0.8.23); update the recommended-next-step list.
 - `docs/architecture/graph-ui.md` — document `placeFloatingEntities`/`aggregate-ties`, the satellite render treatment, and that the two strips are gone.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add -A
-git commit -m "chore(release): 0.3.23 — floating-entity placement"
+git commit -m "chore(release): 0.8.23 — floating-entity placement"
 ```
 
 ---

@@ -16,13 +16,13 @@
 
 - Work happens in worktree `../cortex-wt-api-contract` on branch
   `feature/api/versioned-contract-hardening`.
-- **Floating-entity (0.3.23) is already MERGED to `main`** (PR #23, `efc6799`) and this
+- **Floating-entity (0.8.23) is already MERGED to `main`** (PR #23, `efc6799`) and this
   branch has been **rebased onto it**. Its base now contains the merged `/api/aggregates`
   handler (`positionAggregates`, from `src/mcp-server/aggregate-positioning.ts`, already
   imported in `api.ts`) and the `Aggregate` shape with optional `x`/`y`. The plan below is
   written against that post-rebase base: Task 6's `/api/aggregates` handler wraps the
   merged `positionAggregates` body in `respond()` (do NOT revert to `groupAuxiliaryPaths`),
-  and Task 2's `AggregateSchema` includes `x`/`y`. The release is **0.3.23 → 0.4.0** (minor).
+  and Task 2's `AggregateSchema` includes `x`/`y`. The release is **0.8.23 → 0.9.0** (minor).
 
 ## File structure
 
@@ -919,7 +919,7 @@ Wire everything into `startViewerServer`: a per-request middleware chain (method
 - Modify: `src/mcp-server/api.ts`
 - Test: `tests/api/api-server.test.ts` (new integration test)
 
-> **Note:** the branch is already rebased onto merged main (0.3.23), so `api.ts`'s base
+> **Note:** the branch is already rebased onto merged main (0.8.23), so `api.ts`'s base
 > has the `positionAggregates`-based `/api/aggregates` handler + the `frame-map.ts`
 > changes. The aggregates handler below simply wraps that merged body in `respond()`.
 
@@ -1156,7 +1156,7 @@ const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResp
   }
 
   // ── /api/aggregates ── (positionAggregates + buildFrameMap are ALREADY imported
-  // at the top of api.ts post-rebase — wrap the merged 0.3.23 body in respond().
+  // at the top of api.ts post-rebase — wrap the merged 0.8.23 body in respond().
   // Do NOT switch to groupAuxiliaryPaths; that drops the x/y the viewer renders.)
   if (pathname === "/api/aggregates") {
     const resolved = openProjectStore(store, indexerProject, project, { registry });
@@ -1603,27 +1603,27 @@ link_decision({ repo_path: "<worktree abs path>", decision_id: "<id>", target: "
 
 ---
 
-## Task 11: Release (0.4.0)
+## Task 11: Release (0.9.0)
 
 **Files:** `package.json`, `plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`, `HANDOFF.md`.
 
-- [ ] **Step 1: Re-sync with main (safety re-check — floating-entity 0.3.23 already merged + rebased)**
+- [ ] **Step 1: Re-sync with main (safety re-check — floating-entity 0.8.23 already merged + rebased)**
 
 ```bash
-git fetch origin && git rebase origin/main   # branch is already on 0.3.23; a no-op unless main moved again
+git fetch origin && git rebase origin/main   # branch is already on 0.8.23; a no-op unless main moved again
 npx vitest run tests/api/
 ```
 
-- [ ] **Step 2: Bump all three version fields to `0.4.0`** (per workflow.md; minor, confirmed).
+- [ ] **Step 2: Bump all three version fields to `0.9.0`** (per workflow.md; minor, confirmed).
 
-- [ ] **Step 3: Add the `CHANGELOG.md` entry** under `## [0.4.0]` with `Added` (versioned contract, `/api/health`, `/api/freshness`, ETag/304, hardening env vars, generated schemas) / `Changed` (responses carry `version`; loopback-default bind) sections + the link reference.
+- [ ] **Step 3: Add the `CHANGELOG.md` entry** under `## [0.9.0]` with `Added` (versioned contract, `/api/health`, `/api/freshness`, ETag/304, hardening env vars, generated schemas) / `Changed` (responses carry `version`; loopback-default bind) sections + the link reference.
 
 - [ ] **Step 4: Mark P6 shipped in `HANDOFF.md`.**
 
 - [ ] **Step 5: Gate 2 QA, then PR + CI gate, then merge** (workflow.md release protocol).
 
 ```bash
-git commit -am "chore(release): 0.4.0 — versioned Zod HTTP contract + freshness + hardening"
+git commit -am "chore(release): 0.9.0 — versioned Zod HTTP contract + freshness + hardening"
 git push -u origin feature/api/versioned-contract-hardening
 gh pr create --base main --title "Versioned Zod HTTP contract + freshness + hardening (P6)" --body "<what + why; links spec + plan>"
 # wait for CI gate to pass, then:

@@ -52,7 +52,7 @@ receives the same `layer` field through `/api/frames` for free.
 kind-weight + layer-diversity re-ranking (the ambient set shifts from "the
 biggest, best-named clusters" to "a vertical slice of what the product is"),
 the layer-adjacency layout force (canvas as architecture diagram), and
-floating-entity placement (0.3.5: below-cut frames and aggregates drift to a
+floating-entity placement (0.8.5: below-cut frames and aggregates drift to a
 gravity centroid near their connected frames instead of the fixed bottom
 strip). These were previewed and approved as an end-state direction; each is
 its own future slice.
@@ -297,7 +297,7 @@ viewer
 2. **Layout slice**: layer-adjacency force in `frame-layout.ts`, using
    *measured* adjacency from `rollupFrameFlows` (which cross-layer flows
    actually exist) rather than categorical adjacency.
-3. **Floating-entity placement** (0.3.5 item, previewed): below-cut frames +
+3. **Floating-entity placement** (0.8.5 item, previewed): below-cut frames +
    aggregates at gravity centroid near connected frames; subsumes the
    `D-xwxj` promotion stopgap.
 4. **Cross-cutting concern axis**: graph communities spanning many frames

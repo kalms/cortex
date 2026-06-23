@@ -405,5 +405,5 @@ Do **not** run without explicit user approval to merge.
 
 - [ ] **Step 1: Full suite** — `npm test` → expect all green.
 - [ ] **Step 2: Gate 0 visual QA** — flag off: viewer ambient set pixel-identical to current. Flag on (`CORTEX_KIND_WEIGHT=1` in the dev server env, anthill project): ambient set visibly tilts toward domain/interface. Screenshots to `.playwright-mcp/`.
-- [ ] **Step 3: Merge protocol** — `git checkout main && git merge --no-ff feature/component/kind-weight-ranking`, bump `package.json`/`plugin.json`/`.claude-plugin/marketplace.json` to 0.3.9, `CHANGELOG.md` entry + link, commit `chore(release): 0.3.9`, delete the branch.
+- [ ] **Step 3: Merge protocol** — `git checkout main && git merge --no-ff feature/component/kind-weight-ranking`, bump `package.json`/`plugin.json`/`.claude-plugin/marketplace.json` to 0.8.9, `CHANGELOG.md` entry + link, commit `chore(release): 0.8.9`, delete the branch.
 - [ ] **Step 4: Push** — only when the user explicitly asks.

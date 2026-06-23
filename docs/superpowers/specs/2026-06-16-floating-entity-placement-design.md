@@ -2,7 +2,7 @@
 
 > **Status:** approved design, ready for implementation plan.
 > **Arc:** frame-layers taxonomy → layout slice. Part 1 (layer-adjacency
-> vertical force, `D-marq`) shipped and is default-on (0.3.22). This is **part 2**:
+> vertical force, `D-marq`) shipped and is default-on (0.8.22). This is **part 2**:
 > place the *satellites* (non-ambient frames + auxiliary aggregates) by a
 > gravity-centroid near their connected frames, **replacing the two fixed strips**
 > and **superseding the `D-xwxj` governed-frame promotion stopgap**.

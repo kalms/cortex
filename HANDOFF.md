@@ -9,7 +9,7 @@ unranked" / P2** item and the follow-ons it surfaced. Decisions **`D-fq9g`**
 (search_graph ranking) and **`D-qfz9`** (shared code_search engine), both linked
 to the frame kind-weight lineage.
 
-- **0.3.11 — `search_graph` ranking + section exclusion + pagination (P2).**
+- **0.8.11 — `search_graph` ranking + section exclusion + pagination (P2).**
   New pure ranker [`src/graph/node-ranker.ts`](src/graph/node-ranker.ts)
   (`KIND_WEIGHT × nameMatchQuality`, deterministic tie-break → stable across
   pages); doc/plan `section` nodes (1771 vs 528 functions here) excluded from
@@ -18,7 +18,7 @@ to the frame kind-weight lineage.
   render/clamp in [`src/mcp-server/tools/search-format.ts`](src/mcp-server/tools/search-format.ts);
   `countSuppressedSections` in [`code-queries.ts`](src/graph/code-queries.ts).
   Decision `D-fq9g`; [design](docs/superpowers/specs/2026-06-14-search-graph-ranking-design.md).
-- **0.3.12 — suppression-note scoping fix + search-syntax docs + `cortex code
+- **0.8.12 — suppression-note scoping fix + search-syntax docs + `cortex code
   find` parity.** The suppression hint now fires only under the default filter
   (an explicit `kinds`/`label` no longer misreports hidden sections). Documented
   the previously-undocumented match syntax in [`docs/mcp-tools.md`](docs/mcp-tools.md)
@@ -29,7 +29,7 @@ to the frame kind-weight lineage.
   `clampLimit`/`clampOffset` relocated to
   [`src/graph/search-params.ts`](src/graph/search-params.ts) so the CLI doesn't
   depend on mcp-server.
-- **0.3.13 — shared ripgrep engine; `cortex code search` fixed (the "only .md"
+- **0.8.13 — shared ripgrep engine; `cortex code search` fixed (the "only .md"
   report).** Root cause: the CLI ran the indexer binary's `search_code`, which
   caps at ~10 results and orders doc-first — `extract` (91 code files) returned
   only `.md`. Extracted the MCP tool's ripgrep + enclosing-symbol engine into a
@@ -39,7 +39,7 @@ to the frame kind-weight lineage.
   command runs the same engine, ranks **code-first** (markdown hits enclose to a
   `module` node and sink), renders structured rows, redirects `--kind` to `find`.
   Decision `D-qfz9`; [design](docs/superpowers/specs/2026-06-14-shared-code-search-engine-design.md).
-- **0.3.14 — `prefer-cortex` hook over-match fix.** A `git commit -m "…grep…"`
+- **0.8.14 — `prefer-cortex` hook over-match fix.** A `git commit -m "…grep…"`
   was misread as a code search and denied; the Bash branch now strips quoted
   string literals before probing for a command-position search tool (a real code
   search keeps its tool word unquoted, so it still redirects; scope detection
@@ -54,9 +54,9 @@ extract` now leads with code instead of `.md`.
 ## ▶ NEXT STEP
 
 **▶▶ IMMEDIATE:** ✅ done — the **layout slice is complete**. Part 1
-(layer-adjacency force, `D-marq`) shipped 0.3.21 and went default-on 0.3.22
+(layer-adjacency force, `D-marq`) shipped 0.8.21 and went default-on 0.8.22
 (`CORTEX_LAYER_LAYOUT` opt-out; observe pass positive corpus-wide, Spearman(y,
-sink) mean ≈ 0.77). **Part 2 — floating-entity placement** shipped **0.3.23**: a
+sink) mean ≈ 0.77). **Part 2 — floating-entity placement** shipped **0.8.23**: a
 pure server-side **gravity-centroid** pass (`src/mcp-server/floating-placement.ts`,
 `src/mcp-server/aggregate-ties.ts`) positions non-ambient frames (pair-weighted
 centroid of connected ambient frames) and auxiliary aggregates (edge→path→margin
@@ -73,14 +73,14 @@ positions, not strips), zero console errors. **Next open items, in order:** (1) 
 `SRC·863` mega-frame / substrate-band core domain); (2) optional layout **observe
 pass** for the centroid quality + a future **network layout mode** (seam ready).
 Older deferred 3b test follow-ups still stand (multi-layer promotion test,
-zero-score floor edge case — non-blocking). **0.3.23 fast-follow polish**
+zero-score floor edge case — non-blocking). **0.8.23 fast-follow polish**
 (non-blocking, from the final review): (a) `/api/aggregates` re-runs the ambient
 force-sim that `/api/frames` already computes — share one frame-map or derive
 aggregate anchors viewer-side from the already-fetched `/api/frames` positions;
 (b) the aggregate path-tie matches only top-level aux dirs (host = parent-of-aux
 vs frame top-level rep-dir), so a nested aux path like `src/components/locales/`
 conservatively drops to the margin — deepen the ancestry match if nested layouts
-need it. **0.3.24** fixed a P0 from this slice: floating frames/aggregates were
+need it. **0.8.24** fixed a P0 from this slice: floating frames/aggregates were
 overlapping each other + ambient frames (per-satellite repulsion ignored other
 satellites); placement now uses `separateMovables` (deterministic greedy
 free-slot) so frames never stack. **Remaining fast-follows:** (c) aggregate dots
@@ -89,7 +89,7 @@ overlap a satellite frame across the two passes — unify the placement (relates
 fast-follow (a)) to close it; (d) a pre-existing ~1px ambient/ambient corner clip
 from `layoutFrames`' bounded AABB tail (independent of floating placement).
 
-1. ✅ **Observe-polish branch landed** (0.3.7): fixture regen + coverage guard,
+1. ✅ **Observe-polish branch landed** (0.8.7): fixture regen + coverage guard,
    handler-suffix orchestration signal, palette separation, tie/fallback report.
 2. ✅ **Domain question resolved** — earnable domain via an *earned-fallback*
    runtime signal in the middle sink band (decision **`D-8vbv`**, spec
@@ -114,10 +114,10 @@ from `layoutFrames`' bounded AABB tail (independent of floating placement).
    0.50 fallback-domain demotion correctly yields fallback-domain to interface
    (rubygems `mailer`); **no junk leapfrogged into ambient** (D-qn7z trap held).
    Neutral on tiny/already-diverse repos (cobra/click/vueuse).
-   **→ Default flipped ON in 0.3.10** (`CORTEX_KIND_WEIGHT` now an opt-out, `"0"`
+   **→ Default flipped ON in 0.8.10** (`CORTEX_KIND_WEIGHT` now an opt-out, `"0"`
    disables; Gate 0 confirmed clean render). The kind-weighted ambient set is
    the default user-visible ranking.
-4. ✅ **Enable slice 3b — layer-diversity shipped (0.3.19) + default-ON (0.3.20)**,
+4. ✅ **Enable slice 3b — layer-diversity shipped (0.8.19) + default-ON (0.8.20)**,
    decision **`D-wvsz`**, spec
    [2026-06-15-layer-diversity-enable-slice-design.md](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
    The `× diversity` term as a new pure module `frame-diversity.ts`
@@ -131,7 +131,7 @@ from `layoutFrames`' bounded AABB tail (independent of floating placement).
    domain/data (vueuse interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor
    interface 7→3 +data, rubygems re-surfaces a domain frame), ceremony cap held
    everywhere, no junk promoted on coverage alone, neutral on already-diverse/
-   tiny repos. **→ Default flipped ON in 0.3.20** (`CORTEX_LAYER_DIVERSITY` now an
+   tiny repos. **→ Default flipped ON in 0.8.20** (`CORTEX_LAYER_DIVERSITY` now an
    opt-out, `"0"` restores the kind-weighted-only ambient set); Gate 0 confirmed a
    clean default-on render.
 5. **Layout slice**: layer-adjacency force in `frame-layout.ts` using
@@ -148,10 +148,10 @@ from `layoutFrames`' bounded AABB tail (independent of floating placement).
 
    | # | Item | Status | What it is | Effort |
    |---|---|---|---|---|
-   | **P2** | Search ranking + kind weighting | ✅ **Shipped** (0.3.11–0.3.13) | Ranked, section-excluded, paginated `search_graph` + `cortex code search`/`find`. Decisions `D-fq9g` / `D-qfz9`. | — |
-   | **P3** | Target-repo-aware grep hook | ✅ **Shipped** | `prefer-cortex.sh` now gates on the **search-target** repo's index (resolved from Grep/Glob `path` or the Bash command's path args; cwd only for bare patterns), and background-indexes high-certainty git siblings on first grep. Decision `D-mmtb` (+ 0.3.18 `/tmp` denylist follow-up). **Distinct from the 0.3.14 quoted-word fix.** | — |
+   | **P2** | Search ranking + kind weighting | ✅ **Shipped** (0.8.11–0.8.13) | Ranked, section-excluded, paginated `search_graph` + `cortex code search`/`find`. Decisions `D-fq9g` / `D-qfz9`. | — |
+   | **P3** | Target-repo-aware grep hook | ✅ **Shipped** | `prefer-cortex.sh` now gates on the **search-target** repo's index (resolved from Grep/Glob `path` or the Bash command's path args; cwd only for bare patterns), and background-indexes high-certainty git siblings on first grep. Decision `D-mmtb` (+ 0.8.18 `/tmp` denylist follow-up). **Distinct from the 0.8.14 quoted-word fix.** | — |
    | **P1** | `context_pack(qualified_name)` composite | ✅ **Shipped** | One tool returning `{ snippet, callers, callees, governing_decisions, recent_commits }` (caps 10/10/5/5 + truncation note). Pure composition of `get_code_snippet` + `trace_path` + `why_was_this_built` + git log; cuts the 4-roundtrip symbol pattern to 1. Decision `D-bptf`. | — |
-   | **P6** | Versioned HTTP contract + freshness over HTTP | ✅ **Shipped** (0.4.0) | Zod single-source-of-truth schemas (`src/mcp-server/api-schemas.ts`) → runtime validation + `z.infer` types + generated `docs/api/*.schema.json` (drift-guarded); `version` on every response; freshness via `X-Cortex-Freshness` header + `/api/freshness` + ETag/`304`; new `/api/health`; full hardening (loopback bind, CORS allowlist, opt-in bearer auth, traversal guard, security headers, oversized-URL/timeout limits) — all env-gated, inert by default. **Expanded beyond the original (a)/(b) scope to the full hardening pass.** Decision `D-tszm`; [onboarding doc](docs/architecture/http-api-contract.md). | — |
+   | **P6** | Versioned HTTP contract + freshness over HTTP | ✅ **Shipped** (0.9.0) | Zod single-source-of-truth schemas (`src/mcp-server/api-schemas.ts`) → runtime validation + `z.infer` types + generated `docs/api/*.schema.json` (drift-guarded); `version` on every response; freshness via `X-Cortex-Freshness` header + `/api/freshness` + ETag/`304`; new `/api/health`; full hardening (loopback bind, CORS allowlist, opt-in bearer auth, traversal guard, security headers, oversized-URL/timeout limits) — all env-gated, inert by default. **Expanded beyond the original (a)/(b) scope to the full hardening pass.** Decision `D-tszm`; [onboarding doc](docs/architecture/http-api-contract.md). | — |
    | **P4** | Warm-path decision drafting | ⬜ Open | At merge/PR time, run `decision_candidates` over the branch diff and draft `status:"proposed"`, `author:"cortex:draft"` decisions for one-tap ratification — re-aims the existing `seed-decisions` machinery + suggest-capture hook from *reminder* to *drafter*. Compounds the decision moat. | medium |
    | **P5** | Cross-repo decision search | ⬜ Open | `crossRepo:true` mode on `search_decisions` that fans out over the registry's `root_path` entries and merges FTS hits with a `repo` field. Unlocks the now-normal multi-repo workflow (cortex + mesh + client repos). | small–medium |
    | **P7** | Reduce the fixed token tax | ⬜ Open — **needs a decision first** | ~30 tool schemas + routing docs ride every turn. (a) Consolidate low-traffic tools (`promote`/`propose`, the PR quartet) behind a `mode` param; (b) tighten descriptions that restate `docs/mcp-tools.md`; (c) mark the long tail deferred where the host supports lazy schema loading. (a) is a breaking prompt change → capture a decision. | medium |
@@ -166,7 +166,7 @@ from `layoutFrames`' bounded AABB tail (independent of floating placement).
    releases through a PR so CI actually runs.
 9. **Mesh side** (separate repo, waiting on Figma): faithful viewer
    adaptation + threads-to-top; keep pan/zoom. Mesh consumes the `layer`
-   field for free once its sidecar runs ≥0.3.4.
+   field for free once its sidecar runs ≥0.8.4.
 
 ---
 

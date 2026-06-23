@@ -210,7 +210,7 @@ slice ships the flag off.
 ## Out of scope
 
 - **Flipping the default on** — a follow-up after the observe verdict (mirrors
-  the 3a → 0.3.10 flip).
+  the 3a → 0.8.10 flip).
 - **Layout slice** (layer-adjacency force in `frame-layout.ts`) — the next slice;
   unchanged here.
 - **Floating-entity placement** and the **cross-cutting concern axis** — later
