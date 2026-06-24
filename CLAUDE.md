@@ -24,7 +24,7 @@ current index state; act on it.
 | Understand project shape | `get_architecture(aspects=…)` | manual `ls`/`find` |
 | Text search across code with structural annotation | `search_code(pattern="…")` | `Grep` |
 | Complex graph query | `query_graph(query=Cypher)` | grep + manual joins |
-| Check why code looks the way it does | `why_was_this_built(qualified_name="…")` | guessing |
+| Check why code looks the way it does | `decision({action:"why", qualified_name:"…"})` | guessing |
 
 Fall back to `Grep`/`Glob`/`Read` only when:
 - the target is a non-code file (config, JSON, Markdown, log)
@@ -76,7 +76,7 @@ or MCP tools.
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
 Every read tool above (`search_graph`, `get_code_snippet`, `trace_path`,
-`query_graph`, `search_code`, `get_architecture`, `why_was_this_built`) now
+`query_graph`, `search_code`, `get_architecture`, `decision({action:"why"})`) now
 carries a **freshness verdict**. When the graph is current, results are
 returned unchanged. When it isn't, a one-line note is appended to the result
 and a structured `freshness` field is attached:
@@ -116,7 +116,7 @@ on the master registry, not a single repo, and accept `project` instead.
 The SessionStart banner (`hooks/check-index.sh`) prints `Repo path:
 <abs>` so you have the current cwd's repo path ready to paste. **For
 multi-repo work, pass the path of the repo the call is actually about,
-not the cwd repo.** A `search_decisions` about `anthill-cloud-sales`
+not the cwd repo.** A `decision({action:"search"})` about `anthill-cloud-sales`
 should be `repo_path: "/Users/rka/Development/anthill-cloud-sales"`,
 even if your shell cwd is in `cortex`.
 
@@ -147,16 +147,16 @@ Capture a decision **proactively** when:
 The shape:
 
 ```
-search_decisions({ query: "relevant keywords" })   # Check for duplicates first
-create_decision({ title, description, rationale, alternatives, governs: ["path/or/qn"] })
-link_decision({ decision_id: "…", target: "…", relation: "GOVERNS" })
+decision({ action: "search", query: "relevant keywords" })   # Check for duplicates first
+decision({ action: "create", title, description, rationale, alternatives, governs: ["path/or/qn"] })
+decision({ action: "link", decision_id: "…", target: "…", relation: "GOVERNS" })
 ```
 
 Before modifying existing code, check whether an existing decision governs
 that area:
 
 ```
-why_was_this_built({ qualified_name: "src/path/to/file.ts::functionName" })
+decision({ action: "why", qualified_name: "src/path/to/file.ts::functionName" })
 ```
 
 If a decision exists and your change contradicts it, that's a signal to
@@ -169,12 +169,12 @@ Reconciliation detects drift by hashing the **current working-tree** source of
 the files a decision governs — not git HEAD — so in-session edits flip a
 governed decision to stale-pending immediately, before any commit. When drift is
 detected, the agent judges whether the decision's prose still matches the code
-(match/partial/drift) and records the verdict via `record_reconciliation`. It is
+(match/partial/drift) and records the verdict via `decision({action:"reconcile"})`. It is
 agent-delegated and gated behind `CORTEX_RECONCILE=1` (default off in v1). When
-on, `why_was_this_built` and `get_decision` emit a separate "reconcile this"
+on, `decision({action:"why"})` and `decision({action:"get"})` emit a separate "reconcile this"
 content block whenever governed code has drifted; judge the alignment and call
-`record_reconciliation(decision_id, verdict)`. `pending_reconciliations` lists
-every drifted decision for a batch pass. `get_decision` exposes a derived
+`decision({action:"reconcile", decision_id, verdict})`. `decision({action:"pending"})` lists
+every drifted decision for a batch pass. `decision({action:"get"})` exposes a derived
 `display_state` ("active" / "stale" / "active · drifting" / "active ·
 unreconciled") that reflects the latest verdict against the current source.
 
@@ -255,10 +255,10 @@ the full model, the read/write paths, and the single path-resolution chokepoint.
 
 A freshly-indexed repo has zero decisions. The `check-index` hook detects this
 (`cortex decision count == 0`) and prompts running the `seed-decisions` skill,
-which frames candidates from git + docs via the read-only `decision_candidates`
-MCP tool and proposes them with machine-derived provenance. Seeded decisions are
+which frames candidates from git + docs via the read-only `decision({action:"candidates"})`
+MCP tool call and proposes them with machine-derived provenance. Seeded decisions are
 `status: "proposed"`, `author: "cortex:seed"`, and never become `active` without
-explicit user ratification (`update_decision`). See
+explicit user ratification (`decision({action:"update"})`). See
 [the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
 
 ## Tools Available
@@ -267,8 +267,8 @@ For the full per-tool reference — params, return shapes, the `repo_path`
 routing contract, and error shapes — see
 [docs/mcp-tools.md](docs/mcp-tools.md).
 
-### Decision tools
-`create_decision`, `update_decision`, `delete_decision`, `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`, `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`, `record_reconciliation`, `pending_reconciliations`
+### Decision tool
+`decision` — action-dispatched: `create` | `update` | `delete` | `get` | `search` | `why` | `candidates` | `link` | `promote` | `propose` | `supersede` | `reconcile` | `pending`
 
 ### Code & graph tools
 `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `check_contracts`
@@ -276,8 +276,11 @@ routing contract, and error shapes — see
 ### Index lifecycle tools
 `index_repository`, `detect_changes`, `index_status`, `list_projects`, `delete_project`, `ingest_traces`
 
-### Pull-request tools
-`open_pr`, `add_pr_touch`, `merge_pr`, `get_pr`
+### Pull-request tool
+`pr` — action-dispatched: `open` | `touch` | `merge` | `get`
+
+### Todo tool
+`todo` — action-dispatched: `propose` | `get` | `list` | `search` | `update` | `link` | `transition`
 
 ## Viewer
 

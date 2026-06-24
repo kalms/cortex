@@ -2,7 +2,7 @@
 # Hook: suggest-capture
 #
 # Fires after git commits. Two nudges:
-#   1. If architectural decisions were made → propose_decision / create_decision
+#   1. If architectural decisions were made → decision({action:"propose"}) / decision({action:"create"})
 #   2. If code files changed → detect_changes + incremental index_repository
 #      to keep the Cortex graph current with the commit
 #
@@ -21,8 +21,8 @@ fi
 echo ""
 echo "---"
 echo "Were any architectural or design decisions made in this commit?"
-echo "If so, use create_decision to capture the decision with its rationale and alternatives."
-echo "Use search_decisions first to check if a similar decision already exists."
+echo "If so, use decision({action:\"create\"}) to capture the decision with its rationale and alternatives."
+echo "Use decision({action:\"search\"}) first to check if a similar decision already exists."
 if [ "$CODE_TOUCHED" -eq 1 ]; then
     echo ""
     echo "Code files changed. To keep Cortex's graph current for subsequent"

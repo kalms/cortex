@@ -15,7 +15,7 @@ Call the MCP tool — it parses git + docs and returns a compact manifest. Do NO
 read raw `git log` yourself; the manifest already carries source SHAs/doc paths.
 
 ```
-decision_candidates({ max_candidates: 20 })
+decision({ action: "candidates", max_candidates: 20 })
 ```
 
 Each candidate has `kind` (adr | prose | commit_cluster), `confidence`,
@@ -27,7 +27,7 @@ Each candidate has `kind` (adr | prose | commit_cluster), `confidence`,
 For each candidate, before proposing, check for an existing decision:
 
 ```
-search_decisions({ query: "<keywords from title_hint / excerpt>" })
+decision({ action: "search", query: "<keywords from title_hint / excerpt>" })
 ```
 
 Skip candidates already covered. On a re-run, only net-new candidates should be
@@ -45,10 +45,11 @@ doesn't support.
   verbatim from the doc.
 - **prose / commit_cluster (medium/low):** summarize; keep claims tied to the excerpt.
 
-Create each via `propose_decision`, forwarding provenance and the seed marker:
+Create each via `decision({action:"propose"})`, forwarding provenance and the seed marker:
 
 ```
-propose_decision({
+decision({
+  action: "propose",
   title, problem, resolution, rationale,
   alternatives: [...],                // only if evidenced
   governs: [<files_touched, resolved to qualified names where precise>],
@@ -66,8 +67,8 @@ when a precise symbol is warranted; otherwise link the file path.
 List what you proposed as a numbered table: `title · confidence · provenance`.
 Ask the user which to keep. Then:
 
-- **Approved →** `update_decision({ id, status: "active" })`
-- **Unapproved →** `delete_decision({ id })` by default (a graveyard of stale
+- **Approved →** `decision({ action: "update", id, status: "active" })`
+- **Unapproved →** `decision({ action: "delete", id })` by default (a graveyard of stale
   `proposed` records erodes trust). Keep as `proposed` only if the user asks.
 
 Never promote to `active` without explicit approval.

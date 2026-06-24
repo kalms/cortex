@@ -20,7 +20,7 @@ claude plugin add github:ruevu/cortex
 
 This single install registers, in one go:
 
-- **30 MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `why_was_this_built`, `create_decision`, `query_graph`, `index_repository`, `decision_candidates`, `check_contracts`, the four PR tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
+- **MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `decision({action:"why"})`, `decision({action:"create"})`, `query_graph`, `index_repository`, `decision({action:"candidates"})`, `check_contracts`, the `pr` and `todo` action-dispatched tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
 - **The SessionStart hook** (`hooks/check-index.sh`) — prints the active repo, its index state, and routing reminders into every new conversation.
 - **The skill library** under `skills/` — `seed-decisions` (cold-start bootstrap), `capture-decision`, `search-decisions`, `explain-architecture`.
 - **The decision-capture flow** under `bin/` — `cortex decision create / link / why / list / rehome / propose / supersede / update / delete / show / candidates`, plus `cortex code find / show / where / why`.
@@ -106,15 +106,15 @@ npm rebuild better-sqlite3
 ┌──────────────────────────────────────────────────────────┐
 │                MCP Server (stdio, main thread)            │
 │                                                           │
-│  Code (13)    Decisions (11)   PRs (4)   Promotion (1)    │
-│  ──────────   ─────────────   ───────    ──────────       │
-│  index_*       create, get,    open_pr   promote          │
-│  search_*      update, delete, add_pr_   _decision        │
-│  trace_path    search,         touch,                     │
-│  query_graph,  why_was_this_   merge_pr,                  │
-│  get_*         built, link,    get_pr                     │
-│                propose,                                   │
-│                supersede                                  │
+│  Code (13)    decision (1)       pr (1)    todo (1)       │
+│  ──────────   ────────────────   ──────    ──────────     │
+│  index_*      action-dispatched: open,     propose,       │
+│  search_*     create/update/     touch,    get/list/      │
+│  trace_path   delete/get/search/ merge,    search/        │
+│  query_graph, why/candidates/    get       update/link/   │
+│  get_*        link/promote/                transition     │
+│               propose/supersede/                          │
+│               reconcile/pending                           │
 ├──────────────────────────────────────────────────────────┤
 │ GraphStore  │ DecisionService │ PRService │ EventBus      │
 ├──────────────────────────────────────────────────────────┤
@@ -172,30 +172,44 @@ These spawn `bin/cortex-indexer` (write operations):
 | `detect_changes` | Map git diff to affected symbols |
 | `delete_project` | Remove a project from the index |
 
-### Decision tools (11)
+### `decision` tool — action-dispatched
 
-| Tool | Description |
-|------|-------------|
-| `create_decision` | Create a decision with rationale, alternatives, and governed code links |
-| `decision_candidates` | Read-only: frame cold-start decision candidates from git history + docs. |
-| `propose_decision` | Create a `proposed`-status decision pending review |
-| `supersede_decision` | Mark one decision as superseded by another |
-| `update_decision` | Update decision fields (title, description, rationale, status) |
-| `delete_decision` | Delete a decision and cascade-delete its links |
-| `get_decision` | Get a decision with resolved GOVERNS and REFERENCES links |
-| `search_decisions` | FTS5 search over decision content, optionally scoped to a code path |
-| `why_was_this_built` | Find decisions governing a code entity — walks up file/directory hierarchy |
-| `link_decision` | Attach GOVERNS, REFERENCES, or SUPERSEDES links to an existing decision |
-| `promote_decision` | Promote a decision to team or public visibility tier |
+| Action | Description |
+|--------|-------------|
+| `create` | Create a decision with rationale, alternatives, and governed code links |
+| `candidates` | Read-only: frame cold-start decision candidates from git history + docs |
+| `propose` | Create a `proposed`-status decision pending review |
+| `supersede` | Mark one decision as superseded by another |
+| `update` | Update decision fields (title, description, rationale, status) |
+| `delete` | Delete a decision and cascade-delete its links |
+| `get` | Get a decision with resolved GOVERNS and REFERENCES links |
+| `search` | FTS5 search over decision content, optionally scoped to a code path |
+| `why` | Find decisions governing a code entity — walks up file/directory hierarchy |
+| `link` | Attach GOVERNS, REFERENCES, or SUPERSEDES links to an existing decision |
+| `promote` | Promote a decision to team or public visibility tier |
+| `reconcile` | Record a code-alignment verdict for a decision |
+| `pending` | List active decisions whose governed code drifted since last verdict |
 
-### PR tools (4)
+### `pr` tool — action-dispatched
 
-| Tool | Description |
-|------|-------------|
-| `open_pr` | Create a PR entity in the graph (state: draft/open/merged/closed) |
-| `add_pr_touch` | Record that a PR adds or modifies a file inside a frame |
-| `merge_pr` | Transition a PR to `merged` state |
-| `get_pr` | Get a PR with its decision links and touches |
+| Action | Description |
+|--------|-------------|
+| `open` | Create a PR entity in the graph (state: draft/open/merged/closed) |
+| `touch` | Record that a PR adds or modifies a file inside a frame (`change`: `added`\|`modified`) |
+| `merge` | Transition a PR to `merged` state |
+| `get` | Get a PR with its decision links and touches |
+
+### `todo` tool — action-dispatched
+
+| Action | Description |
+|--------|-------------|
+| `propose` | Propose a new TODO entity with title and description |
+| `get` | Get a TODO by ID |
+| `list` | List TODOs, optionally filtered by status |
+| `search` | Full-text search over TODO content |
+| `update` | Update TODO fields (title, description, status) |
+| `link` | Attach links from a TODO to decisions or code entities |
+| `transition` | Transition a TODO to a new state |
 
 ## Frames viewer
 

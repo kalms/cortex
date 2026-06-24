@@ -10,7 +10,7 @@ Provide a narrative explanation of a code area by combining decision history, ca
 ## Step 1: Find governing decisions
 
 ```
-why_was_this_built({ qualified_name: "<qualified name or file path>" })
+decision({ action: "why", qualified_name: "<qualified name or file path>" })
 ```
 
 This walks up the file hierarchy to find decisions that GOVERNS the code entity or its parent paths.
