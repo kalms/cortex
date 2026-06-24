@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
 import { TodosRepository } from "./repository.js";
-import { TodoLinksRepository, type TodoLink } from "./links-repository.js";
+import { TodoLinksRepository } from "./links-repository.js";
 import {
   rowToTodo, type Todo, type TodoRecord, type TodoWithRefs, type TodoRefRow,
   type ProposeTodoInput, type UpdateTodoInput, type LinkTodoInput, type TodoLinkRelation,
@@ -14,14 +14,6 @@ export interface TodoServiceDeps {
   links: TodoLinksRepository;
 }
 
-/** path-like → 'path', has '::' → 'qn', T-/D- → 'todo'/'decision', all-digits → 'pr'. */
-function classifyTarget(target: string): string {
-  if (/^T-/.test(target)) return "todo";
-  if (/^D-/.test(target)) return "decision";
-  if (/^\d+$/.test(target)) return "pr";
-  if (target.includes("::")) return "qn";
-  return "path";
-}
 
 export class TodoService {
   private db: Database.Database;
@@ -44,10 +36,26 @@ export class TodoService {
     const owner = this.resolveRecord(todoId);
     const ownerId = owner ? owner.id : todoId;
     let targetRef = ref;
-    const kind = classifyTarget(ref);
-    if (kind === "todo") {
-      const t = this.resolveRecord(ref);
-      targetRef = t ? t.id : ref;
+    let kind: string;
+    switch (relation) {
+      case "GOVERNS":
+        kind = ref.includes("/") ? "path" : "qn";
+        break;
+      case "BLOCKED_BY":
+      case "RELATED_TO": {
+        kind = "todo";
+        const t = this.resolveRecord(ref);
+        targetRef = t ? t.id : ref;
+        break;
+      }
+      case "SPAWNS_FROM":
+        kind = "decision";
+        break;
+      case "RESOLVED_BY":
+        kind = "pr";
+        break;
+      default:
+        kind = ref.includes("::") ? "qn" : ref.includes("/") ? "path" : "todo";
     }
     this.links.add({ todo_id: ownerId, target_kind: kind, target_ref: targetRef, relation, created_at: now });
   }
