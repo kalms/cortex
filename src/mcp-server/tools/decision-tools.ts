@@ -430,9 +430,12 @@ export async function whyWasThisBuiltAction(
         const candidatesList = resolved.candidates
           .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
           .join("\n");
-        return errorResponse(
-          "ambiguous_input",
-          `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+        return attachWhyFreshness(
+          ctx,
+          errorResponse(
+            "ambiguous_input",
+            `Multiple matches for '${qualified_name}'. Pick one and re-call:\n${candidatesList}`,
+          ),
         );
       }
       if (resolved.kind === "single") {

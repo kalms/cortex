@@ -95,7 +95,7 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
       relation: "GOVERNS",
     });
     expect(linked.isError).toBeFalsy();
-    expect(linked.content[0].text).toContain("linked");
+    expect(JSON.parse(linked.content[0].text).linked).toBe(true);
 
     // search (hit)
     const searched = await dispatch({ repo_path: repo, action: "search", query: "Lifecycle updated" });
@@ -166,6 +166,11 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed.id).toMatch(/^D-/);
     expect(parsed.id).not.toBe(oldId);
+
+    // Old decision must now be superseded.
+    const oldGot = await dispatch({ repo_path: repo, action: "get", id: oldId });
+    expect(oldGot.isError).toBeFalsy();
+    expect(JSON.parse(oldGot.content[0].text).status).toBe("superseded");
   });
 
   it("action:supersede on a missing id returns empty", async () => {
@@ -179,6 +184,7 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
       rationale: "ra",
     });
     expect(ResponseSchema.safeParse(res).success).toBe(true);
+    expect(res.content[0].text).toMatch(/^No results: supersede_decision\(D-zzzz\)/);
   });
 
   it("action:promote promotes an existing decision to a tier", async () => {
@@ -202,8 +208,9 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
     const res = await dispatch({ repo_path: repo, action: "candidates", max_candidates: 5 });
     expect(ResponseSchema.safeParse(res).success).toBe(true);
     expect(res.isError).toBeFalsy();
-    // Manifest is JSON — parse must not throw.
-    expect(() => JSON.parse(res.content[0].text)).not.toThrow();
+    // Manifest is a JSON array of candidate objects (bare array, not wrapped).
+    const parsed = JSON.parse(res.content[0].text);
+    expect(Array.isArray(parsed)).toBe(true);
   });
 
   it("action:reconcile on a decision with no GOVERNS links returns not_reconcilable", async () => {
@@ -241,10 +248,11 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
   it("action:why returns empty for an unknown symbol", async () => {
     const res = await dispatch({ repo_path: repo, action: "why", qualified_name: "no.such.symbol.anywhere" });
     expect(ResponseSchema.safeParse(res).success).toBe(true);
+    expect(res.content[0].text).toMatch(/^No results: why_was_this_built\(/);
   });
 
   describe("freshness parity: only `why` is freshness-aware", () => {
-    it("`why` and `get` both succeed; when `why` carries a freshness note, `get` carries none", async () => {
+    it("`why` carries freshness and `get` does not, even when the graph is stale", async () => {
       // Seed a decision so `get` returns a hit (ok envelope, the case where a
       // wrongly-applied freshness note would surface).
       const create = await dispatch({
@@ -256,25 +264,34 @@ describe.skipIf(BINARY_MISSING)("decision dispatcher contract", () => {
       });
       const id = JSON.parse(create.content[0].text).id;
 
-      const why = await dispatch({ repo_path: repo, action: "why", qualified_name: "no.such.symbol" });
-      const got = await dispatch({ repo_path: repo, action: "get", id });
+      // Enable freshness for the duration of these assertions. The fixture repo
+      // has no commit recorded in the indexed DB, so the verdict is always
+      // non-fresh — which means `why` MUST attach a freshness field.
+      const priorFreshness = process.env.CORTEX_FRESHNESS;
+      process.env.CORTEX_FRESHNESS = "1";
+      let why: ToolResult;
+      let got: ToolResult;
+      try {
+        why = await dispatch({ repo_path: repo, action: "why", qualified_name: "no.such.symbol" });
+        got = await dispatch({ repo_path: repo, action: "get", id });
+      } finally {
+        if (priorFreshness === undefined) {
+          delete process.env.CORTEX_FRESHNESS;
+        } else {
+          process.env.CORTEX_FRESHNESS = priorFreshness;
+        }
+      }
 
       // Both succeed (no thrown error; valid envelope).
       expect(ResponseSchema.safeParse(why).success).toBe(true);
       expect(got.isError).toBeFalsy();
 
-      // The invariant: `get` is never freshness-aware.
+      // `get` is NEVER freshness-aware — no freshness field, no note text.
       expect("freshness" in got).toBe(false);
       expect(got.content[0].text).not.toContain("cortex freshness:");
 
-      // If freshness is enabled and the fixture is stale (it is — no commit),
-      // `why` carries the note. When that's detectable, `get` must NOT have it
-      // (already asserted above). This directional check tolerates
-      // CORTEX_FRESHNESS=0 (where neither carries a note).
-      const whyHasNote = "freshness" in why || why.content[0].text.includes("cortex freshness:");
-      if (whyHasNote) {
-        expect("freshness" in got).toBe(false);
-      }
+      // `why` IS freshness-aware — the fixture is stale, so the note must appear.
+      expect("freshness" in why).toBe(true);
 
       await dispatch({ repo_path: repo, action: "delete", id });
     });
