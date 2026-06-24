@@ -46,7 +46,7 @@ Multi-word tokens still render via `formatPathOrderedLabel`.
 
 ### 3. Honest descriptor fallback — replaces raw `cluster:N`
 
-If even Pass 4.5 finds nothing, emit a human-readable descriptor instead of `cluster:N`: the dominant top-level directory(ies) of the members + file count (e.g. `decisions/todos · 14 files`). Deterministic. Expected to fire rarely after Pass 4.5.
+If even Pass 4.5 finds nothing, emit a human-readable descriptor instead of `cluster:N`: the dominant top-level directory(ies) of the members (e.g. `decisions/todos`). **No file count** — the viewer already renders node/file counts per frame, so the label must not duplicate it. Deterministic. Expected to fire rarely after Pass 4.5.
 
 ## Determinism
 
