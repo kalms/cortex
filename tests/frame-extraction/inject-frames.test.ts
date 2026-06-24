@@ -536,3 +536,17 @@ describe("pickFrameLabel — relaxed recovery (Pass 4.5)", () => {
     expect(pickFrameLabel(["id"], paths, 9)).toBe("cluster:9");
   });
 });
+
+describe("pickFrameLabel — directory descriptor fallback", () => {
+  it("uses dominant informative dir(s), no file count, instead of cluster:N", () => {
+    // Genuinely mixed, no salient token at all → descriptor from dir frequency.
+    const paths = ["src/decisions/x.ts", "tests/decisions/y.ts", "src/todos/z.ts", "tests/api/q.ts"];
+    const label = pickFrameLabel([], paths, 11); // no top tokens → passes 1-2,4.5-token all skip
+    expect(label).not.toMatch(/^cluster:/);
+    expect(label).not.toMatch(/\d+\s*files?/i);   // NO count in the label
+    expect(label).toMatch(/decisions|todos|api/);
+  });
+  it("falls to cluster:N only when there is no informative directory at all", () => {
+    expect(pickFrameLabel([], ["a.ts", "b.ts"], 42)).toBe("cluster:42");
+  });
+});

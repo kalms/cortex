@@ -267,7 +267,11 @@ export function pickFrameLabel(
   const recovered = relaxedRecoveryLabel(topTokens, memberPaths, params, suppressedTerms);
   if (recovered) return recovered;
 
-  // Pass 5: cluster id fallback.
+  // Pass 5: honest directory descriptor before the opaque floor.
+  const descriptor = descriptorLabel(memberPaths, suppressedTerms);
+  if (descriptor) return descriptor;
+
+  // Opaque fallback.
   return `cluster:${clusterId ?? "?"}`;
 }
 
@@ -382,6 +386,42 @@ function relaxedRecoveryLabel(
   // TF-IDF top-tokens — topical by construction — are relaxed. Genuinely
   // heterogeneous clusters fall through to the honest descriptor / cluster:N.
   return null;
+}
+
+/** Honest last-ditch descriptor for a cluster with no salient token: the most
+ *  frequent INFORMATIVE directory segments (generic/structural/org-root dirs
+ *  like `src`, `tests`, `lib` excluded), top two, joined `/`. Carries no file
+ *  count — the viewer renders counts separately. Only includes segments that
+ *  appear in 2+ member paths (shared topical structure, not one-off dirs).
+ *  Deterministic: stable frequency-then-lexicographic ordering. Returns null when
+ *  no shared informative directory exists (then `cluster:N` is the floor). */
+function descriptorLabel(
+  memberPaths: readonly string[],
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
+  if (memberPaths.length === 0) return null;
+  const counts = new Map<string, { original: string; n: number }>();
+  for (const p of memberPaths) {
+    const segs = p.split("/").filter((s) => s.length > 0);
+    const seen = new Set<string>();
+    for (let i = 0; i < segs.length - 1; i++) {
+      const lower = segs[i]!.toLowerCase();
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      if (isGenericToken(lower) || isStructuralLabelToken(lower) || suppressedTerms.has(lower)) continue;
+      const prev = counts.get(lower);
+      if (prev) prev.n++;
+      else counts.set(lower, { original: segs[i]!, n: 1 });
+    }
+  }
+  if (counts.size === 0) return null;
+  // Only include segments that appear in 2+ paths (shared structure, not transient).
+  const qualified = [...counts.values()].filter((c) => c.n >= 2);
+  if (qualified.length === 0) return null;
+  const sorted = qualified.sort(
+    (a, b) => b.n - a.n || a.original.toLowerCase().localeCompare(b.original.toLowerCase()),
+  );
+  return sorted.slice(0, 2).map((c) => c.original).join("/");
 }
 
 /** Total order for dominant-segment candidates: more members, then shared as a
