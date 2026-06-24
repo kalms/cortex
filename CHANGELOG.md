@@ -17,7 +17,13 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [Unreleased]
+## [1.0.0] — 2026-06-24
+
+> **Breaking release.** The MCP primitive tool surface is consolidated from 17
+> separately-named tools into 3 action-dispatched tools (`decision` / `pr` /
+> `todo`). Old tool names are removed (clean break). External MCP consumers
+> (e.g. mesh) must migrate per the table below. The HTTP API contract is
+> unaffected (still `version: 1`; `/api/todos` is purely additive).
 
 ### Added
 
@@ -759,6 +765,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.0.0]: https://github.com/ruevu/cortex/releases/tag/v1.0.0
 [0.9.0]: https://github.com/ruevu/cortex/releases/tag/v0.9.0
 [0.8.24]: https://github.com/ruevu/cortex/releases/tag/v0.8.24
 [0.8.23]: https://github.com/ruevu/cortex/releases/tag/v0.8.23
