@@ -492,3 +492,16 @@ describe("injectFrames — reclaimed marker", () => {
     expect(JSON.parse(row.data).reclaimed).toBeUndefined();
   });
 });
+
+describe("pickFrameLabel — directory-aware short tokens (cluster:N recovery)", () => {
+  it("labels a cluster after a ≤2-char DIRECTORY segment (ws)", () => {
+    const paths = ["src/ws/server.ts", "src/ws/protocol.ts", "src/ws/client-registry.ts", "tests/ws/server.test.ts"];
+    // 'ws' is the top token and a real directory in 3/4 members.
+    expect(pickFrameLabel(["ws", "server"], paths, 2)).toBe("ws");
+  });
+  it("does NOT label after a ≤2-char FILENAME-STEM token (ts) — stays generic", () => {
+    const paths = ["src/core/a.ts", "src/core/b.ts", "src/core/c.ts"];
+    // 'ts' is only an extension/stem, never a directory → still rejected; falls to path prefix 'core'(generic)→ cluster:N
+    expect(pickFrameLabel(["ts", "id"], paths, 7)).toBe("cluster:7");
+  });
+});

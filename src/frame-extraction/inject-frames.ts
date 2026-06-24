@@ -65,6 +65,22 @@ function isGenericToken(token: string): boolean {
   return GENERIC_TOKENS.has(token);
 }
 
+/** True when `token` (already lowercased) appears as a DIRECTORY segment — any
+ *  path segment except the final (filename) one — in at least one member path.
+ *  A short token that names a real subsystem directory (`ws`, `io`, `db`) is a
+ *  legitimate label; the same token appearing only as a filename stem/extension
+ *  (`ts`, `js`) is noise. Lets the ≤2-char generic rule be relaxed for the
+ *  former without admitting the latter. */
+function isDirectorySegment(token: string, memberPaths: readonly string[]): boolean {
+  for (const p of memberPaths) {
+    const segs = p.split("/").filter((s) => s.length > 0);
+    for (let i = 0; i < segs.length - 1; i++) {
+      if (segs[i]!.toLowerCase() === token) return true;
+    }
+  }
+  return false;
+}
+
 /** Fraction of a label's tokens that are topic-bearing (non-generic). 1.0 = every
  *  token is specific; 0 = the label is entirely generic/structural/short. The
  *  frame ranker multiplies F1 by this to down-weight opaque labels (e.g. the
@@ -87,7 +103,11 @@ function isLabelEligibleWord(
   suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
 ): boolean {
   const w = word.toLowerCase();
-  if (isGenericToken(w)) return false;
+  // Stop-list (any length) always rejects. The ≤2-char rule is relaxed for a
+  // token that names a real directory segment (a subsystem like `ws`), but not
+  // for a short filename stem/extension.
+  if (GENERIC_TOKENS.has(w)) return false;
+  if (w.length <= 2 && !isDirectorySegment(w, memberPaths)) return false;
   if (isStructuralLabelToken(w)) return false;
   if (params.has(w)) return false;
   // Repo-wide ubiquitous terms (the repo name / top-level package) carry no
@@ -285,7 +305,8 @@ function dominantPathSegmentLabel(
     const consider = (seg: string, depth: number, isDir: boolean) => {
       if (seg.length === 0) return;
       const lower = seg.toLowerCase();
-      if (isDynamicSegment(lower) || isGenericToken(lower) ||
+      const shortStem = lower.length <= 2 && !isDirectorySegment(lower, paths);
+      if (isDynamicSegment(lower) || GENERIC_TOKENS.has(lower) || shortStem ||
           isStructuralLabelToken(lower) || params.has(lower) || suppressedTerms.has(lower)) return;
       const prev = here.get(lower);
       if (!prev) here.set(lower, { original: seg, depth, isDir });
