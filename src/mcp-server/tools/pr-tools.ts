@@ -71,32 +71,99 @@ const getPRShape = {
 } as const;
 const getPRSchema = z.object(getPRShape);
 
+// ---------------------------------------------------------------------------
+// Extracted action functions — one per PR operation.
+//
+// These are the single source of behavior for each action. Both the legacy
+// per-tool `server.tool(...)` registrations below AND the consolidated `pr`
+// dispatcher (pr-dispatcher.ts) delegate to these functions. Keeping the
+// bodies here ensures the legacy tools remain unchanged while the dispatcher
+// reuses the exact same logic with zero duplication.
+// ---------------------------------------------------------------------------
+
+/** Shared PRService factory — mirrors the per-call construction in the original. */
+function makePrService(ctx: RepoContext, bus?: EventBus, indexerProject?: string | null): PRService {
+  const decisions = new DecisionService({
+    db: ctx.decisionsDb,
+    decisions: ctx.decisionsRepo,
+    links: ctx.decisionLinksRepo,
+    bus,
+    project_id: indexerProject ?? "",
+  });
+  return new PRService(ctx.store, {
+    bus,
+    default_actor: "system",
+    project_id: indexerProject ?? "",
+    decisions,
+    links: ctx.decisionLinksRepo,
+  });
+}
+
+export async function openPRAction(
+  ctx: RepoContext,
+  args: z.infer<typeof openPRSchema>,
+  bus?: EventBus,
+  indexerProject?: string | null,
+) {
+  try {
+    const { repo_path: _repoPath, ...openArgs } = args;
+    const pr = makePrService(ctx, bus, indexerProject).open(openArgs);
+    return ok(JSON.stringify(pr, null, 2));
+  } catch (e) {
+    return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
+  }
+}
+
+export async function addPRTouchAction(
+  ctx: RepoContext,
+  args: z.infer<typeof addPRTouchSchema>,
+  bus?: EventBus,
+  indexerProject?: string | null,
+) {
+  try {
+    const { repo_path: _repoPath, ...touchArgs } = args;
+    makePrService(ctx, bus, indexerProject).addTouch(touchArgs);
+    return ok(JSON.stringify({ ok: true, ...touchArgs }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found/i.test(msg)) return empty(`add_pr_touch(#${args.pr_number})`);
+    return errorResponse("internal_error", msg);
+  }
+}
+
+export async function mergePRAction(
+  ctx: RepoContext,
+  args: z.infer<typeof mergePRSchema>,
+  bus?: EventBus,
+  indexerProject?: string | null,
+) {
+  try {
+    const result = makePrService(ctx, bus, indexerProject).merge(args.pr_number);
+    return ok(JSON.stringify(result, null, 2));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found/i.test(msg)) return empty(`merge_pr(#${args.pr_number})`);
+    return errorResponse("internal_error", msg);
+  }
+}
+
+export async function getPRAction(
+  ctx: RepoContext,
+  args: z.infer<typeof getPRSchema>,
+  _bus?: EventBus,
+  _indexerProject?: string | null,
+) {
+  const pr = makePrService(ctx, _bus, _indexerProject).getWithRefs(args.pr_number);
+  if (!pr) return empty(`get_pr(#${args.pr_number})`);
+  return ok(JSON.stringify(pr, null, 2));
+}
+
 export function registerPRTools(
   server: McpServer,
   resolver: RepoContextResolver,
   indexerProject?: string | null,
   bus?: EventBus,
 ): void {
-  // Build a fresh PRService anchored to the addressed repo. The service is
-  // stateless apart from its handles (GraphStore + decisions repos), so this
-  // is a cheap per-call construction. Mirrors decision-tools.ts's serviceFor.
-  const prServiceFor = (ctx: RepoContext): PRService => {
-    const decisions = new DecisionService({
-      db: ctx.decisionsDb,
-      decisions: ctx.decisionsRepo,
-      links: ctx.decisionLinksRepo,
-      bus,
-      project_id: indexerProject ?? "",
-    });
-    return new PRService(ctx.store, {
-      bus,
-      default_actor: "system",
-      project_id: indexerProject ?? "",
-      decisions,
-      links: ctx.decisionLinksRepo,
-    });
-  };
-
   server.tool(
     "open_pr",
     "Create a pull request entity in the graph.",
@@ -104,15 +171,7 @@ export function registerPRTools(
     registerTool(
       "open_pr",
       openPRSchema,
-      async (ctx, args) => {
-        try {
-          const { repo_path: _repoPath, ...openArgs } = args;
-          const pr = prServiceFor(ctx).open(openArgs);
-          return ok(JSON.stringify(pr, null, 2));
-        } catch (e) {
-          return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-        }
-      },
+      async (ctx, args) => openPRAction(ctx, args, bus, indexerProject),
       { resolver },
     ),
   );
@@ -124,17 +183,7 @@ export function registerPRTools(
     registerTool(
       "add_pr_touch",
       addPRTouchSchema,
-      async (ctx, args) => {
-        try {
-          const { repo_path: _repoPath, ...touchArgs } = args;
-          prServiceFor(ctx).addTouch(touchArgs);
-          return ok(JSON.stringify({ ok: true, ...touchArgs }));
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (/not found/i.test(msg)) return empty(`add_pr_touch(#${args.pr_number})`);
-          return errorResponse("internal_error", msg);
-        }
-      },
+      async (ctx, args) => addPRTouchAction(ctx, args, bus, indexerProject),
       { resolver },
     ),
   );
@@ -146,16 +195,7 @@ export function registerPRTools(
     registerTool(
       "merge_pr",
       mergePRSchema,
-      async (ctx, args) => {
-        try {
-          const result = prServiceFor(ctx).merge(args.pr_number);
-          return ok(JSON.stringify(result, null, 2));
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (/not found/i.test(msg)) return empty(`merge_pr(#${args.pr_number})`);
-          return errorResponse("internal_error", msg);
-        }
-      },
+      async (ctx, args) => mergePRAction(ctx, args, bus, indexerProject),
       { resolver },
     ),
   );
@@ -167,11 +207,7 @@ export function registerPRTools(
     registerTool(
       "get_pr",
       getPRSchema,
-      async (ctx, args) => {
-        const pr = prServiceFor(ctx).getWithRefs(args.pr_number);
-        if (!pr) return empty(`get_pr(#${args.pr_number})`);
-        return ok(JSON.stringify(pr, null, 2));
-      },
+      async (ctx, args) => getPRAction(ctx, args, bus, indexerProject),
       { resolver },
     ),
   );
