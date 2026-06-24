@@ -15,6 +15,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { hasVenv } from "./venv.js";
 import { collectCoChange, writeCoChangeJsonl } from "./co-change.js";
+import { collectHierarchyPairs, writeHierarchyJsonl } from "./hierarchy-affinity.js";
 import { runTfIdfHdbscan } from "./cluster-tfidf-hdbscan.js";
 import { injectFrames } from "./inject-frames.js";
 import { reclaimNoise } from "./frame-reclamation.js";
@@ -69,6 +70,27 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
       // No git / git failure — proceed cold (pure topical clustering).
     }
 
+    // 1b. hierarchy affinity (best-effort; inert when the repo has no class
+    //     hierarchy — e.g. functional codebases). Gated; default on at γ=0.3.
+    let hierPath: string | null = null;
+    let hierGamma = 0;
+    if (process.env.CORTEX_FRAME_HIERARCHY !== "0") {
+      try {
+        const hdb = new Database(opts.dbPath, { readonly: true });
+        let pairs;
+        try { pairs = collectHierarchyPairs(hdb, opts.project); } finally { hdb.close(); }
+        if (pairs.length > 0) {
+          hierPath = join(work, "hierarchy.jsonl");
+          writeHierarchyJsonl(pairs, hierPath);
+          const g = Number(process.env.CORTEX_FRAME_HIERARCHY_GAMMA);
+          hierGamma = Number.isFinite(g) && g >= 0 && g <= 1 ? g : 0.3;
+        }
+      } catch {
+        // Best-effort: a read failure just skips the hierarchy term.
+        hierPath = null;
+      }
+    }
+
     // 2. cluster (spawns the venv python; reads the exact DB the index wrote).
     const { result } = runTfIdfHdbscan({
       repo_path: opts.repoPath,
@@ -76,6 +98,8 @@ export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameRe
       db_path: opts.dbPath,
       out_path: join(work, "cluster.json"),
       co_change_path: existsSync(ccPath) ? ccPath : null,
+      hierarchy_path: hierPath,
+      hier_gamma: hierGamma,
     });
 
     // 2b. Graph reclamation — pull HDBSCAN noise files into the cluster they

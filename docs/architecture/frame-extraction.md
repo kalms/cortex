@@ -160,6 +160,18 @@ combined_distance = (1 − γ) · topical_distance + γ · co_change_distance
 
 The combined matrix is fed to HDBSCAN with `metric='precomputed'`.
 
+### Class-hierarchy affinity (OO repos)
+
+Files whose classes share an **in-repo (domain) base class** are pulled together
+during clustering, via a distance term blended at γ=0.3 (parallel to co-change).
+The base list comes from `base_classes` already stored on class nodes;
+`hierarchy-affinity.ts` resolves domain vs external bases (external — `nn.Module`,
+`TestCase` — are dropped as cross-topic hubs; measured to add no value) and caps
+each base's clique at 60 files. Deterministic. Inert on functional codebases
+(no class hierarchy). A modest frame-quality lift on OO repos (label-F1 ↑,
+clusters-below-floor ↓); not a `cluster:N` fix in itself. Gates:
+`CORTEX_FRAME_HIERARCHY=0` disables; `CORTEX_FRAME_HIERARCHY_GAMMA` overrides γ.
+
 ## Multi-project workflow
 
 The C indexer has two open issues (full-table replace on every index

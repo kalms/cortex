@@ -17,6 +17,22 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.0.1] — 2026-06-24
+
+### Added
+
+- **Class-hierarchy affinity clustering signal** — files whose classes share an
+  in-repo (domain) base class are pulled together during frame clustering
+  (deterministic, gated by `CORTEX_FRAME_HIERARCHY`, γ=0.3; a modest OO-only
+  frame-quality lift; inert on functional repos).
+
+### Removed
+
+- Embedding-signal spike code removed (negative result evaluated and discarded).
+  Code embeddings collapsed files into unnameable mega-blobs (96% of pairs within
+  0.05 cosine distance); no dense AND topical graph signal was found. See
+  `docs/research/2026-06-24-embedding-cluster-signal.md` for the full write-up.
+
 ## [1.0.0] — 2026-06-24
 
 > **Breaking release.** The MCP primitive tool surface is consolidated from 17
@@ -765,6 +781,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.0.1]: https://github.com/ruevu/cortex/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ruevu/cortex/releases/tag/v1.0.0
 [0.9.0]: https://github.com/ruevu/cortex/releases/tag/v0.9.0
 [0.8.24]: https://github.com/ruevu/cortex/releases/tag/v0.8.24
