@@ -1,33 +1,43 @@
 # Cortex v0.3 — Progress Assessment
 
-_Assessment date: 2026-06-16 — refreshed after the **frame-layers taxonomy arc
-completed both enable slices (3a + 3b) and the full layout slice (parts 1 + 2)**: 0.8.4
-classify+observe · 0.8.5 deterministic dots · 0.8.6 docs · **0.8.7** observe-phase
-polish · **0.8.8** earnable domain · **0.8.9/0.8.10** kind-weight ranking
-(default-on) · **0.8.19/0.8.20** layer-diversity (default-on) · **0.8.21/0.8.22**
-layer-adjacency layout force (default-on) · **0.8.23** floating-entity placement
-— all on top of the 0.8.0 cut
-(native-indexer split, frame ranking Path 1, frame-coverage retune,
-reconciliation engine). Derived from the live Cortex graph, the v0.3 design
-corpus in [`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
+_Assessment date: 2026-06-24 — refreshed after the **first major release, `1.0.0`**:
+the MCP primitive tool surface consolidated from 17 granular tools into 3
+action-dispatched tools (`decision` / `pr` / `todo`, a clean break) and the
+**TODO entity foundation** landed (storage + tools + full HTTP-contract parity).
+This sits on top of `0.9.0` (the **versioned, Zod-enforced HTTP contract +
+hardening**, field-report P6) and the completed **frame-layers taxonomy arc**:
+0.8.4 classify+observe · 0.8.5 deterministic dots · 0.8.6 docs · **0.8.7**
+observe-phase polish · **0.8.8** earnable domain · **0.8.9/0.8.10** kind-weight
+ranking (default-on) · **0.8.19/0.8.20** layer-diversity (default-on) ·
+**0.8.21/0.8.22** layer-adjacency layout force (default-on) · **0.8.23**
+floating-entity placement — all on top of the 0.8.0 cut (native-indexer split,
+frame ranking Path 1, frame-coverage retune, reconciliation engine). Derived
+from the live Cortex graph, the v0.3 design corpus in
+[`docs/specs/cortex-v0.3/`](cortex-v0.3/), and the source tree._
 
 Version metadata is consistent: `package.json`, `plugin.json`, and
-`.claude-plugin/marketplace.json` are all `0.8.9`. **Numbering note:** the feature
-line this document once labelled "0.8.5" (TODO entity, floating-entity placement,
-record drawer for TODOs) was renumbered **0.8.6+**; the 0.8.6–0.8.9 releases went
-to the taxonomy follow-up (docs, then the observe→enable slices) instead, so the
-TODO line is now best read as **post-taxonomy** (see Future).
+`.claude-plugin/marketplace.json` are all `1.0.0` (PR [#27](https://github.com/ruevu/cortex/pull/27),
+merge `1b9b378`, 2026-06-24). **1.0.0 is a breaking release** — the 17 old MCP
+tool names are removed (clean break); external consumers (e.g. mesh) migrate per
+the Migration table in [`CHANGELOG.md`](../../CHANGELOG.md). **Numbering note:**
+the feature line this document once labelled "0.8.5" (TODO entity, floating-entity
+placement, record drawer for TODOs) was renumbered out; floating-entity placement
+shipped 0.8.23, and the **TODO entity foundation now ships in 1.0.0** (only its
+viewer rendering + the record-drawer adoption remain deferred — see below).
 
-The shorthand: **0.8.x ships the structural / data / provenance half of v0.3 —
-the decision-provenance system (storage, multi-project routing, cold-start
+The shorthand: **0.8.x → 1.0.0 ships the structural / data / provenance half of
+v0.3 — the decision-provenance system (storage, multi-project routing, cold-start
 seeding, flag-gated reconciliation), the frame pipeline (ranker + gravity layout
 + coverage reclamation + the layer classifier, now **earnable-domain** + a
-flag-gated **kind-weight** ranking effect), the 2D frames viewer (layers lens,
-fully deterministic rendering), and the native-indexer split. The "multiplayer
-canvas" half is descoped: the scenario DSL and the multiplayer canvas chrome
-(merge animation, agent cursors) are NOT pursued; the remaining single-player
-items (the TODO entity, floating-entity placement, and adopting the existing
-record drawer for TODOs) are deferred to post-taxonomy.**
+default-on **kind-weight** + **layer-diversity** ranking and **layer-adjacency +
+floating-entity** layout), the 2D frames viewer (layers lens, fully deterministic
+rendering), the native-indexer split, the **versioned HTTP contract** (0.9.0), and
+the **consolidated tool surface + TODO entity foundation** (1.0.0). The
+"multiplayer canvas" half is descoped: the scenario DSL and the multiplayer canvas
+chrome (merge animation, agent cursors) are NOT pursued. Of the single-player
+line, the TODO entity (storage + tools + HTTP contract) and floating-entity
+placement have now shipped; only the TODO **viewer rendering** and the
+record-drawer adoption for TODOs remain deferred.**
 
 ---
 
@@ -37,10 +47,10 @@ record drawer for TODOs) are deferred to post-taxonomy.**
 |---|---|---|
 | **Frame extraction pipeline** | ✅ Shipped | [`src/frame-extraction/`](../../src/frame-extraction/) — `cluster-tfidf-hdbscan.ts` + `python/tfidf_hdbscan.py`, `co-change.ts`, `auxiliary-detection.ts`, `path-tokenize.ts` + `structural-tokens.ts` (framework-aware tokenisation), `text-blob.ts` (two content streams), `inject-frames.ts` + `run-frames.ts` (graph integration), `eval-gate.ts`. Surfaced via `code-tools.ts::withFrames` and the CLI. |
 | **Pipeline empirical comparison** | ✅ Done — 1 of 3 survived | Eval harness ([`scripts/frame-extraction/`](../../scripts/frame-extraction/): `eval-all.ts`, `corpus.json`, `baselines/`) and `types.ts` (`ClusterResult.algorithm`) anticipate `tfidf+hdbscan \| embedding+hdbscan \| leiden`. Only **tfidf+hdbscan** was built; Leiden and pinned-embedding clusterers were never implemented. The comparison resolved to one winner. |
-| **PR data model + tools** | ✅ Shipped (data only) | [`src/prs/service.ts`](../../src/prs/service.ts), [`src/prs/types.ts`](../../src/prs/types.ts) (`OpenPRInput` with `introduces_frame`, `additions`, `external_ref`). MCP tools `open_pr` / `add_pr_touch` / `merge_pr` / `get_pr`. Matches spec §4 schema. **Not rendered on canvas** (spec said so explicitly). |
-| **Decision proposal / supersession tools** | ✅ Shipped | `propose_decision`, `supersede_decision`, `promote_decision`, `link_decision`; [`src/decisions/promotion.ts`](../../src/decisions/promotion.ts), `cli/commands/decision.ts::cmdPropose`. |
+| **PR data model + tools** | ✅ Shipped (data only) | [`src/prs/service.ts`](../../src/prs/service.ts), [`src/prs/types.ts`](../../src/prs/types.ts) (`OpenPRInput` with `introduces_frame`, `additions`, `external_ref`). Exposed via the consolidated `pr` tool — `pr({action:"open"\|"touch"\|"merge"\|"get"})` (was `open_pr`/`add_pr_touch`/`merge_pr`/`get_pr`; `touch`'s inner `action` field renamed `change`). Matches spec §4 schema. **Not rendered on canvas** (spec said so explicitly). |
+| **Decision proposal / supersession tools** | ✅ Shipped | `decision({action:"propose"\|"supersede"\|"promote"\|"link"})` (was the `*_decision` tools); [`src/decisions/promotion.ts`](../../src/decisions/promotion.ts), `cli/commands/decision.ts::cmdPropose`. |
 | **2D frames viewer** | ✅ Shipped | [`src/viewer/`](../../src/viewer/) — `adapters.js` (`groupNodesIntoFrames`, `frameCoverage`), `data-fetch.js`, `viewer.js`, wired to `/api/graph` / `/api/projects` / `/api/decisions` / `/api/frames`. The temporary client-side `layout.js` grid was retired in favour of the server-computed force layout (see below). |
-| **Reconciliation engine** (derived decision state) | ✅ Shipped (flag-gated) | Agent-delegated reconciliation behind `CORTEX_RECONCILE` (default off in v1). Working-tree (not HEAD) source hash in [`src/decisions/reconciliation.ts`](../../src/decisions/reconciliation.ts); `record_reconciliation` / `pending_reconciliations` tools ([`src/mcp-server/tools/reconciliation-tools.ts`](../../src/mcp-server/tools/reconciliation-tools.ts)); on-read drift block + derived `display_state` in `get_decision` / `why_was_this_built` ([`src/mcp-server/reconciliation-attach.ts`](../../src/mcp-server/reconciliation-attach.ts)); `cortex reconcile status` CLI and SessionStart banner. Design: [`docs/superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md`](../superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md); plan: [`docs/superpowers/plans/2026-06-08-decision-reconciliation-engine.md`](../superpowers/plans/2026-06-08-decision-reconciliation-engine.md). |
+| **Reconciliation engine** (derived decision state) | ✅ Shipped (flag-gated) | Agent-delegated reconciliation behind `CORTEX_RECONCILE` (default off in v1). Working-tree (not HEAD) source hash in [`src/decisions/reconciliation.ts`](../../src/decisions/reconciliation.ts); `decision({action:"reconcile"\|"pending"})` (was `record_reconciliation` / `pending_reconciliations`; logic in [`src/mcp-server/tools/reconciliation-tools.ts`](../../src/mcp-server/tools/reconciliation-tools.ts)); on-read drift block + derived `display_state` in `decision({action:"get"\|"why"})` ([`src/mcp-server/reconciliation-attach.ts`](../../src/mcp-server/reconciliation-attach.ts)); `cortex reconcile status` CLI and SessionStart banner. Design: [`docs/superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md`](../superpowers/specs/2026-06-08-decision-reconciliation-engine-design.md); plan: [`docs/superpowers/plans/2026-06-08-decision-reconciliation-engine.md`](../superpowers/plans/2026-06-08-decision-reconciliation-engine.md). |
 | **Frame ranking — Path 1** (taxonomy-free ranker + gravity layout) | ✅ Shipped | Deterministic budget-cut ranker (`score = nameability × structural_weight`, ambient budget `max(4,min(10,⌈n·0.7⌉))`) in [`src/frame-extraction/frame-ranker.ts`](../../src/frame-extraction/frame-ranker.ts); symbol→file→frame edge rollup [`src/mcp-server/frame-pair-rollup.ts`](../../src/mcp-server/frame-pair-rollup.ts); deterministic d3-force layout (mulberry32+SHA-256 seed, 300 iters, integer quantize, AABB collision-relaxation tail) [`src/mcp-server/frame-layout.ts`](../../src/mcp-server/frame-layout.ts); orchestrated by [`src/mcp-server/frame-map.ts`](../../src/mcp-server/frame-map.ts) behind `/api/frames`; viewer consumes it (grid retired). Decision `D-pzc8`. Design: [`docs/superpowers/specs/2026-06-08-frame-ranking-path1-design.md`](../superpowers/specs/2026-06-08-frame-ranking-path1-design.md); plan: [`docs/superpowers/plans/2026-06-09-frame-ranking-path1.md`](../superpowers/plans/2026-06-09-frame-ranking-path1.md). |
 | **Frame coverage** (min_samples retune + graph reclamation) | ✅ Shipped | HDBSCAN `min_samples` exposed + defaulted to 1 (was implicitly `min_cluster_size`=5 → ~70% noise), gated by the label-quality F1 harness; pure `reclaimNoise` assigns residual noise files to their most-connected cluster via CALLS/USAGE/IMPORTS rollup, marked `reclaimed` so the ranker scores nameability on the topical core. [`src/frame-extraction/frame-reclamation.ts`](../../src/frame-extraction/frame-reclamation.ts), `cluster-tfidf-hdbscan.ts` + `python/tfidf_hdbscan.py`, `run-frames.ts`. **Measured on the Cortex graph: semantic-file coverage 29% → 88%** (noise 282 → 49). Decision `D-b0rq`. Design: [`docs/superpowers/specs/2026-06-09-frame-coverage-design.md`](../superpowers/specs/2026-06-09-frame-coverage-design.md); plan: [`docs/superpowers/plans/2026-06-09-frame-coverage.md`](../superpowers/plans/2026-06-09-frame-coverage.md). |
 | **Native indexer split** (own repo + prebuilt binary) | ✅ Shipped | The C indexer was extracted to **`ruevu/cortex-indexer`** (own CI build/test/release matrix); cortex now consumes a **prebuilt binary** fetched at `postinstall` ([`scripts/fetch-indexer.mjs`](../../scripts/fetch-indexer.mjs)) from a GitHub release pinned by `CORTEX_INDEXER_VERSION` ([`src/indexer/version.ts`](../../src/indexer/version.ts)), checksum-verified + cached, with a lazy runtime version guard `ensureIndexer()` ([`src/indexer/binary.ts`](../../src/indexer/binary.ts)). `internal/indexer/` + `build-indexer.sh` removed; cortex history rewritten to sever the `codebase-memory-mcp`/CBM fork lineage. cortex is now pure TypeScript/MCP. Decision `D-chfd`. Released `cortex-indexer` **v0.3.0** (darwin-arm64, linux-x64, linux-arm64). |
@@ -53,20 +63,21 @@ record drawer for TODOs) are deferred to post-taxonomy.**
 | **Shared code_search engine — `cortex code search`/`find`** | ✅ Shipped (0.8.12–0.8.13) | `cortex code find` brought to parity with `search_graph` (ranked, section-excluded, `--kind`/`--limit`/`--offset`). `cortex code search` re-pointed off the indexer binary's capped/doc-biased `search_code` onto a shared ripgrep engine [`src/graph/code-search.ts`](../../src/graph/code-search.ts) (`runCodeSearch` + `rankSearchHits`) that the MCP `search_code` tool also wraps (**output byte-identical**); CLI ranks **code-first** so markdown hits no longer dominate (the "only .md" report). `clampLimit`/`clampOffset` moved to [`search-params.ts`](../../src/graph/search-params.ts) to keep the CLI off the mcp-server layer. Decision `D-qfz9`; [design](../superpowers/specs/2026-06-14-shared-code-search-engine-design.md). |
 | **`prefer-cortex` hook over-match fix** | ✅ Shipped (0.8.14) | The Bash branch strips quoted string literals before probing for a command-position search tool, so `git commit -m "…grep…"` / `echo "rg …"` are no longer denied as code searches; real code searches keep the tool word unquoted and still redirect, and scope detection still runs against the original command. +4 tests. (Distinct from field-report **P3**, the cross-repo target-aware hook, which remains open.) |
 | **Frame layers — kind-weight ranking (enable slice 3a)** | ✅ Shipped (0.8.9) | `score ×= kind_weight` (earned domain 1.00 / interface 0.90 / orchestration 0.85 / data 0.75 / infra 0.55 / **fallback-domain 0.50** / ceremony 0.20), behind `CORTEX_KIND_WEIGHT` **default off (inert — ranking byte-identical when off, enforced by test)**. The ranker stays pure: `kind_weight` is a plain number on `FrameRecord` (omitted ≡ 1); the table (`KIND_WEIGHT`/`kindWeight` in [`frame-kind.ts`](../../src/frame-extraction/frame-kind.ts)) + flag live at the call site, where [`frame-map.ts`](../../src/mcp-server/frame-map.ts) now classifies before ranking and reads `fallback` only to pick the weight (never serialized). Corpus observe: evicts ceremony/config noise, tilts ambient to narrative layers, fallback-domain demotion works, no junk leapfrogging. Decision `D-g4qb`; [design](../superpowers/specs/2026-06-13-kind-weight-enable-slice-design.md). |
+| **Versioned HTTP contract + hardening** (field-report P6) | ✅ Shipped (0.9.0) | Zod single-source-of-truth schemas ([`api-schemas.ts`](../../src/mcp-server/api-schemas.ts)) → runtime validation + `z.infer` types + drift-guarded generated `docs/api/*.schema.json`; `version` on every response; freshness via `X-Cortex-Freshness` header + `/api/freshness` + ETag/304; `/api/health`; env-gated hardening (loopback bind, CORS allowlist, opt-in bearer auth, traversal guard, security headers). Decision `D-tszm`; [onboarding](../architecture/http-api-contract.md). |
+| **Consolidated MCP tool surface + TODO entity foundation** | ✅ Shipped (**1.0.0**) | 17 granular decision/PR tools → **3 action-dispatched tools** `decision`/`pr`/`todo` (clean break, old names removed; byte-parity contract tests are the guard). **TODO entity** as the third user-authored primitive: durable storage in the primitives DB (`todos`/`todo_links`/`todos_fts`, `T-` ids), `TodoService` + state machine, `todo` MCP tool, and full HTTP-contract parity (`AdaptedTodo` + `/api/todos`). Shared `validatePrimitiveFields`. Decisions `D-v2tc`/`D-r6xg`/`D-s72s`/`D-yb1b`/`D-87zb`; spec [2026-06-23-todo-entity-consolidated-tools-design.md](../superpowers/specs/2026-06-23-todo-entity-consolidated-tools-design.md). Deferred to later slices: TODO **viewer rendering**, `EventBus` emission, hooks, external bridge, `AgentRef`. |
 
 ---
 
-## Deferred to post-taxonomy (the single-player line — renumbered out of 0.8.5)
+## Deferred (the remaining single-player items)
 
-The remaining single-player items, sequenced **after the taxonomy arc**
-(enable-3b → layout → frame-quality; see Future below), which build directly
-on the shipped layer foundation:
+The TODO entity **foundation** (storage + tools + HTTP contract) and
+floating-entity placement have shipped (see Shipped); what remains builds on
+them:
 
 | Spec area | Status | Notes |
 |---|---|---|
-| **TODO entity** | ⏭ post-taxonomy | [`todo-entity.md`](cortex-v0.3/todo-entity.md): schema, state machine, tools, and external bridge. No code yet. The headline feature of this line. |
-| **Floating-entity placement** (non-ambient frames + aggregates) | ✅ Shipped (0.8.23) — layout slice part 2 | A pure server-side **gravity-centroid** pass ([`floating-placement.ts`](../../src/mcp-server/floating-placement.ts)) runs after the (byte-identical) ambient force-sim: non-ambient frames settle at the pair-weighted centroid of the ambient frames they connect to; auxiliary aggregates via an **edge→path→margin** tie cascade ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts)); one-directional frame-repulsion keeps satellites out of unrelated frames. Positions ship via `/api/frames` + `/api/aggregates`; the viewer renders satellites de-emphasized and **both fixed strips are removed**. Governance selection stays client-side, position comes from the server — **supersedes the `D-xwxj` stopgap**. Pass depends only on (ambient positions + ties) → future network layout mode composes on top (seam documented). Gate 0: satellites + aggregates placed near related frames, 0 console errors. [Design](../superpowers/specs/2026-06-16-floating-entity-placement-design.md). |
-| **Record drawer — adopt for TODO** | ⏭ post-taxonomy | The record drawer already ships for decisions (see Shipped). Reuses the same drawer for the TODO entity once TODOs exist. |
+| **TODO viewer rendering + record-drawer adoption** | ⏭ deferred slice | Yellow TODO dots, the drawer surface, marginalia pills, decision→TODO leader lines, and the decision-drawer "Tasks" section. The record drawer already ships for decisions; the `/api/todos` contract that feeds it shipped in 1.0.0 — only the pixels remain. [`todo-entity.md`](cortex-v0.3/todo-entity.md). |
+| **TODO hooks + external bridge** | ⏭ deferred slice | `PostMergeHook` auto-completing `resolvedBy` TODOs on PR merge; `PostDecisionHook` linking `spawnsFrom`; Linear/JIRA/GitHub mirroring (bidirectional sync is v1.5). |
 
 ## Removed from scope
 
@@ -77,16 +88,19 @@ The "multiplayer canvas" half of the v0.3 design corpus is **not being pursued**
 | **Multiplayer-test mode / scenario DSL** | ✖ Removed | Spec §9.3 TS scenario runner. Dropped — not pursuing a multiplayer test harness. |
 | **Multiplayer canvas chrome** (merge animation, agent cursors) | ✖ Removed | Live in `cortex-frames-prototype-v5.html` only. The shipped viewer is the single-player frames/decisions canvas; the realtime multi-agent surface is not pursued. |
 
-## Taxonomy follow-up — classify → observe → enable (arc nearly complete)
+## Taxonomy follow-up — classify → observe → enable (arc complete)
+
+The full arc shipped and is default-on (per-release detail in
+[`CHANGELOG.md`](../../CHANGELOG.md)): the layer classifier + lens (0.8.4), the
+observe phase (0.8.7–0.8.8, → earnable-domain `D-8vbv`), enable-3a kind-weight
+(0.8.9, default-on 0.8.10, `D-g4qb`), enable-3b layer-diversity (0.8.19,
+default-on 0.8.20, `D-wvsz`), and the layout slice — layer-adjacency force
+(0.8.21, default-on 0.8.22, `D-marq`) + floating-entity placement (0.8.23,
+supersedes the `D-xwxj` stopgap). One axis remains open:
 
 | Spec area | Status | Notes |
 |---|---|---|
-| **Layer classifier + lens (milestone 1)** | ✅ Shipped (0.8.4) | The `FrameKind` classifier + viewer lens, zero ranking/layout effect. |
-| **Observe phase** | ✅ Done (0.8.7–0.8.8) | Validated on cortex + anthill, then corpus-wide (11 repos via `eval-layers.ts`). Findings drove three fixes that shipped: handler-orchestration signal, ceremony/infra palette separation, and the **earnable-domain** resolution to the contested `domain` fallback (`D-8vbv`). The watch-list frames are settled; `frame-extraction` fragmentation + `contracts`-via-fallback are recorded as the upstream **frame-quality** ceiling. |
-| **Enable slice 3a — kind-weight** | ✅ Shipped (0.8.9) + **default-on (0.8.10)** | `score ×= kind_weight` (default off in 0.8.9, **flipped ON in 0.8.10** after the positive observe verdict — `CORTEX_KIND_WEIGHT` is now an opt-out, `"0"` restores pre-slice ranking). The `domain`-is-both-fallback-and-top-weight trap (`D-qn7z`) is resolved by the earned/fallback split (1.00 / **0.50**). Corpus-validated; Gate 0 confirmed clean render on default-on. Decision `D-g4qb`. |
-| **Enable slice 3b — layer-diversity** | ✅ Shipped (0.8.19) + **default-on (0.8.20)** | The `× diversity` term as a new pure module [`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts) (`selectAmbientByDiversity`) consumed in `buildFrameMap` — the ranker stays layer-free. Two-phase greedy: Phase 1 fills the budget by effective score `score × 0.6^k` (geometric repeat-decay) with a ceremony cap (≤1, relaxed only to avoid an empty canvas); Phase 2 **bounded coverage repair** guarantees ≥1 of domain/interface/data when present by promoting the missing layer's best frame over the weakest safely-displaceable one, but only above a `0.5 ×` floor (the `D-qn7z` junk-leapfrogging guard). Stateful (depends on what's already selected), so it's a selection step, not a static factor. **Observe verdict POSITIVE** (corpus `eval-layers` diversity off-vs-on): collapses redundant interface and surfaces domain/data on interface-heavy repos (vueuse interface 7→4 / data 1→3, nuxt/ui 2 layers → 5, saleor interface 7→3 +data, rubygems re-surfaces a domain frame), ceremony cap held everywhere, no junk promoted on coverage alone, neutral on already-diverse/tiny repos. **Flipped ON in 0.8.20** — `CORTEX_LAYER_DIVERSITY` is now an opt-out (`"0"` restores the kind-weighted-only ambient set); Gate 0 confirmed a clean default-on render. Decision `D-wvsz`; [design](../superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md). |
-| **Layout slice — layer-adjacency force** (part 1) | ✅ Shipped (0.8.21) + **default-on (0.8.22)** | A vertical `forceY(yTarget(sink))` in [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient frames surface→substrate on the proven d3-force base (pair-link clustering / charge / collide-AABB tail unchanged). Position is **measured** — `yTarget = lerp(top, bottom, sink)` from each frame's `fanIn/(fanIn+fanOut)` (per-layer `NOMINAL_SINK` fallback for flowless frames) — not categorical bands. Layout stays layer-agnostic (sink is a plain number); `frame-map.ts` reads `CORTEX_LAYER_LAYOUT` (**now an opt-out, default on**; `"0"` restores pre-slice layout) + computes effective sink; `forceCenter`→horizontal-only `forceX` only when stratifying. Byte-identical when off (golden-tested); deterministic. **Observe (0.8.22): positive corpus-wide** — Spearman(y, sink) mean ≈ 0.77, median ≈ 0.74, range 0.51–0.95, no negative/near-zero on any archetype (metric under-states the true effect via flowless-frame dilution). Gate 0 re-confirmed default-on: spread y 118→593 over an 800-tall stage, ceremony at substrate, 0 console errors. Decision `D-marq`; [design](../superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md). **Part 2 (floating-entity placement) shipped 0.8.23.** |
-| **Cross-cutting concern axis** (graph communities) | ◑ Candidate / deferred | The reserved `FrameKind.concern` axis. Also the only signal that would rescue **substrate-band core domain** (heavily-imported product cores that read topologically as substrate — anthill's `dsl/compiler` at sink 0.83, cortex's 23-member `frame-extraction`), which the earnable-domain middle-band signal deliberately can't reach. Measured 2026-06-12: import-graph communities confirm the shipped clustering's cores and surface cross-cutting subsystems (e.g. a 13-file freshness community across 5 frames). `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it would need a Leiden-grade upgrade. Explicitly deferred in `D-8vbv` ("walk before run"). |
+| **Cross-cutting concern axis** (graph communities) | ◑ Candidate / deferred | The reserved `FrameKind.concern` axis. The only signal that would rescue **substrate-band core domain** (heavily-imported product cores that read topologically as substrate — anthill's `dsl/compiler`, cortex's 23-member `frame-extraction`), which the earnable-domain middle-band signal deliberately can't reach. `ctx_louvain` exists in cortex-indexer but is dead code (test-only, single-level); wiring it would need a Leiden-grade upgrade. Explicitly deferred in `D-8vbv` ("walk before run"). |
 
 ---
 
@@ -118,48 +132,45 @@ plus a generic `decision_links` table (handles `governs` / `supersedes` /
   truncate-rewrite under the server's open WAL handle; fixed by the
   staging-build + transactional-publish write path (`publishStagedDb`,
   decision `D-47xb`).
+- **GOVERNS qualified-name classification (pre-existing, low-severity).**
+  `classifyTarget` in **both** [`src/decisions/service.ts`](../../src/decisions/service.ts)
+  and [`src/todos/service.ts`](../../src/todos/service.ts) uses
+  `includes("/") ? "path" : "qn"`, so a real qualified name (`dir/file.ts::sym`,
+  always contains `/`) is classified `"path"` and then fails `resolveGovernsRef`
+  (it looks the whole string up in `nodesByPath`), silently dropping the governs
+  ref from the HTTP API. The TODO code mirrors decisions exactly, so it is **not
+  a 1.0.0 regression** — a cross-primitive fix (check `::` first) is worth doing
+  before the TODO viewer-rendering slice relies on it.
 - **Dev reload (still live):** the MCP server (`cortex-local`, `directory`
   source → the repo, so it runs **live `src/`**) loads modules once at startup —
   it does **not** hot-reload. After merging changes, restart the MCP server /
-  Claude Code before reindexing or before expecting new read-time behavior
-  (e.g. the `layer` field on `/api/frames` only appears after a restart).
-  Bit again 2026-06-12: the plugin server on :3333 served pre-layers code all
-  day; `npm run dev` (:3334) was used for Gate-0 QA instead.
+  Claude Code before expecting new read-time behavior (e.g. the consolidated
+  `decision`/`pr`/`todo` tools only replaced the 17 old names after a restart;
+  the `layer` field on `/api/frames` likewise needs one). Use `npm run dev`
+  (:3334) for Gate-0 QA when the plugin server on :3333 is serving stale code.
 
 ## Recommended next step
 
-The taxonomy follow-up is essentially complete — classify + observe + enable-3a
-(incl. **default-on**, 0.8.10) + **enable-3b** (layer-diversity, 0.8.19, **flipped
-default-on in 0.8.20**) + the **full layout slice**: part 1 (layer-adjacency force,
-0.8.21, **default-on in 0.8.22**, Spearman(y, sink) mean ≈ 0.77) and part 2
-(**floating-entity placement, 0.8.23** — gravity-centroid for non-ambient frames +
-aggregates, both fixed strips removed, `D-xwxj` superseded) are all shipped:
+With 1.0.0 out (consolidated tools + TODO foundation) and the taxonomy arc
+complete, the open work, roughly in order:
 
-1. **Frame-quality + Louvain `concern` axis** (now the headline build item, larger):
-   the upstream fix for fragmented/test-mixed clusters and substrate-band core
-   domain — the ceiling the observe phase repeatedly hit (`SRC·863` mega-frame).
-2. Optional **layout observe pass** for centroid quality + a future **network /
-   layered layout mode** (the placement seam is ready: a base layout strategy
-   behind the position contract, with floating placement composing on top).
-3. Then the **post-taxonomy line**: TODO entity (schema → tools → drawer
-   adoption) as the headline, record-drawer adoption for TODOs.
+1. **TODO viewer slice** — render the now-durable TODO data: dots, drawer,
+   marginalia, decision→TODO leader lines, the decision-drawer "Tasks" section.
+   The `/api/todos` contract already feeds it; only the pixels remain. (Fold in
+   the GOVERNS qn-classification fix from Known issues while in `src/todos/`.)
+2. **Frame-quality + Louvain `concern` axis** (larger): the upstream fix for
+   fragmented/test-mixed clusters and substrate-band core domain — the ceiling
+   the observe phase repeatedly hit (`SRC·863` mega-frame).
+3. **Remaining agentic-experience items** from the
+   [2026-06-12 field report](../field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md):
+   P4 (warm-path decision drafting), P5 (cross-repo decision search), P7(b/c)
+   (tighten tool descriptions / lazy schema), P8 (temporal `changes_since`).
+   P1/P2/P3/P6 and P7(a) (tool consolidation, in 1.0.0) have shipped.
 
-Smaller deferred 3b test follow-ups still stand (non-blocking, measure-zero under
-geometric decay): a multi-layer simultaneous-promotion test and a zero-score
-floor edge case.
-
-Parallel candidates that don't block the arc: the **co-change lens**
-(`FILE_CHANGES_WITH` minus structural edges = hidden coupling, rendered as a
-sibling row in the layers menu — measured 2026-06-12), and the remaining
-**agentic-experience P1–P8 plan** from the
-[2026-06-12 field report](../field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md).
-**P2 (search ranking) shipped** (0.8.11–0.8.13, decisions `D-fq9g`/`D-qfz9`);
-still open: **P3 target-repo-aware grep hook** (the cross-repo blind spot —
-distinct from the 0.8.14 quoted-word over-match fix), `context_pack` (P1), and
-the versioned HTTP contract + freshness header (P6 — gates Mesh's
-viewer-adaptation milestone).
-
-**Housekeeping:** `vercel/commerce` silently fails the Python clustering step
-(exit 1) and drops out of every corpus eval — worth a standalone look.
+Parallel, non-blocking: the **co-change lens** (`FILE_CHANGES_WITH` minus
+structural edges = hidden coupling), the deferred 3b test follow-ups (multi-layer
+simultaneous-promotion test, zero-score floor edge case), and **housekeeping** —
+`vercel/commerce` silently fails the Python clustering step (exit 1) and drops out
+of every corpus eval.
 
 _See [HANDOFF.md](../../HANDOFF.md) for the session-level handoff._
