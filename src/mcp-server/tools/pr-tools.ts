@@ -150,10 +150,10 @@ export async function mergePRAction(
 export async function getPRAction(
   ctx: RepoContext,
   args: z.infer<typeof getPRSchema>,
-  _bus?: EventBus,
-  _indexerProject?: string | null,
+  bus?: EventBus,
+  indexerProject?: string | null,
 ) {
-  const pr = makePrService(ctx, _bus, _indexerProject).getWithRefs(args.pr_number);
+  const pr = makePrService(ctx, bus, indexerProject).getWithRefs(args.pr_number);
   if (!pr) return empty(`get_pr(#${args.pr_number})`);
   return ok(JSON.stringify(pr, null, 2));
 }

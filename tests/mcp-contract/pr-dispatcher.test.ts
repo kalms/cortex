@@ -77,7 +77,8 @@ describe.skipIf(BINARY_MISSING)("pr dispatcher contract", () => {
     });
     const pr = JSON.parse(openRes.content[0].text);
 
-    const touchRes = await dispatch({
+    // Test variant 1: change:"added"
+    const touchRes1 = await dispatch({
       repo_path: repo,
       action: "touch",
       pr_number: pr.number,
@@ -85,24 +86,58 @@ describe.skipIf(BINARY_MISSING)("pr dispatcher contract", () => {
       node_name: "timeline.ts",
       change: "added",
     });
-    expect(ResponseSchema.safeParse(touchRes).success).toBe(true);
-    expect(touchRes.isError).toBeFalsy();
+    expect(ResponseSchema.safeParse(touchRes1).success).toBe(true);
+    expect(touchRes1.isError).toBeFalsy();
 
-    const text = touchRes.content[0].text;
+    const text1 = touchRes1.content[0].text;
     // Response must confirm ok:true
-    expect(text).toContain('"ok":true');
+    expect(text1).toContain('"ok":true');
 
     // Response must contain `action` with the translated value (not `change`)
-    expect(text).toContain('"action"');
-    expect(text).toContain('"added"');
+    expect(text1).toContain('"action"');
+    expect(text1).toContain('"added"');
+
+    // Raw-text substring guards: must not contain the keyword "change" or dispatch action "touch"
+    expect(text1).not.toContain('"change"');
+    expect(text1).not.toContain('"touch"');
 
     // The dispatch discriminator fields must NOT leak into the response echo.
     // The response object must not contain the key "change"
-    const parsed = JSON.parse(text);
-    expect(Object.keys(parsed)).not.toContain("change");
+    const parsed1 = JSON.parse(text1);
+    expect(Object.keys(parsed1)).not.toContain("change");
     // The dispatch `action` value ("touch") must not appear as a value
     // (the echoed `action` should be "added", not "touch").
-    expect(parsed.action).toBe("added");
+    expect(parsed1.action).toBe("added");
+
+    // Test variant 2: change:"modified"
+    const touchRes2 = await dispatch({
+      repo_path: repo,
+      action: "touch",
+      pr_number: pr.number,
+      frame_id: "src/concurrent",
+      node_name: "queue.ts",
+      change: "modified",
+    });
+    expect(ResponseSchema.safeParse(touchRes2).success).toBe(true);
+    expect(touchRes2.isError).toBeFalsy();
+
+    const text2 = touchRes2.content[0].text;
+    // Response must confirm ok:true
+    expect(text2).toContain('"ok":true');
+
+    // Response must contain `action` with the translated value (not `change`)
+    expect(text2).toContain('"action"');
+    expect(text2).toContain('"modified"');
+
+    // Raw-text substring guards: must not contain the keyword "change" or dispatch action "touch"
+    expect(text2).not.toContain('"change"');
+    expect(text2).not.toContain('"touch"');
+
+    // The dispatch discriminator fields must NOT leak into the response echo.
+    const parsed2 = JSON.parse(text2);
+    expect(Object.keys(parsed2)).not.toContain("change");
+    // The echoed `action` should be "modified", not "touch".
+    expect(parsed2.action).toBe("modified");
   });
 
   it("action:merge on unknown pr_number returns No results", async () => {
