@@ -84,52 +84,6 @@ def build_hierarchy_distance(
     return build_co_change_distance(paths, pairs)
 
 
-def build_embedding_distance(
-    paths: list[str], embeddings: dict[str, list[float]]
-) -> np.ndarray:
-    """Build an (n, n) symmetric cosine DISTANCE matrix from per-file embeddings.
-
-    Aligned with `paths` row order. For a pair where BOTH files have an
-    embedding: dist = 1 - cosine_similarity, clipped to [0, 2]. For a pair
-    where either file lacks an embedding: dist = 1.0 (max topical distance) —
-    same convention as the co-change unobserved-pair fallback, so files we
-    cannot embed (no functions/methods defined) drift to noise rather than
-    contaminating a real cluster. Diagonal: 0.0.
-
-    Spike-only (embedding-signal experiment). The embeddings are the indexer's
-    algorithmic per-function int8 vectors, mean-aggregated to file level by the
-    caller. Deterministic by construction.
-    """
-    n = len(paths)
-    dist = np.ones((n, n), dtype=np.float64)
-    np.fill_diagonal(dist, 0.0)
-    if not embeddings:
-        return dist
-
-    dim = len(next(iter(embeddings.values())))
-    mat = np.zeros((n, dim), dtype=np.float64)
-    has = np.zeros(n, dtype=bool)
-    for i, p in enumerate(paths):
-        v = embeddings.get(p)
-        if v is None or len(v) != dim:
-            continue
-        mat[i] = v
-        has[i] = True
-
-    norms = np.linalg.norm(mat, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    normed = mat / norms
-    sim = normed @ normed.T
-    emb_dist = 1.0 - sim
-    np.clip(emb_dist, 0.0, 2.0, out=emb_dist)
-
-    # Only overwrite the default 1.0 where BOTH endpoints have an embedding.
-    both = np.outer(has, has)
-    dist[both] = emb_dist[both]
-    np.fill_diagonal(dist, 0.0)
-    return dist
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--in", dest="inp", required=True, type=Path)
@@ -150,15 +104,6 @@ def main() -> int:
                         help="Weight on co-change distance in [0, 1]. "
                              "Combined distance = (1-γ)·topical + γ·co_change. "
                              "Ignored when --co-change is not provided.")
-    parser.add_argument("--embeddings", dest="embeddings", type=Path, default=None,
-                        help="Spike: per-file embedding JSONL "
-                             "({\"path\", \"embedding\":[floats]} per line). When "
-                             "provided, blend embedding cosine distance via "
-                             "--embed-gamma. Mutually exclusive with --co-change.")
-    parser.add_argument("--embed-gamma", dest="embed_gamma", type=float, default=1.0,
-                        help="Weight on embedding distance in [0, 1] (default 1.0 "
-                             "= pure embedding). Combined = (1-eg)·topical + eg·embed. "
-                             "Ignored when --embeddings is not provided.")
     parser.add_argument("--hierarchy", dest="hierarchy", type=Path, default=None,
                         help="Per-pair JSONL ({a,b,count}) of files sharing a "
                              "domain base class. Blended via --hier-gamma.")
@@ -170,16 +115,10 @@ def main() -> int:
 
     if not 0.0 <= args.gamma <= 1.0:
         parser.error(f"--gamma must be in [0, 1], got {args.gamma}")
-    if not 0.0 <= args.embed_gamma <= 1.0:
-        parser.error(f"--embed-gamma must be in [0, 1], got {args.embed_gamma}")
     if not 0.0 <= args.hier_gamma <= 1.0:
         parser.error(f"--hier-gamma must be in [0, 1], got {args.hier_gamma}")
     if args.hierarchy is not None and not args.hierarchy.exists():
         parser.error(f"--hierarchy path does not exist: {args.hierarchy}")
-    if args.embeddings is not None and args.co_change is not None:
-        parser.error("--embeddings and --co-change are mutually exclusive in the spike")
-    if args.embeddings is not None and not args.embeddings.exists():
-        parser.error(f"--embeddings path does not exist: {args.embeddings}")
     if args.co_change is not None and not args.co_change.exists():
         # Fail loudly. Silently treating a typo'd path as "no co-change"
         # would produce an all-1.0 co-change matrix, which at γ>0 silently
@@ -267,24 +206,6 @@ def main() -> int:
         co_change_pairs_loaded = len(pairs)
         co_change_dist = build_co_change_distance(paths, pairs)
         dist = (1.0 - args.gamma) * topical_dist + args.gamma * co_change_dist
-        np.clip(dist, 0.0, 2.0, out=dist)
-    elif args.embeddings is not None and args.embed_gamma > 0:
-        # Spike: blend (or replace, at embed_gamma=1.0) topical distance with
-        # the embedding cosine distance. TF-IDF is still fit above so
-        # top_tokens_per_cluster (used by the labeler) stays available.
-        embeddings: dict[str, list[float]] = {}
-        with args.embeddings.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                rec = json.loads(line)
-                p = rec.get("path")
-                emb = rec.get("embedding")
-                if p is not None and emb:
-                    embeddings[p] = emb
-        embed_dist = build_embedding_distance(paths, embeddings)
-        dist = (1.0 - args.embed_gamma) * topical_dist + args.embed_gamma * embed_dist
         np.clip(dist, 0.0, 2.0, out=dist)
     else:
         dist = topical_dist
@@ -378,7 +299,6 @@ def main() -> int:
             "top_tokens_per_cluster": top_tokens_per_cluster,
             "gamma": args.gamma,
             "co_change_pairs_loaded": co_change_pairs_loaded,
-            "embed_gamma": args.embed_gamma if args.embeddings is not None else None,
             "hier_gamma": args.hier_gamma if args.hierarchy is not None else None,
             "hier_pairs_loaded": hier_pairs_loaded,
         },
