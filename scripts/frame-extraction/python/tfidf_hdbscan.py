@@ -199,18 +199,30 @@ def main() -> int:
 
     if len(blobs) < args.min_cluster_size:
         # Not enough files to cluster. Emit a single noise cluster.
+        # Load hierarchy pairs so hier_pairs_loaded is always emitted when
+        # --hierarchy is provided (even in the early-exit path).
+        hier_pairs_loaded_early = 0
+        if args.hierarchy is not None:
+            with args.hierarchy.open("r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        hier_pairs_loaded_early += 1
+        early_params: dict = {
+            "min_df": args.min_df,
+            "max_df": args.max_df,
+            "min_cluster_size": args.min_cluster_size,
+            "skipped_reason": "fewer_files_than_min_cluster_size",
+        }
+        if args.hierarchy is not None:
+            early_params["hier_gamma"] = args.hier_gamma
+            early_params["hier_pairs_loaded"] = hier_pairs_loaded_early
         write_result(
             outp=args.outp,
             clusters=[],
             total_files=len(blobs),
             noise_count=len(blobs),
             noise_paths=[b["path"] for b in blobs],
-            params={
-                "min_df": args.min_df,
-                "max_df": args.max_df,
-                "min_cluster_size": args.min_cluster_size,
-                "skipped_reason": "fewer_files_than_min_cluster_size",
-            },
+            params=early_params,
         )
         return 0
 

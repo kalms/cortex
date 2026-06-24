@@ -59,6 +59,10 @@ export interface RunOptions {
   /** Weight on embedding distance in [0, 1]; default 1.0 (pure embedding).
    *  Ignored when embeddings_path is not set. */
   embed_gamma?: number;
+  /** Path to a hierarchy-affinity pairs JSONL ({a,b,count}); blended via hier_gamma. */
+  hierarchy_path?: string | null;
+  /** Weight on hierarchy distance in [0,1]; default 1.0. Ignored if no hierarchy_path. */
+  hier_gamma?: number;
 }
 
 export interface RunResult {
@@ -154,6 +158,10 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     args.push("--embed-gamma", String(opts.embed_gamma ?? 1.0));
   } else if (resolvedCoChange !== null) {
     args.push("--co-change", resolvedCoChange);
+  }
+  if (opts.hierarchy_path) {
+    args.push("--hierarchy", opts.hierarchy_path);
+    args.push("--hier-gamma", String(opts.hier_gamma ?? 1.0));
   }
   const proc = spawnSync(pythonBin, args, { encoding: "utf-8" });
   if (proc.error) {
