@@ -177,10 +177,10 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "apps/foo/x.ts",
       "packages/bar/y.ts",
     ];
-    // Only '' (split before 'apps' / 'packages') is common — no informative segment
-    // Passes 1-4 fail (no non-generic tokens, no common prefix, no strict majority segment).
-    // Pass 4.5 relaxed recovery: 'foo'/'bar' each appear at 50% >= 0.3 threshold → 'bar' recovered
-    expect(pickFrameLabel(tokens, paths, 42)).toBe("bar");
+    // Only '' (split before 'apps' / 'packages') is common — no informative segment.
+    // Genuinely heterogeneous: no token eligible, no common prefix, no strict-majority
+    // segment, and Pass 4.5 relaxes only TF-IDF tokens (not raw segments) → honest cluster:N.
+    expect(pickFrameLabel(tokens, paths, 42)).toBe("cluster:42");
   });
 
   it("skips bracketed path segments like [id] (URL params)", () => {
@@ -198,10 +198,9 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "app/(marketing)/page.tsx",
     ];
     // (marketing) is a route group (structural) → must be skipped; 'app' is
-    // generic → no informative segment in Pass 3.
-    // Pass 4 strict majority: 'page' appears in 1/2 (50%), not > 50% → null.
-    // Pass 4.5 relaxed recovery: 'page' at 50% >= 0.3 → recovered
-    expect(pickFrameLabel([], paths, 9)).toBe("page");
+    // generic → no informative segment → cluster:<id> fallback. (No top tokens,
+    // so Pass 4.5's token relaxation finds nothing either.)
+    expect(pickFrameLabel([], paths, 9)).toBe("cluster:9");
   });
 });
 
@@ -264,11 +263,11 @@ describe("pickFrameLabel — dominant-segment fallback (cluster:N bug)", () => {
 
   it("still returns cluster:<id> when no segment reaches a strict majority", () => {
     // Genuinely heterogeneous 2-file cluster: every informative segment is
-    // shared by only 50% — not dominant in strict Pass 4 (>50%).
-    // But Pass 4.5 relaxed recovery will accept segments at >= 0.3 threshold.
+    // shared by only 50% — not dominant — so the opaque fallback is honest.
+    // Pass 4.5 relaxes only TF-IDF tokens (both here are generic/route-param),
+    // not raw path segments, so 'foo'/'bar' are NOT recovered.
     const paths = ["apps/foo/x.ts", "packages/bar/y.ts"];
-    // 'bar' appears at 50% >= 0.3 → recovered by Pass 4.5
-    expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("bar");
+    expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("cluster:42");
   });
 });
 
@@ -529,15 +528,11 @@ describe("pickFrameLabel — relaxed recovery (Pass 4.5)", () => {
     expect(label).not.toMatch(/^cluster:/);
   });
   it("still excludes route-params even in the relaxed pass", () => {
-    // When ONLY a route-param is available as a token, it must be rejected
-    // throughout all passes, never becoming a label.
-    const paths = ["app/[id]/detail.tsx", "blog/[id]/show.tsx"];
-    const label = pickFrameLabel(["id"], paths, 9);
-    // 'id' is a route-param → rejected everywhere; segments 'app'/'blog' are
-    // mixed (one generic, one not) → no dominant segment → 'blog' appears at
-    // 50% but is not >50%, so strict Pass 4 fails; at relaxed 0.3, 'blog' is
-    // >= 0.3 so it succeeds. The test verifies 'id' never becomes a label.
-    expect(label).not.toBe("id");
-    expect(label).not.toMatch(/^cluster:/);
+    // Only a route-param token is available, and no other signal exists:
+    // distinct dirs (users/posts) → no common prefix, distinct filename stems
+    // (edit/view) → no dominant segment. '[id]' is dynamic and 'id' is a
+    // route-param → rejected in every pass including 4.5 → honest cluster:9.
+    const paths = ["users/[id]/edit.ts", "posts/[id]/view.ts"];
+    expect(pickFrameLabel(["id"], paths, 9)).toBe("cluster:9");
   });
 });

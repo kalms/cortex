@@ -285,7 +285,6 @@ export function pickFrameLabel(
 function dominantPathSegmentLabel(
   paths: readonly string[],
   suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
-  minFraction?: number,
 ): string | null {
   if (paths.length === 0) return null;
   const params = routeParamTokens(paths);
@@ -334,10 +333,7 @@ function dominantPathSegmentLabel(
   const total = paths.length;
   let best: Cand | null = null;
   for (const c of cands.values()) {
-    // Default (minFraction undefined): strict majority (>50%), unchanged. When
-    // a relaxed floor is supplied, include any segment at ≥ that fraction.
-    const frac = c.count / total;
-    if (minFraction === undefined ? frac <= 0.5 : frac < minFraction) continue;
+    if (c.count / total <= 0.5) continue; // strict majority only
     if (best === null || isStrongerCandidate(c, best)) best = c;
   }
   return best ? best.original : null;
@@ -381,8 +377,11 @@ function relaxedRecoveryLabel(
       }
     }
   }
-  // Finally: dominant path segment at the relaxed floor.
-  return dominantPathSegmentLabel(memberPaths, suppressedTerms, SALIENCE_FLOOR);
+  // No raw path-segment relaxation here: a segment at ≥30% frequency carries no
+  // topicality guarantee (it recovers meaningless org/package leaf names). Only
+  // TF-IDF top-tokens — topical by construction — are relaxed. Genuinely
+  // heterogeneous clusters fall through to the honest descriptor / cluster:N.
+  return null;
 }
 
 /** Total order for dominant-segment candidates: more members, then shared as a
