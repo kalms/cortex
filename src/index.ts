@@ -15,6 +15,8 @@ import { openDecisionsDb } from "./decisions/db.js";
 import { migrateDecisionIdsToShortForm } from "./decisions/id-migration.js";
 import { DecisionsRepository } from "./decisions/repository.js";
 import { DecisionLinksRepository } from "./decisions/links-repository.js";
+import { TodosRepository } from "./todos/repository.js";
+import { TodoLinksRepository } from "./todos/links-repository.js";
 import type { WireNode } from "./events/types.js";
 
 const dbPath = resolveCortexDbPath();
@@ -166,12 +168,16 @@ const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(cwd))
 migrateDecisionIdsToShortForm(decisionsDb);
 const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
+const todosRepo = new TodosRepository(decisionsDb);
+const todoLinksRepo = new TodoLinksRepository(decisionsDb);
 
 const { port, httpServer } = await startViewerServer(
   store,
   indexerProject,
   decisionsRepo,
   decisionLinksRepo,
+  todosRepo,
+  todoLinksRepo,
 );
 if (port > 0 && httpServer) {
   wsHandle = startWsServer({
