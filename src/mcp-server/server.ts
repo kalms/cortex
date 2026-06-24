@@ -1,9 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerDecisionTools } from "./tools/decision-tools.js";
-import { registerPromotionTools } from "./tools/promotion-tools.js";
 import { registerCodeTools } from "./tools/code-tools.js";
-import { registerPRTools } from "./tools/pr-tools.js";
-import { registerReconciliationTools } from "./tools/reconciliation-tools.js";
 import { registerTodoTools } from "./tools/todo-tools.js";
 import { registerDecisionDispatcher } from "./tools/decision-dispatcher.js";
 import { registerPRDispatcher } from "./tools/pr-dispatcher.js";
@@ -48,11 +44,7 @@ export function createServer(
   // Per-call repo context resolver — every tool routes through this.
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
-  registerDecisionTools(server, resolver, indexerProject, bus);
-  registerPromotionTools(server, resolver, indexerProject, bus);
   registerCodeTools(server, resolver);
-  registerPRTools(server, resolver, indexerProject, bus);
-  registerReconciliationTools(server, resolver);
   registerTodoTools(server, resolver);
   registerDecisionDispatcher(server, resolver, indexerProject, bus);
   registerPRDispatcher(server, resolver, indexerProject, bus);

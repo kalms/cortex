@@ -1,9 +1,8 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PRService } from "../../prs/service.js";
 import { DecisionService } from "../../decisions/service.js";
 import { ok, empty, error as errorResponse } from "../response.js";
-import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 
 // ---------------------------------------------------------------------------
@@ -158,57 +157,3 @@ export async function getPRAction(
   return ok(JSON.stringify(pr, null, 2));
 }
 
-export function registerPRTools(
-  server: McpServer,
-  resolver: RepoContextResolver,
-  indexerProject?: string | null,
-  bus?: EventBus,
-): void {
-  server.tool(
-    "open_pr",
-    "Create a pull request entity in the graph.",
-    openPRShape,
-    registerTool(
-      "open_pr",
-      openPRSchema,
-      async (ctx, args) => openPRAction(ctx, args, bus, indexerProject),
-      { resolver },
-    ),
-  );
-
-  server.tool(
-    "add_pr_touch",
-    "Record that a PR touches (adds or modifies) a file.",
-    addPRTouchShape,
-    registerTool(
-      "add_pr_touch",
-      addPRTouchSchema,
-      async (ctx, args) => addPRTouchAction(ctx, args, bus, indexerProject),
-      { resolver },
-    ),
-  );
-
-  server.tool(
-    "merge_pr",
-    "Mark a PR merged. Ratifies any introduced decisions from proposed to active.",
-    mergePRShape,
-    registerTool(
-      "merge_pr",
-      mergePRSchema,
-      async (ctx, args) => mergePRAction(ctx, args, bus, indexerProject),
-      { resolver },
-    ),
-  );
-
-  server.tool(
-    "get_pr",
-    "Fetch a PR with resolved decision refs and linked PRs.",
-    getPRShape,
-    registerTool(
-      "get_pr",
-      getPRSchema,
-      async (ctx, args) => getPRAction(ctx, args, bus, indexerProject),
-      { resolver },
-    ),
-  );
-}

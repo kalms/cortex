@@ -7,7 +7,8 @@ describe("propose_decision forwards provenance + author", () => {
   afterAll(async () => { await h.close(); });
 
   it("accepts provenance + cortex:seed author through the MCP tool boundary", async () => {
-    const res = await callTool(h, "propose_decision", {
+    const res = await callTool(h, "decision", {
+      action: "propose",
       title: "X",
       problem: "p",
       resolution: "r",

@@ -3,15 +3,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { GraphStore } from "../../src/graph/store.js";
 import { registerCodeTools } from "../../src/mcp-server/tools/code-tools.js";
-import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
-import { registerPromotionTools } from "../../src/mcp-server/tools/promotion-tools.js";
-import { registerPRTools } from "../../src/mcp-server/tools/pr-tools.js";
-import { registerReconciliationTools } from "../../src/mcp-server/tools/reconciliation-tools.js";
 import { registerTodoTools } from "../../src/mcp-server/tools/todo-tools.js";
 import { registerDecisionDispatcher } from "../../src/mcp-server/tools/decision-dispatcher.js";
 import { registerPRDispatcher } from "../../src/mcp-server/tools/pr-dispatcher.js";
 import { DecisionService } from "../../src/decisions/service.js";
-import { DecisionPromotion } from "../../src/decisions/promotion.js";
 import { PRService } from "../../src/prs/service.js";
 import { openDecisionsDb } from "../../src/decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../src/decisions/migration.js";
@@ -138,7 +133,6 @@ export async function createHarness(): Promise<HarnessContext> {
     links: decisionLinksRepo,
     project_id: project,
   });
-  const promotion = new DecisionPromotion(decisionsRepo);
   const prService = new PRService(store, {
     default_actor: "tester",
     project_id: project,
@@ -154,10 +148,6 @@ export async function createHarness(): Promise<HarnessContext> {
 
   const server = new McpServer({ name: "cortex-test", version: "0.0.0" });
   registerCodeTools(server, resolver);
-  registerDecisionTools(server, resolver, project);
-  registerPromotionTools(server, resolver, project);
-  registerPRTools(server, resolver, project);
-  registerReconciliationTools(server, resolver);
   registerTodoTools(server, resolver);
   registerDecisionDispatcher(server, resolver, project);
   registerPRDispatcher(server, resolver, project);

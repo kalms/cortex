@@ -1,8 +1,7 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DecisionPromotion } from "../../decisions/promotion.js";
 import { ok, empty, error as errorResponse } from "../response.js";
-import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 
 // The startup-bound `promotion` parameter is gone — promote() routes per-call
@@ -54,24 +53,3 @@ export async function promoteDecisionAction(
   }
 }
 
-export function registerPromotionTools(
-  server: McpServer,
-  resolver: RepoContextResolver,
-  indexerProject?: string | null,
-  bus?: EventBus,
-): void {
-  // Delegates to the extracted promoteDecisionAction — one source of behavior,
-  // shared with the `decision` dispatcher. Bus + project_id remain startup-bound;
-  // the event pipeline is server-scoped, not repo-scoped (Phase 5 revisits).
-  server.tool(
-    "promote_decision",
-    "Promote a decision to team or public visibility tier",
-    promoteDecisionShape,
-    registerTool(
-      "promote_decision",
-      promoteDecisionSchema,
-      (ctx, args) => promoteDecisionAction(ctx, args, bus, indexerProject),
-      { resolver },
-    ),
-  );
-}

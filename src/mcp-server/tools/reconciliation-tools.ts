@@ -1,9 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { ok, empty, error as errorResponse } from "../response.js";
-import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { type RepoContext } from "../repo-context.js";
 import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
 
@@ -105,28 +104,3 @@ export async function pendingReconciliationsAction(
   return ok(JSON.stringify({ pending: out }, null, 2));
 }
 
-export function registerReconciliationTools(server: McpServer, resolver: RepoContextResolver): void {
-  server.tool(
-    "record_reconciliation",
-    "Record a code-alignment verdict (match/partial/drift) for a decision after judging its prose against its governed source. The server recomputes the governed-source hash itself.",
-    recordReconciliationShape,
-    registerTool(
-      "record_reconciliation",
-      recordReconciliationSchema,
-      (ctx, args) => recordReconciliationAction(ctx, args),
-      { resolver },
-    ),
-  );
-
-  server.tool(
-    "pending_reconciliations",
-    "List active decisions whose governed code drifted since their last verdict (or were never judged). Each entry carries prose + current governed source so the agent can judge the batch and call record_reconciliation per decision.",
-    pendingReconciliationsShape,
-    registerTool(
-      "pending_reconciliations",
-      pendingReconciliationsSchema,
-      (ctx, args) => pendingReconciliationsAction(ctx, args),
-      { resolver },
-    ),
-  );
-}
