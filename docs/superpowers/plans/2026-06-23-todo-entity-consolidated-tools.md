@@ -949,6 +949,8 @@ git commit -m "refactor(mcp): generalize decision field validation to validatePr
 
 > All three dispatchers register **one** `server.tool(<type>, <desc>, <shape>, registerTool(...))`. The shape is `{ repo_path: RepoPathField, action: z.enum([...]), ...all per-action fields optional }`; the handler validates the action's required fields, then calls the existing service. Use `z.object(shape)` for `registerTool`'s `.parse`. The TODO `TODOS` const tables/services are constructed per-call via a `todoServiceFor(ctx)` helper (mirrors `prServiceFor`) since todos live in `ctx.decisionsDb`.
 
+> **Testing note (supersedes the per-task test sketches below):** Phase 3 reuses the existing **`tests/mcp-contract/`** harness — `createHarness()` (in-memory MCP client/server over an indexed fixture), `callTool(h, name, args)`, and `makeIndexedRepoFixture()` — instead of hand-rolled `makeIndexedRepo`/SDK-internal access. The existing `tests/mcp-contract/{decision-tools,promotion-tools,decision-candidates,pr-tools,read-routing}.test.ts` call tools by their OLD names and assert exact outputs; they are the **byte-parity baseline**. The clean break (3.4) registers the dispatchers in BOTH `src/mcp-server/server.ts` `createServer` AND the harness's `createHarness`, and those contract tests are rewritten to call `decision({action})`/`pr({action})` with their assertions unchanged — green assertions = preserved behavior. New `todo` coverage goes in `tests/mcp-contract/todo-tools.test.ts`.
+
 ### Task 3.1: The `todo` dispatcher (new)
 
 **Files:**
