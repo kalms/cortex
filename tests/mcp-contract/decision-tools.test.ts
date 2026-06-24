@@ -12,7 +12,8 @@ describe("decision-tools contract", () => {
     let decisionId: string;
 
     it("create_decision: returns JSON with id", async () => {
-      const res = await callTool(h, "create_decision", {
+      const res = await callTool(h, "decision", {
+        action: "create",
         title: "Test decision",
         description: "for contract test",
         rationale: "verifying lifecycle",
@@ -26,21 +27,22 @@ describe("decision-tools contract", () => {
     });
 
     it("get_decision: returns created decision", async () => {
-      const res = await callTool(h, "get_decision", { id: decisionId });
+      const res = await callTool(h, "decision", { action: "get", id: decisionId });
       expect(res.isError).toBeFalsy();
       const parsed = JSON.parse(res.content[0].text);
       expect(parsed.title ?? parsed.decision?.title).toBe("Test decision");
     });
 
     it("update_decision: mutates title", async () => {
-      const res = await callTool(h, "update_decision", { id: decisionId, title: "Updated title" });
+      const res = await callTool(h, "decision", { action: "update", id: decisionId, title: "Updated title" });
       expect(res.isError).toBeFalsy();
       const parsed = JSON.parse(res.content[0].text);
       expect(parsed.title).toBe("Updated title");
     });
 
     it("link_decision: attaches a GOVERNS edge to a fixture file", async () => {
-      const res = await callTool(h, "link_decision", {
+      const res = await callTool(h, "decision", {
+        action: "link",
         decision_id: decisionId,
         target: "src/server.ts",
         relation: "GOVERNS",
@@ -50,26 +52,26 @@ describe("decision-tools contract", () => {
     });
 
     it("search_decisions: finds the decision by query", async () => {
-      const res = await callTool(h, "search_decisions", { query: "Updated title" });
+      const res = await callTool(h, "decision", { action: "search", query: "Updated title" });
       expect(res.isError).toBeFalsy();
       expect(res.content[0].text).toContain(decisionId);
     });
 
     it("delete_decision: removes the decision", async () => {
-      const res = await callTool(h, "delete_decision", { id: decisionId });
+      const res = await callTool(h, "decision", { action: "delete", id: decisionId });
       expect(res.isError).toBeFalsy();
       expect(res.content[0].text).toContain(decisionId);
     });
 
     it("get_decision after delete: returns empty or error", async () => {
-      const res = await callTool(h, "get_decision", { id: decisionId });
+      const res = await callTool(h, "decision", { action: "get", id: decisionId });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
     });
   });
 
   describe("error paths", () => {
     it("get_decision: malformed id returns ErrorResponse or empty (structured)", async () => {
-      const res = await callTool(h, "get_decision", { id: "not-a-ulid" });
+      const res = await callTool(h, "decision", { action: "get", id: "not-a-ulid" });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       if (res.isError) {
         expect(res.content[0].text).toMatch(/^ERROR reason=/);
@@ -79,12 +81,12 @@ describe("decision-tools contract", () => {
     });
 
     it("update_decision: unknown id returns structured error or empty", async () => {
-      const res = await callTool(h, "update_decision", { id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX", title: "x" });
+      const res = await callTool(h, "decision", { action: "update", id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX", title: "x" });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
     });
 
     it("search_decisions: query with no matches returns empty", async () => {
-      const res = await callTool(h, "search_decisions", { query: "zzzNonexistentQuery999" });
+      const res = await callTool(h, "decision", { action: "search", query: "zzzNonexistentQuery999" });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
       expect(res.content[0].text).toMatch(/^No results: /);
     });
@@ -92,7 +94,7 @@ describe("decision-tools contract", () => {
 
   describe("why_was_this_built", () => {
     it("empty: path with no governing decision", async () => {
-      const res = await callTool(h, "why_was_this_built", { qualified_name: "src/utils.js::formatLog" });
+      const res = await callTool(h, "decision", { action: "why", qualified_name: "src/utils.js::formatLog" });
       expect(ResponseSchema.safeParse(res).success).toBe(true);
     });
 
@@ -100,65 +102,70 @@ describe("decision-tools contract", () => {
       // why_was_this_built resolves a qualified_name by walking up the
       // qn/path hierarchy: "src/server.ts::handleRequest" matches a decision
       // linked to the file "src/server.ts" (DecisionSearch.findGoverning).
-      const create = await callTool(h, "create_decision", {
+      const create = await callTool(h, "decision", {
+        action: "create",
         title: "Server pattern",
         description: "uses parseBody",
         rationale: "separation",
       });
       const id = JSON.parse(create.content[0].text).id;
-      await callTool(h, "link_decision", { decision_id: id, target: "src/server.ts", relation: "GOVERNS" });
+      await callTool(h, "decision", { action: "link", decision_id: id, target: "src/server.ts", relation: "GOVERNS" });
 
-      const res = await callTool(h, "why_was_this_built", { qualified_name: "src/server.ts::handleRequest" });
+      const res = await callTool(h, "decision", { action: "why", qualified_name: "src/server.ts::handleRequest" });
       expect(res.isError).toBeFalsy();
       expect(res.content[0].text).toContain(id);
 
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
   });
 
   describe("update_decision governs replacement", () => {
     it("sets governs on update when create-time governs was empty", async () => {
-      const created = await callTool(h, "create_decision", {
+      const created = await callTool(h, "decision", {
+        action: "create",
         title: "Governs-on-update test",
         description: "d", rationale: "r",
       });
       const id = JSON.parse(created.content[0].text).id;
 
-      const updated = await callTool(h, "update_decision", {
+      const updated = await callTool(h, "decision", {
+        action: "update",
         id, governs: ["src/foo.ts", "src/bar.ts"],
       });
       expect(updated.isError).toBeFalsy();
 
-      const fetched = await callTool(h, "get_decision", { id });
+      const fetched = await callTool(h, "decision", { action: "get", id });
       const parsed = JSON.parse(fetched.content[0].text);
       const governsTargets = (parsed.governs ?? []).map((n: any) => n.target_ref ?? n.file_path ?? n.name);
       expect(governsTargets).toEqual(expect.arrayContaining(["src/foo.ts", "src/bar.ts"]));
 
       // Clean up
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
 
     it("clears governs when governs: [] is passed", async () => {
-      const created = await callTool(h, "create_decision", {
+      const created = await callTool(h, "decision", {
+        action: "create",
         title: "Clear-governs test",
         description: "d", rationale: "r",
         governs: ["src/x.ts"],
       });
       const id = JSON.parse(created.content[0].text).id;
 
-      await callTool(h, "update_decision", { id, governs: [] });
-      const fetched = await callTool(h, "get_decision", { id });
+      await callTool(h, "decision", { action: "update", id, governs: [] });
+      const fetched = await callTool(h, "decision", { action: "get", id });
       const parsed = JSON.parse(fetched.content[0].text);
       expect(parsed.governs ?? []).toEqual([]);
 
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
   });
 
   describe("why_was_this_built input resolution", () => {
     it("accepts a bare symbol name and resolves to governing decision", async () => {
       // handleRequest is a unique function in src/server.ts — bare name resolves to single
-      const created = await callTool(h, "create_decision", {
+      const created = await callTool(h, "decision", {
+        action: "create",
         title: "Why-bare-name test",
         description: "test",
         rationale: "test",
@@ -166,17 +173,19 @@ describe("decision-tools contract", () => {
       });
       const id = JSON.parse(created.content[0].text).id;
 
-      const res = await callTool(h, "why_was_this_built", {
+      const res = await callTool(h, "decision", {
+        action: "why",
         qualified_name: "handleRequest",
       });
       expect(res.isError).toBeFalsy();
       expect(res.content[0].text).toContain("Why-bare-name test");
 
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
 
     it("preserves back-compat for file path input (findGoverning path-walk)", async () => {
-      const created = await callTool(h, "create_decision", {
+      const created = await callTool(h, "decision", {
+        action: "create",
         title: "Path-walk test",
         description: "test",
         rationale: "test",
@@ -184,13 +193,14 @@ describe("decision-tools contract", () => {
       });
       const id = JSON.parse(created.content[0].text).id;
 
-      const res = await callTool(h, "why_was_this_built", {
+      const res = await callTool(h, "decision", {
+        action: "why",
         qualified_name: "src/server.ts",
       });
       expect(res.isError).toBeFalsy();
       expect(res.content[0].text).toContain("Path-walk test");
 
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
 
     it("returns ambiguous_input when input matches multiple symbols", async () => {
@@ -198,7 +208,8 @@ describe("decision-tools contract", () => {
       // symbol containing "parse" — if only one match the resolver returns single (ok),
       // if zero it returns none and falls through to findGoverning (empty or ok).
       // In all cases the response must be a non-empty string.
-      const res = await callTool(h, "why_was_this_built", {
+      const res = await callTool(h, "decision", {
+        action: "why",
         qualified_name: "parse",
       });
       // Either ambiguous_input, empty, or a successful result — all are valid shapes.
@@ -208,7 +219,8 @@ describe("decision-tools contract", () => {
 
   describe("input validation", () => {
     it("create_decision: rejects rationale containing </invoke>", async () => {
-      const res = await callTool(h, "create_decision", {
+      const res = await callTool(h, "decision", {
+        action: "create",
         title: "Bad decision",
         description: "test",
         rationale: "ok body</rationale>\n<problem>x</problem></invoke>",
@@ -219,7 +231,8 @@ describe("decision-tools contract", () => {
     });
 
     it("create_decision: rejects description containing <problem> marker", async () => {
-      const res = await callTool(h, "create_decision", {
+      const res = await callTool(h, "decision", {
+        action: "create",
         title: "Bad",
         description: "leakage <problem>x</problem>",
         rationale: "fine",
@@ -230,25 +243,28 @@ describe("decision-tools contract", () => {
 
     it("update_decision: rejects rationale with </rationale> marker", async () => {
       // First create a clean decision
-      const created = await callTool(h, "create_decision", {
+      const created = await callTool(h, "decision", {
+        action: "create",
         title: "To-be-updated",
         description: "ok",
         rationale: "ok",
       });
       const id = JSON.parse(created.content[0].text).id;
       // Try update with bad rationale
-      const res = await callTool(h, "update_decision", {
+      const res = await callTool(h, "decision", {
+        action: "update",
         id,
         rationale: "leak </rationale>",
       });
       expect(res.isError).toBe(true);
       expect(res.content[0].text).toMatch(/ERROR reason=malformed_input/);
       // Clean up
-      await callTool(h, "delete_decision", { id });
+      await callTool(h, "decision", { action: "delete", id });
     });
 
     it("propose_decision: rejects bad problem field", async () => {
-      const res = await callTool(h, "propose_decision", {
+      const res = await callTool(h, "decision", {
+        action: "propose",
         title: "Bad",
         problem: "leak </governs>",
         resolution: "fine",
@@ -270,8 +286,9 @@ describe("decision-tools contract", () => {
   // ---------------------------------------------------------------------------
   describe("link_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "link_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "link",
         decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
         target: "src/x.ts",
       });
@@ -283,7 +300,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "to be linked",
           description: "d",
@@ -291,7 +309,8 @@ describe("decision-tools contract", () => {
         });
         const id = JSON.parse(seed.content[0].text).id;
 
-        const res = await callTool(h, "link_decision", {
+        const res = await callTool(h, "decision", {
+          action: "link",
           repo_path: repoB,
           decision_id: id,
           target: "src/scoped/file.ts",
@@ -301,7 +320,7 @@ describe("decision-tools contract", () => {
         expect(res.content[0].text).toContain("linked");
 
         // Verify the link landed in repoB by reading via get_decision.
-        const got = await callTool(h, "get_decision", { repo_path: repoB, id });
+        const got = await callTool(h, "decision", { action: "get", repo_path: repoB, id });
         const parsed = JSON.parse(got.content[0].text);
         const governsTargets = (parsed.governs ?? []).map((n: any) => n.target_ref);
         expect(governsTargets).toContain("src/scoped/file.ts");
@@ -313,8 +332,9 @@ describe("decision-tools contract", () => {
 
   describe("search_decisions per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "search_decisions", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "search",
         query: "anything",
       });
       expect(res.isError).toBe(true);
@@ -325,7 +345,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB with a distinctive title.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "uniqueSearchableInBRepo",
           description: "d",
@@ -334,7 +355,8 @@ describe("decision-tools contract", () => {
         const id = JSON.parse(seed.content[0].text).id;
 
         // Search against repoB must find it.
-        const res = await callTool(h, "search_decisions", {
+        const res = await callTool(h, "decision", {
+          action: "search",
           repo_path: repoB,
           query: "uniqueSearchableInBRepo",
         });
@@ -342,7 +364,8 @@ describe("decision-tools contract", () => {
         expect(res.content[0].text).toContain(id);
 
         // The harness primary has no decisions with this title.
-        const resPrimary = await callTool(h, "search_decisions", {
+        const resPrimary = await callTool(h, "decision", {
+          action: "search",
           query: "uniqueSearchableInBRepo",
         });
         expect(resPrimary.content[0].text).toMatch(/^No results: /);
@@ -354,8 +377,9 @@ describe("decision-tools contract", () => {
 
   describe("get_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "get_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "get",
         id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
       });
       expect(res.isError).toBe(true);
@@ -366,7 +390,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "lives only in B",
           description: "d",
@@ -377,7 +402,7 @@ describe("decision-tools contract", () => {
         expect(h.service.get(id)).toBeNull();
 
         // get_decision against repoB must find it.
-        const res = await callTool(h, "get_decision", { repo_path: repoB, id });
+        const res = await callTool(h, "decision", { action: "get", repo_path: repoB, id });
         expect(res.isError).toBeFalsy();
         const parsed = JSON.parse(res.content[0].text);
         expect(parsed.title).toBe("lives only in B");
@@ -389,8 +414,9 @@ describe("decision-tools contract", () => {
 
   describe("delete_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "delete_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "delete",
         id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
       });
       expect(res.isError).toBe(true);
@@ -401,7 +427,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "to be deleted in B",
           description: "d",
@@ -410,7 +437,8 @@ describe("decision-tools contract", () => {
         const id = JSON.parse(seed.content[0].text).id;
         const before = countDecisions(repoB);
 
-        const res = await callTool(h, "delete_decision", {
+        const res = await callTool(h, "decision", {
+          action: "delete",
           repo_path: repoB,
           id,
         });
@@ -425,8 +453,9 @@ describe("decision-tools contract", () => {
 
   describe("update_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "update_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "update",
         id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
         title: "x",
       });
@@ -438,7 +467,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB so we can update it.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "original",
           description: "d",
@@ -448,7 +478,8 @@ describe("decision-tools contract", () => {
 
         // Update must succeed against repoB even though the harness primary
         // has no such decision.
-        const res = await callTool(h, "update_decision", {
+        const res = await callTool(h, "decision", {
+          action: "update",
           repo_path: repoB,
           id,
           title: "updated in B",
@@ -466,8 +497,9 @@ describe("decision-tools contract", () => {
 
   describe("supersede_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "supersede_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "supersede",
         old_decision_id: "01HXXXXXXXXXXXXXXXXXXXXXXXXX",
         title: "x",
         problem: "p",
@@ -482,7 +514,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed an "old" decision in repoB via propose_decision so we can supersede it.
-        const seed = await callTool(h, "propose_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "propose",
           repo_path: repoB,
           title: "to be superseded",
           problem: "p",
@@ -492,7 +525,8 @@ describe("decision-tools contract", () => {
         const oldId = JSON.parse(seed.content[0].text).id;
         const before = countDecisions(repoB);
 
-        const res = await callTool(h, "supersede_decision", {
+        const res = await callTool(h, "decision", {
+          action: "supersede",
           repo_path: repoB,
           old_decision_id: oldId,
           title: "replacement",
@@ -514,8 +548,9 @@ describe("decision-tools contract", () => {
 
   describe("propose_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "propose_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "propose",
         title: "x",
         problem: "p",
         resolution: "r",
@@ -529,7 +564,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         const before = countDecisions(repoB);
-        const res = await callTool(h, "propose_decision", {
+        const res = await callTool(h, "decision", {
+          action: "propose",
           repo_path: repoB,
           title: "proposed in B",
           problem: "p",
@@ -552,8 +588,9 @@ describe("decision-tools contract", () => {
       // `repo_path: undefined` is the harness sentinel that strips the
       // field from the request entirely — without it the harness would
       // auto-inject the primary repo's path.
-      const res = await callTool(h, "create_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "create",
         title: "x",
         description: "y",
         rationale: "z",
@@ -570,7 +607,8 @@ describe("decision-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         const before = countDecisions(repoB);
-        const res = await callTool(h, "create_decision", {
+        const res = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "scoped to B",
           description: "x",
@@ -596,8 +634,9 @@ describe("decision-tools contract", () => {
 
   describe("why_was_this_built per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "why_was_this_built", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "why",
         qualified_name: "src/server.ts",
       });
       expect(res.isError).toBe(true);
@@ -609,7 +648,8 @@ describe("decision-tools contract", () => {
       try {
         // Seed a decision in repoB that GOVERNS a path. why_was_this_built
         // must find it via repoB's links table.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "uniqueDecisionInB",
           description: "d",
@@ -619,7 +659,8 @@ describe("decision-tools contract", () => {
         const id = JSON.parse(seed.content[0].text).id;
 
         // Querying repoB finds the decision via findGoverning's path-walk.
-        const res = await callTool(h, "why_was_this_built", {
+        const res = await callTool(h, "decision", {
+          action: "why",
           repo_path: repoB,
           qualified_name: "src/server.ts",
         });
@@ -628,7 +669,8 @@ describe("decision-tools contract", () => {
         expect(res.content[0].text).toContain("uniqueDecisionInB");
 
         // The harness primary repo has no such decision — same path returns empty.
-        const resPrimary = await callTool(h, "why_was_this_built", {
+        const resPrimary = await callTool(h, "decision", {
+          action: "why",
           qualified_name: "src/server.ts",
         });
         // Either empty (no decision in primary) or — if earlier tests in this

@@ -1,5 +1,6 @@
 /**
- * MCP contract test for the `decision_candidates` tool.
+ * MCP contract test for the `decision` dispatcher's `candidates` action
+ * (formerly the standalone `decision_candidates` tool).
  *
  * The tool walks `repo_path`'s git history + docs, so the fixture must be a
  * real git repo with at least one conventional commit and an ADR-shaped doc.
@@ -21,7 +22,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { openDecisionsDb } from "../../src/decisions/db.js";
-import { registerDecisionTools } from "../../src/mcp-server/tools/decision-tools.js";
+import { registerDecisionDispatcher } from "../../src/mcp-server/tools/decision-dispatcher.js";
 import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
 
@@ -68,7 +69,7 @@ async function buildMinimalHarness(decisionsDbPath: string): Promise<MinimalHarn
   // Phase 2 dropped the closure-bound service/search/links/dbPath params from
   // registerDecisionTools — every tool routes through `resolver.resolve(ctx)`.
   const resolver = new RepoContextResolver({ poolCapacity: 1 });
-  registerDecisionTools(server, resolver, "test-candidates");
+  registerDecisionDispatcher(server, resolver, "test-candidates");
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -128,8 +129,8 @@ describe("decision_candidates MCP tool", () => {
 
   it("returns a non-empty array with at least one adr and one commit_cluster candidate", async () => {
     const result = await harness.client.callTool({
-      name: "decision_candidates",
-      arguments: { repo_path: repoRoot, max_candidates: 5 },
+      name: "decision",
+      arguments: { action: "candidates", repo_path: repoRoot, max_candidates: 5 },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -150,8 +151,8 @@ describe("decision_candidates MCP tool", () => {
 
   it("respects max_candidates cap", async () => {
     const result = await harness.client.callTool({
-      name: "decision_candidates",
-      arguments: { repo_path: repoRoot, max_candidates: 1 },
+      name: "decision",
+      arguments: { action: "candidates", repo_path: repoRoot, max_candidates: 1 },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -164,8 +165,8 @@ describe("decision_candidates MCP tool", () => {
 
   it("works with no max_candidates (uses default)", async () => {
     const result = await harness.client.callTool({
-      name: "decision_candidates",
-      arguments: { repo_path: repoRoot },
+      name: "decision",
+      arguments: { action: "candidates", repo_path: repoRoot },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -177,8 +178,8 @@ describe("decision_candidates MCP tool", () => {
 
   it("rejects when repo_path is missing", async () => {
     const result = await harness.client.callTool({
-      name: "decision_candidates",
-      arguments: {},
+      name: "decision",
+      arguments: { action: "candidates" },
     });
     const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
     expect(res.isError).toBe(true);
@@ -208,8 +209,8 @@ describe("decision_candidates MCP tool", () => {
       writeFileSync(join(bCortexDir, "db"), "");
 
       const result = await harness.client.callTool({
-        name: "decision_candidates",
-        arguments: { repo_path: repoB, max_candidates: 5 },
+        name: "decision",
+        arguments: { action: "candidates", repo_path: repoB, max_candidates: 5 },
       });
       const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(res.isError).toBeFalsy();

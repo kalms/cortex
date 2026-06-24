@@ -5,6 +5,8 @@ import { registerCodeTools } from "./tools/code-tools.js";
 import { registerPRTools } from "./tools/pr-tools.js";
 import { registerReconciliationTools } from "./tools/reconciliation-tools.js";
 import { registerTodoTools } from "./tools/todo-tools.js";
+import { registerDecisionDispatcher } from "./tools/decision-dispatcher.js";
+import { registerPRDispatcher } from "./tools/pr-dispatcher.js";
 import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
@@ -52,6 +54,8 @@ export function createServer(
   registerPRTools(server, resolver, indexerProject, bus);
   registerReconciliationTools(server, resolver);
   registerTodoTools(server, resolver);
+  registerDecisionDispatcher(server, resolver, indexerProject, bus);
+  registerPRDispatcher(server, resolver, indexerProject, bus);
 
   return server;
 }

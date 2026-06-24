@@ -9,23 +9,25 @@ describe("promotion-tools contract", () => {
   afterAll(async () => { await h.close(); });
 
   it("promote_decision: happy path promotes an existing decision", async () => {
-    const create = await callTool(h, "create_decision", {
+    const create = await callTool(h, "decision", {
+      action: "create",
       title: "Promotion test",
       description: "for promotion contract",
       rationale: "testing",
     });
     const id = JSON.parse(create.content[0].text).id;
 
-    const res = await callTool(h, "promote_decision", { id, tier: "team" });
+    const res = await callTool(h, "decision", { action: "promote", id, tier: "team" });
     expect(ResponseSchema.safeParse(res).success).toBe(true);
     expect(res.isError).toBeFalsy();
 
-    await callTool(h, "delete_decision", { id });
+    await callTool(h, "decision", { action: "delete", id });
   });
 
   it("promote_decision: unknown id returns empty or structured error", async () => {
     // Use a syntactically valid UUID that doesn't exist
-    const res = await callTool(h, "promote_decision", {
+    const res = await callTool(h, "decision", {
+      action: "promote",
       id: "00000000-0000-0000-0000-000000000000",
       tier: "team",
     });
@@ -34,8 +36,9 @@ describe("promotion-tools contract", () => {
 
   describe("promote_decision per-call routing", () => {
     it("rejects when repo_path is missing", async () => {
-      const res = await callTool(h, "promote_decision", {
+      const res = await callTool(h, "decision", {
         repo_path: undefined,
+        action: "promote",
         id: "00000000-0000-0000-0000-000000000000",
         tier: "team",
       });
@@ -47,7 +50,8 @@ describe("promotion-tools contract", () => {
       const repoB = makeIndexedRepoFixture();
       try {
         // Seed a decision in repoB.
-        const seed = await callTool(h, "create_decision", {
+        const seed = await callTool(h, "decision", {
+          action: "create",
           repo_path: repoB,
           title: "to be promoted",
           description: "d",
@@ -55,7 +59,8 @@ describe("promotion-tools contract", () => {
         });
         const id = JSON.parse(seed.content[0].text).id;
 
-        const res = await callTool(h, "promote_decision", {
+        const res = await callTool(h, "decision", {
+          action: "promote",
           repo_path: repoB,
           id,
           tier: "team",
