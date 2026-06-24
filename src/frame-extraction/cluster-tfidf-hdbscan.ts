@@ -52,6 +52,13 @@ export interface RunOptions {
   /** Weight on co-change distance in [0, 1]. Default 0 (pure topical).
    *  Ignored when no co-change file is found. */
   gamma?: number;
+  /** Spike (embedding-signal experiment): path to a per-file embedding JSONL
+   *  ({path, embedding:[floats]}). When set, the Python step blends embedding
+   *  cosine distance via `embed_gamma`. Mutually exclusive with co-change. */
+  embeddings_path?: string | null;
+  /** Weight on embedding distance in [0, 1]; default 1.0 (pure embedding).
+   *  Ignored when embeddings_path is not set. */
+  embed_gamma?: number;
 }
 
 export interface RunResult {
@@ -139,7 +146,13 @@ export function runTfIdfHdbscan(opts: RunOptions): RunResult {
     "--min-samples", String(opts.min_samples ?? 1),
     "--gamma", String(gamma),
   ];
-  if (resolvedCoChange !== null) {
+  // Spike: embedding-signal arm. Mutually exclusive with co-change (the
+  // Python script enforces this too), so the embedding arm suppresses the
+  // auto-resolved co-change file.
+  if (opts.embeddings_path) {
+    args.push("--embeddings", opts.embeddings_path);
+    args.push("--embed-gamma", String(opts.embed_gamma ?? 1.0));
+  } else if (resolvedCoChange !== null) {
     args.push("--co-change", resolvedCoChange);
   }
   const proc = spawnSync(pythonBin, args, { encoding: "utf-8" });
