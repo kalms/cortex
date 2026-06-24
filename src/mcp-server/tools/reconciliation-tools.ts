@@ -41,6 +41,70 @@ const pendingReconciliationsShape = {
 } as const;
 const pendingReconciliationsSchema = z.object(pendingReconciliationsShape);
 
+/**
+ * Extracted record_reconciliation handler logic. Holds the EXACT body the
+ * `server.tool("record_reconciliation", …)` registration used to inline. Both
+ * that registration and the `decision` dispatcher (action "reconcile") call
+ * this — one source of behavior. Neither bus nor indexerProject is needed here;
+ * reconciliation writes only the per-call repo's decisions DB.
+ */
+export async function recordReconciliationAction(
+  ctx: RepoContext,
+  args: z.infer<typeof recordReconciliationSchema>,
+) {
+  const dec = ctx.decisionsRepo.get(args.decision_id);
+  if (!dec) return empty(`record_reconciliation(${args.decision_id})`);
+  const refs = governedRefs(ctx, args.decision_id);
+  if (refs.length === 0) {
+    return errorResponse(
+      "not_reconcilable",
+      `Decision ${args.decision_id} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
+    );
+  }
+  const hash = hashGovernedSource(ctx.repoPath, refs);
+  const nowIso = new Date().toISOString();
+  ctx.decisionsRepo.recordReconciliation(args.decision_id, {
+    reconciliation_verdict: args.verdict,
+    reconciled_at: nowIso,
+    reconciled_source_hash: hash,
+    reconciled_by: process.env.CORTEX_AGENT_ID ?? "agent",
+    nonconformant_nodes: args.nonconformant ? JSON.stringify(args.nonconformant) : null,
+    reconciliation_note: args.note ?? null,
+  });
+  return ok(JSON.stringify({ decision_id: args.decision_id, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
+}
+
+/**
+ * Extracted pending_reconciliations handler logic. Holds the EXACT body the
+ * `server.tool("pending_reconciliations", …)` registration used to inline. Both
+ * that registration and the `decision` dispatcher (action "pending") call this.
+ */
+export async function pendingReconciliationsAction(
+  ctx: RepoContext,
+  args: z.infer<typeof pendingReconciliationsSchema>,
+) {
+  const limit = args.limit ?? 25;
+  const out: unknown[] = [];
+  for (const d of ctx.decisionsRepo.list()) {
+    if (out.length >= limit) break;
+    if (d.status !== "active") continue;
+    const refs = governedRefs(ctx, d.id);
+    if (refs.length === 0) continue; // declarative — not reconcilable
+    const current = hashGovernedSource(ctx.repoPath, refs);
+    if (current === d.reconciled_source_hash) continue; // verdict current
+    out.push({
+      id: d.id,
+      title: d.title,
+      problem: d.problem,
+      resolution: d.resolution,
+      rationale: d.rationale,
+      last_verdict: d.reconciliation_verdict ?? "unknown",
+      governed: refs.map((r) => ({ ref: r.target_ref, source: inlineSource(ctx.repoPath, r) })),
+    });
+  }
+  return ok(JSON.stringify({ pending: out }, null, 2));
+}
+
 export function registerReconciliationTools(server: McpServer, resolver: RepoContextResolver): void {
   server.tool(
     "record_reconciliation",
@@ -49,28 +113,7 @@ export function registerReconciliationTools(server: McpServer, resolver: RepoCon
     registerTool(
       "record_reconciliation",
       recordReconciliationSchema,
-      async (ctx, args) => {
-        const dec = ctx.decisionsRepo.get(args.decision_id);
-        if (!dec) return empty(`record_reconciliation(${args.decision_id})`);
-        const refs = governedRefs(ctx, args.decision_id);
-        if (refs.length === 0) {
-          return errorResponse(
-            "not_reconcilable",
-            `Decision ${args.decision_id} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
-          );
-        }
-        const hash = hashGovernedSource(ctx.repoPath, refs);
-        const nowIso = new Date().toISOString();
-        ctx.decisionsRepo.recordReconciliation(args.decision_id, {
-          reconciliation_verdict: args.verdict,
-          reconciled_at: nowIso,
-          reconciled_source_hash: hash,
-          reconciled_by: process.env.CORTEX_AGENT_ID ?? "agent",
-          nonconformant_nodes: args.nonconformant ? JSON.stringify(args.nonconformant) : null,
-          reconciliation_note: args.note ?? null,
-        });
-        return ok(JSON.stringify({ decision_id: args.decision_id, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
-      },
+      (ctx, args) => recordReconciliationAction(ctx, args),
       { resolver },
     ),
   );
@@ -82,28 +125,7 @@ export function registerReconciliationTools(server: McpServer, resolver: RepoCon
     registerTool(
       "pending_reconciliations",
       pendingReconciliationsSchema,
-      async (ctx, args) => {
-        const limit = args.limit ?? 25;
-        const out: unknown[] = [];
-        for (const d of ctx.decisionsRepo.list()) {
-          if (out.length >= limit) break;
-          if (d.status !== "active") continue;
-          const refs = governedRefs(ctx, d.id);
-          if (refs.length === 0) continue; // declarative — not reconcilable
-          const current = hashGovernedSource(ctx.repoPath, refs);
-          if (current === d.reconciled_source_hash) continue; // verdict current
-          out.push({
-            id: d.id,
-            title: d.title,
-            problem: d.problem,
-            resolution: d.resolution,
-            rationale: d.rationale,
-            last_verdict: d.reconciliation_verdict ?? "unknown",
-            governed: refs.map((r) => ({ ref: r.target_ref, source: inlineSource(ctx.repoPath, r) })),
-          });
-        }
-        return ok(JSON.stringify({ pending: out }, null, 2));
-      },
+      (ctx, args) => pendingReconciliationsAction(ctx, args),
       { resolver },
     ),
   );
