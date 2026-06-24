@@ -75,6 +75,15 @@ def build_co_change_distance(
     return dist
 
 
+def build_hierarchy_distance(
+    paths: list[str], pairs: list[dict]
+) -> np.ndarray:
+    """Cosine-like DISTANCE matrix from shared-base pairs. Identical shape and
+    saturation to the co-change matrix: observed pair → 1 - log1p(count)/log1p(max),
+    unobserved → 1.0, diagonal 0.0. Endpoints not in `paths` are dropped."""
+    return build_co_change_distance(paths, pairs)
+
+
 def build_embedding_distance(
     paths: list[str], embeddings: dict[str, list[float]]
 ) -> np.ndarray:
@@ -150,12 +159,23 @@ def main() -> int:
                         help="Weight on embedding distance in [0, 1] (default 1.0 "
                              "= pure embedding). Combined = (1-eg)·topical + eg·embed. "
                              "Ignored when --embeddings is not provided.")
+    parser.add_argument("--hierarchy", dest="hierarchy", type=Path, default=None,
+                        help="Per-pair JSONL ({a,b,count}) of files sharing a "
+                             "domain base class. Blended via --hier-gamma.")
+    parser.add_argument("--hier-gamma", dest="hier_gamma", type=float, default=1.0,
+                        help="Weight on hierarchy distance in [0,1] (default 1.0). "
+                             "Combined = (1-hg)·dist + hg·hierarchy. Ignored when "
+                             "--hierarchy is not provided.")
     args = parser.parse_args()
 
     if not 0.0 <= args.gamma <= 1.0:
         parser.error(f"--gamma must be in [0, 1], got {args.gamma}")
     if not 0.0 <= args.embed_gamma <= 1.0:
         parser.error(f"--embed-gamma must be in [0, 1], got {args.embed_gamma}")
+    if not 0.0 <= args.hier_gamma <= 1.0:
+        parser.error(f"--hier-gamma must be in [0, 1], got {args.hier_gamma}")
+    if args.hierarchy is not None and not args.hierarchy.exists():
+        parser.error(f"--hierarchy path does not exist: {args.hierarchy}")
     if args.embeddings is not None and args.co_change is not None:
         parser.error("--embeddings and --co-change are mutually exclusive in the spike")
     if args.embeddings is not None and not args.embeddings.exists():
@@ -257,6 +277,20 @@ def main() -> int:
     else:
         dist = topical_dist
 
+    hier_pairs_loaded = 0
+    if args.hierarchy is not None and args.hier_gamma > 0:
+        hpairs = []
+        with args.hierarchy.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                hpairs.append(json.loads(line))
+        hier_pairs_loaded = len(hpairs)
+        hier_dist = build_hierarchy_distance(paths, hpairs)
+        dist = (1.0 - args.hier_gamma) * dist + args.hier_gamma * hier_dist
+        np.clip(dist, 0.0, 2.0, out=dist)
+
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
@@ -326,6 +360,8 @@ def main() -> int:
             "gamma": args.gamma,
             "co_change_pairs_loaded": co_change_pairs_loaded,
             "embed_gamma": args.embed_gamma if args.embeddings is not None else None,
+            "hier_gamma": args.hier_gamma if args.hierarchy is not None else None,
+            "hier_pairs_loaded": hier_pairs_loaded,
         },
     )
     return 0
