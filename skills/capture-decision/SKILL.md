@@ -12,7 +12,7 @@ Record an architectural or design decision in the Cortex knowledge graph with it
 Before creating, search for existing decisions on the same topic:
 
 ```
-search_decisions({ query: "<keywords about your decision>" })
+decision({ action: "search", query: "<keywords about your decision>" })
 ```
 
 If a matching decision exists, consider updating it instead of creating a duplicate.
@@ -20,8 +20,9 @@ If a matching decision exists, consider updating it instead of creating a duplic
 ## Step 2: Create the decision
 
 ```
-create_decision({
-  name: "Short descriptive title",
+decision({
+  action: "create",
+  title: "Short descriptive title",
   description: "What was decided and what it means",
   rationale: "Why this approach was chosen over alternatives",
   status: "active",
@@ -37,7 +38,8 @@ create_decision({
 Connect the decision to the code it governs:
 
 ```
-link_decision({
+decision({
+  action: "link",
   decision_id: "<id from step 2>",
   target: "src/path/to/file.ts::functionOrClassName",
   relation: "GOVERNS"
@@ -51,12 +53,12 @@ You can link multiple code entities. Use `GOVERNS` for code the decision control
 Decisions start as `personal`. If this is a team-level architectural decision:
 
 ```
-promote_decision({ id: "<decision-id>", tier: "team" })
+decision({ action: "promote", id: "<decision-id>", tier: "team" })
 ```
 
 ## What makes a good decision record
 
-- **Name:** Short, scannable — "Use Redis for session caching"
+- **Title:** Short, scannable — "Use Redis for session caching"
 - **Description:** What was decided, not how to implement it
 - **Rationale:** The *why* — constraints, trade-offs, context that led to this choice
 - **Alternatives:** What was considered and rejected, with reasons

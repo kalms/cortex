@@ -16,27 +16,27 @@ Search the Cortex knowledge graph for existing architectural and design decision
 ## Search by keyword
 
 ```
-search_decisions({ query: "authentication middleware" })
+decision({ action: "search", query: "authentication middleware" })
 ```
 
 ## Scope to specific code
 
 ```
-search_decisions({ query: "caching", scope: "src/api/routes" })
+decision({ action: "search", query: "caching", scope: "src/api/routes" })
 ```
 
 ## Find decisions for a code entity
 
 ```
-why_was_this_built({ qualified_name: "src/auth/middleware.ts::validateToken" })
+decision({ action: "why", qualified_name: "src/auth/middleware.ts::validateToken" })
 ```
 
-`why_was_this_built` walks up the file hierarchy if no direct match is found — checking the file, then parent directories.
+`decision({action:"why"})` walks up the file hierarchy if no direct match is found — checking the file, then parent directories.
 
 ## Get full decision details
 
 ```
-get_decision({ id: "<decision-id>" })
+decision({ action: "get", id: "<decision-id>" })
 ```
 
 Returns the decision with resolved GOVERNS and REFERENCES links.

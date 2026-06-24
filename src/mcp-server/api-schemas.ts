@@ -177,6 +177,32 @@ export const DecisionDetailResponseSchema = z.object({
   decision: AdaptedDecisionSchema,
 });
 
+// ── Todos ──────────────────────────────────────────────────────────────────
+const TodoRefSchema = z.object({ kind: z.string(), id: z.string() });
+export const AdaptedTodoSchema = z.object({
+  id: z.string(),
+  seq: z.number().nullable(),
+  summary: z.string(),
+  description: z.string(),
+  state: z.string(),
+  proposedBy: z.string().nullable(),
+  proposedAt: z.string(),
+  startedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  assignee: z.string().nullable(),
+  governs: z.array(GovernsRefSchema),
+  blockedBy: z.array(TodoRefSchema),
+  blocks: z.array(TodoRefSchema),
+  relatedTo: z.array(TodoRefSchema),
+  spawnsFrom: z.string().nullable(),
+  resolvedBy: z.array(z.string()),
+});
+export type AdaptedTodo = z.infer<typeof AdaptedTodoSchema>;
+export const TodosResponseSchema = z.object({
+  version: Version,
+  todos: z.array(AdaptedTodoSchema),
+});
+
 // ── Freshness + health ───────────────────────────────────────────────────────
 export const FreshnessStateSchema = z.enum([
   "fresh", "stale:commits", "stale:dirty", "stale:both", "empty", "unknown",
@@ -207,6 +233,7 @@ export const RESPONSE_SCHEMAS = {
   aggregates: AggregatesResponseSchema,
   decisions: DecisionsResponseSchema,
   "decision-detail": DecisionDetailResponseSchema,
+  todos: TodosResponseSchema,
   freshness: FreshnessResponseSchema,
   health: HealthResponseSchema,
 } as const;

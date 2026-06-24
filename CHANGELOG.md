@@ -17,6 +17,60 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.0.0] — 2026-06-24
+
+> **Breaking release.** The MCP primitive tool surface is consolidated from 17
+> separately-named tools into 3 action-dispatched tools (`decision` / `pr` /
+> `todo`). Old tool names are removed (clean break). External MCP consumers
+> (e.g. mesh) must migrate per the table below. The HTTP API contract is
+> unaffected (still `version: 1`; `/api/todos` is purely additive).
+
+### Added
+
+- **TODO entity** — storage layer, `todo` MCP tool (action-dispatched: `propose` /
+  `get` / `list` / `search` / `update` / `link` / `transition`), `/api/todos`
+  HTTP endpoint, and `AdaptedTodo` contract. TODOs live in the durable decisions
+  sidecar alongside decisions, linked to code and decisions via the same
+  qualified-name / file-path edges.
+
+### Changed
+
+- **Consolidated 17 decision / PR tools into 3 action-dispatched tools.**
+  `decision`, `pr`, and `todo` replace the 17 separately-named tools. Every
+  caller passes `action` to select the operation; all other parameters are
+  unchanged. See the Migration table below.
+
+### Removed
+
+- Individual tool names `create_decision`, `update_decision`, `delete_decision`,
+  `get_decision`, `search_decisions`, `why_was_this_built`, `decision_candidates`,
+  `link_decision`, `promote_decision`, `propose_decision`, `supersede_decision`,
+  `record_reconciliation`, `pending_reconciliations`, `open_pr`, `add_pr_touch`,
+  `merge_pr`, `get_pr` — all removed from the MCP surface; replaced by the
+  `decision` / `pr` / `todo` dispatchers below.
+
+### Migration
+
+| Old tool name | New call form |
+|---|---|
+| `create_decision(…)` | `decision({action:"create", …})` |
+| `update_decision({id, …})` | `decision({action:"update", id, …})` |
+| `delete_decision({id})` | `decision({action:"delete", id})` |
+| `get_decision({id})` | `decision({action:"get", id})` |
+| `search_decisions({query, …})` | `decision({action:"search", query, …})` |
+| `why_was_this_built({qualified_name})` | `decision({action:"why", qualified_name})` ⚠️ external consumers (e.g. mesh) must update |
+| `decision_candidates({…})` | `decision({action:"candidates", …})` |
+| `link_decision({decision_id, target, …})` | `decision({action:"link", decision_id, target, …})` |
+| `promote_decision({id, tier})` | `decision({action:"promote", id, tier})` |
+| `propose_decision(…)` | `decision({action:"propose", …})` |
+| `supersede_decision({old_decision_id, …})` | `decision({action:"supersede", old_decision_id, …})` |
+| `record_reconciliation({decision_id, verdict, …})` | `decision({action:"reconcile", decision_id, verdict, …})` |
+| `pending_reconciliations({…})` | `decision({action:"pending", …})` |
+| `open_pr({title, author, …})` | `pr({action:"open", title, author, …})` |
+| `add_pr_touch({pr_number, …, action:"added"\|"modified"})` | `pr({action:"touch", pr_number, …, change:"added"\|"modified"})` — inner field renamed `action`→`change` |
+| `merge_pr({pr_number})` | `pr({action:"merge", pr_number})` |
+| `get_pr({pr_number})` | `pr({action:"get", pr_number})` |
+
 ## [0.9.0] — 2026-06-16
 
 ### Added
@@ -711,6 +765,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.0.0]: https://github.com/ruevu/cortex/releases/tag/v1.0.0
 [0.9.0]: https://github.com/ruevu/cortex/releases/tag/v0.9.0
 [0.8.24]: https://github.com/ruevu/cortex/releases/tag/v0.8.24
 [0.8.23]: https://github.com/ruevu/cortex/releases/tag/v0.8.23

@@ -7,7 +7,8 @@ describe("decision extensions contract", () => {
   afterAll(async () => { await h.close(); });
 
   it("propose_decision creates status=proposed and is readable via get_decision", async () => {
-    const r = await callTool(h, "propose_decision", {
+    const r = await callTool(h, "decision", {
+      action: "propose",
       title: "D1",
       problem: "p",
       resolution: "r",
@@ -18,37 +19,39 @@ describe("decision extensions contract", () => {
     expect(d.problem).toBe("p");
     expect(d.resolution).toBe("r");
 
-    const g = JSON.parse((await callTool(h, "get_decision", { id: d.id })).content[0].text);
+    const g = JSON.parse((await callTool(h, "decision", { action: "get", id: d.id })).content[0].text);
     expect(g.status).toBe("proposed");
     expect(g.problem).toBe("p");
   });
 
   it("supersede_decision atomic: old becomes superseded, new is active, superseded_by backlink set", async () => {
     const a = JSON.parse(
-      (await callTool(h, "create_decision", {
+      (await callTool(h, "decision", {
+        action: "create",
         title: "old", description: "d", rationale: "r", problem: "p", resolution: "res",
       })).content[0].text
     );
     const b = JSON.parse(
-      (await callTool(h, "supersede_decision", {
+      (await callTool(h, "decision", {
+        action: "supersede",
         old_decision_id: a.id, title: "new", problem: "np", resolution: "nr", rationale: "why",
       })).content[0].text
     );
     expect(b.status).toBe("active");
-    const ga = JSON.parse((await callTool(h, "get_decision", { id: a.id })).content[0].text);
+    const ga = JSON.parse((await callTool(h, "decision", { action: "get", id: a.id })).content[0].text);
     expect(ga.status).toBe("superseded");
     expect(ga.superseded_by).toBe(b.id);
   });
 
   it("link_decision supports RELATED_TO and DEPENDS_ON", async () => {
-    const a = JSON.parse((await callTool(h, "create_decision", { title: "A", description: "d", rationale: "r" })).content[0].text);
-    const b = JSON.parse((await callTool(h, "create_decision", { title: "B", description: "d", rationale: "r" })).content[0].text);
-    const c = JSON.parse((await callTool(h, "create_decision", { title: "C", description: "d", rationale: "r" })).content[0].text);
+    const a = JSON.parse((await callTool(h, "decision", { action: "create", title: "A", description: "d", rationale: "r" })).content[0].text);
+    const b = JSON.parse((await callTool(h, "decision", { action: "create", title: "B", description: "d", rationale: "r" })).content[0].text);
+    const c = JSON.parse((await callTool(h, "decision", { action: "create", title: "C", description: "d", rationale: "r" })).content[0].text);
 
-    await callTool(h, "link_decision", { decision_id: a.id, target: b.id, relation: "RELATED_TO" });
-    await callTool(h, "link_decision", { decision_id: a.id, target: c.id, relation: "DEPENDS_ON" });
+    await callTool(h, "decision", { action: "link", decision_id: a.id, target: b.id, relation: "RELATED_TO" });
+    await callTool(h, "decision", { action: "link", decision_id: a.id, target: c.id, relation: "DEPENDS_ON" });
 
-    const view = JSON.parse((await callTool(h, "get_decision", { id: a.id })).content[0].text);
+    const view = JSON.parse((await callTool(h, "decision", { action: "get", id: a.id })).content[0].text);
     expect(view.related_decisions.map((d: any) => d.id)).toContain(b.id);
     expect(view.depends_on.map((d: any) => d.id)).toContain(c.id);
   });
@@ -61,17 +64,19 @@ describe("decision extensions contract", () => {
   // startup via migrateDecisionsFromGraphDb().
 
   it("search_decisions finds matches on new problem field", async () => {
-    await callTool(h, "propose_decision", {
+    await callTool(h, "decision", {
+      action: "propose",
       title: "Z", problem: "unicorn banana rarity", resolution: "x", rationale: "r",
     });
-    const r = await callTool(h, "search_decisions", { query: "unicorn" });
+    const r = await callTool(h, "decision", { action: "search", query: "unicorn" });
     expect(r.content[0].text).toContain("unicorn");
   });
 
   it("get_decision preserves governs and references arrays (regression for I1)", async () => {
     // Create a decision with a governed file path
     const created = JSON.parse(
-      (await callTool(h, "create_decision", {
+      (await callTool(h, "decision", {
+        action: "create",
         title: "GovRef",
         description: "d",
         rationale: "r",
@@ -80,7 +85,7 @@ describe("decision extensions contract", () => {
         governs: ["src/viewer/projection.js"],
       })).content[0].text
     );
-    const view = JSON.parse((await callTool(h, "get_decision", { id: created.id })).content[0].text);
+    const view = JSON.parse((await callTool(h, "decision", { action: "get", id: created.id })).content[0].text);
     expect(Array.isArray(view.governs)).toBe(true);
     expect(view.governs.length).toBeGreaterThanOrEqual(1);
     // references can be empty but must be present

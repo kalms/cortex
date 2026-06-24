@@ -115,7 +115,7 @@ over grep/Read:
   - get_code_snippet(qualified_name)  → read source for a known symbol
   - trace_path(function_name, mode="callers"|"calls")
                                        → who calls X / what X calls
-  - why_was_this_built(qualified_name) → check governing decisions
+  - decision({action:"why", qualified_name}) → check governing decisions
   - search_code(pattern)              → graph-augmented grep
   - get_architecture(aspects)         → project structure overview
 
@@ -124,7 +124,7 @@ Fall back to Grep/Glob/Read only for:
   - Cases where Cortex returns no results AND the index is current
 
 After any non-trivial commit, consider:
-  - propose_decision / create_decision if an architectural choice was made
+  - decision({action:"propose"}) / decision({action:"create"}) if an architectural choice was made
   - detect_changes + index_repository to keep the graph current
 EOF
         # Cold-start decision seeding: if the durable decisions store is empty,
@@ -137,11 +137,11 @@ EOF
                 cat <<'EOF'
 
 --- Cold-start: no decisions captured yet ---
-This repo is indexed but has zero decisions, so why_was_this_built and
-search_decisions are empty. Offer to bootstrap them:
+This repo is indexed but has zero decisions, so decision({action:"why"}) and
+decision({action:"search"}) are empty. Offer to bootstrap them:
 
   Run the `seed-decisions` skill — it frames candidates from git history and
-  docs (via the decision_candidates MCP tool), writes them as `proposed`
+  docs (via decision({action:"candidates"})), writes them as `proposed`
   decisions with provenance, and asks you to ratify a subset.
 EOF
             fi
@@ -150,7 +150,7 @@ EOF
         if [ "${CORTEX_RECONCILE:-0}" = "1" ] && [ -n "$CORTEX_BIN" ]; then
             DRIFTED="$(cd "$REPO" && "$CORTEX_BIN" reconcile status 2>/dev/null | tr -dc '0-9')"
             if [ -n "$DRIFTED" ] && [ "$DRIFTED" -gt 0 ]; then
-                printf '↻ %s decision(s) drifted since last reconciliation. Call pending_reconciliations to refresh their verdicts.\n' "$DRIFTED"
+                printf '↻ %s decision(s) drifted since last reconciliation. Call decision({action:"pending"}) to refresh their verdicts.\n' "$DRIFTED"
             fi
         fi
         ;;
@@ -165,7 +165,7 @@ and you'll be forced to fall back to grep. Index once up front and the
 session's code-discovery is hash-O(1) for the rest of the work.
 
 After indexing, use:
-  - search_graph, get_code_snippet, trace_path, why_was_this_built
+  - search_graph, get_code_snippet, trace_path, decision({action:"why"})
   - search_code for text patterns with structural context
 EOF
         ;;

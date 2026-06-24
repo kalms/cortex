@@ -16,6 +16,7 @@ import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
+import { buildAdaptedTodos } from "./api-todos.js";
 import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "./frame-map.js";
 import { STAGE_W, STAGE_H } from "./frame-layout.js";
@@ -28,9 +29,11 @@ import {
 import {
   CONTRACT_VERSION, GraphResponseSchema, ProjectsResponseSchema, FramesResponseSchema,
   FileEdgesResponseSchema, AggregatesResponseSchema, DecisionsResponseSchema,
-  DecisionDetailResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
+  DecisionDetailResponseSchema, TodosResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
   ProjectParamSchema, DecisionIdParamSchema,
 } from "./api-schemas.js";
+import { TodosRepository } from "../todos/repository.js";
+import { TodoLinksRepository } from "../todos/links-repository.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -76,6 +79,48 @@ export interface ProjectDecisions {
 }
 
 const NOOP_CLOSE = () => {};
+
+/** A todos repo pair resolved for one viewer request, plus a `close` the
+ *  caller MUST invoke (a no-op for the server-bound home repo). */
+export interface ProjectTodos {
+  todos: TodosRepository;
+  links: TodoLinksRepository;
+  owned: boolean;
+  close(): void;
+}
+
+/**
+ * Resolve the todos repos for a viewer request's `project`, mirroring
+ * {@link openProjectDecisions}.
+ *
+ * Todos share the same decisions DB path (`~/.cortex/<repo-id>/decisions.db`),
+ * so this follows the same resolution logic: the server-bound (home) repos are
+ * returned for the bound project or a project unknown to the registry; any OTHER
+ * registered project has its decisions DB opened and the caller MUST `close()` it
+ * (`owned: true`).
+ */
+export function openProjectTodos(
+  boundTodos: TodosRepository,
+  boundLinks: TodoLinksRepository,
+  boundProject: string | null | undefined,
+  requestedProject: string | null | undefined,
+  registry: { findByName(name: string): { root_path: string } | null },
+): ProjectTodos {
+  if (!requestedProject || requestedProject === boundProject) {
+    return { todos: boundTodos, links: boundLinks, owned: false, close: NOOP_CLOSE };
+  }
+  const rootPath = registry.findByName(requestedProject)?.root_path ?? null;
+  if (!rootPath) {
+    return { todos: boundTodos, links: boundLinks, owned: false, close: NOOP_CLOSE };
+  }
+  const db = openDecisionsDb(resolveDecisionsDbPath(rootPath), legacyDecisionsDbPath(rootPath));
+  return {
+    todos: new TodosRepository(db),
+    links: new TodoLinksRepository(db),
+    owned: true,
+    close: () => db.close(),
+  };
+}
 
 /**
  * Resolve the decisions repos for a viewer request's `project`, mirroring
@@ -188,6 +233,9 @@ export async function bindWithRetry(
  * @param decisionsRepo Optional decisions repo for the home project (the
  *   `/api/decisions*` routes return `503` without it).
  * @param decisionLinksRepo Optional decision-links repo, paired with the above.
+ * @param todosRepo Optional todos repo for the home project (the
+ *   `/api/todos` route returns `503` without it).
+ * @param todoLinksRepo Optional todo-links repo, paired with the above.
  * @returns A {@link ViewerServerHandle}; `port` is `-1` when the bind failed.
  */
 export function startViewerServer(
@@ -195,6 +243,8 @@ export function startViewerServer(
   indexerProject?: string | null,
   decisionsRepo?: DecisionsRepository,
   decisionLinksRepo?: DecisionLinksRepository,
+  todosRepo?: TodosRepository,
+  todoLinksRepo?: TodoLinksRepository,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     // Master registry, opened once for the server's lifetime. Seed it on first
@@ -318,6 +368,26 @@ export function startViewerServer(
         } finally {
           if (resolved?.owned) resolved.store.close();
           pd.close();
+        }
+        return;
+      }
+
+      // ── /api/todos ──
+      if (pathname === "/api/todos") {
+        if (!todosRepo || !todoLinksRepo) { respondError(res, 503, "todos repos unavailable", cors); return; }
+        const pt = openProjectTodos(todosRepo, todoLinksRepo, indexerProject, project, registry);
+        const resolved = openProjectStore(store, indexerProject, project, { registry });
+        const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
+        try {
+          const records = pt.todos.list();
+          const links = records.flatMap((r) => pt.links.findByTodo(r.id));
+          const blocking = records.flatMap((r) => pt.links.findBlocking(r.id));
+          const { nodesByPath, framesByPath } = buildPathIndices(nodes);
+          const todos = buildAdaptedTodos(records, links, blocking, nodesByPath, framesByPath);
+          respond(res, TodosResponseSchema, { version: CONTRACT_VERSION, todos }, freshCtx());
+        } finally {
+          if (resolved?.owned) resolved.store.close();
+          pt.close();
         }
         return;
       }

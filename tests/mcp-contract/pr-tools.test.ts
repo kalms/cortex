@@ -10,7 +10,7 @@ describe("PR tools contract — lifecycle", () => {
 
   it("open_pr → add_pr_touch × 3 → propose_decision(pr_number) → merge_pr ratifies", async () => {
     // open
-    const openRes = await callTool(h, "open_pr", { title: "temporal subsystem", author: "mira", introduces_frame: "src/temporal" });
+    const openRes = await callTool(h, "pr", { action: "open", title: "temporal subsystem", author: "mira", introduces_frame: "src/temporal" });
     expect(ResponseSchema.safeParse(openRes).success).toBe(true);
     expect(openRes.isError).toBeFalsy();
     const pr = JSON.parse(openRes.content[0].text);
@@ -19,16 +19,17 @@ describe("PR tools contract — lifecycle", () => {
 
     // touches
     for (const touch of [
-      { frame_id: "src/temporal", node_name: "timeline.ts", action: "added" as const },
-      { frame_id: "src/temporal", node_name: "ordering.ts", action: "added" as const },
-      { frame_id: "src/events", node_name: "emitter.ts", action: "modified" as const },
+      { frame_id: "src/temporal", node_name: "timeline.ts", change: "added" as const },
+      { frame_id: "src/temporal", node_name: "ordering.ts", change: "added" as const },
+      { frame_id: "src/events", node_name: "emitter.ts", change: "modified" as const },
     ]) {
-      const tRes = await callTool(h, "add_pr_touch", { pr_number: pr.number, ...touch });
+      const tRes = await callTool(h, "pr", { action: "touch", pr_number: pr.number, ...touch });
       expect(tRes.isError).toBeFalsy();
     }
 
     // propose a decision introduced by the PR
-    const propRes = await callTool(h, "propose_decision", {
+    const propRes = await callTool(h, "decision", {
+      action: "propose",
       title: "causal ordering",
       problem: "need order",
       resolution: "Lamport + wall clock",
@@ -39,24 +40,24 @@ describe("PR tools contract — lifecycle", () => {
     expect(prop.status).toBe("proposed");
 
     // merge
-    const mRes = await callTool(h, "merge_pr", { pr_number: pr.number });
+    const mRes = await callTool(h, "pr", { action: "merge", pr_number: pr.number });
     const merged = JSON.parse(mRes.content[0].text);
     expect(merged.ratified_decisions).toContain(prop.id);
 
     // PR and decision final state
-    const getPr = JSON.parse((await callTool(h, "get_pr", { pr_number: pr.number })).content[0].text);
+    const getPr = JSON.parse((await callTool(h, "pr", { action: "get", pr_number: pr.number })).content[0].text);
     expect(getPr.state).toBe("merged");
-    const getDec = JSON.parse((await callTool(h, "get_decision", { id: prop.id })).content[0].text);
+    const getDec = JSON.parse((await callTool(h, "decision", { action: "get", id: prop.id })).content[0].text);
     expect(getDec.status).toBe("active");
   });
 
   it("merge_pr on unknown number returns No results", async () => {
-    const res = await callTool(h, "merge_pr", { pr_number: 99999 });
+    const res = await callTool(h, "pr", { action: "merge", pr_number: 99999 });
     expect(res.content[0].text.startsWith("No results:")).toBe(true);
   });
 
   it("get_pr on unknown number returns No results", async () => {
-    const res = await callTool(h, "get_pr", { pr_number: 99999 });
+    const res = await callTool(h, "pr", { action: "get", pr_number: 99999 });
     expect(res.content[0].text.startsWith("No results:")).toBe(true);
   });
 });
@@ -67,8 +68,9 @@ describe("PR tools per-call routing", () => {
   afterAll(async () => { await h.close(); });
 
   it("rejects open_pr when repo_path is missing", async () => {
-    const res = await callTool(h, "open_pr", {
+    const res = await callTool(h, "pr", {
       repo_path: undefined,
+      action: "open",
       title: "x",
       author: "a",
     });
@@ -77,25 +79,26 @@ describe("PR tools per-call routing", () => {
   });
 
   it("rejects add_pr_touch when repo_path is missing", async () => {
-    const res = await callTool(h, "add_pr_touch", {
+    const res = await callTool(h, "pr", {
       repo_path: undefined,
+      action: "touch",
       pr_number: 1,
       frame_id: "f",
       node_name: "n",
-      action: "added",
+      change: "added",
     });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/repo_path required/);
   });
 
   it("rejects merge_pr when repo_path is missing", async () => {
-    const res = await callTool(h, "merge_pr", { repo_path: undefined, pr_number: 1 });
+    const res = await callTool(h, "pr", { repo_path: undefined, action: "merge", pr_number: 1 });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/repo_path required/);
   });
 
   it("rejects get_pr when repo_path is missing", async () => {
-    const res = await callTool(h, "get_pr", { repo_path: undefined, pr_number: 1 });
+    const res = await callTool(h, "pr", { repo_path: undefined, action: "get", pr_number: 1 });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/repo_path required/);
   });
@@ -107,7 +110,8 @@ describe("PR tools per-call routing", () => {
     // the harness primary repo — get_pr against repoB would say "not found".
     const repoB = makeIndexedRepoFixture();
     try {
-      const openRes = await callTool(h, "open_pr", {
+      const openRes = await callTool(h, "pr", {
+        action: "open",
         repo_path: repoB,
         title: "routing-test",
         author: "rka",
@@ -117,13 +121,14 @@ describe("PR tools per-call routing", () => {
       expect(typeof pr.number).toBe("number");
 
       // PR should be visible in repoB
-      const getRes = await callTool(h, "get_pr", { repo_path: repoB, pr_number: pr.number });
+      const getRes = await callTool(h, "pr", { action: "get", repo_path: repoB, pr_number: pr.number });
       expect(getRes.isError).toBeFalsy();
       const got = JSON.parse(getRes.content[0].text);
       expect(got.title).toBe("routing-test");
 
       // ...and NOT in the harness primary repo (because writes routed to repoB).
-      const getHarness = await callTool(h, "get_pr", {
+      const getHarness = await callTool(h, "pr", {
+        action: "get",
         repo_path: h.repoPath,
         pr_number: pr.number,
       });

@@ -54,14 +54,15 @@ describe("regression: decisions don't leak across repos", () => {
     try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
   });
 
-  it("create_decision({ repo_path: B }) writes to B, never to A", async () => {
+  it("decision({ action: 'create', repo_path: B }) writes to B, never to A", async () => {
     // Sanity: both repos start with zero decisions.
     expect(countDecisions(repoA)).toBe(0);
     expect(countDecisions(repoB)).toBe(0);
 
     const res = await client.callTool({
-      name: "create_decision",
+      name: "decision",
       arguments: {
+        action: "create",
         repo_path: repoB,
         title: "scoped to B",
         description: "x",

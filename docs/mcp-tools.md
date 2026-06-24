@@ -11,16 +11,15 @@ storage model behind these tools read the
 ## Where the tools live
 
 The MCP server is assembled in [`src/mcp-server/server.ts`](../src/mcp-server/server.ts),
-which constructs a single `McpServer` and registers five tool groups against a
+which constructs a single `McpServer` and registers tool groups against a
 shared `RepoContextResolver`:
 
 | Group | Source file | Registrar |
 |---|---|---|
 | Code / graph + index lifecycle | [`src/mcp-server/tools/code-tools.ts`](../src/mcp-server/tools/code-tools.ts) | `registerCodeTools` |
-| Decisions | [`src/mcp-server/tools/decision-tools.ts`](../src/mcp-server/tools/decision-tools.ts) | `registerDecisionTools` |
-| Pull requests | [`src/mcp-server/tools/pr-tools.ts`](../src/mcp-server/tools/pr-tools.ts) | `registerPRTools` |
-| Decision reconciliation | [`src/mcp-server/tools/reconciliation-tools.ts`](../src/mcp-server/tools/reconciliation-tools.ts) | `registerReconciliationTools` |
-| Decision promotion | [`src/mcp-server/tools/promotion-tools.ts`](../src/mcp-server/tools/promotion-tools.ts) | `registerPromotionTools` |
+| Decisions (action-dispatched) | [`src/mcp-server/tools/decision-tools.ts`](../src/mcp-server/tools/decision-tools.ts) | `registerDecisionTools` |
+| Pull requests (action-dispatched) | [`src/mcp-server/tools/pr-tools.ts`](../src/mcp-server/tools/pr-tools.ts) | `registerPRTools` |
+| Todos (action-dispatched) | [`src/mcp-server/tools/todo-tools.ts`](../src/mcp-server/tools/todo-tools.ts) | `registerTodoTools` |
 
 Every tool's input schema is a paired `…Shape` (raw Zod shape the MCP SDK
 requires) + `…Schema` (`z.object(shape)` consumed by the `registerTool`
@@ -89,7 +88,7 @@ All tools return MCP content blocks via three helpers
 
 Read tools marked **freshness-aware** (`search_graph`, `get_code_snippet`,
 `trace_path`, `context_pack`, `query_graph`, `search_code`, `get_architecture`,
-`why_was_this_built`) append a freshness verdict to their result when the graph
+`decision({action:"why"})`) append a freshness verdict to their result when the graph
 no longer matches HEAD + working tree:
 
 - `fresh` — trust the graph fully.
@@ -172,7 +171,7 @@ orienting on an unfamiliar symbol.
   `(showing N of M)` when truncated. `ambiguous_input` with candidates when a
   bare name matches more than one symbol; `empty` when it matches none.
 - **Behavior:** resolves the name **once**, then composes `get_code_snippet` +
-  `trace_path` (callers & callees, depth 1) + `why_was_this_built` + `git log`.
+  `trace_path` (callers & callees, depth 1) + `decision({action:"why"})` + `git log`.
   Each section is best-effort: a failing source degrades to `- (none)` /
   `(unavailable)` rather than sinking the pack. Freshness-aware.
 - **Why:** collapses the 4-roundtrip symbol-exploration loop into one turn. Use
@@ -272,38 +271,40 @@ Enrich the graph with runtime traces.
 
 ---
 
-## Decision tools
+## `decision` tool
 
-Capture and query architectural decisions. Decisions live in the durable
-sidecar `.cortex/decisions.db` (never overwritten by re-indexing) and link to
-code via string qualified-names / file paths. See
+Action-dispatched tool for capturing and querying architectural decisions.
+Decisions live in the durable sidecar `.cortex/decisions.db` (never overwritten
+by re-indexing) and link to code via string qualified-names / file paths. See
 [decisions-storage.md](architecture/decisions-storage.md).
 
-### `create_decision`
+**Params common to all actions:** `repo_path`, `action`.
+
+### `action: "create"`
 Create a decision node.
-- **Params:** `repo_path`, `title`, `description`, `rationale`,
+- **Params:** `title`, `description`, `rationale`,
   `alternatives?` (`{name, reason_rejected}[]`), `governs?` (qns/paths),
   `references?`, `problem?`, `resolution?`.
 - **Why:** the proactive capture primitive — record a non-obvious choice with
   its rationale and the alternatives you rejected.
 
-### `propose_decision`
+### `action: "propose"`
 Create a decision in `status: "proposed"`.
-- **Params:** as `create_decision`, plus `pr_number?`, `author?` (e.g.
+- **Params:** as `create`, plus `pr_number?`, `author?` (e.g.
   `cortex:seed`), `provenance?` (machine-derived source for review).
 - **Why:** for candidates that need human ratification before becoming active —
   including cold-start seeded decisions.
 
-### `supersede_decision`
+### `action: "supersede"`
 Atomically create a new decision that supersedes an existing one.
-- **Params:** `repo_path`, `old_decision_id`, `title`, `problem`, `resolution`,
+- **Params:** `old_decision_id`, `title`, `problem`, `resolution`,
   `rationale`, `alternatives?`, `governs?`, `references?`.
 - **Why:** record a direction change without losing the history of what it
   replaced.
 
-### `update_decision`
+### `action: "update"`
 Edit an existing decision's fields.
-- **Params:** `repo_path`, `id`, plus any of `title?`, `description?`,
+- **Params:** `id`, plus any of `title?`, `description?`,
   `rationale?`, `alternatives?`, `status?` (`active`/`superseded`/`deprecated`),
   `superseded_by?`, `problem?`, `resolution?`, `governs?`, `references?`.
 - **Note:** `governs` and `references` are **full-set replacements** when
@@ -311,79 +312,65 @@ Edit an existing decision's fields.
 - **Why:** ratify a proposed decision (→ `active`), correct prose, or re-target
   governance.
 
-### `delete_decision`
+### `action: "delete"`
 Delete a decision and all its edges.
-- **Params:** `repo_path`, `id`.
+- **Params:** `id`.
 
-### `get_decision`
+### `action: "get"`
 Fetch a decision with all resolved relationships.
-- **Params:** `repo_path`, `id`.
+- **Params:** `id`.
 - **Returns:** the decision plus `governs`, `references`, `related_decisions`,
   `depends_on`, PR back-refs (`introduced_in`, `implemented_by`,
   `challenged_by`, `discussed_in`), reconciliation fields, and a derived
   `display_state`.
 
-### `search_decisions`
+### `action: "search"`
 Full-text search over decision titles, descriptions, and rationale.
-- **Params:** `repo_path`, `query` (FTS5 syntax), `scope?` (qn/path to filter to
+- **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to
   governing decisions).
 - **Why:** check for duplicates before creating a decision; explore why an area
   was built a certain way.
 
-### `why_was_this_built`
-Find decisions governing a code entity.
-- **Params:** `repo_path`, `qualified_name` (qn, file path, or bare name).
+### `action: "why"`
+Find decisions governing a code entity. Freshness-aware.
+- **Params:** `qualified_name` (qn, file path, or bare name).
 - **Behavior:** walks up the file/directory hierarchy if there's no direct
   match; returns `ambiguous_input` for non-unique bare names.
 - **Why:** before modifying code, check whether a decision governs it (and
   whether your change contradicts it).
 
-### `link_decision`
+### `action: "link"`
 Attach an edge from a decision to a target.
-- **Params:** `repo_path`, `decision_id`, `target` (node id or file path),
+- **Params:** `decision_id`, `target` (node id or file path),
   `relation?` (`GOVERNS` | `REFERENCES` | `RELATED_TO` | `DEPENDS_ON`, default
   `GOVERNS`).
 - **Why:** add governance/reference edges after a decision exists.
 
-### `decision_candidates`
+### `action: "candidates"`
 Read-only: frame cold-start decision candidates from git history + ADR docs.
-- **Params:** `repo_path`, `max_candidates?` (default 20).
+- **Params:** `max_candidates?` (default 20).
 - **Returns:** a manifest the `seed-decisions` skill turns into proposed
   decisions. **Writes nothing.**
 - **Why:** bootstrap a freshly-indexed repo that has zero decisions.
 
----
-
-## Decision promotion
-
-### `promote_decision`
+### `action: "promote"`
 Promote a decision to a visibility tier.
-- **Params:** `repo_path`, `id`, `tier` (`team` | `public`).
+- **Params:** `id`, `tier` (`team` | `public`).
 - **Why:** raise a decision's visibility once it's been validated for a wider
   audience.
 
----
-
-## Decision reconciliation
-
-Detect and judge drift between a decision's prose and the code it governs.
-Reconciliation hashes the **current working-tree** source of governed files, so
-in-session edits flip a decision stale before any commit. Agent-delegated and
-gated behind `CORTEX_RECONCILE=1` (off by default in v1). See the
-reconciliation section in [`CLAUDE.md`](../CLAUDE.md).
-
-### `pending_reconciliations`
+### `action: "pending"`
 List active decisions whose governed code drifted since their last verdict (or
-were never judged).
-- **Params:** `repo_path`, `limit?` (default 25).
+were never judged). Gated behind `CORTEX_RECONCILE=1`.
+- **Params:** `limit?` (default 25).
 - **Returns:** each entry carries the decision prose + current governed source,
   ready for a batch judgment pass. Declarative (no-`GOVERNS`) decisions are
   skipped.
 - **Why:** find everything that needs re-judging in one call.
 
-### `record_reconciliation`
-Record a code-alignment verdict for a decision.
-- **Params:** `repo_path`, `decision_id`, `verdict` (`match` | `partial` |
+### `action: "reconcile"`
+Record a code-alignment verdict for a decision. Gated behind `CORTEX_RECONCILE=1`.
+- **Params:** `decision_id`, `verdict` (`match` | `partial` |
   `drift`), `nonconformant?` (`{ref, note}[]`), `note?`.
 - **Behavior:** the server recomputes the governed-source hash itself; returns
   `not_reconcilable` if the decision has no `GOVERNS` links (it's declarative).
@@ -392,33 +379,85 @@ Record a code-alignment verdict for a decision.
 
 ---
 
-## Pull-request tools
+## `pr` tool
 
-PR entities live in the graph DB; the merge flow ratifies decisions in the same
-repo's decisions sidecar.
+Action-dispatched tool for pull-request entities. PR entities live in the graph
+DB; the merge flow ratifies decisions in the same repo's decisions sidecar.
 
-### `open_pr`
+**Params common to all actions:** `repo_path`, `action`.
+
+### `action: "open"`
 Create a pull-request entity in the graph.
-- **Params:** `repo_path`, `title`, `author`, plus optional `description`,
+- **Params:** `title`, `author`, plus optional `description`,
   `branch`, `state` (`draft`/`open`/`merged`/`closed`), `introduces_frame`,
   `additions`, `source` (`native`/`mirror`/`scenario`), `external_ref`
   (`{provider, repo, number, url}`).
 
-### `add_pr_touch`
+### `action: "touch"`
 Record that a PR touches (adds/modifies) a file.
-- **Params:** `repo_path`, `pr_number`, `frame_id`, `node_name`, `action`
+- **Params:** `pr_number`, `frame_id`, `node_name`, `change`
   (`added` | `modified`).
+- **Note:** the inner field is `change` (not `action`) to avoid collision with
+  the outer dispatch field.
 
-### `merge_pr`
+### `action: "merge"`
 Mark a PR merged.
-- **Params:** `repo_path`, `pr_number`.
+- **Params:** `pr_number`.
 - **Behavior:** ratifies any decisions the PR *introduces* from `proposed` to
   `active`.
 - **Why:** ties decision ratification to the merge event.
 
-### `get_pr`
+### `action: "get"`
 Fetch a PR with resolved decision refs and linked PRs.
-- **Params:** `repo_path`, `pr_number`.
+- **Params:** `pr_number`.
+
+---
+
+## `todo` tool
+
+Action-dispatched tool for TODO entities — trackable work items stored in the
+durable sidecar, linked to decisions and code. The `/api/todos` HTTP endpoint
+exposes the same data for the viewer via the `AdaptedTodo` contract.
+
+**Params common to all actions:** `repo_path`, `action`.
+
+### `action: "propose"`
+Propose a new TODO entity.
+- **Params:** `title`, `description?`, `status?` (default `"open"`),
+  `governs?` (qns/paths), `references?`.
+- **Returns:** the created TODO with its assigned ID.
+
+### `action: "get"`
+Fetch a TODO by ID with resolved links.
+- **Params:** `id`.
+- **Returns:** the TODO plus linked decisions and code entities.
+
+### `action: "list"`
+List TODOs, optionally filtered by status.
+- **Params:** `status?` (`open` | `in_progress` | `done` | `wont_do`),
+  `limit?` (default 25), `offset?` (default 0).
+
+### `action: "search"`
+Full-text search over TODO titles and descriptions.
+- **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to linked TODOs).
+
+### `action: "update"`
+Update TODO fields.
+- **Params:** `id`, plus any of `title?`, `description?`, `status?`,
+  `governs?`, `references?`.
+- **Note:** `governs` and `references` are **full-set replacements** when
+  provided (`[]` clears all).
+
+### `action: "link"`
+Attach an edge from a TODO to a decision, code entity, or another TODO.
+- **Params:** `todo_id`, `target` (decision ID, qn, or file path),
+  `relation?` (`GOVERNS` | `REFERENCES` | `RELATED_TO`, default `RELATED_TO`).
+
+### `action: "transition"`
+Transition a TODO to a new state.
+- **Params:** `id`, `status` (`open` | `in_progress` | `done` | `wont_do`),
+  `note?`.
+- **Why:** explicit state machine transitions keep the audit trail clean.
 
 ---
 
@@ -426,8 +465,8 @@ Fetch a PR with resolved decision refs and linked PRs.
 
 | Tool | Mode | Freshness-aware |
 |---|---|---|
-| `search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `search_code`, `query_graph`, `get_architecture`, `why_was_this_built` | default | ✅ |
+| `search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `search_code`, `query_graph`, `get_architecture`, `decision({action:"why"})` | default | ✅ |
 | `get_graph_schema`, `check_contracts`, `detect_changes`, `ingest_traces` | default | — |
 | `index_repository`, `index_status` | allowUnindexed | — |
 | `list_projects`, `delete_project` | crossRepo | — |
-| all decision / PR / reconciliation / promotion tools | default | — |
+| `decision` (all other actions), `pr` (all actions), `todo` (all actions) | default | — |

@@ -96,8 +96,8 @@ function parseAlternatives(raw: string | null): AdaptedAlternative[] {
   }
 }
 
-function resolveGovernsRef(
-  link: DecisionLink,
+export function resolveGovernsRef(
+  link: { target_kind: string; target_ref: string },
   nodesByPath: Map<string, NodeRow>,
   framesByPath: Map<string, FrameInfo>,
 ): GovernsRef[] {

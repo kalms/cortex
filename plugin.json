@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 2D frames viewer",
   "author": {
     "name": "ruevu",
