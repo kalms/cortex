@@ -5,7 +5,7 @@ import { TodosRepository } from "./repository.js";
 import { TodoLinksRepository } from "./links-repository.js";
 import {
   rowToTodo, type Todo, type TodoRecord, type TodoWithRefs, type TodoRefRow,
-  type ProposeTodoInput, type UpdateTodoInput, type LinkTodoInput, type TodoLinkRelation,
+  type ProposeTodoInput, type UpdateTodoInput, type LinkTodoInput, type TodoLinkRelation, type TransitionTodoInput,
 } from "./types.js";
 
 export interface TodoServiceDeps {
@@ -14,6 +14,13 @@ export interface TodoServiceDeps {
   links: TodoLinksRepository;
 }
 
+const TRANSITIONS: Record<string, ReadonlySet<string>> = {
+  open: new Set(["in_progress", "cancelled"]),
+  in_progress: new Set(["blocked", "done", "cancelled"]),
+  blocked: new Set(["in_progress", "open", "cancelled"]),
+  done: new Set(),
+  cancelled: new Set(),
+};
 
 export class TodoService {
   private db: Database.Database;
@@ -110,6 +117,23 @@ export class TodoService {
     if (input.assignee !== undefined) patch.assignee = input.assignee;
     this.todos.update(existing.id, patch);
     if (input.governs !== undefined) this.replaceLinks(existing.id, "GOVERNS", input.governs, now);
+    return rowToTodo({ ...existing, ...patch } as TodoRecord);
+  }
+
+  transition(idOrSeq: string, input: TransitionTodoInput): Todo {
+    const existing = this.resolveRecord(idOrSeq);
+    if (!existing) throw new Error(`Todo not found: ${idOrSeq}`);
+    if (!TRANSITIONS[existing.state]?.has(input.to)) {
+      throw new Error(`Invalid transition: ${existing.state} → ${input.to}`);
+    }
+    const now = new Date().toISOString();
+    const patch: Partial<TodoRecord> = { state: input.to, updated_at: now };
+    if (input.to === "in_progress" && !existing.started_at) patch.started_at = now;
+    if (input.to === "done" || input.to === "cancelled") patch.closed_at = now;
+    if (input.to === "blocked" || input.to === "cancelled") patch.state_reason = input.reason ?? null;
+    this.todos.update(existing.id, patch);
+    if (input.to === "done") for (const pr of input.resolved_by ?? []) this.addLink(existing.id, pr, "RESOLVED_BY", now);
+    if (input.to === "blocked") for (const b of input.blocked_by ?? []) this.addLink(existing.id, b, "BLOCKED_BY", now);
     return rowToTodo({ ...existing, ...patch } as TodoRecord);
   }
 
