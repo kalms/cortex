@@ -20,10 +20,11 @@ const SCANNED_FIELDS = [
   "resolution",
 ] as const;
 
-export function validateDecisionFields(
+export function validatePrimitiveFields(
   input: Record<string, unknown>,
+  fields: readonly string[],
 ): { marker: string; field: string } | null {
-  for (const field of SCANNED_FIELDS) {
+  for (const field of fields) {
     const value = input[field];
     if (typeof value !== "string") continue;
     for (const marker of MARKERS) {
@@ -33,4 +34,11 @@ export function validateDecisionFields(
     }
   }
   return null;
+}
+
+/** Back-compat wrapper: scans the decision string fields. */
+export function validateDecisionFields(
+  input: Record<string, unknown>,
+): { marker: string; field: string } | null {
+  return validatePrimitiveFields(input, SCANNED_FIELDS);
 }
