@@ -1,6 +1,6 @@
 // tests/frame-extraction/hierarchy-cluster.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
-import { rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -19,13 +19,25 @@ RUN("hierarchy clustering integration", () => {
     dbPath = join(root, ".cortex", "graph.db");
     const db = new Database(dbPath);
     db.exec(`CREATE TABLE nodes (id INTEGER PRIMARY KEY, kind TEXT, name TEXT, file_path TEXT, project TEXT, data TEXT);`);
-    const f = db.prepare("INSERT INTO nodes (kind,name,file_path,project,data) VALUES ('file',?,?,?,NULL)");
-    const c = db.prepare("INSERT INTO nodes (kind,name,file_path,project,data) VALUES ('class',?,?,?,?)");
-    // 4 files with disjoint vocab so TF-IDF alone would NOT group them; two share base Foo.
-    for (const [name, fp] of [["a","src/a.ts"],["b","src/b.ts"],["c","src/c.ts"],["d","src/d.ts"]] as const) f.run(name, fp, project);
-    c.run("Foo", "src/foo.ts", project, JSON.stringify({}));
-    c.run("A", "src/a.ts", project, JSON.stringify({ base_classes: ["Foo"] }));
-    c.run("B", "src/b.ts", project, JSON.stringify({ base_classes: ["Foo"] }));
+    const fn = db.prepare("INSERT INTO nodes (kind,name,file_path,project,data) VALUES ('function',?,?,?,NULL)");
+    const cls = db.prepare("INSERT INTO nodes (kind,name,file_path,project,data) VALUES ('class',?,?,?,?)");
+    // Two vocabulary-distinct groups so real TF-IDF clusters form (mirrors
+    // cluster-tfidf-hdbscan.test.ts). 6 auth files + 6 billing files; the
+    // blob text comes from the function/class symbol names per file.
+    for (let i = 0; i < 6; i++) {
+      fn.run(`authMiddleware${i}`, `src/auth/middleware_${i}.ts`, project);
+      fn.run(`validateToken${i}`, `src/auth/middleware_${i}.ts`, project);
+      cls.run(`SessionStore${i}`, `src/auth/middleware_${i}.ts`, project, JSON.stringify({}));
+    }
+    for (let i = 0; i < 6; i++) {
+      cls.run(`InvoiceList${i}`, `src/billing/invoice_${i}.ts`, project, JSON.stringify({}));
+      fn.run(`computeTotal${i}`, `src/billing/invoice_${i}.ts`, project);
+      fn.run(`processPayment${i}`, `src/billing/invoice_${i}.ts`, project);
+    }
+    // Two classes sharing an in-repo base Foo → exactly one hierarchy pair.
+    cls.run("Foo", "src/foo.ts", project, JSON.stringify({}));
+    cls.run("A", "src/a.ts", project, JSON.stringify({ base_classes: ["Foo"] }));
+    cls.run("B", "src/b.ts", project, JSON.stringify({ base_classes: ["Foo"] }));
     db.close();
     hierPath = join(root, "h.jsonl");
     const rdb = new Database(dbPath, { readonly: true });
@@ -41,9 +53,12 @@ RUN("hierarchy clustering integration", () => {
   });
 
   it("γ=0 is inert (passing a hierarchy file with hier_gamma 0 matches no-hierarchy)", () => {
-    const base = runTfIdfHdbscan({ repo_path: root, project_name: project, db_path: dbPath, co_change_path: null, out_path: join(root, "base.json") });
-    const inert = runTfIdfHdbscan({ repo_path: root, project_name: project, db_path: dbPath, co_change_path: null, hierarchy_path: hierPath, hier_gamma: 0, out_path: join(root, "inert.json") });
+    const base = runTfIdfHdbscan({ repo_path: root, project_name: project, db_path: dbPath, co_change_path: null, min_cluster_size: 3, out_path: join(root, "base.json") });
+    const inert = runTfIdfHdbscan({ repo_path: root, project_name: project, db_path: dbPath, co_change_path: null, min_cluster_size: 3, hierarchy_path: hierPath, hier_gamma: 0, out_path: join(root, "inert.json") });
     expect(inert.result.parameters?.hier_pairs_loaded).toBeDefined();
+    // Baseline must actually cluster (HDBSCAN ran, not the early-exit path).
+    const baseNonNoise = base.result.clusters.filter((c) => c.cluster_id !== -1);
+    expect(baseNonNoise.length).toBeGreaterThan(0);
     expect(JSON.stringify(inert.result.clusters)).toEqual(JSON.stringify(base.result.clusters));
   }, 30_000);
 });

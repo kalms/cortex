@@ -303,6 +303,13 @@ def main() -> int:
         dist = (1.0 - args.hier_gamma) * dist + args.hier_gamma * hier_dist
         np.clip(dist, 0.0, 2.0, out=dist)
 
+    # Blending + clipping can leave tiny float residue on the diagonal
+    # (a normalized vector's self-cosine is ~1.0 but not bit-exactly 1.0,
+    # so 1 - sim is ~1e-16 rather than 0). HDBSCAN tolerates it, but
+    # silhouette_score with metric="precomputed" rejects any non-zero
+    # diagonal. Force it to exactly zero so both consumers agree.
+    np.fill_diagonal(dist, 0.0)
+
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=args.min_cluster_size,
         min_samples=args.min_samples,
