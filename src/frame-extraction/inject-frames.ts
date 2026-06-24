@@ -263,6 +263,10 @@ export function pickFrameLabel(
   const dominant = dominantPathSegmentLabel(memberPaths, suppressedTerms);
   if (dominant) return dominant;
 
+  // Pass 4.5: relaxed last-resort recovery before the opaque fallback.
+  const recovered = relaxedRecoveryLabel(topTokens, memberPaths, params, suppressedTerms);
+  if (recovered) return recovered;
+
   // Pass 5: cluster id fallback.
   return `cluster:${clusterId ?? "?"}`;
 }
@@ -281,6 +285,7 @@ export function pickFrameLabel(
 function dominantPathSegmentLabel(
   paths: readonly string[],
   suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+  minFraction?: number,
 ): string | null {
   if (paths.length === 0) return null;
   const params = routeParamTokens(paths);
@@ -329,10 +334,55 @@ function dominantPathSegmentLabel(
   const total = paths.length;
   let best: Cand | null = null;
   for (const c of cands.values()) {
-    if (c.count / total <= 0.5) continue; // strict majority only
+    // Default (minFraction undefined): strict majority (>50%), unchanged. When
+    // a relaxed floor is supplied, include any segment at ≥ that fraction.
+    const frac = c.count / total;
+    if (minFraction === undefined ? frac <= 0.5 : frac < minFraction) continue;
     if (best === null || isStrongerCandidate(c, best)) best = c;
   }
   return best ? best.original : null;
+}
+
+/** Last-resort recovery, reached only when passes 1–4 fail. Relaxes the normal
+ *  gate in two ways: (1) allows `GENERIC_TOKENS` members (deprioritized below
+ *  non-generic), (2) lowers the salience floor to 0.3 (recovers a plurality
+ *  token in a mixed cluster). NEVER accepts a route-param, dynamic segment,
+ *  short filename stem, or repo-ubiquitous suppressed term. Returns null when
+ *  no token or segment clears the relaxed bar, or when no member paths exist. */
+function relaxedRecoveryLabel(
+  topTokens: readonly string[],
+  memberPaths: readonly string[],
+  params: ReadonlySet<string>,
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
+  // Without member paths, there's nothing to recover from — generic tokens alone
+  // don't justify a label (they're in the stop list). Let existing passes handle it.
+  if (memberPaths.length === 0) return null;
+
+  const SALIENCE_FLOOR = 0.3;
+  const recoverable = (w: string, allowGeneric: boolean): boolean => {
+    if (isStructuralLabelToken(w)) return false;
+    if (params.has(w)) return false;
+    if (suppressedTerms.has(w)) return false;
+    if (w.length <= 2 && !isDirectorySegment(w, memberPaths)) return false;
+    if (!allowGeneric && GENERIC_TOKENS.has(w)) return false;
+    if (pathSalience(w, memberPaths) < SALIENCE_FLOOR) return false;
+    return true;
+  };
+  // Two sweeps: non-generic tokens first (preferred), then generic-but-real.
+  for (const allowGeneric of [false, true]) {
+    for (const token of topTokens) {
+      const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
+      if (parts.length > 1 && parts.every((p) => recoverable(p, allowGeneric))) {
+        return formatPathOrderedLabel(token, memberPaths);
+      }
+      if (parts.length === 1 && recoverable(parts[0]!, allowGeneric)) {
+        return token;
+      }
+    }
+  }
+  // Finally: dominant path segment at the relaxed floor.
+  return dominantPathSegmentLabel(memberPaths, suppressedTerms, SALIENCE_FLOOR);
 }
 
 /** Total order for dominant-segment candidates: more members, then shared as a

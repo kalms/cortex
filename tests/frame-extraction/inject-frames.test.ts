@@ -178,7 +178,9 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "packages/bar/y.ts",
     ];
     // Only '' (split before 'apps' / 'packages') is common — no informative segment
-    expect(pickFrameLabel(tokens, paths, 42)).toBe("cluster:42");
+    // Passes 1-4 fail (no non-generic tokens, no common prefix, no strict majority segment).
+    // Pass 4.5 relaxed recovery: 'foo'/'bar' each appear at 50% >= 0.3 threshold → 'bar' recovered
+    expect(pickFrameLabel(tokens, paths, 42)).toBe("bar");
   });
 
   it("skips bracketed path segments like [id] (URL params)", () => {
@@ -196,8 +198,10 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "app/(marketing)/page.tsx",
     ];
     // (marketing) is a route group (structural) → must be skipped; 'app' is
-    // generic → no informative segment → cluster:<id> fallback.
-    expect(pickFrameLabel([], paths, 9)).toBe("cluster:9");
+    // generic → no informative segment in Pass 3.
+    // Pass 4 strict majority: 'page' appears in 1/2 (50%), not > 50% → null.
+    // Pass 4.5 relaxed recovery: 'page' at 50% >= 0.3 → recovered
+    expect(pickFrameLabel([], paths, 9)).toBe("page");
   });
 });
 
@@ -260,9 +264,11 @@ describe("pickFrameLabel — dominant-segment fallback (cluster:N bug)", () => {
 
   it("still returns cluster:<id> when no segment reaches a strict majority", () => {
     // Genuinely heterogeneous 2-file cluster: every informative segment is
-    // shared by only 50% — not dominant — so the opaque fallback is honest.
+    // shared by only 50% — not dominant in strict Pass 4 (>50%).
+    // But Pass 4.5 relaxed recovery will accept segments at >= 0.3 threshold.
     const paths = ["apps/foo/x.ts", "packages/bar/y.ts"];
-    expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("cluster:42");
+    // 'bar' appears at 50% >= 0.3 → recovered by Pass 4.5
+    expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("bar");
   });
 });
 
@@ -503,5 +509,35 @@ describe("pickFrameLabel — directory-aware short tokens (cluster:N recovery)",
     const paths = ["src/core/a.ts", "src/core/b.ts", "src/core/c.ts"];
     // 'ts' is only an extension/stem, never a directory → still rejected; falls to path prefix 'core'(generic)→ cluster:N
     expect(pickFrameLabel(["ts", "id"], paths, 7)).toBe("cluster:7");
+  });
+});
+
+describe("pickFrameLabel — relaxed recovery (Pass 4.5)", () => {
+  it("recovers a generic-but-salient token (index-meta) instead of cluster:N", () => {
+    const paths = ["src/graph/capture-index-meta.ts", "tests/index-meta.ts", "lib/index-meta.ts"];
+    // top tokens are generic ('index','meta') so passes 1-2 reject; 4.5 allows them.
+    // Paths have no common prefix, so Pass 3 fails; no dominant segment >50%, so Pass 4 fails.
+    // Pass 4.5 relaxes the salience gate to 0.3, allowing 'index' (2/3 paths).
+    const label = pickFrameLabel(["index meta", "meta", "index"], paths, 5);
+    expect(label).not.toMatch(/^cluster:/);
+    expect(label.toLowerCase()).toContain("index");
+  });
+  it("recovers a plurality (Mode B) token via the lowered salience bar", () => {
+    // 'allocator' is salient in ~40% of members (below the strict 0.5 gate).
+    const paths = ["src/ids/allocator.ts", "src/ids/short-id.ts", "tests/ids/allocator.test.ts", "tests/decisions/db-todos.test.ts", "tests/decisions/short-id-mint.test.ts"];
+    const label = pickFrameLabel(["allocator", "mint", "fresh"], paths, 6);
+    expect(label).not.toMatch(/^cluster:/);
+  });
+  it("still excludes route-params even in the relaxed pass", () => {
+    // When ONLY a route-param is available as a token, it must be rejected
+    // throughout all passes, never becoming a label.
+    const paths = ["app/[id]/detail.tsx", "blog/[id]/show.tsx"];
+    const label = pickFrameLabel(["id"], paths, 9);
+    // 'id' is a route-param → rejected everywhere; segments 'app'/'blog' are
+    // mixed (one generic, one not) → no dominant segment → 'blog' appears at
+    // 50% but is not >50%, so strict Pass 4 fails; at relaxed 0.3, 'blog' is
+    // >= 0.3 so it succeeds. The test verifies 'id' never becomes a label.
+    expect(label).not.toBe("id");
+    expect(label).not.toMatch(/^cluster:/);
   });
 });
