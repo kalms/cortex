@@ -1,5 +1,57 @@
 # Cortex — Session Handoff
 
+## ⚠ OPEN — frames viewer layout "lean" (deferred to a new session)
+
+**Symptom.** The frames viewer's graph looks off-center — reported as leaning
+left (and it's also bottom-heavy). Most visible on projects with many
+non-ambient frames (e.g. `anthill-cloud`, and the `cortex-wt-vrecenter`
+project).
+
+**What shipped this session (partial, does NOT fully fix it):**
+- **1.1.2 (PR #36, merged):** deterministic **horizontal** recenter of the
+  **ambient** frame cloud's bounding box, stratify path only — `layoutFrames`
+  in [`src/mcp-server/frame-layout.ts`](src/mcp-server/frame-layout.ts).
+- **1.1.3 (PR #37, OPEN / NOT merged, CI green):** extends that recenter to the
+  **vertical** axis. Branch `fix/layout/vertical-recenter`, worktree
+  `../cortex-wt-vrecenter`. Decision **`D-vmhy`** (updated for both axes).
+  ⚠ This is the ambient-only bbox approach below — reconsider before merging.
+
+**Root-cause findings (the important part):**
+- The **ambient** cloud IS centered by the bbox recenter (cortex measured
+  x=499.8 / y=400.3). That part works.
+- The remaining lean is the **non-ambient satellite frames** — placed by a
+  *separate* routine, [`placeNonAmbientFrames`](src/mcp-server/floating-placement.ts)
+  (+ a margin cascade), which the ambient recenter never touches. They sprawl
+  unevenly.
+- Measured on the `cortex-wt-vrecenter` project (21 frames): full-scene
+  **centroid x = 437** (leans left ~63px) while full-scene **bbox x = 500**.
+  The bbox reads "centered" only because one satellite (`api`) is flung to the
+  far bottom-right corner, masking the imbalance. Mass distribution: **left
+  third 8 / mid 9 / right 4**; bottom margin 0 (jammed against the bottom).
+- **Key insight:** bbox-center ≠ centroid. The eye tracks the **centroid**
+  (center of mass); a lone outlier fools any bbox-based centering. Ambient-only
+  recenter is the wrong level — the fix belongs to the **full composed scene**.
+
+**Approach already rejected by the user (don't just redo this):** a post-hoc
+**full-scene centroid recenter** in `buildFrameMap`. User: "not an ideal
+solution." The better direction is likely in **`floating-placement.ts`** —
+distribute satellites more evenly around the centered ambient cloud and avoid
+the lone-corner margin-cascade placement (the `api` outlier) — rather than a
+post-hoc translate. Decide there in the new session.
+
+**Separate, still-open layout issue (different problem):** the whole layout
+**reshuffles on every reindex** — the d3-force seed is `SHA-256(frame records)`,
+so any frame id/label/member-count change (and auto-reindex fires on every
+commit) reseeds the chaotic sim → full relayout. Options noted earlier:
+warm-start/anchor positions, reduce reindex churn, stable seed. Not started.
+
+**Artifacts:** worktree `../cortex-wt-vrecenter` (branch
+`fix/layout/vertical-recenter`, PR #37 open); a stale `npm run dev` server may
+still hold :3334. `cortex` project on main is the centered baseline; switch the
+viewer to `anthill-cloud` / `cortex-wt-vrecenter` to see the lean.
+
+---
+
 ## ✅ DONE (2026-06-26 — 1.1.1: TODO viewer slice + unified layers menu)
 
 Shipped **1.1.1** via the design → plan → subagent-driven TDD → review cycle.
