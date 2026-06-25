@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
+import { classifyGovernsTarget } from "../shared/classify-ref.js";
 import { TodosRepository } from "./repository.js";
 import { TodoLinksRepository } from "./links-repository.js";
 import {
@@ -46,9 +47,7 @@ export class TodoService {
     let kind: string;
     switch (relation) {
       case "GOVERNS":
-        // Check the "::" qn marker before "/": a qualified name always
-        // contains "/" too, so the old order misclassified qns as "path".
-        kind = ref.includes("::") ? "qn" : ref.includes("/") ? "path" : "qn";
+        kind = classifyGovernsTarget(ref);
         break;
       case "BLOCKED_BY":
       case "RELATED_TO": {
