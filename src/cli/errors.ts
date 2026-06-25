@@ -1,3 +1,5 @@
+import { makeStyler, glyphs } from "./style.js";
+
 export class UsageError extends Error {
   constructor(message: string, public hint?: string) {
     super(message);
@@ -26,26 +28,43 @@ export function exitCodeFor(e: unknown): number {
   return 1;
 }
 
-export function renderError(e: unknown): void {
+export function renderError(
+  e: unknown,
+  stream: { isTTY?: boolean; write(s: string): unknown } = process.stderr,
+): void {
+  const s = makeStyler(stream);
+  const g = glyphs();
+
+  const writeLabel = (msg: string) => {
+    stream.write(s.enabled ? `${s.red(s.bold(g.err + " "))}${s.red(msg)}\n` : `ERROR: ${msg}\n`);
+  };
+  const writeHint = (hint: string, prefix = "") => {
+    stream.write(s.enabled ? `\n${s.dim(`${g.arrow} ${prefix}${hint}`)}\n` : `\n${prefix}${hint}\n`);
+  };
+
   if (e instanceof UsageError) {
-    process.stderr.write(`ERROR: ${e.message}\n`);
-    if (e.hint) process.stderr.write(`\n${e.hint}\n`);
+    writeLabel(e.message);
+    if (e.hint) writeHint(e.hint);
     return;
   }
   if (e instanceof DomainError) {
-    process.stderr.write(`ERROR: ${e.message}\n`);
-    if (e.tip) process.stderr.write(`\n${e.tip}\n`);
+    writeLabel(e.message);
+    if (e.tip) writeHint(e.tip);
     return;
   }
   if (e instanceof EnvironmentError) {
-    process.stderr.write(`ERROR: ${e.message}\n`);
-    if (e.fix) process.stderr.write(`\nTo fix: ${e.fix}\n`);
+    writeLabel(e.message);
+    if (e.fix) writeHint(e.fix, "To fix: ");
     return;
   }
   const msg = e instanceof Error ? e.message : String(e);
-  process.stderr.write(`Error: ${msg}\n  (run with --debug to see stack)\n`);
+  stream.write(
+    s.enabled
+      ? `${s.red(s.bold(g.err))} ${s.red(msg)}\n  ${s.dim("(run with --debug to see stack)")}\n`
+      : `Error: ${msg}\n  (run with --debug to see stack)\n`,
+  );
   if (process.env.CORTEX_CLI_DEBUG === "1" && e instanceof Error && e.stack) {
-    process.stderr.write(`\n${e.stack}\n`);
+    stream.write(`\n${e.stack}\n`);
   }
 }
 
