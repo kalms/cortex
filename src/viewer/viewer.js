@@ -1,5 +1,5 @@
-import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
+import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames, fetchTodos } from '/viewer/data-fetch.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -61,6 +61,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   function prDotMergedRGB()       { return isLight() ? [67, 56, 202]   : [79, 70, 229]; }
   function prTextRGB()            { return isLight() ? [79, 70, 229]   : [165, 180, 252]; }
   function amberRGB()             { return [245, 158, 11]; }
+  function todoDotRGB()           { return [250, 204, 21]; }
+  function todoTextRGB()          { return [250, 204, 21]; }
 
   // Display id for a decision: prefer the friendly seq form, fall back to canonical id.
   function decisionDisplayId(d) {
@@ -91,6 +93,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   let DECISIONS = {};
   let FRAME_GOVERNANCE = {};
+  let TODOS = {};
+  let TODO_GOVERNANCE = {};
+  let SPAWNS_FROM = {};
   let AGGREGATES = [];
   let FILE_EDGES = [];
 
@@ -125,12 +130,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   async function loadGraph(projectName) {
     currentProject = projectName;
-    const [graph, decs, aggs, fileEdges, frameMap] = await Promise.all([
+    const [graph, decs, aggs, fileEdges, frameMap, todosResp] = await Promise.all([
       fetchGraph(projectName),
       fetchDecisions(projectName),
       fetchAggregates(projectName),
       fetchFileEdges(projectName),
       fetchFrames(projectName),
+      fetchTodos(projectName),
     ]);
     AGGREGATES = aggs.aggregates || [];
     FILE_EDGES = fileEdges.file_edges || [];
@@ -180,6 +186,26 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       DECISIONS[d.id] = d;
     }
     FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+
+    // 5c. TODOs → TODOS map (ambient-filtered) + governance + spawns-from index.
+    // buildGovernance only picks up kind:'frame' refs; for todos that only have
+    // kind:'file' governs, we also resolve file paths to frame ids via
+    // FRAME_PATH_INDEX (same path the draw layer uses for decisions).
+    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
+    TODOS = {};
+    for (const t of ambientTodos) TODOS[t.id] = t;
+    TODO_GOVERNANCE = buildGovernance(ambientTodos);
+    // Augment with file-path-resolved frame governs.
+    for (const t of ambientTodos) {
+      for (const g of t.governs || []) {
+        if (g.kind !== 'file') continue;
+        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+        if (!fid) continue;
+        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
+        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
+      }
+    }
+    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
 
     // 5b. A decision-governed frame the ranking left non-ambient would never
     //     render, hiding its decisions (e.g. cortex-indexer's governed frames
@@ -384,24 +410,30 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       addEdge(a, b, nodes[a].frameId !== nodes[b].frameId, fe.weight);
     }
 
-    for (const frameId in FRAME_GOVERNANCE) {
-      const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
-      const decIds = FRAME_GOVERNANCE[frameId];
-      decIds.forEach((decId) => {
-        const dec = DECISIONS[decId];
-        if (!dec) return;
-        // Seeded anchor selection: same decision + frame → same anchor dots
-        // every load (was Math.random shuffle).
-        const rng = mulberry32(fnv1a(decId + ':' + frameId));
-        const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
-        const pool = [...frameNodes];
-        const picked = [];
-        for (let k = 0; k < targetCount; k++) {
-          picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-        }
-        dec._nodeIdxs = picked.map(o => o.i);
-      });
-    }
+    // Generalized seeded anchor picker: same entity + frame → same anchor dots
+    // every load (deterministic, was Math.random shuffle).
+    // Decision prefix '' reproduces the prior seed string (decId + ':' + frameId)
+    // byte-for-byte so decision anchors never move. TODOs use 'todo:' prefix to
+    // give them an independent seed space.
+    const assignAnchors = (governance, store, prefix) => {
+      for (const frameId in governance) {
+        const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
+        governance[frameId].forEach((entId) => {
+          const ent = store[entId];
+          if (!ent) return;
+          const rng = mulberry32(fnv1a(prefix + entId + ':' + frameId));
+          const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
+          const pool = [...frameNodes];
+          const picked = [];
+          for (let k = 0; k < targetCount; k++) {
+            picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+          }
+          ent._nodeIdxs = picked.map(o => o.i);
+        });
+      }
+    };
+    assignAnchors(FRAME_GOVERNANCE, DECISIONS, '');       // unchanged seed → identical decision anchors
+    assignAnchors(TODO_GOVERNANCE, TODOS, 'todo:');       // namespaced seed → independent todo anchors
   }
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
@@ -516,6 +548,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let hoveredNodeIdx = null;
   let hoveredMarginaliaId = null;
   let hoveredDecisionId = null;
+  let hoveredTodoId = null;
   let nodeHoverT0 = 0;
   const NODE_HOVER_DELAY = 60;
   const NODE_HOVER_IN_MS = 140;
@@ -686,7 +719,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const decHover = decisionNodeAtPoint(px, py);
     hoveredDecisionId = decHover ? decHover.id : null;
 
-    if (decHover) {
+    const todoHover = todoNodeAtPoint(px, py);
+    hoveredTodoId = todoHover ? todoHover.id : null;
+
+    if (decHover || todoHover) {
       canvas.style.cursor = 'pointer';
     } else if (marginaliaHit) {
       canvas.style.cursor = 'pointer';
@@ -719,6 +755,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     hoveredNodeIdx = null;
     hoveredMarginaliaId = null;
     hoveredDecisionId = null;
+    hoveredTodoId = null;
     canvas.style.cursor = 'default';
   });
 
@@ -824,6 +861,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   });
 
   const decisionNodeRects = [];
+  const todoNodeRects = [];
   const decisionExpandState = {};
   const DECISION_EXPAND_IN_MS = 160;
   const DECISION_EXPAND_OUT_MS = 200;
@@ -1024,6 +1062,189 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   function decisionNodeAtPoint(px, py) {
     for (const r of decisionNodeRects) {
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
+      if (r.pillRect) {
+        const p = r.pillRect;
+        if (px >= p.x && px <= p.x + p.w && py >= p.y && py <= p.y + p.h) return r;
+      }
+    }
+    return null;
+  }
+
+  // Display id for a todo: prefer T-<seq> form, fall back to canonical id.
+  function todoDisplayId(t) {
+    return (t.seq != null) ? ('T-' + t.seq) : t.id;
+  }
+
+  function drawFloatingTodoNodes(now) {
+    todoNodeRects.length = 0;
+    const list = Object.values(TODOS); // already ambient-filtered (done/cancelled excluded)
+    if (!list.length) return;
+
+    ctx.save();
+    ctx.font = '500 10px "Geist Mono", monospace';
+    ctx.textBaseline = 'middle';
+
+    const selectedTodoId = (focusedRecord && focusedRecord.type === 'todo') ? focusedRecord.id : null;
+
+    list.forEach(todo => {
+      const governedPositions = (todo._nodeIdxs || []).map(i => nodePx(nodes[i]));
+      // Standalone TODOs with no governed frame → no _nodeIdxs → skip (known limitation).
+      if (!governedPositions.length) return;
+
+      // Governed frame ids for overlap-repulsion logic.
+      const governedFrameIds = new Set();
+      (todo.governs || []).forEach(g => {
+        if (g.kind === 'frame') governedFrameIds.add(g.id);
+        else if (g.kind === 'file') {
+          const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+          if (fid) governedFrameIds.add(fid);
+        }
+      });
+
+      let cx = governedPositions.reduce((s, p) => s + p.x, 0) / governedPositions.length;
+      let cy = governedPositions.reduce((s, p) => s + p.y, 0) / governedPositions.length;
+
+      let dotX = cx, dotY = cy;
+      let tries = 0;
+      const dotBoxR = 14;
+      while (tries < 16) {
+        let overlap = false;
+        for (const frame of FRAMES) {
+          if (governedFrameIds.has(frame.id)) continue;
+          const f = framePx(frame);
+          if (dotX + dotBoxR > f.cx - f.w / 2 - 6 && dotX - dotBoxR < f.cx + f.w / 2 + 6
+             && dotY + dotBoxR > f.cy - f.h / 2 - 6 && dotY - dotBoxR < f.cy + f.h / 2 + 6) {
+            overlap = true;
+            const dx = dotX - f.cx;
+            const dy = dotY - f.cy;
+            const dist = Math.hypot(dx, dy) || 1;
+            dotX += (dx / dist) * 16;
+            dotY += (dy / dist) * 16;
+          }
+        }
+        if (!overlap) break;
+        tries++;
+      }
+
+      const { rgb, ring } = todoDotColor(todo.state);
+      // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
+
+      const isSelected = selectedTodoId === todo.id;
+      const isHovered = hoveredTodoId === todo.id;
+      const pillVisible = isHovered || isSelected;
+
+      const DOT_R = 4;
+      const HIT_R = 14;
+
+      // Leader lines when hovered/selected.
+      if (isSelected) {
+        governedPositions.forEach(p => {
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.22)`;
+          ctx.lineWidth = 0.6;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(dotX, dotY);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      } else if (isHovered) {
+        governedPositions.forEach(p => {
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`;
+          ctx.lineWidth = 0.6;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(dotX, dotY);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      }
+
+      // Dot fill.
+      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Amber ring for blocked state.
+      if (ring) {
+        ctx.strokeStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, 0.8)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Selection ring.
+      if (isSelected) {
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.5)`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Hover pill: "T-NNN · summary"
+      let pillRect = null;
+      if (pillVisible) {
+        const label = todoDisplayId(todo);
+        const titleLabel = truncateMiddle(ctx, todo.summary || '', 220);
+        const labelW = ctx.measureText(label).width;
+        const titleW = ctx.measureText(titleLabel).width;
+        const pillH = 22;
+        const padX = 10;
+        const gap = 8;
+        const pillW = padX + labelW + gap + titleW + padX;
+
+        const offset = DOT_R + 8;
+        let pillX = dotX + offset;
+        let pillY = dotY - pillH / 2;
+        const stageW = canvas.clientWidth;
+        const stageH = canvas.clientHeight;
+        if (pillX + pillW > stageW - 8) {
+          pillX = dotX - offset - pillW;
+        }
+        if (pillY + pillH > stageH - 8) pillY = stageH - 8 - pillH;
+        if (pillY < 8) pillY = 8;
+
+        // Pill bg: neutral (no yellow tint).
+        ctx.fillStyle = `rgba(${pillBgRGB()[0]}, ${pillBgRGB()[1]}, ${pillBgRGB()[2]}, 0.96)`;
+        roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+        ctx.fill();
+
+        // Pill border: yellow.
+        ctx.strokeStyle = `rgba(${todoDotRGB()[0]}, ${todoDotRGB()[1]}, ${todoDotRGB()[2]}, 0.55)`;
+        ctx.lineWidth = 1;
+        roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+        ctx.stroke();
+
+        // Label (T-NNN) in yellow.
+        ctx.fillStyle = `rgba(${todoTextRGB()[0]}, ${todoTextRGB()[1]}, ${todoTextRGB()[2]}, 0.98)`;
+        ctx.textAlign = 'left';
+        ctx.fillText(label, pillX + padX, pillY + pillH / 2);
+
+        // Summary in neutral text.
+        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, 0.85)`;
+        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
+
+        pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
+      }
+
+      todoNodeRects.push({
+        id: todo.id,
+        x: dotX - HIT_R, y: dotY - HIT_R, w: HIT_R * 2, h: HIT_R * 2,
+        pillRect,
+        cx: dotX, cy: dotY,
+      });
+    });
+
+    ctx.restore();
+  }
+
+  function todoNodeAtPoint(px, py) {
+    for (const r of todoNodeRects) {
       if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
       if (r.pillRect) {
         const p = r.pillRect;
@@ -1619,6 +1840,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     drawNodes(now);
     if (showDecisions) drawFloatingDecisionNodes(now);
     else decisionNodeRects.length = 0;
+    if (showTodos) drawFloatingTodoNodes(now);
+    else todoNodeRects.length = 0;
     drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
