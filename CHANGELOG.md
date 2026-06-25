@@ -17,6 +17,22 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.0.3] — 2026-06-25
+
+### Fixed
+
+- **CLI no longer runs stale compiled code after a pull.** `bin/cortex` prefers a
+  compiled `dist/` over `src/` when present, but `dist/` is a gitignored local
+  artifact that `git pull` never rebuilt — so `cortex index` silently ran
+  out-of-date code (e.g. the 1.0.2 `cluster:N` label recovery didn't reach the
+  CLI until a manual `npm run build`). Added committed git hooks
+  (`.githooks/post-merge`, `post-checkout`) that rebuild `dist/` after a ref move
+  **only when** `dist/` already exists and compiled inputs (`src/`, `tsconfig*`,
+  `package.json`) actually changed; wired via `core.hooksPath` from `postinstall`
+  (`scripts/install-git-hooks.mjs`, guarded to git work trees, best-effort). When
+  `dist/` is absent the CLI already falls back to `tsx src/` (always current), so
+  the hook is a no-op there.
+
 ## [1.0.2] — 2026-06-25
 
 ### Changed
@@ -799,6 +815,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.0.3]: https://github.com/ruevu/cortex/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ruevu/cortex/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ruevu/cortex/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ruevu/cortex/releases/tag/v1.0.0

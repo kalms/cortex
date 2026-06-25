@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Rebuild dist/ after a BRANCH checkout if compiled sources changed (keeps the
+# bin/cortex CLI from running stale code). See lib-rebuild-dist.sh.
+# Args: $1=prev HEAD, $2=new HEAD, $3=1 for a branch checkout, 0 for a file checkout.
+[ "$3" = "1" ] || exit 0
+DIR="$(dirname "$0")"
+"$DIR/lib-rebuild-dist.sh" "$1" "$2"

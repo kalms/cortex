@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
   "main": "dist/index.js",
@@ -8,8 +8,9 @@
     "cortex": "bin/cortex"
   },
   "scripts": {
-    "postinstall": "node scripts/fetch-indexer.mjs",
+    "postinstall": "node scripts/fetch-indexer.mjs && node scripts/install-git-hooks.mjs",
     "fetch-indexer": "node scripts/fetch-indexer.mjs",
+    "install-git-hooks": "node scripts/install-git-hooks.mjs",
     "build": "tsc && cp src/events/worker-bootstrap.mjs dist/events/ && cp src/events/worker/schema.sql dist/events/worker/",
     "start": "node dist/index.js",
     "dev": "CORTEX_VIEWER_PORT=3334 tsx src/index.ts",
