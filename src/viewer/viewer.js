@@ -1996,7 +1996,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       name = decisionDisplayId(DECISIONS[ref.id] || ref);
     } else if (ref.kind === 'todo') {
       type = 'todo';
-      name = todoDisplayId(TODOS[ref.id] || ref);
+      // Use caller-supplied name when provided (e.g. "T-001 · summary" from the
+      // decision-card Tasks section); fall back to the display-id lookup.
+      name = ref.name || todoDisplayId(TODOS[ref.id] || ref);
     } else if (ref.kind === 'pr') {
       type = 'pr';
       name = ref.id ? `#${ref.id}` : (ref.name || ref.id || '');
@@ -2064,6 +2066,17 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     }
     if (dec.relatedTo && dec.relatedTo.length) {
       html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${dec.relatedTo.map(id => refPillHtml({ kind: 'decision', id })).join('')}</div></div>`;
+    }
+
+    const childTodoIds = SPAWNS_FROM[dec.id] || [];
+    if (childTodoIds.length) {
+      html += `<div class="dc-section"><div class="dc-section-label">tasks</div><div class="dc-ref-row">`;
+      html += childTodoIds.map((id) => {
+        const t = TODOS[id];
+        const label = t ? `${todoDisplayId(t)} · ${t.summary}` : id;
+        return refPillHtml({ kind: 'todo', id, name: label });
+      }).join('');
+      html += `</div></div>`;
     }
 
     html += '</div>';
