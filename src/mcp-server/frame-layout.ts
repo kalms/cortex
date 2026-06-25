@@ -241,6 +241,26 @@ export function layoutFrames(
     }
   }
 
+  // Horizontal recenter (stratify path only). The stratify path replaces
+  // forceCenter (which recenters the cloud's mean every tick) with a weak
+  // forceX, which pulls each node toward mid-stage but does NOT recenter the
+  // mean — so the equilibrium can settle off-center and read as a left/right
+  // "lean". Translate every node on x so the frame bounding box is centered on
+  // the stage. Deterministic (a pure positional shift), and applied ONLY when
+  // stratifying so the non-stratify path stays byte-identical to pre-slice
+  // output (its forceCenter already centers the cloud). Y is left to the
+  // sink-driven stratification bands (symmetric about mid-stage by construction).
+  if (stratify && nodes.length > 0) {
+    let minX = Infinity, maxX = -Infinity;
+    for (const n of nodes) {
+      const h = n.size / 2;
+      minX = Math.min(minX, (n.x ?? 0) - h);
+      maxX = Math.max(maxX, (n.x ?? 0) + h);
+    }
+    const dx = STAGE_W / 2 - (minX + maxX) / 2;
+    for (const n of nodes) n.x = (n.x ?? 0) + dx;
+  }
+
   return nodes
     .slice()
     .sort((a, b) => a.id - b.id)
