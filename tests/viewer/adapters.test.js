@@ -4,6 +4,10 @@ import {
   groupNodesIntoFrames,
   basenames,
   buildFrameGovernance,
+  buildGovernance,
+  buildSpawnsFromIndex,
+  filterAmbientTodos,
+  todoDotColor,
   withGovernedFramesRendered,
   edgesInternalIndex,
   frameCoverage,
@@ -200,5 +204,53 @@ describe("withGovernedFramesRendered", () => {
   it("returns the input unchanged when there is no governance", () => {
     const ambient = [{ id: "1", x: 0.2, y: 0.2, w: 100, h: 80 }];
     expect(withGovernedFramesRendered(ambient, {}, meta)).toBe(ambient);
+  });
+});
+
+describe("buildGovernance / buildFrameGovernance", () => {
+  const items = [
+    { id: "T-1", governs: [{ kind: "frame", id: "3" }, { kind: "file", path: "a.ts" }] },
+    { id: "T-2", governs: [{ kind: "frame", id: "3" }] },
+  ];
+  it("rolls frame-governed entities up by frame id, deduped", () => {
+    expect(buildGovernance(items)).toEqual({ "3": ["T-1", "T-2"] });
+  });
+  it("buildFrameGovernance stays a wrapper over buildGovernance", () => {
+    const decs = [{ id: "D-1", governs: [{ kind: "frame", id: "5" }] }];
+    expect(buildFrameGovernance(decs)).toEqual({ "5": ["D-1"] });
+  });
+});
+
+describe("buildSpawnsFromIndex", () => {
+  it("maps decision id -> child todo ids, ignoring null", () => {
+    const todos = [
+      { id: "T-1", spawnsFrom: "D-9" },
+      { id: "T-2", spawnsFrom: "D-9" },
+      { id: "T-3", spawnsFrom: null },
+    ];
+    expect(buildSpawnsFromIndex(todos)).toEqual({ "D-9": ["T-1", "T-2"] });
+  });
+});
+
+describe("filterAmbientTodos", () => {
+  it("drops done and cancelled, keeps open/in_progress/blocked", () => {
+    const todos = [
+      { id: "T-1", state: "open" }, { id: "T-2", state: "in_progress" },
+      { id: "T-3", state: "blocked" }, { id: "T-4", state: "done" },
+      { id: "T-5", state: "cancelled" },
+    ];
+    expect(filterAmbientTodos(todos).map((t) => t.id)).toEqual(["T-1", "T-2", "T-3"]);
+  });
+});
+
+describe("todoDotColor", () => {
+  it("open -> solid yellow, no ring", () => {
+    expect(todoDotColor("open")).toEqual({ rgb: [250, 204, 21], ring: null });
+  });
+  it("blocked -> yellow + amber ring", () => {
+    expect(todoDotColor("blocked")).toEqual({ rgb: [250, 204, 21], ring: [245, 158, 11] });
+  });
+  it("in_progress -> yellow base (identity color applied at draw time), no ring", () => {
+    expect(todoDotColor("in_progress")).toEqual({ rgb: [250, 204, 21], ring: null });
   });
 });
