@@ -81,6 +81,25 @@ function isDirectorySegment(token: string, memberPaths: readonly string[]): bool
   return false;
 }
 
+/** A ≤2-char token is label-noise UNLESS it is a 2-char directory segment — a
+ *  real subsystem abbreviation like `ws`/`io`/`db`. A 1-char segment (`x`, `a`)
+ *  is always noise: it never names a subsystem, even as a directory. */
+function isShortNoise(token: string, memberPaths: readonly string[]): boolean {
+  if (token.length > 2) return false;
+  if (token.length <= 1) return true;
+  return !isDirectorySegment(token, memberPaths);
+}
+
+/** Filesystem / organisational root conventions (a subset of GENERIC_TOKENS)
+ *  that never name a topic — rejected even by Pass 4.5's relaxed generic sweep,
+ *  unlike the "soft" generics (`id`/`ids`/`meta`/`index`/`data`) which can be
+ *  topical in context (e.g. the `index-meta` cluster). */
+const LAYOUT_ROOT_TOKENS = new Set([
+  "src", "lib", "common", "core", "main", "app", "apps", "packages",
+  "modules", "pkg", "pkgs", "components", "pages", "feature", "features",
+  "test", "tests",
+]);
+
 /** Fraction of a label's tokens that are topic-bearing (non-generic). 1.0 = every
  *  token is specific; 0 = the label is entirely generic/structural/short. The
  *  frame ranker multiplies F1 by this to down-weight opaque labels (e.g. the
@@ -107,7 +126,7 @@ function isLabelEligibleWord(
   // token that names a real directory segment (a subsystem like `ws`), but not
   // for a short filename stem/extension.
   if (GENERIC_TOKENS.has(w)) return false;
-  if (w.length <= 2 && !isDirectorySegment(w, memberPaths)) return false;
+  if (isShortNoise(w, memberPaths)) return false;
   if (isStructuralLabelToken(w)) return false;
   if (params.has(w)) return false;
   // Repo-wide ubiquitous terms (the repo name / top-level package) carry no
@@ -313,7 +332,7 @@ function dominantPathSegmentLabel(
     const consider = (seg: string, depth: number, isDir: boolean) => {
       if (seg.length === 0) return;
       const lower = seg.toLowerCase();
-      const shortStem = lower.length <= 2 && !isDirectorySegment(lower, paths);
+      const shortStem = isShortNoise(lower, paths);
       if (isDynamicSegment(lower) || GENERIC_TOKENS.has(lower) || shortStem ||
           isStructuralLabelToken(lower) || params.has(lower) || suppressedTerms.has(lower)) return;
       const prev = here.get(lower);
@@ -364,7 +383,9 @@ function relaxedRecoveryLabel(
     if (isStructuralLabelToken(w)) return false;
     if (params.has(w)) return false;
     if (suppressedTerms.has(w)) return false;
-    if (w.length <= 2 && !isDirectorySegment(w, memberPaths)) return false;
+    if (isShortNoise(w, memberPaths)) return false;
+    // Org-root/layout conventions never make a label, even in the relaxed sweep.
+    if (LAYOUT_ROOT_TOKENS.has(w)) return false;
     if (!allowGeneric && GENERIC_TOKENS.has(w)) return false;
     if (pathSalience(w, memberPaths) < SALIENCE_FLOOR) return false;
     return true;
