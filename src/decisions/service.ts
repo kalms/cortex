@@ -347,7 +347,10 @@ export class DecisionService {
 }
 
 function classifyTarget(target: string): TargetKind {
-  return target.includes("/") ? "path" : "qn";
+  // A qualified name (`dir/file.ts::sym`) also contains "/", so check the
+  // "::" qn marker FIRST — otherwise real qns were misclassified "path" and
+  // silently dropped by resolveGovernsRef (it only looks paths up in nodesByPath).
+  return target.includes("::") ? "qn" : target.includes("/") ? "path" : "qn";
 }
 
 function toDecision(rec: DecisionRecord): Decision {

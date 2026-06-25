@@ -46,7 +46,9 @@ export class TodoService {
     let kind: string;
     switch (relation) {
       case "GOVERNS":
-        kind = ref.includes("/") ? "path" : "qn";
+        // Check the "::" qn marker before "/": a qualified name always
+        // contains "/" too, so the old order misclassified qns as "path".
+        kind = ref.includes("::") ? "qn" : ref.includes("/") ? "path" : "qn";
         break;
       case "BLOCKED_BY":
       case "RELATED_TO": {
