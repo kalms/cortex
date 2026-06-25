@@ -17,6 +17,22 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.1.2] — 2026-06-26
+
+### Fixed
+
+- **Frames viewer no longer leans left/right (deterministic horizontal recenter).**
+  The default layer-adjacency (stratify) layout replaces d3 `forceCenter` with a
+  weak `forceX` so the vertical sink force owns the y-axis — but `forceX` never
+  recenters the cloud's mean, so the equilibrium could settle off-center and read
+  as a left/right "lean" that varied per layout seed. After the simulation, the
+  ambient frame cloud is now translated on x so its bounding box is centered on
+  the stage. Applied **only** in the stratify path, so the `CORTEX_LAYER_LAYOUT=0`
+  path stays byte-identical to pre-slice output. Decision `D-vmhy`. (Separate,
+  not addressed here: any change to a frame's id/label/member-count reseeds the
+  layout and reshuffles it — force-directed layout is chaotic w.r.t. input
+  changes; deferred.)
+
 ## [1.1.1] — 2026-06-26
 
 ### Added
@@ -874,6 +890,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ruevu/cortex/releases/tag/v1.0.3

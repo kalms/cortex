@@ -219,4 +219,28 @@ describe("layoutFrames — vertical stratification (layer-adjacency force)", () 
     const mid = out.find((f) => f.id === 1)!;
     expect(surface.y).toBeLessThan(mid.y);
   });
+
+  it("horizontally centers the cloud in the stratify path (no left/right lean)", () => {
+    // The stratify path's weak forceX doesn't recenter the cloud's mean, so the
+    // equilibrium can settle off-center. A post-layout recenter must put the
+    // frame bounding box's horizontal center on the stage center for any seed.
+    const leany: LayoutInputFrame[] = [
+      { frame_id: 0, frame_label: "interface", member_count: 8, sink: 0.1 },
+      { frame_id: 1, frame_label: "orchestration", member_count: 12, sink: 0.3 },
+      { frame_id: 2, frame_label: "domain", member_count: 20, sink: 0.5 },
+      { frame_id: 3, frame_label: "data", member_count: 6, sink: 0.7 },
+      { frame_id: 4, frame_label: "infra", member_count: 30, sink: 0.9 },
+    ];
+    const pairs = [
+      { a: 0, b: 1, weight: 9 },
+      { a: 1, b: 2, weight: 5 },
+      { a: 2, b: 4, weight: 7 },
+    ];
+    const out = layoutFrames(leany, pairs);
+    const minX = Math.min(...out.map((f) => f.x - f.w / 2));
+    const maxX = Math.max(...out.map((f) => f.x + f.w / 2));
+    const bboxCenterX = (minX + maxX) / 2;
+    // Allow 1px slack for integer quantization.
+    expect(Math.abs(bboxCenterX - STAGE_W / 2)).toBeLessThanOrEqual(1);
+  });
 });
