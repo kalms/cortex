@@ -241,24 +241,32 @@ export function layoutFrames(
     }
   }
 
-  // Horizontal recenter (stratify path only). The stratify path replaces
+  // Recenter the cloud (stratify path only). The stratify path replaces
   // forceCenter (which recenters the cloud's mean every tick) with a weak
-  // forceX, which pulls each node toward mid-stage but does NOT recenter the
-  // mean — so the equilibrium can settle off-center and read as a left/right
-  // "lean". Translate every node on x so the frame bounding box is centered on
-  // the stage. Deterministic (a pure positional shift), and applied ONLY when
-  // stratifying so the non-stratify path stays byte-identical to pre-slice
-  // output (its forceCenter already centers the cloud). Y is left to the
-  // sink-driven stratification bands (symmetric about mid-stage by construction).
+  // forceX + a sink-targeted forceY. Neither pins the cloud's MEAN, so the
+  // link/charge equilibrium can drift the whole cloud off-center on BOTH axes
+  // (a left/right lean on x; and on y the cloud drifts up/down with the link
+  // structure regardless of the layer mix — a surface-heavy repo was observed
+  // leaning DOWN). Translate every node so the frame bounding box is centered on
+  // the stage. A pure, deterministic positional shift that preserves the
+  // relative top→bottom depth ordering (a uniform translate). Applied ONLY when
+  // stratifying, so the non-stratify path stays byte-identical to pre-slice
+  // output (its forceCenter already centers the cloud).
   if (stratify && nodes.length > 0) {
-    let minX = Infinity, maxX = -Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const n of nodes) {
       const h = n.size / 2;
       minX = Math.min(minX, (n.x ?? 0) - h);
       maxX = Math.max(maxX, (n.x ?? 0) + h);
+      minY = Math.min(minY, (n.y ?? 0) - h);
+      maxY = Math.max(maxY, (n.y ?? 0) + h);
     }
     const dx = STAGE_W / 2 - (minX + maxX) / 2;
-    for (const n of nodes) n.x = (n.x ?? 0) + dx;
+    const dy = STAGE_H / 2 - (minY + maxY) / 2;
+    for (const n of nodes) {
+      n.x = (n.x ?? 0) + dx;
+      n.y = (n.y ?? 0) + dy;
+    }
   }
 
   return nodes

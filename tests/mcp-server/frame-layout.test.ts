@@ -243,4 +243,35 @@ describe("layoutFrames — vertical stratification (layer-adjacency force)", () 
     // Allow 1px slack for integer quantization.
     expect(Math.abs(bboxCenterX - STAGE_W / 2)).toBeLessThanOrEqual(1);
   });
+
+  it("vertically centers the cloud in the stratify path (no top/bottom lean)", () => {
+    // forceY pulls each frame to a sink-based target but doesn't pin the cloud's
+    // mean, so link/charge forces drift the whole cloud up or down regardless of
+    // the layer mix (observed: a surface-heavy repo leaning DOWN). A post-layout
+    // recenter must put the bounding box's vertical center on the stage center;
+    // the relative top→bottom depth ordering is preserved (uniform translate).
+    const leany: LayoutInputFrame[] = [
+      { frame_id: 0, frame_label: "interface", member_count: 8, sink: 0.1 },
+      { frame_id: 1, frame_label: "orchestration", member_count: 12, sink: 0.3 },
+      { frame_id: 2, frame_label: "domain", member_count: 20, sink: 0.5 },
+      { frame_id: 3, frame_label: "data", member_count: 6, sink: 0.7 },
+      { frame_id: 4, frame_label: "infra", member_count: 30, sink: 0.9 },
+    ];
+    const pairs = [
+      { a: 0, b: 1, weight: 9 },
+      { a: 1, b: 2, weight: 5 },
+      { a: 2, b: 4, weight: 7 },
+    ];
+    const out = layoutFrames(leany, pairs);
+    const minY = Math.min(...out.map((f) => f.y - f.h / 2));
+    const maxY = Math.max(...out.map((f) => f.y + f.h / 2));
+    const bboxCenterY = (minY + maxY) / 2;
+    expect(Math.abs(bboxCenterY - STAGE_H / 2)).toBeLessThanOrEqual(1);
+
+    // Relative depth ordering survives the recenter: surface (sink 0.1) above
+    // substrate (sink 0.9).
+    const surface = out.find((f) => f.id === 0)!;
+    const substrate = out.find((f) => f.id === 4)!;
+    expect(surface.y).toBeLessThan(substrate.y);
+  });
 });

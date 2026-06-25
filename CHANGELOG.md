@@ -17,6 +17,19 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.1.3] — 2026-06-26
+
+### Fixed
+
+- **Frames viewer no longer leans down/up (vertical recenter).** Follow-up to
+  1.1.2's horizontal recenter: the stratify layout's sink-targeted `forceY`
+  doesn't pin the cloud's mean either, so the whole cloud drifts up/down with the
+  link structure regardless of the layer mix (a surface-heavy repo like
+  anthill-cloud was leaning *down*). The post-layout recenter now centers the
+  frame bounding box on **both** axes (stratify path only; non-stratify stays
+  byte-identical). The relative top→bottom depth ordering is preserved (it's a
+  uniform translate). Decision `D-vmhy`.
+
 ## [1.1.2] — 2026-06-26
 
 ### Fixed
@@ -890,6 +903,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.1.3]: https://github.com/ruevu/cortex/releases/tag/v1.1.3
 [1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0
