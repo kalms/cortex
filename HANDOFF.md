@@ -1,5 +1,20 @@
 # Cortex — Session Handoff
 
+## ✅ DONE (2026-06-26 — 1.0.4: TODO viewer slice + unified layers menu)
+
+Shipped **1.0.4** via the design → plan → subagent-driven TDD → review cycle.
+TODO entities now render on the frames canvas (ambient yellow dots with state
+treatment, hover pills, marginalia pills, decision→TODO `spawnsFrom` leader
+lines, a record drawer, and a decision-drawer "Tasks" section) — mirroring the
+decision render pipeline; decision rendering is byte-for-byte unchanged. The
+viewer's `layers` menu is unified into one flat toggle list (frames / decisions /
+todos / layer-tint); hiding `frames` suppresses only box chrome, leaving dots,
+edges, and layout intact. Folded in the **GOVERNS qn-classification fix** (shared
+`src/shared/classify-ref.ts`, checks `::` before `/`). Decision `D-kkz6`; full
+suite 1366/1366; consolidated end-of-branch visual QA passed. Also amended the
+workflow rule to batch Gate-0 visual QA by branch, not per task. Follow-ups in
+NEXT STEP. Detail in [`CHANGELOG.md`](CHANGELOG.md).
+
 ## ✅ DONE (2026-06-24 — 1.0.0: consolidated tool surface + TODO entity foundation)
 
 Shipped **1.0.0** via PR [#27](https://github.com/ruevu/cortex/pull/27) (merge
@@ -41,30 +56,24 @@ CORS allowlist, opt-in bearer auth, traversal guard). Decision `D-tszm`;
 In rough priority order (full state in
 [`docs/specs/progress.md`](docs/specs/progress.md)):
 
-1. **TODO viewer slice** — render the now-durable TODO data: yellow dots, the
-   drawer surface, marginalia pills, decision→TODO leader lines, the
-   decision-drawer "Tasks" section. The `/api/todos` contract already feeds it;
-   only the pixels remain. **Fold in the GOVERNS qn-classification fix** while in
-   `src/todos/` (see below).
-2. **TODO hooks + external bridge** (later slice) — `PostMergeHook`
+1. **TODO hooks + external bridge** (later slice) — `PostMergeHook`
    auto-completing `resolvedBy` TODOs on PR merge; `PostDecisionHook` linking
    `spawnsFrom`; Linear/JIRA/GitHub mirroring (bidirectional sync is v1.5).
-3. **Frame-quality + Louvain `concern` axis** (larger) — the upstream fix for
+2. **Frame-quality + Louvain `concern` axis** (larger) — the upstream fix for
    fragmented/test-mixed clusters and substrate-band core domain (`SRC·863`
    mega-frame), the ceiling the taxonomy observe phase repeatedly hit. Deferred
    in `D-8vbv`.
-4. **Remaining agentic-experience items** (2026-06-12 field report): **P4**
+3. **Remaining agentic-experience items** (2026-06-12 field report): **P4**
    warm-path decision drafting, **P5** cross-repo decision search, **P7(b/c)**
    tighten tool descriptions / lazy-load the long tail, **P8** temporal
    `changes_since`. (P1/P2/P3/P6 shipped; P7(a) shipped in 1.0.0.)
 
-**Known latent issue to fix (pre-existing, low-severity).** `classifyTarget` in
-both `src/decisions/service.ts` and `src/todos/service.ts` uses
-`includes("/") ? "path" : "qn"`, so a real qualified name (`dir/file.ts::sym`,
-always contains `/`) is misclassified `"path"` and silently dropped by
-`resolveGovernsRef` in the HTTP API. The TODO code mirrors decisions exactly (not
-a 1.0.0 regression) — a cross-primitive fix (check `::` first) is worth doing
-before the TODO viewer slice depends on it.
+**TODO viewer follow-ups (deferred from 1.0.4, non-blocking).** Standalone TODOs
+with no governed frame don't render as ambient dots (no graph anchor — matches
+decision behavior); and `withGovernedFramesRendered` promotes non-ambient
+*decision*-governed frames but not TODO-governed ones (a todo governing a file in
+a non-ambient frame won't render). Both are parity gaps, not regressions; see
+decision `D-kkz6`.
 
 **Parallel, non-blocking:** the **co-change lens** (`FILE_CHANGES_WITH` minus
 structural edges = hidden coupling, as a sibling row in the layers menu); the
