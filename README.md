@@ -397,9 +397,9 @@ Seeds a small set of code entities + decisions for development.
 
 ## License & attribution
 
-Cortex is **proprietary, all rights reserved** (see the root [`LICENSE`](./LICENSE)) —
-its TypeScript code, viewer, MCP server, decision tooling, build scripts,
-plugin manifest, and documentation.
+Cortex is licensed under the **Apache License 2.0** (see the root
+[`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE)) — its TypeScript code, viewer,
+MCP server, decision tooling, build scripts, plugin manifest, and documentation.
 
 The native structural indexer Cortex consumes at runtime is maintained as a
 separate project, **cortex-indexer** (MIT-licensed), with its own third-party
