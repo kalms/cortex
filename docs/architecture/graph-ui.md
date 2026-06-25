@@ -244,8 +244,8 @@ The viewer is derived from the visual prototype at
 Frames come from cluster output (`data.frame_id`/`frame_label` on file
 nodes, written by `scripts/frame-extraction/inject-frames.ts` — see
 [frame-extraction.md](frame-extraction.md) for the pipeline). Decisions
-come from the sidecar `.cortex/decisions.db` via the `/api/decisions`
-adapter. CALLS edges are pulled live from `/api/graph` and filtered to
+come from the out-of-repo sidecar `~/.cortex/<repoId>/decisions.db` via the
+`/api/decisions` adapter. CALLS edges are pulled live from `/api/graph` and filtered to
 intra- and inter-frame pairs. Auxiliary content (locales, vendored,
 __snapshots__, etc.) is bucketed by `groupAuxiliaryPaths` and surfaced
 via `/api/aggregates`. The viewer is static-load: it fetches all data

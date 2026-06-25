@@ -118,10 +118,10 @@ npm rebuild better-sqlite3
 ├──────────────────────────────────────────────────────────┤
 │ GraphStore  │ DecisionService │ PRService │ EventBus      │
 ├──────────────────────────────────────────────────────────┤
-│  .cortex/db          .cortex/decisions.db   .cortex/      │
-│  (graph: nodes,      (sidecar — durable,    events.db     │
-│   edges, ctx_*       outlives reindex)      (append log,  │
-│   bookkeeping)                              worker-owned) │
+│  .cortex/db          ~/.cortex/<id>/        .cortex/       │
+│  (graph: nodes,      decisions.db           events.db      │
+│   edges, ctx_*       (sidecar — durable,    (append log,   │
+│   bookkeeping)        out-of-repo)          worker-owned)  │
 └──────────────────────────────────────────────────────────┘
        │                                            │
        │                       ┌────────────────────┘
@@ -137,9 +137,9 @@ npm rebuild better-sqlite3
 └─────────────────────────────────────────┘
 ```
 
-**Three SQLite files, three lifecycles.** `.cortex/db` is the indexer-owned graph (derived, can be wiped and rebuilt). `.cortex/decisions.db` is the user-authored sidecar (durable, survives every reindex). `.cortex/events.db` is the append-only event log (worker-owned, drives the WebSocket stream). The three are coupled at query time by stable string keys (qualified names, file paths, PR numbers) — never by graph node IDs, which the indexer regenerates per run.
+**Three SQLite files, three lifecycles.** `.cortex/db` (in-repo) is the indexer-owned graph (derived, can be wiped and rebuilt). The user-authored decisions sidecar is durable and lives **out of the repo** at `~/.cortex/<repoId>/decisions.db` — resolved from the `repoId` in the repo's committed `cortex.json`, so every worktree/clone shares one store and reindexing never touches it (the in-repo `.cortex/decisions.db` is now only a not-a-git-repo fallback and a one-time legacy migration source). `.cortex/events.db` is the append-only event log (worker-owned, drives the WebSocket stream). The DBs are coupled at query time by stable string keys (qualified names, file paths, PR numbers) — never by graph node IDs, which the indexer regenerates per run.
 
-**Two threads.** MCP tool handlers run on the main thread and write to `.cortex/db` / `.cortex/decisions.db`. A worker thread owns `.cortex/events.db` and the WebSocket fan-out: each `DecisionService` / `PRService` write emits an `Event` on the bus, the worker persists it, derives `GraphMutation`s, and broadcasts both over `/ws`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) for the full event pipeline.
+**Two threads.** MCP tool handlers run on the main thread and write to `.cortex/db` and the decisions sidecar (`~/.cortex/<repoId>/decisions.db`). A worker thread owns `.cortex/events.db` and the WebSocket fan-out: each `DecisionService` / `PRService` write emits an `Event` on the bus, the worker persists it, derives `GraphMutation`s, and broadcasts both over `/ws`. See [docs/architecture/graph-ui.md](docs/architecture/graph-ui.md) for the full event pipeline.
 
 **Tech stack:** TypeScript, Node.js 20+, better-sqlite3, `@modelcontextprotocol/sdk`, zod, `ulid`, `ws`, chokidar (git watcher), Canvas 2D (viewer). Frame extraction adds a Python 3.9+ venv with scikit-learn + hdbscan.
 
@@ -211,12 +211,28 @@ These spawn `bin/cortex-indexer` (write operations):
 | `link` | Attach links from a TODO to decisions or code entities |
 | `transition` | Transition a TODO to a new state |
 
+## Command-line interface (`cortex`)
+
+The same graph and decision surface is available from the terminal via the `cortex` CLI (installed on `PATH` by `cortex install`, or run from a checkout via `bin/cortex`). It's organised into namespaces:
+
+| Namespace | Commands | Purpose |
+|-----------|----------|---------|
+| `cortex code` | `find`, `search`, `show`, `where`, `calls`, `arch`, `schema` | Find symbols, read source, trace callers/callees, dump architecture |
+| `cortex decision` | `create`, `propose`, `supersede`, `update`, `delete`, `get`/`show`, `list`, `search`, `why`, `link`, `promote`, `candidates`, `count`, `rehome`, `reconcile` | Author and query architectural decisions |
+| `cortex index` | _(bare = index cwd)_, `status`, `changes`, `list`, `delete` | Manage which repos are indexed; `--mode=fast\|moderate\|full` |
+| `cortex graph` | `query` (Cypher), `sql` (raw) | Advanced graph queries |
+| `cortex eval` | `run`, `baseline`, `report` | Run the eval harness |
+
+Meta commands: `cortex tour` (guided walkthrough), `cortex help <topic>`, `cortex install`, `cortex setup frames`, `cortex freshness`. Run `cortex --help` or `cortex <namespace> --help` for the full reference, and `--version` for the version.
+
+**Output formatting.** List commands accept `--format=table|json|plain` (`--limit` / `--offset` for paging). On an interactive terminal, output is styled — colored table headers with dimmed secondary columns, red `✗` errors with a dim `→` hint, colored help, and an animated braille spinner during `cortex index`. **When output isn't a TTY** (pipes, redirection, `--format json`/`plain`), it is plain, ANSI-free, and stable for scripting. Color follows the standard `NO_COLOR` opt-out plus the `--color`/`--no-color` flags and `CORTEX_COLOR`/`CORTEX_NO_COLOR`/`CORTEX_ASCII` env vars (see [Environment variables](#environment-variables)); a non-UTF-8 locale falls back to ASCII glyphs.
+
 ## Frames viewer
 
 The viewer at `/viewer` renders the codebase as semantic *frames* — clusters of files that belong together by topic and co-change behaviour. It's derived from the visual prototype at [docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html), wired to live data, and reduced to a static-fetch model (no WebSocket consumption in this iteration).
 
 - **Frames** come from cluster output (`data.frame_id` / `data.frame_label` on file nodes, written by `scripts/frame-extraction/inject-frames.ts`).
-- **Decisions** come from `.cortex/decisions.db` via `/api/decisions`, surfaced as governance pills attached to the focused frame.
+- **Decisions** come from the decisions sidecar (`~/.cortex/<repoId>/decisions.db`) via `/api/decisions`, surfaced as governance pills attached to the focused frame.
 - **Edges** are real CALLS edges from the indexer, filtered to intra- and inter-frame pairs.
 - **Aggregates** (auxiliary content like `locales/`, `vendored/`, `__snapshots__/`) are positioned server-side at a gravity centroid near the frames they relate to (edge→path→margin tie cascade) and rendered as bare dots — present but visually de-emphasised.
 - **Project switcher** in the toolbar reads `/api/projects` and re-fetches `/api/graph?project=<name>` on change.
@@ -235,7 +251,7 @@ The indexer and Cortex's TypeScript layer share a single SQLite file (`.cortex/d
 - **Bulk-write fast path:** the indexer's `extract/sqlite_writer.c` (in the cortex-indexer repo) constructs the SQLite file via raw B-tree page writes for full-index runs. Linear extrapolation: ~3 minutes for a Linux-scale (~180k LOC) repo.
 - **Subprocess invocation:** Cortex spawns `bin/cortex-indexer cli index_repository …` with `CORTEX_DB` pointing at the same SQLite file.
 
-There is **no decision data in `.cortex/db`** — decisions live in the sidecar `.cortex/decisions.db` and are never overwritten by reindexing. See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md) for the rationale.
+There is **no decision data in `.cortex/db`** — decisions live in the durable out-of-repo sidecar `~/.cortex/<repoId>/decisions.db` and are never overwritten by reindexing. See [docs/architecture/decisions-storage.md](docs/architecture/decisions-storage.md) for the rationale.
 
 ### Known limitations
 
@@ -357,7 +373,7 @@ Major suites:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CORTEX_DB_PATH` | `<git-root>/.cortex/db` | Graph DB path (TS connection string and indexer target) |
-| `CORTEX_DECISIONS_DB` | `<git-root>/.cortex/decisions.db` | Sidecar decisions DB path |
+| `CORTEX_DECISIONS_DB` | `~/.cortex/<repoId>/decisions.db` | Sidecar decisions DB path (out of repo; resolved from `cortex.json`'s `repoId`). `CORTEX_HOME` relocates the base; falls back to `<cwd>/.cortex/decisions.db` outside a git repo |
 | `CORTEX_EVENTS_DB_PATH` | `.cortex/events.db` | Event log path (worker-owned) |
 | `CORTEX_VIEWER_PORT` | `3333` (plugin), `3334` (dev) | HTTP viewer port |
 | `CORTEX_BIND_HOST` | `127.0.0.1` | HTTP bind interface; `0.0.0.0` to deliberately expose on the LAN |
@@ -366,6 +382,10 @@ Major suites:
 | `CORTEX_API_STRICT` | _(unset)_ | `1` → HTTP response-validation failures return 500 in production too |
 | `CORTEX_INDEXER_PATH` | `bin/cortex-indexer` | Path to the indexer binary |
 | `CORTEX_DB` | _(set by Cortex)_ | Same as `CORTEX_DB_PATH`, passed to the indexer subprocess |
+| `NO_COLOR` | _(unset)_ | Standard opt-out — any value disables all CLI color |
+| `CORTEX_NO_COLOR` | _(unset)_ | `1` disables CLI color (cortex-specific opt-out) |
+| `CORTEX_COLOR` | _(unset)_ | `always` forces CLI color even when output isn't a TTY (e.g. `less -R`) |
+| `CORTEX_ASCII` | _(unset)_ | `1` forces ASCII glyphs/spinner instead of unicode (braille `⠋`, `✓`/`✗`, `→`) |
 
 ## Seeding test data
 
