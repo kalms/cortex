@@ -69,6 +69,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     return (d.seq != null) ? ('D-' + d.seq) : d.id;
   }
 
+  // Display id for a todo: prefer the friendly seq form, fall back to canonical id.
+  function todoDisplayId(t) {
+    return (t.seq != null) ? ('T-' + t.seq) : t.id;
+  }
+
   // Max file-dots rendered per frame. Raising it surfaces more nodes per frame
   // and, because edges only draw between visible dots, recovers more of the
   // graph's connectivity on the map (the cap is the dominant edge filter).
@@ -102,6 +107,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
     return (FRAME_GOVERNANCE[frameId] || []).map(getDecision).filter(Boolean);
+  }
+  function getFrameTodos(frameId) {
+    return (TODO_GOVERNANCE[frameId] || []).map((id) => TODOS[id]).filter(Boolean);
   }
 
   let currentProject = null;
@@ -1071,11 +1079,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     return null;
   }
 
-  // Display id for a todo: prefer T-<seq> form, fall back to canonical id.
-  function todoDisplayId(t) {
-    return (t.seq != null) ? ('T-' + t.seq) : t.id;
-  }
-
   function drawFloatingTodoNodes(now) {
     todoNodeRects.length = 0;
     const list = Object.values(TODOS); // already ambient-filtered (done/cancelled excluded)
@@ -1362,7 +1365,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.restore();
     });
 
-    if (showDecisions) {
+    if (showDecisions || showTodos) {
       if (sharpFrameId) {
         drawMarginaliaForFrame(sharpFrameId, fp.t);
       } else if (fp.from) {
@@ -1377,7 +1380,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const frame = FRAMES.find(f => f.id === frameId);
     if (!frame) return;
     const decs = getFrameDecisions(frameId);
-    if (!decs.length) return;
+    const todos = getFrameTodos(frameId);
+    if (!decs.length && !todos.length) return;
 
     const f = framePx(frame);
     const pillX = f.cx + f.w / 2 + 14;
@@ -1485,6 +1489,87 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       marginaliaRects.push({
         type: 'decision',
         id: dec.id,
+        x: pillX, y: pillY, w: pillW, h: pillH,
+        frameId,
+      });
+
+      pillY += pillH + 8;
+    });
+
+    if (showTodos) todos.forEach((todo) => {
+      const { rgb, ring } = todoDotColor(todo.state);
+      const leaderColor = [250, 204, 21];
+      const leaderAlpha = 0.2;
+
+      const label = `${todoDisplayId(todo)} · ${todo.summary}`;
+      const labelW = ctx.measureText(label).width;
+      const pillH = 20;
+      const padX = 10;
+      const markSize = 5;
+      const markGap = 7;
+      const pillW = padX + markSize + markGap + labelW + padX;
+
+      // Leader lines to anchor node dots.
+      const nodeIdxs = todo._nodeIdxs || [];
+      nodeIdxs.forEach(idx => {
+        const p = nodePx(nodes[idx]);
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
+        ctx.lineWidth = 0.6;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pillX, pillY + pillH / 2);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Pill bg: neutral.
+      const isHovered = hoveredMarginaliaId === todo.id;
+      const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult;
+      const mpBg = pillBgRGB();
+      ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+
+      // Pill border: yellow.
+      const borderAlpha = 0.55;
+      ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(borderAlpha + (isHovered ? 0.2 : 0)) * alphaMult})`;
+      ctx.lineWidth = 1;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.stroke();
+
+      // Blocked state: amber left-tick.
+      if (ring) {
+        ctx.fillStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, ${0.9 * alphaMult})`;
+        ctx.fillRect(pillX + 1, pillY + 4, 2, pillH - 8);
+      }
+
+      // Mark dot: color from todoDotColor rgb.
+      const markCx = pillX + padX + markSize / 2;
+      const markCy = pillY + pillH / 2;
+      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.9 * alphaMult})`;
+      ctx.beginPath();
+      ctx.arc(markCx, markCy, markSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Amber ring on mark for blocked state.
+      if (ring) {
+        ctx.strokeStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, ${0.85 * alphaMult})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(markCx, markCy, markSize / 2 + 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Label text.
+      const mpText = pillTextRGB();
+      ctx.fillStyle = `rgba(${mpText[0]}, ${mpText[1]}, ${mpText[2]}, ${0.95 * alphaMult})`;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, pillX + padX + markSize + markGap, pillY + pillH / 2);
+
+      marginaliaRects.push({
+        type: 'todo',
+        id: todo.id,
         x: pillX, y: pillY, w: pillW, h: pillH,
         frameId,
       });
