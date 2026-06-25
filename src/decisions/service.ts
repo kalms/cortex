@@ -7,6 +7,7 @@ import { DecisionsRepository, DecisionRecord } from "./repository.js";
 import { DecisionLinksRepository, TargetKind, Relation } from "./links-repository.js";
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
+import { classifyGovernsTarget } from "../shared/classify-ref.js";
 
 export interface DecisionServiceDeps {
   db: Database.Database;
@@ -347,7 +348,7 @@ export class DecisionService {
 }
 
 function classifyTarget(target: string): TargetKind {
-  return target.includes("/") ? "path" : "qn";
+  return classifyGovernsTarget(target);
 }
 
 function toDecision(rec: DecisionRecord): Decision {

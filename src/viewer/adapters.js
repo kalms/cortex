@@ -80,19 +80,53 @@ export function basenames(nodes, limit) {
 }
 
 /**
- * Build the FRAME_GOVERNANCE shape: { [frameIdStr]: decisionId[] }.
- * Sources from decisions[].governs[].kind === 'frame' refs.
+ * Generalized governance rollup: { [frameIdStr]: entityId[] } from any list of
+ * items with `.id` and a `.governs[]` carrying `kind: 'frame'` refs. Deduped,
+ * insertion order preserved. Used for both decisions and TODOs.
  */
-export function buildFrameGovernance(decisions) {
+export function buildGovernance(entities) {
   const out = {};
-  for (const d of decisions) {
-    for (const g of d.governs || []) {
+  for (const e of entities || []) {
+    for (const g of e.governs || []) {
       if (g.kind !== "frame") continue;
       if (!out[g.id]) out[g.id] = [];
-      if (!out[g.id].includes(d.id)) out[g.id].push(d.id);
+      if (!out[g.id].includes(e.id)) out[g.id].push(e.id);
     }
   }
   return out;
+}
+
+/** Decision frame-governance (kept as a named wrapper so callers don't churn). */
+export function buildFrameGovernance(decisions) {
+  return buildGovernance(decisions);
+}
+
+/** { [decisionId]: todoId[] } from each todo's `spawnsFrom` (null ignored). */
+export function buildSpawnsFromIndex(todos) {
+  const out = {};
+  for (const t of todos || []) {
+    const parent = t.spawnsFrom;
+    if (!parent) continue;
+    if (!out[parent]) out[parent] = [];
+    if (!out[parent].includes(t.id)) out[parent].push(t.id);
+  }
+  return out;
+}
+
+/** Ambient canvas excludes closed work; done/cancelled are drawer/search-only. */
+export function filterAmbientTodos(todos) {
+  return (todos || []).filter((t) => t.state !== "done" && t.state !== "cancelled");
+}
+
+const TODO_YELLOW = [250, 204, 21];
+const TODO_AMBER = [245, 158, 11];
+
+/** Pure state -> dot color. `in_progress` returns the yellow base; the draw
+ *  layer substitutes the assignee identity color when one is available. */
+export function todoDotColor(state) {
+  // Return fresh arrays — never the shared module constants — so a draw-layer
+  // caller that blends an assignee color in place can't corrupt them for later calls.
+  return { rgb: [...TODO_YELLOW], ring: state === "blocked" ? [...TODO_AMBER] : null };
 }
 
 // Default footprint (stage px) for a promoted frame when the frame-map carries

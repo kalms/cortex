@@ -1,5 +1,5 @@
-import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath } from '/viewer/adapters.js';
+import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames, fetchTodos } from '/viewer/data-fetch.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -37,6 +37,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let layersOn = false;
   try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
 
+  const SHOW_LS = {
+    frames: 'cortex.viewer.show.frames',
+    decisions: 'cortex.viewer.show.decisions',
+    todos: 'cortex.viewer.show.todos',
+  };
+  function readShow(key) {
+    try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
+  }
+  let showFrames = readShow(SHOW_LS.frames);
+  let showDecisions = readShow(SHOW_LS.decisions);
+  let showTodos = readShow(SHOW_LS.todos);
+
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillBgRGB()       { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillTextPrimaryRGB() { return isLight() ? [237, 237, 237] : [24, 24, 27]; }
@@ -49,10 +61,17 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   function prDotMergedRGB()       { return isLight() ? [67, 56, 202]   : [79, 70, 229]; }
   function prTextRGB()            { return isLight() ? [79, 70, 229]   : [165, 180, 252]; }
   function amberRGB()             { return [245, 158, 11]; }
+  function todoDotRGB()           { return [250, 204, 21]; }
+  function todoTextRGB()          { return [250, 204, 21]; }
 
   // Display id for a decision: prefer the friendly seq form, fall back to canonical id.
   function decisionDisplayId(d) {
     return (d.seq != null) ? ('D-' + d.seq) : d.id;
+  }
+
+  // Display id for a todo: prefer the friendly seq form, fall back to canonical id.
+  function todoDisplayId(t) {
+    return (t.seq != null) ? ('T-' + t.seq) : t.id;
   }
 
   // Max file-dots rendered per frame. Raising it surfaces more nodes per frame
@@ -79,12 +98,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   let DECISIONS = {};
   let FRAME_GOVERNANCE = {};
+  let TODOS = {};
+  let TODO_GOVERNANCE = {};
+  let SPAWNS_FROM = {};
   let AGGREGATES = [];
   let FILE_EDGES = [];
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
     return (FRAME_GOVERNANCE[frameId] || []).map(getDecision).filter(Boolean);
+  }
+  function getFrameTodos(frameId) {
+    return (TODO_GOVERNANCE[frameId] || []).map((id) => TODOS[id]).filter(Boolean);
   }
 
   let currentProject = null;
@@ -113,12 +138,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   async function loadGraph(projectName) {
     currentProject = projectName;
-    const [graph, decs, aggs, fileEdges, frameMap] = await Promise.all([
+    const [graph, decs, aggs, fileEdges, frameMap, todosResp] = await Promise.all([
       fetchGraph(projectName),
       fetchDecisions(projectName),
       fetchAggregates(projectName),
       fetchFileEdges(projectName),
       fetchFrames(projectName),
+      fetchTodos(projectName),
     ]);
     AGGREGATES = aggs.aggregates || [];
     FILE_EDGES = fileEdges.file_edges || [];
@@ -168,6 +194,26 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       DECISIONS[d.id] = d;
     }
     FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+
+    // 5c. TODOs → TODOS map (ambient-filtered) + governance + spawns-from index.
+    // buildGovernance only picks up kind:'frame' refs; for todos that only have
+    // kind:'file' governs, we also resolve file paths to frame ids via
+    // FRAME_PATH_INDEX (same path the draw layer uses for decisions).
+    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
+    TODOS = {};
+    for (const t of ambientTodos) TODOS[t.id] = t;
+    TODO_GOVERNANCE = buildGovernance(ambientTodos);
+    // Augment with file-path-resolved frame governs.
+    for (const t of ambientTodos) {
+      for (const g of t.governs || []) {
+        if (g.kind !== 'file') continue;
+        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+        if (!fid) continue;
+        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
+        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
+      }
+    }
+    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
 
     // 5b. A decision-governed frame the ranking left non-ambient would never
     //     render, hiding its decisions (e.g. cortex-indexer's governed frames
@@ -241,6 +287,27 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         layersSwitch.click();
       }
     });
+
+    const bindSwitch = (el, lsKey, get, set) => {
+      el.classList.toggle('on', get());
+      el.setAttribute('aria-checked', String(get()));
+      const toggle = () => {
+        set(!get());
+        el.classList.toggle('on', get());
+        el.setAttribute('aria-checked', String(get()));
+        try { localStorage.setItem(lsKey, get() ? '1' : '0'); } catch { /* sandboxed */ }
+      };
+      el.addEventListener('click', toggle);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      });
+    };
+    bindSwitch(document.getElementById('show-frames'), SHOW_LS.frames,
+      () => showFrames, (v) => { showFrames = v; });
+    bindSwitch(document.getElementById('show-decisions'), SHOW_LS.decisions,
+      () => showDecisions, (v) => { showDecisions = v; });
+    bindSwitch(document.getElementById('show-todos'), SHOW_LS.todos,
+      () => showTodos, (v) => { showTodos = v; });
 
     const framesDismiss = document.getElementById('frames-warning-dismiss');
     if (framesDismiss) {
@@ -351,24 +418,30 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       addEdge(a, b, nodes[a].frameId !== nodes[b].frameId, fe.weight);
     }
 
-    for (const frameId in FRAME_GOVERNANCE) {
-      const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
-      const decIds = FRAME_GOVERNANCE[frameId];
-      decIds.forEach((decId) => {
-        const dec = DECISIONS[decId];
-        if (!dec) return;
-        // Seeded anchor selection: same decision + frame → same anchor dots
-        // every load (was Math.random shuffle).
-        const rng = mulberry32(fnv1a(decId + ':' + frameId));
-        const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
-        const pool = [...frameNodes];
-        const picked = [];
-        for (let k = 0; k < targetCount; k++) {
-          picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-        }
-        dec._nodeIdxs = picked.map(o => o.i);
-      });
-    }
+    // Generalized seeded anchor picker: same entity + frame → same anchor dots
+    // every load (deterministic, was Math.random shuffle).
+    // Decision prefix '' reproduces the prior seed string (decId + ':' + frameId)
+    // byte-for-byte so decision anchors never move. TODOs use 'todo:' prefix to
+    // give them an independent seed space.
+    const assignAnchors = (governance, store, prefix) => {
+      for (const frameId in governance) {
+        const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
+        governance[frameId].forEach((entId) => {
+          const ent = store[entId];
+          if (!ent) return;
+          const rng = mulberry32(fnv1a(prefix + entId + ':' + frameId));
+          const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
+          const pool = [...frameNodes];
+          const picked = [];
+          for (let k = 0; k < targetCount; k++) {
+            picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+          }
+          ent._nodeIdxs = picked.map(o => o.i);
+        });
+      }
+    };
+    assignAnchors(FRAME_GOVERNANCE, DECISIONS, '');       // unchanged seed → identical decision anchors
+    assignAnchors(TODO_GOVERNANCE, TODOS, 'todo:');       // namespaced seed → independent todo anchors
   }
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
@@ -483,6 +556,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let hoveredNodeIdx = null;
   let hoveredMarginaliaId = null;
   let hoveredDecisionId = null;
+  let hoveredTodoId = null;
   let nodeHoverT0 = 0;
   const NODE_HOVER_DELAY = 60;
   const NODE_HOVER_IN_MS = 140;
@@ -610,8 +684,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     const marginaliaHit = marginaliaAtPoint(px, py);
     const nodeIdx = marginaliaHit ? null : nodeAtPoint(px, py);
-    const labelFrame = marginaliaHit ? null : frameLabelAtPoint(px, py);
-    const bodyFrame = marginaliaHit ? null : frameAtPoint(px, py);
+    const labelFrame = (marginaliaHit || !showFrames) ? null : frameLabelAtPoint(px, py);
+    const bodyFrame = (marginaliaHit || !showFrames) ? null : frameAtPoint(px, py);
 
     const newHoveredMarginalia = marginaliaHit?.id || null;
     if (newHoveredMarginalia !== hoveredMarginaliaId) {
@@ -653,7 +727,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const decHover = decisionNodeAtPoint(px, py);
     hoveredDecisionId = decHover ? decHover.id : null;
 
-    if (decHover) {
+    const todoHover = todoNodeAtPoint(px, py);
+    hoveredTodoId = todoHover ? todoHover.id : null;
+
+    if (decHover || todoHover) {
       canvas.style.cursor = 'pointer';
     } else if (marginaliaHit) {
       canvas.style.cursor = 'pointer';
@@ -686,6 +763,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     hoveredNodeIdx = null;
     hoveredMarginaliaId = null;
     hoveredDecisionId = null;
+    hoveredTodoId = null;
     canvas.style.cursor = 'default';
   });
 
@@ -701,7 +779,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       if (!focusedFrameId) anchorNodeIdx = null;
       return;
     }
-    const frame = frameAtPoint(px, py);
+    const frame = showFrames ? frameAtPoint(px, py) : null;
     if (frame) {
       anchorNodeIdx = null;
       setFocus(frame.id === focusedFrameId ? null : frame.id);
@@ -729,6 +807,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         openRecord('decision', decHit.id);
         return;
       }
+      const todoHit = todoNodeAtPoint(px, py);
+      if (todoHit) {
+        openRecord('todo', todoHit.id);
+        return;
+      }
       closeRecord();
       return;
     }
@@ -743,6 +826,12 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const decHit = decisionNodeAtPoint(px, py);
     if (decHit) {
       openRecord('decision', decHit.id);
+      return;
+    }
+
+    const todoHit = todoNodeAtPoint(px, py);
+    if (todoHit) {
+      openRecord('todo', todoHit.id);
       return;
     }
 
@@ -774,7 +863,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       pinnedNodeIdx = null;
     }
 
-    const labelFrame = frameLabelAtPoint(px, py);
+    const labelFrame = showFrames ? frameLabelAtPoint(px, py) : null;
     if (labelFrame) {
       anchorNodeIdx = null;
       setFocus(labelFrame.id === focusedFrameId ? null : labelFrame.id);
@@ -782,7 +871,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     }
 
     if (focusedFrameId) {
-      const bodyFrame = frameAtPoint(px, py);
+      const bodyFrame = showFrames ? frameAtPoint(px, py) : null;
       if (!bodyFrame || bodyFrame.id !== focusedFrameId) {
         anchorNodeIdx = null;
         setFocus(null);
@@ -791,6 +880,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   });
 
   const decisionNodeRects = [];
+  const todoNodeRects = [];
   const decisionExpandState = {};
   const DECISION_EXPAND_IN_MS = 160;
   const DECISION_EXPAND_OUT_MS = 200;
@@ -895,6 +985,23 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
           ctx.stroke();
           ctx.setLineDash([]);
         });
+        // Decision → child-TODO leaders (spawnsFrom). Only when both layers visible.
+        if (showTodos) {
+          for (const todoId of (SPAWNS_FROM[dec.id] || [])) {
+            const childTodo = TODOS[todoId];
+            for (const idx of (childTodo?._nodeIdxs || [])) {
+              const p = nodePx(nodes[idx]);
+              ctx.strokeStyle = `rgba(250, 204, 21, 0.30)`; // yellow, distinct from green governed leaders
+              ctx.lineWidth = 0.6;
+              ctx.setLineDash([2, 2]);
+              ctx.beginPath();
+              ctx.moveTo(dotX, dotY);
+              ctx.lineTo(p.x, p.y);
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+          }
+        }
       } else if (expand > 0.001) {
         governedPositions.forEach(p => {
           ctx.strokeStyle = `rgba(74, 222, 128, ${0.14 * expand})`;
@@ -1000,6 +1107,184 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     return null;
   }
 
+  function drawFloatingTodoNodes(now) {
+    todoNodeRects.length = 0;
+    const list = Object.values(TODOS); // already ambient-filtered (done/cancelled excluded)
+    if (!list.length) return;
+
+    ctx.save();
+    ctx.font = '500 10px "Geist Mono", monospace';
+    ctx.textBaseline = 'middle';
+
+    const selectedTodoId = (focusedRecord && focusedRecord.type === 'todo') ? focusedRecord.id : null;
+
+    list.forEach(todo => {
+      const governedPositions = (todo._nodeIdxs || []).map(i => nodePx(nodes[i]));
+      // Standalone TODOs with no governed frame → no _nodeIdxs → skip (known limitation).
+      if (!governedPositions.length) return;
+
+      // Governed frame ids for overlap-repulsion logic.
+      const governedFrameIds = new Set();
+      (todo.governs || []).forEach(g => {
+        if (g.kind === 'frame') governedFrameIds.add(g.id);
+        else if (g.kind === 'file') {
+          const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+          if (fid) governedFrameIds.add(fid);
+        }
+      });
+
+      let cx = governedPositions.reduce((s, p) => s + p.x, 0) / governedPositions.length;
+      let cy = governedPositions.reduce((s, p) => s + p.y, 0) / governedPositions.length;
+
+      let dotX = cx, dotY = cy;
+      let tries = 0;
+      const dotBoxR = 14;
+      while (tries < 16) {
+        let overlap = false;
+        for (const frame of FRAMES) {
+          if (governedFrameIds.has(frame.id)) continue;
+          const f = framePx(frame);
+          if (dotX + dotBoxR > f.cx - f.w / 2 - 6 && dotX - dotBoxR < f.cx + f.w / 2 + 6
+             && dotY + dotBoxR > f.cy - f.h / 2 - 6 && dotY - dotBoxR < f.cy + f.h / 2 + 6) {
+            overlap = true;
+            const dx = dotX - f.cx;
+            const dy = dotY - f.cy;
+            const dist = Math.hypot(dx, dy) || 1;
+            dotX += (dx / dist) * 16;
+            dotY += (dy / dist) * 16;
+          }
+        }
+        if (!overlap) break;
+        tries++;
+      }
+
+      const { rgb, ring } = todoDotColor(todo.state);
+      // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
+
+      const isSelected = selectedTodoId === todo.id;
+      const isHovered = hoveredTodoId === todo.id;
+      const pillVisible = isHovered || isSelected;
+
+      const DOT_R = 4;
+      const HIT_R = 14;
+
+      // Leader lines when hovered/selected.
+      if (isSelected) {
+        governedPositions.forEach(p => {
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.22)`;
+          ctx.lineWidth = 0.6;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(dotX, dotY);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      } else if (isHovered) {
+        governedPositions.forEach(p => {
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`;
+          ctx.lineWidth = 0.6;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(dotX, dotY);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      }
+
+      // Dot fill.
+      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Amber ring for blocked state.
+      if (ring) {
+        ctx.strokeStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, 0.8)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Selection ring.
+      if (isSelected) {
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.5)`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Hover pill: "T-NNN · summary"
+      let pillRect = null;
+      if (pillVisible) {
+        const label = todoDisplayId(todo);
+        const titleLabel = truncateMiddle(ctx, todo.summary || '', 220);
+        const labelW = ctx.measureText(label).width;
+        const titleW = ctx.measureText(titleLabel).width;
+        const pillH = 22;
+        const padX = 10;
+        const gap = 8;
+        const pillW = padX + labelW + gap + titleW + padX;
+
+        const offset = DOT_R + 8;
+        let pillX = dotX + offset;
+        let pillY = dotY - pillH / 2;
+        const stageW = canvas.clientWidth;
+        const stageH = canvas.clientHeight;
+        if (pillX + pillW > stageW - 8) {
+          pillX = dotX - offset - pillW;
+        }
+        if (pillY + pillH > stageH - 8) pillY = stageH - 8 - pillH;
+        if (pillY < 8) pillY = 8;
+
+        // Pill bg: neutral (no yellow tint).
+        ctx.fillStyle = `rgba(${pillBgRGB()[0]}, ${pillBgRGB()[1]}, ${pillBgRGB()[2]}, 0.96)`;
+        roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+        ctx.fill();
+
+        // Pill border: yellow.
+        ctx.strokeStyle = `rgba(${todoDotRGB()[0]}, ${todoDotRGB()[1]}, ${todoDotRGB()[2]}, 0.55)`;
+        ctx.lineWidth = 1;
+        roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+        ctx.stroke();
+
+        // Label (T-NNN) in yellow.
+        ctx.fillStyle = `rgba(${todoTextRGB()[0]}, ${todoTextRGB()[1]}, ${todoTextRGB()[2]}, 0.98)`;
+        ctx.textAlign = 'left';
+        ctx.fillText(label, pillX + padX, pillY + pillH / 2);
+
+        // Summary in neutral text.
+        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, 0.85)`;
+        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
+
+        pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
+      }
+
+      todoNodeRects.push({
+        id: todo.id,
+        x: dotX - HIT_R, y: dotY - HIT_R, w: HIT_R * 2, h: HIT_R * 2,
+        pillRect,
+        cx: dotX, cy: dotY,
+      });
+    });
+
+    ctx.restore();
+  }
+
+  function todoNodeAtPoint(px, py) {
+    for (const r of todoNodeRects) {
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
+      if (r.pillRect) {
+        const p = r.pillRect;
+        if (px >= p.x && px <= p.x + p.w && py >= p.y && py <= p.y + p.h) return r;
+      }
+    }
+    return null;
+  }
+
   function drawFrames(now) {
     marginaliaRects.length = 0;
     const fp = computeFocusProgress();
@@ -1039,77 +1324,81 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.save();
       ctx.translate(f.cx, f.cy);
 
-      const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
+      if (showFrames) {
+        const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
 
-      const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
-      const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
-      const ff = frameFillRGB();
-      const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
-      if (lc) {
-        // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
-        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
-      } else {
-        ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
-      }
-      ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
+        const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
+        const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
+        const ff = frameFillRGB();
+        const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
+        if (lc) {
+          // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
+        } else {
+          ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+        }
+        ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-      const baseBorderAlpha = 0.08;
-      const focusBoost = isFocused ? 0.12 : 0;
-      const hoverBorderBoost = hoverLevel * 0.2;
-      const borderAlphaMult = isLight() ? 3.0 : 1;
-      const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
+        const baseBorderAlpha = 0.08;
+        const focusBoost = isFocused ? 0.12 : 0;
+        const hoverBorderBoost = hoverLevel * 0.2;
+        const borderAlphaMult = isLight() ? 3.0 : 1;
+        const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
 
-      const fb = frameBorderRGB();
-      if (lc) {
-        ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
-      } else {
-        ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
-      }
-      ctx.lineWidth = isFocused ? 1.2 : 1;
-      roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
-      ctx.stroke();
+        const fb = frameBorderRGB();
+        if (lc) {
+          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
+        } else {
+          ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+        }
+        ctx.lineWidth = isFocused ? 1.2 : 1;
+        roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
+        ctx.stroke();
 
-      const isLabelHovered = hoveredLabelFrameId === frame.id;
-      const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
-      const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
-      const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
-      const primaryY = -f.h / 2 - 7;
+        const isLabelHovered = hoveredLabelFrameId === frame.id;
+        const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
+        const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
+        const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
+        const primaryY = -f.h / 2 - 7;
 
-      ctx.textBaseline = 'alphabetic';
-      const gap = 8;
+        ctx.textBaseline = 'alphabetic';
+        const gap = 8;
 
-      ctx.font = '10px "Geist Mono", monospace';
-      ctx.textAlign = 'right';
-      const countText = String(frame.count);
-      const countW = ctx.measureText(countText).width;
-      if (isLabelHovered) {
+        ctx.font = '10px "Geist Mono", monospace';
+        ctx.textAlign = 'right';
+        const countText = String(frame.count);
+        const countW = ctx.measureText(countText).width;
+        if (isLabelHovered) {
+          const pl = primaryLabelRGB();
+          ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${0.95 * alphaMul})`;
+        } else {
+          const ci = countIdleRGB();
+          ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55) * alphaMul})`;
+        }
+        ctx.fillText(countText, f.w / 2, primaryY);
+
+        ctx.font = '500 10px "Geist Mono", monospace';
+        ctx.textAlign = 'left';
+        const leftBudget = f.w - countW - gap;
+        const pathText = truncateMiddle(ctx, frame.name, leftBudget);
         const pl = primaryLabelRGB();
-        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${0.95 * alphaMul})`;
-      } else {
-        const ci = countIdleRGB();
-        ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55) * alphaMul})`;
+        if (lc) {
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
+        } else {
+          ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
+        }
+        ctx.fillText(pathText, -f.w / 2, primaryY);
       }
-      ctx.fillText(countText, f.w / 2, primaryY);
-
-      ctx.font = '500 10px "Geist Mono", monospace';
-      ctx.textAlign = 'left';
-      const leftBudget = f.w - countW - gap;
-      const pathText = truncateMiddle(ctx, frame.name, leftBudget);
-      const pl = primaryLabelRGB();
-      if (lc) {
-        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
-      } else {
-        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
-      }
-      ctx.fillText(pathText, -f.w / 2, primaryY);
 
       ctx.restore();
     });
 
-    if (sharpFrameId) {
-      drawMarginaliaForFrame(sharpFrameId, fp.t);
-    } else if (fp.from) {
-      drawMarginaliaForFrame(fp.from, 1 - fp.t);
+    if (showDecisions || showTodos) {
+      if (sharpFrameId) {
+        drawMarginaliaForFrame(sharpFrameId, fp.t);
+      } else if (fp.from) {
+        drawMarginaliaForFrame(fp.from, 1 - fp.t);
+      }
     }
   }
 
@@ -1119,7 +1408,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const frame = FRAMES.find(f => f.id === frameId);
     if (!frame) return;
     const decs = getFrameDecisions(frameId);
-    if (!decs.length) return;
+    const todos = getFrameTodos(frameId);
+    if (!decs.length && !todos.length) return;
 
     const f = framePx(frame);
     const pillX = f.cx + f.w / 2 + 14;
@@ -1129,7 +1419,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     ctx.font = '500 10px "Geist Mono", monospace';
     ctx.textBaseline = 'middle';
 
-    decs.forEach((dec) => {
+    if (showDecisions) decs.forEach((dec) => {
       const state = dec.state || 'active';
       const label = `${decisionDisplayId(dec)} · ${dec.summary}`;
       const labelW = ctx.measureText(label).width;
@@ -1227,6 +1517,87 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       marginaliaRects.push({
         type: 'decision',
         id: dec.id,
+        x: pillX, y: pillY, w: pillW, h: pillH,
+        frameId,
+      });
+
+      pillY += pillH + 8;
+    });
+
+    if (showTodos) todos.forEach((todo) => {
+      const { rgb, ring } = todoDotColor(todo.state);
+      const leaderColor = [250, 204, 21];
+      const leaderAlpha = 0.2;
+
+      const label = `${todoDisplayId(todo)} · ${todo.summary}`;
+      const labelW = ctx.measureText(label).width;
+      const pillH = 20;
+      const padX = 10;
+      const markSize = 5;
+      const markGap = 7;
+      const pillW = padX + markSize + markGap + labelW + padX;
+
+      // Leader lines to anchor node dots.
+      const nodeIdxs = todo._nodeIdxs || [];
+      nodeIdxs.forEach(idx => {
+        const p = nodePx(nodes[idx]);
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
+        ctx.lineWidth = 0.6;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pillX, pillY + pillH / 2);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Pill bg: neutral.
+      const isHovered = hoveredMarginaliaId === todo.id;
+      const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult;
+      const mpBg = pillBgRGB();
+      ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+
+      // Pill border: yellow.
+      const borderAlpha = 0.55;
+      ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(borderAlpha + (isHovered ? 0.2 : 0)) * alphaMult})`;
+      ctx.lineWidth = 1;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.stroke();
+
+      // Blocked state: amber left-tick.
+      if (ring) {
+        ctx.fillStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, ${0.9 * alphaMult})`;
+        ctx.fillRect(pillX + 1, pillY + 4, 2, pillH - 8);
+      }
+
+      // Mark dot: color from todoDotColor rgb.
+      const markCx = pillX + padX + markSize / 2;
+      const markCy = pillY + pillH / 2;
+      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.9 * alphaMult})`;
+      ctx.beginPath();
+      ctx.arc(markCx, markCy, markSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Amber ring on mark for blocked state.
+      if (ring) {
+        ctx.strokeStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, ${0.85 * alphaMult})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(markCx, markCy, markSize / 2 + 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Label text.
+      const mpText = pillTextRGB();
+      ctx.fillStyle = `rgba(${mpText[0]}, ${mpText[1]}, ${mpText[2]}, ${0.95 * alphaMult})`;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, pillX + padX + markSize + markGap, pillY + pillH / 2);
+
+      marginaliaRects.push({
+        type: 'todo',
+        id: todo.id,
         x: pillX, y: pillY, w: pillW, h: pillH,
         frameId,
       });
@@ -1580,7 +1951,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     drawFrames(now);
     drawEdges();
     drawNodes(now);
-    drawFloatingDecisionNodes(now);
+    if (showDecisions) drawFloatingDecisionNodes(now);
+    else decisionNodeRects.length = 0;
+    if (showTodos) drawFloatingTodoNodes(now);
+    else todoNodeRects.length = 0;
     drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
@@ -1620,6 +1994,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // Show the friendly D-<seq> form (consistent with the card header and
       // pills); the click handler still keys on ref.id via data-ref.
       name = decisionDisplayId(DECISIONS[ref.id] || ref);
+    } else if (ref.kind === 'todo') {
+      type = 'todo';
+      // Use caller-supplied name when provided (e.g. "T-001 · summary" from the
+      // decision-card Tasks section); fall back to the display-id lookup.
+      name = ref.name || todoDisplayId(TODOS[ref.id] || ref);
+    } else if (ref.kind === 'pr') {
+      type = 'pr';
+      name = ref.id ? `#${ref.id}` : (ref.name || ref.id || '');
     } else {
       type = ref.kind || '';
       name = ref.name || ref.id || ref.path || '';
@@ -1686,12 +2068,27 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${dec.relatedTo.map(id => refPillHtml({ kind: 'decision', id })).join('')}</div></div>`;
     }
 
+    const childTodoIds = SPAWNS_FROM[dec.id] || [];
+    if (childTodoIds.length) {
+      html += `<div class="dc-section"><div class="dc-section-label">tasks</div><div class="dc-ref-row">`;
+      html += childTodoIds.map((id) => {
+        const t = TODOS[id];
+        const label = t ? `${todoDisplayId(t)} · ${t.summary}` : id;
+        return refPillHtml({ kind: 'todo', id, name: label });
+      }).join('');
+      html += `</div></div>`;
+    }
+
     html += '</div>';
     decisionCardEl.innerHTML = html;
 
     const closeBtn = document.getElementById('dc-close');
     if (closeBtn) closeBtn.addEventListener('click', () => closeDecisionCard());
 
+    wireCardRefPills();
+  }
+
+  function wireCardRefPills() {
     decisionCardEl.querySelectorAll('.dc-ref-pill').forEach(el => {
       el.addEventListener('click', () => {
         const refData = el.dataset.ref;
@@ -1701,6 +2098,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
         if (ref.kind === 'decision') {
           if (DECISIONS[ref.id]) openDecisionCard(ref.id);
+          return;
+        }
+
+        if (ref.kind === 'todo') {
+          if (TODOS[ref.id]) openRecord('todo', ref.id);
           return;
         }
 
@@ -1718,6 +2120,42 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     });
   }
 
+  function renderTodoCard(todoId) {
+    const t = TODOS[todoId];
+    if (!t) { decisionCardEl.innerHTML = ''; return; }
+    const provParts = [];
+    if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
+    if (t.proposedAt) provParts.push(`on ${escapeHtml(t.proposedAt)}`);
+
+    let html = `<div class="dc-header"><div class="dc-id-block">
+      <div class="dc-id-row">
+        <span class="dc-id todo">${escapeHtml(todoDisplayId(t))}</span>
+        <span class="dc-state-pill ${escapeHtml(t.state || '')}"><span class="sw"></span>${escapeHtml(t.state || '')}</span>
+      </div>
+      <div class="dc-summary">${escapeHtml(t.summary || '')}</div>
+      ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+    </div><button class="dc-close" id="dc-close" aria-label="close">×</button></div>`;
+
+    html += '<div class="dc-body">';
+    if (t.description) html += `<div class="dc-section"><div class="dc-section-label">description</div><div class="dc-prose">${escapeHtml(t.description)}</div></div>`;
+    if (t.governs?.length) html += `<div class="dc-section"><div class="dc-section-label">governs</div><div class="dc-ref-row">${t.governs.map(refPillHtml).join('')}</div></div>`;
+    if (t.spawnsFrom) html += `<div class="dc-section"><div class="dc-section-label">spawned from</div><div class="dc-ref-row">${refPillHtml({ kind: 'decision', id: t.spawnsFrom })}</div></div>`;
+    if (t.resolvedBy?.length) html += `<div class="dc-section"><div class="dc-section-label">resolved by</div><div class="dc-ref-row">${t.resolvedBy.map(id => refPillHtml({ kind: 'pr', id })).join('')}</div></div>`;
+    if (t.blockedBy?.length || t.blocks?.length) {
+      html += `<div class="dc-section"><div class="dc-section-label">dependencies</div><div class="dc-ref-row">`;
+      html += (t.blockedBy || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
+      html += (t.blocks || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
+      html += `</div></div>`;
+    }
+    if (t.relatedTo?.length) html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${t.relatedTo.map(r => refPillHtml({ kind: 'todo', id: r.id })).join('')}</div></div>`;
+    html += '</div>';
+    decisionCardEl.innerHTML = html;
+
+    const closeBtn = document.getElementById('dc-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => closeRecord());
+    wireCardRefPills();
+  }
+
   let currentRenderedRecord = null;
 
   function sameRecord(a, b) {
@@ -1729,6 +2167,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     if (focusedRecord && !sameRecord(focusedRecord, currentRenderedRecord)) {
       if (focusedRecord.type === 'decision') {
         renderDecisionCard(focusedRecord.id);
+      } else if (focusedRecord.type === 'todo') {
+        renderTodoCard(focusedRecord.id);
       }
       currentRenderedRecord = { ...focusedRecord };
     }

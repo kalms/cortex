@@ -17,6 +17,38 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.1.1] — 2026-06-26
+
+### Added
+
+- **TODO viewer slice — TODO entities now render on the frames canvas.** The
+  TODO entity foundation shipped in 1.0.0 (storage + tools + `/api/todos`
+  contract) but TODOs were invisible on the canvas; this renders them, mirroring
+  the decision pipeline:
+  - Ambient yellow TODO dots (open = solid yellow, blocked = yellow + amber
+    ring, in-progress = yellow base; done/cancelled excluded from the canvas),
+    with hover pills (`T-NN · summary`).
+  - TODO marginalia pills stacked beside decision pills on the focused frame,
+    with leader lines to anchor dots.
+  - Decision → TODO leader lines for `spawnsFrom` children when a decision is
+    selected.
+  - A TODO record drawer (reusing the decision-card chrome) with in-place
+    decision ↔ TODO ref-pill pivoting, and a new **Tasks** section on the
+    decision drawer listing its `spawnsFrom` children.
+- **Unified layers menu.** The viewer's `layers` menu is now one flat list of
+  toggleable layers — **frames / decisions / todos / layer tint** (with the
+  six-tier architectural legend nested under the tint toggle) — each persisted to
+  `localStorage`. Hiding `frames` suppresses only the box chrome; file dots,
+  edges, and layout are untouched, so decisions and TODOs stay anchorable.
+
+### Fixed
+
+- **GOVERNS qualified-name classification (decisions + todos).** A real
+  qualified name (`dir/file.ts::sym`, which always contains `/`) was
+  misclassified as a `path` and silently dropped by `resolveGovernsRef`. Both
+  the decisions and todos services now share a `classifyGovernsTarget` helper
+  (`src/shared/classify-ref.ts`) that checks the `::` marker before `/`.
+
 ## [1.1.0] — 2026-06-25
 
 ### Added
@@ -842,6 +874,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ruevu/cortex/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ruevu/cortex/releases/tag/v1.0.2

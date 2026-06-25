@@ -51,3 +51,12 @@ export async function fetchFrames(project) {
   if (!r.ok) return { frames: [], stage: { w: 1000, h: 800 } };
   return r.json();
 }
+
+export async function fetchTodos(project) {
+  const url = project
+    ? `/api/todos?project=${encodeURIComponent(project)}`
+    : "/api/todos";
+  const r = await fetch(url);
+  if (!r.ok) return { todos: [] };
+  return r.json();
+}

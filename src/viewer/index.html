@@ -18,16 +18,21 @@
     <option value="">(loading…)</option>
   </select>
   <div class="layers-wrap">
-    <button id="layers-toggle" title="Layer lens">layers</button>
+    <button id="layers-toggle" title="Layers">layers</button>
     <div class="layers-menu" id="layers-menu" hidden>
-      <div class="lm-toggle" id="layers-switch" role="switch" aria-checked="false" tabindex="0"><span class="sw"></span>show layers</div>
+      <div class="lm-toggle on" id="show-frames" role="switch" aria-checked="true" tabindex="0"><span class="sw"></span>frames</div>
+      <div class="lm-toggle on" id="show-decisions" role="switch" aria-checked="true" tabindex="0"><span class="sw"></span>decisions</div>
+      <div class="lm-toggle on" id="show-todos" role="switch" aria-checked="true" tabindex="0"><span class="sw"></span>todos</div>
       <div class="lm-sep"></div>
-      <div class="lm-row"><i data-layer="interface"></i>interface</div>
-      <div class="lm-row"><i data-layer="orchestration"></i>orchestration</div>
-      <div class="lm-row"><i data-layer="domain"></i>domain</div>
-      <div class="lm-row"><i data-layer="data"></i>data</div>
-      <div class="lm-row"><i data-layer="infrastructure"></i>infrastructure</div>
-      <div class="lm-row"><i data-layer="ceremony"></i>ceremony</div>
+      <div class="lm-toggle" id="layers-switch" role="switch" aria-checked="false" tabindex="0"><span class="sw"></span>layer tint</div>
+      <div class="lm-legend">
+        <div class="lm-row"><i data-layer="interface"></i>interface</div>
+        <div class="lm-row"><i data-layer="orchestration"></i>orchestration</div>
+        <div class="lm-row"><i data-layer="domain"></i>domain</div>
+        <div class="lm-row"><i data-layer="data"></i>data</div>
+        <div class="lm-row"><i data-layer="infrastructure"></i>infrastructure</div>
+        <div class="lm-row"><i data-layer="ceremony"></i>ceremony</div>
+      </div>
     </div>
   </div>
   <button id="theme-toggle" title="Toggle light/dark">◐</button>

@@ -54,6 +54,13 @@ describe("TodoService", () => {
     expect(refs.governs[0].target_ref).toBe("T-legacy/file.ts");
   });
 
+  it("classifies a qualified-name governs target as qn, not path", () => {
+    const t = s.propose({ summary: "refactor", governs: ["src/foo/bar.ts::doThing"] });
+    const refs = s.getWithRefs(t.id)!;
+    const governs = refs.governs.find((g) => g.target_ref === "src/foo/bar.ts::doThing");
+    expect(governs?.target_kind).toBe("qn"); // currently "path" — bug
+  });
+
   it("spawns_from target_kind is 'decision'", () => {
     const t = s.propose({ summary: "child", spawns_from: "D-zzzz" });
     const refs = s.getWithRefs(t.id)!;
