@@ -124,7 +124,9 @@ const TODO_AMBER = [245, 158, 11];
 /** Pure state -> dot color. `in_progress` returns the yellow base; the draw
  *  layer substitutes the assignee identity color when one is available. */
 export function todoDotColor(state) {
-  return { rgb: TODO_YELLOW, ring: state === "blocked" ? TODO_AMBER : null };
+  // Return fresh arrays — never the shared module constants — so a draw-layer
+  // caller that blends an assignee color in place can't corrupt them for later calls.
+  return { rgb: [...TODO_YELLOW], ring: state === "blocked" ? [...TODO_AMBER] : null };
 }
 
 // Default footprint (stage px) for a promoted frame when the frame-map carries
