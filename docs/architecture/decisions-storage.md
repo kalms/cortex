@@ -12,7 +12,7 @@ overwrites the file in place; on cache miss with a "mode change reindex",
 the pipeline `ctx_unlink`s the file before rebuilding.
 
 User-authored decisions don't share that lifecycle. They're explicitly
-created via the `create_decision` / `propose_decision` MCP tools and have
+created via the `decision` MCP tool (`action:"create"` / `action:"propose"`) and have
 no source-of-truth other than the row in the DB. Storing them in the same
 file as the derived graph guarantees data loss every time the indexer
 runs. This is the Gap 10 bug.
@@ -113,7 +113,7 @@ It:
 5. Wraps everything (including the `markMigrated` write) in a single
    `decDb.transaction()` so partial failure leaves no half-state.
 
-## Governance resolution (`why_was_this_built`)
+## Governance resolution (`decision({action:"why"})`)
 
 `DecisionSearch.findGoverning(target)` (in `search.ts`) walks four
 fallback steps:
@@ -156,7 +156,7 @@ sidecar, confirm the decision is still there.
 
 ## Cold-start seeding (machine-proposed decisions)
 
-A freshly-indexed repo has no decisions, which makes `why_was_this_built`
+A freshly-indexed repo has no decisions, which makes `decision({action:"why"})`
 inert on day one. The cold-start seeding flow bootstraps the durable store
 from existing repo state without compromising its trust contract:
 
@@ -168,7 +168,7 @@ from existing repo state without compromising its trust contract:
    by scope, and returns a compact manifest with **machine-derived
    provenance** (commit SHAs / doc paths). The skill never reads raw `git log`
    itself; the manifest is the trust anchor.
-3. **Authoring** — The skill calls `propose_decision` with `author:
+3. **Authoring** — The skill calls `decision({action:"propose"})` with `author:
    "cortex:seed"` and a `provenance` payload carrying the source SHAs/doc
    path + confidence tier (`high` for ADRs, `medium` for prose, `low` for
    commit clusters).

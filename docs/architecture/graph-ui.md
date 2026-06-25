@@ -52,7 +52,7 @@ Cortex emits structured events for decision lifecycle and git activity, persists
 
 ## Event flow: "Claude creates a decision"
 
-1. Claude invokes MCP tool `create_decision` (stdio).
+1. Claude invokes MCP tool `decision` with `action:"create"` (stdio).
 2. Tool handler in `src/mcp-server/server.ts` calls `DecisionService.create()`.
 3. `DecisionService.create()` writes to `cortex.db` via `GraphStore` (`src/graph/store.ts`).
 4. `DecisionService` calls `bus.emit(event)` with a `decision.created` event (`src/events/bus.ts`).

@@ -106,7 +106,7 @@ npm rebuild better-sqlite3
 ┌──────────────────────────────────────────────────────────┐
 │                MCP Server (stdio, main thread)            │
 │                                                           │
-│  Code (13)    decision (1)       pr (1)    todo (1)       │
+│  Code (15)    decision (1)       pr (1)    todo (1)       │
 │  ──────────   ────────────────   ──────    ──────────     │
 │  index_*      action-dispatched: open,     propose,       │
 │  search_*     create/update/     touch,    get/list/      │
