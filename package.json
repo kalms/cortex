@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Knowledge graph MCP server with decision provenance",
   "type": "module",
   "main": "dist/index.js",

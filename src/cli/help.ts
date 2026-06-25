@@ -1,3 +1,5 @@
+import { NO_STYLE, type Styler } from "./style.js";
+
 type CommandDoc = {
   usage: string;
   description: string;
@@ -96,31 +98,34 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
   },
 };
 
-export function renderTopLevelHelp(): string {
+export function renderTopLevelHelp(styler: Styler = NO_STYLE): string {
+  const h = (s: string) => styler.bold(s);
+  const name = (s: string) => styler.cyan(s);
+  const ex = (s: string) => styler.green(s);
   const lines = [
     "cortex — knowledge graph for your codebase, on the command line",
     "",
-    "Usage:",
+    h("Usage:"),
     "  cortex <namespace> <command> [args] [--flags]",
     "",
-    "Namespaces:",
-    "  code        Search, view, and trace code in indexed projects",
-    "  decision    Architectural decisions and provenance",
-    "  graph       Raw Cypher / SQL queries (advanced)",
-    "  index       Manage which projects are indexed",
-    "  eval        Run the eval harness",
+    h("Namespaces:"),
+    `  ${name("code".padEnd(10))}  Search, view, and trace code in indexed projects`,
+    `  ${name("decision".padEnd(10))}  Architectural decisions and provenance`,
+    `  ${name("graph".padEnd(10))}  Raw Cypher / SQL queries (advanced)`,
+    `  ${name("index".padEnd(10))}  Manage which projects are indexed`,
+    `  ${name("eval".padEnd(10))}  Run the eval harness`,
     "",
-    "Common commands:",
-    "  cortex code find <name>     find a symbol by name",
-    "  cortex code show <input>    show source for a symbol or file",
-    "  cortex code where <input>   find what calls a symbol",
-    "  cortex decision why <input> show governing decisions",
-    "  cortex eval                 run the eval harness",
+    h("Common commands:"),
+    `  ${ex("cortex code find <name>")}     find a symbol by name`,
+    `  ${ex("cortex code show <input>")}    show source for a symbol or file`,
+    `  ${ex("cortex code where <input>")}   find what calls a symbol`,
+    `  ${ex("cortex decision why <input>")} show governing decisions`,
+    `  ${ex("cortex eval")}                 run the eval harness`,
     "",
-    "Meta:",
-    "  cortex tour                 60-second guided walkthrough",
-    "  cortex help <topic>         concept-level help (qualified-names, projects, …)",
-    "  cortex install              add cortex to PATH",
+    h("Meta:"),
+    `  ${ex("cortex tour")}                 60-second guided walkthrough`,
+    `  ${ex("cortex help <topic>")}         concept-level help (qualified-names, projects, …)`,
+    `  ${ex("cortex install")}              add cortex to PATH`,
     "",
     "  --version                   print version",
     "  --help                      show help for any command",
@@ -128,32 +133,32 @@ export function renderTopLevelHelp(): string {
   return lines.join("\n");
 }
 
-export function renderNamespaceHelp(namespace: string): string {
+export function renderNamespaceHelp(namespace: string, styler: Styler = NO_STYLE): string {
   const cmds = NAMESPACES[namespace];
   if (!cmds) return `unknown namespace '${namespace}'`;
-  const lines = [`cortex ${namespace} — ${describeNamespace(namespace)}`, "", "Commands:"];
-  for (const [name, doc] of Object.entries(cmds)) {
-    lines.push(`  ${name.padEnd(12)}${doc.description}`);
+  const lines = [`cortex ${namespace} — ${describeNamespace(namespace)}`, "", styler.bold("Commands:")];
+  for (const [cmdName, doc] of Object.entries(cmds)) {
+    lines.push(`  ${styler.cyan(cmdName.padEnd(12))}${doc.description}`);
   }
   lines.push("", `Run \`cortex ${namespace} <command> --help\` for details on any command.`);
   return lines.join("\n");
 }
 
-export function renderCommandHelp(namespace: string, command: string): string {
+export function renderCommandHelp(namespace: string, command: string, styler: Styler = NO_STYLE): string {
   const doc = NAMESPACES[namespace]?.[command];
   if (!doc) return `unknown command 'cortex ${namespace} ${command}'`;
   const lines = [
     `cortex ${namespace} ${command} — ${doc.description}`,
     "",
-    "Usage:",
+    styler.bold("Usage:"),
     `  ${doc.usage}`,
     "",
-    "Examples:",
-    ...doc.examples.map((e) => `  ${e}`),
+    styler.bold("Examples:"),
+    ...doc.examples.map((e) => `  ${styler.green(e)}`),
   ];
   if (doc.seeAlso?.length) {
-    lines.push("", "See also:");
-    for (const ref of doc.seeAlso) lines.push(`  ${ref}`);
+    lines.push("", styler.bold("See also:"));
+    for (const ref of doc.seeAlso) lines.push(`  ${styler.cyan(ref)}`);
   }
   return lines.join("\n");
 }

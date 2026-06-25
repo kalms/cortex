@@ -1,10 +1,12 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import type { ProjectContext } from "../context.js";
 import { UsageError } from "../errors.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
+import { startSpinner } from "../style.js";
 import { runFrameExtraction, type FrameResult } from "../../frame-extraction/run-frames.js";
 import { runContractExtraction } from "../../contracts/run-contracts.js";
 import type { ContractResult } from "../../contracts/types.js";
@@ -16,6 +18,8 @@ import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
+
+const execFileAsync = promisify(execFile);
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -57,24 +61,39 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       cleanupStagingDb(stagePath);                  // clear any stale staging from an interrupted run
       try {
         const indexerArgs = mode ? { repo_path: repoPath, mode } : { repo_path: repoPath };
-        const raw = execFileSync(
-          INDEXER_BIN,
-          ["cli", "index_repository", JSON.stringify(indexerArgs)],
-          {
-            encoding: "utf-8",
-            stdio: ["inherit", "pipe", "inherit"],
-            env: { ...process.env, CORTEX_DB: stagePath },
-          },
-        );
-        const result = unwrapIndexerResult(raw);
-        process.stdout.write(renderIndexerResult(result) + "\n");
+        const project = deriveProjectName(repoPath);
+
+        const spinner = startSpinner(`indexing ${project}…`);
+        let result;
+        try {
+          const { stdout: raw, stderr } = await execFileAsync(
+            INDEXER_BIN,
+            ["cli", "index_repository", JSON.stringify(indexerArgs)],
+            {
+              encoding: "utf-8",
+              maxBuffer: 64 * 1024 * 1024, // indexer can emit a large MCP envelope
+              env: { ...process.env, CORTEX_DB: stagePath },
+            },
+          );
+          result = unwrapIndexerResult(raw);
+          if (process.env.CORTEX_CLI_DEBUG === "1" && stderr) process.stderr.write(stderr);
+        } catch (e) {
+          spinner.fail("indexing failed");
+          throw e;
+        }
+
         // renderIndexerResult throws on a failed index today, but guard explicitly
         // so a future refactor can't let frames/register run against an empty
         // .cortex/db (which would leave a registry row pointing at no graph).
-        if (result.isError) return;
+        if (result.isError) {
+          spinner.fail("indexing failed");
+          process.stdout.write(renderIndexerResult(result) + "\n"); // throws DomainError → exit 3
+          return;
+        }
+        spinner.succeed(`indexed ${project}`);
+        process.stdout.write(renderIndexerResult(result) + "\n");
 
         // Frames + contracts build INTO staging, so the published graph is complete.
-        const project = deriveProjectName(repoPath);
         const frames = await runFrameExtraction({ repoPath, project, dbPath: stagePath });
         process.stdout.write(renderFramesLine(frames) + "\n");
         const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
