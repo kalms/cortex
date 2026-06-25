@@ -172,6 +172,27 @@ each base's clique at 60 files. Deterministic. Inert on functional codebases
 clusters-below-floor ↓); not a `cluster:N` fix in itself. Gates:
 `CORTEX_FRAME_HIERARCHY=0` disables; `CORTEX_FRAME_HIERARCHY_GAMMA` overrides γ.
 
+### Label recovery before `cluster:N`
+
+`pickFrameLabel` no longer drops straight to the opaque `cluster:N` after its
+four strict passes. Three recovery steps run first (`inject-frames.ts`):
+
+- **Directory-aware short tokens (all passes):** a **2-char** token that names a
+  real directory segment (`ws`, `io`, `db`) is eligible; a 1-char segment and a
+  short filename stem/extension (`ts`, `js`) stay rejected.
+- **Pass 4.5 — relaxed token recovery:** when passes 1–4 fail, accept the
+  best TF-IDF top-token at a lowered salience floor (0.3), allowing *soft*
+  generics (`index`/`meta`/`ids`, e.g. the `index-meta` cluster) but never
+  route-params, dynamic segments, repo-ubiquitous terms, or org-root/layout
+  conventions (`src`/`app`/`pages`/… — `LAYOUT_ROOT_TOKENS`). Relaxes only
+  topical TF-IDF tokens, never raw path segments (a 30%-frequency segment
+  carries no topicality guarantee).
+- **Directory descriptor:** if Pass 4.5 still finds nothing, the label is the
+  dominant informative directory segment(s) shared by **2+ members** (e.g.
+  `decisions/todos`) — never a file count (the viewer renders counts), never a
+  one-off dir. `cluster:N` remains only as the absolute floor and is now rare
+  (0 on cortex, ≤2 on the OO corpus repos measured).
+
 ## Multi-project workflow
 
 The C indexer has two open issues (full-table replace on every index

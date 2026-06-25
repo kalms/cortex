@@ -17,6 +17,24 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.0.2] — 2026-06-25
+
+### Changed
+
+- **`cluster:N` label recovery** — the frame labeler no longer drops straight to
+  the opaque `cluster:N` after its strict passes. Three deterministic recovery
+  steps run first: (1) a directory-aware short-token rule (a 2-char token that
+  names a real subsystem directory like `ws`/`io`/`db` is eligible; 1-char and
+  filename-stem tokens stay rejected); (2) a last-resort relaxed pass that
+  accepts the best TF-IDF top-token at a 0.3 salience floor, allowing soft
+  generics (`index`/`meta`/`ids`) but never route-params, dynamic segments,
+  repo-ubiquitous terms, or org-root/layout conventions; (3) an honest directory
+  descriptor (dominant informative dir(s) shared by 2+ members, e.g.
+  `decisions/todos` — no file count) before the `cluster:N` floor. On cortex this
+  takes opaque `cluster:N` labels from 5 to 0 (real labels: `ws`, `allocator`,
+  `todos`, `graph/capture`, …); measured ≤2 on the OO corpus repos with no
+  garbage labels across TS/Python/Go.
+
 ## [1.0.1] — 2026-06-24
 
 ### Added
@@ -781,6 +799,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.0.2]: https://github.com/ruevu/cortex/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ruevu/cortex/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ruevu/cortex/releases/tag/v1.0.0
 [0.9.0]: https://github.com/ruevu/cortex/releases/tag/v0.9.0

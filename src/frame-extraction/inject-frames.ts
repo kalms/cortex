@@ -65,6 +65,41 @@ function isGenericToken(token: string): boolean {
   return GENERIC_TOKENS.has(token);
 }
 
+/** True when `token` (already lowercased) appears as a DIRECTORY segment — any
+ *  path segment except the final (filename) one — in at least one member path.
+ *  A short token that names a real subsystem directory (`ws`, `io`, `db`) is a
+ *  legitimate label; the same token appearing only as a filename stem/extension
+ *  (`ts`, `js`) is noise. Lets the ≤2-char generic rule be relaxed for the
+ *  former without admitting the latter. */
+function isDirectorySegment(token: string, memberPaths: readonly string[]): boolean {
+  for (const p of memberPaths) {
+    const segs = p.split("/").filter((s) => s.length > 0);
+    for (let i = 0; i < segs.length - 1; i++) {
+      if (segs[i]!.toLowerCase() === token) return true;
+    }
+  }
+  return false;
+}
+
+/** A ≤2-char token is label-noise UNLESS it is a 2-char directory segment — a
+ *  real subsystem abbreviation like `ws`/`io`/`db`. A 1-char segment (`x`, `a`)
+ *  is always noise: it never names a subsystem, even as a directory. */
+function isShortNoise(token: string, memberPaths: readonly string[]): boolean {
+  if (token.length > 2) return false;
+  if (token.length <= 1) return true;
+  return !isDirectorySegment(token, memberPaths);
+}
+
+/** Filesystem / organisational root conventions (a subset of GENERIC_TOKENS)
+ *  that never name a topic — rejected even by Pass 4.5's relaxed generic sweep,
+ *  unlike the "soft" generics (`id`/`ids`/`meta`/`index`/`data`) which can be
+ *  topical in context (e.g. the `index-meta` cluster). */
+const LAYOUT_ROOT_TOKENS = new Set([
+  "src", "lib", "common", "core", "main", "app", "apps", "packages",
+  "modules", "pkg", "pkgs", "components", "pages", "feature", "features",
+  "test", "tests",
+]);
+
 /** Fraction of a label's tokens that are topic-bearing (non-generic). 1.0 = every
  *  token is specific; 0 = the label is entirely generic/structural/short. The
  *  frame ranker multiplies F1 by this to down-weight opaque labels (e.g. the
@@ -87,7 +122,11 @@ function isLabelEligibleWord(
   suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
 ): boolean {
   const w = word.toLowerCase();
-  if (isGenericToken(w)) return false;
+  // Stop-list (any length) always rejects. The ≤2-char rule is relaxed for a
+  // token that names a real directory segment (a subsystem like `ws`), but not
+  // for a short filename stem/extension.
+  if (GENERIC_TOKENS.has(w)) return false;
+  if (isShortNoise(w, memberPaths)) return false;
   if (isStructuralLabelToken(w)) return false;
   if (params.has(w)) return false;
   // Repo-wide ubiquitous terms (the repo name / top-level package) carry no
@@ -243,7 +282,15 @@ export function pickFrameLabel(
   const dominant = dominantPathSegmentLabel(memberPaths, suppressedTerms);
   if (dominant) return dominant;
 
-  // Pass 5: cluster id fallback.
+  // Pass 4.5: relaxed last-resort recovery before the opaque fallback.
+  const recovered = relaxedRecoveryLabel(topTokens, memberPaths, params, suppressedTerms);
+  if (recovered) return recovered;
+
+  // Pass 5: honest directory descriptor before the opaque floor.
+  const descriptor = descriptorLabel(memberPaths, suppressedTerms);
+  if (descriptor) return descriptor;
+
+  // Opaque fallback.
   return `cluster:${clusterId ?? "?"}`;
 }
 
@@ -285,7 +332,8 @@ function dominantPathSegmentLabel(
     const consider = (seg: string, depth: number, isDir: boolean) => {
       if (seg.length === 0) return;
       const lower = seg.toLowerCase();
-      if (isDynamicSegment(lower) || isGenericToken(lower) ||
+      const shortStem = isShortNoise(lower, paths);
+      if (isDynamicSegment(lower) || GENERIC_TOKENS.has(lower) || shortStem ||
           isStructuralLabelToken(lower) || params.has(lower) || suppressedTerms.has(lower)) return;
       const prev = here.get(lower);
       if (!prev) here.set(lower, { original: seg, depth, isDir });
@@ -312,6 +360,89 @@ function dominantPathSegmentLabel(
     if (best === null || isStrongerCandidate(c, best)) best = c;
   }
   return best ? best.original : null;
+}
+
+/** Last-resort recovery, reached only when passes 1–4 fail. Relaxes the normal
+ *  gate in two ways: (1) allows `GENERIC_TOKENS` members (deprioritized below
+ *  non-generic), (2) lowers the salience floor to 0.3 (recovers a plurality
+ *  token in a mixed cluster). NEVER accepts a route-param, dynamic segment,
+ *  short filename stem, or repo-ubiquitous suppressed term. Returns null when
+ *  no token or segment clears the relaxed bar, or when no member paths exist. */
+function relaxedRecoveryLabel(
+  topTokens: readonly string[],
+  memberPaths: readonly string[],
+  params: ReadonlySet<string>,
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
+  // Without member paths, there's nothing to recover from — generic tokens alone
+  // don't justify a label (they're in the stop list). Let existing passes handle it.
+  if (memberPaths.length === 0) return null;
+
+  const SALIENCE_FLOOR = 0.3;
+  const recoverable = (w: string, allowGeneric: boolean): boolean => {
+    if (isStructuralLabelToken(w)) return false;
+    if (params.has(w)) return false;
+    if (suppressedTerms.has(w)) return false;
+    if (isShortNoise(w, memberPaths)) return false;
+    // Org-root/layout conventions never make a label, even in the relaxed sweep.
+    if (LAYOUT_ROOT_TOKENS.has(w)) return false;
+    if (!allowGeneric && GENERIC_TOKENS.has(w)) return false;
+    if (pathSalience(w, memberPaths) < SALIENCE_FLOOR) return false;
+    return true;
+  };
+  // Two sweeps: non-generic tokens first (preferred), then generic-but-real.
+  for (const allowGeneric of [false, true]) {
+    for (const token of topTokens) {
+      const parts = token.toLowerCase().split(/\s+/).filter((p) => p.length > 0);
+      if (parts.length > 1 && parts.every((p) => recoverable(p, allowGeneric))) {
+        return formatPathOrderedLabel(token, memberPaths);
+      }
+      if (parts.length === 1 && recoverable(parts[0]!, allowGeneric)) {
+        return token;
+      }
+    }
+  }
+  // No raw path-segment relaxation here: a segment at ≥30% frequency carries no
+  // topicality guarantee (it recovers meaningless org/package leaf names). Only
+  // TF-IDF top-tokens — topical by construction — are relaxed. Genuinely
+  // heterogeneous clusters fall through to the honest descriptor / cluster:N.
+  return null;
+}
+
+/** Honest last-ditch descriptor for a cluster with no salient token: the most
+ *  frequent INFORMATIVE directory segments (generic/structural/org-root dirs
+ *  like `src`, `tests`, `lib` excluded), top two, joined `/`. Carries no file
+ *  count — the viewer renders counts separately. Only includes segments that
+ *  appear in 2+ member paths (shared topical structure, not one-off dirs).
+ *  Deterministic: stable frequency-then-lexicographic ordering. Returns null when
+ *  no shared informative directory exists (then `cluster:N` is the floor). */
+function descriptorLabel(
+  memberPaths: readonly string[],
+  suppressedTerms: ReadonlySet<string> = EMPTY_TERMS,
+): string | null {
+  if (memberPaths.length === 0) return null;
+  const counts = new Map<string, { original: string; n: number }>();
+  for (const p of memberPaths) {
+    const segs = p.split("/").filter((s) => s.length > 0);
+    const seen = new Set<string>();
+    for (let i = 0; i < segs.length - 1; i++) {
+      const lower = segs[i]!.toLowerCase();
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      if (isGenericToken(lower) || isStructuralLabelToken(lower) || suppressedTerms.has(lower)) continue;
+      const prev = counts.get(lower);
+      if (prev) prev.n++;
+      else counts.set(lower, { original: segs[i]!, n: 1 });
+    }
+  }
+  if (counts.size === 0) return null;
+  // Only include segments that appear in 2+ paths (shared structure, not transient).
+  const qualified = [...counts.values()].filter((c) => c.n >= 2);
+  if (qualified.length === 0) return null;
+  const sorted = qualified.sort(
+    (a, b) => b.n - a.n || a.original.toLowerCase().localeCompare(b.original.toLowerCase()),
+  );
+  return sorted.slice(0, 2).map((c) => c.original).join("/");
 }
 
 /** Total order for dominant-segment candidates: more members, then shared as a

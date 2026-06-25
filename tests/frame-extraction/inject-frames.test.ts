@@ -177,7 +177,9 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "apps/foo/x.ts",
       "packages/bar/y.ts",
     ];
-    // Only '' (split before 'apps' / 'packages') is common — no informative segment
+    // Only '' (split before 'apps' / 'packages') is common — no informative segment.
+    // Genuinely heterogeneous: no token eligible, no common prefix, no strict-majority
+    // segment, and Pass 4.5 relaxes only TF-IDF tokens (not raw segments) → honest cluster:N.
     expect(pickFrameLabel(tokens, paths, 42)).toBe("cluster:42");
   });
 
@@ -196,7 +198,8 @@ describe("pickFrameLabel — path-prefix fallback", () => {
       "app/(marketing)/page.tsx",
     ];
     // (marketing) is a route group (structural) → must be skipped; 'app' is
-    // generic → no informative segment → cluster:<id> fallback.
+    // generic → no informative segment → cluster:<id> fallback. (No top tokens,
+    // so Pass 4.5's token relaxation finds nothing either.)
     expect(pickFrameLabel([], paths, 9)).toBe("cluster:9");
   });
 });
@@ -261,6 +264,8 @@ describe("pickFrameLabel — dominant-segment fallback (cluster:N bug)", () => {
   it("still returns cluster:<id> when no segment reaches a strict majority", () => {
     // Genuinely heterogeneous 2-file cluster: every informative segment is
     // shared by only 50% — not dominant — so the opaque fallback is honest.
+    // Pass 4.5 relaxes only TF-IDF tokens (both here are generic/route-param),
+    // not raw path segments, so 'foo'/'bar' are NOT recovered.
     const paths = ["apps/foo/x.ts", "packages/bar/y.ts"];
     expect(pickFrameLabel(["id", "data"], paths, 42)).toBe("cluster:42");
   });
@@ -490,5 +495,58 @@ describe("injectFrames — reclaimed marker", () => {
     const row = db.prepare("SELECT data FROM nodes WHERE file_path = 'recl.ts'").get() as { data: string };
     db.close();
     expect(JSON.parse(row.data).reclaimed).toBeUndefined();
+  });
+});
+
+describe("pickFrameLabel — directory-aware short tokens (cluster:N recovery)", () => {
+  it("labels a cluster after a ≤2-char DIRECTORY segment (ws)", () => {
+    const paths = ["src/ws/server.ts", "src/ws/protocol.ts", "src/ws/client-registry.ts", "tests/ws/server.test.ts"];
+    // 'ws' is the top token and a real directory in 3/4 members.
+    expect(pickFrameLabel(["ws", "server"], paths, 2)).toBe("ws");
+  });
+  it("does NOT label after a ≤2-char FILENAME-STEM token (ts) — stays generic", () => {
+    const paths = ["src/core/a.ts", "src/core/b.ts", "src/core/c.ts"];
+    // 'ts' is only an extension/stem, never a directory → still rejected; falls to path prefix 'core'(generic)→ cluster:N
+    expect(pickFrameLabel(["ts", "id"], paths, 7)).toBe("cluster:7");
+  });
+});
+
+describe("pickFrameLabel — relaxed recovery (Pass 4.5)", () => {
+  it("recovers a generic-but-salient token (index-meta) instead of cluster:N", () => {
+    const paths = ["src/graph/capture-index-meta.ts", "tests/index-meta.ts", "lib/index-meta.ts"];
+    // top tokens are generic ('index','meta') so passes 1-2 reject; 4.5 allows them.
+    // Paths have no common prefix, so Pass 3 fails; no dominant segment >50%, so Pass 4 fails.
+    // Pass 4.5 relaxes the salience gate to 0.3, allowing 'index' (2/3 paths).
+    const label = pickFrameLabel(["index meta", "meta", "index"], paths, 5);
+    expect(label).not.toMatch(/^cluster:/);
+    expect(label.toLowerCase()).toContain("index");
+  });
+  it("recovers a plurality (Mode B) token via the lowered salience bar", () => {
+    // 'allocator' is salient in ~40% of members (below the strict 0.5 gate).
+    const paths = ["src/ids/allocator.ts", "src/ids/short-id.ts", "tests/ids/allocator.test.ts", "tests/decisions/db-todos.test.ts", "tests/decisions/short-id-mint.test.ts"];
+    const label = pickFrameLabel(["allocator", "mint", "fresh"], paths, 6);
+    expect(label).not.toMatch(/^cluster:/);
+  });
+  it("still excludes route-params even in the relaxed pass", () => {
+    // Only a route-param token is available, and no other signal exists:
+    // distinct dirs (users/posts) → no common prefix, distinct filename stems
+    // (edit/view) → no dominant segment. '[id]' is dynamic and 'id' is a
+    // route-param → rejected in every pass including 4.5 → honest cluster:9.
+    const paths = ["users/[id]/edit.ts", "posts/[id]/view.ts"];
+    expect(pickFrameLabel(["id"], paths, 9)).toBe("cluster:9");
+  });
+});
+
+describe("pickFrameLabel — directory descriptor fallback", () => {
+  it("uses dominant informative dir(s), no file count, instead of cluster:N", () => {
+    // Genuinely mixed, no salient token at all → descriptor from dir frequency.
+    const paths = ["src/decisions/x.ts", "tests/decisions/y.ts", "src/todos/z.ts", "tests/api/q.ts"];
+    const label = pickFrameLabel([], paths, 11); // no top tokens → passes 1-2,4.5-token all skip
+    expect(label).not.toMatch(/^cluster:/);
+    expect(label).not.toMatch(/\d+\s*files?/i);   // NO count in the label
+    expect(label).toMatch(/decisions|todos|api/);
+  });
+  it("falls to cluster:N only when there is no informative directory at all", () => {
+    expect(pickFrameLabel([], ["a.ts", "b.ts"], 42)).toBe("cluster:42");
   });
 });
