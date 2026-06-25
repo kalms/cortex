@@ -173,7 +173,7 @@ is the broader, full-feature verification.
    - **PASS** → proceed to merge
    - **PASS WITH WARNINGS** → proceed, warnings documented
    - **FAIL** → fix issues and re-run QA before merging
-4. Only then execute the merge
+4. Hand over to user for final verification and test. When approved, proceed to merge.
 
 ### When to skip
 
