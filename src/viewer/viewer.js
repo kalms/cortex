@@ -974,6 +974,23 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
           ctx.stroke();
           ctx.setLineDash([]);
         });
+        // Decision → child-TODO leaders (spawnsFrom). Only when both layers visible.
+        if (showTodos) {
+          for (const todoId of (SPAWNS_FROM[dec.id] || [])) {
+            const childTodo = TODOS[todoId];
+            for (const idx of (childTodo?._nodeIdxs || [])) {
+              const p = nodePx(nodes[idx]);
+              ctx.strokeStyle = `rgba(250, 204, 21, 0.30)`; // yellow, distinct from green governed leaders
+              ctx.lineWidth = 0.6;
+              ctx.setLineDash([2, 2]);
+              ctx.beginPath();
+              ctx.moveTo(dotX, dotY);
+              ctx.lineTo(p.x, p.y);
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+          }
+        }
       } else if (expand > 0.001) {
         governedPositions.forEach(p => {
           ctx.strokeStyle = `rgba(74, 222, 128, ${0.14 * expand})`;
