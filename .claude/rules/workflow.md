@@ -170,7 +170,7 @@ is the broader, full-feature verification.
    - API route validation (auth guards, Zod validation)
    - DB migration validation (no breaking queries)
 3. Review the QA report:
-   - **PASS** → proceed to merge
+   - **PASS** → proceed
    - **PASS WITH WARNINGS** → proceed, warnings documented
    - **FAIL** → fix issues and re-run QA before merging
 4. Hand over to user for final verification and test. When approved, proceed to merge.
