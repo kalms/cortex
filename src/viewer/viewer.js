@@ -37,6 +37,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let layersOn = false;
   try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
 
+  const SHOW_LS = {
+    frames: 'cortex.viewer.show.frames',
+    decisions: 'cortex.viewer.show.decisions',
+    todos: 'cortex.viewer.show.todos',
+  };
+  function readShow(key) {
+    try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
+  }
+  let showFrames = readShow(SHOW_LS.frames);
+  let showDecisions = readShow(SHOW_LS.decisions);
+  let showTodos = readShow(SHOW_LS.todos);
+
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillBgRGB()       { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillTextPrimaryRGB() { return isLight() ? [237, 237, 237] : [24, 24, 27]; }
@@ -241,6 +253,27 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         layersSwitch.click();
       }
     });
+
+    const bindSwitch = (el, lsKey, get, set) => {
+      el.classList.toggle('on', get());
+      el.setAttribute('aria-checked', String(get()));
+      const toggle = () => {
+        set(!get());
+        el.classList.toggle('on', get());
+        el.setAttribute('aria-checked', String(get()));
+        try { localStorage.setItem(lsKey, get() ? '1' : '0'); } catch { /* sandboxed */ }
+      };
+      el.addEventListener('click', toggle);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      });
+    };
+    bindSwitch(document.getElementById('show-frames'), SHOW_LS.frames,
+      () => showFrames, (v) => { showFrames = v; });
+    bindSwitch(document.getElementById('show-decisions'), SHOW_LS.decisions,
+      () => showDecisions, (v) => { showDecisions = v; });
+    bindSwitch(document.getElementById('show-todos'), SHOW_LS.todos,
+      () => showTodos, (v) => { showTodos = v; });
 
     const framesDismiss = document.getElementById('frames-warning-dismiss');
     if (framesDismiss) {
@@ -610,8 +643,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     const marginaliaHit = marginaliaAtPoint(px, py);
     const nodeIdx = marginaliaHit ? null : nodeAtPoint(px, py);
-    const labelFrame = marginaliaHit ? null : frameLabelAtPoint(px, py);
-    const bodyFrame = marginaliaHit ? null : frameAtPoint(px, py);
+    const labelFrame = (marginaliaHit || !showFrames) ? null : frameLabelAtPoint(px, py);
+    const bodyFrame = (marginaliaHit || !showFrames) ? null : frameAtPoint(px, py);
 
     const newHoveredMarginalia = marginaliaHit?.id || null;
     if (newHoveredMarginalia !== hoveredMarginaliaId) {
@@ -1039,77 +1072,81 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       ctx.save();
       ctx.translate(f.cx, f.cy);
 
-      const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
+      if (showFrames) {
+        const lc = layersOn && frame.layer ? LAYER_RGB[frame.layer] : null;
 
-      const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
-      const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
-      const ff = frameFillRGB();
-      const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
-      if (lc) {
-        // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
-        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
-      } else {
-        ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
-      }
-      ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
+        const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
+        const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
+        const ff = frameFillRGB();
+        const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
+        if (lc) {
+          // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
+        } else {
+          ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+        }
+        ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-      const baseBorderAlpha = 0.08;
-      const focusBoost = isFocused ? 0.12 : 0;
-      const hoverBorderBoost = hoverLevel * 0.2;
-      const borderAlphaMult = isLight() ? 3.0 : 1;
-      const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
+        const baseBorderAlpha = 0.08;
+        const focusBoost = isFocused ? 0.12 : 0;
+        const hoverBorderBoost = hoverLevel * 0.2;
+        const borderAlphaMult = isLight() ? 3.0 : 1;
+        const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
 
-      const fb = frameBorderRGB();
-      if (lc) {
-        ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
-      } else {
-        ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
-      }
-      ctx.lineWidth = isFocused ? 1.2 : 1;
-      roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
-      ctx.stroke();
+        const fb = frameBorderRGB();
+        if (lc) {
+          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
+        } else {
+          ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+        }
+        ctx.lineWidth = isFocused ? 1.2 : 1;
+        roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
+        ctx.stroke();
 
-      const isLabelHovered = hoveredLabelFrameId === frame.id;
-      const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
-      const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
-      const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
-      const primaryY = -f.h / 2 - 7;
+        const isLabelHovered = hoveredLabelFrameId === frame.id;
+        const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
+        const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
+        const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
+        const primaryY = -f.h / 2 - 7;
 
-      ctx.textBaseline = 'alphabetic';
-      const gap = 8;
+        ctx.textBaseline = 'alphabetic';
+        const gap = 8;
 
-      ctx.font = '10px "Geist Mono", monospace';
-      ctx.textAlign = 'right';
-      const countText = String(frame.count);
-      const countW = ctx.measureText(countText).width;
-      if (isLabelHovered) {
+        ctx.font = '10px "Geist Mono", monospace';
+        ctx.textAlign = 'right';
+        const countText = String(frame.count);
+        const countW = ctx.measureText(countText).width;
+        if (isLabelHovered) {
+          const pl = primaryLabelRGB();
+          ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${0.95 * alphaMul})`;
+        } else {
+          const ci = countIdleRGB();
+          ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55) * alphaMul})`;
+        }
+        ctx.fillText(countText, f.w / 2, primaryY);
+
+        ctx.font = '500 10px "Geist Mono", monospace';
+        ctx.textAlign = 'left';
+        const leftBudget = f.w - countW - gap;
+        const pathText = truncateMiddle(ctx, frame.name, leftBudget);
         const pl = primaryLabelRGB();
-        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${0.95 * alphaMul})`;
-      } else {
-        const ci = countIdleRGB();
-        ctx.fillStyle = `rgba(${ci[0]}, ${ci[1]}, ${ci[2]}, ${0.85 * (1 - dimLevel * 0.55) * alphaMul})`;
+        if (lc) {
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
+        } else {
+          ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
+        }
+        ctx.fillText(pathText, -f.w / 2, primaryY);
       }
-      ctx.fillText(countText, f.w / 2, primaryY);
-
-      ctx.font = '500 10px "Geist Mono", monospace';
-      ctx.textAlign = 'left';
-      const leftBudget = f.w - countW - gap;
-      const pathText = truncateMiddle(ctx, frame.name, leftBudget);
-      const pl = primaryLabelRGB();
-      if (lc) {
-        ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
-      } else {
-        ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
-      }
-      ctx.fillText(pathText, -f.w / 2, primaryY);
 
       ctx.restore();
     });
 
-    if (sharpFrameId) {
-      drawMarginaliaForFrame(sharpFrameId, fp.t);
-    } else if (fp.from) {
-      drawMarginaliaForFrame(fp.from, 1 - fp.t);
+    if (showDecisions) {
+      if (sharpFrameId) {
+        drawMarginaliaForFrame(sharpFrameId, fp.t);
+      } else if (fp.from) {
+        drawMarginaliaForFrame(fp.from, 1 - fp.t);
+      }
     }
   }
 
@@ -1129,7 +1166,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     ctx.font = '500 10px "Geist Mono", monospace';
     ctx.textBaseline = 'middle';
 
-    decs.forEach((dec) => {
+    if (showDecisions) decs.forEach((dec) => {
       const state = dec.state || 'active';
       const label = `${decisionDisplayId(dec)} · ${dec.summary}`;
       const labelW = ctx.measureText(label).width;
@@ -1580,7 +1617,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     drawFrames(now);
     drawEdges();
     drawNodes(now);
-    drawFloatingDecisionNodes(now);
+    if (showDecisions) drawFloatingDecisionNodes(now);
+    else decisionNodeRects.length = 0;
     drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
