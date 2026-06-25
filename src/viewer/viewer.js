@@ -807,6 +807,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         openRecord('decision', decHit.id);
         return;
       }
+      const todoHit = todoNodeAtPoint(px, py);
+      if (todoHit) {
+        openRecord('todo', todoHit.id);
+        return;
+      }
       closeRecord();
       return;
     }
@@ -821,6 +826,12 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const decHit = decisionNodeAtPoint(px, py);
     if (decHit) {
       openRecord('decision', decHit.id);
+      return;
+    }
+
+    const todoHit = todoNodeAtPoint(px, py);
+    if (todoHit) {
+      openRecord('todo', todoHit.id);
       return;
     }
 
@@ -1983,6 +1994,12 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // Show the friendly D-<seq> form (consistent with the card header and
       // pills); the click handler still keys on ref.id via data-ref.
       name = decisionDisplayId(DECISIONS[ref.id] || ref);
+    } else if (ref.kind === 'todo') {
+      type = 'todo';
+      name = todoDisplayId(TODOS[ref.id] || ref);
+    } else if (ref.kind === 'pr') {
+      type = 'pr';
+      name = ref.id ? `#${ref.id}` : (ref.name || ref.id || '');
     } else {
       type = ref.kind || '';
       name = ref.name || ref.id || ref.path || '';
@@ -2055,6 +2072,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const closeBtn = document.getElementById('dc-close');
     if (closeBtn) closeBtn.addEventListener('click', () => closeDecisionCard());
 
+    wireCardRefPills();
+  }
+
+  function wireCardRefPills() {
     decisionCardEl.querySelectorAll('.dc-ref-pill').forEach(el => {
       el.addEventListener('click', () => {
         const refData = el.dataset.ref;
@@ -2064,6 +2085,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
         if (ref.kind === 'decision') {
           if (DECISIONS[ref.id]) openDecisionCard(ref.id);
+          return;
+        }
+
+        if (ref.kind === 'todo') {
+          if (TODOS[ref.id]) openRecord('todo', ref.id);
           return;
         }
 
@@ -2081,6 +2107,42 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     });
   }
 
+  function renderTodoCard(todoId) {
+    const t = TODOS[todoId];
+    if (!t) { decisionCardEl.innerHTML = ''; return; }
+    const provParts = [];
+    if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
+    if (t.proposedAt) provParts.push(`on ${escapeHtml(t.proposedAt)}`);
+
+    let html = `<div class="dc-header"><div class="dc-id-block">
+      <div class="dc-id-row">
+        <span class="dc-id todo">${escapeHtml(todoDisplayId(t))}</span>
+        <span class="dc-state-pill ${escapeHtml(t.state || '')}"><span class="sw"></span>${escapeHtml(t.state || '')}</span>
+      </div>
+      <div class="dc-summary">${escapeHtml(t.summary || '')}</div>
+      ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+    </div><button class="dc-close" id="dc-close" aria-label="close">×</button></div>`;
+
+    html += '<div class="dc-body">';
+    if (t.description) html += `<div class="dc-section"><div class="dc-section-label">description</div><div class="dc-prose">${escapeHtml(t.description)}</div></div>`;
+    if (t.governs?.length) html += `<div class="dc-section"><div class="dc-section-label">governs</div><div class="dc-ref-row">${t.governs.map(refPillHtml).join('')}</div></div>`;
+    if (t.spawnsFrom) html += `<div class="dc-section"><div class="dc-section-label">spawned from</div><div class="dc-ref-row">${refPillHtml({ kind: 'decision', id: t.spawnsFrom })}</div></div>`;
+    if (t.resolvedBy?.length) html += `<div class="dc-section"><div class="dc-section-label">resolved by</div><div class="dc-ref-row">${t.resolvedBy.map(id => refPillHtml({ kind: 'pr', id })).join('')}</div></div>`;
+    if (t.blockedBy?.length || t.blocks?.length) {
+      html += `<div class="dc-section"><div class="dc-section-label">dependencies</div><div class="dc-ref-row">`;
+      html += (t.blockedBy || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
+      html += (t.blocks || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
+      html += `</div></div>`;
+    }
+    if (t.relatedTo?.length) html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${t.relatedTo.map(r => refPillHtml({ kind: 'todo', id: r.id })).join('')}</div></div>`;
+    html += '</div>';
+    decisionCardEl.innerHTML = html;
+
+    const closeBtn = document.getElementById('dc-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => closeRecord());
+    wireCardRefPills();
+  }
+
   let currentRenderedRecord = null;
 
   function sameRecord(a, b) {
@@ -2092,6 +2154,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     if (focusedRecord && !sameRecord(focusedRecord, currentRenderedRecord)) {
       if (focusedRecord.type === 'decision') {
         renderDecisionCard(focusedRecord.id);
+      } else if (focusedRecord.type === 'todo') {
+        renderTodoCard(focusedRecord.id);
       }
       currentRenderedRecord = { ...focusedRecord };
     }

@@ -214,6 +214,28 @@
   .dc-id.pr-context { color: #a5b4fc; }
   body.light .dc-id.pr-context { color: #4f46e5; }
 
+  .dc-id.todo { color: #facc15; }
+  body.light .dc-id.todo { color: #ca8a04; }
+
+  /* TODO state pills */
+  .dc-state-pill.open          { border-color: rgba(250, 204, 21, 0.45); color: #fde68a; border-style: dashed; }
+  .dc-state-pill.open .sw      { background: transparent; border: 1px solid #facc15; width: 4px; height: 4px; }
+  .dc-state-pill.in_progress   { border-color: rgba(250, 204, 21, 0.55); color: #fde68a; }
+  .dc-state-pill.in_progress .sw { background: #facc15; }
+  .dc-state-pill.blocked       { border-color: rgba(239, 68, 68, 0.5);  color: #fca5a5; }
+  .dc-state-pill.blocked .sw   { background: #ef4444; }
+  .dc-state-pill.done          { border-color: rgba(74, 222, 128, 0.5); color: #86efac; }
+  .dc-state-pill.done .sw      { background: #4ade80; }
+  .dc-state-pill.cancelled     { border-color: rgba(140, 150, 140, 0.4); color: #a1a1aa; }
+  .dc-state-pill.cancelled .sw { background: #71717a; }
+
+  body.light .dc-state-pill.open        { color: #a16207; }
+  body.light .dc-state-pill.open .sw    { border-color: #ca8a04; }
+  body.light .dc-state-pill.in_progress { color: #a16207; }
+  body.light .dc-state-pill.blocked     { color: #dc2626; }
+  body.light .dc-state-pill.done        { color: #15803d; }
+  body.light .dc-state-pill.cancelled   { color: #64748b; }
+
   .dc-summary {
     font-family: var(--sans);
     font-size: 17px;
