@@ -14,13 +14,18 @@
 | Store | Path | Lifecycle | Holds |
 |---|---|---|---|
 | **Graph** (canonical) | `<repo>/.cortex/db` | **Derived, replaceable** — recreated by `index_repository` | nodes, edges, `ctx_projects`, frames |
-| **Decisions** | `<repo>/.cortex/decisions.db` | **Durable** — survives every reindex | user-authored decisions + links |
+| **Decisions** | `~/.cortex/<repoId>/decisions.db` | **Durable** — survives every reindex; **out of the repo** | user-authored decisions + links |
 | **Registry** (central) | `~/.local/share/cortex-indexer/registry.db` | Durable index of "what repos exist + where" | `repos(name, root_path, indexed_at)` |
 
-The graph and decisions DBs are **per-repo siblings** under `.cortex/`. The
-registry is a **single machine-wide** SQLite file. Keeping these three concerns
-separate is deliberate: the graph is a throwaway derivative of code-at-a-commit,
-decisions are durable knowledge, and the registry answers "where are the repos"
+The graph DB is **per-repo** under `<repo>/.cortex/`. The decisions DB lives
+**out of the repo** at `~/.cortex/<repoId>/decisions.db` (resolved by
+`resolveDecisionsDbPath` from the `repoId` in the repo's committed `cortex.json`,
+so every worktree/clone shares one store; `$CORTEX_DECISIONS_DB` overrides,
+`$CORTEX_HOME` relocates the base — the in-repo `.cortex/decisions.db` is only a
+not-a-git-repo fallback and a one-time legacy migration source). The registry is
+a **single machine-wide** SQLite file. Keeping these three concerns separate is
+deliberate: the graph is a throwaway derivative of code-at-a-commit, decisions
+are durable knowledge, and the registry answers "where are the repos"
 independently of either.
 
 **Why `~/.local/share`, not `~/.cache`:** the registry is *durable* metadata —

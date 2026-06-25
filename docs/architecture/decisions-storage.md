@@ -12,16 +12,28 @@ overwrites the file in place; on cache miss with a "mode change reindex",
 the pipeline `ctx_unlink`s the file before rebuilding.
 
 User-authored decisions don't share that lifecycle. They're explicitly
-created via the `create_decision` / `propose_decision` MCP tools and have
+created via the `decision` MCP tool (`action:"create"` / `action:"propose"`) and have
 no source-of-truth other than the row in the DB. Storing them in the same
 file as the derived graph guarantees data loss every time the indexer
 runs. This is the Gap 10 bug.
 
-The fix is structural: a sibling SQLite file at `.cortex/decisions.db`.
-It is **never** touched by cache imports, re-indexes, or any other
-graph-rebuild path. The two DBs are coupled only at query time and only
-by stable string keys (qualified names, file paths, PR numbers) — never
-by graph node IDs, which the indexer regenerates per run.
+The fix is structural: a sidecar SQLite file, separate from the derived
+graph DB. It is **never** touched by cache imports, re-indexes, or any
+other graph-rebuild path. The two DBs are coupled only at query time and
+only by stable string keys (qualified names, file paths, PR numbers) —
+never by graph node IDs, which the indexer regenerates per run.
+
+> **Update — durable-store relocation (2026-06-08).** The sidecar originally
+> lived in-repo at `<repo>/.cortex/decisions.db`. It has since been relocated
+> **out of the repo** to `~/.cortex/<repoId>/decisions.db`, resolved by
+> `resolveDecisionsDbPath` (`src/db/resolve-path.ts`) from the `repoId` in the
+> repo's committed `cortex.json`. So every worktree/clone of a repo shares one
+> decisions store, and it can't be lost to a `git clean` of `.cortex/`.
+> `$CORTEX_DECISIONS_DB` overrides the path; `$CORTEX_HOME` relocates the base.
+> The in-repo `.cortex/decisions.db` is now only (a) the not-a-git-repo fallback
+> and (b) a one-time legacy migration source, read once. The sidecar-vs-graph
+> separation argument here is unchanged by the move — only the path changed. See
+> [graph-storage.md](graph-storage.md) for the full resolution chain.
 
 ## Schema
 
@@ -101,7 +113,7 @@ It:
 5. Wraps everything (including the `markMigrated` write) in a single
    `decDb.transaction()` so partial failure leaves no half-state.
 
-## Governance resolution (`why_was_this_built`)
+## Governance resolution (`decision({action:"why"})`)
 
 `DecisionSearch.findGoverning(target)` (in `search.ts`) walks four
 fallback steps:
@@ -132,19 +144,19 @@ no longer joins against `decisions_fts`.
 ## Cache lifecycle is safe
 
 `src/db/cache.ts` operates only on the graph DB path. It does not know
-about `.cortex/decisions.db` and never will. The cache key
+about the decisions sidecar and never will. The cache key
 (`computeCacheKey`) hashes the indexer version + grammar pack + git tree
 hash — none of which change when a user adds a decision, so cache hits
 remain valid AND decisions are unaffected by the import.
 
 The regression is pinned by `tests/decisions/cache-survival.test.ts`:
-create a decision, overwrite `.cortex/graph.db` with garbage bytes
-(simulating any cache-import or pipeline-reindex), re-open
-`.cortex/decisions.db`, confirm the decision is still there.
+create a decision, overwrite the graph DB with garbage bytes
+(simulating any cache-import or pipeline-reindex), re-open the decisions
+sidecar, confirm the decision is still there.
 
 ## Cold-start seeding (machine-proposed decisions)
 
-A freshly-indexed repo has no decisions, which makes `why_was_this_built`
+A freshly-indexed repo has no decisions, which makes `decision({action:"why"})`
 inert on day one. The cold-start seeding flow bootstraps the durable store
 from existing repo state without compromising its trust contract:
 
@@ -156,7 +168,7 @@ from existing repo state without compromising its trust contract:
    by scope, and returns a compact manifest with **machine-derived
    provenance** (commit SHAs / doc paths). The skill never reads raw `git log`
    itself; the manifest is the trust anchor.
-3. **Authoring** — The skill calls `propose_decision` with `author:
+3. **Authoring** — The skill calls `decision({action:"propose"})` with `author:
    "cortex:seed"` and a `provenance` payload carrying the source SHAs/doc
    path + confidence tier (`high` for ADRs, `medium` for prose, `low` for
    commit clusters).
