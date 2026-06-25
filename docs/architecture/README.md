@@ -8,7 +8,7 @@ of the system; read the matching doc before working in that area.
 | [../mcp-tools.md](../mcp-tools.md) | The full MCP tool catalog — every tool's purpose, params, return shape, and the `repo_path` routing contract + error shapes. Read before working under `src/mcp-server/tools/`. |
 | [graph-ui.md](graph-ui.md) | Event pipeline, WebSocket server, worker thread, frames viewer. Anything under `src/events/`, `src/ws/`, `src/viewer/`, or the HTTP layer in `src/mcp-server/api*.ts`. |
 | [graph-storage.md](graph-storage.md) | Where graphs live: canonical `<repo>/.cortex/db`, the central project registry (`_registry.db`), the legacy cache + migration, the read/write path resolution, and the **freshness signal** (per-read staleness verdict + SessionStart auto-refresh). Anything under `src/db/` or the index write/read paths. |
-| [decisions-storage.md](decisions-storage.md) | The sidecar `.cortex/decisions.db` model — why decisions are not in the graph DB. Anything under `src/decisions/` or that touches the decision schema. |
+| [decisions-storage.md](decisions-storage.md) | The durable out-of-repo decisions sidecar (`~/.cortex/<repoId>/decisions.db`) — why decisions are not in the graph DB, and why the store lives outside the repo. Anything under `src/decisions/` or that touches the decision schema. |
 | [frame-extraction.md](frame-extraction.md) | The TF-IDF + HDBSCAN + co-change pipeline that produces frames. Anything under `scripts/frame-extraction/` or `src/frame-extraction/`. |
 | [eval-harness.md](eval-harness.md) | The tool-surface eval at `evals/`. Driven by the field reports (see below). |
 | [known-limitations.md](known-limitations.md) | Active issues with known workarounds (most relevant: the C-indexer multi-project workflow). |

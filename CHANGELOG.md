@@ -17,7 +17,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.0.4] — 2026-06-26
+## [1.1.1] — 2026-06-26
 
 ### Added
 
@@ -48,6 +48,33 @@ All notable changes to Cortex are documented here. The format follows
   misclassified as a `path` and silently dropped by `resolveGovernsRef`. Both
   the decisions and todos services now share a `classifyGovernsTarget` helper
   (`src/shared/classify-ref.ts`) that checks the `::` marker before `/`.
+
+## [1.1.0] — 2026-06-25
+
+### Added
+
+- **Visual polish for the `cortex` CLI.** A new zero-dependency styling layer
+  (`src/cli/style.ts`) brings color and glyphs to interactive output:
+  - **Tables/lists** (`code find`/`search`/`where`/`calls`, `index list`,
+    `schema`): bold-cyan headers with a dim rule, dimmed secondary columns
+    (`file_path`/`kind`/`depth`/`line`), and cell truncation sized to the
+    terminal.
+  - **Errors**: a red `✗` label and a dim `→` hint line.
+  - **Help** (`--help`, per-namespace, per-command): bold headings, cyan
+    command names, green example commands.
+  - **Progress spinner** for `cortex index` — an animated braille spinner on
+    stderr while the indexer runs (the indexer call moved from sync to async
+    `execFile` so the spinner can animate), resolving to `✓ indexed <project>`.
+- **`--color=always` / `--color=never` / `--no-color` flags**, plus the
+  `NO_COLOR`, `CORTEX_NO_COLOR`, `CORTEX_COLOR`, and `CORTEX_ASCII` environment
+  gates. Color auto-detects an interactive TTY otherwise.
+
+### Notes
+
+- **Non-interactive output is unchanged.** When the target stream isn't a TTY
+  (pipes, redirection, `--format json`/`plain`, `NO_COLOR`), output contains
+  zero ANSI bytes and is byte-for-byte identical to before — machine consumers
+  and scripts are unaffected. A non-UTF-8 locale falls back to ASCII glyphs.
 
 ## [1.0.3] — 2026-06-25
 
@@ -847,7 +874,8 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
-[1.0.4]: https://github.com/ruevu/cortex/releases/tag/v1.0.4
+[1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
+[1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ruevu/cortex/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ruevu/cortex/releases/tag/v1.0.2
 [1.0.1]: https://github.com/ruevu/cortex/releases/tag/v1.0.1

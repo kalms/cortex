@@ -46,3 +46,35 @@ describe("errors", () => {
     errSpy.mockRestore();
   });
 });
+
+describe("renderError styling", () => {
+  function fakeStream(isTTY: boolean) {
+    const writes: string[] = [];
+    return { writes, isTTY, write(s: string) { writes.push(s); return true; } };
+  }
+
+  it("non-TTY stream → plain 'ERROR:' text, no ANSI", () => {
+    const s = fakeStream(false);
+    renderError(new DomainError("not found", "Try: cortex code find foo"), s);
+    const out = s.writes.join("");
+    expect(out).toContain("ERROR: not found");
+    expect(out).toContain("Try: cortex code find foo");
+    expect(out).not.toContain("\x1b");
+  });
+
+  it("TTY stream → glyph + arrow + ANSI", () => {
+    const s = fakeStream(true);
+    renderError(new DomainError("not found", "Try: cortex code find foo"), s);
+    const out = s.writes.join("");
+    expect(out).toContain("\x1b[");      // colored
+    expect(out).toMatch(/[✗X] /);        // error glyph
+    expect(out).toContain("not found");
+    expect(out).toContain("Try: cortex code find foo");
+  });
+
+  it("EnvironmentError keeps the 'To fix:' framing", () => {
+    const s = fakeStream(true);
+    renderError(new EnvironmentError("indexer missing", "npm install"), s);
+    expect(s.writes.join("")).toContain("To fix: npm install");
+  });
+});

@@ -274,8 +274,9 @@ Enrich the graph with runtime traces.
 ## `decision` tool
 
 Action-dispatched tool for capturing and querying architectural decisions.
-Decisions live in the durable sidecar `.cortex/decisions.db` (never overwritten
-by re-indexing) and link to code via string qualified-names / file paths. See
+Decisions live in the durable out-of-repo sidecar `~/.cortex/<repoId>/decisions.db`
+(never overwritten by re-indexing) and link to code via string qualified-names /
+file paths. See
 [decisions-storage.md](architecture/decisions-storage.md).
 
 **Params common to all actions:** `repo_path`, `action`.

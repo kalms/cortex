@@ -52,7 +52,7 @@ Cortex emits structured events for decision lifecycle and git activity, persists
 
 ## Event flow: "Claude creates a decision"
 
-1. Claude invokes MCP tool `create_decision` (stdio).
+1. Claude invokes MCP tool `decision` with `action:"create"` (stdio).
 2. Tool handler in `src/mcp-server/server.ts` calls `DecisionService.create()`.
 3. `DecisionService.create()` writes to `cortex.db` via `GraphStore` (`src/graph/store.ts`).
 4. `DecisionService` calls `bus.emit(event)` with a `decision.created` event (`src/events/bus.ts`).
@@ -244,8 +244,8 @@ The viewer is derived from the visual prototype at
 Frames come from cluster output (`data.frame_id`/`frame_label` on file
 nodes, written by `scripts/frame-extraction/inject-frames.ts` — see
 [frame-extraction.md](frame-extraction.md) for the pipeline). Decisions
-come from the sidecar `.cortex/decisions.db` via the `/api/decisions`
-adapter. CALLS edges are pulled live from `/api/graph` and filtered to
+come from the out-of-repo sidecar `~/.cortex/<repoId>/decisions.db` via the
+`/api/decisions` adapter. CALLS edges are pulled live from `/api/graph` and filtered to
 intra- and inter-frame pairs. Auxiliary content (locales, vendored,
 __snapshots__, etc.) is bucketed by `groupAuxiliaryPaths` and surfaced
 via `/api/aggregates`. The viewer is static-load: it fetches all data

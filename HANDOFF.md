@@ -1,8 +1,8 @@
 # Cortex — Session Handoff
 
-## ✅ DONE (2026-06-26 — 1.0.4: TODO viewer slice + unified layers menu)
+## ✅ DONE (2026-06-26 — 1.1.1: TODO viewer slice + unified layers menu)
 
-Shipped **1.0.4** via the design → plan → subagent-driven TDD → review cycle.
+Shipped **1.1.1** via the design → plan → subagent-driven TDD → review cycle.
 TODO entities now render on the frames canvas (ambient yellow dots with state
 treatment, hover pills, marginalia pills, decision→TODO `spawnsFrom` leader
 lines, a record drawer, and a decision-drawer "Tasks" section) — mirroring the
@@ -68,7 +68,7 @@ In rough priority order (full state in
    tighten tool descriptions / lazy-load the long tail, **P8** temporal
    `changes_since`. (P1/P2/P3/P6 shipped; P7(a) shipped in 1.0.0.)
 
-**TODO viewer follow-ups (deferred from 1.0.4, non-blocking).** Standalone TODOs
+**TODO viewer follow-ups (deferred from 1.1.1, non-blocking).** Standalone TODOs
 with no governed frame don't render as ambient dots (no graph anchor — matches
 decision behavior); and `withGovernedFramesRendered` promotes non-ambient
 *decision*-governed frames but not TODO-governed ones (a todo governing a file in

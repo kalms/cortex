@@ -13,6 +13,7 @@ import { renderTopic } from "./commands/help.js";
 import { renderTopLevelHelp, renderNamespaceHelp, renderCommandHelp } from "./help.js";
 import { renderTour } from "./tour.js";
 import { runInstall } from "./install.js";
+import { configureColor, makeStyler, type ColorPref } from "./style.js";
 import { setupVenv } from "../frame-extraction/venv.js";
 import { runFreshnessCommand } from "./commands/freshness.js";
 import { runReconcileCommand } from "./commands/reconcile.js";
@@ -32,6 +33,14 @@ function getVersion(): string {
 async function main(): Promise<void> {
   const argv = parseArgv(process.argv.slice(1)); // strip node arg too; arg 0 is the tsx/script
 
+  const colorPref: ColorPref =
+    argv.flags["no-color"] === true ? "never"
+    : argv.flags.color === "always" ? "always"
+    : argv.flags.color === "never" ? "never"
+    : "auto";
+  configureColor(colorPref);
+  const out = makeStyler(process.stdout);
+
   // Meta flags
   if (argv.flags.version || argv.flags.v) {
     process.stdout.write(`cortex ${getVersion()}\n`);
@@ -40,7 +49,7 @@ async function main(): Promise<void> {
 
   // Top-level help
   if ((argv.namespace === null || argv.namespace === "help") && (argv.flags.help || argv.flags.h || argv.namespace === null)) {
-    process.stdout.write(renderTopLevelHelp() + "\n");
+    process.stdout.write(renderTopLevelHelp(out) + "\n");
     return;
   }
 
@@ -62,7 +71,7 @@ async function main(): Promise<void> {
   if (argv.namespace === "help") {
     const topic = argv.command;
     if (!topic) {
-      process.stdout.write(renderTopLevelHelp() + "\n");
+      process.stdout.write(renderTopLevelHelp(out) + "\n");
       return;
     }
     process.stdout.write(renderTopic(topic) + "\n");
@@ -92,16 +101,16 @@ async function main(): Promise<void> {
   if (argv.namespace && NAMESPACES.includes(argv.namespace)) {
     if (argv.flags.help || argv.flags.h) {
       if (argv.command) {
-        process.stdout.write(renderCommandHelp(argv.namespace, argv.command) + "\n");
+        process.stdout.write(renderCommandHelp(argv.namespace, argv.command, out) + "\n");
       } else {
-        process.stdout.write(renderNamespaceHelp(argv.namespace) + "\n");
+        process.stdout.write(renderNamespaceHelp(argv.namespace, out) + "\n");
       }
       return;
     }
   }
 
   if (!argv.namespace) {
-    process.stdout.write(renderTopLevelHelp() + "\n");
+    process.stdout.write(renderTopLevelHelp(out) + "\n");
     return;
   }
   if (!NAMESPACES.includes(argv.namespace)) {
