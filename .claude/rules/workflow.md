@@ -63,10 +63,17 @@ documentation-only, memory, and one-off chore/CI edits that touch no `src/` or
 
 ## Gate 0 — Visual QA before code review (for any UI-visible change)
 
-**Rule:** Before running code review or marking a UI-visible task complete,
-run a visual QA pass on the running application. Do not rely solely on unit
-tests for rendered behavior — tests verify module logic, not that the viewer
-actually starts, renders, transitions, or handles interaction without errors.
+**Rule:** Every UI-visible change must pass a visual QA pass on the running
+application **before merge**.
+
+**Batch by branch, not by task:**
+
+- **Single / one-off UI change** → run Gate-0 before its code review.
+- **Multi-task UI branch** (several tasks painting the same surface, e.g. a
+  subagent-driven plan) → do **NOT** run Gate-0 per task. Per task, rely on
+  code review + a parse/syntax check + unit tests; run **one** consolidated
+  Gate-0 at the end of the branch. That pass also satisfies Gate-2's visual
+  verification — run it once, not twice.
 
 ### Procedure
 
@@ -152,12 +159,13 @@ is the broader, full-feature verification.
 
 ### Procedure
 
-1. Ensure all tasks on the branch are complete (Gate 0 + Gate 1 passed for each)
+1. Ensure all tasks on the branch are complete (Gate 1 passed for each; Gate 0 per the batching rule)
 2. Invoke the `qa` agent — it runs these verification areas:
    - Build health (`nuxt build` exit code 0 — adapt per project: `npm test`
      pass + clean dev server startup for Cortex/Node projects)
    - Visual verification (light + dark mode where applicable; full feature
-     walkthrough for the shipping change)
+     walkthrough for the shipping change) — this IS the consolidated
+     end-of-branch Gate 0 for a multi-task UI branch; don't run it twice
    - Dark mode compliance (semantic utilities, no hardcoded colors)
    - API route validation (auth guards, Zod validation)
    - DB migration validation (no breaking queries)
