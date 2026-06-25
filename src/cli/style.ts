@@ -96,3 +96,74 @@ export function glyphs(env: NodeJS.ProcessEnv = process.env): Glyphs {
     ? { ok: "✓", err: "✗", arrow: "→", ellipsis: "…" }
     : { ok: "OK", err: "X", arrow: "->", ellipsis: "..." };
 }
+
+export function spinnerFrames(env: NodeJS.ProcessEnv = process.env): string[] {
+  return supportsUnicode(env)
+    ? ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    : ["|", "/", "-", "\\"];
+}
+
+export interface SpinnerHandle {
+  succeed(text?: string): void;
+  fail(text?: string): void;
+  stop(): void;
+}
+
+interface WriteStreamLike {
+  write(s: string): unknown;
+  isTTY?: boolean;
+}
+
+export function startSpinner(
+  text: string,
+  opts: { stream?: WriteStreamLike; env?: NodeJS.ProcessEnv } = {},
+): SpinnerHandle {
+  const stream: WriteStreamLike = opts.stream ?? process.stderr;
+  const env = opts.env ?? process.env;
+  const g = glyphs(env);
+
+  // Non-interactive: one static start line + one final line. No animation.
+  if (!stream.isTTY) {
+    stream.write(`${g.ellipsis} ${text}\n`);
+    let done = false;
+    const final = (glyph: string, t?: string) => {
+      if (done) return;
+      done = true;
+      stream.write(`${glyph} ${t ?? text}\n`);
+    };
+    return {
+      succeed: (t) => final(g.ok, t),
+      fail: (t) => final(g.err, t),
+      stop: () => { done = true; },
+    };
+  }
+
+  // Interactive: animate braille frames with the cursor hidden.
+  const styler = makeStyler(stream, env);
+  const frames = spinnerFrames(env);
+  let i = 0;
+  let done = false;
+  stream.write("\x1b[?25l"); // hide cursor
+  const render = () => {
+    stream.write(`\r\x1b[K${styler.cyan(frames[i % frames.length])} ${text}`);
+    i++;
+  };
+  render();
+  const timer = setInterval(render, 80);
+  const finish = (glyph: string, color: (s: string) => string, t?: string) => {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
+    stream.write(`\r\x1b[K${color(glyph)} ${t ?? text}\n\x1b[?25h`); // show cursor
+  };
+  return {
+    succeed: (t) => finish(g.ok, styler.green, t),
+    fail: (t) => finish(g.err, styler.red, t),
+    stop: () => {
+      if (done) return;
+      done = true;
+      clearInterval(timer);
+      stream.write("\r\x1b[K\x1b[?25h");
+    },
+  };
+}

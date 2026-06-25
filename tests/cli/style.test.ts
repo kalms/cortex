@@ -87,3 +87,40 @@ describe("configureColor", () => {
     configureColor("auto"); // reset for other tests
   });
 });
+
+import { spinnerFrames, startSpinner } from "../../src/cli/style.js";
+
+describe("spinnerFrames", () => {
+  it("braille frames on UTF-8", () => {
+    const f = spinnerFrames({ LANG: "en_US.UTF-8" });
+    expect(f).toContain("⠋");
+    expect(f.length).toBeGreaterThanOrEqual(8);
+  });
+  it("ASCII frames on non-UTF", () => {
+    expect(spinnerFrames({ LANG: "C" })).toEqual(["|", "/", "-", "\\"]);
+  });
+});
+
+describe("startSpinner (non-TTY fallback)", () => {
+  function fakeStream() {
+    const writes: string[] = [];
+    return { writes, write(s: string) { writes.push(s); return true; }, isTTY: false };
+  }
+  it("prints a static start line and a success final line", () => {
+    const s = fakeStream();
+    const sp = startSpinner("indexing foo", { stream: s, env: { LANG: "en_US.UTF-8" } });
+    sp.succeed("indexed foo");
+    expect(s.writes.join("")).toBe("… indexing foo\n✓ indexed foo\n");
+  });
+  it("fail final line uses the err glyph; ASCII when no UTF locale", () => {
+    const s = fakeStream();
+    const sp = startSpinner("indexing foo", { stream: s, env: { LANG: "C" } });
+    sp.fail();
+    expect(s.writes.join("")).toBe("... indexing foo\nX indexing foo\n");
+  });
+  it("does not emit cursor-control codes when not a TTY", () => {
+    const s = fakeStream();
+    startSpinner("x", { stream: s, env: {} }).stop();
+    expect(s.writes.join("")).not.toContain("\x1b");
+  });
+});
