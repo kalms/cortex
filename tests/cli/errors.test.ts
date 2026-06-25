@@ -6,7 +6,6 @@ import {
   exitCodeFor,
   renderError,
 } from "../../src/cli/errors.js";
-import { makeStyler } from "../../src/cli/style.js";
 
 describe("errors", () => {
   it("UsageError sets exit code 2", () => {

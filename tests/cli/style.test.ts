@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   colorEnabled, makeStyler, NO_STYLE, supportsUnicode, glyphs, configureColor,
+  spinnerFrames, startSpinner,
 } from "../../src/cli/style.js";
 
 const TTY = { isTTY: true };
@@ -87,8 +88,6 @@ describe("configureColor", () => {
     configureColor("auto"); // reset for other tests
   });
 });
-
-import { spinnerFrames, startSpinner } from "../../src/cli/style.js";
 
 describe("spinnerFrames", () => {
   it("braille frames on UTF-8", () => {
