@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Rebuild dist/ after a pull/merge if compiled sources changed (keeps the
+# bin/cortex CLI from running stale code). See lib-rebuild-dist.sh.
+DIR="$(dirname "$0")"
+"$DIR/lib-rebuild-dist.sh" "ORIG_HEAD" "HEAD"
