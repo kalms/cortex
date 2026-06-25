@@ -734,7 +734,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       if (!focusedFrameId) anchorNodeIdx = null;
       return;
     }
-    const frame = frameAtPoint(px, py);
+    const frame = showFrames ? frameAtPoint(px, py) : null;
     if (frame) {
       anchorNodeIdx = null;
       setFocus(frame.id === focusedFrameId ? null : frame.id);
@@ -807,7 +807,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       pinnedNodeIdx = null;
     }
 
-    const labelFrame = frameLabelAtPoint(px, py);
+    const labelFrame = showFrames ? frameLabelAtPoint(px, py) : null;
     if (labelFrame) {
       anchorNodeIdx = null;
       setFocus(labelFrame.id === focusedFrameId ? null : labelFrame.id);
@@ -815,7 +815,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     }
 
     if (focusedFrameId) {
-      const bodyFrame = frameAtPoint(px, py);
+      const bodyFrame = showFrames ? frameAtPoint(px, py) : null;
       if (!bodyFrame || bodyFrame.id !== focusedFrameId) {
         anchorNodeIdx = null;
         setFocus(null);
