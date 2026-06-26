@@ -484,47 +484,53 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // Fit-to-content view transform. The server lays frames out in a fixed virtual
   // stage; mapping that stage edge-to-edge onto the canvas means any imbalance in
   // the layout (a left/right lean, bottom-heaviness) shows directly. Instead we
-  // measure the actual content bounding box and map ITS center to the canvas
-  // center with a uniform scale — so the composed scene is always visually
-  // centered regardless of where the deterministic layout placed things. Scale is
-  // capped at 1 (never magnify a sparse graph), and recomputed every frame from
-  // the UNFOCUSED base positions (independent of focus animation → stable).
+  // center the frames' CENTER OF MASS (area-weighted centroid) in the canvas and
+  // scale to fit the frame extent — so the composed scene reads as visually
+  // centered regardless of where the deterministic layout placed things.
+  //
+  // We center the centroid, NOT the bounding-box center: the eye tracks the mass,
+  // and a few sparse outliers (e.g. an aggregate dot flung to the stage edge by
+  // the keep-out) would skew a bbox-center while barely moving the mass. For the
+  // same reason the framing is driven by FRAMES only — the small auxiliary
+  // aggregate dots annotate the cloud and must not drive the fit (drawAggregates
+  // clamps them on-canvas so excluding them here can never push one off-screen).
+  // Scaling by the larger half-extent measured FROM the centroid guarantees the
+  // frame content never clips. Capped at 1 (never magnify), recomputed each frame
+  // from the UNFOCUSED base positions (independent of focus animation → stable).
   let viewTransform = { scale: 1, ox: 0, oy: 0 };
 
   function computeViewTransform() {
     const stageW = canvas.clientWidth || 1;
     const stageH = canvas.clientHeight || 1;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const add = (cx, cy, hw, hh) => {
+    let sw = 0, scx = 0, scy = 0; // area-weighted centroid accumulators
+    for (const f of FRAMES) {
+      const cx = f.x * stageW, cy = f.y * stageH, hw = f.w / 2, hh = f.h / 2;
       if (cx - hw < minX) minX = cx - hw;
       if (cx + hw > maxX) maxX = cx + hw;
       if (cy - hh < minY) minY = cy - hh;
       if (cy + hh > maxY) maxY = cy + hh;
-    };
-    for (const f of FRAMES) add(f.x * stageW, f.y * stageH, f.w / 2, f.h / 2);
-    if (AGGREGATES) {
-      for (let i = 0; i < AGGREGATES.length; i++) {
-        const { nx, ny } = aggregateFraction(AGGREGATES[i], i, AGGREGATES.length);
-        // reserve the dot radius + the label/count text drawn beneath it
-        add(nx * stageW, ny * stageH, 20, 40);
-      }
+      const w = Math.max(1, f.w * f.h); // frame area → mass weight
+      sw += w; scx += cx * w; scy += cy * w;
     }
-    if (!isFinite(minX)) return { scale: 1, ox: 0, oy: 0 }; // no content yet
+    if (!isFinite(minX) || sw <= 0) return { scale: 1, ox: 0, oy: 0 }; // no frames yet
 
-    const contentW = Math.max(1, maxX - minX);
-    const contentH = Math.max(1, maxY - minY);
+    const cenX = scx / sw, cenY = scy / sw; // center of mass
     // Asymmetric vertical padding: extra room up top for the frame labels (drawn
     // above each box) and the toolbar chrome.
     const PAD = EDGE_MARGIN;
     const TOP_EXTRA = LABEL_HEADROOM + 14;
-    const availW = Math.max(1, stageW - 2 * PAD);
-    const availH = Math.max(1, stageH - 2 * PAD - TOP_EXTRA);
+    const availHalfW = Math.max(1, (stageW - 2 * PAD) / 2);
+    const availHalfH = Math.max(1, (stageH - 2 * PAD - TOP_EXTRA) / 2);
+    // Half-extent measured FROM the centroid (not the bbox half-width): scaling by
+    // this keeps every frame inside the padded band while the centroid sits dead
+    // center — so an off-center mass is corrected, not just re-framed.
+    const halfX = Math.max(cenX - minX, maxX - cenX, 1);
+    const halfY = Math.max(cenY - minY, maxY - cenY, 1);
     // Cap at 1 (never magnify), floor at MIN_VIEW_SCALE (never invert/collapse).
-    const scale = Math.max(MIN_VIEW_SCALE, Math.min(availW / contentW, availH / contentH, 1));
-    const contentCx = (minX + maxX) / 2;
-    const contentCy = (minY + maxY) / 2;
+    const scale = Math.max(MIN_VIEW_SCALE, Math.min(availHalfW / halfX, availHalfH / halfY, 1));
     const bandCy = (PAD + TOP_EXTRA + (stageH - PAD)) / 2; // center of the usable vertical band
-    return { scale, ox: stageW / 2 - contentCx * scale, oy: bandCy - contentCy * scale };
+    return { scale, ox: stageW / 2 - cenX * scale, oy: bandCy - cenY * scale };
   }
 
   function framePxBase(frame) {
@@ -1983,8 +1989,11 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const dotR = (5 + 10 * Math.sqrt(agg.member_count / maxCount)) * v.scale;
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
-      const cx = (nx * stageW) * v.scale + v.ox;
-      const cy = (ny * stageH) * v.scale + v.oy;
+      // Aggregates don't drive the fit (computeViewTransform frames the cloud
+      // only), so a dot the keep-out flung far out could map off-canvas — clamp
+      // it (and its label/count headroom) back on-screen so it stays visible.
+      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
+      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 30, (ny * stageH) * v.scale + v.oy));
 
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
