@@ -17,6 +17,31 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.1.3] — 2026-06-26
+
+### Fixed
+
+- **Frames viewer is now visually centered (fit-to-content), and auxiliary items
+  ring the cloud instead of sitting inside it.** The viewer used to map the fixed
+  1000×800 virtual stage edge-to-edge onto the canvas, so any layout imbalance —
+  the residual left/right lean, bottom-heaviness — showed directly, and the prior
+  server-side recenter (`D-vmhy`) only balanced the *ambient* cloud, never the
+  satellites/aggregates that actually skewed the picture. Two changes:
+  - **Viewer fit-to-content centering** (`src/viewer/viewer.js`): a new
+    `computeViewTransform` measures the bounding box of all rendered content
+    (frames + aggregates) and maps its center to the canvas center on both axes
+    with a uniform scale (capped at 1 so sparse graphs aren't magnified, floored
+    so a tiny canvas can't invert the scene), with extra top headroom for frame
+    labels. Baked into the shared px-mapping (`framePxBase`, `drawAggregates`) so
+    hit-testing, tooltips, and focus mode stay consistent. The composed scene is
+    now centered to the pixel regardless of where the deterministic layout placed
+    things, and re-centers on resize.
+  - **Cloud keep-out** (`src/mcp-server/floating-placement.ts`): `ambientCloud` +
+    `pushOutsideCloud` push any non-ambient frame or aggregate whose gravity
+    centroid landed inside the ambient cloud radially out to the cloud's
+    outskirts before separation, so auxiliaries never sit in the cloud's visual
+    middle. Pure and deterministic (no trig). Decision `D-p8bg`.
+
 ## [1.1.2] — 2026-06-26
 
 ### Fixed
@@ -890,6 +915,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.1.3]: https://github.com/ruevu/cortex/releases/tag/v1.1.3
 [1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0
