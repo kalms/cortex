@@ -1785,6 +1785,63 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     ctx.restore();
   }
 
+  /**
+   * Render a hover/info pill of text `lines` near anchor (anchorX, anchorY) — the
+   * shared chrome behind every hover tooltip (file/decision/todo nodes AND
+   * aggregates), so they all look identical. Offsets +14/+14 from the anchor and
+   * flips to stay on-canvas. `lines`: [{ text, color, size, weight }].
+   */
+  function renderInfoPill(lines, anchorX, anchorY, alpha, pinned) {
+    const padX = 11, padY = 9, lineGap = 4;
+    let maxW = 0;
+    lines.forEach(l => {
+      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
+      const w = ctx.measureText(l.text).width;
+      if (w > maxW) maxW = w;
+    });
+    const lineHeights = lines.map(l => l.size + 2);
+    const totalLineH = lineHeights.reduce((a, b) => a + b, 0) + (lines.length - 1) * lineGap;
+    const pillW = maxW + padX * 2;
+    const pillH = totalLineH + padY * 2;
+
+    let pillX = anchorX + 14;
+    let pillY = anchorY + 14;
+    const stageW = canvas.clientWidth;
+    const stageH = canvas.clientHeight;
+    if (pillX + pillW > stageW - 8) pillX = anchorX - pillW - 14;
+    if (pillY + pillH > stageH - 8) pillY = anchorY - pillH - 14;
+    if (pillX < 8) pillX = 8;
+    if (pillY < 8) pillY = 8;
+
+    ctx.save();
+    const hpbg = hoverPillBgRGB();
+    if (pinned) {
+      ctx.save();
+      ctx.shadowColor = `rgba(0, 0, 0, ${(isLight() ? 0.18 : 0.28) * alpha})`;
+      ctx.shadowBlur = isLight() ? 10 : 6;
+      ctx.shadowOffsetY = 2;
+      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * alpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * alpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    let y = pillY + padY;
+    lines.forEach((l, i) => {
+      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, pillX + padX, y);
+      y += lineHeights[i] + lineGap;
+    });
+    ctx.restore();
+  }
+
   function drawHoverPill(now) {
     let pillNodeIdx = null;
     let pillAlpha = 0;
@@ -1850,55 +1907,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       });
     }
 
-    const padX = 11, padY = 9, lineGap = 4;
-    let maxW = 0;
-    lines.forEach(l => {
-      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
-      const w = ctx.measureText(l.text).width;
-      if (w > maxW) maxW = w;
-    });
-    const lineHeights = lines.map(l => l.size + 2);
-    const totalLineH = lineHeights.reduce((a, b) => a + b, 0) + (lines.length - 1) * lineGap;
-    const pillW = maxW + padX * 2;
-    const pillH = totalLineH + padY * 2;
-
-    let pillX = p.x + 14;
-    let pillY = p.y + 14;
-    const stageW = canvas.clientWidth;
-    const stageH = canvas.clientHeight;
-    if (pillX + pillW > stageW - 8) pillX = p.x - pillW - 14;
-    if (pillY + pillH > stageH - 8) pillY = p.y - pillH - 14;
-    if (pillX < 8) pillX = 8;
-    if (pillY < 8) pillY = 8;
-
-    ctx.save();
-
-    const hpbg = hoverPillBgRGB();
-    if (pinnedNodeIdx === pillNodeIdx) {
-      ctx.save();
-      ctx.shadowColor = `rgba(0, 0, 0, ${(isLight() ? 0.18 : 0.28) * pillAlpha})`;
-      ctx.shadowBlur = isLight() ? 10 : 6;
-      ctx.shadowOffsetY = 2;
-      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * pillAlpha})`;
-      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
-      ctx.fill();
-      ctx.restore();
-    } else {
-      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * pillAlpha})`;
-      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
-      ctx.fill();
-    }
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    let y = pillY + padY;
-    lines.forEach((l, i) => {
-      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
-      ctx.fillStyle = l.color;
-      ctx.fillText(l.text, pillX + padX, y);
-      y += lineHeights[i] + lineGap;
-    });
-    ctx.restore();
+    renderInfoPill(lines, p.x, p.y, pillAlpha, pinnedNodeIdx === pillNodeIdx);
   }
 
   function drawNodes(now) {
@@ -1981,8 +1990,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   /**
-   * Draw auxiliary aggregates at their server-provided positions.
-   * Each aggregate is a dot scaled by sqrt(count), with a label and count badge.
+   * Draw auxiliary aggregates as bare dots; the title + file count are exposed
+   * only on hover, via the SAME hover pill the other node dots use.
    */
   function drawAggregates(now) {
     aggregateRects.length = 0;
@@ -1990,47 +1999,32 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
     const v = viewTransform;
+    let hovered = null; // {agg, cx, cy} of the hovered dot → pill drawn after the loop, on top
 
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      // Uniform dot size — aggregates are not sized by member_count; the count is
-      // shown (on hover) by the numeric badge beneath the dot, not the radius.
+      // Uniform dot size — aggregates are not sized by member_count.
       const dotR = AGG_DOT_R * v.scale;
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
       // Aggregates don't drive the fit (computeViewTransform frames the cloud
       // only), so a dot the keep-out flung far out could map off-canvas — clamp
-      // it (and its label/count headroom) back on-screen so it stays visible.
+      // it back on-screen so it stays visible.
       const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
-      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 30, (ny * stageH) * v.scale + v.oy));
+      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, (ny * stageH) * v.scale + v.oy));
 
-      const hovered = hoveredAggregateId === agg.id;
+      const isHovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
       // Idle dots sit quiet; the hovered dot brightens (like the other node dots).
-      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${hovered ? 0.9 : 0.55})`;
+      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${isHovered ? 0.9 : 0.55})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${hovered ? 1 : 0.9})`;
+      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${isHovered ? 1 : 0.9})`;
       ctx.lineWidth = 1;
       ctx.stroke();
-
-      // Label + count are hidden by default; only the hovered aggregate exposes
-      // them (matching how file/decision/todo dots reveal their text on hover).
-      if (hovered) {
-        const labelRgb = subLabelRGB();
-        ctx.fillStyle = `rgba(${labelRgb[0]},${labelRgb[1]},${labelRgb[2]},0.95)`;
-        ctx.font = '10px "Geist Mono", monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(truncateMiddle(ctx, agg.label, 120), cx, cy + dotR + 6);
-
-        const countRgb = countIdleRGB();
-        ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;
-        ctx.font = '500 9px "Geist Mono", monospace';
-        ctx.fillText(String(agg.member_count), cx, cy + dotR + 20);
-      }
+      if (isHovered) hovered = { agg, cx, cy };
 
       // Hit area for hover (a little larger than the dot so the small target is
       // easy to land on).
@@ -2038,6 +2032,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       aggregateRects.push({ id: agg.id, x: cx - hitR, y: cy - hitR, w: hitR * 2, h: hitR * 2 });
     }
     ctx.restore();
+
+    // Hover tooltip — identical chrome to the file/decision/todo node pills.
+    if (hovered) {
+      const TEXT = hoverPillTextPrimaryRGB();
+      const SUB = hoverPillTextSecondaryRGB();
+      const n = hovered.agg.member_count;
+      const lines = [
+        { text: hovered.agg.label, color: `rgba(${TEXT[0]},${TEXT[1]},${TEXT[2]},0.95)`, size: 11, weight: 500 },
+        { text: `aux · ${n} ${n === 1 ? 'file' : 'files'}`, color: `rgba(${SUB[0]},${SUB[1]},${SUB[2]},0.95)`, size: 10, weight: 400 },
+      ];
+      renderInfoPill(lines, hovered.cx, hovered.cy, 1, false);
+    }
   }
 
   function aggregateAtPoint(px, py) {
