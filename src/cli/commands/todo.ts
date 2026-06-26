@@ -101,16 +101,40 @@ function cmdSearch(cmd: TodoCommand, ctx: ProjectContext): void {
   } finally { db.close(); }
 }
 
-// --- write commands: minimal flag-only forms; editor flow added in Task 4 ---
+// --- write commands ---
+
+function ensureInteractive(what: string): void {
+  if (!process.stdin.isTTY) {
+    throw new UsageError(
+      `${what} needs a summary in a non-interactive context`,
+      `Pass it inline, e.g. cortex todo ${what} "<summary>" --description=...`,
+    );
+  }
+}
 
 function cmdPropose(cmd: TodoCommand, ctx: ProjectContext): void {
-  const summary = cmd.positionals[0] ?? (typeof cmd.flags.summary === "string" ? cmd.flags.summary : undefined);
-  if (!summary) throw new UsageError("missing <summary>", "Usage: cortex todo propose <summary> [--description=...]");
+  let summary = cmd.positionals[0] ?? (typeof cmd.flags.summary === "string" ? cmd.flags.summary : undefined);
+  let description = typeof cmd.flags.description === "string" ? cmd.flags.description : undefined;
+
+  if (!summary) {
+    ensureInteractive("propose");
+    const template =
+      "\n\n" +
+      "# Lines starting with '#' are ignored.\n" +
+      "# First non-comment line is the summary; the rest is the description.\n" +
+      "# Save with an empty summary to abort.\n" +
+      "# Links: pass --governs=a,b --spawns-from=D-x --blocked-by=T-y on the CLI.\n";
+    const parsed = parseTodoTemplate(openEditor(template));
+    if (!parsed.summary) throw new DomainError("aborted — empty summary", undefined);
+    summary = parsed.summary;
+    description = description ?? parsed.description;
+  }
+
   const { db, svc } = openService(ctx);
   try {
     const t = svc.propose({
       summary,
-      description: typeof cmd.flags.description === "string" ? cmd.flags.description : undefined,
+      description,
       proposed_by: typeof cmd.flags["proposed-by"] === "string" ? cmd.flags["proposed-by"] : undefined,
       governs: parseList(cmd.flags.governs),
       spawns_from: typeof cmd.flags["spawns-from"] === "string" ? cmd.flags["spawns-from"] : undefined,
@@ -123,14 +147,38 @@ function cmdPropose(cmd: TodoCommand, ctx: ProjectContext): void {
 function cmdUpdate(cmd: TodoCommand, ctx: ProjectContext): void {
   const id = cmd.positionals[0];
   if (!id) throw new UsageError("missing <id>", "Usage: cortex todo update <id> [--summary=...] [--description=...]");
+
+  const hasFieldFlag =
+    typeof cmd.flags.summary === "string" ||
+    typeof cmd.flags.description === "string" ||
+    typeof cmd.flags.assignee === "string" ||
+    typeof cmd.flags.governs === "string";
+
   const { db, svc } = openService(ctx);
   try {
     const patch: { summary?: string; description?: string; assignee?: string | null; governs?: string[] } = {};
-    if (typeof cmd.flags.summary === "string") patch.summary = cmd.flags.summary;
-    if (typeof cmd.flags.description === "string") patch.description = cmd.flags.description;
-    if (typeof cmd.flags.assignee === "string") patch.assignee = cmd.flags.assignee;
-    const governs = parseList(cmd.flags.governs);
-    if (governs) patch.governs = governs;
+
+    if (!hasFieldFlag) {
+      ensureInteractive("update");
+      const current = svc.get(id);
+      if (!current) throw new DomainError(`no todo with id '${id}'`, "Try: cortex todo list");
+      const seed =
+        `${current.summary}\n\n${current.description ?? ""}\n` +
+        "# Lines starting with '#' are ignored.\n" +
+        "# First non-comment line is the summary; the rest is the description.\n" +
+        "# Save with an empty summary to abort.\n";
+      const parsed = parseTodoTemplate(openEditor(seed));
+      if (!parsed.summary) throw new DomainError("aborted — empty summary", undefined);
+      if (parsed.summary !== current.summary) patch.summary = parsed.summary;
+      if ((parsed.description ?? null) !== (current.description ?? null)) patch.description = parsed.description ?? "";
+    } else {
+      if (typeof cmd.flags.summary === "string") patch.summary = cmd.flags.summary;
+      if (typeof cmd.flags.description === "string") patch.description = cmd.flags.description;
+      if (typeof cmd.flags.assignee === "string") patch.assignee = cmd.flags.assignee;
+      const governs = parseList(cmd.flags.governs);
+      if (governs) patch.governs = governs;
+    }
+
     const t = svc.update(id, patch);
     process.stdout.write(JSON.stringify(t, null, 2) + "\n");
   } finally { db.close(); }
@@ -172,5 +220,3 @@ function cmdLink(cmd: TodoCommand, ctx: ProjectContext): void {
   } finally { db.close(); }
 }
 
-// Re-export so Task 4 can wire the editor without touching the dispatch.
-export { openEditor };

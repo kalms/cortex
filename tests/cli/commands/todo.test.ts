@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTodoCommand, parseTodoTemplate } from "../../../src/cli/commands/todo.js";
 import type { ProjectContext } from "../../../src/cli/context.js";
+import * as editor from "../../../src/cli/editor.js";
 
 function ctxFor(dir: string): ProjectContext {
   // No real .git → resolveDecisionsDbPath falls back to <dir>/.cortex/decisions.db,
@@ -57,5 +58,44 @@ describe("cortex todo read commands", () => {
   it("unknown sub-command throws UsageError", async () => {
     await expect(runTodoCommand({ command: "frob", positionals: [], flags: {} }, ctxFor(dir)))
       .rejects.toThrow(/unknown command/);
+  });
+});
+
+describe("cortex todo propose/update — editor flow", () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "cortex-todo-ed-")); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); vi.restoreAllMocks(); });
+
+  function ctx(): ProjectContext {
+    return { state: "indexed", cwd: dir, gitRoot: null, projectName: "test", graphDbPath: null };
+  }
+
+  it("propose with no summary reads summary+description from the editor", async () => {
+    const prevTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.spyOn(editor, "openEditor").mockReturnValue("Editor summary\n\nEditor body\n# ignored");
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx());
+      const created = JSON.parse(spy.mock.calls.map((c) => String(c[0])).join(""));
+      expect(created.summary).toBe("Editor summary");
+      expect(created.description).toBe("Editor body");
+    } finally {
+      spy.mockRestore();
+      Object.defineProperty(process.stdin, "isTTY", { value: prevTTY, configurable: true });
+    }
+  });
+
+  it("propose aborts when the editor returns an empty summary", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.spyOn(editor, "openEditor").mockReturnValue("# only comments\n\n");
+    await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
+      .rejects.toThrow(/empty summary/i);
+  });
+
+  it("propose without a summary in a non-TTY context throws UsageError", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
+      .rejects.toThrow(/summary/i);
   });
 });
