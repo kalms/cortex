@@ -28,14 +28,17 @@ All notable changes to Cortex are documented here. The format follows
   server-side recenter (`D-vmhy`) only balanced the *ambient* cloud, never the
   satellites/aggregates that actually skewed the picture. Two changes:
   - **Viewer fit-to-content centering** (`src/viewer/viewer.js`): a new
-    `computeViewTransform` measures the bounding box of all rendered content
-    (frames + aggregates) and maps its center to the canvas center on both axes
-    with a uniform scale (capped at 1 so sparse graphs aren't magnified, floored
-    so a tiny canvas can't invert the scene), with extra top headroom for frame
-    labels. Baked into the shared px-mapping (`framePxBase`, `drawAggregates`) so
-    hit-testing, tooltips, and focus mode stay consistent. The composed scene is
-    now centered to the pixel regardless of where the deterministic layout placed
-    things, and re-centers on resize.
+    `computeViewTransform` centers the frames' **area-weighted center of mass**
+    in the canvas (both axes) and scales to fit the frame extent (capped at 1 so
+    sparse graphs aren't magnified, floored so a tiny canvas can't invert the
+    scene), with extra top headroom for frame labels. It centers the *mass*, not
+    the bounding-box center, so a few sparse outliers can't skew the framing; the
+    small auxiliary aggregate dots annotate the cloud and don't drive the fit
+    (they're clamped on-canvas so they stay visible). Baked into the shared
+    px-mapping (`framePxBase`, `drawAggregates`) so hit-testing, tooltips, and
+    focus mode stay consistent. The frame mass now sits at the canvas center
+    (measured within ~12px on the cortex project) regardless of layout lean, and
+    re-centers on resize.
   - **Cloud keep-out** (`src/mcp-server/floating-placement.ts`): `ambientCloud` +
     `pushOutsideCloud` push any non-ambient frame or aggregate whose gravity
     centroid landed inside the ambient cloud radially out to the cloud's
