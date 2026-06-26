@@ -1122,14 +1122,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
       let pillRect = null;
       if (expand > 0.001) {
+        // Node label shows ONLY the sequenced id (e.g. "D-12"); the title lives
+        // in the focused-frame marginalia, so repeating it on the node was redundant.
         const label = decisionDisplayId(dec);
-        const titleLabel = truncateMiddle(ctx, dec.summary, 220);
         const labelW = ctx.measureText(label).width;
-        const titleW = ctx.measureText(titleLabel).width;
         const pillH = 22;
         const padX = 10;
-        const gap = 8;
-        const pillW = padX + labelW + gap + titleW + padX;
+        const pillW = padX + labelW + padX;
 
         const offset = DOT_R + 8;
         let pillX = dotX + offset;
@@ -1160,9 +1159,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.fillStyle = `rgba(${decisionTextRGB()[0]}, ${decisionTextRGB()[1]}, ${decisionTextRGB()[2]}, ${0.98 * pillAlpha * stateFade})`;
         ctx.textAlign = 'left';
         ctx.fillText(label, pillX + padX, pillY + pillH / 2);
-
-        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, ${0.85 * pillAlpha * stateFade})`;
-        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
 
         pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
       }
@@ -1299,17 +1295,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.stroke();
       }
 
-      // Hover pill: "T-NNN · summary"
+      // Node label: just the sequenced id "T-NNN" (title lives in the marginalia).
       let pillRect = null;
       if (pillVisible) {
         const label = todoDisplayId(todo);
-        const titleLabel = truncateMiddle(ctx, todo.summary || '', 220);
         const labelW = ctx.measureText(label).width;
-        const titleW = ctx.measureText(titleLabel).width;
         const pillH = 22;
         const padX = 10;
-        const gap = 8;
-        const pillW = padX + labelW + gap + titleW + padX;
+        const pillW = padX + labelW + padX;
 
         const offset = DOT_R + 8;
         let pillX = dotX + offset;
@@ -1337,10 +1330,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.fillStyle = `rgba(${todoTextRGB()[0]}, ${todoTextRGB()[1]}, ${todoTextRGB()[2]}, 0.98)`;
         ctx.textAlign = 'left';
         ctx.fillText(label, pillX + padX, pillY + pillH / 2);
-
-        // Summary in neutral text.
-        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, 0.85)`;
-        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
 
         pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
       }
@@ -2127,6 +2116,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     const stateLabel = dec.state;
     const provParts = [];
+    if (dec.id) provParts.push(`id ${escapeHtml(dec.id)}`); // canonical id (display id is the D-<seq> form)
     if (dec.proposedBy) provParts.push(`proposed by <span class="agent">@${dec.proposedBy}</span>`);
     if (dec.proposedAt) provParts.push(`on ${dec.proposedAt}`);
 
@@ -2235,6 +2225,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const t = TODOS[todoId];
     if (!t) { decisionCardEl.innerHTML = ''; return; }
     const provParts = [];
+    if (t.id) provParts.push(`id ${escapeHtml(t.id)}`); // canonical id (display id is the T-<seq> form)
     if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
     if (t.proposedAt) provParts.push(`on ${escapeHtml(t.proposedAt)}`);
 
