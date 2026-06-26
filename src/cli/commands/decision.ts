@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { DecisionsRepository } from "../../decisions/repository.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
@@ -26,8 +26,8 @@ function openService(ctx: ProjectContext) {
       "cortex tour    to see what's available without a project",
     );
   }
-  const dbPath = join(ctx.cwd, ".cortex", "decisions.db");
-  const db = openDecisionsDb(dbPath);
+  const root = ctx.gitRoot ?? ctx.cwd;
+  const db = openDecisionsDb(resolveDecisionsDbPath(root), legacyDecisionsDbPath(root));
   const links = new DecisionLinksRepository(db);
   const svc = new DecisionService({
     db,

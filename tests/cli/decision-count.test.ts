@@ -12,9 +12,9 @@ const CLI = join(process.cwd(), "src/cli/main.ts");
 // Direct path to tsx — faster than `npx tsx` and avoids PATH dependency.
 const TSX = join(process.cwd(), "node_modules/.bin/tsx");
 
-function runCli(cwd: string): string {
+function runCli(cwd: string, env: Record<string, string> = {}): string {
   return execFileSync(TSX, [CLI, "decision", "count"], {
-    cwd, encoding: "utf-8",
+    cwd, encoding: "utf-8", env: { ...process.env, ...env },
   }).trim();
 }
 
@@ -31,7 +31,8 @@ describe("cortex decision count", () => {
     const root = mkdtempSync(join(tmpdir(), "cortex-count-"));
     try {
       mkdirSync(join(root, ".git"));
-      const db = openDecisionsDb(join(root, ".cortex", "decisions.db"));
+      const dbPath = join(root, "decisions.db");
+      const db = openDecisionsDb(dbPath);
       const service = new DecisionService({
         db,
         decisions: new DecisionsRepository(db),
@@ -40,7 +41,7 @@ describe("cortex decision count", () => {
       service.create({ title: "a", description: "d", rationale: "r" });
       service.create({ title: "b", description: "d", rationale: "r" });
       db.close();
-      expect(runCli(root)).toBe("2");
+      expect(runCli(root, { CORTEX_DECISIONS_DB: dbPath })).toBe("2");
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
