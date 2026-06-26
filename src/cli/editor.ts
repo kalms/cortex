@@ -25,8 +25,13 @@ export function openEditor(template: string): string {
         "Set $EDITOR to a valid editor command.",
       );
     }
-    if (typeof res.status === "number" && res.status !== 0) {
-      throw new DomainError("editor exited non-zero — aborted", undefined);
+    if (res.status == null || res.status !== 0) {
+      throw new DomainError(
+        res.status == null
+          ? `editor was killed by signal ${res.signal ?? "unknown"}`
+          : "editor exited non-zero — aborted",
+        undefined,
+      );
     }
     return readFileSync(file, "utf-8");
   } finally {

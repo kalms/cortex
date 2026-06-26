@@ -38,4 +38,18 @@ describe("openEditor", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("throws DomainError when the editor is killed by a signal", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cortex-fakeed-"));
+    const script = join(dir, "ed.sh");
+    writeFileSync(script, `#!/bin/sh\nkill -TERM $$\n`, "utf-8");
+    chmodSync(script, 0o755);
+    const prev = process.env.EDITOR; process.env.EDITOR = script;
+    try {
+      expect(() => openEditor("x")).toThrow(/killed by signal/);
+    } finally {
+      if (prev === undefined) delete process.env.EDITOR; else process.env.EDITOR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
