@@ -87,15 +87,48 @@ describe("cortex todo propose/update — editor flow", () => {
   });
 
   it("propose aborts when the editor returns an empty summary", async () => {
+    const prevTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
     vi.spyOn(editor, "openEditor").mockReturnValue("# only comments\n\n");
-    await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
-      .rejects.toThrow(/empty summary/i);
+    try {
+      await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
+        .rejects.toThrow(/empty summary/i);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: prevTTY, configurable: true });
+    }
   });
 
   it("propose without a summary in a non-TTY context throws UsageError", async () => {
+    const prevTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
-    await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
-      .rejects.toThrow(/summary/i);
+    try {
+      await expect(runTodoCommand({ command: "propose", positionals: [], flags: {} }, ctx()))
+        .rejects.toThrow(/summary/i);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: prevTTY, configurable: true });
+    }
+  });
+
+  it("update with no field flags edits summary via the editor", async () => {
+    const prevTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    const c = ctx();
+    // seed a todo through the command layer (flag path, no editor)
+    const s1 = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runTodoCommand({ command: "propose", positionals: ["Original summary"], flags: {} }, c);
+    const created = JSON.parse(s1.mock.calls.map((x) => String(x[0])).join(""));
+    s1.mockRestore();
+    // now update with no flags -> editor opens, returns new content
+    vi.spyOn(editor, "openEditor").mockReturnValue("Edited summary\n\nEdited body");
+    const s2 = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runTodoCommand({ command: "update", positionals: [created.id], flags: {} }, c);
+      const updated = JSON.parse(s2.mock.calls.map((x) => String(x[0])).join(""));
+      expect(updated.summary).toBe("Edited summary");
+      expect(updated.description).toBe("Edited body");
+    } finally {
+      s2.mockRestore();
+      Object.defineProperty(process.stdin, "isTTY", { value: prevTTY, configurable: true });
+    }
   });
 });
