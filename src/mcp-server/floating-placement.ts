@@ -21,11 +21,72 @@ const REPEL_ITERATIONS = 24;
 /** Grid step (px) for the outward free-slot search in separateMovables. Integer
  *  offsets only → cross-platform deterministic (no trig). */
 const SEARCH_STEP = 20;
+/** Breathing room (px) between the furthest ambient frame corner and the cloud
+ *  keep-out circle — the clearance auxiliaries are pushed beyond. */
+export const CLOUD_GAP = 14;
+/** Deterministic fallback rays for pushing a point that sits EXACTLY on the
+ *  cloud centroid (no gravity direction). Integer components, normalized via
+ *  sqrt (cross-platform deterministic — no trig). Eight compass+diagonal
+ *  directions, indexed by the caller so co-incident points fan out instead of
+ *  stacking on one ray. */
+const FALLBACK_DIRS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1],
+];
 
 /** A rectangular frame box: integer center x/y, width w, and height h. */
 export interface Box { x: number; y: number; w: number; h: number; }
 /** A weighted anchor for centroiding. */
 export interface WeightedAnchor { x: number; y: number; weight: number; }
+/** The ambient cloud's keep-out circle: centroid (cx, cy) + radius r. Auxiliary
+ *  items (satellites, aggregate dots) are kept OUTSIDE this circle so they ring
+ *  the cloud on its outskirts instead of landing in its visual middle. */
+export interface Cloud { cx: number; cy: number; r: number; }
+
+/**
+ * Keep-out circle for the ambient cloud: centroid = mean of box centers; radius
+ * = the furthest box CORNER from that centroid (so the circle fully encloses
+ * every ambient frame), plus CLOUD_GAP breathing room. Returns null for an
+ * empty cloud. Pure + deterministic (mean + sqrt only — no trig).
+ */
+export function ambientCloud(boxes: readonly Box[], gap = CLOUD_GAP): Cloud | null {
+  if (boxes.length === 0) return null;
+  let sx = 0, sy = 0;
+  for (const b of boxes) { sx += b.x; sy += b.y; }
+  const cx = sx / boxes.length, cy = sy / boxes.length;
+  let r = 0;
+  for (const b of boxes) {
+    const halfDiag = Math.hypot(b.w, b.h) / 2; // furthest corner of this box from its center
+    r = Math.max(r, Math.hypot(b.x - cx, b.y - cy) + halfDiag);
+  }
+  return { cx, cy, r: r + gap };
+}
+
+/**
+ * If a square of side `size` centered at (x, y) sits inside the cloud keep-out
+ * circle, push it radially OUTWARD (away from the cloud center) along the
+ * seed→outward ray until its near edge clears the circle — i.e. its center
+ * reaches `cloud.r + size/2` from the centroid. Points already outside are
+ * returned unchanged, so a satellite keeps the position gravity gave it whenever
+ * gravity already put it on the outskirts. A point sitting EXACTLY on the
+ * centroid has no gravity ray, so it uses FALLBACK_DIRS[fallbackIndex % 8] — a
+ * deterministic ray that fans co-incident points apart. Pure; no PRNG, no trig.
+ */
+export function pushOutsideCloud(x: number, y: number, size: number, cloud: Cloud, fallbackIndex: number): { x: number; y: number } {
+  const half = size / 2;
+  const target = cloud.r + half; // center distance at which the box's near edge clears the circle
+  const dx = x - cloud.cx, dy = y - cloud.cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist >= target) return { x, y };
+  let ux: number, uy: number;
+  if (dist < 1e-9) {
+    const [fx, fy] = FALLBACK_DIRS[((fallbackIndex % FALLBACK_DIRS.length) + FALLBACK_DIRS.length) % FALLBACK_DIRS.length];
+    const flen = Math.hypot(fx, fy);
+    ux = fx / flen; uy = fy / flen;
+  } else {
+    ux = dx / dist; uy = dy / dist;
+  }
+  return { x: cloud.cx + ux * target, y: cloud.cy + uy * target };
+}
 
 const q = (n: number): number => Math.round(n);
 
@@ -197,10 +258,13 @@ export function placeAggregates(
   const tieless = ordered.filter((a) => seeds.get(a.id) === null).map((a) => a.id);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
 
-  // Seed at the tie centroid (or margin), then separate the aggregate dots
-  // against the ambient anchors AND each other so dots don't stack either.
-  const movables: Movable[] = ordered.map((a) => {
-    const seed = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+  // Seed at the tie centroid (or margin), push any seed that landed inside the
+  // cloud out to its outskirts, then separate the aggregate dots against the
+  // ambient anchors AND each other so dots don't stack either.
+  const cloud = ambientCloud(ambientBoxes);
+  const movables: Movable[] = ordered.map((a, i) => {
+    const raw = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+    const seed = cloud ? pushOutsideCloud(raw.x, raw.y, AGG_RADIUS * 2, cloud, i) : raw;
     return { id: a.id, x: seed.x, y: seed.y, size: AGG_RADIUS * 2 };
   });
   separateMovables(movables, ambientBoxes);
@@ -235,11 +299,14 @@ export function placeNonAmbientFrames(
   const sorted = [...nonAmbient].map((f) => f.frame_id).sort((x, y) => x - y);
   const tieless = sorted.filter((id) => (partnersOf.get(id) ?? []).length === 0);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
-  // Seed at the centroid (or margin), then separate the whole satellite set
-  // against the ambient anchors AND each other in one deterministic pass.
-  const movables: Movable[] = sorted.map((id) => {
+  // Seed at the centroid (or margin), push any seed that landed inside the cloud
+  // out to its outskirts, then separate the whole satellite set against the
+  // ambient anchors AND each other in one deterministic pass.
+  const cloud = ambientCloud(ambientBoxes);
+  const movables: Movable[] = sorted.map((id, i) => {
     const c = weightedCentroid(partnersOf.get(id) ?? []);
-    const seed = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    const raw = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    const seed = cloud ? pushOutsideCloud(raw.x, raw.y, SATELLITE_SIZE, cloud, i) : raw;
     return { id, x: seed.x, y: seed.y, size: SATELLITE_SIZE };
   });
   separateMovables(movables, ambientBoxes);

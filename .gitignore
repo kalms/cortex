@@ -23,3 +23,4 @@ scripts/frame-extraction/python/.venv/
 
 # Native worktree tool location
 .claude/worktrees/
+.tmp-dev.log

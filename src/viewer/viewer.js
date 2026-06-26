@@ -463,15 +463,82 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // toolbar.
   const EDGE_MARGIN = 40;
   const LABEL_HEADROOM = 16;
-  const BOTTOM_MARGIN = EDGE_MARGIN;
+  // Server virtual stage (matches frameMap.stage); frame/aggregate fractions are
+  // positions ÷ these dims.
+  const STAGE = { w: 1000, h: 800 };
+  /** Floor for the fit scale so a pathologically small canvas (e.g. a collapsed
+   *  panel mid-resize, where the usable band goes ≤ 0) can never produce a zero
+   *  or negative scale that would mirror/collapse the whole scene. */
+  const MIN_VIEW_SCALE = 0.05;
+
+  /** Virtual-stage fraction (0..1) of an aggregate, with the tie-less fallback —
+   *  the SINGLE source of this mapping, shared by the fit transform and the
+   *  draw pass so the measured bbox always matches what is rendered. */
+  function aggregateFraction(agg, i, total) {
+    return {
+      nx: typeof agg.x === "number" ? agg.x / STAGE.w : (i + 0.5) / Math.max(total, 1),
+      ny: typeof agg.y === "number" ? agg.y / STAGE.h : 0.96,
+    };
+  }
+
+  // Fit-to-content view transform. The server lays frames out in a fixed virtual
+  // stage; mapping that stage edge-to-edge onto the canvas means any imbalance in
+  // the layout (a left/right lean, bottom-heaviness) shows directly. Instead we
+  // measure the actual content bounding box and map ITS center to the canvas
+  // center with a uniform scale — so the composed scene is always visually
+  // centered regardless of where the deterministic layout placed things. Scale is
+  // capped at 1 (never magnify a sparse graph), and recomputed every frame from
+  // the UNFOCUSED base positions (independent of focus animation → stable).
+  let viewTransform = { scale: 1, ox: 0, oy: 0 };
+
+  function computeViewTransform() {
+    const stageW = canvas.clientWidth || 1;
+    const stageH = canvas.clientHeight || 1;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const add = (cx, cy, hw, hh) => {
+      if (cx - hw < minX) minX = cx - hw;
+      if (cx + hw > maxX) maxX = cx + hw;
+      if (cy - hh < minY) minY = cy - hh;
+      if (cy + hh > maxY) maxY = cy + hh;
+    };
+    for (const f of FRAMES) add(f.x * stageW, f.y * stageH, f.w / 2, f.h / 2);
+    if (AGGREGATES) {
+      for (let i = 0; i < AGGREGATES.length; i++) {
+        const { nx, ny } = aggregateFraction(AGGREGATES[i], i, AGGREGATES.length);
+        // reserve the dot radius + the label/count text drawn beneath it
+        add(nx * stageW, ny * stageH, 20, 40);
+      }
+    }
+    if (!isFinite(minX)) return { scale: 1, ox: 0, oy: 0 }; // no content yet
+
+    const contentW = Math.max(1, maxX - minX);
+    const contentH = Math.max(1, maxY - minY);
+    // Asymmetric vertical padding: extra room up top for the frame labels (drawn
+    // above each box) and the toolbar chrome.
+    const PAD = EDGE_MARGIN;
+    const TOP_EXTRA = LABEL_HEADROOM + 14;
+    const availW = Math.max(1, stageW - 2 * PAD);
+    const availH = Math.max(1, stageH - 2 * PAD - TOP_EXTRA);
+    // Cap at 1 (never magnify), floor at MIN_VIEW_SCALE (never invert/collapse).
+    const scale = Math.max(MIN_VIEW_SCALE, Math.min(availW / contentW, availH / contentH, 1));
+    const contentCx = (minX + maxX) / 2;
+    const contentCy = (minY + maxY) / 2;
+    const bandCy = (PAD + TOP_EXTRA + (stageH - PAD)) / 2; // center of the usable vertical band
+    return { scale, ox: stageW / 2 - contentCx * scale, oy: bandCy - contentCy * scale };
+  }
 
   function framePxBase(frame) {
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
+    const v = viewTransform;
+    // Map the virtual-stage fraction to raw canvas px, then apply the
+    // fit-to-content transform (centers the scene; clamping is unnecessary —
+    // the transform already keeps all content within the padded canvas).
     return {
-      cx: Math.max(frame.w / 2 + EDGE_MARGIN, Math.min(stageW - frame.w / 2 - EDGE_MARGIN, frame.x * stageW)),
-      cy: Math.max(frame.h / 2 + EDGE_MARGIN + LABEL_HEADROOM, Math.min(stageH - frame.h / 2 - BOTTOM_MARGIN, frame.y * stageH)),
-      w: frame.w, h: frame.h,
+      cx: (frame.x * stageW) * v.scale + v.ox,
+      cy: (frame.y * stageH) * v.scale + v.oy,
+      w: frame.w * v.scale,
+      h: frame.h * v.scale,
     };
   }
 
@@ -1906,18 +1973,18 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     if (!AGGREGATES || AGGREGATES.length === 0) return;
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
-    const STAGE = { w: 1000, h: 800 }; // server virtual stage (matches frameMap.stage)
+    const v = viewTransform;
     let maxCount = 1;
     for (const a of AGGREGATES) if (a.member_count > maxCount) maxCount = a.member_count;
 
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      const dotR = 5 + 10 * Math.sqrt(agg.member_count / maxCount);
-      const nx = typeof agg.x === "number" ? agg.x / STAGE.w : (i + 0.5) / Math.max(AGGREGATES.length, 1);
-      const ny = typeof agg.y === "number" ? agg.y / STAGE.h : 0.96;
-      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, nx * stageW));
-      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, ny * stageH));
+      const dotR = (5 + 10 * Math.sqrt(agg.member_count / maxCount)) * v.scale;
+      const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
+      // Same fit-to-content transform as frames so dots stay anchored to the cloud.
+      const cx = (nx * stageW) * v.scale + v.ox;
+      const cy = (ny * stageH) * v.scale + v.oy;
 
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
@@ -1948,6 +2015,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     updateDecisionCardVisibility();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    viewTransform = computeViewTransform();
     drawFrames(now);
     drawEdges();
     drawNodes(now);
