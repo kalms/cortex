@@ -1047,7 +1047,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
                                  [74, 222, 128];
 
       const isSelected = selectedDecId === dec.id;
-      const isHovered = hoveredDecisionId === dec.id;
+      // Hover via the floating dot OR this decision's marginalia pill — either
+      // lights up the decision's leader edges (dot AND marginalia connections).
+      const isHovered = hoveredDecisionId === dec.id || hoveredMarginaliaId === dec.id;
       const focusTouches = focusedFrameId && governedFrameIds.has(focusedFrameId);
       const pillVisible = isHovered || isSelected || focusTouches;
       const expand = decisionExpandLevel(dec.id, pillVisible, now);
@@ -1245,7 +1247,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
 
       const isSelected = selectedTodoId === todo.id;
-      const isHovered = hoveredTodoId === todo.id;
+      // Hover via the floating dot OR this todo's marginalia pill.
+      const isHovered = hoveredTodoId === todo.id || hoveredMarginaliaId === todo.id;
       const pillVisible = isHovered || isSelected;
 
       const DOT_R = 4;
@@ -1511,11 +1514,15 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
                                  [74, 222, 128];
       const borderAlpha = state === 'superseded' ? 0.3 : (state === 'stale' ? 0.4 : 0.55);
 
+      // Hovered via this marginalia pill OR the decision's floating dot — either
+      // HIGHLIGHTS the marginalia leader edges (the connection I'd otherwise miss).
+      const isHovered = hoveredMarginaliaId === dec.id || hoveredDecisionId === dec.id;
+
       const nodeIdxs = dec._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
         const p = nodePx(nodes[idx]);
-        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
-        ctx.lineWidth = 0.6;
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(isHovered ? 0.6 : leaderAlpha) * alphaMult})`;
+        ctx.lineWidth = isHovered ? 1.2 : 0.6;
         ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
         ctx.beginPath();
         ctx.moveTo(pillX, pillY + pillH / 2);
@@ -1523,8 +1530,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.stroke();
         ctx.setLineDash([]);
       });
-
-      const isHovered = hoveredMarginaliaId === dec.id;
       const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult * stateAlpha;
       const mpBg = pillBgGreenRGB();
       ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
@@ -1604,12 +1609,15 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const markGap = 7;
       const pillW = padX + markSize + markGap + labelW + padX;
 
-      // Leader lines to anchor node dots.
+      // Hovered via this marginalia pill OR the todo's floating dot.
+      const isHovered = hoveredMarginaliaId === todo.id || hoveredTodoId === todo.id;
+
+      // Leader lines to anchor node dots — highlighted on hover.
       const nodeIdxs = todo._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
         const p = nodePx(nodes[idx]);
-        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
-        ctx.lineWidth = 0.6;
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(isHovered ? 0.6 : leaderAlpha) * alphaMult})`;
+        ctx.lineWidth = isHovered ? 1.2 : 0.6;
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
         ctx.moveTo(pillX, pillY + pillH / 2);
@@ -1619,7 +1627,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       });
 
       // Pill bg: neutral.
-      const isHovered = hoveredMarginaliaId === todo.id;
       const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult;
       const mpBg = pillBgRGB();
       ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
