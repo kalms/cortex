@@ -15,9 +15,7 @@ export type TodoCommand = {
 };
 
 function openService(ctx: ProjectContext) {
-  // Allow CORTEX_DECISIONS_DB override to bypass the git-repo requirement —
-  // useful for tests and isolated invocations pointing at a specific DB file.
-  if (ctx.state === "no-project" && !process.env.CORTEX_DECISIONS_DB) {
+  if (ctx.state === "no-project") {
     throw new EnvironmentError(
       "todos require a git repository — cd into a repo first",
       "cortex tour    to see what's available without a project",

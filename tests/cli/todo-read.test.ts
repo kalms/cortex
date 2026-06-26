@@ -20,6 +20,7 @@ function run(args: string[], cwd: string, dbPath: string): string {
 describe("cortex todo list/show (subprocess, live store)", () => {
   it("lists a todo seeded into the resolved store", () => {
     const root = mkdtempSync(join(tmpdir(), "cortex-todo-read-"));
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
     const dbPath = join(root, "todos.db");
     try {
       const db = openDecisionsDb(dbPath);
