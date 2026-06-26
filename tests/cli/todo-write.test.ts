@@ -36,9 +36,10 @@ describe("cortex todo write round-trip (flag path)", () => {
       expect(shown.governs.map((g: { target_ref: string }) => g.target_ref)).toContain("src/a.ts");
       expect(shown.spawns_from.target_ref).toBe("D-0j21");
 
-      JSON.parse(run(["transition", created.id, "in_progress"], root, dbPath));
-      const done = JSON.parse(run(["transition", created.id, "done"], root, dbPath));
-      expect(done.state).toBe("done");
+      const inProgress = JSON.parse(run(["transition", created.id, "in_progress"], root, dbPath));
+      expect(inProgress.state).toBe("in_progress");
+      const finalized = JSON.parse(run(["transition", created.id, "done"], root, dbPath));
+      expect(finalized.state).toBe("done");
 
       const search = run(["search", "Wire", "--format=plain"], root, dbPath);
       expect(search).toContain(created.id);
