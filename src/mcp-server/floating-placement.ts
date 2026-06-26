@@ -37,47 +37,58 @@ const FALLBACK_DIRS: ReadonlyArray<readonly [number, number]> = [
 export interface Box { x: number; y: number; w: number; h: number; }
 /** A weighted anchor for centroiding. */
 export interface WeightedAnchor { x: number; y: number; weight: number; }
-/** The ambient cloud's keep-out circle: centroid (cx, cy) + radius r. Auxiliary
- *  items (satellites, aggregate dots) are kept OUTSIDE this circle so they ring
- *  the cloud on its outskirts instead of landing in its visual middle. */
-export interface Cloud { cx: number; cy: number; r: number; }
+/** The ambient cloud's keep-out region: an axis-aligned box centred on the
+ *  frame centroid (cx, cy) with per-axis half-extents (hx, hy) — the distance
+ *  from the centroid to the furthest frame EDGE on each axis, plus CLOUD_GAP.
+ *  Auxiliary items (satellites, aggregate dots) are kept OUTSIDE this box so
+ *  they ring the cloud's outskirts instead of landing in its visual middle.
+ *
+ *  Why a per-axis box and not a single radius: one uniform radius is sized by
+ *  the FURTHEST frame in ANY direction, so an item pushed along the cloud's
+ *  SHORT axis (e.g. straight up, when the spread is mostly sideways) gets flung
+ *  far past the cloud into empty space. Bounding the push per-axis keeps each
+ *  auxiliary hugging the cloud in its own direction. */
+export interface Cloud { cx: number; cy: number; hx: number; hy: number; }
 
 /**
- * Keep-out circle for the ambient cloud: centroid = mean of box centers; radius
- * = the furthest box CORNER from that centroid (so the circle fully encloses
- * every ambient frame), plus CLOUD_GAP breathing room. Returns null for an
- * empty cloud. Pure + deterministic (mean + sqrt only — no trig).
+ * Keep-out box for the ambient cloud: centroid = mean of box centers; per-axis
+ * half-extent = the furthest frame EDGE from that centroid on each axis (so the
+ * box fully encloses every ambient frame), plus CLOUD_GAP breathing room.
+ * Returns null for an empty cloud. Pure + deterministic (mean + abs/max only).
  */
 export function ambientCloud(boxes: readonly Box[], gap = CLOUD_GAP): Cloud | null {
   if (boxes.length === 0) return null;
   let sx = 0, sy = 0;
   for (const b of boxes) { sx += b.x; sy += b.y; }
   const cx = sx / boxes.length, cy = sy / boxes.length;
-  let r = 0;
+  let hx = 0, hy = 0;
   for (const b of boxes) {
-    const halfDiag = Math.hypot(b.w, b.h) / 2; // furthest corner of this box from its center
-    r = Math.max(r, Math.hypot(b.x - cx, b.y - cy) + halfDiag);
+    hx = Math.max(hx, Math.abs(b.x - cx) + b.w / 2); // furthest x-edge from the centroid
+    hy = Math.max(hy, Math.abs(b.y - cy) + b.h / 2);
   }
-  return { cx, cy, r: r + gap };
+  return { cx, cy, hx: hx + gap, hy: hy + gap };
 }
 
 /**
  * If a square of side `size` centered at (x, y) sits inside the cloud keep-out
- * circle, push it radially OUTWARD (away from the cloud center) along the
- * seed→outward ray until its near edge clears the circle — i.e. its center
- * reaches `cloud.r + size/2` from the centroid. Points already outside are
- * returned unchanged, so a satellite keeps the position gravity gave it whenever
- * gravity already put it on the outskirts. A point sitting EXACTLY on the
- * centroid has no gravity ray, so it uses FALLBACK_DIRS[fallbackIndex % 8] — a
- * deterministic ray that fans co-incident points apart. Pure; no PRNG, no trig.
+ * box, push it OUTWARD along the seed→outward (gravity) ray until it just clears
+ * the box edge — its center reaching the EXPANDED box boundary (cloud half-extent
+ * + size/2) along that ray. Because the stop distance is the box edge in the
+ * ray's own direction, the push is bounded by the cloud's extent in THAT
+ * direction — never flung to a uniform far radius. Points already outside the
+ * box are returned unchanged, so a satellite keeps the position gravity gave it
+ * whenever gravity already put it on the outskirts. A point sitting EXACTLY on
+ * the centroid has no gravity ray, so it uses FALLBACK_DIRS[fallbackIndex % 8] —
+ * a deterministic ray that fans co-incident points apart. Pure; no PRNG, no trig.
  */
 export function pushOutsideCloud(x: number, y: number, size: number, cloud: Cloud, fallbackIndex: number): { x: number; y: number } {
   const half = size / 2;
-  const target = cloud.r + half; // center distance at which the box's near edge clears the circle
+  const ex = cloud.hx + half, ey = cloud.hy + half; // expanded box half-extents (incl. the item's own half)
   const dx = x - cloud.cx, dy = y - cloud.cy;
-  const dist = Math.hypot(dx, dy);
-  if (dist >= target) return { x, y };
+  // Outside the keep-out box if it clears on EITHER axis (boxes don't overlap).
+  if (Math.abs(dx) >= ex || Math.abs(dy) >= ey) return { x, y };
   let ux: number, uy: number;
+  const dist = Math.hypot(dx, dy);
   if (dist < 1e-9) {
     const [fx, fy] = FALLBACK_DIRS[((fallbackIndex % FALLBACK_DIRS.length) + FALLBACK_DIRS.length) % FALLBACK_DIRS.length];
     const flen = Math.hypot(fx, fy);
@@ -85,7 +96,13 @@ export function pushOutsideCloud(x: number, y: number, size: number, cloud: Clou
   } else {
     ux = dx / dist; uy = dy / dist;
   }
-  return { x: cloud.cx + ux * target, y: cloud.cy + uy * target };
+  // Distance from the centroid to the expanded box edge along the ray: the first
+  // axis the ray crosses bounds it (a near-zero component → Infinity, so min()
+  // picks the other axis). This is what keeps the push hugging the cloud.
+  const tx = ux !== 0 ? ex / Math.abs(ux) : Infinity;
+  const ty = uy !== 0 ? ey / Math.abs(uy) : Infinity;
+  const t = Math.min(tx, ty);
+  return { x: cloud.cx + ux * t, y: cloud.cy + uy * t };
 }
 
 const q = (n: number): number => Math.round(n);

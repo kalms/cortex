@@ -41,9 +41,14 @@ All notable changes to Cortex are documented here. The format follows
     re-centers on resize.
   - **Cloud keep-out** (`src/mcp-server/floating-placement.ts`): `ambientCloud` +
     `pushOutsideCloud` push any non-ambient frame or aggregate whose gravity
-    centroid landed inside the ambient cloud radially out to the cloud's
-    outskirts before separation, so auxiliaries never sit in the cloud's visual
-    middle. Pure and deterministic (no trig). Decision `D-p8bg`.
+    centroid landed inside the ambient cloud out to the cloud's outskirts before
+    separation, so auxiliaries never sit in the cloud's visual middle. The
+    keep-out is an **axis-aware box** (per-axis half-extents), not a single
+    radius: a uniform radius is sized by the furthest frame in any direction, so
+    an item pushed along the cloud's short axis (e.g. straight up when the spread
+    is sideways) got flung far past the cloud into empty space; bounding the push
+    per-axis keeps each auxiliary hugging the cloud in its own direction. Pure
+    and deterministic (no trig). Decision `D-p8bg`.
 
 ## [1.1.2] — 2026-06-26
 

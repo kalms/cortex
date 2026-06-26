@@ -63,7 +63,7 @@ describe("ambientCloud", () => {
   it("returns null for an empty cloud", () => {
     expect(ambientCloud([])).toBeNull();
   });
-  it("centroid is the mean of box centers; radius encloses every box corner + gap", () => {
+  it("centroid is the mean of box centers; per-axis half-extents reach the furthest edge + gap", () => {
     const boxes = [
       { x: 200, y: 300, w: 120, h: 120 },
       { x: 800, y: 300, w: 120, h: 120 },
@@ -72,46 +72,57 @@ describe("ambientCloud", () => {
     expect(c).not.toBeNull();
     expect(c.cx).toBe(500);
     expect(c.cy).toBe(300);
-    // furthest corner: dist(centroid, center)=300 + halfDiag(=hypot(120,120)/2≈84.85) + gap
-    const halfDiag = Math.hypot(120, 120) / 2;
-    expect(c.r).toBeCloseTo(300 + halfDiag + CLOUD_GAP, 5);
+    // hx: furthest x-edge from centroid = 300 (to a center) + 60 (half-width) + gap.
+    expect(c.hx).toBeCloseTo(300 + 60 + CLOUD_GAP, 5);
+    // hy: boxes are level, so just the half-height + gap.
+    expect(c.hy).toBeCloseTo(60 + CLOUD_GAP, 5);
   });
-  it("a single box yields a radius of just its half-diagonal + gap", () => {
+  it("a single box yields half-extents of just its half-size + gap", () => {
     const c = ambientCloud([{ x: 500, y: 400, w: 100, h: 100 }])!;
     expect(c.cx).toBe(500);
     expect(c.cy).toBe(400);
-    expect(c.r).toBeCloseTo(Math.hypot(100, 100) / 2 + CLOUD_GAP, 5);
+    expect(c.hx).toBeCloseTo(50 + CLOUD_GAP, 5);
+    expect(c.hy).toBeCloseTo(50 + CLOUD_GAP, 5);
   });
 });
 
 describe("pushOutsideCloud", () => {
-  const cloud = { cx: 500, cy: 400, r: 200 };
-  it("leaves a point already outside the keep-out circle untouched", () => {
-    // a 84px box centered 300px out: near edge at 258 > r → already clear.
+  const cloud = { cx: 500, cy: 400, hx: 200, hy: 200 }; // square keep-out box
+  it("leaves a point already outside the keep-out box untouched", () => {
+    // a 84px box centered 300px out: |dx|=300 ≥ hx+half(242) → already clear.
     expect(pushOutsideCloud(800, 400, 84, cloud, 0)).toEqual({ x: 800, y: 400 });
   });
-  it("pushes an inside point radially out so its near edge clears the circle", () => {
-    // seed at the centroid-side, 50px right of center → pushed straight right.
+  it("pushes an inside point out so it just clears the box edge", () => {
+    // seed 50px right of center → pushed straight right to the box edge.
     const out = pushOutsideCloud(550, 400, 84, cloud, 0);
     expect(out.y).toBe(400); // direction preserved (pure +x)
-    // center lands at r + half = 200 + 42 = 242 out → x = 742
+    // center lands at hx + half = 200 + 42 = 242 out → x = 742
     expect(out.x).toBe(742);
   });
-  it("preserves the gravity direction (toward the seed's offset from center)", () => {
-    // seed up-and-left of center → pushed further up-and-left along the same ray.
+  it("preserves the gravity direction and stops at the box edge (bounded, not flung)", () => {
+    // seed up-and-left of center → pushed up-and-left to the box CORNER (equal
+    // components), so the stop distance is bounded by the box, not a far radius.
     const out = pushOutsideCloud(460, 360, 84, cloud, 0);
     const dx = out.x - 500, dy = out.y - 400;
     expect(dx).toBeLessThan(0);
     expect(dy).toBeLessThan(0);
-    expect(Math.hypot(dx, dy)).toBeCloseTo(242, 5); // r + half
-    // same ray as the seed offset (-40,-40): equal components
-    expect(dx).toBeCloseTo(dy, 5);
+    expect(dx).toBeCloseTo(dy, 5);               // same ray as the seed offset (-40,-40)
+    expect(Math.abs(dx)).toBeCloseTo(242, 5);    // hx + half — lands exactly on the box edge
+    expect(Math.abs(dy)).toBeCloseTo(242, 5);
+  });
+  it("bounds the push to the SHORT axis: a tall-thin cloud doesn't fling an upward push far", () => {
+    // wide-but-short cloud (hx 400, hy 80): a point pushed straight up stops at
+    // hy+half, NOT at the large hx — the old single-radius circle would over-push.
+    const flat = { cx: 500, cy: 400, hx: 400, hy: 80 };
+    const out = pushOutsideCloud(500, 380, 40, flat, 0); // seeded just above center
+    expect(out.x).toBe(500);
+    expect(out.y).toBeCloseTo(400 - (80 + 20), 5); // cy - (hy + half) = 300, not flung to ~ -20
   });
   it("uses a deterministic fallback direction for a point exactly at the center", () => {
     const a = pushOutsideCloud(500, 400, 84, cloud, 0);
     const b = pushOutsideCloud(500, 400, 84, cloud, 0);
-    expect(a).toEqual(b); // deterministic
-    expect(Math.hypot(a.x - 500, a.y - 400)).toBeCloseTo(242, 5);
+    expect(a).toEqual(b);              // deterministic
+    expect(a).toEqual({ x: 742, y: 400 }); // fallback ray index 0 = +x → box edge at hx+half
   });
   it("fans co-incident center points out along distinct fallback rays by index", () => {
     const a = pushOutsideCloud(500, 400, 84, cloud, 0);
@@ -132,10 +143,11 @@ describe("placeNonAmbientFrames", () => {
     const out = placeNonAmbientFrames([{ frame_id: 9 }], pairs, ambientPositions, ambientBoxes);
     const p = out.get(9)!;
     // Raw weighted centroid (350,300) is LEFT of the cloud center (500,300) and
-    // inside the keep-out circle, so it is pushed further left, out of the circle,
-    // along that same leftward gravity ray. It must end up outside the circle.
+    // inside the keep-out box, so it is pushed further left, out of the box,
+    // along that same leftward gravity ray. It must end up outside the box.
     const cloud = ambientCloud(ambientBoxes)!;
-    expect(Math.hypot(p.x - cloud.cx, p.y - cloud.cy)).toBeGreaterThanOrEqual(cloud.r - 1);
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
     expect(p.x).toBeLessThan(500); // still on its partners' (left) side
   });
 
@@ -169,10 +181,11 @@ describe("placeAggregates", () => {
       edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes,
     );
     const p = out.get("aux:locales:locales")!;
-    // raw centroid (350,300) is inside the keep-out circle → pushed out to the
+    // raw centroid (350,300) is inside the keep-out box → pushed out to the
     // left (its gravity side), never left sitting in the cloud's middle.
     const cloud = ambientCloud(ambientBoxes)!;
-    expect(Math.hypot(p.x - cloud.cx, p.y - cloud.cy)).toBeGreaterThanOrEqual(cloud.r - 1);
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
     expect(p.x).toBeLessThan(500);
   });
 
@@ -216,7 +229,8 @@ describe("placeAggregates", () => {
     // centroid of (200,300)&(800,300) is (500,300) — exactly the cloud center —
     // so it is pushed out along a deterministic fallback ray, not left dead-center.
     const cloud = ambientCloud(ambientBoxes)!;
-    expect(Math.hypot(p.x - cloud.cx, p.y - cloud.cy)).toBeGreaterThanOrEqual(cloud.r - 1);
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
   });
 
   it("is deterministic across runs", () => {
@@ -284,8 +298,12 @@ describe("keep-out invariant — auxiliaries never sit inside the ambient cloud"
   ];
   const ambientPositions = ambientBoxes.map((b) => ({ id: b.id, x: b.x, y: b.y }));
   const cloud = ambientCloud(ambientBoxes)!;
+  // Outside the keep-out box on at least one axis (allowing the separation pass a
+  // 1px nudge), with a half-item slack since the invariant is about the box edge.
+  const outsideBox = (p: { x: number; y: number }, half: number) =>
+    Math.abs(p.x - cloud.cx) >= cloud.hx - half - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - half - 1;
 
-  it("no satellite frame center lands inside the cloud keep-out circle", () => {
+  it("no satellite frame center lands inside the cloud keep-out box", () => {
     const nonAmbient = [10, 11, 12, 13].map((frame_id) => ({ frame_id }));
     // each satellite links to frames on opposite sides → centroid near cloud center
     const pairs = [
@@ -296,13 +314,11 @@ describe("keep-out invariant — auxiliaries never sit inside the ambient cloud"
     ];
     const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     for (const p of out.values()) {
-      // center must be at least the circle radius from the centroid (allowing the
-      // separation pass to nudge it, never back inside).
-      expect(Math.hypot(p.x - cloud.cx, p.y - cloud.cy)).toBeGreaterThanOrEqual(cloud.r - SATELLITE_SIZE / 2 - 1);
+      expect(outsideBox(p, SATELLITE_SIZE / 2)).toBe(true);
     }
   });
 
-  it("no aggregate dot lands inside the cloud keep-out circle", () => {
+  it("no aggregate dot lands inside the cloud keep-out box", () => {
     const edgeTies = new Map([
       ["aux:a:a", new Map([[1, 1], [2, 1]])],
       ["aux:b:b", new Map([[3, 1], [4, 1]])],
@@ -312,7 +328,7 @@ describe("keep-out invariant — auxiliaries never sit inside the ambient cloud"
       edgeTies, new Map(), new Map(), ambientPositions, ambientBoxes,
     );
     for (const p of out.values()) {
-      expect(Math.hypot(p.x - cloud.cx, p.y - cloud.cy)).toBeGreaterThanOrEqual(cloud.r - 8 - 1);
+      expect(outsideBox(p, 8)).toBe(true);
     }
   });
 });
