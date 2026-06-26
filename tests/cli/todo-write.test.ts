@@ -57,4 +57,27 @@ describe("cortex todo write round-trip (flag path)", () => {
       expect(stderr).toMatch(/Invalid transition/i);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it("rejects --relation=WRONG with exit code 2 (UsageError)", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-todo-w-"));
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    const dbPath = join(root, "todos.db");
+    try {
+      const created = JSON.parse(run(["propose", "Relation validation test"], root, dbPath));
+      const { status, stderr } = runFail(["link", created.id, "src/foo.ts", "--relation=WRONG"], root, dbPath);
+      expect(status).toBe(2); // UsageError
+      expect(stderr).toMatch(/unknown --relation/i);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("rejects a nonexistent todo id in link with exit code 3 (DomainError)", () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-todo-w-"));
+    execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
+    const dbPath = join(root, "todos.db");
+    try {
+      const { status, stderr } = runFail(["link", "T-nonexistent", "src/foo.ts"], root, dbPath);
+      expect(status).toBe(3); // DomainError
+      expect(stderr).toMatch(/not found/i);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });

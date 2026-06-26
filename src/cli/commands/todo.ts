@@ -31,11 +31,7 @@ function openService(ctx: ProjectContext) {
   return { db, svc };
 }
 
-function requireFlag(name: string, flags: Record<string, unknown>, usage: string): string {
-  const v = flags[name];
-  if (typeof v !== "string" || v.length === 0) throw new UsageError(`missing --${name}`, usage);
-  return v;
-}
+const VALID_RELATIONS = ["GOVERNS", "BLOCKED_BY", "RELATED_TO", "SPAWNS_FROM", "RESOLVED_BY"] as const;
 
 function parseList(v: unknown): string[] | undefined {
   return typeof v === "string"
@@ -209,6 +205,9 @@ function cmdLink(cmd: TodoCommand, ctx: ProjectContext): void {
   if (!id || !target) throw new UsageError("missing args", "Usage: cortex todo link <id> <target> [--relation=GOVERNS]");
   const relation = (typeof cmd.flags.relation === "string" ? cmd.flags.relation : "GOVERNS") as
     "GOVERNS" | "BLOCKED_BY" | "RELATED_TO" | "SPAWNS_FROM" | "RESOLVED_BY";
+  if (!VALID_RELATIONS.includes(relation as (typeof VALID_RELATIONS)[number])) {
+    throw new UsageError(`unknown --relation '${relation}'`, `Allowed: ${VALID_RELATIONS.join(", ")}`);
+  }
   const { db, svc } = openService(ctx);
   try {
     svc.link({ todo_id: id, target, relation });
