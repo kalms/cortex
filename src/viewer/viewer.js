@@ -470,6 +470,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
    *  panel mid-resize, where the usable band goes ≤ 0) can never produce a zero
    *  or negative scale that would mirror/collapse the whole scene. */
   const MIN_VIEW_SCALE = 0.05;
+  /** Uniform aggregate dot radius (px, before the view scale). Aggregates are not
+   *  sized by member_count — the count shows as a numeric badge beneath the dot. */
+  const AGG_DOT_R = 5;
 
   /** Virtual-stage fraction (0..1) of an aggregate, with the tie-less fallback —
    *  the SINGLE source of this mapping, shared by the fit transform and the
@@ -1980,13 +1983,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
     const v = viewTransform;
-    let maxCount = 1;
-    for (const a of AGGREGATES) if (a.member_count > maxCount) maxCount = a.member_count;
 
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      const dotR = (5 + 10 * Math.sqrt(agg.member_count / maxCount)) * v.scale;
+      // Uniform dot size — aggregates are not sized by member_count; the count is
+      // conveyed by the numeric badge beneath the dot, not its radius.
+      const dotR = AGG_DOT_R * v.scale;
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
       // Aggregates don't drive the fit (computeViewTransform frames the cloud
