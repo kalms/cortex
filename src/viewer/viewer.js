@@ -633,6 +633,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let hoveredMarginaliaId = null;
   let hoveredDecisionId = null;
   let hoveredTodoId = null;
+  let hoveredAggregateId = null;
   let nodeHoverT0 = 0;
   const NODE_HOVER_DELAY = 60;
   const NODE_HOVER_IN_MS = 140;
@@ -806,7 +807,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const todoHover = todoNodeAtPoint(px, py);
     hoveredTodoId = todoHover ? todoHover.id : null;
 
-    if (decHover || todoHover) {
+    const aggHover = aggregateAtPoint(px, py);
+    hoveredAggregateId = aggHover ? aggHover.id : null;
+
+    if (decHover || todoHover || aggHover) {
       canvas.style.cursor = 'pointer';
     } else if (marginaliaHit) {
       canvas.style.cursor = 'pointer';
@@ -840,6 +844,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     hoveredMarginaliaId = null;
     hoveredDecisionId = null;
     hoveredTodoId = null;
+    hoveredAggregateId = null;
     canvas.style.cursor = 'default';
   });
 
@@ -957,6 +962,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   const decisionNodeRects = [];
   const todoNodeRects = [];
+  const aggregateRects = [];
   const decisionExpandState = {};
   const DECISION_EXPAND_IN_MS = 160;
   const DECISION_EXPAND_OUT_MS = 200;
@@ -1979,6 +1985,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
    * Each aggregate is a dot scaled by sqrt(count), with a label and count badge.
    */
   function drawAggregates(now) {
+    aggregateRects.length = 0;
     if (!AGGREGATES || AGGREGATES.length === 0) return;
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
@@ -1988,7 +1995,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
       // Uniform dot size — aggregates are not sized by member_count; the count is
-      // conveyed by the numeric badge beneath the dot, not its radius.
+      // shown (on hover) by the numeric badge beneath the dot, not the radius.
       const dotR = AGG_DOT_R * v.scale;
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
@@ -1998,28 +2005,46 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
       const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 30, (ny * stageH) * v.scale + v.oy));
 
+      const hovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.55)`;
+      // Idle dots sit quiet; the hovered dot brightens (like the other node dots).
+      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${hovered ? 0.9 : 0.55})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.9)`;
+      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${hovered ? 1 : 0.9})`;
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      const labelRgb = subLabelRGB();
-      ctx.fillStyle = `rgba(${labelRgb[0]},${labelRgb[1]},${labelRgb[2]},0.95)`;
-      ctx.font = '10px "Geist Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(truncateMiddle(ctx, agg.label, 120), cx, cy + dotR + 6);
+      // Label + count are hidden by default; only the hovered aggregate exposes
+      // them (matching how file/decision/todo dots reveal their text on hover).
+      if (hovered) {
+        const labelRgb = subLabelRGB();
+        ctx.fillStyle = `rgba(${labelRgb[0]},${labelRgb[1]},${labelRgb[2]},0.95)`;
+        ctx.font = '10px "Geist Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(truncateMiddle(ctx, agg.label, 120), cx, cy + dotR + 6);
 
-      const countRgb = countIdleRGB();
-      ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;
-      ctx.font = '500 9px "Geist Mono", monospace';
-      ctx.fillText(String(agg.member_count), cx, cy + dotR + 20);
+        const countRgb = countIdleRGB();
+        ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;
+        ctx.font = '500 9px "Geist Mono", monospace';
+        ctx.fillText(String(agg.member_count), cx, cy + dotR + 20);
+      }
+
+      // Hit area for hover (a little larger than the dot so the small target is
+      // easy to land on).
+      const hitR = dotR + 4;
+      aggregateRects.push({ id: agg.id, x: cx - hitR, y: cy - hitR, w: hitR * 2, h: hitR * 2 });
     }
     ctx.restore();
+  }
+
+  function aggregateAtPoint(px, py) {
+    for (const r of aggregateRects) {
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
+    }
+    return null;
   }
 
   function mainLoop() {
