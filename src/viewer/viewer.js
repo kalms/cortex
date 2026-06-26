@@ -1055,11 +1055,16 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const DOT_R = 4;
       const HIT_R = 14;
 
-      const showLeaders = isSelected;
-      if (showLeaders) {
+      // Leader lines connecting the decision to what it governs. Hover HIGHLIGHTS
+      // them (brighter + thicker); a selected decision keeps calmer persistent
+      // leaders; a frame that merely touches it (focused, not hovered) shows faint
+      // guide lines.
+      const leadersOn = isSelected || isHovered;
+      if (leadersOn) {
+        const hl = isHovered; // hover = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(74, 222, 128, 0.22)`;
-          ctx.lineWidth = 0.6;
+          ctx.strokeStyle = `rgba(74, 222, 128, ${hl ? 0.6 : 0.22})`;
+          ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
           ctx.beginPath();
           ctx.moveTo(dotX, dotY);
@@ -1073,8 +1078,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
             const childTodo = TODOS[todoId];
             for (const idx of (childTodo?._nodeIdxs || [])) {
               const p = nodePx(nodes[idx]);
-              ctx.strokeStyle = `rgba(250, 204, 21, 0.30)`; // yellow, distinct from green governed leaders
-              ctx.lineWidth = 0.6;
+              ctx.strokeStyle = `rgba(250, 204, 21, ${hl ? 0.6 : 0.30})`; // yellow, distinct from green governed leaders
+              ctx.lineWidth = hl ? 1.2 : 0.6;
               ctx.setLineDash([2, 2]);
               ctx.beginPath();
               ctx.moveTo(dotX, dotY);
@@ -1246,22 +1251,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const DOT_R = 4;
       const HIT_R = 14;
 
-      // Leader lines when hovered/selected.
-      if (isSelected) {
+      // Leader lines: hover HIGHLIGHTS the todo's connections (brighter +
+      // thicker); a selected todo keeps calmer persistent leaders.
+      if (isSelected || isHovered) {
+        const hl = isHovered; // hover = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.22)`;
-          ctx.lineWidth = 0.6;
-          ctx.setLineDash([2, 3]);
-          ctx.beginPath();
-          ctx.moveTo(dotX, dotY);
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        });
-      } else if (isHovered) {
-        governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`;
-          ctx.lineWidth = 0.6;
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${hl ? 0.6 : 0.22})`;
+          ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash([2, 3]);
           ctx.beginPath();
           ctx.moveTo(dotX, dotY);
