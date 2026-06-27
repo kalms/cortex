@@ -17,6 +17,41 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.1] — 2026-06-27
+
+### Added
+
+- **Durable-store migration runner.** The primitives DB
+  (`~/.cortex/<repoId>/decisions.db`) now converges through a single,
+  name-tracked migration runner (`src/db/migrate.ts`) instead of flag-gated
+  self-heal scattered across store-openers. Applied migrations are recorded by
+  **name** in a `_cortex_migrations` ledger (the simonw/sqlite-migrate pattern,
+  not `PRAGMA user_version`), so the scheme is safe across parallel branches and
+  append-only. A store carrying a migration name this binary doesn't recognize
+  (written by a newer Cortex) is **hard-refused** — `MigrationError` →
+  CLI exit 4 — rather than silently misread. `openDecisionsDb` is the single
+  chokepoint: ensure schema → relocate legacy → snapshot-if-pending-and-non-empty
+  → run migrations → restore-on-failure. The one existing data migration
+  (legacy UUID → `D-` short ids) becomes the first ledger entry; its scattered
+  call sites are removed. (Decision `D-b0kp`, TODO `T-21`.)
+- **Pre-migration snapshots.** Before applying a pending migration to a
+  non-empty store, the runner takes a consistent `VACUUM INTO` snapshot under
+  `<storeDir>/backups/` (retaining the last 3) and restores from it if the
+  migration throws — so a failed upgrade never leaves a half-migrated store.
+
+### Fixed
+
+- **Graph-import decision ids stay canonical.** With the id migration moved into
+  the open-time runner, the legacy graph→sidecar import path
+  (`migrateDecisionsFromGraphDb`, which inserts UUID-keyed rows *after* the
+  runner has already recorded the id migration) would have left those imported
+  decisions un-converted. The import path now force-re-runs the id converter
+  when it actually imports rows, keeping all decision ids in `D-` short form.
+- **`MigrationError` CLI hint is now kind-specific.** `store-too-new` advises
+  upgrading the plugin; `migration-failed` (where the store was already restored
+  from its snapshot) advises re-running and reporting, instead of the misleading
+  "upgrade the plugin".
+
 ## [1.2.0] — 2026-06-27
 
 ### Added
@@ -966,6 +1001,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.1]: https://github.com/ruevu/cortex/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ruevu/cortex/releases/tag/v1.2.0
 [1.1.3]: https://github.com/ruevu/cortex/releases/tag/v1.1.3
 [1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
