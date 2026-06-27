@@ -463,15 +463,91 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   // toolbar.
   const EDGE_MARGIN = 40;
   const LABEL_HEADROOM = 16;
-  const BOTTOM_MARGIN = EDGE_MARGIN;
+  // Server virtual stage (matches frameMap.stage); frame/aggregate fractions are
+  // positions ÷ these dims.
+  const STAGE = { w: 1000, h: 800 };
+  /** Floor for the fit scale so a pathologically small canvas (e.g. a collapsed
+   *  panel mid-resize, where the usable band goes ≤ 0) can never produce a zero
+   *  or negative scale that would mirror/collapse the whole scene. */
+  const MIN_VIEW_SCALE = 0.05;
+  /** Uniform aggregate dot radius (px, before the view scale). Aggregates are not
+   *  sized by member_count — the count shows as a numeric badge beneath the dot. */
+  const AGG_DOT_R = 5;
+
+  /** Virtual-stage fraction (0..1) of an aggregate, with the tie-less fallback —
+   *  the SINGLE source of this mapping, shared by the fit transform and the
+   *  draw pass so the measured bbox always matches what is rendered. */
+  function aggregateFraction(agg, i, total) {
+    return {
+      nx: typeof agg.x === "number" ? agg.x / STAGE.w : (i + 0.5) / Math.max(total, 1),
+      ny: typeof agg.y === "number" ? agg.y / STAGE.h : 0.96,
+    };
+  }
+
+  // Fit-to-content view transform. The server lays frames out in a fixed virtual
+  // stage; mapping that stage edge-to-edge onto the canvas means any imbalance in
+  // the layout (a left/right lean, bottom-heaviness) shows directly. Instead we
+  // center the frames' CENTER OF MASS (area-weighted centroid) in the canvas and
+  // scale to fit the frame extent — so the composed scene reads as visually
+  // centered regardless of where the deterministic layout placed things.
+  //
+  // We center the centroid, NOT the bounding-box center: the eye tracks the mass,
+  // and a few sparse outliers (e.g. an aggregate dot flung to the stage edge by
+  // the keep-out) would skew a bbox-center while barely moving the mass. For the
+  // same reason the framing is driven by FRAMES only — the small auxiliary
+  // aggregate dots annotate the cloud and must not drive the fit (drawAggregates
+  // clamps them on-canvas so excluding them here can never push one off-screen).
+  // Scaling by the larger half-extent measured FROM the centroid guarantees the
+  // frame content never clips. Capped at 1 (never magnify), recomputed each frame
+  // from the UNFOCUSED base positions (independent of focus animation → stable).
+  let viewTransform = { scale: 1, ox: 0, oy: 0 };
+
+  function computeViewTransform() {
+    const stageW = canvas.clientWidth || 1;
+    const stageH = canvas.clientHeight || 1;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let sw = 0, scx = 0, scy = 0; // area-weighted centroid accumulators
+    for (const f of FRAMES) {
+      const cx = f.x * stageW, cy = f.y * stageH, hw = f.w / 2, hh = f.h / 2;
+      if (cx - hw < minX) minX = cx - hw;
+      if (cx + hw > maxX) maxX = cx + hw;
+      if (cy - hh < minY) minY = cy - hh;
+      if (cy + hh > maxY) maxY = cy + hh;
+      const w = Math.max(1, f.w * f.h); // frame area → mass weight
+      sw += w; scx += cx * w; scy += cy * w;
+    }
+    if (!isFinite(minX) || sw <= 0) return { scale: 1, ox: 0, oy: 0 }; // no frames yet
+
+    const cenX = scx / sw, cenY = scy / sw; // center of mass
+    // Asymmetric vertical padding: extra room up top for the frame labels (drawn
+    // above each box) and the toolbar chrome.
+    const PAD = EDGE_MARGIN;
+    const TOP_EXTRA = LABEL_HEADROOM + 14;
+    const availHalfW = Math.max(1, (stageW - 2 * PAD) / 2);
+    const availHalfH = Math.max(1, (stageH - 2 * PAD - TOP_EXTRA) / 2);
+    // Half-extent measured FROM the centroid (not the bbox half-width): scaling by
+    // this keeps every frame inside the padded band while the centroid sits dead
+    // center — so an off-center mass is corrected, not just re-framed.
+    const halfX = Math.max(cenX - minX, maxX - cenX, 1);
+    const halfY = Math.max(cenY - minY, maxY - cenY, 1);
+    // Cap at 1 (never magnify), floor at MIN_VIEW_SCALE (never invert/collapse).
+    const scale = Math.max(MIN_VIEW_SCALE, Math.min(availHalfW / halfX, availHalfH / halfY, 1));
+    const bandCy = (PAD + TOP_EXTRA + (stageH - PAD)) / 2; // center of the usable vertical band
+    return { scale, ox: stageW / 2 - cenX * scale, oy: bandCy - cenY * scale };
+  }
 
   function framePxBase(frame) {
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
+    const v = viewTransform;
+    // Map the virtual-stage fraction to raw canvas px, then apply the
+    // fit-to-content transform (centers the scene; clamping is unnecessary —
+    // the transform already keeps all content within the padded canvas).
     return {
-      cx: Math.max(frame.w / 2 + EDGE_MARGIN, Math.min(stageW - frame.w / 2 - EDGE_MARGIN, frame.x * stageW)),
-      cy: Math.max(frame.h / 2 + EDGE_MARGIN + LABEL_HEADROOM, Math.min(stageH - frame.h / 2 - BOTTOM_MARGIN, frame.y * stageH)),
-      w: frame.w, h: frame.h,
+      cx: (frame.x * stageW) * v.scale + v.ox,
+      cy: (frame.y * stageH) * v.scale + v.oy,
+      w: frame.w * v.scale,
+      h: frame.h * v.scale,
     };
   }
 
@@ -557,6 +633,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   let hoveredMarginaliaId = null;
   let hoveredDecisionId = null;
   let hoveredTodoId = null;
+  let hoveredAggregateId = null;
   let nodeHoverT0 = 0;
   const NODE_HOVER_DELAY = 60;
   const NODE_HOVER_IN_MS = 140;
@@ -730,7 +807,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const todoHover = todoNodeAtPoint(px, py);
     hoveredTodoId = todoHover ? todoHover.id : null;
 
-    if (decHover || todoHover) {
+    const aggHover = aggregateAtPoint(px, py);
+    hoveredAggregateId = aggHover ? aggHover.id : null;
+
+    if (decHover || todoHover || aggHover) {
       canvas.style.cursor = 'pointer';
     } else if (marginaliaHit) {
       canvas.style.cursor = 'pointer';
@@ -764,6 +844,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     hoveredMarginaliaId = null;
     hoveredDecisionId = null;
     hoveredTodoId = null;
+    hoveredAggregateId = null;
     canvas.style.cursor = 'default';
   });
 
@@ -881,6 +962,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
   const decisionNodeRects = [];
   const todoNodeRects = [];
+  const aggregateRects = [];
   const decisionExpandState = {};
   const DECISION_EXPAND_IN_MS = 160;
   const DECISION_EXPAND_OUT_MS = 200;
@@ -965,7 +1047,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
                                  [74, 222, 128];
 
       const isSelected = selectedDecId === dec.id;
-      const isHovered = hoveredDecisionId === dec.id;
+      // Hover via the floating dot OR this decision's marginalia pill — either
+      // lights up the decision's leader edges (dot AND marginalia connections).
+      const isHovered = hoveredDecisionId === dec.id || hoveredMarginaliaId === dec.id;
       const focusTouches = focusedFrameId && governedFrameIds.has(focusedFrameId);
       const pillVisible = isHovered || isSelected || focusTouches;
       const expand = decisionExpandLevel(dec.id, pillVisible, now);
@@ -973,11 +1057,16 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const DOT_R = 4;
       const HIT_R = 14;
 
-      const showLeaders = isSelected;
-      if (showLeaders) {
+      // Leader lines connecting the decision to what it governs. Hover HIGHLIGHTS
+      // them (brighter + thicker); a selected decision keeps calmer persistent
+      // leaders; a frame that merely touches it (focused, not hovered) shows faint
+      // guide lines.
+      const leadersOn = isSelected || isHovered;
+      if (leadersOn) {
+        const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(74, 222, 128, 0.22)`;
-          ctx.lineWidth = 0.6;
+          ctx.strokeStyle = `rgba(74, 222, 128, ${hl ? 0.6 : 0.22})`;
+          ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
           ctx.beginPath();
           ctx.moveTo(dotX, dotY);
@@ -991,8 +1080,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
             const childTodo = TODOS[todoId];
             for (const idx of (childTodo?._nodeIdxs || [])) {
               const p = nodePx(nodes[idx]);
-              ctx.strokeStyle = `rgba(250, 204, 21, 0.30)`; // yellow, distinct from green governed leaders
-              ctx.lineWidth = 0.6;
+              ctx.strokeStyle = `rgba(250, 204, 21, ${hl ? 0.6 : 0.30})`; // yellow, distinct from green governed leaders
+              ctx.lineWidth = hl ? 1.2 : 0.6;
               ctx.setLineDash([2, 2]);
               ctx.beginPath();
               ctx.moveTo(dotX, dotY);
@@ -1040,14 +1129,13 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
       let pillRect = null;
       if (expand > 0.001) {
+        // Node label shows ONLY the sequenced id (e.g. "D-12"); the title lives
+        // in the focused-frame marginalia, so repeating it on the node was redundant.
         const label = decisionDisplayId(dec);
-        const titleLabel = truncateMiddle(ctx, dec.summary, 220);
         const labelW = ctx.measureText(label).width;
-        const titleW = ctx.measureText(titleLabel).width;
         const pillH = 22;
         const padX = 10;
-        const gap = 8;
-        const pillW = padX + labelW + gap + titleW + padX;
+        const pillW = padX + labelW + padX;
 
         const offset = DOT_R + 8;
         let pillX = dotX + offset;
@@ -1078,9 +1166,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.fillStyle = `rgba(${decisionTextRGB()[0]}, ${decisionTextRGB()[1]}, ${decisionTextRGB()[2]}, ${0.98 * pillAlpha * stateFade})`;
         ctx.textAlign = 'left';
         ctx.fillText(label, pillX + padX, pillY + pillH / 2);
-
-        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, ${0.85 * pillAlpha * stateFade})`;
-        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
 
         pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
       }
@@ -1162,28 +1247,20 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
 
       const isSelected = selectedTodoId === todo.id;
-      const isHovered = hoveredTodoId === todo.id;
+      // Hover via the floating dot OR this todo's marginalia pill.
+      const isHovered = hoveredTodoId === todo.id || hoveredMarginaliaId === todo.id;
       const pillVisible = isHovered || isSelected;
 
       const DOT_R = 4;
       const HIT_R = 14;
 
-      // Leader lines when hovered/selected.
-      if (isSelected) {
+      // Leader lines: hover HIGHLIGHTS the todo's connections (brighter +
+      // thicker); a selected todo keeps calmer persistent leaders.
+      if (isSelected || isHovered) {
+        const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.22)`;
-          ctx.lineWidth = 0.6;
-          ctx.setLineDash([2, 3]);
-          ctx.beginPath();
-          ctx.moveTo(dotX, dotY);
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        });
-      } else if (isHovered) {
-        governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.14)`;
-          ctx.lineWidth = 0.6;
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${hl ? 0.6 : 0.22})`;
+          ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash([2, 3]);
           ctx.beginPath();
           ctx.moveTo(dotX, dotY);
@@ -1217,17 +1294,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.stroke();
       }
 
-      // Hover pill: "T-NNN · summary"
+      // Node label: just the sequenced id "T-NNN" (title lives in the marginalia).
       let pillRect = null;
       if (pillVisible) {
         const label = todoDisplayId(todo);
-        const titleLabel = truncateMiddle(ctx, todo.summary || '', 220);
         const labelW = ctx.measureText(label).width;
-        const titleW = ctx.measureText(titleLabel).width;
         const pillH = 22;
         const padX = 10;
-        const gap = 8;
-        const pillW = padX + labelW + gap + titleW + padX;
+        const pillW = padX + labelW + padX;
 
         const offset = DOT_R + 8;
         let pillX = dotX + offset;
@@ -1255,10 +1329,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.fillStyle = `rgba(${todoTextRGB()[0]}, ${todoTextRGB()[1]}, ${todoTextRGB()[2]}, 0.98)`;
         ctx.textAlign = 'left';
         ctx.fillText(label, pillX + padX, pillY + pillH / 2);
-
-        // Summary in neutral text.
-        ctx.fillStyle = `rgba(${pillTextRGB()[0]}, ${pillTextRGB()[1]}, ${pillTextRGB()[2]}, 0.85)`;
-        ctx.fillText(titleLabel, pillX + padX + labelW + gap, pillY + pillH / 2);
 
         pillRect = { x: pillX, y: pillY, w: pillW, h: pillH };
       }
@@ -1411,6 +1481,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const todos = getFrameTodos(frameId);
     if (!decs.length && !todos.length) return;
 
+    // The record whose drawer is currently open — its edges stay lit, like hover.
+    const openDecId = (focusedRecord && focusedRecord.type === 'decision') ? focusedRecord.id : null;
+    const openTodoId = (focusedRecord && focusedRecord.type === 'todo') ? focusedRecord.id : null;
+
     const f = framePx(frame);
     const pillX = f.cx + f.w / 2 + 14;
     let pillY = f.cy - f.h / 2 + 4;
@@ -1444,11 +1518,15 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
                                  [74, 222, 128];
       const borderAlpha = state === 'superseded' ? 0.3 : (state === 'stale' ? 0.4 : 0.55);
 
+      // Lit when hovered (via this pill OR the floating dot) OR when this
+      // decision's drawer is open — keeps the marginalia leader edges highlighted.
+      const isHovered = hoveredMarginaliaId === dec.id || hoveredDecisionId === dec.id || openDecId === dec.id;
+
       const nodeIdxs = dec._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
         const p = nodePx(nodes[idx]);
-        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
-        ctx.lineWidth = 0.6;
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(isHovered ? 0.6 : leaderAlpha) * alphaMult})`;
+        ctx.lineWidth = isHovered ? 1.2 : 0.6;
         ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
         ctx.beginPath();
         ctx.moveTo(pillX, pillY + pillH / 2);
@@ -1456,8 +1534,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         ctx.stroke();
         ctx.setLineDash([]);
       });
-
-      const isHovered = hoveredMarginaliaId === dec.id;
       const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult * stateAlpha;
       const mpBg = pillBgGreenRGB();
       ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
@@ -1537,12 +1613,16 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const markGap = 7;
       const pillW = padX + markSize + markGap + labelW + padX;
 
-      // Leader lines to anchor node dots.
+      // Lit when hovered (via this pill OR the floating dot) OR when this todo's
+      // drawer is open — keeps the marginalia leader edges highlighted.
+      const isHovered = hoveredMarginaliaId === todo.id || hoveredTodoId === todo.id || openTodoId === todo.id;
+
+      // Leader lines to anchor node dots — highlighted on hover.
       const nodeIdxs = todo._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
         const p = nodePx(nodes[idx]);
-        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${leaderAlpha * alphaMult})`;
-        ctx.lineWidth = 0.6;
+        ctx.strokeStyle = `rgba(${leaderColor[0]}, ${leaderColor[1]}, ${leaderColor[2]}, ${(isHovered ? 0.6 : leaderAlpha) * alphaMult})`;
+        ctx.lineWidth = isHovered ? 1.2 : 0.6;
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
         ctx.moveTo(pillX, pillY + pillH / 2);
@@ -1552,7 +1632,6 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       });
 
       // Pill bg: neutral.
-      const isHovered = hoveredMarginaliaId === todo.id;
       const bgAlpha = (isHovered ? 1 : 0.85) * alphaMult;
       const mpBg = pillBgRGB();
       ctx.fillStyle = `rgba(${mpBg[0]}, ${mpBg[1]}, ${mpBg[2]}, ${bgAlpha})`;
@@ -1703,6 +1782,63 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     ctx.restore();
   }
 
+  /**
+   * Render a hover/info pill of text `lines` near anchor (anchorX, anchorY) — the
+   * shared chrome behind every hover tooltip (file/decision/todo nodes AND
+   * aggregates), so they all look identical. Offsets +14/+14 from the anchor and
+   * flips to stay on-canvas. `lines`: [{ text, color, size, weight }].
+   */
+  function renderInfoPill(lines, anchorX, anchorY, alpha, pinned) {
+    const padX = 11, padY = 9, lineGap = 4;
+    let maxW = 0;
+    lines.forEach(l => {
+      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
+      const w = ctx.measureText(l.text).width;
+      if (w > maxW) maxW = w;
+    });
+    const lineHeights = lines.map(l => l.size + 2);
+    const totalLineH = lineHeights.reduce((a, b) => a + b, 0) + (lines.length - 1) * lineGap;
+    const pillW = maxW + padX * 2;
+    const pillH = totalLineH + padY * 2;
+
+    let pillX = anchorX + 14;
+    let pillY = anchorY + 14;
+    const stageW = canvas.clientWidth;
+    const stageH = canvas.clientHeight;
+    if (pillX + pillW > stageW - 8) pillX = anchorX - pillW - 14;
+    if (pillY + pillH > stageH - 8) pillY = anchorY - pillH - 14;
+    if (pillX < 8) pillX = 8;
+    if (pillY < 8) pillY = 8;
+
+    ctx.save();
+    const hpbg = hoverPillBgRGB();
+    if (pinned) {
+      ctx.save();
+      ctx.shadowColor = `rgba(0, 0, 0, ${(isLight() ? 0.18 : 0.28) * alpha})`;
+      ctx.shadowBlur = isLight() ? 10 : 6;
+      ctx.shadowOffsetY = 2;
+      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * alpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * alpha})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    let y = pillY + padY;
+    lines.forEach((l, i) => {
+      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, pillX + padX, y);
+      y += lineHeights[i] + lineGap;
+    });
+    ctx.restore();
+  }
+
   function drawHoverPill(now) {
     let pillNodeIdx = null;
     let pillAlpha = 0;
@@ -1768,55 +1904,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       });
     }
 
-    const padX = 11, padY = 9, lineGap = 4;
-    let maxW = 0;
-    lines.forEach(l => {
-      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
-      const w = ctx.measureText(l.text).width;
-      if (w > maxW) maxW = w;
-    });
-    const lineHeights = lines.map(l => l.size + 2);
-    const totalLineH = lineHeights.reduce((a, b) => a + b, 0) + (lines.length - 1) * lineGap;
-    const pillW = maxW + padX * 2;
-    const pillH = totalLineH + padY * 2;
-
-    let pillX = p.x + 14;
-    let pillY = p.y + 14;
-    const stageW = canvas.clientWidth;
-    const stageH = canvas.clientHeight;
-    if (pillX + pillW > stageW - 8) pillX = p.x - pillW - 14;
-    if (pillY + pillH > stageH - 8) pillY = p.y - pillH - 14;
-    if (pillX < 8) pillX = 8;
-    if (pillY < 8) pillY = 8;
-
-    ctx.save();
-
-    const hpbg = hoverPillBgRGB();
-    if (pinnedNodeIdx === pillNodeIdx) {
-      ctx.save();
-      ctx.shadowColor = `rgba(0, 0, 0, ${(isLight() ? 0.18 : 0.28) * pillAlpha})`;
-      ctx.shadowBlur = isLight() ? 10 : 6;
-      ctx.shadowOffsetY = 2;
-      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * pillAlpha})`;
-      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
-      ctx.fill();
-      ctx.restore();
-    } else {
-      ctx.fillStyle = `rgba(${hpbg[0]}, ${hpbg[1]}, ${hpbg[2]}, ${0.97 * pillAlpha})`;
-      roundedRect(ctx, pillX, pillY, pillW, pillH, 6);
-      ctx.fill();
-    }
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    let y = pillY + padY;
-    lines.forEach((l, i) => {
-      ctx.font = `${l.weight} ${l.size}px 'Geist Mono', monospace`;
-      ctx.fillStyle = l.color;
-      ctx.fillText(l.text, pillX + padX, y);
-      y += lineHeights[i] + lineGap;
-    });
-    ctx.restore();
+    renderInfoPill(lines, p.x, p.y, pillAlpha, pinnedNodeIdx === pillNodeIdx);
   }
 
   function drawNodes(now) {
@@ -1899,48 +1987,67 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   /**
-   * Draw auxiliary aggregates at their server-provided positions.
-   * Each aggregate is a dot scaled by sqrt(count), with a label and count badge.
+   * Draw auxiliary aggregates as bare dots; the title + file count are exposed
+   * only on hover, via the SAME hover pill the other node dots use.
    */
   function drawAggregates(now) {
+    aggregateRects.length = 0;
     if (!AGGREGATES || AGGREGATES.length === 0) return;
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
-    const STAGE = { w: 1000, h: 800 }; // server virtual stage (matches frameMap.stage)
-    let maxCount = 1;
-    for (const a of AGGREGATES) if (a.member_count > maxCount) maxCount = a.member_count;
+    const v = viewTransform;
+    let hovered = null; // {agg, cx, cy} of the hovered dot → pill drawn after the loop, on top
 
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      const dotR = 5 + 10 * Math.sqrt(agg.member_count / maxCount);
-      const nx = typeof agg.x === "number" ? agg.x / STAGE.w : (i + 0.5) / Math.max(AGGREGATES.length, 1);
-      const ny = typeof agg.y === "number" ? agg.y / STAGE.h : 0.96;
-      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, nx * stageW));
-      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, ny * stageH));
+      // Uniform dot size — aggregates are not sized by member_count.
+      const dotR = AGG_DOT_R * v.scale;
+      const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
+      // Same fit-to-content transform as frames so dots stay anchored to the cloud.
+      // Aggregates don't drive the fit (computeViewTransform frames the cloud
+      // only), so a dot the keep-out flung far out could map off-canvas — clamp
+      // it back on-screen so it stays visible.
+      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
+      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, (ny * stageH) * v.scale + v.oy));
 
+      const isHovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.55)`;
+      // Idle dots sit quiet; the hovered dot brightens (like the other node dots).
+      ctx.fillStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${isHovered ? 0.9 : 0.55})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},0.9)`;
+      ctx.strokeStyle = `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${isHovered ? 1 : 0.9})`;
       ctx.lineWidth = 1;
       ctx.stroke();
+      if (isHovered) hovered = { agg, cx, cy };
 
-      const labelRgb = subLabelRGB();
-      ctx.fillStyle = `rgba(${labelRgb[0]},${labelRgb[1]},${labelRgb[2]},0.95)`;
-      ctx.font = '10px "Geist Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(truncateMiddle(ctx, agg.label, 120), cx, cy + dotR + 6);
-
-      const countRgb = countIdleRGB();
-      ctx.fillStyle = `rgba(${countRgb[0]},${countRgb[1]},${countRgb[2]},0.9)`;
-      ctx.font = '500 9px "Geist Mono", monospace';
-      ctx.fillText(String(agg.member_count), cx, cy + dotR + 20);
+      // Hit area for hover (a little larger than the dot so the small target is
+      // easy to land on).
+      const hitR = dotR + 4;
+      aggregateRects.push({ id: agg.id, x: cx - hitR, y: cy - hitR, w: hitR * 2, h: hitR * 2 });
     }
     ctx.restore();
+
+    // Hover tooltip — identical chrome to the file/decision/todo node pills.
+    if (hovered) {
+      const TEXT = hoverPillTextPrimaryRGB();
+      const SUB = hoverPillTextSecondaryRGB();
+      const n = hovered.agg.member_count;
+      const lines = [
+        { text: hovered.agg.label, color: `rgba(${TEXT[0]},${TEXT[1]},${TEXT[2]},0.95)`, size: 11, weight: 500 },
+        { text: `aux · ${n} ${n === 1 ? 'file' : 'files'}`, color: `rgba(${SUB[0]},${SUB[1]},${SUB[2]},0.95)`, size: 10, weight: 400 },
+      ];
+      renderInfoPill(lines, hovered.cx, hovered.cy, 1, false);
+    }
+  }
+
+  function aggregateAtPoint(px, py) {
+    for (const r of aggregateRects) {
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
+    }
+    return null;
   }
 
   function mainLoop() {
@@ -1948,6 +2055,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     updateDecisionCardVisibility();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    viewTransform = computeViewTransform();
     drawFrames(now);
     drawEdges();
     drawNodes(now);
@@ -2016,6 +2124,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     const stateLabel = dec.state;
     const provParts = [];
+    if (dec.id) provParts.push(`id ${escapeHtml(dec.id)}`); // canonical id (display id is the D-<seq> form)
     if (dec.proposedBy) provParts.push(`proposed by <span class="agent">@${dec.proposedBy}</span>`);
     if (dec.proposedAt) provParts.push(`on ${dec.proposedAt}`);
 
@@ -2124,6 +2233,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const t = TODOS[todoId];
     if (!t) { decisionCardEl.innerHTML = ''; return; }
     const provParts = [];
+    if (t.id) provParts.push(`id ${escapeHtml(t.id)}`); // canonical id (display id is the T-<seq> form)
     if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
     if (t.proposedAt) provParts.push(`on ${escapeHtml(t.proposedAt)}`);
 

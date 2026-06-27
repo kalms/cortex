@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables } from "../../src/mcp-server/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables, ambientCloud, pushOutsideCloud, CLOUD_GAP } from "../../src/mcp-server/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -59,6 +59,78 @@ describe("marginSlot", () => {
   });
 });
 
+describe("ambientCloud", () => {
+  it("returns null for an empty cloud", () => {
+    expect(ambientCloud([])).toBeNull();
+  });
+  it("centroid is the mean of box centers; per-axis half-extents reach the furthest edge + gap", () => {
+    const boxes = [
+      { x: 200, y: 300, w: 120, h: 120 },
+      { x: 800, y: 300, w: 120, h: 120 },
+    ];
+    const c = ambientCloud(boxes)!;
+    expect(c).not.toBeNull();
+    expect(c.cx).toBe(500);
+    expect(c.cy).toBe(300);
+    // hx: furthest x-edge from centroid = 300 (to a center) + 60 (half-width) + gap.
+    expect(c.hx).toBeCloseTo(300 + 60 + CLOUD_GAP, 5);
+    // hy: boxes are level, so just the half-height + gap.
+    expect(c.hy).toBeCloseTo(60 + CLOUD_GAP, 5);
+  });
+  it("a single box yields half-extents of just its half-size + gap", () => {
+    const c = ambientCloud([{ x: 500, y: 400, w: 100, h: 100 }])!;
+    expect(c.cx).toBe(500);
+    expect(c.cy).toBe(400);
+    expect(c.hx).toBeCloseTo(50 + CLOUD_GAP, 5);
+    expect(c.hy).toBeCloseTo(50 + CLOUD_GAP, 5);
+  });
+});
+
+describe("pushOutsideCloud", () => {
+  const cloud = { cx: 500, cy: 400, hx: 200, hy: 200 }; // square keep-out box
+  it("leaves a point already outside the keep-out box untouched", () => {
+    // a 84px box centered 300px out: |dx|=300 ≥ hx+half(242) → already clear.
+    expect(pushOutsideCloud(800, 400, 84, cloud, 0)).toEqual({ x: 800, y: 400 });
+  });
+  it("pushes an inside point out so it just clears the box edge", () => {
+    // seed 50px right of center → pushed straight right to the box edge.
+    const out = pushOutsideCloud(550, 400, 84, cloud, 0);
+    expect(out.y).toBe(400); // direction preserved (pure +x)
+    // center lands at hx + half = 200 + 42 = 242 out → x = 742
+    expect(out.x).toBe(742);
+  });
+  it("preserves the gravity direction and stops at the box edge (bounded, not flung)", () => {
+    // seed up-and-left of center → pushed up-and-left to the box CORNER (equal
+    // components), so the stop distance is bounded by the box, not a far radius.
+    const out = pushOutsideCloud(460, 360, 84, cloud, 0);
+    const dx = out.x - 500, dy = out.y - 400;
+    expect(dx).toBeLessThan(0);
+    expect(dy).toBeLessThan(0);
+    expect(dx).toBeCloseTo(dy, 5);               // same ray as the seed offset (-40,-40)
+    expect(Math.abs(dx)).toBeCloseTo(242, 5);    // hx + half — lands exactly on the box edge
+    expect(Math.abs(dy)).toBeCloseTo(242, 5);
+  });
+  it("bounds the push to the SHORT axis: a tall-thin cloud doesn't fling an upward push far", () => {
+    // wide-but-short cloud (hx 400, hy 80): a point pushed straight up stops at
+    // hy+half, NOT at the large hx — the old single-radius circle would over-push.
+    const flat = { cx: 500, cy: 400, hx: 400, hy: 80 };
+    const out = pushOutsideCloud(500, 380, 40, flat, 0); // seeded just above center
+    expect(out.x).toBe(500);
+    expect(out.y).toBeCloseTo(400 - (80 + 20), 5); // cy - (hy + half) = 300, not flung to ~ -20
+  });
+  it("uses a deterministic fallback direction for a point exactly at the center", () => {
+    const a = pushOutsideCloud(500, 400, 84, cloud, 0);
+    const b = pushOutsideCloud(500, 400, 84, cloud, 0);
+    expect(a).toEqual(b);              // deterministic
+    expect(a).toEqual({ x: 742, y: 400 }); // fallback ray index 0 = +x → box edge at hx+half
+  });
+  it("fans co-incident center points out along distinct fallback rays by index", () => {
+    const a = pushOutsideCloud(500, 400, 84, cloud, 0);
+    const b = pushOutsideCloud(500, 400, 84, cloud, 1);
+    expect(a).not.toEqual(b);
+  });
+});
+
 describe("placeNonAmbientFrames", () => {
   const ambientBoxes = [
     { id: 1, x: 200, y: 300, w: 120, h: 120 },
@@ -66,12 +138,17 @@ describe("placeNonAmbientFrames", () => {
   ];
   const ambientPositions = ambientBoxes.map((b) => ({ id: b.id, x: b.x, y: b.y }));
 
-  it("centroids a non-ambient frame toward its ambient partners by pair weight", () => {
+  it("seeds toward its ambient partners by pair weight, then pushes outside the cloud", () => {
     const pairs = [{ a: 1, b: 9, weight: 3 }, { a: 2, b: 9, weight: 1 }];
     const out = placeNonAmbientFrames([{ frame_id: 9 }], pairs, ambientPositions, ambientBoxes);
     const p = out.get(9)!;
-    expect(p.x).toBe(350);
-    expect(p.y).toBe(300);
+    // Raw weighted centroid (350,300) is LEFT of the cloud center (500,300) and
+    // inside the keep-out box, so it is pushed further left, out of the box,
+    // along that same leftward gravity ray. It must end up outside the box.
+    const cloud = ambientCloud(ambientBoxes)!;
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
+    expect(p.x).toBeLessThan(500); // still on its partners' (left) side
   });
 
   it("sends a frame with no ambient partner to a margin slot", () => {
@@ -97,13 +174,19 @@ describe("placeAggregates", () => {
   const ambientBoxes = ambientPositions.map((p) => ({ ...p, w: 120, h: 120 }));
   const frameRepDirsMap = new Map([[1, "app"], [2, "src"]]);
 
-  it("uses edge ties first: centroid of edge-linked frames", () => {
+  it("seeds at the edge-tie centroid, then pushes the dot outside the cloud", () => {
     const edgeTies = new Map([["aux:locales:locales", new Map([[1, 3], [2, 1]])]]);
     const out = placeAggregates(
       [{ id: "aux:locales:locales", member_count: 4 }],
       edgeTies, new Map(), frameRepDirsMap, ambientPositions, ambientBoxes,
     );
-    expect(out.get("aux:locales:locales")!.x).toBe(350); // (200*3 + 800*1)/4
+    const p = out.get("aux:locales:locales")!;
+    // raw centroid (350,300) is inside the keep-out box → pushed out to the
+    // left (its gravity side), never left sitting in the cloud's middle.
+    const cloud = ambientCloud(ambientBoxes)!;
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
+    expect(p.x).toBeLessThan(500);
   });
 
   it("falls back to path tie — placed near the host frame, not the margin", () => {
@@ -138,11 +221,16 @@ describe("placeAggregates", () => {
     expect(out.get("aux:x:x")!.y).toBe(800 - 28); // MARGIN_Y (no ambient anchor)
   });
 
-  it("path tie centroids all ambient frames sharing the host dir", () => {
+  it("path tie centroids all ambient frames sharing the host dir, then pushes outside the cloud", () => {
     const reps = new Map([[1, "app"], [2, "app"]]); // both frames share host "app"
     const aggDirs = new Map([["aux:assets:assets", "app"]]);
     const out = placeAggregates([{ id: "aux:assets:assets", member_count: 1 }], new Map(), aggDirs, reps, ambientPositions, ambientBoxes);
-    expect(out.get("aux:assets:assets")!).toEqual({ x: 500, y: 300 }); // centroid of (200,300)&(800,300)
+    const p = out.get("aux:assets:assets")!;
+    // centroid of (200,300)&(800,300) is (500,300) — exactly the cloud center —
+    // so it is pushed out along a deterministic fallback ray, not left dead-center.
+    const cloud = ambientCloud(ambientBoxes)!;
+    const outside = Math.abs(p.x - cloud.cx) >= cloud.hx - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - 1;
+    expect(outside).toBe(true);
   });
 
   it("is deterministic across runs", () => {
@@ -196,6 +284,52 @@ describe("placeNonAmbientFrames — non-overlap invariant", () => {
     const a = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     const b = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
     expect([...a]).toEqual([...b]);
+  });
+});
+
+describe("keep-out invariant — auxiliaries never sit inside the ambient cloud", () => {
+  // A realistic many-frame cloud: ambient frames clustered centrally, several
+  // satellites whose pair-weighted centroids would otherwise land mid-cloud.
+  const ambientBoxes = [
+    { id: 1, x: 420, y: 360, w: 130, h: 130 },
+    { id: 2, x: 560, y: 380, w: 130, h: 130 },
+    { id: 3, x: 500, y: 480, w: 130, h: 130 },
+    { id: 4, x: 470, y: 300, w: 130, h: 130 },
+  ];
+  const ambientPositions = ambientBoxes.map((b) => ({ id: b.id, x: b.x, y: b.y }));
+  const cloud = ambientCloud(ambientBoxes)!;
+  // Outside the keep-out box on at least one axis (allowing the separation pass a
+  // 1px nudge), with a half-item slack since the invariant is about the box edge.
+  const outsideBox = (p: { x: number; y: number }, half: number) =>
+    Math.abs(p.x - cloud.cx) >= cloud.hx - half - 1 || Math.abs(p.y - cloud.cy) >= cloud.hy - half - 1;
+
+  it("no satellite frame center lands inside the cloud keep-out box", () => {
+    const nonAmbient = [10, 11, 12, 13].map((frame_id) => ({ frame_id }));
+    // each satellite links to frames on opposite sides → centroid near cloud center
+    const pairs = [
+      { a: 1, b: 10, weight: 1 }, { a: 2, b: 10, weight: 1 },
+      { a: 3, b: 11, weight: 1 }, { a: 4, b: 11, weight: 1 },
+      { a: 1, b: 12, weight: 1 }, { a: 3, b: 12, weight: 1 },
+      { a: 2, b: 13, weight: 1 }, { a: 4, b: 13, weight: 1 },
+    ];
+    const out = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+    for (const p of out.values()) {
+      expect(outsideBox(p, SATELLITE_SIZE / 2)).toBe(true);
+    }
+  });
+
+  it("no aggregate dot lands inside the cloud keep-out box", () => {
+    const edgeTies = new Map([
+      ["aux:a:a", new Map([[1, 1], [2, 1]])],
+      ["aux:b:b", new Map([[3, 1], [4, 1]])],
+    ]);
+    const out = placeAggregates(
+      [{ id: "aux:a:a", member_count: 2 }, { id: "aux:b:b", member_count: 2 }],
+      edgeTies, new Map(), new Map(), ambientPositions, ambientBoxes,
+    );
+    for (const p of out.values()) {
+      expect(outsideBox(p, 8)).toBe(true);
+    }
   });
 });
 
