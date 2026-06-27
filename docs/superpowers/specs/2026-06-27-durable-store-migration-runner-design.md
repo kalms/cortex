@@ -175,6 +175,25 @@ runs on an empty fresh store harmlessly and on a wild store exactly once.)
   `src/index.ts` runs it only conditionally). It stays at the MCP/index entry
   points that have graph access. **The runner owns primitives-DB-only
   migrations; cross-DB imports are explicitly not its job.**
+
+  **Deliberate post-import forced conversion (repo-context.ts).** Because
+  `openDecisionsDb` (the runner chokepoint) runs before `migrateDecisionsFromGraphDb`
+  in `repo-context.ts`, the runner records `id-short-form` as done on an **empty**
+  store — then the graph import inserts UUID-keyed rows after. The converter's
+  normal `schema_meta` flag would short-circuit on the next call and leave those
+  UUID ids unconverted. The fix: `repo-context.ts` inspects the import return
+  count (`imported.decisions > 0`) and calls
+  `migrateDecisionIdsToShortForm(decisionsDb, { force: true })` immediately after
+  the import to rewrite the freshly inserted UUID rows. The `{ force }` option skips
+  the flag check but still applies the `WHERE id NOT LIKE 'D-%'` guard, so it is
+  idempotent over already-converted rows. This is a deliberate, documented
+  exception to the single-chokepoint rule: the graph import is kept outside the
+  runner precisely because it needs the graph DB path, so its ordering
+  (import-then-force-convert) lives at the call site. `src/index.ts` has the same
+  graph-import call but it runs before `openDecisionsDb` returns (in the original
+  pre-runner code `migrateDecisionIdsToShortForm` followed it) — that path was
+  removed when the runner took ownership; the ordering issue is specific to
+  `repo-context.ts` where `openDecisionsDb` runs first.
 - **Going forward:** new columns/tables are added as **named migrations**, not
   new `ensureX` helpers. The existing `ensureX`/FTS logic remains as the
   baseline-adoption layer for pre-runner stores.

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { openDecisionsDb } from "../../src/decisions/db.js";
+import { migrateDecisionsFromGraphDb } from "../../src/decisions/migration.js";
+import { migrateDecisionIdsToShortForm } from "../../src/decisions/id-migration.js";
 
 function backupsDir(storePath: string) { return join(storePath, "..", "backups"); }
 
@@ -67,6 +69,71 @@ describe("openDecisionsDb migration runner", () => {
       const id = (db2.prepare("SELECT id FROM decisions").get() as {id:string}).id;
       db2.close();
       expect(id).toBe("11111111-2222-3333-4444-555555555555");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("graph-import path: UUID-keyed imported decisions are converted to D- form after forced conversion", () => {
+    // Regression for the production ordering bug:
+    //   openDecisionsDb() records id-short-form DONE on first open,
+    //   then migrateDecisionsFromGraphDb() inserts UUID-keyed rows AFTER.
+    // Without a forced re-scan, the converter short-circuits on the flag
+    // and the imported decisions keep their UUID ids forever.
+    //
+    // RED evidence (before the fix): calling migrateDecisionsFromGraphDb without
+    // the subsequent forced conversion leaves the id as the UUID. This test
+    // reproduces the FULL production path (open + import + forced conversion)
+    // and asserts the D- invariant holds.
+    const dir = mkdtempSync(join(tmpdir(), "cortex-mig-"));
+    try {
+      const decPath = join(dir, "decisions.db");
+      const graphPath = join(dir, "graph.db");
+
+      // Seed a minimal graph DB with one legacy UUID-keyed decision node.
+      const g = new Database(graphPath);
+      g.exec(`
+        CREATE TABLE nodes (
+          id TEXT PRIMARY KEY, kind TEXT, name TEXT, qualified_name TEXT,
+          file_path TEXT, data TEXT, tier TEXT, created_at TEXT, updated_at TEXT,
+          start_line INTEGER, end_line INTEGER, project TEXT
+        );
+        CREATE TABLE edges (
+          id TEXT PRIMARY KEY, source_id TEXT, target_id TEXT, relation TEXT,
+          data TEXT, created_at TEXT, project TEXT
+        );
+      `);
+      const UUID = "aabbccdd-eeff-0011-2233-445566778899";
+      g.prepare(
+        `INSERT INTO nodes (id, kind, name, data, tier, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        UUID, "decision", "Import me",
+        JSON.stringify({ title: "Import me", description: "d", rationale: "r", status: "active" }),
+        "personal", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
+      );
+      g.close();
+
+      // Step 1: open decisions DB — runner records id-short-form DONE here.
+      const decisionsDb = openDecisionsDb(decPath);
+
+      // Step 2: run the graph import AFTER the runner has stamped id-short-form.
+      // This reproduces the production sequence in repo-context.ts.
+      const imported = migrateDecisionsFromGraphDb(decisionsDb, graphPath);
+      expect(imported.decisions).toBe(1); // sanity: import actually ran
+
+      // Without the forced conversion, the id would still be a UUID here.
+      // This is the RED evidence: migrateDecisionIdsToShortForm (without force)
+      // short-circuits on the schema_meta flag and leaves the UUID untouched.
+
+      // Step 3: force-convert — mirrors the repo-context.ts fix.
+      // Before this fix existed, calling migrateDecisionIdsToShortForm without
+      // force would short-circuit and the assertion below would fail.
+      migrateDecisionIdsToShortForm(decisionsDb, { force: true });
+
+      // Assert the D- invariant holds after the full production path.
+      const id = (decisionsDb.prepare("SELECT id FROM decisions").get() as { id: string }).id;
+      expect(id).toMatch(/^D-/);
+
+      decisionsDb.close();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
