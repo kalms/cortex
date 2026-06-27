@@ -13,6 +13,7 @@ import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { GraphStore } from "../graph/store.js";
 import { freshnessForContext, attachFreshness } from "./freshness.js";
+import { attachBriefing } from "./briefing-attach.js";
 
 /**
  * Everything a tool needs to act on one repo. Constructed by
@@ -364,6 +365,20 @@ export class RepoContextResolver {
 }
 
 /**
+ * Extracts the briefing target from tool args.
+ * Prefers `qualified_name` (get_code_snippet) and falls back to
+ * `function_name` (trace_path). Returns `undefined` when neither is present
+ * or both are empty strings.
+ */
+export function briefTargetFromArgs(args: Record<string, unknown>): string | undefined {
+  const qn = args["qualified_name"];
+  if (typeof qn === "string" && qn.length > 0) return qn;
+  const fn = args["function_name"];
+  if (typeof fn === "string" && fn.length > 0) return fn;
+  return undefined;
+}
+
+/**
  * Wraps a tool handler so it receives a validated {@link RepoContext} instead
  * of doing its own per-call repo resolution. Three modes:
  *
@@ -408,7 +423,7 @@ export function registerTool<A extends { repo_path?: string }, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: (ctx: RepoContext, args: A) => Promise<R>,
-  options: { resolver: RepoContextResolver; crossRepo?: false; allowUnindexed?: false; freshnessAware?: boolean },
+  options: { resolver: RepoContextResolver; crossRepo?: false; allowUnindexed?: false; freshnessAware?: boolean; briefAware?: boolean },
 ): (rawArgs: unknown) => Promise<R>;
 export function registerTool<A, R>(
   name: string,
@@ -426,7 +441,7 @@ export function registerTool<A, R>(
   name: string,
   schema: ZodSchema<A>,
   handler: any,
-  options: { resolver: RepoContextResolver; crossRepo?: boolean; allowUnindexed?: boolean; freshnessAware?: boolean },
+  options: { resolver: RepoContextResolver; crossRepo?: boolean; allowUnindexed?: boolean; freshnessAware?: boolean; briefAware?: boolean },
 ): (rawArgs: unknown) => Promise<R> {
   return async (rawArgs: unknown) => {
     // crossRepo skips the repo_path pre-check entirely (e.g. list_projects).
@@ -451,10 +466,13 @@ export function registerTool<A, R>(
       return handler(options.resolver, args);
     }
     const ctx = options.resolver.resolve(args.repo_path!);
-    const result = await handler(ctx, args);
+    let result = await handler(ctx, args);
     if (options.freshnessAware && result && typeof result === "object" && "content" in (result as object)) {
       const f = freshnessForContext({ repoPath: ctx.repoPath, graphDb: ctx.graphDb, canonical: ctx.canonical });
-      return attachFreshness(result as any, f) as R;
+      result = attachFreshness(result as any, f) as R;
+    }
+    if (options.briefAware && result && typeof result === "object" && "content" in (result as object)) {
+      result = attachBriefing(result as any, ctx, briefTargetFromArgs(args as Record<string, unknown>)) as R;
     }
     return result;
   };

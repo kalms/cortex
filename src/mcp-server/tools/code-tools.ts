@@ -653,7 +653,7 @@ export function registerCodeTools(
         );
         return ok(lines.join("\n"));
       },
-      { resolver, freshnessAware: true },
+      { resolver, freshnessAware: true, briefAware: true },
     ),
   );
 
@@ -702,7 +702,7 @@ export function registerCodeTools(
         const node = nodes[0];
         return readSnippet(ctx, project, node);
       },
-      { resolver, freshnessAware: true },
+      { resolver, freshnessAware: true, briefAware: true },
     ),
   );
 
