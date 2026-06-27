@@ -1,9 +1,11 @@
 # Versioned migration runner for the primitives DB — design
 
 > Status: approved 2026-06-27. Implements decision **D-b0kp** / TODO **T-21**.
-> Introduces a single versioned migration runner for the durable, user-authored
+> Introduces a single migration runner for the durable, user-authored
 > primitives DB (decisions + todos), replacing flag-gated self-heal logic
-> scattered across application open-paths.
+> scattered across application open-paths. Tracking follows the
+> [simonw/sqlite-migrate](https://github.com/simonw/sqlite-migrate) pattern: an
+> applied-migrations table keyed by name, not a version integer.
 
 ## Problem
 
@@ -18,7 +20,7 @@ FTS rebuild; the legacy relocation), and the two heaviest **data** migrations �
 the MCP entry points ([`repo-context.ts`](../../../src/mcp-server/repo-context.ts),
 [`src/index.ts`](../../../src/index.ts)), not in the shared opener.
 
-The fault-line (per D-b0kp): there is **no `schema_version` ledger**, **no
+The fault-line (per D-b0kp): there is **no migration ledger**, **no
 version-too-new guard**, **no ordering** across the independent migrations, and
 correctness depends on **every store-opener remembering to replay every
 migration**. The `cortex` CLI proved the last point this session — its
@@ -29,12 +31,12 @@ open a newer store and misread it; a new opener can miss a step.
 
 ## Goals
 
-1. A single forward-only **migration runner** with a `user_version` ledger,
-   applied at one chokepoint every opener routes through.
-2. A **version-too-new guard** that hard-refuses rather than operating on a
-   store written by a newer binary.
-3. A **pre-migration snapshot + restore** so a version-advancing upgrade of
-   user-authored data is recoverable (batch-atomic, plus manual rollback).
+1. A single forward-only **migration runner** with an applied-migrations
+   ledger, applied at one chokepoint every opener routes through.
+2. A **too-new guard** that hard-refuses rather than operating on a store
+   written by a newer binary.
+3. A **pre-migration snapshot + restore** so a migrating open of user-authored
+   data is recoverable (batch-atomic, plus manual rollback).
 4. Fold the primitives-DB-only data migration (`migrateDecisionIdsToShortForm`)
    into the runner so all openers — CLI and MCP — converge by construction.
 
@@ -46,8 +48,9 @@ open a newer store and misread it; a new opener can miss a step.
   - The **graph DB** and **events DB** — derived/operational, regenerable by
     reindex; `CREATE TABLE IF NOT EXISTS` suffices, no migrations needed.
   - The **registry DB** (`repos` table) — durable but trivial and rarely
-    changing. The runner is built DB-agnostic so the registry can adopt it
-    later in ~3 lines; it is **not** wired in this effort.
+    changing. The runner is built DB-agnostic (and carries a `migration_set`
+    column) so the registry can adopt it later in ~3 lines; it is **not** wired
+    in this effort.
   - **PRs** — there is no PR store; PR↔decision links live in `decision_links`
     (`target_kind='pr'`). Nothing to migrate.
   - **`migrateDecisionsFromGraphDb`** — see "Migration boundary" below; stays at
@@ -57,42 +60,54 @@ open a newer store and misread it; a new opener can miss a step.
 
 | # | Decision |
 |---|---|
-| D1 | **Baseline-at-current + forward.** Today's declarative schema is the baseline; the runner stamps existing/fresh stores at the baseline and runs only numbered migrations going forward. No replay-from-zero. |
+| D1 | **Baseline-at-current + forward.** Today's declarative schema is the baseline (the `ensureX` layer); the runner records/runs only named data + forward migrations on top of it. No replay-from-zero. |
 | D2 | **Scope = primitives DB now;** runner is DB-agnostic and reusable for the registry later. |
-| D3 | **Version-too-new → hard refuse** all operations with an upgrade message (exit 4). No best-effort reads. |
-| D4 | **Pre-migration snapshot + restore**, taken only on a real version-advancing upgrade of a non-empty store; retain the last 3. |
-| D5 | **Ledger = `PRAGMA user_version`** (native SQLite integer), not a `schema_meta` key. |
+| D3 | **Too-new → hard refuse** all operations with an upgrade message (exit 4). No best-effort reads. |
+| D4 | **Pre-migration snapshot + restore**, taken only when migrations will actually run against a non-empty store; retain the last 3. |
+| D5 | **Ledger = a `_cortex_migrations` applied-names table** (`migration_set`, `name`, `applied_at`; unique on `(migration_set, name)`), adopted from simonw/sqlite-migrate — **not** `PRAGMA user_version`. Name-keyed (no shared integer counter → safe across parallel branches), per-migration applied-ness (gap-fills naturally), and auditable via `applied_at`. |
 
 ## Architecture
 
 ### The runner — `src/db/migrate.ts` (new, DB-agnostic)
 
 ```ts
-export type Migration = { version: number; name: string; up: (db: Database) => void };
+export type Migration = { name: string; up: (db: Database) => void };
 
 export function runMigrations(
   db: Database,
   migrations: Migration[],
-  opts: { label: string },   // label used in error/log messages, e.g. "decisions"
+  opts: { set: string },   // migration_set, e.g. "primitives"
 ): void;
 ```
 
 Behavior:
-1. `HEAD = max(version)` over `migrations` (0 if empty). Validate the list is a
-   contiguous, ascending, gap-free `1..HEAD` at load (throws a programmer error
-   otherwise — a guard against a mis-authored list).
-2. `current = db.pragma("user_version", { simple: true })`.
-3. **Too-new guard:** if `current > HEAD` → throw `MigrationError`
-   (`store-too-new`) carrying `{ current, head, label }`.
-4. Apply every migration with `version > current`, ascending. **Each migration
-   runs in its own transaction**; on success set `user_version = version` inside
-   the same transaction, so a crash leaves the store at the last fully-applied
-   version (resume-safe).
-5. A migration that throws rolls back its transaction and aborts the run (the
-   exception propagates to the chokepoint, which handles file-level restore).
+1. Validate the list at load: **names are unique** and **append-only** is the
+   authoring discipline (a name, once shipped, is never removed or reordered
+   ahead of an earlier one). Duplicate names throw a programmer error.
+2. Ensure the ledger table exists:
+   ```sql
+   CREATE TABLE IF NOT EXISTS _cortex_migrations (
+     migration_set TEXT NOT NULL,
+     name          TEXT NOT NULL,
+     applied_at    TEXT NOT NULL,
+     PRIMARY KEY (migration_set, name)
+   );
+   ```
+3. `applied = SELECT name FROM _cortex_migrations WHERE migration_set = ?` (a set).
+4. **Too-new guard:** if `applied` contains any name **not** present in this
+   binary's `migrations` list → the store was migrated by a newer Cortex. Throw
+   `MigrationError(store-too-new)` carrying `{ unknown: string[], set }`.
+   (Name-based, so it survives any future renumbering scheme.)
+5. Apply every migration whose `name` is **not** in `applied`, in list order.
+   **Each migration runs in its own transaction**; on success insert its
+   `(set, name, applied_at)` row inside the same transaction, so a crash leaves
+   every fully-applied migration recorded and the rest pending (resume-safe).
+6. A migration that throws rolls back its transaction (its row is not written)
+   and aborts the run; the exception propagates to the chokepoint, which handles
+   file-level restore.
 
-The runner is pure with respect to the file: it takes a handle and never touches
-the filesystem. Snapshot/restore is the chokepoint's job (it owns the path).
+The runner is pure with respect to the filesystem: it takes a handle and never
+touches files. Snapshot/restore is the chokepoint's job (it owns the path).
 
 ### Chokepoint integration — `openDecisionsDb`
 
@@ -103,87 +118,99 @@ The opener becomes the single convergence point. New order:
    `ensureSeqColumn`/`ensureReconciliationColumns` + FTS handling, unchanged.
    These adopt pre-runner stores (bring their *schema* current idempotently);
 3. **relocate legacy** (`relocateLegacyDecisions`) — unchanged, runs before the
-   runner so relocated UUID decisions are visible to migration #1;
-4. read `user_version`; if an upgrade will run (`user_version < HEAD` **and** the
-   store is non-empty) take a **pre-migration snapshot** (§ Snapshot);
-5. `runMigrations(db, PRIMITIVES_MIGRATIONS, { label: "decisions" })` — inside a
+   runner so relocated UUID decisions are visible to the id-short-form migration;
+4. determine whether any migration is **pending** (ledger missing a name); if so
+   **and the store is non-empty**, take a **pre-migration snapshot** (§ Snapshot);
+5. `runMigrations(db, PRIMITIVES_MIGRATIONS, { set: "primitives" })` — inside a
    try that, on any throw, **restores from the snapshot** and rethrows;
 6. return.
 
 Because the CLI's `openService`, the MCP `repo-context`, and tests all call
-`openDecisionsDb`, every opener converges. The redundant `migrateDecisionIdsToShortForm`
-calls in `repo-context.ts` and `src/index.ts` are **removed** (the runner now
-owns it); the `migrateDecisionsFromGraphDb` calls **stay** (see boundary).
+`openDecisionsDb`, every opener converges. The redundant
+`migrateDecisionIdsToShortForm` calls in `repo-context.ts` and `src/index.ts`
+are **removed** (the runner now owns it); the `migrateDecisionsFromGraphDb`
+calls **stay** (see boundary).
 
-### `user_version` lifecycle
+### Applied-names lifecycle
 
-- **Fresh store:** baseline schema created empty → `user_version = 0 < HEAD` but
-  store empty → **skip snapshot** → run migrations (no-ops on empty data) →
-  stamp `HEAD`. Fresh stores **start at HEAD**.
-- **Existing wild store** (`user_version = 0`, populated): baseline-ensure has
-  already made its schema current; the runner runs the data migrations (each
-  idempotent / a no-op when its old `schema_meta` flag is set) → stamp `HEAD`.
-  This **adopts** in-the-wild DBs without replaying history. (One-time snapshot
-  on this first upgrade, even if the migrations no-op — acceptable; the store is
-  KB-scale and it never recurs once stamped.)
-- **At-HEAD store:** `user_version == HEAD` → no snapshot, no migrations; the
-  cost is a single `PRAGMA` read.
+The names table makes adoption fall out of one rule — **"run every migration
+whose name isn't recorded, idempotently, then record it"** — so there is no
+separate "stamp baseline" step:
+
+- **Fresh store:** baseline schema created empty → no rows in `_cortex_migrations`
+  → every migration is pending → each runs (a no-op on empty data, e.g.
+  id-short-form finds zero rows) → each recorded. The store ends with the full
+  set recorded.
+- **Existing wild store** (no `_cortex_migrations` table, populated): the runner
+  creates the table and runs every migration (none recorded yet). Each is
+  idempotent: id-short-form no-ops if the store is already short (its old
+  `decision_ids_shortform` flag short-circuits) and **converts UUIDs if a
+  CLI-only store missed it** — the exact gap, fixed as the default path. Then
+  recorded.
+- **At-current store:** all names recorded → nothing pending → no snapshot, no
+  work; the cost is one `SELECT` from the ledger.
+- **Relocation** runs *before* the runner, so UUID decisions copied in from a
+  legacy store are present and get converted by id-short-form on that first open.
+
+Because every migration is **idempotent**, "run-all-unrecorded" is safe for both
+fresh and adopted stores — we never need to mark a migration applied without
+running it. (Append-only authoring keeps it that way: a future schema migration
+runs on an empty fresh store harmlessly and on a wild store exactly once.)
 
 ### Migration boundary — what the runner owns
 
-- **In (migration #1): `migrateDecisionIdsToShortForm`.** Needs only the
-  primitives DB; it is exactly the step the CLI was missing. Its internal
-  `decision_ids_shortform` `schema_meta` flag is kept as a redundant guard
-  through the transition (belt-and-suspenders; harmless).
+- **In (first migration, `"id-short-form"`): `migrateDecisionIdsToShortForm`.**
+  Needs only the primitives DB; it is exactly the step the CLI was missing. Its
+  internal `decision_ids_shortform` `schema_meta` flag is kept as a redundant
+  guard through the transition (belt-and-suspenders; harmless).
 - **Out: `migrateDecisionsFromGraphDb`.** It requires the **graph DB path**,
   which the primitives-DB chokepoint does not have, and it is deeply historical
   (the old graph→sidecar import, already converged on every real store; even
   `src/index.ts` runs it only conditionally). It stays at the MCP/index entry
   points that have graph access. **The runner owns primitives-DB-only
   migrations; cross-DB imports are explicitly not its job.**
-- **Going forward:** new columns/tables are added as **numbered migrations**, not
+- **Going forward:** new columns/tables are added as **named migrations**, not
   new `ensureX` helpers. The existing `ensureX`/FTS logic remains as the
   baseline-adoption layer for pre-runner stores.
 
-Initial list: `PRIMITIVES_MIGRATIONS = [{ version: 1, name: "id-short-form", up: migrateDecisionIdsToShortForm }]`,
-so `HEAD = 1`.
+Initial list: `PRIMITIVES_MIGRATIONS = [{ name: "id-short-form", up: migrateDecisionIdsToShortForm }]`.
 
 ### Snapshot + restore
 
-- **When:** only when `user_version < HEAD` **and** the store has data (a
-  brand-new empty store has nothing to protect). Normal at-HEAD opens pay
-  nothing.
+- **When:** only when a migration is **pending** (the ledger is missing a name)
+  **and** the store has data (a brand-new empty store has nothing to protect).
+  Normal at-current opens pay nothing.
 - **How:** a consistent single-file snapshot via `db.backup(dest)` (better-sqlite3)
   or `VACUUM INTO` — WAL-correct, unlike a raw copy. Destination:
-  `<storeDir>/backups/decisions.db.bak.v<from>` (timestamped suffix to avoid
-  collisions across same-version retries).
+  `<storeDir>/backups/decisions.db.bak.<ISO-timestamp>`.
 - **Restore-on-failure:** the chokepoint wraps `ensure → relocate →
   runMigrations`; on any throw it closes the handle, restores the file from the
-  snapshot, and rethrows as `MigrationError` ("migration failed; store restored
-  to v<from>"). This makes the whole batch **all-or-nothing at file
-  granularity**, covering the "step N+1 fails after step N committed" gap that
-  per-step transactions cannot.
+  snapshot, and rethrows as `MigrationError(migration-failed)` ("migration
+  failed; store restored from snapshot"). This makes the whole batch
+  **all-or-nothing at file granularity**, covering the "migration N+1 fails after
+  migration N committed" gap that per-step transactions cannot.
 - **Retention:** keep the last **3** pre-migration snapshots per store, pruned by
   count, so a fault discovered *after* a successful migration still has a manual
   rollback path. Bounded growth (store is KB-scale).
 
-### Version-too-new guard
+### Too-new guard
 
-`runMigrations` throws `MigrationError(store-too-new)`; the chokepoint surfaces
-it as an `EnvironmentError` (CLI exit 4) with: `this <label> store is vN, but
-this Cortex understands up to vM — upgrade the plugin (git pull / npm i -g) to
-use it.` Identical message path in CLI and MCP (both flow through
-`openDecisionsDb`). No reads, no writes.
+`runMigrations` throws `MigrationError(store-too-new)` when the ledger records a
+migration name this binary doesn't know. The chokepoint surfaces it as an
+`EnvironmentError` (CLI exit 4) with: `this <set> store has migration(s) <names>
+this Cortex doesn't recognize — it was written by a newer version; upgrade the
+plugin (git pull / npm i -g) to use it.` Identical path in CLI and MCP (both
+flow through `openDecisionsDb`). No reads, no writes.
 
 ## Safety: the rehome / test-fixture invariant
 
 `decision-rehome` and several tests insert **raw-UUID** ids directly via
-`openDecisionsDb` + `repo.insert`, and assert the UUID survives. The "fresh =
-HEAD" rule preserves this: a fixture opens an empty store (→ stamped HEAD before
-any rows exist), *then* inserts UUIDs; subsequent opens are already at HEAD, so
-migration #1 (id-short-form) never runs on them and the UUIDs are untouched.
-Real UUIDs that *do* need converting come from legacy relocation, which runs
-*before* the runner on the first open of a not-yet-stamped store — so those get
+`openDecisionsDb` + `repo.insert`, and assert the UUID survives. The lifecycle
+preserves this: a fixture opens an empty store (→ id-short-form runs on zero rows
+and is **recorded**), *then* inserts UUIDs; subsequent opens find id-short-form
+already recorded, so it never runs on them and the UUIDs are untouched. Real
+UUIDs that *do* need converting come from legacy relocation, which runs *before*
+the runner on the first open of a not-yet-recorded store — so those get
 converted. The two cases are cleanly separated by ordering.
 
 ## Error handling
@@ -191,31 +218,35 @@ converted. The two cases are cleanly separated by ordering.
 - `MigrationError` is a new typed error (kind: `store-too-new` | `migration-failed`).
 - Chokepoint maps it to `EnvironmentError` for the CLI exit-code path; MCP tools
   surface it through the normal error response.
-- A migration body that throws → its transaction rolls back → file restored from
-  snapshot → `migration-failed` rethrown. The store is never left half-migrated.
-- The contiguity check on the migration list throws at module load (a developer
-  error, caught in CI by any test that imports the list).
+- A migration body that throws → its transaction rolls back (no ledger row) →
+  file restored from snapshot → `migration-failed` rethrown. The store is never
+  left half-migrated.
+- The unique-names check throws at module load (a developer error, caught in CI
+  by any test that imports the list).
 
 ## Components / files
 
 - **Create** `src/db/migrate.ts` — `Migration`, `runMigrations`, `MigrationError`,
-  list-contiguity validation.
+  ledger-table management, unique-names validation, the too-new check.
 - **Create** `src/db/snapshot.ts` — `snapshotDb(db, dest)` + `restoreDb(path, src)`
   + `pruneSnapshots(dir, keep)` (small, file-level, unit-testable).
 - **Modify** `src/decisions/db.ts` — define `PRIMITIVES_MIGRATIONS`; wire the
   snapshot-guarded `runMigrations` into `openDecisionsDb` after relocate.
 - **Modify** `src/mcp-server/repo-context.ts`, `src/index.ts` — remove the now
   redundant `migrateDecisionIdsToShortForm` calls (keep `migrateDecisionsFromGraphDb`).
-- **Tests**: `tests/db/migrate.test.ts` (forward apply; idempotent re-run;
-  too-new refusal; resume from partial `user_version`; per-migration transaction
-  rollback; contiguity guard), `tests/db/snapshot.test.ts` (consistent copy,
-  restore round-trip, prune-to-3), and integration in
-  `tests/decisions/` (a virgin store opened via `openDecisionsDb` ends at HEAD;
-  a CLI-opened store gets short ids; rehome UUID fixtures still survive;
-  snapshot created on a populated upgrade and absent on a fresh/at-HEAD open).
+- **Tests**: `tests/db/migrate.test.ts` (runs unrecorded migrations in order;
+  skips recorded ones; idempotent re-open; too-new refusal on an unknown
+  recorded name; resume after a partial run; per-migration transaction rollback
+  leaves no ledger row; unique-names guard), `tests/db/snapshot.test.ts`
+  (consistent copy, restore round-trip, prune-to-3), and integration in
+  `tests/decisions/` (a virgin store opened via `openDecisionsDb` ends with the
+  set recorded; a CLI-opened store gets short ids; rehome UUID fixtures still
+  survive; snapshot created on a populated upgrade and absent on a fresh /
+  at-current open).
 
 ## Future (not this effort)
 
-- Registry adoption of `runMigrations` (3-line wire-up when it next changes).
+- Registry adoption of `runMigrations` (a `{ set: "registry" }` call when it next
+  changes).
 - Eventual unification of `migrateDecisionsFromGraphDb` if/when a richer opener
   carries the graph path — low priority, historical.
