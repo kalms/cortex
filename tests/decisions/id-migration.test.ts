@@ -5,6 +5,12 @@ import { migrateDecisionIdsToShortForm } from "../../src/decisions/id-migration.
 
 function seedLegacy(): Database.Database {
   const db = openDecisionsDb(":memory:");
+  // openDecisionsDb now runs the primitives migration runner on first open
+  // (empty store → records id-short-form as done). Reset the migration
+  // ledger + the schema_meta done flag so migrateDecisionIdsToShortForm can
+  // be called directly as the unit under test, simulating a wild pre-runner store.
+  db.exec("DROP TABLE IF EXISTS _cortex_migrations");
+  db.prepare("DELETE FROM schema_meta WHERE key='decision_ids_shortform'").run();
   const A = "04c848f0-0000-0000-0000-000000000001";
   const B = "04c848f0-0000-0000-0000-000000000002";
   const ins = db.prepare(

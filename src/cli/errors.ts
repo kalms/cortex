@@ -1,4 +1,5 @@
 import { makeStyler, glyphs } from "./style.js";
+import { MigrationError } from "../db/migrate.js";
 
 export class UsageError extends Error {
   constructor(message: string, public hint?: string) {
@@ -25,6 +26,7 @@ export function exitCodeFor(e: unknown): number {
   if (e instanceof UsageError) return 2;
   if (e instanceof DomainError) return 3;
   if (e instanceof EnvironmentError) return 4;
+  if (e instanceof MigrationError) return 4;
   return 1;
 }
 
@@ -55,6 +57,11 @@ export function renderError(
   if (e instanceof EnvironmentError) {
     writeLabel(e.message);
     if (e.fix) writeHint(e.fix, "To fix: ");
+    return;
+  }
+  if (e instanceof MigrationError) {
+    writeLabel(e.message);
+    writeHint("Upgrade the plugin (git pull / npm i -g) to use this store.", "To fix: ");
     return;
   }
   const msg = e instanceof Error ? e.message : String(e);

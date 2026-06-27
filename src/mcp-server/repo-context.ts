@@ -8,7 +8,6 @@ import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath, leg
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
-import { migrateDecisionIdsToShortForm } from "../decisions/id-migration.js";
 import { DecisionsRepository } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { GraphStore } from "../graph/store.js";
@@ -281,7 +280,6 @@ export class RepoContextResolver {
     graphDb.pragma("busy_timeout = 5000");
     const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(canonical));
     migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
-    migrateDecisionIdsToShortForm(decisionsDb);
     const decisionsRepo = new DecisionsRepository(decisionsDb);
     const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 

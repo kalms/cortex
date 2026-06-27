@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { relocateLegacyDecisions } from "./relocation.js";
+import { runMigrations, MigrationError } from "../db/migrate.js";
+import { snapshotDb, restoreDb, pruneSnapshots } from "../db/snapshot.js";
+import { migrateDecisionIdsToShortForm } from "./id-migration.js";
 
 /**
  * Current FTS schema version. Bump when the FTS table or triggers change in
@@ -130,6 +133,17 @@ CREATE TRIGGER IF NOT EXISTS todos_au AFTER UPDATE ON todos BEGIN
 END;
 `;
 
+export const PRIMITIVES_MIGRATIONS = [
+  { name: "id-short-form", up: migrateDecisionIdsToShortForm },
+];
+
+function storeHasRows(db: Database.Database): boolean {
+  const row = db.prepare(
+    "SELECT (SELECT COUNT(*) FROM decisions) + (SELECT COUNT(*) FROM todos) AS n",
+  ).get() as { n: number };
+  return row.n > 0;
+}
+
 function readSchemaMeta(db: Database.Database, key: string): string | null {
   const row = db
     .prepare("SELECT value FROM schema_meta WHERE key = ?")
@@ -212,6 +226,28 @@ export function openDecisionsDb(path: string, legacyPath?: string): Database.Dat
   }
   if (legacyPath && legacyPath !== path) {
     relocateLegacyDecisions(db, legacyPath);
+  }
+
+  const backupsDir = join(dirname(path), "backups");
+  let snapshotPath: string | null = null;
+  try {
+    runMigrations(db, PRIMITIVES_MIGRATIONS, {
+      set: "primitives",
+      beforeApply: () => {
+        if (!storeHasRows(db)) return; // nothing to protect on an empty store
+        mkdirSync(backupsDir, { recursive: true });
+        snapshotPath = join(backupsDir, `decisions.db.bak.${new Date().toISOString().replace(/[:.]/g, "-")}`);
+        snapshotDb(db, snapshotPath);
+        pruneSnapshots(backupsDir, 3);
+      },
+    });
+  } catch (e) {
+    if (e instanceof MigrationError && e.kind === "migration-failed" && snapshotPath) {
+      db.close();
+      restoreDb(path, snapshotPath);
+      throw new MigrationError("migration-failed", `${e.message} — store restored from snapshot`, e.detail);
+    }
+    throw e; // store-too-new (no snapshot) and anything else propagate as-is
   }
   return db;
 }
