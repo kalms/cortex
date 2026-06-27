@@ -61,7 +61,16 @@ export function renderError(
   }
   if (e instanceof MigrationError) {
     writeLabel(e.message);
-    writeHint("Upgrade the plugin (git pull / npm i -g) to use this store.", "To fix: ");
+    // store-too-new: a newer plugin wrote a migration this binary doesn't know,
+    // so upgrading is the fix. migration-failed: openDecisionsDb already
+    // restored the store from its pre-migration snapshot, so "upgrade" is wrong
+    // advice — the running version is the one that failed; re-run and report.
+    writeHint(
+      e.kind === "store-too-new"
+        ? "Upgrade the plugin (git pull / npm i -g) to use this store."
+        : "The store was restored from its pre-migration snapshot. Re-run the command; if this persists, please report it.",
+      "To fix: ",
+    );
     return;
   }
   const msg = e instanceof Error ? e.message : String(e);

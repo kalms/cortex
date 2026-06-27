@@ -6,6 +6,7 @@ import {
   exitCodeFor,
   renderError,
 } from "../../src/cli/errors.js";
+import { MigrationError } from "../../src/db/migrate.js";
 
 describe("errors", () => {
   it("UsageError sets exit code 2", () => {
@@ -25,6 +26,29 @@ describe("errors", () => {
 
   it("unexpected Error sets exit code 1", () => {
     expect(exitCodeFor(new Error("kablooie"))).toBe(1);
+  });
+
+  it("MigrationError sets exit code 4", () => {
+    const e = new MigrationError("store-too-new", "newer version wrote this store");
+    expect(exitCodeFor(e)).toBe(4);
+  });
+
+  it("renderError on a store-too-new MigrationError advises upgrading the plugin", () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    renderError(new MigrationError("store-too-new", "this store is from a newer version"));
+    const joined = errSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(joined).toContain("this store is from a newer version");
+    expect(joined).toContain("Upgrade the plugin");
+    errSpy.mockRestore();
+  });
+
+  it("renderError on a migration-failed MigrationError advises re-run (not upgrade), since the store was restored", () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    renderError(new MigrationError("migration-failed", "migration 'x' failed — store restored from snapshot"));
+    const joined = errSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(joined).toContain("restored from its pre-migration snapshot");
+    expect(joined).not.toContain("Upgrade the plugin");
+    errSpy.mockRestore();
   });
 
   it("renderError writes to stderr (not stdout)", () => {
