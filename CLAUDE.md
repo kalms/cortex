@@ -106,6 +106,17 @@ in-place/inode-preserving truncate (decision `04c848f0`), whose out-of-band
 Gates: `CORTEX_FRESHNESS=0` disables the signal; `CORTEX_AUTO_REFRESH=0` keeps
 the signal but disables auto-refresh.
 
+### Briefing signal — study-time pre-edit context
+
+`get_code_snippet` and `trace_path` now also carry a **briefing headline** when
+the fetched symbol is *gated*: governed by a decision, or with a blast radius
+above `CORTEX_BRIEF_FANOUT` (default 12). The headline names the governing
+decision + its reconciliation verdict and the caller count, and points to
+`context_pack` for the full body. A `partial`/`drift`/`unreconciled` verdict marks
+the area as drifting — treat it as a cue to read the decision before editing.
+Gate off with `CORTEX_BRIEF=0`. The same headline is available on demand via
+`cortex brief <path-or-qn>`.
+
 ## MCP tool routing — always pass repo_path
 
 **Contract:** every Cortex MCP tool **requires an absolute `repo_path`**

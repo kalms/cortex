@@ -147,7 +147,10 @@ Read the source for a known symbol.
 - **Params:** `repo_path`, `qualified_name` (qn, file path, dotted suffix, or
   bare name).
 - **Returns:** the source slice; `ambiguous_input` with candidates when a bare
-  name matches more than one symbol.
+  name matches more than one symbol. When the fetched symbol is *gated*
+  (governed by a decision or with caller count above `CORTEX_BRIEF_FANOUT`,
+  default 12), a **briefing headline** is appended naming the governing decision
+  and its reconciliation verdict; pass `CORTEX_BRIEF=0` to disable.
 - **Why:** replaces `Read`/`cat` for a symbol you can already name — resolves
   fuzzy input through the shared resolver.
 
@@ -156,7 +159,10 @@ Trace call chains from a function.
 - **Params:** `repo_path`, `function_name`, `mode` (`calls` = outbound,
   `callers` = inbound), `max_depth?` (1–10).
 - **Returns:** depth-annotated nodes (`[d=N] kind qn (file:lines)`);
-  `ambiguous_input` if the name is not unique.
+  `ambiguous_input` if the name is not unique. When the fetched symbol is *gated*
+  (governed by a decision or with caller count above `CORTEX_BRIEF_FANOUT`,
+  default 12), a **briefing headline** is appended naming the governing decision
+  and its reconciliation verdict; pass `CORTEX_BRIEF=0` to disable.
 - **Why:** answers "who calls X / what does X call" without grepping call
   sites — the core impact-analysis primitive.
 
