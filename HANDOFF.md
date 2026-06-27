@@ -1,6 +1,55 @@
 # Cortex — Session Handoff
 
-## ▶ NEXT — implement the durable-store migration runner (T-21 / D-b0kp)
+## ▶ NEXT — reflex layer Plan 2 (edit-time block-once backstop)
+
+**Status:** Plan 1 (briefing core) shipped to **PR #42**, CI green, **NOT merged**
+(awaiting user test). Plan 2 brainstormed at spec level (design §4.2–4.4), **plan
+not yet written**. Decision `D-qemn`; TODO **`T-nhmz`** (Plan 2), **`T-rm5w`** (Plan 3).
+
+**Where the work lives:**
+- Worktree **`../cortex-wt-reflex-layer`**, branch **`feature/reflex-layer`**, off
+  `main` @ 1.2.1. `node_modules` + `bin/cortex-indexer` symlinked.
+- **Spec:** [`docs/superpowers/specs/2026-06-27-cortex-reflex-layer-design.md`](docs/superpowers/specs/2026-06-27-cortex-reflex-layer-design.md)
+- **Plan 1:** [`docs/superpowers/plans/2026-06-27-cortex-reflex-layer-briefing-core.md`](docs/superpowers/plans/2026-06-27-cortex-reflex-layer-briefing-core.md) (executed, in PR #42 @ 1.2.2).
+
+**Plan 1 (DONE, PR #42):** study-time pre-edit briefing. `composeBriefing` keystone
+→ `cortex brief <target>` CLI + `attachBriefing` on get_code_snippet/trace_path via
+the `briefAware` registerTool flag. Gated by `CORTEX_BRIEF`/`CORTEX_BRIEF_FANOUT`.
+Self-run QA caught + fixed two defects → briefs only on **active** decisions, picks
+**worst verdict** (drift>partial>unreconciled>match).
+
+**Plan 2 (NEXT):** edit-time `PreToolUse` hook on Edit|Write|MultiEdit, **block-once**
+only when about to edit gated code not studied this session. Needs: SessionStart
+**gate-cache** (governed paths + high-fanout) for a cheap pre-filter; a session
+**briefed ledger** (study-time enrichment writes, hook reads → studying disarms it);
+reuse `cortex brief`; `CORTEX_BRIEF_BLOCK=0` downgrades to non-blocking. Stack on
+`feature/reflex-layer` (depends on Plan 1's composeBriefing).
+
+**Plan 3:** SessionStart onboarding headline (`cortex architecture --headline`,
+sentinel-gated). #3 decision-capture reflex already = `suggest-capture.sh`.
+
+### Tier 2 & 3 roadmap (the broader "fully utilize Cortex" dream)
+*Documented, not yet scheduled — promote to plans/TODOs when picked up.*
+- **Tier 2 (emergent combos):** provenance chain `todo→decision→PR→code`;
+  static×runtime fusion via `ingest_traces` (reachable-but-never-run, hot paths);
+  CI gate = `check_contracts` + decision-contradiction on the diff.
+- **Tier 3 (big bets):** cross-repo pattern queries across the registry; viewer
+  "show-your-work" (render the subgraph I reasoned over, consulted decisions lit);
+  specialist subagents owning graph slices; graph-as-grader for my structural claims.
+
+**Process:** stop at PR-opened + CI-green; never merge until the user tests. Push via
+`gh auth setup-git` + explicit https URL; required check is **"CI gate"**. ⚠ A
+**concurrent git actor** was active in the main checkout this session (moved HEAD,
+left an uncommitted `HANDOFF.md` edit) — left untouched; worktrees are the fix.
+
+---
+
+## ✅ DONE — durable-store migration runner (shipped in 1.2.1)
+
+The section below is **historical** — the migration runner (D-b0kp / T-21) shipped
+in **1.2.1**. Kept for context.
+
+## (historical) durable-store migration runner (T-21 / D-b0kp)
 
 **Status:** brainstormed → spec ✅ → plan ✅ → **implementation NOT started.** Pick
 this up in a fresh session.
