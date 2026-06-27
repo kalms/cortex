@@ -17,7 +17,23 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.1.3] — 2026-06-26
+## [1.1.3] — 2026-06-27
+
+### Changed
+
+- **Aggregate dots are calmer and reveal detail on hover.** Dots are a uniform
+  size (no longer scaled by `member_count`); the title + file count are hidden by
+  default and shown only on hover, using the **same hover pill** as the file /
+  decision / todo node dots (the pill chrome is now a shared `renderInfoPill`).
+- **Decision / TODO node labels show only the sequenced id** (`D-<seq>` /
+  `T-<seq>`) — the title was redundant with the focused-frame marginalia. The
+  **canonical id** (e.g. `D-p8bg`) is now surfaced in the record card's metadata
+  line.
+- **Hovering a decision/TODO highlights its connection edges** — the leader lines
+  from the floating dot AND from its marginalia pill to the nodes it governs
+  brighten together (plus decision→child-TODO leaders). The highlight **persists
+  while that record's drawer is open**, so the connection stays visible without
+  holding the hover.
 
 ### Fixed
 
