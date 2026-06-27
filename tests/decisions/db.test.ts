@@ -91,7 +91,7 @@ describe("openDecisionsDb", () => {
       `);
       v1.prepare(
         `INSERT INTO decisions
-         VALUES ('d1','Pre-migration row','desc text','rationale text',
+         VALUES ('D-d1xx','Pre-migration row','desc text','rationale text',
                  'problem text','resolution text', NULL,
                  'personal','active', NULL, NULL, '2026-01-01', '2026-01-01')`,
       ).run();
@@ -115,10 +115,10 @@ describe("openDecisionsDb", () => {
                   JOIN decisions d ON d.rowid = f.rowid
                   WHERE decisions_fts MATCH 'rationale'`)
         .all() as Array<{ id: string }>;
-      expect(joined.map((r) => r.id)).toEqual(["d1"]);
+      expect(joined.map((r) => r.id)).toEqual(["D-d1xx"]);
 
       // And the trigger is wired: UPDATE must keep search working.
-      db.prepare("UPDATE decisions SET problem = ? WHERE id = 'd1'").run(
+      db.prepare("UPDATE decisions SET problem = ? WHERE id = 'D-d1xx'").run(
         "this is now a longer problem statement after migration",
       );
       const postUpdate = db
@@ -126,7 +126,7 @@ describe("openDecisionsDb", () => {
                   JOIN decisions d ON d.rowid = f.rowid
                   WHERE decisions_fts MATCH 'longer'`)
         .all() as Array<{ id: string }>;
-      expect(postUpdate.map((r) => r.id)).toEqual(["d1"]);
+      expect(postUpdate.map((r) => r.id)).toEqual(["D-d1xx"]);
 
       db.close();
     } finally {

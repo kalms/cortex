@@ -19,9 +19,15 @@ function readMeta(db: Database.Database, key: string): string | null {
  * decision_links.target_ref for decision-kind links. UUIDs are dropped (no
  * legacy alias). Idempotent: rows already in D- form are skipped, and the
  * schema_meta flag short-circuits repeat runs once nothing legacy remains.
+ *
+ * @param opts.force - When true, skip the schema_meta short-circuit and
+ *   re-scan for non-D- rows unconditionally. Use only on the graph-import
+ *   path where UUID rows are inserted AFTER the runner already recorded the
+ *   flag. The WHERE clause still skips rows that are already in D- form, so
+ *   force is safe to call on a partially-converted store.
  */
-export function migrateDecisionIdsToShortForm(db: Database.Database): void {
-  if (readMeta(db, META_KEY) === "done") return;
+export function migrateDecisionIdsToShortForm(db: Database.Database, opts?: { force?: boolean }): void {
+  if (!opts?.force && readMeta(db, META_KEY) === "done") return;
 
   // PRAGMA foreign_keys is a no-op inside an active transaction (SQLite
   // restriction). Disable FK enforcement at the connection level BEFORE

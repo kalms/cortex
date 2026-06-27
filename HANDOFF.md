@@ -1,5 +1,66 @@
 # Cortex — Session Handoff
 
+## ▶ NEXT — implement the durable-store migration runner (T-21 / D-b0kp)
+
+**Status:** brainstormed → spec ✅ → plan ✅ → **implementation NOT started.** Pick
+this up in a fresh session.
+
+**Where the work lives:**
+- Worktree **`../cortex-wt-migration`**, branch **`feature/db/migration-runner`**,
+  based on `main` @ **1.2.0** (the merged todo-CLI release). `node_modules` +
+  `bin/cortex-indexer` are already symlinked from the main checkout.
+- **Spec:** [`docs/superpowers/specs/2026-06-27-durable-store-migration-runner-design.md`](docs/superpowers/specs/2026-06-27-durable-store-migration-runner-design.md)
+- **Plan:** [`docs/superpowers/plans/2026-06-27-durable-store-migration-runner.md`](docs/superpowers/plans/2026-06-27-durable-store-migration-runner.md)
+  (3 TDD tasks, no placeholders — ready to execute).
+- **Decision** `D-b0kp` (fault-line + direction) and **TODO `T-21`** are in the
+  Cortex graph; transition T-21 to `in_progress` when you start.
+
+**What it is (one line):** a name-tracked migration runner for the durable
+primitives DB (`~/.cortex/<repoId>/decisions.db`) so every store-opener (CLI +
+MCP) converges, replacing flag-gated self-heal scattered across open-paths.
+
+**Resume by:** running the plan with **subagent-driven-development** (fresh
+subagent per task + review), as the todo-CLI branch was done. Tasks: (1)
+`src/db/migrate.ts` runner, (2) `src/db/snapshot.ts`, (3) wire into
+`openDecisionsDb` + remove scattered `migrateDecisionIdsToShortForm` calls + map
+`MigrationError`→exit 4.
+
+**Load-bearing design points (read the spec before relitigating):**
+- Ledger = **`_cortex_migrations` applied-names table** (simonw/sqlite-migrate
+  pattern), **not** `PRAGMA user_version`. Name-keyed → safe across parallel
+  branches; per-migration applied-ness gap-fills the CLI miss by default.
+- Migrations are **idempotent** and **own their atomicity**; the runner must
+  **NOT** wrap them in an outer transaction — `migrateDecisionIdsToShortForm`
+  toggles `PRAGMA foreign_keys`, a no-op inside a transaction.
+- **graphImport stays out** (`migrateDecisionsFromGraphDb` needs the graph DB
+  path; keep it at the MCP/index entry points).
+- **Rehome UUID-fixture invariant:** id-short-form runs on the empty store's
+  first open and is recorded, so it never rewrites later-inserted UUID ids.
+  Dedicated integration test covers this — keep it green, don't weaken the
+  migration.
+- Snapshot only when a migration is **pending AND the store is non-empty**;
+  retain last **3** under `<storeDir>/backups/`.
+
+**Process reminders (lessons from the todo-CLI release this session):**
+- **CI runs the FULL `tests/` suite** and gates on the **"CI gate"** check; run
+  `vitest run` (not a subset) + `tsc --noEmit` before pushing. (A platform-only
+  test — `sh` signal vs exit code — passed locally but failed CI last time.)
+- **Re-check `main` hasn't moved before the release version bump** — it had, and
+  caused a version-file/CHANGELOG conflict. Merge/rebase `main` first.
+- Push via `gh auth setup-git` + explicit `https://github.com/ruevu/cortex.git`
+  (no SSH key). **Never merge until the user has tested it themselves.**
+- Release = patch bump `1.2.0 → 1.2.1` across `package.json` + `plugin.json` +
+  `.claude-plugin/marketplace.json` + `CHANGELOG.md`, via PR.
+
+---
+
+## ⚠ NOTE — the "frames viewer layout lean" section below is likely STALE
+
+The viewer-centering work shipped in **1.1.3** (PR #39, merged; decision
+`D-p8bg` — fit-to-content centering + cloud keep-out) and is in `main` @ 1.2.0.
+The section below predates that merge and its "1.1.3 OPEN / NOT merged" claim is
+no longer true. Verify against `CHANGELOG.md` / `D-p8bg` before acting on it.
+
 ## ⚠ OPEN — frames viewer layout "lean" (deferred to a new session)
 
 **Symptom.** The frames viewer's graph looks off-center — reported as leaning

@@ -12,7 +12,6 @@ import { EventPersister } from "./events/worker/persister.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "./db/resolve-path.js";
 import { openDecisionsDb } from "./decisions/db.js";
-import { migrateDecisionIdsToShortForm } from "./decisions/id-migration.js";
 import { DecisionsRepository } from "./decisions/repository.js";
 import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import { TodosRepository } from "./todos/repository.js";
@@ -162,10 +161,8 @@ const decisionsDbPath = resolveDecisionsDbPath(cwd);
 const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(cwd));
 // Note: unlike repo-context.ts, this path intentionally does NOT run
 // migrateDecisionsFromGraphDb — that legacy graph→sidecar import is driven
-// per-repo by the context resolver. The id-migration is idempotent and safe
-// to run here on its own; if a graph import is ever needed on this path it
-// must run BEFORE the id-migration so freshly-imported UUID rows get rewritten.
-migrateDecisionIdsToShortForm(decisionsDb);
+// per-repo by the context resolver. The primitives migration runner (wired
+// inside openDecisionsDb) handles id-short-form and any future migrations.
 const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 const todosRepo = new TodosRepository(decisionsDb);

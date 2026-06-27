@@ -280,8 +280,17 @@ export class RepoContextResolver {
     const graphDb = new BetterSqlite3(graphDbPath);
     graphDb.pragma("busy_timeout = 5000");
     const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(canonical));
-    migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
-    migrateDecisionIdsToShortForm(decisionsDb);
+    const graphImport = migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
+    if (graphImport.decisions > 0) {
+      // migrateDecisionsFromGraphDb inserts UUID-keyed rows AFTER openDecisionsDb's
+      // migration runner already recorded id-short-form done, so the converter's
+      // normal flag short-circuit would skip them. Force a re-scan to rewrite the
+      // freshly imported legacy ids to D- form. Deliberate exception to the
+      // single-chokepoint rule: this legacy import is intentionally kept out of the
+      // runner (it needs the graph DB path), so its import-then-convert ordering
+      // lives here. See the migration-runner spec.
+      migrateDecisionIdsToShortForm(decisionsDb, { force: true });
+    }
     const decisionsRepo = new DecisionsRepository(decisionsDb);
     const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 
