@@ -237,6 +237,20 @@ Docs-only / no-bump merges (which skip the version bump, per the exception
 above) may still be merged locally `--no-ff` as before — though routing them
 through a PR is encouraged.
 
+### Tag + GitHub Release (required on every release)
+
+**A merge is not a release until it is tagged and published.** After the release
+PR merges to `main`, create a lightweight `vX.Y.Z` git tag **on the merge
+commit**, push the tag, and cut a GitHub Release whose notes are that version's
+[`CHANGELOG.md`](../../CHANGELOG.md) section. Mark the newest as **Latest**, and
+title it `vX.Y.Z — <short summary>` to match the existing releases.
+
+Skipping this silently desyncs the repo's Releases page (and anything keying off
+the latest tag/release — the "latest" badge, version checks) from the source
+version. This actually happened: `1.1.1`–`1.2.1` all merged to `main` and bumped
+`package.json`, but none were tagged, so GitHub showed `v1.1.0` as the latest
+release while the code was five versions ahead, until they were backfilled.
+
 ### Steps — release (semver bump) via PR
 
 ```bash
@@ -246,6 +260,15 @@ git push -u origin <branch-name>
 gh pr create --base main --title "<summary>" --body "<what + why>"
 # Wait for the "CI gate" check to pass on the PR, then:
 gh pr merge <branch-name> --merge   # --no-ff merge; preserves branch history
+
+# Tag the merge commit on main and publish the release — DO NOT skip this:
+git fetch origin
+git tag v<new-version> origin/main          # lightweight tag on the merge commit
+git push origin v<new-version>
+gh release create v<new-version> \
+  --title "v<new-version> — <short summary>" \
+  --notes "<this version's CHANGELOG.md section>" --latest
+
 git worktree remove ../cortex-wt-<desc> && git worktree prune
 ```
 
