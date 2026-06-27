@@ -99,12 +99,18 @@ Behavior:
    `MigrationError(store-too-new)` carrying `{ unknown: string[], set }`.
    (Name-based, so it survives any future renumbering scheme.)
 5. Apply every migration whose `name` is **not** in `applied`, in list order.
-   **Each migration runs in its own transaction**; on success insert its
-   `(set, name, applied_at)` row inside the same transaction, so a crash leaves
-   every fully-applied migration recorded and the rest pending (resume-safe).
-6. A migration that throws rolls back its transaction (its row is not written)
-   and aborts the run; the exception propagates to the chokepoint, which handles
-   file-level restore.
+   **Each migration owns its own atomicity** (most wrap their work in
+   `db.transaction`); `runMigrations` records the `(set, name, applied_at)` row
+   immediately after `up()` returns. An outer wrapping transaction is
+   deliberately avoided — it would neutralise migrations like id-short-form that
+   must toggle `PRAGMA foreign_keys` (a no-op inside a transaction). Because
+   migrations are idempotent, a crash between `up()` and the ledger write is
+   harmless: the migration re-runs (no-op / safe re-apply) on the next open.
+   Cross-migration batch atomicity is provided by the file snapshot
+   (§ Snapshot), not by a wrapping transaction.
+6. A migration that throws aborts the run with its own changes rolled back (its
+   internal transaction) and no ledger row written; the exception propagates to
+   the chokepoint, which restores the file snapshot.
 
 The runner is pure with respect to the filesystem: it takes a handle and never
 touches files. Snapshot/restore is the chokepoint's job (it owns the path).
