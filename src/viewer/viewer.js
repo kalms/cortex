@@ -1063,7 +1063,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // guide lines.
       const leadersOn = isSelected || isHovered;
       if (leadersOn) {
-        const hl = isHovered; // hover = highlight
+        const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
           ctx.strokeStyle = `rgba(74, 222, 128, ${hl ? 0.6 : 0.22})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
@@ -1257,7 +1257,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // Leader lines: hover HIGHLIGHTS the todo's connections (brighter +
       // thicker); a selected todo keeps calmer persistent leaders.
       if (isSelected || isHovered) {
-        const hl = isHovered; // hover = highlight
+        const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
           ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${hl ? 0.6 : 0.22})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
@@ -1481,6 +1481,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     const todos = getFrameTodos(frameId);
     if (!decs.length && !todos.length) return;
 
+    // The record whose drawer is currently open — its edges stay lit, like hover.
+    const openDecId = (focusedRecord && focusedRecord.type === 'decision') ? focusedRecord.id : null;
+    const openTodoId = (focusedRecord && focusedRecord.type === 'todo') ? focusedRecord.id : null;
+
     const f = framePx(frame);
     const pillX = f.cx + f.w / 2 + 14;
     let pillY = f.cy - f.h / 2 + 4;
@@ -1514,9 +1518,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
                                  [74, 222, 128];
       const borderAlpha = state === 'superseded' ? 0.3 : (state === 'stale' ? 0.4 : 0.55);
 
-      // Hovered via this marginalia pill OR the decision's floating dot — either
-      // HIGHLIGHTS the marginalia leader edges (the connection I'd otherwise miss).
-      const isHovered = hoveredMarginaliaId === dec.id || hoveredDecisionId === dec.id;
+      // Lit when hovered (via this pill OR the floating dot) OR when this
+      // decision's drawer is open — keeps the marginalia leader edges highlighted.
+      const isHovered = hoveredMarginaliaId === dec.id || hoveredDecisionId === dec.id || openDecId === dec.id;
 
       const nodeIdxs = dec._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
@@ -1609,8 +1613,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const markGap = 7;
       const pillW = padX + markSize + markGap + labelW + padX;
 
-      // Hovered via this marginalia pill OR the todo's floating dot.
-      const isHovered = hoveredMarginaliaId === todo.id || hoveredTodoId === todo.id;
+      // Lit when hovered (via this pill OR the floating dot) OR when this todo's
+      // drawer is open — keeps the marginalia leader edges highlighted.
+      const isHovered = hoveredMarginaliaId === todo.id || hoveredTodoId === todo.id || openTodoId === todo.id;
 
       // Leader lines to anchor node dots — highlighted on hover.
       const nodeIdxs = todo._nodeIdxs || [];
