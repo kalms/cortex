@@ -22,8 +22,9 @@ Self-run QA caught + fixed two defects → briefs only on **active** decisions, 
 only when about to edit gated code not studied this session. Needs: SessionStart
 **gate-cache** (governed paths + high-fanout) for a cheap pre-filter; a session
 **briefed ledger** (study-time enrichment writes, hook reads → studying disarms it);
-reuse `cortex brief`; `CORTEX_BRIEF_BLOCK=0` downgrades to non-blocking. Stack on
-`feature/reflex-layer` (depends on Plan 1's composeBriefing).
+reuse `cortex brief`; `CORTEX_BRIEF_BLOCK=0` downgrades to non-blocking.
+**Execute AFTER Plan 1 (PR #42) is tested + merged — branch off `main`, do not stack
+(decided 2026-06-27).** Plan written: `docs/superpowers/plans/2026-06-27-cortex-reflex-layer-edit-backstop.md`.
 
 **Plan 3:** SessionStart onboarding headline (`cortex architecture --headline`,
 sentinel-gated). #3 decision-capture reflex already = `suggest-capture.sh`.
