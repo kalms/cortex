@@ -17,6 +17,55 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.1.3] — 2026-06-27
+
+### Changed
+
+- **Aggregate dots are calmer and reveal detail on hover.** Dots are a uniform
+  size (no longer scaled by `member_count`); the title + file count are hidden by
+  default and shown only on hover, using the **same hover pill** as the file /
+  decision / todo node dots (the pill chrome is now a shared `renderInfoPill`).
+- **Decision / TODO node labels show only the sequenced id** (`D-<seq>` /
+  `T-<seq>`) — the title was redundant with the focused-frame marginalia. The
+  **canonical id** (e.g. `D-p8bg`) is now surfaced in the record card's metadata
+  line.
+- **Hovering a decision/TODO highlights its connection edges** — the leader lines
+  from the floating dot AND from its marginalia pill to the nodes it governs
+  brighten together (plus decision→child-TODO leaders). The highlight **persists
+  while that record's drawer is open**, so the connection stays visible without
+  holding the hover.
+
+### Fixed
+
+- **Frames viewer is now visually centered (fit-to-content), and auxiliary items
+  ring the cloud instead of sitting inside it.** The viewer used to map the fixed
+  1000×800 virtual stage edge-to-edge onto the canvas, so any layout imbalance —
+  the residual left/right lean, bottom-heaviness — showed directly, and the prior
+  server-side recenter (`D-vmhy`) only balanced the *ambient* cloud, never the
+  satellites/aggregates that actually skewed the picture. Two changes:
+  - **Viewer fit-to-content centering** (`src/viewer/viewer.js`): a new
+    `computeViewTransform` centers the frames' **area-weighted center of mass**
+    in the canvas (both axes) and scales to fit the frame extent (capped at 1 so
+    sparse graphs aren't magnified, floored so a tiny canvas can't invert the
+    scene), with extra top headroom for frame labels. It centers the *mass*, not
+    the bounding-box center, so a few sparse outliers can't skew the framing; the
+    small auxiliary aggregate dots annotate the cloud and don't drive the fit
+    (they're clamped on-canvas so they stay visible). Baked into the shared
+    px-mapping (`framePxBase`, `drawAggregates`) so hit-testing, tooltips, and
+    focus mode stay consistent. The frame mass now sits at the canvas center
+    (measured within ~12px on the cortex project) regardless of layout lean, and
+    re-centers on resize.
+  - **Cloud keep-out** (`src/mcp-server/floating-placement.ts`): `ambientCloud` +
+    `pushOutsideCloud` push any non-ambient frame or aggregate whose gravity
+    centroid landed inside the ambient cloud out to the cloud's outskirts before
+    separation, so auxiliaries never sit in the cloud's visual middle. The
+    keep-out is an **axis-aware box** (per-axis half-extents), not a single
+    radius: a uniform radius is sized by the furthest frame in any direction, so
+    an item pushed along the cloud's short axis (e.g. straight up when the spread
+    is sideways) got flung far past the cloud into empty space; bounding the push
+    per-axis keeps each auxiliary hugging the cloud in its own direction. Pure
+    and deterministic (no trig). Decision `D-p8bg`.
+
 ## [1.1.2] — 2026-06-26
 
 ### Fixed
@@ -890,6 +939,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.1.3]: https://github.com/ruevu/cortex/releases/tag/v1.1.3
 [1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ruevu/cortex/releases/tag/v1.1.0

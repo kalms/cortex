@@ -21,11 +21,89 @@ const REPEL_ITERATIONS = 24;
 /** Grid step (px) for the outward free-slot search in separateMovables. Integer
  *  offsets only → cross-platform deterministic (no trig). */
 const SEARCH_STEP = 20;
+/** Breathing room (px) between the furthest ambient frame corner and the cloud
+ *  keep-out circle — the clearance auxiliaries are pushed beyond. */
+export const CLOUD_GAP = 14;
+/** Deterministic fallback rays for pushing a point that sits EXACTLY on the
+ *  cloud centroid (no gravity direction). Integer components, normalized via
+ *  sqrt (cross-platform deterministic — no trig). Eight compass+diagonal
+ *  directions, indexed by the caller so co-incident points fan out instead of
+ *  stacking on one ray. */
+const FALLBACK_DIRS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1],
+];
 
 /** A rectangular frame box: integer center x/y, width w, and height h. */
 export interface Box { x: number; y: number; w: number; h: number; }
 /** A weighted anchor for centroiding. */
 export interface WeightedAnchor { x: number; y: number; weight: number; }
+/** The ambient cloud's keep-out region: an axis-aligned box centred on the
+ *  frame centroid (cx, cy) with per-axis half-extents (hx, hy) — the distance
+ *  from the centroid to the furthest frame EDGE on each axis, plus CLOUD_GAP.
+ *  Auxiliary items (satellites, aggregate dots) are kept OUTSIDE this box so
+ *  they ring the cloud's outskirts instead of landing in its visual middle.
+ *
+ *  Why a per-axis box and not a single radius: one uniform radius is sized by
+ *  the FURTHEST frame in ANY direction, so an item pushed along the cloud's
+ *  SHORT axis (e.g. straight up, when the spread is mostly sideways) gets flung
+ *  far past the cloud into empty space. Bounding the push per-axis keeps each
+ *  auxiliary hugging the cloud in its own direction. */
+export interface Cloud { cx: number; cy: number; hx: number; hy: number; }
+
+/**
+ * Keep-out box for the ambient cloud: centroid = mean of box centers; per-axis
+ * half-extent = the furthest frame EDGE from that centroid on each axis (so the
+ * box fully encloses every ambient frame), plus CLOUD_GAP breathing room.
+ * Returns null for an empty cloud. Pure + deterministic (mean + abs/max only).
+ */
+export function ambientCloud(boxes: readonly Box[], gap = CLOUD_GAP): Cloud | null {
+  if (boxes.length === 0) return null;
+  let sx = 0, sy = 0;
+  for (const b of boxes) { sx += b.x; sy += b.y; }
+  const cx = sx / boxes.length, cy = sy / boxes.length;
+  let hx = 0, hy = 0;
+  for (const b of boxes) {
+    hx = Math.max(hx, Math.abs(b.x - cx) + b.w / 2); // furthest x-edge from the centroid
+    hy = Math.max(hy, Math.abs(b.y - cy) + b.h / 2);
+  }
+  return { cx, cy, hx: hx + gap, hy: hy + gap };
+}
+
+/**
+ * If a square of side `size` centered at (x, y) sits inside the cloud keep-out
+ * box, push it OUTWARD along the seed→outward (gravity) ray until it just clears
+ * the box edge — its center reaching the EXPANDED box boundary (cloud half-extent
+ * + size/2) along that ray. Because the stop distance is the box edge in the
+ * ray's own direction, the push is bounded by the cloud's extent in THAT
+ * direction — never flung to a uniform far radius. Points already outside the
+ * box are returned unchanged, so a satellite keeps the position gravity gave it
+ * whenever gravity already put it on the outskirts. A point sitting EXACTLY on
+ * the centroid has no gravity ray, so it uses FALLBACK_DIRS[fallbackIndex % 8] —
+ * a deterministic ray that fans co-incident points apart. Pure; no PRNG, no trig.
+ */
+export function pushOutsideCloud(x: number, y: number, size: number, cloud: Cloud, fallbackIndex: number): { x: number; y: number } {
+  const half = size / 2;
+  const ex = cloud.hx + half, ey = cloud.hy + half; // expanded box half-extents (incl. the item's own half)
+  const dx = x - cloud.cx, dy = y - cloud.cy;
+  // Outside the keep-out box if it clears on EITHER axis (boxes don't overlap).
+  if (Math.abs(dx) >= ex || Math.abs(dy) >= ey) return { x, y };
+  let ux: number, uy: number;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1e-9) {
+    const [fx, fy] = FALLBACK_DIRS[((fallbackIndex % FALLBACK_DIRS.length) + FALLBACK_DIRS.length) % FALLBACK_DIRS.length];
+    const flen = Math.hypot(fx, fy);
+    ux = fx / flen; uy = fy / flen;
+  } else {
+    ux = dx / dist; uy = dy / dist;
+  }
+  // Distance from the centroid to the expanded box edge along the ray: the first
+  // axis the ray crosses bounds it (a near-zero component → Infinity, so min()
+  // picks the other axis). This is what keeps the push hugging the cloud.
+  const tx = ux !== 0 ? ex / Math.abs(ux) : Infinity;
+  const ty = uy !== 0 ? ey / Math.abs(uy) : Infinity;
+  const t = Math.min(tx, ty);
+  return { x: cloud.cx + ux * t, y: cloud.cy + uy * t };
+}
 
 const q = (n: number): number => Math.round(n);
 
@@ -197,10 +275,13 @@ export function placeAggregates(
   const tieless = ordered.filter((a) => seeds.get(a.id) === null).map((a) => a.id);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
 
-  // Seed at the tie centroid (or margin), then separate the aggregate dots
-  // against the ambient anchors AND each other so dots don't stack either.
-  const movables: Movable[] = ordered.map((a) => {
-    const seed = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+  // Seed at the tie centroid (or margin), push any seed that landed inside the
+  // cloud out to its outskirts, then separate the aggregate dots against the
+  // ambient anchors AND each other so dots don't stack either.
+  const cloud = ambientCloud(ambientBoxes);
+  const movables: Movable[] = ordered.map((a, i) => {
+    const raw = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+    const seed = cloud ? pushOutsideCloud(raw.x, raw.y, AGG_RADIUS * 2, cloud, i) : raw;
     return { id: a.id, x: seed.x, y: seed.y, size: AGG_RADIUS * 2 };
   });
   separateMovables(movables, ambientBoxes);
@@ -235,11 +316,14 @@ export function placeNonAmbientFrames(
   const sorted = [...nonAmbient].map((f) => f.frame_id).sort((x, y) => x - y);
   const tieless = sorted.filter((id) => (partnersOf.get(id) ?? []).length === 0);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
-  // Seed at the centroid (or margin), then separate the whole satellite set
-  // against the ambient anchors AND each other in one deterministic pass.
-  const movables: Movable[] = sorted.map((id) => {
+  // Seed at the centroid (or margin), push any seed that landed inside the cloud
+  // out to its outskirts, then separate the whole satellite set against the
+  // ambient anchors AND each other in one deterministic pass.
+  const cloud = ambientCloud(ambientBoxes);
+  const movables: Movable[] = sorted.map((id, i) => {
     const c = weightedCentroid(partnersOf.get(id) ?? []);
-    const seed = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    const raw = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    const seed = cloud ? pushOutsideCloud(raw.x, raw.y, SATELLITE_SIZE, cloud, i) : raw;
     return { id, x: seed.x, y: seed.y, size: SATELLITE_SIZE };
   });
   separateMovables(movables, ambientBoxes);
