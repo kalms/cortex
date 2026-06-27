@@ -9,6 +9,14 @@ function normalizeVerdict(v: string | null | undefined): Verdict {
   return v === "match" || v === "partial" || v === "drift" ? v : "unreconciled";
 }
 
+/** Ordering: drift (worst=0) > partial > unreconciled > match (best=3). */
+const VERDICT_RANK: Record<Verdict, number> = {
+  drift: 0,
+  partial: 1,
+  unreconciled: 2,
+  match: 3,
+};
+
 export function composeBriefing(
   deps: BriefingDeps,
   target: string,
@@ -16,18 +24,26 @@ export function composeBriefing(
 ): Briefing {
   const threshold = opts?.fanoutThreshold ?? DEFAULT_FANOUT;
 
-  const governing = deps.search.findGoverning(target);
-  const top = governing[0];
+  // 1. Filter governing decisions to active only (drop superseded/deprecated/etc).
+  const activeGoverning = deps.search.findGoverning(target).filter((d) => d.status === "active");
+
+  // 2. Among active, pick the worst-verdict decision (ties: keep earliest in list).
   let decision: { id: string; title: string; displayState: string; verdict: Verdict } | undefined;
-  if (top) {
-    const rec = deps.decisions.get(top.id);
-    const verdict = normalizeVerdict(rec?.reconciliation_verdict);
-    decision = {
-      id: top.id,
-      title: top.title,
-      verdict,
-      displayState: displayState(top.status, rec?.reconciliation_verdict ?? null),
-    };
+  let worstRank = Infinity;
+  for (const d of activeGoverning) {
+    const rec = deps.decisions.get(d.id);
+    const rawVerdict = rec?.reconciliation_verdict ?? null;
+    const verdict = normalizeVerdict(rawVerdict);
+    const rank = VERDICT_RANK[verdict];
+    if (rank < worstRank) {
+      worstRank = rank;
+      decision = {
+        id: d.id,
+        title: d.title,
+        verdict,
+        displayState: displayState(d.status, rawVerdict),
+      };
+    }
   }
 
   const callerCount = blastRadius(deps.store, deps.project, target);
