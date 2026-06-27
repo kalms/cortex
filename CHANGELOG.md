@@ -17,6 +17,33 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.0] — 2026-06-27
+
+### Added
+
+- **`cortex todo` CLI namespace.** The TODO primitive (storage + MCP `todo`
+  tool + `/api/todos`, shipped in 1.0.0/1.1.1) is now driveable from the
+  terminal at full parity with the MCP tool: `list`, `show`, `search`,
+  `propose`, `update`, `transition`, `link`. The prose-heavy `propose` and
+  `update` open `$EDITOR` (git-commit style) when run without inline flags —
+  the buffer's first non-comment line is the summary, the rest the
+  description; an empty summary aborts; a non-interactive context (no TTY)
+  requires the summary inline instead. Link fields (`--governs`,
+  `--spawns-from`, `--blocked-by`) stay flags. `todo link` validates
+  `--relation` against the five relation types. New `src/cli/editor.ts`
+  (`openEditor`) is a small reusable editor helper (aborts on a signal-killed
+  editor). Wired into `cortex --help` / `cortex todo --help`.
+
+### Fixed
+
+- **`cortex decision` now reads the live durable decisions store.** The
+  `decision` CLI's `openService` opened the stale legacy in-repo
+  `.cortex/decisions.db`, while the MCP server (and the new `todo` CLI) use
+  the durable `~/.cortex/<repoId>/decisions.db` via `resolveDecisionsDbPath`.
+  The CLI is repointed to the live store, so `cortex decision list`/`show`/etc.
+  see the same decisions the MCP tools write. (`rehome` was already correct and
+  is unchanged.)
+
 ## [1.1.3] — 2026-06-27
 
 ### Changed
@@ -939,6 +966,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.0]: https://github.com/ruevu/cortex/releases/tag/v1.2.0
 [1.1.3]: https://github.com/ruevu/cortex/releases/tag/v1.1.3
 [1.1.2]: https://github.com/ruevu/cortex/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ruevu/cortex/releases/tag/v1.1.1

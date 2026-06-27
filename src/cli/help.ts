@@ -96,6 +96,15 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
     baseline: { usage: "cortex eval baseline <target> [--path=...]", description: "Capture the baseline for a target.", examples: ["cortex eval baseline anthill-cloud --path=..."] },
     report:   { usage: "cortex eval report [--latest|--at=<timestamp>]", description: "Print the latest (or specified) eval summary.", examples: ["cortex eval report"] },
   },
+  todo: {
+    list:       { usage: "cortex todo list [--query=…]",                              description: "List or search todos.", examples: ["cortex todo list", "cortex todo list --query='viewer'"] },
+    show:       { usage: "cortex todo show <id>",                                     description: "Show a todo (with links) by id.", examples: ["cortex todo show T-12"] },
+    search:     { usage: "cortex todo search <query>",                                description: "Full-text search todos.", examples: ["cortex todo search drawer"] },
+    propose:    { usage: "cortex todo propose [<summary>] [--description=…] [--governs=a,b] [--spawns-from=…] [--blocked-by=a,b]", description: "Create a todo. With no summary, opens $EDITOR for summary + description.", examples: ["cortex todo propose", "cortex todo propose 'Fix drawer' --governs=src/x.ts"] },
+    update:     { usage: "cortex todo update <id> [--summary=…] [--description=…] [--assignee=…] [--governs=a,b]", description: "Update a todo. With no field flags, opens $EDITOR pre-filled.", examples: ["cortex todo update T-12 --assignee=rka"] },
+    transition: { usage: "cortex todo transition <id> <state> [--reason=…] [--resolved-by=a,b] [--blocked-by=a,b]", description: "Move a todo between states (open|in_progress|blocked|done|cancelled).", examples: ["cortex todo transition T-12 in_progress", "cortex todo transition T-12 done --resolved-by=#42"] },
+    link:       { usage: "cortex todo link <id> <target> [--relation=GOVERNS]",       description: "Link a todo to a file, symbol, decision, PR, or another todo.", examples: ["cortex todo link T-12 src/x.ts", "cortex todo link T-12 D-0j21 --relation=SPAWNS_FROM"] },
+  },
 };
 
 export function renderTopLevelHelp(styler: Styler = NO_STYLE): string {
@@ -114,6 +123,7 @@ export function renderTopLevelHelp(styler: Styler = NO_STYLE): string {
     `  ${name("graph".padEnd(10))}  Raw Cypher / SQL queries (advanced)`,
     `  ${name("index".padEnd(10))}  Manage which projects are indexed`,
     `  ${name("eval".padEnd(10))}  Run the eval harness`,
+    `  ${name("todo".padEnd(10))}  Planned work — tasks and their lifecycle`,
     "",
     h("Common commands:"),
     `  ${ex("cortex code find <name>")}     find a symbol by name`,
@@ -170,5 +180,6 @@ function describeNamespace(ns: string): string {
     graph: "Raw Cypher / SQL queries (advanced)",
     index: "Manage which projects are indexed",
     eval: "Run the eval harness",
+    todo: "Planned work — tasks and their lifecycle",
   })[ns] ?? "";
 }

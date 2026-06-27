@@ -9,6 +9,7 @@ import { runDecisionCommand } from "./commands/decision.js";
 import { runGraphCommand } from "./commands/graph.js";
 import { runIndexCommand } from "./commands/index.js";
 import { runEvalCommand } from "./commands/eval.js";
+import { runTodoCommand } from "./commands/todo.js";
 import { renderTopic } from "./commands/help.js";
 import { renderTopLevelHelp, renderNamespaceHelp, renderCommandHelp } from "./help.js";
 import { renderTour } from "./tour.js";
@@ -18,7 +19,7 @@ import { setupVenv } from "../frame-extraction/venv.js";
 import { runFreshnessCommand } from "./commands/freshness.js";
 import { runReconcileCommand } from "./commands/reconcile.js";
 
-const NAMESPACES = ["code", "decision", "graph", "index", "eval"];
+const NAMESPACES = ["code", "decision", "graph", "index", "eval", "todo"];
 const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile"];
 
 function getVersion(): string {
@@ -134,6 +135,8 @@ async function main(): Promise<void> {
       return runIndexCommand({ command: argv.command, positionals: argv.positionals, flags: argv.flags }, ctx);
     case "eval":
       return runEvalCommand({ command: argv.command, positionals: argv.positionals, flags: argv.flags }, ctx);
+    case "todo":
+      return runTodoCommand({ command: argv.command ?? "", positionals: argv.positionals, flags: argv.flags }, ctx);
   }
 }
 

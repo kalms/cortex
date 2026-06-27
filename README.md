@@ -219,6 +219,7 @@ The same graph and decision surface is available from the terminal via the `cort
 |-----------|----------|---------|
 | `cortex code` | `find`, `search`, `show`, `where`, `calls`, `arch`, `schema` | Find symbols, read source, trace callers/callees, dump architecture |
 | `cortex decision` | `create`, `propose`, `supersede`, `update`, `delete`, `get`/`show`, `list`, `search`, `why`, `link`, `promote`, `candidates`, `count`, `rehome`, `reconcile` | Author and query architectural decisions |
+| `cortex todo` | `list`, `show`, `search`, `propose`, `update`, `transition`, `link` | Author and query planned-work TODOs; `propose`/`update` open `$EDITOR` when run without inline flags |
 | `cortex index` | _(bare = index cwd)_, `status`, `changes`, `list`, `delete` | Manage which repos are indexed; `--mode=fast\|moderate\|full` |
 | `cortex graph` | `query` (Cypher), `sql` (raw) | Advanced graph queries |
 | `cortex eval` | `run`, `baseline`, `report` | Run the eval harness |
