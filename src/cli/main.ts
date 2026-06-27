@@ -18,9 +18,10 @@ import { configureColor, makeStyler, type ColorPref } from "./style.js";
 import { setupVenv } from "../frame-extraction/venv.js";
 import { runFreshnessCommand } from "./commands/freshness.js";
 import { runReconcileCommand } from "./commands/reconcile.js";
+import { runBriefCommand } from "./commands/brief.js";
 
 const NAMESPACES = ["code", "decision", "graph", "index", "eval", "todo"];
-const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile"];
+const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile", "brief"];
 
 function getVersion(): string {
   try {
@@ -67,6 +68,11 @@ async function main(): Promise<void> {
   }
   if (argv.namespace === "reconcile") {
     runReconcileCommand(argv.command);
+    return;
+  }
+  if (argv.namespace === "brief") {
+    const ctx = loadContext(process.cwd());
+    runBriefCommand(ctx, argv.command ?? argv.positionals[0] ?? null);
     return;
   }
   if (argv.namespace === "help") {
