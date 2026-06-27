@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import Database from "better-sqlite3";
+import { unlinkSync } from "node:fs";
 import { GraphStore } from "../../src/graph/store.js";
 import { blastRadius } from "../../src/briefing/blast-radius.js";
 
@@ -22,7 +23,13 @@ function makeStore(): { store: GraphStore; path: string } {
 }
 
 let made: { store: GraphStore; path: string } | null = null;
-afterEach(() => { made?.store.close?.(); made = null; });
+afterEach(() => {
+  made?.store.close?.();
+  try {
+    if (made) unlinkSync(made.path);
+  } catch {}
+  made = null;
+});
 
 describe("blastRadius", () => {
   it("counts distinct external callers of a qn", () => {

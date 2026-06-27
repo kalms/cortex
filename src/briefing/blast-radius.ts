@@ -1,7 +1,5 @@
 import type { GraphStore } from "../graph/store.js";
 
-const CALL_RELS = "('CALLS','IMPORTS')";
-
 /**
  * Direct inbound fan-in for `target`, deduped by source node.
  * - `file::member` qn → callers of that one node (excluding itself).
@@ -14,7 +12,7 @@ export function blastRadius(store: GraphStore, project: string, target: string):
          FROM edges e
          JOIN nodes tn ON tn.id = e.target_id AND tn.project = e.project
         WHERE e.project = ? AND tn.qualified_name = ?
-          AND e.relation IN ${CALL_RELS} AND e.source_id != e.target_id`,
+          AND e.relation IN ('CALLS','IMPORTS') AND e.source_id != e.target_id`,
       [project, target],
     );
     return rows[0]?.n ?? 0;
@@ -26,7 +24,7 @@ export function blastRadius(store: GraphStore, project: string, target: string):
       WHERE e.project = ?
         AND e.target_id IN (SELECT id FROM file_nodes)
         AND e.source_id NOT IN (SELECT id FROM file_nodes)
-        AND e.relation IN ${CALL_RELS}`,
+        AND e.relation IN ('CALLS','IMPORTS')`,
     [project, target, project],
   );
   return rows[0]?.n ?? 0;
