@@ -31,7 +31,11 @@ All notable changes to Cortex are documented here. The format follows
   `cortex brief <path-or-qn>` CLI command. Built as a shared `composeBriefing`
   keystone surfaced through an `attachBriefing` enricher wired into the central
   `registerTool` wrapper (mirroring the freshness signal via a `briefAware`
-  flag) plus the CLI. Gate off with `CORTEX_BRIEF=0`.
+  flag) plus the CLI. Gate off with `CORTEX_BRIEF=0`. Briefs only on
+  **active** decisions and surfaces the **worst** reconciliation verdict among
+  those governing a target (`drift` > `partial` > `unreconciled` > `match`), so a
+  superseded decision never drives a briefing and a drifting one is never masked
+  by a clean one.
 
 ### Notes
 
