@@ -1,5 +1,26 @@
 # Cortex — Session Handoff
 
+## ▶ NEXT — reflex layer Plan 2 (edit-time block-once backstop)
+
+**Reflex layer Plan 1 — study-time pre-edit briefing — merged in 1.2.2 (PR #42).**
+`composeBriefing` keystone → `cortex brief <target>` CLI + `attachBriefing` on
+`get_code_snippet`/`trace_path` (`briefAware` registerTool flag, mirrors freshness).
+Gated by `CORTEX_BRIEF`/`CORTEX_BRIEF_FANOUT`; briefs only on **active** decisions,
+picks the **worst** verdict. Decision `D-qemn`; design spec
+`docs/superpowers/specs/2026-06-27-cortex-reflex-layer-design.md`.
+
+**Plan 2 (NEXT — plan written, not started):** edit-time `PreToolUse` block-once
+backstop on `Edit|Write|MultiEdit` — fires only on gated code not studied this
+session. SessionStart **gate-cache** + session **briefed ledger** (studying disarms
+it) + `hooks/brief-edit.sh`. TODO `T-nhmz`; plan
+`docs/superpowers/plans/2026-06-27-cortex-reflex-layer-edit-backstop.md`. Branch off
+`main`, subagent-driven. **Plan 3:** SessionStart onboarding headline (TODO `T-rm5w`).
+**Tier 2/3 roadmap:** provenance chain `todo→decision→PR→code`, static×runtime fusion
+via `ingest_traces`, CI-gate-as-conscience; cross-repo queries, viewer
+"show-your-work", specialist subagents, graph-as-grader.
+
+---
+
 ## ▶ NEXT STEP
 
 In rough priority order (full state in
@@ -38,9 +59,9 @@ case); **mesh** (separate repo, waiting on Figma): faithful viewer adaptation +
 threads-to-top, and it must migrate off the 17 old tool names per the CHANGELOG
 table.
 
-**Housekeeping:** there's an untracked exploration doc
+**Housekeeping:** the exploration doc
 `docs/explorations/2026-06-27-conscience-pass.md` (a decision-reconciliation
-"conscience pass" run against this repo) — commit or discard as you see fit.
+"conscience pass" run against this repo) is now committed on `main`.
 
 ---
 
