@@ -94,7 +94,7 @@ fi
 # SessionStart briefing setup: clear the stale per-session ledger and pre-build
 # the gate-cache so brief-edit.sh's pre-filter is cheap. Best-effort — never
 # aborts the banner. Gated by CORTEX_BRIEF (default on).
-if [ "$INDEX_STATE" != "not-indexed" ] && [ "${CORTEX_BRIEF:-1}" != "0" ] && [ -n "$CORTEX_BIN" ]; then
+if [[ "$INDEX_STATE" == indexed* ]] && [ "${CORTEX_BRIEF:-1}" != "0" ] && [ -n "$CORTEX_BIN" ]; then
     rm -f "$REPO/.cortex/.briefed" "$REPO/.cortex/.brief-blocked" 2>/dev/null || true
     (cd "$REPO" && "$CORTEX_BIN" brief --build-gate-cache >/dev/null 2>&1) || true
 fi
