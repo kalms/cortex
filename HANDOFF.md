@@ -1,54 +1,5 @@
 # Cortex — Session Handoff
 
-## ✅ DONE (2026-06-27 — 1.2.1: durable-store migration runner)
-
-Shipped **1.2.1** via PR [#41](https://github.com/ruevu/cortex/pull/41) (merge
-`a0a2b00`) through the design → spec → plan → subagent-driven TDD → review →
-gated-release cycle. CI gate passed on the PR. Decision **`D-b0kp`**, TODO
-**`T-21`** (done).
-
-The durable primitives DB (`~/.cortex/<repoId>/decisions.db`) now converges
-through a single, name-tracked **migration runner** instead of flag-gated
-self-heal scattered across store-openers:
-
-- **`src/db/migrate.ts`** — `runMigrations(db, list, {set, beforeApply})` records
-  applied migrations **by name** in a `_cortex_migrations` ledger
-  (simonw/sqlite-migrate pattern, **not** `PRAGMA user_version`): append-only,
-  safe across parallel branches. A store carrying a migration name this binary
-  doesn't recognize (written by a newer Cortex) is **hard-refused** —
-  `MigrationError` → CLI **exit 4** — never silently misread. A failing
-  migration is not recorded and aborts the run.
-- **`src/db/snapshot.ts`** — `VACUUM INTO` pre-migration snapshots under
-  `<storeDir>/backups/` (retain last 3) + restore-on-failure, so a failed
-  upgrade never leaves a half-migrated store.
-- **`openDecisionsDb` is the single chokepoint** — ensure schema → relocate
-  legacy → snapshot-if-pending-and-non-empty → run migrations →
-  restore-on-failure. The one existing data migration (legacy UUID → `D-` short
-  ids) is the first ledger entry (`id-short-form`); its scattered call sites are
-  removed.
-- **Review-caught fix:** the legacy graph-import path
-  (`migrateDecisionsFromGraphDb`) inserts UUID-keyed rows *after* the open-time
-  runner records the id migration, so it now **force-re-runs the id converter
-  when it imports rows** — graph-imported decisions keep `D-` ids. (This was a
-  silent data-shape regression the per-task gates missed; the opus whole-branch
-  review caught it.)
-
-**Verification:** full suite **1446/1446**, `tsc --noEmit` clean, CI gate green.
-
-> ⚠ The MCP server loads `src/` once at startup — the new runner behavior only
-> takes effect after a server **restart**.
-
-**Deferred follow-up (tracked):** **`T-9wq8`** — harden `restoreDb` with an
-atomic copy-to-temp + `rename` (today's `copyFileSync` is non-atomic; a crash
-mid-restore leaves a truncated store, though the snapshot survives so it's
-recoverable). Low priority, non-blocking.
-
-## ✅ DONE (2026-06-27 — 1.2.0: `cortex todo` CLI namespace)
-
-The TODO primitive (storage + MCP `todo` tool + `/api/todos`, shipped in
-1.0.0/1.1.1) became driveable from the CLI. Merged via PR #40. Detail in
-[`CHANGELOG.md`](CHANGELOG.md).
-
 ## ▶ NEXT STEP
 
 In rough priority order (full state in
