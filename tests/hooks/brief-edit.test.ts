@@ -111,7 +111,7 @@ describe("brief-edit.sh — gated file (cache present, REL in it)", () => {
     const blockedPath = join(repo, ".cortex", ".brief-blocked");
     expect(existsSync(blockedPath), ".brief-blocked should exist").toBe(true);
     const blocked = readFileSync(blockedPath, "utf-8");
-    expect(blocked).toContain(rel);
+    expect(blocked.split("\n")).toContain(rel);
   });
 
   it("(c) allows the same file on the SECOND call (already in .brief-blocked)", () => {

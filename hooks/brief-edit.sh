@@ -20,6 +20,11 @@ ROOT="$(git -C "$(dirname "$FILE")" rev-parse --show-toplevel 2>/dev/null)"
 [ -n "$ROOT" ] || ROOT="$(printf '%s' "$PAYLOAD" | jq -r '.cwd // empty' 2>/dev/null)"
 [ -n "$ROOT" ] || exit 0
 
+# Canonicalize ROOT the same way FILE is canonicalized, so the prefix strip works
+# even on macOS where /tmp → /private/tmp (important when ROOT came from .cwd fallback).
+_RROOT="$(cd "$ROOT" 2>/dev/null && pwd -P 2>/dev/null)"
+[ -n "$_RROOT" ] && ROOT="$_RROOT"
+
 # Resolve symlinks in FILE so the prefix strip works even on macOS where /tmp → /private/tmp.
 _DIR="$(dirname "$FILE")"
 _BASE="$(basename "$FILE")"
