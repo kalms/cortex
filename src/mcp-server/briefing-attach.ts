@@ -1,5 +1,6 @@
 import type { RepoContext } from "./repo-context.js";
 import { composeBriefing } from "../briefing/compose.js";
+import { markBriefed } from "../briefing/ledger.js";
 import { DecisionSearch } from "../decisions/search.js";
 import { projectFromCtx } from "./tools/code-tools-shared.js";
 
@@ -33,6 +34,7 @@ export function attachBriefing<T extends TextResult>(
     const first = result.content?.find((c) => c.type === "text");
     if (first) first.text += `\n\n${b.headline}`;
     (result as TextResult).briefing = { gated: b.gated, escalate: b.escalate };
+    markBriefed(ctx.repoPath, target);   // disarm the edit-time backstop for this studied target
     return result;
   } catch {
     return result; // degrade-safe — never break a tool response
