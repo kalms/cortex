@@ -271,3 +271,23 @@ describe("brief-edit.sh — degrade-safe paths", () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(headline);
   });
 });
+
+// ---------------------------------------------------------------------------
+// hooks.json wiring assertion — Edit|Write|MultiEdit → brief-edit.sh
+// ---------------------------------------------------------------------------
+
+describe("hooks.json wiring — brief-edit.sh is registered for Edit|Write|MultiEdit", () => {
+  it("has a PreToolUse matcher for Edit|Write|MultiEdit pointing at brief-edit.sh", () => {
+    const hooksJsonPath = join(process.cwd(), "hooks/hooks.json");
+    const config = JSON.parse(readFileSync(hooksJsonPath, "utf-8"));
+    const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> =
+      config.hooks?.PreToolUse ?? [];
+    const entry = preToolUse.find((e) => e.matcher === "Edit|Write|MultiEdit");
+    expect(entry, "PreToolUse must have an Edit|Write|MultiEdit matcher").toBeDefined();
+    const commands = entry!.hooks.map((h) => h.command);
+    expect(
+      commands.some((cmd) => cmd.includes("brief-edit.sh")),
+      "the Edit|Write|MultiEdit matcher must point to brief-edit.sh",
+    ).toBe(true);
+  });
+});
