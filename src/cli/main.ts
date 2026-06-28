@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   }
   if (argv.namespace === "brief") {
     const ctx = loadContext(process.cwd());
-    runBriefCommand(ctx, argv.command ?? argv.positionals[0] ?? null);
+    runBriefCommand(ctx, argv.command ?? argv.positionals[0] ?? null, argv.flags);
     return;
   }
   if (argv.namespace === "help") {
