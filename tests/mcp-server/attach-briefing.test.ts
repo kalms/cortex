@@ -64,6 +64,8 @@ describe("attachBriefing", () => {
     const r = { content: [{ type: "text", text: "snippet" }] };
     attachBriefing(r, fakeCtxGated(), "src/foo.ts::bar");
     expect(vi.mocked(markBriefed)).toHaveBeenCalledWith("/repo", "src/foo.ts::bar");
+    // Also records the FILE path so the edit backstop is disarmed for the file
+    expect(vi.mocked(markBriefed)).toHaveBeenCalledWith("/repo", "src/foo.ts");
   });
   it("does NOT record when ungated", () => {
     vi.mocked(markBriefed).mockClear();

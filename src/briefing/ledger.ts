@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, appendFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 export function ledgerPath(repoPath: string): string {

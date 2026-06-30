@@ -35,6 +35,9 @@ export function attachBriefing<T extends TextResult>(
     if (first) first.text += `\n\n${b.headline}`;
     (result as TextResult).briefing = { gated: b.gated, escalate: b.escalate };
     markBriefed(ctx.repoPath, target);   // disarm the edit-time backstop for this studied target
+    // The edit-time backstop keys on repo-relative FILE paths; record the file so
+    // studying a symbol (qn `file::member`) disarms edits to that file.
+    if (target.includes("::")) markBriefed(ctx.repoPath, target.slice(0, target.indexOf("::")));
     return result;
   } catch {
     return result; // degrade-safe — never break a tool response
