@@ -68,6 +68,22 @@ export type Event =
       };
     })
   | (EventEnvelope & {
+      kind: 'todo.proposed';
+      payload: { todo_id: string; summary: string };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.updated';
+      payload: { todo_id: string; changed_fields: string[] };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.transitioned';
+      payload: { todo_id: string; from: string; to: string };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.linked';
+      payload: { todo_id: string; target: string; relation: string };
+    })
+  | (EventEnvelope & {
       kind: 'commit';
       payload: {
         hash: string;
