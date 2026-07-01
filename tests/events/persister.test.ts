@@ -80,4 +80,38 @@ describe('EventPersister', () => {
     expect(persister.getMeta('last_seen_head')).toBe('abc123');
     expect(persister.getMeta('missing')).toBeUndefined();
   });
+
+  it("since() returns events after the cursor in ascending ULID order", () => {
+    persister = new EventPersister(':memory:');
+    const a = makeEvent({ id: '01HXZ000000000000000000000' });
+    persister.insert(a);
+    const b = makeEvent({ id: '01HXZ000000000000000000001' });
+    persister.insert(b);
+    const c = makeEvent({ id: '01HXZ000000000000000000002' });
+    persister.insert(c);
+    const page = persister.since({ since_id: a.id, limit: 10 });
+    expect(page.events.map((e) => e.id)).toEqual([b.id, c.id]);
+    expect(page.has_more).toBe(false);
+  });
+
+  it("since() flags has_more past the limit", () => {
+    persister = new EventPersister(':memory:');
+    const first = makeEvent({ id: '01HXZ000000000000000000000' });
+    persister.insert(first);
+    for (let i = 0; i < 3; i++)
+      persister.insert(makeEvent({ id: `01HXZ00000000000000000000${i + 1}` }));
+    const page = persister.since({ since_id: first.id, limit: 2 });
+    expect(page.events.length).toBe(2);
+    expect(page.has_more).toBe(true);
+  });
+
+  it("head() returns the newest id, null when empty", () => {
+    persister = new EventPersister(':memory:');
+    expect(persister.head()).toBeNull();
+    const a = makeEvent({ id: '01HXZ000000000000000000000' });
+    persister.insert(a);
+    const b = makeEvent({ id: '01HXZ000000000000000000001' });
+    persister.insert(b);
+    expect(persister.head()).toBe(b.id);
+  });
 });

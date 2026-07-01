@@ -30,6 +30,8 @@ export class EventPersister {
   private backfillBeforeStmt: Database.Statement;
   private setMetaStmt: Database.Statement;
   private getMetaStmt: Database.Statement;
+  private sinceStmt: Database.Statement;
+  private headStmt: Database.Statement;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -53,6 +55,11 @@ export class EventPersister {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     );
     this.getMetaStmt = this.db.prepare(`SELECT value FROM meta WHERE key = ?`);
+    this.sinceStmt = this.db.prepare(
+      `SELECT id, kind, actor, created_at, project_id, payload
+       FROM events WHERE id > ? ORDER BY id ASC LIMIT ?`,
+    );
+    this.headStmt = this.db.prepare(`SELECT id FROM events ORDER BY id DESC LIMIT 1`);
   }
 
   /** Inserts one event. Idempotent by ULID primary key: re-inserting an existing id throws. */
@@ -95,6 +102,26 @@ export class EventPersister {
   getMeta(key: string): string | undefined {
     const row = this.getMetaStmt.get(key) as { value: string } | undefined;
     return row?.value;
+  }
+
+  /**
+   * Forward page for catch-up: events strictly AFTER `since_id`, ULID-ascending.
+   * `has_more` uses the same +1-row probe as backfill(). Callers treat
+   * has_more=true as "replay window exceeded → snapshot instead".
+   */
+  since(opts: { since_id: string; limit: number }): {
+    events: Event[];
+    has_more: boolean;
+  } {
+    const rows = this.sinceStmt.all(opts.since_id, opts.limit + 1) as RowShape[];
+    const has_more = rows.length > opts.limit;
+    return { events: rows.slice(0, opts.limit).map(rowToEvent), has_more };
+  }
+
+  /** Newest event ULID (the sync head), or null for an empty log. */
+  head(): string | null {
+    const row = this.headStmt.get() as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
   close(): void {
