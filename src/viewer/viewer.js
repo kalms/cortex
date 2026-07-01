@@ -450,6 +450,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     if (!focusedFrameId && !previousFocusId) return { t: 0, focused: null, from: null };
     const dt = performance.now() - focusT0;
     const raw = Math.min(1, dt / FOCUS_DURATION);
+    // Once the transition completes, drop the from-state. Keeping it alive made
+    // drawFrames render the defocused frame's marginalia at alpha 0 forever,
+    // leaving invisible-but-hoverable pill hit rects on the canvas.
+    if (raw >= 1) previousFocusId = null;
     const t = ease(raw);
     return { t, focused: focusedFrameId, from: previousFocusId };
   }
@@ -1475,6 +1479,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   const marginaliaRects = [];
 
   function drawMarginaliaForFrame(frameId, alphaMult) {
+    // Invisible pills must not register hit rects — anything drawn here is
+    // hoverable/clickable via marginaliaRects, so skip the fully-faded state.
+    if (alphaMult <= 0.01) return;
     const frame = FRAMES.find(f => f.id === frameId);
     if (!frame) return;
     const decs = getFrameDecisions(frameId);
