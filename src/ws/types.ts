@@ -5,4 +5,6 @@ export type {
   GraphMutation,
   WireNode,
   WireEdge,
+  ProjectionEntity,
+  ProjectionDelta,
 } from '../events/types.js';

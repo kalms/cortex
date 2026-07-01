@@ -27,6 +27,6 @@ export function decodeClient(raw: string): ClientMsg {
     throw new Error('not a JSON object');
   }
   const type = (obj as { type?: unknown }).type;
-  if (type === 'ping' || type === 'backfill') return obj as ClientMsg;
+  if (type === 'ping' || type === 'backfill' || type === 'catchup') return obj as ClientMsg;
   throw new Error(`unknown client message type: ${String(type)}`);
 }

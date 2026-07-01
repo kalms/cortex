@@ -18,6 +18,7 @@ function fakePersister(): EventPersister {
       events: [] as Event[],
       has_more: false,
     }),
+    head: () => null,
   } as unknown as EventPersister;
 }
 
@@ -42,7 +43,7 @@ describe('WebSocket server', () => {
     const hello = await new Promise<ServerMsg>((resolve) => {
       ws.once('message', (d: Buffer) => resolve(JSON.parse(d.toString())));
     });
-    expect(hello).toEqual({ type: 'hello', project_id: 'p', server_version: '0.2.0' });
+    expect(hello).toEqual({ type: 'hello', project_id: 'p', server_version: '0.2.0', head_ulid: null });
     ws.close();
   });
 
@@ -73,6 +74,7 @@ describe('WebSocket server', () => {
         } as Event],
         has_more: false,
       }),
+      head: () => null,
     } as unknown as EventPersister;
 
     const { port } = await startServer(persister);

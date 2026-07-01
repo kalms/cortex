@@ -64,6 +64,7 @@ export function startWsServer(opts: WsServerOpts): WsServerHandle {
           type: 'hello',
           project_id: opts.projectId,
           server_version: opts.serverVersion,
+          head_ulid: opts.persister.head(),
         });
       }, 5);
 
