@@ -1,9 +1,10 @@
 # Reactive Viewer — Read-Path Sync Engine (design)
 
-> Status: **draft, brainstorm cut short** (laptop retirement — preserved for continuation).
+> Status: **complete — all open items settled, ready for implementation planning.**
 > Date: 2026-07-01. Owner: rka.
 > Companion prototype: [`assets/2026-07-01-viewer-change-treatments.html`](assets/2026-07-01-viewer-change-treatments.html)
-> (open in a browser — the four change treatments animate on a faithful recreation of the viewer surface).
+> (open in a browser — mode **E · v5 live grammar** is the locked treatment; A–D are kept
+> for comparison).
 
 ## Goal
 
@@ -92,13 +93,21 @@ Bootstrap + catch-up:
 connect → hello{ project_id, head_ulid }
 no local state    → GET snapshot (/api/decisions,/todos,…) → build store; cursor = head_ulid
 have cursor C     → send backfill{ since: C }
-      server: (head-C) small  → replay projection deltas C..head
-              (head-C) large  → snapshot + new cursor          # snapshot-vs-replay threshold
+      server: (head-C) ≤ 500  → replay projection deltas C..head
+              (head-C) > 500  → snapshot + new cursor          # snapshot-vs-replay threshold
 live → deltas applied in ULID order; cursor advances to each ulid
 ```
 
-- **Snapshot-vs-replay threshold** (the one piece that earns its keep at scale): a client gone a long
-  time re-snapshots instead of replaying tens of thousands of deltas. ~15 lines; removes a cliff.
+- **Snapshot-vs-replay threshold: 500 deltas** (settled). A client gone a long time re-snapshots
+  instead of replaying tens of thousands of deltas. ~15 lines; removes a cliff. Plain constant,
+  tunable later; on localhost either path is fast — the threshold exists so team scale has no cliff.
+- **Catch-up applies silently** (settled): backfilled/replayed deltas update the store but do **not**
+  fire change treatments — no burst of stale animations after a laptop wake. Only deltas received
+  while live-connected animate. frameHeat starts cold after a resync.
+- **Connection state = one quiet toolbar indicator, no banners** (settled): a small mono dot+word in
+  the existing toolbar row — `live` (dot in base color) → `syncing` (text-3, during
+  backfill/snapshot) → `offline` (text-4, once reconnect backoff kicks in). Disconnection locally is
+  almost always the dev server restarting; the reconnecting client heals in seconds.
 - **Idempotency/order:** deltas apply in ULID order; duplicate/overlap (reconnect) is safe (upsert by
   id; `remove` of an absent id is a no-op). Drop any delta whose `ulid <= cursor`.
 - Server stays **stateless per-connection** (matches the existing client-driven-backfill rationale).
@@ -146,27 +155,47 @@ store.subscribe(fn)  // observers (the renderer) fire after a flush
    the frames-viewer diff focused). Add a reconnecting client (backoff already modeled in the WS
    design) that feeds `store.apply`.
 
-## Graceful adaptation — change treatments (⚠ OPEN — user to pick)
+## Graceful adaptation — change treatment (✅ LOCKED: E · v5 live grammar)
 
-How a live change announces itself on the canvas. Prototyped and **QA-verified in a real browser**
-(see companion asset). Four options; **not mutually exclusive**:
+**Settled after user review.** The first four prototyped options (A pulse & glow, B recency tint,
+C ripple, D shimmer — kept in the companion asset for comparison) were rejected as below the
+viewer's visual fidelity: they shout where the viewer whispers (halos at 0.6–0.7 alpha vs. a
+canvas whose loudest continuous element is a 0.45-alpha sine ring), they break the color
+semantics (hue is *identity and state*, never event — amber means stale, red means blocked), and
+they introduce foreign materials (specular sweeps, filled badge chips).
 
-- **A · Pulse & glow** — new = green grow-in w/ halo, update = amber pulse, remove = red fade+shrink.
-  Fast settle, low residue, legible under bursts. *(Recommended base motion.)*
-- **B · Recency tint + actor** — changed frame tints in its layer hue + draining "freshness" bar +
-  a small **actor badge** (who). Built for the 40-person stream. More persistent, more visual load.
-- **D · Shimmer sweep** — a soft specular sweep across the changed frame + a glint on the dot.
-  Elegant, quiet, no color shift. Candidate specifically for the *update* treatment.
-- **C · Activity ripple** — rings fire from the changed node along edges to connected frames. Most
-  "alive"; needs rate-limiting under bursts.
+The locked treatment instead **re-adopts the live-activity grammar the original
+[`cortex-frames-prototype-v5.html`](../../specs/cortex-v0.3/cortex-frames-prototype-v5.html)
+already designed** — the layer that was dropped when the viewer was wired to real data — now
+driven by real projection deltas instead of the simulation. No pulse animations anywhere
+(explicit user constraint): every signal is a **state that decays**, not an oscillation.
 
-**Shared across all:** enter (grow-in) / update / exit (fade) timing. They differ on **residue** (how
-long the signal lingers) and **attribution** (whether who-did-it shows). Natural combos: *A's motion
-+ B's actor badge*, or *shimmer as the update treatment* with pulse for create/remove.
+| Event | Treatment (v5 source) |
+|---|---|
+| **create** | The dot is born as an **outline** ("sketch"), then **fills** ("commit") — v5's added-node → merge-beat grammar. Eases with the standard `ease()` / card cubic-bezier. |
+| **update** | The entity's connections (leader lines) **fire once, synapse-style** — alpha 0.3 → 0.7 peak and settle, v5's 580 ms edge-intensity pattern — while the dot's halo lifts (0.10 → ~0.26) and **drains back linearly over ~3.5 s** (v5's `colorAmount` decay). No scale change, no ring, no hue shift. |
+| **remove** | Reverse of birth: the fill **drains back to outline**, then the sketch fades. No red. |
+| **residue** | v5 **`frameHeat`**: the containing frame's border warms by `+0.15 · intensity` over the 0.08 base and decays over **~5.5 s**; repeated activity saturates intensity (`+= 0.03`, capped) rather than restarting. At team scale the canvas reads as *warmth where work is happening*. |
+| **attribution** | **Always on** (settled). v5 **presence pills**: vertically centered on the changed node, 11 px right of its center — agent-colored fill, dark content, **provider glyph** + name (e.g. `✳ claude`); the **user is base-white with no glyph** (`@rka`). The pill rides the change and fades with the halo drain. The `actor` field already rides every event envelope. |
 
-**Decision needed:** base motion (A / C / hybrid), attribution (actor badge toggle: off local /
-on multi-actor), and whether shimmer replaces the amber pulse for updates. The `actor` field already
-rides on every event envelope, so wiring attribution through now costs nothing structurally.
+**Deferred v5 elements** (designed-for, not in this effort): agent cursors traversing edges
+between changes (needs live presence data we don't stream) and per-file node touch-tinting
+toward the actor's hue (needs per-file change deltas; can ride the graph-mutation channel later).
+
+### Final-polish list (folded into implementation)
+
+- **Burst behavior:** frameHeat saturates (v5 `+0.03` capped at 1), halo drains restart at max
+  (not additive); the coalesced rAF flush already collapses N deltas → 1 repaint.
+- **Hidden tab:** on `visibilitychange` → hidden, deltas apply silently (same rule as catch-up);
+  no animation backlog plays on return.
+- **`prefers-reduced-motion`:** treatments collapse to instant state changes.
+- **Light mode:** all treatment colors route through the existing canvas theme helpers, as v5's did.
+- **Pill edge-flip:** presence pills near the right canvas edge flip to the node's left (same
+  logic the viewer's own node pills use).
+- **Layer toggles:** no treatment fires for a hidden layer (`showDecisions` / `showTodos` off).
+- **Removed-while-open:** if the entity whose drawer is open is removed, the card shows a quiet
+  removed state instead of vanishing.
+- **Project switch mid-stream:** deltas are keyed by project; stale-project deltas are dropped.
 
 ## Non-goals / scope boundaries
 
@@ -184,9 +213,11 @@ rides on every event envelope, so wiring attribution through now costs nothing s
   request): the log→deriver→delta→store→render path, one-adapter-two-transports, the cursor/catch-up
   protocol, the coalesced-render model. Cross-linked from `docs/architecture/graph-ui.md`.
 - Backend: `todo.*` events + emitter; projection deriver; `projection` `ServerMsg` variant + backfill
-  extension; snapshot-vs-replay threshold.
-- Client: `src/viewer/store.js` (normalized reactive store + coalesced flush); WS client; incremental
-  `buildGraph`; the chosen change-treatment animation layer.
+  extension; snapshot-vs-replay threshold (500).
+- Client: `src/viewer/store.js` (normalized reactive store + coalesced flush); WS client with
+  reconnect + silent catch-up + toolbar live/syncing/offline indicator; incremental `buildGraph`;
+  the **E · v5 live grammar** treatment layer (frameHeat, synapse fire, outline→fill births,
+  presence pills — constants ported from `cortex-frames-prototype-v5.html`).
 
 ## Testing strategy
 
@@ -194,14 +225,17 @@ rides on every event envelope, so wiring attribution through now costs nothing s
   projection deriver (event → adapted delta per kind), snapshot-vs-replay threshold selection.
 - **Integration:** WS `projection` round-trip; reconnect catch-up (replay path + snapshot path);
   todo emit → delta end-to-end.
-- **Gate 0 visual QA (on the running viewer):** the chosen change treatment under a single change and
-  under a burst; final motion-fidelity tuning happens here.
+- **Gate 0 visual QA (on the running viewer):** the E treatment under a single change and under a
+  burst; reconnect indicator states; final motion-fidelity tuning happens here.
 
-## Open items at cut-off
+## Settled during review (2026-07-01, session 2)
 
-1. **Change treatment not locked** (Section above) — needs the user's pick.
-2. Reconnect/resync UX detail (Section "Delta protocol") — threshold value + user-visible state.
-3. "Final polish" list never enumerated (brainstorm ended early).
-4. Spec self-review + user review gate (brainstorming checklist) not completed.
-5. Then: `writing-plans` to produce the implementation plan.
-```
+1. **Change treatment: E · v5 live grammar** — locked (section above). A–D rejected on brand
+   fidelity; treatment re-adopts the original prototype's live layer, delta-driven, pulse-free.
+2. **Attribution: always on**, v5 presence pills; agent-made changes carry the provider glyph,
+   the user renders base-white.
+3. **Reconnect/resync:** 500-delta snapshot threshold; silent catch-up (no stale animations);
+   quiet toolbar `live / syncing / offline` indicator, no banners.
+4. **Final-polish list** enumerated (section above).
+
+Next: `writing-plans` to produce the implementation plan.

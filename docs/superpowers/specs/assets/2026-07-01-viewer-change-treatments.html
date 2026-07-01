@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Change treatments — v2 (+ shimmer, faithful decisions)</title>
+<title>Change treatments — v3 (+ E · v5 live grammar)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -31,6 +31,7 @@
   .seg:hover{border-color:#36363e;color:var(--text);}
   .seg.active{border-color:rgba(111,155,255,.7);color:#fff;background:rgba(111,155,255,.08);}
   .seg .k{width:8px;height:8px;border-radius:50%;}
+  .seg .k.e{background:linear-gradient(90deg,rgb(var(--green)),rgb(var(--orchestration)));}
   .seg .k.a{background:rgb(var(--green));}
   .seg .k.b{background:rgb(var(--orchestration));}
   .seg .k.d{background:linear-gradient(90deg,#bcd0ff,#fff);}
@@ -79,6 +80,65 @@
   .shimmer-clip{position:absolute;border-radius:9px;overflow:hidden;pointer-events:none;z-index:2;}
   .shimmer-band{position:absolute;top:-25%;left:-70%;width:55%;height:150%;transform:skewX(-18deg);opacity:0;
     background:linear-gradient(105deg,transparent 0,rgba(198,216,255,.0) 35%,rgba(210,225,255,.45) 50%,rgba(198,216,255,0) 65%,transparent 100%);}
+
+  /* ---- MODE E: v5 live grammar — the original prototype's OWN activity
+     vocabulary (cortex-frames-prototype-v5.html), driven by deltas instead of
+     the simulation. frameHeat border warmth (+0.15·intensity, ~5.5s decay),
+     merge-beat outline→fill births, the 0.35-alpha white ring pulse, synapse
+     brighten along connections, and v5 presence pills (agent-colored fill,
+     dark text, provider glyph). 7s loop: create → update → remove. ---- */
+  /* create: v5's added-node grammar — the dot is born as an OUTLINE (sketch),
+     then fills (commit), with the tiny merge-beat ring pulse. */
+  @keyframes eNew{
+    0%{opacity:0;transform:scale(.4);background:rgba(var(--green),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),0);}
+    5%{opacity:1;transform:scale(1);background:rgba(var(--green),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),.06);}
+    13%,100%{opacity:1;transform:scale(1);background:rgba(var(--green),1);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),.10);}}
+  /* update: NO pulse — v5's decaying-state idiom (colorAmount): the halo
+     lifts to a brighter level and DRAINS back linearly over ~3.5s, while the
+     entity's connections fire once, synapse-style (leader alpha .3→.7 peak,
+     580ms). No scale change, no ring. Stays green — amber means stale. */
+  @keyframes eUpd{0%,30%{box-shadow:0 0 0 3px rgba(var(--green),.10);}
+    33%{box-shadow:0 0 0 3px rgba(var(--green),.26);}
+    80%,100%{box-shadow:0 0 0 3px rgba(var(--green),.10);}}
+  @keyframes eLead{0%,31%{background:rgba(var(--green),.3);}
+    36%{background:rgba(var(--green),.7);}46%,100%{background:rgba(var(--green),.3);}}
+  /* remove: reverse of birth — fill drains back to outline, then the sketch
+     fades. No red. */
+  @keyframes eRm{0%,56%{opacity:1;transform:scale(1);background:rgba(var(--todo),1);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),.12);}
+    63%{opacity:1;transform:scale(1);background:rgba(var(--todo),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),0);}
+    72%,100%{opacity:0;transform:scale(.6);background:rgba(var(--todo),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),0);}}
+  /* residue: v5 frameHeat — border warms by +0.15·intensity over the .22 base
+     and decays over ~5.5s. Team scale reads as warmth where work happens. */
+  @keyframes eWarm{0%{border-color:rgba(var(--orchestration),.22);}
+    8%{border-color:rgba(var(--orchestration),.37);}
+    86%,100%{border-color:rgba(var(--orchestration),.22);}}
+  /* attribution: v5 presence pills — agent-colored fill, dark content,
+     provider glyph + name; the user is base-white with no glyph. */
+  @keyframes ePillA{0%{opacity:0;transform:translateY(3px);}6%{opacity:1;transform:translateY(0);}
+    38%{opacity:1;}52%,100%{opacity:0;}}
+  @keyframes ePillB{0%,30%{opacity:0;transform:translateY(3px);}36%{opacity:1;transform:translateY(0);}
+    66%{opacity:1;}80%,100%{opacity:0;}}
+  /* presence pill: v5 cursor-pill placement — vertically CENTERED on the
+     node, 11px right of its center. */
+  .presence{position:absolute;z-index:6;height:18px;display:flex;align-items:center;gap:5px;
+    padding:0 8px;border-radius:9px;font-family:var(--mono);font-size:10px;font-weight:500;
+    color:#0f0f0f;opacity:0;white-space:nowrap;}
+  .presence .glyph{font-size:8px;line-height:1;}
+  .presence.claude{background:#60a5fa;}
+  .presence.user{background:#ededed;}
+  .stage.mode-e #chgdot{animation:eNew 7s cubic-bezier(.2,.8,.2,1) infinite;}
+  .stage.mode-e #updot{animation:eUpd 7s linear infinite;}
+  .stage.mode-e .leader{animation:eLead 7s ease-in-out infinite;}
+  .stage.mode-e #sync{animation:eWarm 7s linear infinite;}
+  .stage.mode-e #rmtodo{animation:eRm 7s ease-in infinite;}
+  .stage.mode-e .presence.p1{animation:ePillA 7s ease-out infinite;}
+  .stage.mode-e .presence.p2{animation:ePillB 7s ease-out infinite;}
 
   /* ---- MODE A: pulse & glow ---- */
   @keyframes aNew{0%{transform:scale(0);opacity:0;box-shadow:0 0 0 0 rgba(var(--green),0);}
@@ -140,7 +200,8 @@
   <p class="sub">Faithful now: decisions are <b>ambient green dots</b>; the labeled green pills only appear as <b>marginalia when a frame is focused</b> (SYNC is focused here). TODOs are yellow dots. Pick a treatment — it plays on SYNC's changed decision and loops.</p>
 
   <div class="controls">
-    <div class="seg active" data-choice="a" onclick="setMode('a',this)"><span class="k a"></span> A · Pulse &amp; glow</div>
+    <div class="seg active" data-choice="e" onclick="setMode('e',this)"><span class="k e"></span> E · v5 live grammar</div>
+    <div class="seg" data-choice="a" onclick="setMode('a',this)"><span class="k a"></span> A · Pulse &amp; glow</div>
     <div class="seg" data-choice="b" onclick="setMode('b',this)"><span class="k b"></span> B · Recency tint + actor</div>
     <div class="seg" data-choice="d" onclick="setMode('d',this)"><span class="k d"></span> D · Shimmer sweep</div>
     <div class="seg" data-choice="c" onclick="setMode('c',this)"><span class="k c"></span> C · Activity ripple</div>
@@ -149,7 +210,7 @@
     <div class="seg" onclick="apply()">↻ Replay</div>
   </div>
 
-  <div class="stage mode-a" id="stage">
+  <div class="stage mode-e" id="stage">
     <div class="edge c-edge" style="left:175px;top:118px;width:360px;transform:rotate(17deg);"></div>
     <div class="edge c-edge" style="left:520px;top:228px;width:330px;transform:rotate(-15deg);"></div>
     <div class="edge c-edge" style="left:520px;top:228px;width:120px;transform:rotate(57deg);"></div>
@@ -220,6 +281,10 @@
       <div class="shimmer-band"></div>
     </div>
 
+    <!-- mode E: v5 presence pills — vertically centered on their node, 11px right -->
+    <div class="presence claude p1" style="left:562px;top:294px;"><span class="glyph">✳</span>claude</div>
+    <div class="presence user p2" style="left:574px;top:134px;">@rka</div>
+
     <!-- mode C ripple from change target -->
     <div class="ripple" style="left:540px;top:292px;width:24px;height:24px;"></div>
     <div class="ripple r2" style="left:540px;top:292px;width:24px;height:24px;"></div>
@@ -237,18 +302,25 @@
   </div>
 
   <p class="foot">
+    <b>E</b> the original v5 prototype's live-activity grammar, driven by real deltas —
+    <b>no pulses anywhere</b>: create = outline "sketch" that <b>fills</b> (v5 added-node → merge
+    beat) · update = connections fire once, synapse-style, and the halo lifts then <b>drains</b>
+    (~3.5s, v5's colorAmount decay — a state, not an oscillation) · remove = fill drains to
+    outline, sketch fades · residue = v5 <b>frameHeat</b> (border +0.15·intensity, ~5.5s decay) ·
+    attribution = v5 <b>presence pills</b> vertically centered on the node (agent-colored fill +
+    provider glyph; the user is base-white). No hue swaps — amber = stale, red = blocked. &nbsp;
     <b>A</b> grow-in / amber pulse / red fade — fast settle, low residue. &nbsp;
     <b>B</b> frame tints in its layer hue + draining freshness bar + actor badge (who). &nbsp;
     <b>D</b> a soft specular <b>shimmer</b> sweeps across the changed frame + a glint on the dot — elegant, quiet, no color shift. &nbsp;
     <b>C</b> ripple fires along edges — most alive, needs rate-limiting.
   </p>
-  <p class="picked" id="picked">Showing: A · Pulse &amp; glow</p>
+  <p class="picked" id="picked">Showing: E · v5 live grammar</p>
 </div>
 
 <script>
   var stage=document.getElementById('stage');
-  var cur='a';
-  var names={a:'A · Pulse & glow',b:'B · Recency tint + actor',d:'D · Shimmer sweep',c:'C · Activity ripple'};
+  var cur='e';
+  var names={e:'E · v5 live grammar',a:'A · Pulse & glow',b:'B · Recency tint + actor',d:'D · Shimmer sweep',c:'C · Activity ripple'};
   function setMode(m,el){
     cur=m;
     document.querySelectorAll('.seg[data-choice]').forEach(function(s){s.classList.remove('active');});
@@ -257,7 +329,7 @@
     document.getElementById('picked').textContent='Selected: '+names[m]+' — tell me in the terminal (combos welcome).';
   }
   function apply(){
-    stage.classList.remove('mode-a','mode-b','mode-c','mode-d');
+    stage.classList.remove('mode-a','mode-b','mode-c','mode-d','mode-e');
     void stage.offsetWidth;
     stage.classList.add('mode-'+cur);
   }
