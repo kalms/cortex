@@ -17,6 +17,33 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.3] — 2026-07-01
+
+### Added
+
+- **Edit-time block-once backstop (reflex layer, Plan 2).** A `PreToolUse`
+  hook (`hooks/brief-edit.sh`, on `Edit`/`Write`/`MultiEdit`) now catches the
+  case where you edit a *gated* file (governed by an active decision, or with a
+  blast radius above `CORTEX_BRIEF_FANOUT`) **without having studied it first**.
+  On the first such edit it denies once with the same briefing headline
+  `cortex brief` produces — naming the governing decision, its verdict, and the
+  caller count — then records the file so a re-issue proceeds. Studying the file
+  in the same session (`get_code_snippet`/`trace_path`) disarms the backstop:
+  study-time enrichment records both the studied qualified-name **and its file
+  path** in a session **briefed-ledger** (`.cortex/.briefed`), which the hook
+  keys on. A `cortex brief --build-gate-cache` step (run at SessionStart)
+  precomputes the gated-path set (`.cortex/.brief-gate-cache`) so the hook
+  answers most edits with no CLI spawn. Gated-path selection is **active-only**
+  (superseded decisions never gate).
+
+### Notes
+
+- Additive and degrade-safe: the hook exits **allow** on any failure (missing
+  `jq`, unresolvable CLI, empty payload, non-edit tool) and is gated off with
+  `CORTEX_BRIEF=0` (whole reflex layer) or `CORTEX_BRIEF_BLOCK=0` (backstop
+  only). It intervenes at most once per file per session — silence by default.
+  The SessionStart onboarding headline remains deferred to reflex-layer Plan 3.
+
 ## [1.2.2] — 2026-06-27
 
 ### Added
@@ -1028,6 +1055,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.3]: https://github.com/ruevu/cortex/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ruevu/cortex/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ruevu/cortex/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ruevu/cortex/releases/tag/v1.2.0

@@ -9,6 +9,27 @@ export class DecisionSearch {
     private links: DecisionLinksRepository,
   ) {}
 
+  /**
+   * Return DISTINCT path target_refs governed by active decisions only.
+   * Filters to: target_kind === "path", relation === "GOVERNS", and the
+   * owning decision's status === "active". Used by the gate-cache builder
+   * so that superseded/deprecated/proposed decisions never contribute paths.
+   */
+  findGovernedActivePaths(): string[] {
+    // Collect all GOVERNS links of kind "path" across all active decisions.
+    const activePaths = new Set<string>();
+    for (const rec of this.decisions.list()) {
+      if (rec.status !== "active") continue;
+      const governLinks = this.links.findByDecision(rec.id).filter(
+        (l) => l.relation === "GOVERNS" && l.target_kind === "path",
+      );
+      for (const l of governLinks) {
+        activePaths.add(l.target_ref);
+      }
+    }
+    return Array.from(activePaths);
+  }
+
   /** Return all decisions whose GOVERNS link matches `target` or any of its
    *  ancestor paths. Walks up '/' separators in `target` until a hit lands. */
   findGoverning(target: string): Decision[] {
