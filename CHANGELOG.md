@@ -17,6 +17,20 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.4] — 2026-07-01
+
+### Fixed
+
+- **Viewer: ghost marginalia made decision nodes light up on hover far from the
+  cursor.** After focusing a frame and unfocusing it, `computeFocusProgress`
+  never dropped the from-state, so the defocused frame's marginalia pills kept
+  rendering at alpha 0 on every frame — invisible, but still registering hover
+  and click hit rects. Hovering that empty strip expanded the decision's
+  floating dot pill and leader lines anywhere on the canvas, and clicking empty
+  space opened its drawer. The from-state is now cleared the moment the focus
+  transition completes, and `drawMarginaliaForFrame` skips fully-faded pills so
+  invisible marginalia can never register hit rects.
+
 ## [1.2.3] — 2026-07-01
 
 ### Added
@@ -1055,6 +1069,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4
 [1.2.3]: https://github.com/ruevu/cortex/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ruevu/cortex/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ruevu/cortex/releases/tag/v1.2.1
