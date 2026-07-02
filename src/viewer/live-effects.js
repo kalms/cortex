@@ -11,7 +11,9 @@
  *   residue → frameHeat: border warmth bumps (+HEAT_BUMP, capped 1) and
  *            decays over HEAT_DECAY_MS (v5 frameHeat)
  *   attribution → presence pill riding the change; agent = 'claude'/'system'
- *            (glyph + agent color), user = anything else (@name, base-white)
+ *            (glyph + agent color), user = anything else (@name, base-white).
+ *            ONE pill per actor: a burst from the same author shows a single
+ *            pill that jumps to the latest changed dot, not a pill per change.
  *
  * reducedMotion collapses all motion to instant state changes but keeps the
  * attribution pills (information, not decoration) on a fixed short window.
@@ -31,7 +33,7 @@ export function createLiveEffects({ reducedMotion = false } = {}) {
   const leaders = new Map();    // id → t0
   const heat = new Map();       // frameId → { value, t0 } (value at t0, then linear decay)
   const tombs = new Map();      // id → { entity, x, y, t0 }
-  const pillsById = new Map();  // id → { x, y, name, isUser, t0 }
+  const pillsByActor = new Map(); // actor → { id, x, y, name, isUser, t0 } (id = latest changed entity)
   const dotPos = new Map();     // id → { x, y }
 
   function heatAt(frameId, now) {
@@ -45,7 +47,7 @@ export function createLiveEffects({ reducedMotion = false } = {}) {
   function noteChange({ kind, entity, id, frameIds = [], actor, now }) {
     const isUser = actor !== "claude" && actor !== "system";
     const pos = dotPos.get(id) || { x: null, y: null };
-    pillsById.set(id, { x: pos.x, y: pos.y, name: isUser ? "@" + actor : actor, isUser, t0: now });
+    pillsByActor.set(actor, { id, x: pos.x, y: pos.y, name: isUser ? "@" + actor : actor, isUser, t0: now });
 
     if (reducedMotion) return; // pills only
 
@@ -104,12 +106,12 @@ export function createLiveEffects({ reducedMotion = false } = {}) {
     pills(now) {
       const windowMs = reducedMotion ? REDUCED_PILL_MS : HALO_MS;
       const out = [];
-      for (const [id, p] of pillsById) {
+      for (const [actor, p] of pillsByActor) {
         const age = now - p.t0;
-        if (age >= windowMs) { pillsById.delete(id); continue; }
+        if (age >= windowMs) { pillsByActor.delete(actor); continue; }
         // Lazily adopt a position learned after the pill fired (fresh creates).
-        const pos = (p.x === null && dotPos.has(id)) ? dotPos.get(id) : p;
-        out.push({ id, x: pos.x, y: pos.y, name: p.name, isUser: p.isUser, alpha: 1 - age / windowMs });
+        const pos = (p.x === null && dotPos.has(p.id)) ? dotPos.get(p.id) : p;
+        out.push({ id: p.id, x: pos.x, y: pos.y, name: p.name, isUser: p.isUser, alpha: 1 - age / windowMs });
       }
       return out;
     },

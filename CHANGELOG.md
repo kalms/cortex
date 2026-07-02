@@ -42,7 +42,8 @@ All notable changes to Cortex are documented here. The format follows
     prototype's live-activity grammar, pulse-free — outline→fill births,
     synapse leader fires + draining halos on update, drain-to-outline
     removals, frame-border heat residue, and presence pills (agent `✳` on
-    `#60a5fa`, user base-white) with attribution always on.
+    `#60a5fa`, user base-white) with attribution always on — one pill per
+    actor, riding the latest change, so bursts don't stack pills.
   - **Sync indicator**: quiet toolbar `live / syncing / offline` state,
     shown for the server-bound project.
 - **Architecture page**: [`docs/architecture/viewer-sync-engine.md`](docs/architecture/viewer-sync-engine.md),

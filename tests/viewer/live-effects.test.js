@@ -62,6 +62,20 @@ describe("createLiveEffects", () => {
     expect(fx.pills(HALO_MS + 1)).toEqual([]);
   });
 
+  it("same-actor burst collapses to ONE pill riding the latest change", () => {
+    const fx = createLiveEffects();
+    fx.recordDotPos("t1", 10, 20);
+    fx.recordDotPos("t2", 30, 40);
+    fx.noteChange({ ...base, entity: "todo", id: "t1", kind: "create", now: 0 });
+    fx.noteChange({ ...base, entity: "todo", id: "t2", kind: "create", now: 100 });
+    const pills = fx.pills(100);
+    expect(pills.length).toBe(1);
+    expect(pills[0]).toMatchObject({ id: "t2", x: 30, y: 40, name: "claude", alpha: 1 });
+    // A different actor still gets their own pill alongside.
+    fx.noteChange({ entity: "todo", id: "t1", frameIds: [], actor: "rka", kind: "update", now: 100 });
+    expect(fx.pills(100).length).toBe(2);
+  });
+
   it("reducedMotion collapses motion but keeps attribution pills", () => {
     const fx = createLiveEffects({ reducedMotion: true });
     fx.recordDotPos("d1", 1, 2);

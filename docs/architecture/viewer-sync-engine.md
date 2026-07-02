@@ -492,7 +492,7 @@ perceptually calibrated against the canvas's continuous sine-ring animation.
 | **update** | Leader lines fire once, peaking at alpha 0.7 over `LEADER_MS` (triangular envelope). Dot halo lifts and drains linearly back to baseline over `HALO_MS`. No scale change, no ring, no hue shift. |
 | **remove** | Fill drains to outline then fades over `REMOVE_MS` (tombstone). No red color. |
 | **residue** | Containing frame's border warms by `HEAT_BUMP` (capped at 1) and decays over `HEAT_DECAY_MS`. Repeated activity saturates rather than restarts the heat. At team scale, the canvas reads as warmth where work is happening. |
-| **attribution** | **Always on.** Presence pill centered 11 px right of the dot: agent-colored fill for `actor === 'claude'` or `'system'` (with provider glyph), base-white fill for the user (`@name`). Pill alpha fades over `HALO_MS`. Under `prefers-reduced-motion`, pills remain (information, not decoration) at a fixed 2 s window; all motion collapses to instant state changes. |
+| **attribution** | **Always on.** Presence pill centered 11 px right of the dot: agent-colored fill for `actor === 'claude'` or `'system'` (with provider glyph), base-white fill for the user (`@name`). **One pill per actor** — a same-author burst shows a single pill that jumps to the latest changed dot (and refreshes its fade window), not a pill per change. Pill alpha fades over `HALO_MS`. Under `prefers-reduced-motion`, pills remain (information, not decoration) at a fixed 2 s window; all motion collapses to instant state changes. |
 
 **Why this grammar, not A–D?** Options A (pulse + glow), B (recency tint), C
 (ripple), and D (shimmer) were rejected after user review: they use treatment
