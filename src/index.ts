@@ -137,8 +137,13 @@ const supervisor = new WorkerSupervisor({
       if (msg.type === "broadcast" && wsHandle) {
         wsHandle.broadcast(msg.bundle);
         if (projectionSources) {
-          const deltas = deriveProjectionDeltas(msg.bundle.events, projectionSources);
-          if (deltas.length) wsHandle.broadcastProjections(deltas);
+          try {
+            const deltas = deriveProjectionDeltas(msg.bundle.events, projectionSources);
+            if (deltas.length) wsHandle.broadcastProjections(deltas);
+          } catch (err) {
+            process.stderr.write(`[projection] derive failed: ${(err as Error).message}\n`);
+            // Skip the projection broadcast — the event/mutation broadcast already happened above.
+          }
         }
       } else if (msg.type === "error") process.stderr.write(`[worker] ${msg.message}\n`);
     });
@@ -200,8 +205,17 @@ if (port > 0 && httpServer) {
     persister: mainPersister,
     projectId: indexerProject ?? "",
     serverVersion: "0.2.0",
-    deriveProjections: (events) =>
-      projectionSources ? deriveProjectionDeltas(events, projectionSources) : [],
+    deriveProjections: (events) => {
+      if (!projectionSources) return [];
+      try {
+        return deriveProjectionDeltas(events, projectionSources);
+      } catch (err) {
+        process.stderr.write(`[projection] derive failed during catchup: ${(err as Error).message}\n`);
+        // Degrade to an empty replay — the client sets its cursor to head and
+        // re-converges on the next change or reconnect. Never crash the process.
+        return [];
+      }
+    },
   });
   process.stderr.write(`Cortex viewer: http://localhost:${port}/viewer (WS at /ws)\n`);
 } else {

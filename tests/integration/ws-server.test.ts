@@ -116,6 +116,28 @@ describe('WebSocket server', () => {
     ws.close();
   });
 
+  it('bad catchup.since shape gets bad_message reply; connection stays open', async () => {
+    const { port } = await startServer(fakePersister());
+    const ws = new WebSocket(`ws://localhost:${port}/ws`);
+    await new Promise((r) => ws.once('open', r));
+    await new Promise((r) => ws.once('message', r)); // hello
+
+    // Send malformed catchup (since is an object — would crash better-sqlite3 without fix)
+    ws.send(JSON.stringify({ type: 'catchup', since: {} }));
+    const err = await new Promise<ServerMsg>((r) =>
+      ws.once('message', (d: Buffer) => r(JSON.parse(d.toString()))),
+    );
+    expect(err.type).toBe('error');
+    if (err.type === 'error') expect(err.code).toBe('bad_message');
+    // Connection must still be alive — send a ping and expect pong
+    ws.send(JSON.stringify({ type: 'ping' }));
+    const pong = await new Promise<ServerMsg>((r) =>
+      ws.once('message', (d: Buffer) => r(JSON.parse(d.toString()))),
+    );
+    expect(pong.type).toBe('pong');
+    ws.close();
+  });
+
   it('hello carries head_ulid', async () => {
     const { port } = await startServer(fakePersister());
     const ws = new WebSocket(`ws://localhost:${port}/ws`);

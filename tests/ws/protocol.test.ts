@@ -49,4 +49,59 @@ describe('WS protocol', () => {
     expect(() => decodeClient('42')).toThrow();
     expect(() => decodeClient('"hello"')).toThrow();
   });
+
+  describe('catchup payload validation', () => {
+    it('rejects missing since', () => {
+      expect(() => decodeClient('{"type":"catchup"}')).toThrow(/since/);
+    });
+
+    it('rejects since as number', () => {
+      expect(() => decodeClient('{"type":"catchup","since":42}')).toThrow(/since/);
+    });
+
+    it('rejects since as object', () => {
+      expect(() => decodeClient('{"type":"catchup","since":{}}')).toThrow(/since/);
+    });
+
+    it('rejects since as boolean', () => {
+      expect(() => decodeClient('{"type":"catchup","since":true}')).toThrow(/since/);
+    });
+
+    it('rejects since as empty string', () => {
+      expect(() => decodeClient('{"type":"catchup","since":""}')).toThrow(/since/);
+    });
+
+    it('accepts valid catchup', () => {
+      expect(decodeClient('{"type":"catchup","since":"01J00000000000000000000000"}')).toEqual({
+        type: 'catchup',
+        since: '01J00000000000000000000000',
+      });
+    });
+  });
+
+  describe('backfill payload validation', () => {
+    it('rejects limit as string', () => {
+      expect(() => decodeClient('{"type":"backfill","limit":"x"}')).toThrow(/limit/);
+    });
+
+    it('rejects limit as Infinity', () => {
+      expect(() => decodeClient('{"type":"backfill","limit":1e309}')).toThrow(/limit/);
+    });
+
+    it('rejects before_id as number', () => {
+      expect(() => decodeClient('{"type":"backfill","before_id":99}')).toThrow(/before_id/);
+    });
+
+    it('accepts valid backfill with no optional fields', () => {
+      expect(decodeClient('{"type":"backfill"}')).toEqual({ type: 'backfill' });
+    });
+
+    it('accepts valid backfill with limit and before_id', () => {
+      expect(decodeClient('{"type":"backfill","before_id":"abc","limit":10}')).toEqual({
+        type: 'backfill',
+        before_id: 'abc',
+        limit: 10,
+      });
+    });
+  });
 });
