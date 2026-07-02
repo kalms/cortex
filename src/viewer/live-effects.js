@@ -38,7 +38,8 @@ export function createLiveEffects({ reducedMotion = false } = {}) {
     const h = heat.get(frameId);
     if (!h) return 0;
     const v = h.value * (1 - (now - h.t0) / HEAT_DECAY_MS);
-    return v > 0 ? v : 0;
+    if (v <= 0) { heat.delete(frameId); return 0; } // self-clean like the other queries
+    return v;
   }
 
   function noteChange({ kind, entity, id, frameIds = [], actor, now }) {
