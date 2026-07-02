@@ -114,15 +114,18 @@ export class DecisionService {
     if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
     if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
-    this.decisions.update(canonicalId, patch);
-
-    // Governance replacement — full set semantics.
-    if (input.governs !== undefined) {
-      this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
-    }
-    if (input.references !== undefined) {
-      this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
-    }
+    // Record patch + governance replacement (full set semantics) land
+    // atomically — a failed link write must not leave the record updated.
+    // The replaceLinks transactions nest as savepoints.
+    this.db.transaction(() => {
+      this.decisions.update(canonicalId, patch);
+      if (input.governs !== undefined) {
+        this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
+      }
+      if (input.references !== undefined) {
+        this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
+      }
+    })();
 
     if (opts.emit !== false) {
       // If the update marked the decision superseded, prefer the

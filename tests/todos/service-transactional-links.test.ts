@@ -48,6 +48,13 @@ describe("TodoService.update — link replacement is atomic", () => {
     expect(governsFor(t.id)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
+  it("rolls back the record patch when link replacement fails", () => {
+    const t = svc.propose({ summary: "S", governs: ["src/a.ts"] });
+    expect(() => svc.update(t.id, { summary: "S2", governs: ["src/boom.ts"] })).toThrow();
+    expect(svc.get(t.id)?.summary).toBe("S");
+    expect(governsFor(t.id)).toEqual(["src/a.ts"]);
+  });
+
   it("rolls back removals AND partial inserts together", () => {
     const t = svc.propose({ summary: "S", governs: ["src/old.ts"] });
     expect(() => svc.update(t.id, { governs: ["src/aaa.ts", "src/boom.ts"] })).toThrow();

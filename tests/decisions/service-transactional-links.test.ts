@@ -60,6 +60,16 @@ describe("DecisionService.update — link replacement is atomic", () => {
     expect(targetsFor(d.id, "REFERENCES")).toEqual(["docs/spec.md"]);
   });
 
+  it("rolls back the record patch when link replacement fails", () => {
+    const d = svc.create({
+      title: "T", description: "D", rationale: "R",
+      governs: ["src/a.ts"],
+    });
+    expect(() => svc.update(d.id, { title: "T2", governs: ["src/boom.ts"] })).toThrow();
+    expect(svc.get(d.id)?.title).toBe("T");
+    expect(targetsFor(d.id, "GOVERNS")).toEqual(["src/a.ts"]);
+  });
+
   it("rolls back removals AND partial inserts together", () => {
     const d = svc.create({
       title: "T", description: "D", rationale: "R",

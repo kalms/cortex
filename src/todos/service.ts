@@ -136,8 +136,13 @@ export class TodoService {
     if (input.summary !== undefined) { patch.summary = input.summary; changedFields.push("summary"); }
     if (input.description !== undefined) { patch.description = input.description; changedFields.push("description"); }
     if (input.assignee !== undefined) { patch.assignee = input.assignee; changedFields.push("assignee"); }
-    this.todos.update(existing.id, patch);
-    if (input.governs !== undefined) { this.replaceLinks(existing.id, "GOVERNS", input.governs, now); changedFields.push("governs"); }
+    // Record patch + governance replacement land atomically — same guarantee
+    // as DecisionService.update. The replaceLinks transaction nests as a savepoint.
+    if (input.governs !== undefined) changedFields.push("governs");
+    this.db.transaction(() => {
+      this.todos.update(existing.id, patch);
+      if (input.governs !== undefined) this.replaceLinks(existing.id, "GOVERNS", input.governs, now);
+    })();
     this.emit({ ...this.envelope("todo.updated", "claude"),
       payload: { todo_id: existing.id, changed_fields: changedFields } } as Event);
     return rowToTodo({ ...existing, ...patch } as TodoRecord);
