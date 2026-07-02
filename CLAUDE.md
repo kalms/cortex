@@ -117,6 +117,24 @@ the area as drifting — treat it as a cue to read the decision before editing.
 Gate off with `CORTEX_BRIEF=0`. The same headline is available on demand via
 `cortex brief <path-or-qn>`.
 
+### Architecture hotspots — ranked-by-risk modules
+
+`get_architecture(aspects=["hotspots"])` returns `{ project, hotspots:
+HotspotArea[] }` — source modules ranked by **external inbound fan-in**
+(distinct CALLS/IMPORTS callers from outside the module). It's computed
+TS-side (no indexer round-trip); `nodes` and `governing_decisions` are display
+annotations, not part of the ranking. Other aspects (`all`/`structure`/…)
+still route to the indexer unchanged. Use it before touching a module you
+don't know well — a high fan-in module is the one most apt to break other
+things.
+
+The same ranking is available from the CLI: `cortex code arch --hotspots`
+prints the ranked table, and `cortex code arch --headline` prints the bounded
+(≤8-line) onboarding summary (scale + top hotspots + entrypoints) — empty on
+an empty graph. The onboarding headline also fires **once per session** from
+the SessionStart hook (session-id-sentinel-gated, inside the `CORTEX_BRIEF`
+block); set `CORTEX_ONBOARD=0` to disable it.
+
 ## MCP tool routing — always pass repo_path
 
 **Contract:** every Cortex MCP tool **requires an absolute `repo_path`**

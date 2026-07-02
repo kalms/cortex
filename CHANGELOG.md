@@ -17,6 +17,30 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.7] — 2026-07-03
+
+### Added
+
+- **Architecture hotspots — a `computeHotspots` primitive ranking source
+  modules by external inbound fan-in** (distinct CALLS/IMPORTS callers from
+  outside the module; `nodes` and `governing_decisions` are display
+  annotations only, not part of the ranking). Deterministic, computed
+  TS-side against the graph store — no indexer round-trip. Bridges the gap
+  between the global `get_architecture` histogram and per-symbol
+  `blastRadius`: fan-in is the "apt to break the most" signal.
+- **`get_architecture(aspects=["hotspots"])`** — new aspect returning
+  `{ project, hotspots: HotspotArea[] }`. Other aspects (`all`/`structure`/…)
+  still route to the indexer unchanged.
+- **`cortex code arch --hotspots`** — prints the ranked hotspot table.
+  **`cortex code arch --headline`** — prints the bounded (≤8-line) onboarding
+  headline (scale + top hotspots + entrypoints), or nothing on an empty
+  graph.
+- **Sentinel-gated SessionStart onboarding headline.** `hooks/check-index.sh`
+  emits the headline once per session — gated by a session-id sentinel
+  (`<repo>/.cortex/.oriented`) so it fires on a genuinely new session but not
+  on resume/compact — inside the existing `CORTEX_BRIEF` block. Set
+  `CORTEX_ONBOARD=0` to disable it.
+
 ## [1.2.6] — 2026-07-02
 
 ### Changed
