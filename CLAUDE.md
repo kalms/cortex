@@ -269,8 +269,8 @@ A freshly-indexed repo has zero decisions. The `check-index` hook detects this
 which frames candidates from git + docs via the read-only `decision({action:"candidates"})`
 MCP tool call and proposes them with machine-derived provenance. Seeded decisions are
 `status: "proposed"`, `author: "cortex:seed"`, and never become `active` without
-explicit user ratification (`decision({action:"update"})`). See
-[the design spec](docs/superpowers/specs/2026-05-28-cold-start-decision-seeding-design.md).
+explicit user ratification (`decision({action:"update"})`). See the "Cold-start
+seeding" section of [decisions-storage.md](docs/architecture/decisions-storage.md).
 
 ## Tools Available
 

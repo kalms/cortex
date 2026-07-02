@@ -176,7 +176,7 @@ export class RepoNotIndexedError extends Error {
  * Per-call resolution replaces the previous startup-time `repoPath` binding
  * that pooled writes from all tool calls into the server's home repo
  * (decisions DB) and made non-cwd projects unreachable (graph DB). See
- * `docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md`.
+ * `docs/architecture/graph-storage.md` ("Per-call repo routing (RepoContext)").
  *
  * Pool hits skip all I/O. Pool misses validate the path, open both DBs,
  * run the (idempotent) decisions migration, and cache the result.

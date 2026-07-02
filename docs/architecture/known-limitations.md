@@ -75,8 +75,8 @@ was orphaned → stale/empty reads (`project-graph-db-stale-reads`), and worse,
 the out-of-band `fopen("wb")` truncate under an open WAL handle corrupted the
 index b-trees. This was why auto-refresh ran only at SessionStart.
 
-**Resolved by the transactional-swap publish** (decision in
-`docs/superpowers/specs/2026-06-09-graphdb-transactional-swap-design.md`): the C
+**Resolved by the transactional-swap publish** (see
+[graph-storage.md](graph-storage.md#write-path-staging-build--transactional-publish)): the C
 indexer now writes a private staging DB (`.cortex/db.stage-<pid>`), and
 `publishStagedDb` reloads the live `.cortex/db` via one libsqlite3 WAL
 transaction (`ATTACH` + per-table `DELETE`/`INSERT…SELECT`). The canonical file

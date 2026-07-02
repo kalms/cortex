@@ -19,9 +19,6 @@ the drawer, and merge animation, the authoritative reference is
 `README.md`). The architecture docs above describe how those designs
 are implemented in code; the specs describe what they should do.
 
-For **execution plans** of features as they were built, see
-[`docs/superpowers/`](../superpowers/).
-
 For **field reports** — candid, dated evaluations of Cortex run against
 real repos (the source of truth for "what's broken in the wild" and the
 motivation behind the eval harness) — see
