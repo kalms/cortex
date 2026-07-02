@@ -93,4 +93,74 @@ describe("connectLiveSync", () => {
     h.ws().close();
     expect(h.timeouts[1].ms).toBe(2000); // backoff grows
   });
+
+  it("projection arriving during in-flight resnapshot is buffered and applied after resnapshot completes", async () => {
+    // Use a manually-resolvable resnapshot so we can inject a projection mid-flight.
+    FakeWS.instances = [];
+    const store = createStore({ schedule: (fn) => fn() });
+    store.hydrate({ decisions: {}, todos: {}, cursor: null });
+    const statuses = [];
+    let resolveResnapshot;
+    const resnapshotPromise = new Promise((res) => { resolveResnapshot = res; });
+    const resnapshot = vi.fn(async (head) => {
+      await resnapshotPromise;
+      store.setCursor(head);
+    });
+    const sync = connectLiveSync({
+      wsUrl: "ws://x/ws",
+      store,
+      isLiveProject: () => true,
+      resnapshot,
+      onStatus: (s) => statuses.push(s),
+      WebSocketImpl: FakeWS,
+      setTimeoutImpl: (fn, ms) => 0,
+    });
+    const ws = FakeWS.instances.at(-1);
+
+    ws.open();
+    ws.recv({ type: "hello", project_id: "p", server_version: "0.2.0", head_ulid: "01H" });
+    // Yield so handle() reaches the await inside resnapshot.
+    await Promise.resolve();
+
+    // Projection arrives while resnapshot is still in flight.
+    ws.recv({ type: "projection", delta: { ulid: "01P", entity: "decision", op: "upsert", data: { id: "d-buffered" } } });
+
+    // Entity must NOT be visible yet — resnapshot is still pending.
+    expect(store.state.decisions["d-buffered"]).toBeUndefined();
+
+    // Now resolve the resnapshot and flush all microtasks.
+    resolveResnapshot();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    // Entity must now be present (flushed from buffer after hydrate).
+    expect(store.state.decisions["d-buffered"]).toBeDefined();
+    expect(statuses).toEqual(["syncing", "live"]);
+  });
+
+  it("projection is ignored (no apply, no cursor advance) when isLiveProject returns false", () => {
+    FakeWS.instances = [];
+    const store = createStore({ schedule: (fn) => fn() });
+    store.hydrate({ decisions: {}, todos: {}, cursor: "01C" });
+    const statuses = [];
+    const resnapshot = vi.fn(async (head) => store.setCursor(head));
+    const sync = connectLiveSync({
+      wsUrl: "ws://x/ws",
+      store,
+      isLiveProject: () => false,
+      resnapshot,
+      onStatus: (s) => statuses.push(s),
+      WebSocketImpl: FakeWS,
+      setTimeoutImpl: (fn, ms) => 0,
+    });
+    const ws = FakeWS.instances.at(-1);
+
+    ws.open();
+    ws.recv({ type: "hello", project_id: "p", server_version: "0.2.0", head_ulid: "01C" });
+    ws.recv({ type: "catchup_result", mode: "replay", deltas: [], head_ulid: "01C" });
+    const cursorBefore = store.state.cursor;
+    ws.recv({ type: "projection", delta: { ulid: "01P", entity: "todo", op: "upsert", data: { id: "t-ignored" } } });
+
+    expect(store.state.todos["t-ignored"]).toBeUndefined();
+    expect(store.state.cursor).toBe(cursorBefore); // cursor must not have advanced
+  });
 });

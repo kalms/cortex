@@ -28,6 +28,12 @@ export function connectLiveSync({
   let ws = null;
   let attempt = 0;
   let closed = false;
+  // Buffer projections that arrive while a resnapshot is in flight so they are
+  // not silently lost. Deltas carry full adapted entity state and upserts are
+  // idempotent, so flushing after hydrate converges correctly whether or not
+  // the snapshot already included the write.
+  let resnapshotting = false;
+  let buffered = [];
   const api = { boundProject: null, close };
 
   function status(s) { onStatus?.(s); }
@@ -62,7 +68,13 @@ export function connectLiveSync({
         api.boundProject = msg.project_id || null;
         status("syncing");
         if (store.state.cursor === null) {
-          await resnapshot(msg.head_ulid);
+          resnapshotting = true;
+          try {
+            await resnapshot(msg.head_ulid);
+          } finally {
+            resnapshotting = false;
+            for (const d of buffered.splice(0)) store.apply(d, { animate: false });
+          }
           status("live");
         } else {
           ws.send(JSON.stringify({ type: "catchup", since: store.state.cursor }));
@@ -74,14 +86,22 @@ export function connectLiveSync({
           for (const delta of msg.deltas) store.apply(delta, { animate: false });
           if (msg.head_ulid) store.setCursor(msg.head_ulid);
         } else {
-          await resnapshot(msg.head_ulid);
+          resnapshotting = true;
+          try {
+            await resnapshot(msg.head_ulid);
+          } finally {
+            resnapshotting = false;
+            for (const d of buffered.splice(0)) store.apply(d, { animate: false });
+          }
         }
         status("live");
         return;
       }
       case "projection": {
-        if (isLiveProject()) store.apply(msg.delta, { animate: animateNow() });
-        return; // ignored deltas don't advance the cursor — catch-up covers them
+        if (!isLiveProject()) return; // ignored deltas don't advance the cursor — catch-up covers them
+        if (resnapshotting) { buffered.push(msg.delta); return; }
+        store.apply(msg.delta, { animate: animateNow() });
+        return;
       }
       default:
         return; // event / mutation / backfill_page / pong — other consumers' channels
