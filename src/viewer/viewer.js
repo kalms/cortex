@@ -1,5 +1,7 @@
 import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames, fetchTodos } from '/viewer/data-fetch.js';
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
+import { createStore } from '/viewer/store.js';
+import { connectLiveSync } from '/viewer/ws-client.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -96,13 +98,22 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  let DECISIONS = {};
+  const store = createStore();
+  const DECISIONS = store.state.decisions; // aliases — object identity is stable
   let FRAME_GOVERNANCE = {};
-  let TODOS = {};
+  const TODOS = store.state.todos;
   let TODO_GOVERNANCE = {};
   let SPAWNS_FROM = {};
   let AGGREGATES = [];
   let FILE_EDGES = [];
+
+  // Freshest server head, tracked from the sync client's hello/resnapshot so
+  // loadGraph can seed the store cursor when viewing the live-bound project.
+  // Slightly-stale is safe — deltas re-derive current state at catch-up time.
+  let lastKnownHead = null;
+  // Cached frame metadata from the last loadGraph, used by the incremental
+  // apply path to recompute promoted-frame overlays without a full reload.
+  let lastFrameMeta = null;
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
@@ -188,20 +199,23 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       FRAME_FILE_PATHS[sid] = visibleMembers.map((m) => m.file_path || null);
     }
 
-    // 5. Decisions → DECISIONS map + FRAME_GOVERNANCE rollup.
-    DECISIONS = {};
-    for (const d of decs.decisions) {
-      DECISIONS[d.id] = d;
-    }
-    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
-
-    // 5c. TODOs → TODOS map (ambient-filtered) + governance + spawns-from index.
+    // 5. Decisions + TODOs → the reactive store (single owner). Hydrate
+    // mutates the aliased objects (DECISIONS/TODOS) in place; cursor comes from
+    // the sync client when this is the server-bound live project.
     // buildGovernance only picks up kind:'frame' refs; for todos that only have
     // kind:'file' governs, we also resolve file paths to frame ids via
     // FRAME_PATH_INDEX (same path the draw layer uses for decisions).
     const ambientTodos = filterAmbientTodos(todosResp.todos || []);
-    TODOS = {};
-    for (const t of ambientTodos) TODOS[t.id] = t;
+    const decMap = {};
+    for (const d of decs.decisions) decMap[d.id] = d;
+    const todoMap = {};
+    for (const t of ambientTodos) todoMap[t.id] = t;
+    store.hydrate({
+      decisions: decMap,
+      todos: todoMap,
+      cursor: (syncClient && projectName === syncClient.boundProject) ? lastKnownHead : null,
+    });
+    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
     TODO_GOVERNANCE = buildGovernance(ambientTodos);
     // Augment with file-path-resolved frame governs.
     for (const t of ambientTodos) {
@@ -224,6 +238,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         { name: f.name, w: f.w, h: f.h, count: f.count, layer: f.layer },
       ]),
     );
+    lastFrameMeta = frameMeta;
     FRAMES = withGovernedFramesRendered(FRAMES, FRAME_GOVERNANCE, frameMeta);
 
     // 6. Rebuild the in-canvas graph (re-uses existing buildGraph; that fn
@@ -252,7 +267,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       if (p.name === active) opt.selected = true;
       select.appendChild(opt);
     }
-    select.addEventListener('change', () => loadGraph(select.value || null));
+    select.addEventListener('change', async () => {
+      await loadGraph(select.value || null);
+      showSyncStatus(lastSyncStatus);
+    });
     themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
 
     const layersBtn = document.getElementById('layers-toggle');
@@ -319,6 +337,52 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     await loadGraph(active);
   }
+
+  /** Entity-only resync (decisions + todos + frame map for promotion), used as
+   *  the sync client's snapshot bootstrap/fallback. Cheaper than loadGraph —
+   *  the structural graph doesn't change on the projection channel. */
+  async function resyncEntities(headUlid) {
+    lastKnownHead = headUlid ?? lastKnownHead;
+    const project = currentProject;
+    const [decs, todosResp] = await Promise.all([fetchDecisions(project), fetchTodos(project)]);
+    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
+    const decMap = {}; for (const d of decs.decisions) decMap[d.id] = d;
+    const todoMap = {}; for (const t of ambientTodos) todoMap[t.id] = t;
+    store.hydrate({ decisions: decMap, todos: todoMap, cursor: headUlid ?? null });
+    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+    TODO_GOVERNANCE = buildGovernance(ambientTodos);
+    for (const t of ambientTodos) {
+      for (const g of t.governs || []) {
+        if (g.kind !== 'file') continue;
+        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+        if (!fid) continue;
+        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
+        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
+      }
+    }
+    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
+    if (lastFrameMeta) FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+    buildGraph();
+  }
+
+  const syncIndicatorEl = document.getElementById('sync-indicator');
+  function showSyncStatus(status) {
+    if (!syncIndicatorEl) return;
+    const onLiveProject = syncClient && currentProject === syncClient.boundProject;
+    syncIndicatorEl.hidden = !onLiveProject;
+    if (!onLiveProject) return;
+    syncIndicatorEl.className = `sync-indicator ${status}`;
+    syncIndicatorEl.querySelector('.word').textContent = status;
+  }
+  let lastSyncStatus = 'offline';
+
+  const syncClient = connectLiveSync({
+    wsUrl: `ws://${location.host}/ws`,
+    store,
+    isLiveProject: () => currentProject === syncClient.boundProject,
+    resnapshot: resyncEntities,
+    onStatus: (s) => { lastSyncStatus = s; showSyncStatus(s); },
+  });
 
   // Deterministic placement primitives: same graph → same dot positions on
   // every load (no Math.random in the render data path), and a jitter-bounded
@@ -423,26 +487,102 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     // Decision prefix '' reproduces the prior seed string (decId + ':' + frameId)
     // byte-for-byte so decision anchors never move. TODOs use 'todo:' prefix to
     // give them an independent seed space.
-    const assignAnchors = (governance, store, prefix) => {
+    const assignAnchors = (governance, entityMap, prefix) => {
       for (const frameId in governance) {
-        const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
         governance[frameId].forEach((entId) => {
-          const ent = store[entId];
-          if (!ent) return;
-          const rng = mulberry32(fnv1a(prefix + entId + ':' + frameId));
-          const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
-          const pool = [...frameNodes];
-          const picked = [];
-          for (let k = 0; k < targetCount; k++) {
-            picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-          }
-          ent._nodeIdxs = picked.map(o => o.i);
+          const ent = entityMap[entId];
+          if (ent) assignAnchorsForEntity(ent, frameId, prefix);
         });
       }
     };
     assignAnchors(FRAME_GOVERNANCE, DECISIONS, '');       // unchanged seed → identical decision anchors
     assignAnchors(TODO_GOVERNANCE, TODOS, 'todo:');       // namespaced seed → independent todo anchors
   }
+
+  // Deterministic per-entity anchor pick — same seeding as the bulk pass in
+  // buildGraph, so incremental assignment for one entity is bit-identical.
+  function assignAnchorsForEntity(ent, frameId, prefix) {
+    const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
+    if (!frameNodes.length) { ent._nodeIdxs = []; return; }
+    const rng = mulberry32(fnv1a(prefix + ent.id + ':' + frameId));
+    const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
+    const pool = [...frameNodes];
+    const picked = [];
+    for (let k = 0; k < targetCount; k++) {
+      picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+    }
+    ent._nodeIdxs = picked.map(o => o.i);
+  }
+
+  /** Frames (string ids) an entity governs, resolved the same way the bulk
+   *  loaders do: kind:'frame' refs directly; kind:'file' refs via membership. */
+  function governedFrameIdsOf(ent) {
+    const out = [];
+    for (const g of ent.governs || []) {
+      let fid = null;
+      if (g.kind === 'frame') fid = String(g.id);
+      else if (g.kind === 'file') fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+      if (fid && !out.includes(fid)) out.push(fid);
+    }
+    return out;
+  }
+
+  /** Incrementally rebuild one entity's governance entries + anchors. */
+  function applyGovernanceFor(entity, id) {
+    const gov = entity === 'decision' ? FRAME_GOVERNANCE : TODO_GOVERNANCE;
+    const map = entity === 'decision' ? DECISIONS : TODOS;
+    const prefix = entity === 'decision' ? '' : 'todo:';
+    for (const fid of Object.keys(gov)) {
+      const i = gov[fid].indexOf(id);
+      if (i !== -1) gov[fid].splice(i, 1);
+      if (gov[fid].length === 0) delete gov[fid];
+    }
+    const ent = map[id];
+    if (!ent) return;
+    for (const fid of governedFrameIdsOf(ent)) {
+      if (!gov[fid]) gov[fid] = [];
+      if (!gov[fid].includes(id)) gov[fid].push(id);
+      assignAnchorsForEntity(ent, fid, prefix); // last frame wins — matches bulk pass
+    }
+  }
+
+  // Task 11 swaps this for the live-effects trigger.
+  let onLiveChangesApplied = () => {};
+
+  const removedRecordSnapshots = {};
+
+  function applyLiveChanges(changes) {
+    const renderedFrames = new Set(FRAMES.map((f) => String(f.id)));
+    let needsPromotionRebuild = false;
+
+    for (const c of changes) {
+      if (c.entity === 'todo' && c.next && (c.next.state === 'done' || c.next.state === 'cancelled')) {
+        // Ambient filter: closed todos leave the canvas (same rule as load).
+        delete TODOS[c.id];
+        c.op = 'remove';
+        c.next = undefined;
+      }
+      applyGovernanceFor(c.entity, c.id);
+      if (c.entity === 'todo') SPAWNS_FROM = buildSpawnsFromIndex(Object.values(TODOS));
+      for (const fid of c.next ? governedFrameIdsOf(c.next) : []) {
+        if (!renderedFrames.has(fid)) needsPromotionRebuild = true;
+      }
+      // Removed-while-open: keep the card up with a quiet removed note.
+      if (c.op === 'remove' && focusedRecord && focusedRecord.id === c.id) {
+        removedRecordSnapshots[c.id] = c.prev;
+        currentRenderedRecord = null; // force re-render with the note
+      }
+    }
+
+    if (needsPromotionRebuild && lastFrameMeta) {
+      // Rare path: a change governs a frame outside the render set — recompute
+      // the promoted-frames overlay + canvas graph (documented spec exception).
+      FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+      buildGraph();
+    }
+    onLiveChangesApplied(changes);
+  }
+  store.subscribe(applyLiveChanges);
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
@@ -671,6 +811,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     previousRecord = focusedRecord;
     focusedRecord = null;
     recordDrawerT0 = performance.now();
+    for (const k of Object.keys(removedRecordSnapshots)) delete removedRecordSnapshots[k];
   }
 
   function openDecisionCard(decId) { openRecord('decision', decId); }
@@ -2126,8 +2267,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   function renderDecisionCard(decId) {
-    const dec = DECISIONS[decId];
+    const dec = DECISIONS[decId] || removedRecordSnapshots[decId];
     if (!dec) { decisionCardEl.innerHTML = ''; return; }
+    const isRemoved = !DECISIONS[decId];
 
     const stateLabel = dec.state;
     const provParts = [];
@@ -2144,6 +2286,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         </div>
         <div class="dc-summary">${escapeHtml(dec.summary)}</div>
         ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+        ${isRemoved ? '<div class="dc-removed-note">this decision was removed · view is a snapshot</div>' : ''}
       </div>
       <button class="dc-close" id="dc-close" aria-label="close">×</button>
     </div>`;
@@ -2237,8 +2380,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   function renderTodoCard(todoId) {
-    const t = TODOS[todoId];
+    const t = TODOS[todoId] || removedRecordSnapshots[todoId];
     if (!t) { decisionCardEl.innerHTML = ''; return; }
+    const isRemoved = !TODOS[todoId];
     const provParts = [];
     if (t.id) provParts.push(`id ${escapeHtml(t.id)}`); // canonical id (display id is the T-<seq> form)
     if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
@@ -2251,6 +2395,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       </div>
       <div class="dc-summary">${escapeHtml(t.summary || '')}</div>
       ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+      ${isRemoved ? '<div class="dc-removed-note">this todo was removed · view is a snapshot</div>' : ''}
     </div><button class="dc-close" id="dc-close" aria-label="close">×</button></div>`;
 
     html += '<div class="dc-body">';

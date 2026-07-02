@@ -472,6 +472,31 @@
     border-color: var(--border-3);
   }
 
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding: 0 4px;
+  user-select: none;
+}
+.sync-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); }
+.sync-indicator.live .dot { background: var(--text); }
+.sync-indicator.live .word { color: var(--text-2); }
+.sync-indicator.syncing .word { color: var(--text-3); }
+.sync-indicator.offline .word { color: var(--text-4); }
+
+.dc-removed-note {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  border-left: 1px solid var(--border-3);
+  padding-left: 8px;
+}
+
 .frames-warning {
   position: fixed;
   /* Below the toolbar row (top:20px, ~30px tall) so the banner never collides
