@@ -173,11 +173,15 @@ export class TodoService {
       payload: { todo_id: input.todo_id, target: input.target, relation: input.relation } } as Event);
   }
 
+  // Delete + insert must commit or roll back together — same guarantee as
+  // DecisionService.replaceLinks.
   private replaceLinks(todoId: string, relation: TodoLinkRelation, newTargets: string[], now: string): void {
-    const current = this.links.findByTodo(todoId).filter((l) => l.relation === relation);
-    const currentRefs = new Set(current.map((l) => l.target_ref));
-    const newRefs = new Set(newTargets);
-    for (const l of current) if (!newRefs.has(l.target_ref)) this.links.remove(todoId, l.target_kind, l.target_ref, relation);
-    for (const t of newTargets) if (!currentRefs.has(t)) this.addLink(todoId, t, relation, now);
+    this.db.transaction(() => {
+      const current = this.links.findByTodo(todoId).filter((l) => l.relation === relation);
+      const currentRefs = new Set(current.map((l) => l.target_ref));
+      const newRefs = new Set(newTargets);
+      for (const l of current) if (!newRefs.has(l.target_ref)) this.links.remove(todoId, l.target_kind, l.target_ref, relation);
+      for (const t of newTargets) if (!currentRefs.has(t)) this.addLink(todoId, t, relation, now);
+    })();
   }
 }
