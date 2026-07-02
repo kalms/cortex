@@ -4,8 +4,8 @@ import { formatOnboarding } from "../../src/onboarding/format.js";
 const facts = {
   files: 467, nodes: 4657, edges: 7282,
   hotspots: [
-    { module: "mcp-server", path: "src/mcp-server", in_edges: 90, nodes: 300, governing_decisions: 8 },
-    { module: "db", path: "src/db", in_edges: 60, nodes: 40, governing_decisions: 6 },
+    { module: "mcp-server", path: "src/mcp-server", in_edges: 90, nodes: 300, governing_paths: 8 },
+    { module: "db", path: "src/db", in_edges: 60, nodes: 40, governing_paths: 6 },
   ],
   entrypoints: [
     { label: "cortex", target: "bin/cortex" },

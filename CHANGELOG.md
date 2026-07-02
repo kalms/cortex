@@ -23,14 +23,17 @@ All notable changes to Cortex are documented here. The format follows
 
 - **Architecture hotspots — a `computeHotspots` primitive ranking source
   modules by external inbound fan-in** (distinct CALLS/IMPORTS callers from
-  outside the module; `nodes` and `governing_decisions` are display
-  annotations only, not part of the ranking). Deterministic, computed
+  outside the module; `nodes` and `governing_paths` — count of active-decision
+  GOVERNS path-refs resolving into the module — are display annotations only,
+  not part of the ranking). Deterministic, computed
   TS-side against the graph store — no indexer round-trip. Bridges the gap
   between the global `get_architecture` histogram and per-symbol
   `blastRadius`: fan-in is the "apt to break the most" signal.
 - **`get_architecture(aspects=["hotspots"])`** — new aspect returning
-  `{ project, hotspots: HotspotArea[] }`. Other aspects (`all`/`structure`/…)
-  still route to the indexer unchanged.
+  `{ project, hotspots: HotspotArea[] }`. When combined with other aspects
+  (e.g. `["all", "hotspots"]`), the indexer-routed payload for the other
+  aspects is merged with `hotspots` rather than dropped; `hotspots`-only
+  calls skip the indexer round-trip entirely.
 - **`cortex code arch --hotspots`** — prints the ranked hotspot table.
   **`cortex code arch --headline`** — prints the bounded (≤8-line) onboarding
   headline (scale + top hotspots + entrypoints), or nothing on an empty

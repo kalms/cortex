@@ -4,7 +4,7 @@ import { CODE_KINDS, type HotspotArea, type HotspotOpts } from "./types.js";
 
 /**
  * Rank source modules by external inbound fan-in (distinct CALLS/IMPORTS source
- * nodes from outside the module). `nodes` and `governing_decisions` are display
+ * nodes from outside the module). `nodes` and `governing_paths` are display
  * annotations only — the sort key is fan-in. Deterministic.
  */
 export function computeHotspots(
@@ -56,7 +56,7 @@ export function computeHotspots(
       path: mod,
       in_edges: callers.get(mod)?.size ?? 0,
       nodes: nodeCount.get(mod) ?? 0,
-      governing_decisions: decisions.get(mod) ?? 0,
+      governing_paths: decisions.get(mod) ?? 0,
     });
   }
   areas.sort((a, b) =>

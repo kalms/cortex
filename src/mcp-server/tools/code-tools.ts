@@ -524,8 +524,28 @@ export function registerCodeTools(
         const aspects = args.aspects ?? ["all"];
         const project = projectFromCtx(ctx);
         if (aspects.includes("hotspots")) {
-          const areas = computeHotspots(ctx.store, project ?? "", loadGovernedPaths(ctx.repoPath));
-          return { content: [{ type: "text", text: JSON.stringify({ project, hotspots: areas }) }] };
+          const hotspots = computeHotspots(ctx.store, project ?? "", loadGovernedPaths(ctx.repoPath));
+          const other = aspects.filter((a) => a !== "hotspots");
+          if (other.length === 0) {
+            return { content: [{ type: "text", text: JSON.stringify({ project, hotspots }) }] };
+          }
+          const indexerRes = await callIndexer(
+            "get_architecture",
+            { aspects: other, ...(project ? { project } : {}) },
+            addressedDbPath,
+          );
+          // Propagate an upstream indexer failure as-is — don't mask it by
+          // merging hotspots into an error envelope and stripping isError.
+          if (indexerRes.isError) return indexerRes;
+          try {
+            const first = indexerRes.content?.[0];
+            if (first && typeof first.text === "string") {
+              const parsed = JSON.parse(first.text);
+              parsed.hotspots = hotspots;
+              return { content: [{ ...first, text: JSON.stringify(parsed) }, ...indexerRes.content.slice(1)] };
+            }
+          } catch { /* fall through to raw-merge fallback below */ }
+          return { content: [...(indexerRes.content ?? []), { type: "text", text: JSON.stringify({ hotspots }) }] };
         }
         const indexerArgs: Record<string, unknown> = { aspects, ...(project ? { project } : {}) };
         return callIndexer("get_architecture", indexerArgs, addressedDbPath);

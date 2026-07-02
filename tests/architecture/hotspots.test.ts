@@ -40,11 +40,11 @@ describe("computeHotspots", () => {
     // cli and db have zero inbound → in_edges 0, ranked after hub
     expect(areas.map((a) => a.module)).toEqual(["hub", "cli", "db"]);
   });
-  it("annotates governing_decisions from govern paths (display only, not ranked)", () => {
+  it("annotates governing_paths from govern paths (display only, not ranked)", () => {
     made = makeStore();
     const areas = computeHotspots(made.store, "p", ["src/db/d.ts", "src/db/other.ts"]);
     const db = areas.find((a) => a.module === "db")!;
-    expect(db.governing_decisions).toBe(2);
+    expect(db.governing_paths).toBe(2);
     // ranking still hub first despite db having decisions
     expect(areas[0].module).toBe("hub");
   });

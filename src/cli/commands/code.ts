@@ -264,7 +264,7 @@ export function cmdArchHotspots(
       module: a.path,
       in_edges: a.in_edges,
       nodes: a.nodes,
-      decisions: a.governing_decisions,
+      governed_paths: a.governing_paths,
     }));
     writeRows(rows, fmt, `no source modules found for ${ctx.projectName}`);
   } finally {

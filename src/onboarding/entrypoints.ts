@@ -25,7 +25,8 @@ export function entrypoints(root: string, store: GraphStore, project: string): E
   const bin = pkg.bin;
   if (typeof bin === "string") push("bin", bin);
   else if (bin && typeof bin === "object")
-    for (const [name, target] of Object.entries(bin as Record<string, string>)) push(name, target);
+    for (const [name, target] of Object.entries(bin as Record<string, unknown>))
+      if (typeof target === "string") push(name, target);
   for (const field of ["main", "module"] as const) {
     const v = pkg[field];
     if (typeof v === "string" && !BUILD_DIRS.some((d) => v.startsWith(d))) push(field, v);
