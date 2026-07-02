@@ -12,6 +12,7 @@ import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 import { runCodeSearch, rankSearchHits } from "../../graph/code-search.js";
 import { computeHotspots } from "../../architecture/hotspots.js";
 import { loadGovernedPaths } from "../../architecture/governed.js";
+import { composeOnboarding } from "../../onboarding/compose.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -228,12 +229,25 @@ function cmdTrace(cmd: CodeCommand, ctx: ProjectContext, mode: "calls" | "caller
 
 function cmdArch(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
-  if (cmd.flags.hotspots || cmd.flags.headline) {
-    // --headline formatting is added in Task 9; for now both route to the table.
-    return cmdArchHotspots(ctx, cmd.flags);
-  }
+  if (cmd.flags.headline) return cmdArchHeadline(ctx, cmd.flags);
+  if (cmd.flags.hotspots) return cmdArchHotspots(ctx, cmd.flags);
   const aspects = (cmd.flags.aspects as string | undefined)?.split(",") ?? ["all"];
   process.stdout.write(runIndexer("get_architecture", { aspects, project: ctx.projectName }, ctx) + "\n");
+}
+
+/** `cortex code arch --headline` — the SessionStart onboarding headline (or nothing). */
+export function cmdArchHeadline(
+  ctx: ProjectContext & { graphDbPath: string; projectName: string },
+  _flags: Record<string, string | boolean>,
+): void {
+  const root = ctx.gitRoot ?? ctx.cwd;
+  const store = new GraphStore(ctx.graphDbPath, { readonly: true });
+  try {
+    const { headline } = composeOnboarding({ store, project: ctx.projectName, root });
+    if (headline) process.stdout.write(headline + "\n");
+  } finally {
+    store.close?.();
+  }
 }
 
 /** `cortex code arch --hotspots` — ranked source modules by inbound fan-in. */
