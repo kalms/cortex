@@ -38,13 +38,8 @@ In rough priority order (full state in
    tighten tool descriptions / lazy-load the long tail, **P8** temporal
    `changes_since`. (P1/P2/P3/P6 shipped; P7(a) shipped in 1.0.0.)
 
-**Still-open layout issue (not started):** the frames layout **reshuffles on
-every reindex** — the d3-force seed is `SHA-256(frame records)`, so any frame
-id/label/member-count change (and auto-reindex fires on every commit) reseeds
-the chaotic sim → full relayout. Options noted earlier: warm-start/anchor
-positions, reduce reindex churn, stable seed. (The earlier "viewer lean" — a
-*different* problem — shipped in **1.1.3** via `D-p8bg`: viewer fit-to-content
-center-of-mass framing + cloud keep-out. That thread is closed.)
+**Layout reshuffle on reindex** (still open) is tracked as todo `T-g2pv` —
+warm-start/anchor positions or a stable seed for `seedFromFrames`.
 
 **TODO viewer follow-ups (deferred from 1.1.1, non-blocking).** Standalone TODOs
 with no governed frame don't render as ambient dots (no graph anchor — matches
@@ -62,15 +57,3 @@ table.
 **Housekeeping:** the exploration doc
 `docs/explorations/2026-06-27-conscience-pass.md` (a decision-reconciliation
 "conscience pass" run against this repo) is now committed on `main`.
-
----
-
-_Prior handoff content is superseded-and-stable: the **consolidated tool surface
-+ TODO entity** (1.0.0), the **TODO viewer slice** (1.1.1), the **viewer
-centering** arc (1.1.2–1.1.3, `D-p8bg`), the **frame-layers taxonomy arc**
-(0.8.4–0.8.23), the **search-noise line** (0.8.11–0.8.14), the **graph-DB
-transactional-swap publish** (`D-47xb`), and the **freshness signal +
-auto-refresh** (`bbf0fce5`) all shipped, verified, and documented in
-[`CHANGELOG.md`](CHANGELOG.md), [`docs/specs/progress.md`](docs/specs/progress.md),
-[`docs/architecture/graph-storage.md`](docs/architecture/graph-storage.md), and
-the decision store._
