@@ -518,7 +518,7 @@ export function startViewerServer(
   });
 }
 
-function buildPathIndices(nodes: ReturnType<GraphStore["getAllNodesUnified"]>): {
+export function buildPathIndices(nodes: ReturnType<GraphStore["getAllNodesUnified"]>): {
   nodesByPath: Map<string, ReturnType<GraphStore["getAllNodesUnified"]>[number]>;
   framesByPath: Map<string, FrameInfo>;
 } {
