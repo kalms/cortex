@@ -551,6 +551,23 @@ import { connectLiveSync } from '/viewer/ws-client.js';
 
   const removedRecordSnapshots = {};
 
+  /** Incrementally maintain SPAWNS_FROM for one todo. Mirrors the load-path
+   *  semantics (built from the FULL todo list): a todo that closes
+   *  (done/cancelled) keeps its entry — only a server-side remove drops it.
+   *  Pass ent = the todo's latest shape, or undefined to drop its entry. */
+  function updateSpawnsFromFor(id, ent) {
+    for (const k of Object.keys(SPAWNS_FROM)) {
+      const i = SPAWNS_FROM[k].indexOf(id);
+      if (i !== -1) SPAWNS_FROM[k].splice(i, 1);
+      if (SPAWNS_FROM[k].length === 0) delete SPAWNS_FROM[k];
+    }
+    const parent = ent && ent.spawnsFrom;
+    if (parent) {
+      if (!SPAWNS_FROM[parent]) SPAWNS_FROM[parent] = [];
+      if (!SPAWNS_FROM[parent].includes(id)) SPAWNS_FROM[parent].push(id);
+    }
+  }
+
   function applyLiveChanges(changes) {
     const renderedFrames = new Set(FRAMES.map((f) => String(f.id)));
     let needsPromotionRebuild = false;
@@ -558,17 +575,28 @@ import { connectLiveSync } from '/viewer/ws-client.js';
     for (const c of changes) {
       if (c.entity === 'todo' && c.next && (c.next.state === 'done' || c.next.state === 'cancelled')) {
         // Ambient filter: closed todos leave the canvas (same rule as load).
+        // Update SPAWNS_FROM before nulling c.next so the closed todo keeps its
+        // entry (load-path parity: load builds from the FULL list including done/cancelled).
+        updateSpawnsFromFor(c.id, c.next);
         delete TODOS[c.id];
         c.op = 'remove';
         c.next = undefined;
       }
       applyGovernanceFor(c.entity, c.id);
-      if (c.entity === 'todo') SPAWNS_FROM = buildSpawnsFromIndex(Object.values(TODOS));
+      if (c.entity === 'todo') {
+        if (c.op === 'remove') {
+          // True server-side remove: drop the entry entirely.
+          updateSpawnsFromFor(c.id, undefined);
+        } else if (c.next) {
+          // Upsert (open todo): update to reflect any spawnsFrom change.
+          updateSpawnsFromFor(c.id, c.next);
+        }
+      }
       for (const fid of c.next ? governedFrameIdsOf(c.next) : []) {
         if (!renderedFrames.has(fid)) needsPromotionRebuild = true;
       }
       // Removed-while-open: keep the card up with a quiet removed note.
-      if (c.op === 'remove' && focusedRecord && focusedRecord.id === c.id) {
+      if (c.op === 'remove' && focusedRecord && focusedRecord.type === c.entity && focusedRecord.id === c.id) {
         removedRecordSnapshots[c.id] = c.prev;
         currentRenderedRecord = null; // force re-render with the note
       }
