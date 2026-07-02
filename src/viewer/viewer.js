@@ -573,6 +573,7 @@ import { connectLiveSync } from '/viewer/ws-client.js';
     let needsPromotionRebuild = false;
 
     for (const c of changes) {
+      let ambientClosed = false;
       if (c.entity === 'todo' && c.next && (c.next.state === 'done' || c.next.state === 'cancelled')) {
         // Ambient filter: closed todos leave the canvas (same rule as load).
         // Update SPAWNS_FROM before nulling c.next so the closed todo keeps its
@@ -581,9 +582,12 @@ import { connectLiveSync } from '/viewer/ws-client.js';
         delete TODOS[c.id];
         c.op = 'remove';
         c.next = undefined;
+        ambientClosed = true;
       }
       applyGovernanceFor(c.entity, c.id);
-      if (c.entity === 'todo') {
+      // ambientClosed already kept its SPAWNS_FROM entry above — the generic
+      // remove branch below must not drop it (that's for server-side removes).
+      if (c.entity === 'todo' && !ambientClosed) {
         if (c.op === 'remove') {
           // True server-side remove: drop the entry entirely.
           updateSpawnsFromFor(c.id, undefined);
