@@ -68,6 +68,22 @@ export type Event =
       };
     })
   | (EventEnvelope & {
+      kind: 'todo.proposed';
+      payload: { todo_id: string; summary: string };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.updated';
+      payload: { todo_id: string; changed_fields: string[] };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.transitioned';
+      payload: { todo_id: string; from: string; to: string };
+    })
+  | (EventEnvelope & {
+      kind: 'todo.linked';
+      payload: { todo_id: string; target: string; relation: string };
+    })
+  | (EventEnvelope & {
       kind: 'commit';
       payload: {
         hash: string;
@@ -151,19 +167,47 @@ export type GraphMutation =
     };
 
 /**
+ * Projection delta — one rendered-entity change for the viewer's reactive
+ * store, on a SEPARATE channel from GraphMutation (structural graph nodes).
+ *
+ * `ulid` is the source event's ULID and doubles as the sync cursor. `upsert`
+ * carries the FULL adapted shape (AdaptedDecision / AdaptedTodo — the same
+ * shapes /api/decisions and /api/todos serve; the server is the single source
+ * of truth for shape, the client never re-derives). Typed as
+ * Record<string, unknown> here to keep this worker-shared module free of the
+ * Zod-derived api-schemas types; the deriver (projection-deriver.ts) is the
+ * one producer and constructs real adapted shapes.
+ *
+ * The union starts with the two entities the viewer renders; widening to
+ * pr/frame/commit later is additive.
+ */
+export type ProjectionEntity = 'decision' | 'todo';
+
+export type ProjectionDelta =
+  | { ulid: string; entity: ProjectionEntity; op: 'upsert'; data: Record<string, unknown> }
+  | { ulid: string; entity: ProjectionEntity; op: 'remove'; data: { id: string } };
+
+/**
  * Messages sent from server to client over the WebSocket at `/ws`.
  *
  * See `docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md#websocket-protocol`.
  */
 export type ServerMsg =
-  | { type: 'hello'; project_id: string; server_version: string }
+  | { type: 'hello'; project_id: string; server_version: string; head_ulid: string | null }
   | { type: 'event'; event: Event }
   | { type: 'mutation'; mutation: GraphMutation }
+  | { type: 'projection'; delta: ProjectionDelta }
   | {
       type: 'backfill_page';
       events: Event[];
       mutations: GraphMutation[];
       has_more: boolean;
+    }
+  | {
+      type: 'catchup_result';
+      mode: 'replay' | 'snapshot';
+      deltas: ProjectionDelta[];
+      head_ulid: string | null;
     }
   | { type: 'pong' }
   | { type: 'error'; code: string; message: string };
@@ -171,4 +215,5 @@ export type ServerMsg =
 /** Messages sent from client to server over the WebSocket at `/ws`. */
 export type ClientMsg =
   | { type: 'backfill'; before_id?: string; limit?: number }
+  | { type: 'catchup'; since: string }
   | { type: 'ping' };

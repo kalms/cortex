@@ -65,6 +65,8 @@ Cortex emits structured events for decision lifecycle and git activity, persists
 11. `ClientRegistry.broadcast(payload)` fans out to every open WebSocket client (`src/ws/client-registry.ts`).
 12. Viewer clients receive separate `{ type:'event' }` and `{ type:'mutation' }` messages; stream renders the event, graph applies the mutation.
 
+The read-path sync engine (projection deltas, catch-up, the viewer's reactive store and live change treatments) is documented in [viewer-sync-engine.md](viewer-sync-engine.md).
+
 ## Component boundaries
 
 ### EventBus (`src/events/bus.ts`)

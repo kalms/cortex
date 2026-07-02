@@ -45,7 +45,7 @@ export function createServer(
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
   registerCodeTools(server, resolver);
-  registerTodoTools(server, resolver);
+  registerTodoTools(server, resolver, indexerProject, bus);
   registerDecisionDispatcher(server, resolver, indexerProject, bus);
   registerPRDispatcher(server, resolver, indexerProject, bus);
 

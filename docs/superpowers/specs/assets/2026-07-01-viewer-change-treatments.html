@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change treatments — v3 (+ E · v5 live grammar)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#050505; --frame:14,14,17; --text:#ededed; --text2:#a1a1aa; --text3:#71717a;
+    --interface:92,161,237; --orchestration:171,130,237; --domain:234,186,95;
+    --data:92,204,167; --infra:131,141,163;
+    --green:74,222,128; --amber:245,158,11; --todo:250,204,21; --red:239,68,68;
+    --mono:'Geist Mono',ui-monospace,SFMono-Regular,monospace;
+    --sans:'Geist',-apple-system,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:var(--bg);color:var(--text);font-family:var(--sans);
+    font-size:14px;letter-spacing:-0.005em;-webkit-font-smoothing:antialiased;}
+  .page{max-width:1140px;margin:0 auto;padding:22px 22px 60px;}
+  h1{font-size:19px;font-weight:600;letter-spacing:-0.01em;margin-bottom:3px;}
+  .sub{color:var(--text3);font-size:12.5px;line-height:1.55;margin-bottom:16px;}
+  .sub b{color:var(--text2);font-weight:500;}
+
+  .controls{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+  .seg{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;
+    padding:7px 12px;border-radius:6px;background:#0d0d0f;border:1px solid #26262b;color:var(--text2);
+    cursor:pointer;transition:border-color .12s,color .12s,background .12s;}
+  .seg:hover{border-color:#36363e;color:var(--text);}
+  .seg.active{border-color:rgba(111,155,255,.7);color:#fff;background:rgba(111,155,255,.08);}
+  .seg .k{width:8px;height:8px;border-radius:50%;}
+  .seg .k.e{background:linear-gradient(90deg,rgb(var(--green)),rgb(var(--orchestration)));}
+  .seg .k.a{background:rgb(var(--green));}
+  .seg .k.b{background:rgb(var(--orchestration));}
+  .seg .k.d{background:linear-gradient(90deg,#bcd0ff,#fff);}
+  .seg .k.c{background:rgb(150,190,255);}
+  .spacer{flex:1;}
+  .mini{font-family:var(--mono);font-size:10.5px;color:var(--text3);display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;}
+  .mini input{accent-color:#6f9bff;}
+
+  .stage{position:relative;width:100%;height:470px;border-radius:12px;overflow:hidden;
+    background:var(--bg);border:1px solid #1a1a1d;}
+  .stage::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.014) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.014) 1px,transparent 1px);
+    background-size:48px 48px;background-position:-1px -1px;
+    -webkit-mask-image:radial-gradient(ellipse 100% 80% at 50% 50%,#000 30%,transparent 100%);
+    mask-image:radial-gradient(ellipse 100% 80% at 50% 50%,#000 30%,transparent 100%);}
+
+  .frame{position:absolute;border-radius:9px;z-index:1;background:rgba(var(--frame),.55);
+    border:1px solid rgba(var(--h),.22);}
+  .frame .lbl{position:absolute;top:9px;left:12px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;text-transform:uppercase;color:rgba(var(--h),.72);}
+  .node{position:absolute;width:5px;height:5px;border-radius:50%;}
+
+  /* faithful decision = small green ambient dot; todo = yellow ambient dot */
+  .dec{position:absolute;z-index:3;width:7px;height:7px;border-radius:50%;
+    background:rgb(var(--green));box-shadow:0 0 0 3px rgba(var(--green),.10);}
+  .todo{position:absolute;z-index:3;width:8px;height:8px;border-radius:50%;
+    background:rgb(var(--todo));box-shadow:0 0 0 3px rgba(var(--todo),.12);}
+
+  /* marginalia pill — how a decision looks ONLY when its frame is focused */
+  .marg{position:absolute;z-index:4;height:18px;display:flex;align-items:center;gap:6px;
+    padding:0 8px;border-radius:9px;font-family:var(--mono);font-size:10px;white-space:nowrap;
+    background:rgba(var(--green),.10);border:1px solid rgba(var(--green),.4);color:#86efac;}
+  .marg .sw{width:4px;height:4px;border-radius:50%;background:rgb(var(--green));}
+  .leader{position:absolute;z-index:2;height:1px;background:rgba(var(--green),.3);transform-origin:left center;}
+
+  .edge{position:absolute;height:1px;transform-origin:left center;background:rgba(255,255,255,.06);z-index:0;}
+
+  .actor{position:absolute;z-index:6;width:15px;height:15px;border-radius:50%;font-family:var(--mono);
+    font-size:7.5px;font-weight:600;color:#06060a;display:flex;align-items:center;justify-content:center;
+    border:1.5px solid #050505;opacity:0;}
+  .bar{position:absolute;left:0;bottom:0;height:2px;width:0;
+    background:linear-gradient(90deg,rgb(var(--orchestration)),transparent);z-index:2;}
+
+  /* shimmer overlay clipped to the SYNC frame */
+  .shimmer-clip{position:absolute;border-radius:9px;overflow:hidden;pointer-events:none;z-index:2;}
+  .shimmer-band{position:absolute;top:-25%;left:-70%;width:55%;height:150%;transform:skewX(-18deg);opacity:0;
+    background:linear-gradient(105deg,transparent 0,rgba(198,216,255,.0) 35%,rgba(210,225,255,.45) 50%,rgba(198,216,255,0) 65%,transparent 100%);}
+
+  /* ---- MODE E: v5 live grammar — the original prototype's OWN activity
+     vocabulary (cortex-frames-prototype-v5.html), driven by deltas instead of
+     the simulation. frameHeat border warmth (+0.15·intensity, ~5.5s decay),
+     merge-beat outline→fill births, the 0.35-alpha white ring pulse, synapse
+     brighten along connections, and v5 presence pills (agent-colored fill,
+     dark text, provider glyph). 7s loop: create → update → remove. ---- */
+  /* create: v5's added-node grammar — the dot is born as an OUTLINE (sketch),
+     then fills (commit), with the tiny merge-beat ring pulse. */
+  @keyframes eNew{
+    0%{opacity:0;transform:scale(.4);background:rgba(var(--green),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),0);}
+    5%{opacity:1;transform:scale(1);background:rgba(var(--green),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),.06);}
+    13%,100%{opacity:1;transform:scale(1);background:rgba(var(--green),1);
+       box-shadow:inset 0 0 0 1px rgba(var(--green),.9),0 0 0 3px rgba(var(--green),.10);}}
+  /* update: NO pulse — v5's decaying-state idiom (colorAmount): the halo
+     lifts to a brighter level and DRAINS back linearly over ~3.5s, while the
+     entity's connections fire once, synapse-style (leader alpha .3→.7 peak,
+     580ms). No scale change, no ring. Stays green — amber means stale. */
+  @keyframes eUpd{0%,30%{box-shadow:0 0 0 3px rgba(var(--green),.10);}
+    33%{box-shadow:0 0 0 3px rgba(var(--green),.26);}
+    80%,100%{box-shadow:0 0 0 3px rgba(var(--green),.10);}}
+  @keyframes eLead{0%,31%{background:rgba(var(--green),.3);}
+    36%{background:rgba(var(--green),.7);}46%,100%{background:rgba(var(--green),.3);}}
+  /* remove: reverse of birth — fill drains back to outline, then the sketch
+     fades. No red. */
+  @keyframes eRm{0%,56%{opacity:1;transform:scale(1);background:rgba(var(--todo),1);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),.12);}
+    63%{opacity:1;transform:scale(1);background:rgba(var(--todo),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),0);}
+    72%,100%{opacity:0;transform:scale(.6);background:rgba(var(--todo),0);
+       box-shadow:inset 0 0 0 1px rgba(var(--todo),.9),0 0 0 3px rgba(var(--todo),0);}}
+  /* residue: v5 frameHeat — border warms by +0.15·intensity over the .22 base
+     and decays over ~5.5s. Team scale reads as warmth where work happens. */
+  @keyframes eWarm{0%{border-color:rgba(var(--orchestration),.22);}
+    8%{border-color:rgba(var(--orchestration),.37);}
+    86%,100%{border-color:rgba(var(--orchestration),.22);}}
+  /* attribution: v5 presence pills — agent-colored fill, dark content,
+     provider glyph + name; the user is base-white with no glyph. */
+  @keyframes ePillA{0%{opacity:0;transform:translateY(3px);}6%{opacity:1;transform:translateY(0);}
+    38%{opacity:1;}52%,100%{opacity:0;}}
+  @keyframes ePillB{0%,30%{opacity:0;transform:translateY(3px);}36%{opacity:1;transform:translateY(0);}
+    66%{opacity:1;}80%,100%{opacity:0;}}
+  /* presence pill: v5 cursor-pill placement — vertically CENTERED on the
+     node, 11px right of its center. */
+  .presence{position:absolute;z-index:6;height:18px;display:flex;align-items:center;gap:5px;
+    padding:0 8px;border-radius:9px;font-family:var(--mono);font-size:10px;font-weight:500;
+    color:#0f0f0f;opacity:0;white-space:nowrap;}
+  .presence .glyph{font-size:8px;line-height:1;}
+  .presence.claude{background:#60a5fa;}
+  .presence.user{background:#ededed;}
+  .stage.mode-e #chgdot{animation:eNew 7s cubic-bezier(.2,.8,.2,1) infinite;}
+  .stage.mode-e #updot{animation:eUpd 7s linear infinite;}
+  .stage.mode-e .leader{animation:eLead 7s ease-in-out infinite;}
+  .stage.mode-e #sync{animation:eWarm 7s linear infinite;}
+  .stage.mode-e #rmtodo{animation:eRm 7s ease-in infinite;}
+  .stage.mode-e .presence.p1{animation:ePillA 7s ease-out infinite;}
+  .stage.mode-e .presence.p2{animation:ePillB 7s ease-out infinite;}
+
+  /* ---- MODE A: pulse & glow ---- */
+  @keyframes aNew{0%{transform:scale(0);opacity:0;box-shadow:0 0 0 0 rgba(var(--green),0);}
+    14%{transform:scale(1.5);opacity:1;box-shadow:0 0 0 5px rgba(var(--green),.35),0 0 16px 5px rgba(var(--green),.6);}
+    38%{transform:scale(1);box-shadow:0 0 0 3px rgba(var(--green),.12),0 0 8px 2px rgba(var(--green),.22);}
+    66%,100%{transform:scale(1);opacity:1;box-shadow:0 0 0 3px rgba(var(--green),.10);}}
+  @keyframes aUpd{0%{box-shadow:0 0 0 0 rgba(var(--amber),0);background:rgb(var(--green));}
+    18%{box-shadow:0 0 14px 4px rgba(var(--amber),.7);background:rgb(var(--amber));transform:scale(1.4);}
+    62%,100%{box-shadow:0 0 0 3px rgba(var(--green),.10);background:rgb(var(--green));transform:scale(1);}}
+  @keyframes aRm{0%,46%{transform:scale(1);opacity:1;}
+    62%{transform:scale(1.4);opacity:1;background:rgb(var(--red));box-shadow:0 0 10px 3px rgba(var(--red),.5);}
+    84%,100%{transform:scale(0);opacity:0;background:rgb(var(--red));}}
+  .stage.mode-a #chgdot{animation:aNew 3.6s ease-out infinite;}
+  .stage.mode-a #updot{animation:aUpd 3.6s ease-out infinite;}
+  .stage.mode-a #rmtodo{animation:aRm 3.6s ease-in infinite;}
+
+  /* ---- MODE B: recency tint + actor ---- */
+  @keyframes bTint{0%{background:rgba(var(--frame),.55);border-color:rgba(var(--orchestration),.22);}
+    12%{background:rgba(var(--orchestration),.10);border-color:rgba(var(--orchestration),.7);}
+    100%{background:rgba(var(--frame),.55);border-color:rgba(var(--orchestration),.22);}}
+  @keyframes bBar{0%{width:0;}12%{width:100%;}100%{width:0;}}
+  @keyframes bPop{0%{transform:scale(0);opacity:0;}10%{transform:scale(1.2);opacity:1;}22%{transform:scale(1);}90%{opacity:1;}100%{opacity:0;}}
+  .stage.mode-b #sync{animation:bTint 4.8s ease-out infinite;}
+  .stage.mode-b .bar{animation:bBar 4.8s linear infinite;}
+  .stage.mode-b .actor{animation:bPop 4.8s ease-out infinite;}
+
+  /* ---- MODE D: shimmer sweep ---- */
+  @keyframes dShim{0%{left:-70%;opacity:0;}12%{opacity:1;}52%{left:130%;opacity:1;}62%,100%{opacity:0;}}
+  @keyframes dGlow{0%,100%{box-shadow:0 0 0 3px rgba(var(--green),.10);}
+    30%{box-shadow:0 0 10px 3px rgba(198,216,255,.5),0 0 0 3px rgba(var(--green),.14);}}
+  .stage.mode-d .shimmer-band{animation:dShim 3.2s ease-in-out infinite;}
+  .stage.mode-d #chgdot{animation:dGlow 3.2s ease-in-out infinite;}
+
+  /* ---- MODE C: activity ripple ---- */
+  @keyframes cRipple{0%{transform:scale(.2);opacity:0;}16%{opacity:.95;}100%{transform:scale(3.3);opacity:0;}}
+  @keyframes cEdge{0%{background:rgba(255,255,255,.06);box-shadow:none;}
+    18%{background:rgba(150,190,255,.9);box-shadow:0 0 8px 1px rgba(150,190,255,.5);}
+    60%,100%{background:rgba(255,255,255,.06);box-shadow:none;}}
+  @keyframes cDot{0%{box-shadow:0 0 0 0 rgba(150,190,255,0);}16%{box-shadow:0 0 12px 4px rgba(150,190,255,.8);}60%,100%{box-shadow:0 0 0 0 rgba(150,190,255,0);}}
+  .ripple{position:absolute;z-index:2;border-radius:50%;border:1.5px solid rgba(150,190,255,.7);opacity:0;}
+  .stage.mode-c .ripple{opacity:1;animation:cRipple 3s ease-out infinite;}
+  .stage.mode-c .ripple.r2{animation-delay:.18s;}
+  .stage.mode-c .ripple.r3{animation-delay:.36s;}
+  .stage.mode-c .c-edge{animation:cEdge 3s ease-out infinite;}
+  .stage.mode-c #chgdot{animation:cDot 3s ease-out infinite;}
+
+  .legend{margin-top:16px;font-family:var(--mono);font-size:10px;color:var(--text3);
+    display:flex;gap:15px;flex-wrap:wrap;align-items:center;}
+  .legend i{display:inline-flex;align-items:center;gap:6px;}
+  .legend i .s{width:7px;height:7px;border-radius:2px;}
+  .foot{margin-top:14px;color:var(--text3);font-size:12px;line-height:1.6;}
+  .foot b{color:var(--text2);}
+  .picked{margin-top:8px;font-family:var(--mono);font-size:11px;color:#6f9bff;min-height:14px;}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Live change treatments — on the real viewer surface</h1>
+  <p class="sub">Faithful now: decisions are <b>ambient green dots</b>; the labeled green pills only appear as <b>marginalia when a frame is focused</b> (SYNC is focused here). TODOs are yellow dots. Pick a treatment — it plays on SYNC's changed decision and loops.</p>
+
+  <div class="controls">
+    <div class="seg active" data-choice="e" onclick="setMode('e',this)"><span class="k e"></span> E · v5 live grammar</div>
+    <div class="seg" data-choice="a" onclick="setMode('a',this)"><span class="k a"></span> A · Pulse &amp; glow</div>
+    <div class="seg" data-choice="b" onclick="setMode('b',this)"><span class="k b"></span> B · Recency tint + actor</div>
+    <div class="seg" data-choice="d" onclick="setMode('d',this)"><span class="k d"></span> D · Shimmer sweep</div>
+    <div class="seg" data-choice="c" onclick="setMode('c',this)"><span class="k c"></span> C · Activity ripple</div>
+    <div class="spacer"></div>
+    <label class="mini"><input type="checkbox" id="loop" checked onchange="apply()"> loop</label>
+    <div class="seg" onclick="apply()">↻ Replay</div>
+  </div>
+
+  <div class="stage mode-e" id="stage">
+    <div class="edge c-edge" style="left:175px;top:118px;width:360px;transform:rotate(17deg);"></div>
+    <div class="edge c-edge" style="left:520px;top:228px;width:330px;transform:rotate(-15deg);"></div>
+    <div class="edge c-edge" style="left:520px;top:228px;width:120px;transform:rotate(57deg);"></div>
+    <div class="edge" style="left:300px;top:320px;width:150px;transform:rotate(-30deg);"></div>
+
+    <div class="frame" style="--h:var(--interface);left:60px;top:42px;width:230px;height:150px;">
+      <span class="lbl">interface · viewer</span>
+      <div class="node" style="left:30px;top:54px;background:rgba(var(--interface),.9);"></div>
+      <div class="node" style="left:64px;top:78px;background:rgba(var(--interface),.9);"></div>
+      <div class="node" style="left:120px;top:60px;background:rgba(var(--interface),.9);"></div>
+      <div class="node" style="left:158px;top:96px;background:rgba(var(--interface),.9);"></div>
+    </div>
+
+    <div class="frame" id="sync" style="--h:var(--orchestration);left:410px;top:150px;width:220px;height:150px;">
+      <span class="lbl">orchestration · sync</span>
+      <div class="node" style="left:34px;top:50px;background:rgba(var(--orchestration),.9);"></div>
+      <div class="node" style="left:78px;top:74px;background:rgba(var(--orchestration),.9);"></div>
+      <div class="node" style="left:130px;top:58px;background:rgba(var(--orchestration),.9);"></div>
+      <div class="node" style="left:160px;top:100px;background:rgba(var(--orchestration),.9);"></div>
+      <div class="bar"></div>
+    </div>
+
+    <div class="frame" style="--h:var(--domain);left:720px;top:60px;width:250px;height:160px;">
+      <span class="lbl">domain · decisions</span>
+      <div class="node" style="left:40px;top:56px;background:rgba(var(--domain),.9);"></div>
+      <div class="node" style="left:90px;top:80px;background:rgba(var(--domain),.9);"></div>
+      <div class="node" style="left:150px;top:64px;background:rgba(var(--domain),.9);"></div>
+      <div class="node" style="left:110px;top:120px;background:rgba(var(--domain),.9);"></div>
+    </div>
+
+    <div class="frame" style="--h:var(--data);left:470px;top:330px;width:210px;height:108px;">
+      <span class="lbl">data · events.db</span>
+      <div class="node" style="left:40px;top:52px;background:rgba(var(--data),.9);"></div>
+      <div class="node" style="left:96px;top:68px;background:rgba(var(--data),.9);"></div>
+      <div class="node" style="left:150px;top:54px;background:rgba(var(--data),.9);"></div>
+    </div>
+
+    <div class="frame" style="--h:var(--infra);left:80px;top:250px;width:220px;height:150px;">
+      <span class="lbl">infra · ws server</span>
+      <div class="node" style="left:36px;top:56px;background:rgba(var(--infra),.9);"></div>
+      <div class="node" style="left:92px;top:80px;background:rgba(var(--infra),.9);"></div>
+      <div class="node" style="left:150px;top:64px;background:rgba(var(--infra),.9);"></div>
+    </div>
+
+    <!-- ambient decisions (green dots) + todos (yellow dots) -->
+    <div class="dec" style="left:300px;top:120px;"></div>
+    <div class="dec" style="left:690px;top:250px;"></div>
+    <div class="dec" style="left:360px;top:300px;"></div>
+    <div class="dec" id="updot" style="left:560px;top:140px;"></div>
+    <div class="todo" style="left:660px;top:300px;"></div>
+    <div class="todo" id="rmtodo" style="left:512px;top:360px;"></div>
+
+    <!-- SYNC focused → marginalia pills (the real labeled-decision rendering) -->
+    <div class="leader" style="left:630px;top:175px;width:40px;transform:rotate(8deg);"></div>
+    <div class="marg" style="left:668px;top:168px;"><span class="sw"></span>D-marq</div>
+    <div class="leader" style="left:630px;top:205px;width:40px;transform:rotate(-6deg);"></div>
+    <div class="marg" style="left:668px;top:205px;"><span class="sw"></span>D-b0kp</div>
+
+    <!-- the change target decision (acts per mode) -->
+    <div class="dec" id="chgdot" style="left:548px;top:300px;"></div>
+
+    <!-- mode B actor badges -->
+    <div class="actor" style="left:540px;top:292px;background:rgb(var(--green));">AI</div>
+    <div class="actor" style="left:554px;top:132px;background:rgb(var(--amber));">RK</div>
+
+    <!-- mode D shimmer (clipped to SYNC frame box) -->
+    <div class="shimmer-clip" style="left:410px;top:150px;width:220px;height:150px;">
+      <div class="shimmer-band"></div>
+    </div>
+
+    <!-- mode E: v5 presence pills — vertically centered on their node, 11px right -->
+    <div class="presence claude p1" style="left:562px;top:294px;"><span class="glyph">✳</span>claude</div>
+    <div class="presence user p2" style="left:574px;top:134px;">@rka</div>
+
+    <!-- mode C ripple from change target -->
+    <div class="ripple" style="left:540px;top:292px;width:24px;height:24px;"></div>
+    <div class="ripple r2" style="left:540px;top:292px;width:24px;height:24px;"></div>
+    <div class="ripple r3" style="left:540px;top:292px;width:24px;height:24px;"></div>
+  </div>
+
+  <div class="legend">
+    <i><span class="s" style="background:rgb(var(--interface));"></span>interface</i>
+    <i><span class="s" style="background:rgb(var(--orchestration));"></span>orchestration</i>
+    <i><span class="s" style="background:rgb(var(--domain));"></span>domain</i>
+    <i><span class="s" style="background:rgb(var(--data));"></span>data</i>
+    <i><span class="s" style="background:rgb(var(--infra));"></span>infra</i>
+    <i><span class="s" style="background:rgb(var(--green));border-radius:50%;"></span>decision</i>
+    <i><span class="s" style="background:rgb(var(--todo));border-radius:50%;"></span>todo</i>
+  </div>
+
+  <p class="foot">
+    <b>E</b> the original v5 prototype's live-activity grammar, driven by real deltas —
+    <b>no pulses anywhere</b>: create = outline "sketch" that <b>fills</b> (v5 added-node → merge
+    beat) · update = connections fire once, synapse-style, and the halo lifts then <b>drains</b>
+    (~3.5s, v5's colorAmount decay — a state, not an oscillation) · remove = fill drains to
+    outline, sketch fades · residue = v5 <b>frameHeat</b> (border +0.15·intensity, ~5.5s decay) ·
+    attribution = v5 <b>presence pills</b> vertically centered on the node (agent-colored fill +
+    provider glyph; the user is base-white). No hue swaps — amber = stale, red = blocked. &nbsp;
+    <b>A</b> grow-in / amber pulse / red fade — fast settle, low residue. &nbsp;
+    <b>B</b> frame tints in its layer hue + draining freshness bar + actor badge (who). &nbsp;
+    <b>D</b> a soft specular <b>shimmer</b> sweeps across the changed frame + a glint on the dot — elegant, quiet, no color shift. &nbsp;
+    <b>C</b> ripple fires along edges — most alive, needs rate-limiting.
+  </p>
+  <p class="picked" id="picked">Showing: E · v5 live grammar</p>
+</div>
+
+<script>
+  var stage=document.getElementById('stage');
+  var cur='e';
+  var names={e:'E · v5 live grammar',a:'A · Pulse & glow',b:'B · Recency tint + actor',d:'D · Shimmer sweep',c:'C · Activity ripple'};
+  function setMode(m,el){
+    cur=m;
+    document.querySelectorAll('.seg[data-choice]').forEach(function(s){s.classList.remove('active');});
+    if(el) el.classList.add('active');
+    apply();
+    document.getElementById('picked').textContent='Selected: '+names[m]+' — tell me in the terminal (combos welcome).';
+  }
+  function apply(){
+    stage.classList.remove('mode-a','mode-b','mode-c','mode-d','mode-e');
+    void stage.offsetWidth;
+    stage.classList.add('mode-'+cur);
+  }
+  apply();
+</script>
+</body>
+</html>

@@ -8,11 +8,16 @@ import {
   rowToTodo, type Todo, type TodoRecord, type TodoWithRefs, type TodoRefRow,
   type ProposeTodoInput, type UpdateTodoInput, type LinkTodoInput, type TodoLinkRelation, type TransitionTodoInput,
 } from "./types.js";
+import type { EventBus } from "../events/bus.js";
+import type { Event } from "../events/types.js";
+import { newUlid } from "../events/ulid.js";
 
 export interface TodoServiceDeps {
   db: Database.Database;
   todos: TodosRepository;
   links: TodoLinksRepository;
+  bus?: EventBus;
+  project_id?: string;
 }
 
 const TRANSITIONS: Record<string, ReadonlySet<string>> = {
@@ -27,9 +32,21 @@ export class TodoService {
   private db: Database.Database;
   private todos: TodosRepository;
   private links: TodoLinksRepository;
+  private bus: EventBus | undefined;
+  private projectId: string;
 
   constructor(deps: TodoServiceDeps) {
-    this.db = deps.db; this.todos = deps.todos; this.links = deps.links;
+    this.db = deps.db;
+    this.todos = deps.todos;
+    this.links = deps.links;
+    this.bus = deps.bus;
+    this.projectId = deps.project_id ?? "";
+  }
+
+  private emit(event: Event): void { this.bus?.emit(event); }
+
+  private envelope(kind: string, actor: string) {
+    return { id: newUlid(), kind, actor, created_at: Date.now(), project_id: this.projectId };
   }
 
   private resolveRecord(ref: string): TodoRecord | null {
@@ -81,6 +98,8 @@ export class TodoService {
     for (const g of input.governs ?? []) this.addLink(id, g, "GOVERNS", now);
     if (input.spawns_from) this.addLink(id, input.spawns_from, "SPAWNS_FROM", now);
     for (const b of input.blocked_by ?? []) this.addLink(id, b, "BLOCKED_BY", now);
+    this.emit({ ...this.envelope("todo.proposed", rec.proposed_by ?? "claude"),
+      payload: { todo_id: id, summary: input.summary } } as Event);
     return rowToTodo(rec);
   }
 
@@ -113,11 +132,14 @@ export class TodoService {
     if (!existing) throw new Error(`Todo not found: ${idOrSeq}`);
     const now = new Date().toISOString();
     const patch: Partial<TodoRecord> = { updated_at: now };
-    if (input.summary !== undefined) patch.summary = input.summary;
-    if (input.description !== undefined) patch.description = input.description;
-    if (input.assignee !== undefined) patch.assignee = input.assignee;
+    const changedFields: string[] = [];
+    if (input.summary !== undefined) { patch.summary = input.summary; changedFields.push("summary"); }
+    if (input.description !== undefined) { patch.description = input.description; changedFields.push("description"); }
+    if (input.assignee !== undefined) { patch.assignee = input.assignee; changedFields.push("assignee"); }
     this.todos.update(existing.id, patch);
-    if (input.governs !== undefined) this.replaceLinks(existing.id, "GOVERNS", input.governs, now);
+    if (input.governs !== undefined) { this.replaceLinks(existing.id, "GOVERNS", input.governs, now); changedFields.push("governs"); }
+    this.emit({ ...this.envelope("todo.updated", "claude"),
+      payload: { todo_id: existing.id, changed_fields: changedFields } } as Event);
     return rowToTodo({ ...existing, ...patch } as TodoRecord);
   }
 
@@ -127,6 +149,7 @@ export class TodoService {
     if (!TRANSITIONS[existing.state]?.has(input.to)) {
       throw new Error(`Invalid transition: ${existing.state} → ${input.to}`);
     }
+    const from = existing.state;
     const now = new Date().toISOString();
     const patch: Partial<TodoRecord> = { state: input.to, updated_at: now };
     if (input.to === "in_progress" && !existing.started_at) patch.started_at = now;
@@ -135,6 +158,8 @@ export class TodoService {
     this.todos.update(existing.id, patch);
     if (input.to === "done") for (const pr of input.resolved_by ?? []) this.addLink(existing.id, pr, "RESOLVED_BY", now);
     if (input.to === "blocked") for (const b of input.blocked_by ?? []) this.addLink(existing.id, b, "BLOCKED_BY", now);
+    this.emit({ ...this.envelope("todo.transitioned", "claude"),
+      payload: { todo_id: existing.id, from, to: input.to } } as Event);
     return rowToTodo({ ...existing, ...patch } as TodoRecord);
   }
 
@@ -144,6 +169,8 @@ export class TodoService {
   link(input: LinkTodoInput): void {
     if (!this.resolveRecord(input.todo_id)) throw new Error(`Todo not found: ${input.todo_id}`);
     this.addLink(input.todo_id, input.target, input.relation, new Date().toISOString());
+    this.emit({ ...this.envelope("todo.linked", "claude"),
+      payload: { todo_id: input.todo_id, target: input.target, relation: input.relation } } as Event);
   }
 
   private replaceLinks(todoId: string, relation: TodoLinkRelation, newTargets: string[], now: string): void {

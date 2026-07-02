@@ -3,8 +3,12 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
 import { encodeServer, decodeClient } from './protocol.js';
 import { ClientRegistry } from './client-registry.js';
-import type { ServerMsg, Event, GraphMutation } from './types.js';
+import type { ServerMsg, Event, GraphMutation, ProjectionDelta } from './types.js';
 import type { EventPersister } from '../events/worker/persister.js';
+
+/** Catch-up replay window (spec: snapshot-vs-replay threshold). A client whose
+ *  cursor is further behind than this re-snapshots instead of replaying. */
+export const CATCHUP_REPLAY_LIMIT = 500;
 
 /** Options passed to startWsServer. */
 export interface WsServerOpts {
@@ -12,6 +16,10 @@ export interface WsServerOpts {
   persister: EventPersister;
   projectId: string;
   serverVersion: string;
+  /** Injected by the composition root (src/index.ts) — maps events to
+   *  projection deltas at catch-up time. Optional: without it, catchup always
+   *  answers mode:'snapshot' (safe degraded mode). */
+  deriveProjections?: (events: Event[]) => ProjectionDelta[];
 }
 
 /**
@@ -19,11 +27,13 @@ export interface WsServerOpts {
  *
  * `registry` is exposed so the caller can inspect connected clients (e.g.,
  * for tests). `broadcast` is the primary call-site — main calls this when
- * the worker posts a broadcast bundle.
+ * the worker posts a broadcast bundle. `broadcastProjections` fans out
+ * projection deltas to all connected clients.
  */
 export interface WsServerHandle {
   registry: ClientRegistry;
   broadcast(bundle: { events: Event[]; mutations: GraphMutation[] }): void;
+  broadcastProjections(deltas: ProjectionDelta[]): void;
 }
 
 /**
@@ -64,6 +74,7 @@ export function startWsServer(opts: WsServerOpts): WsServerHandle {
           type: 'hello',
           project_id: opts.projectId,
           server_version: opts.serverVersion,
+          head_ulid: opts.persister.head(),
         });
       }, 5);
 
@@ -86,6 +97,11 @@ export function startWsServer(opts: WsServerOpts): WsServerHandle {
       }
       for (const mutation of bundle.mutations) {
         registry.broadcast(encodeServer({ type: 'mutation', mutation }));
+      }
+    },
+    broadcastProjections(deltas: ProjectionDelta[]) {
+      for (const delta of deltas) {
+        registry.broadcast(encodeServer({ type: 'projection', delta }));
       }
     },
   };
@@ -118,6 +134,24 @@ function handleClient(ws: WebSocket, raw: string, opts: WsServerOpts): void {
         mutations: [],
         has_more,
       });
+      return;
+    }
+    case 'catchup': {
+      const head_ulid = opts.persister.head();
+      const { events, has_more } = opts.persister.since({
+        since_id: msg.since,
+        limit: CATCHUP_REPLAY_LIMIT,
+      });
+      if (has_more || !opts.deriveProjections) {
+        send(ws, { type: 'catchup_result', mode: 'snapshot', deltas: [], head_ulid });
+      } else {
+        send(ws, {
+          type: 'catchup_result',
+          mode: 'replay',
+          deltas: opts.deriveProjections(events),
+          head_ulid,
+        });
+      }
       return;
     }
   }

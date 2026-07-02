@@ -17,6 +17,38 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.5] — 2026-07-02
+
+### Added
+
+- **Reactive read-path sync engine — the viewer adapts live, no reload.**
+  Decision and TODO changes now stream to the frames viewer as **projection
+  deltas** over `/ws` and the canvas updates in place:
+  - **`todo.*` events**: `TodoService` write paths (propose / update /
+    transition / link) now emit events, closing the last silent write path.
+  - **Projection channel**: a server-side deriver maps each event to the
+    entity's full adapted shape (the same `buildAdaptedDecision` /
+    `buildAdaptedTodo` that serve `/api/decisions` and `/api/todos` — one
+    adapter, two transports), keyed by the source event's ULID (the sync
+    cursor). New `projection` / `catchup` / `catchup_result` WS messages;
+    `hello` now carries `head_ulid`.
+  - **Catch-up protocol**: reconnecting clients replay deltas past their
+    cursor (window: 500) or fall back to a snapshot; deltas are derived at
+    read time, so replay is state-converging and overlap is harmless.
+  - **Client reactive store** (`src/viewer/store.js`): id-keyed entity maps
+    with identity-stable objects, coalesced rAF flush (a burst of deltas is
+    one repaint), and silent catch-up (no stale animations after a wake).
+  - **Live change treatments** (`src/viewer/live-effects.js`): the v5
+    prototype's live-activity grammar, pulse-free — outline→fill births,
+    synapse leader fires + draining halos on update, drain-to-outline
+    removals, frame-border heat residue, and presence pills (agent `✳` on
+    `#60a5fa`, user base-white) with attribution always on — one pill per
+    actor, riding the latest change, so bursts don't stack pills.
+  - **Sync indicator**: quiet toolbar `live / syncing / offline` state,
+    shown for the server-bound project.
+- **Architecture page**: [`docs/architecture/viewer-sync-engine.md`](docs/architecture/viewer-sync-engine.md),
+  cross-linked from `graph-ui.md`.
+
 ## [1.2.4] — 2026-07-01
 
 ### Fixed
@@ -1069,6 +1101,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
 [1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4
 [1.2.3]: https://github.com/ruevu/cortex/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ruevu/cortex/releases/tag/v1.2.2

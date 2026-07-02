@@ -11,10 +11,11 @@ export function encodeServer(msg: ServerMsg): string {
 
 /**
  * Decodes a raw client message. Throws on malformed JSON, non-object payloads,
- * or unknown `type` values.
+ * unknown `type` values, or invalid payload shapes.
  *
- * Validation is minimal — we trust the type discriminator and leave payload
- * shape-checking to the handler (which would otherwise need a schema lib).
+ * Payload validation is intentionally inline (no schema lib) — the three
+ * message types are stable and simple enough. The throw path here produces the
+ * `bad_message` error reply in server.ts; the connection stays open.
  */
 export function decodeClient(raw: string): ClientMsg {
   let obj: unknown;
@@ -26,7 +27,23 @@ export function decodeClient(raw: string): ClientMsg {
   if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
     throw new Error('not a JSON object');
   }
-  const type = (obj as { type?: unknown }).type;
-  if (type === 'ping' || type === 'backfill') return obj as ClientMsg;
+  const m = obj as Record<string, unknown>;
+  const type = m.type;
+  if (type === 'ping') return obj as ClientMsg;
+  if (type === 'catchup') {
+    if (typeof m.since !== 'string' || m.since.length === 0) {
+      throw new Error('catchup.since must be a non-empty string');
+    }
+    return obj as ClientMsg;
+  }
+  if (type === 'backfill') {
+    if (m.before_id !== undefined && typeof m.before_id !== 'string') {
+      throw new Error('backfill.before_id must be a string if present');
+    }
+    if (m.limit !== undefined && (typeof m.limit !== 'number' || !isFinite(m.limit))) {
+      throw new Error('backfill.limit must be a finite number if present');
+    }
+    return obj as ClientMsg;
+  }
   throw new Error(`unknown client message type: ${String(type)}`);
 }

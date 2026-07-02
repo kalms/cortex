@@ -1,5 +1,8 @@
 import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames, fetchTodos } from '/viewer/data-fetch.js';
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
+import { createStore } from '/viewer/store.js';
+import { connectLiveSync } from '/viewer/ws-client.js';
+import { createLiveEffects } from '/viewer/live-effects.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -96,13 +99,25 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  let DECISIONS = {};
+  const store = createStore();
+  const liveFx = createLiveEffects({
+    reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+  });
+  const DECISIONS = store.state.decisions; // aliases — object identity is stable
   let FRAME_GOVERNANCE = {};
-  let TODOS = {};
+  const TODOS = store.state.todos;
   let TODO_GOVERNANCE = {};
   let SPAWNS_FROM = {};
   let AGGREGATES = [];
   let FILE_EDGES = [];
+
+  // Freshest server head, tracked from the sync client's hello/resnapshot so
+  // loadGraph can seed the store cursor when viewing the live-bound project.
+  // Slightly-stale is safe — deltas re-derive current state at catch-up time.
+  let lastKnownHead = null;
+  // Cached frame metadata from the last loadGraph, used by the incremental
+  // apply path to recompute promoted-frame overlays without a full reload.
+  let lastFrameMeta = null;
 
   function getDecision(id) { return DECISIONS[id]; }
   function getFrameDecisions(frameId) {
@@ -188,20 +203,23 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       FRAME_FILE_PATHS[sid] = visibleMembers.map((m) => m.file_path || null);
     }
 
-    // 5. Decisions → DECISIONS map + FRAME_GOVERNANCE rollup.
-    DECISIONS = {};
-    for (const d of decs.decisions) {
-      DECISIONS[d.id] = d;
-    }
-    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
-
-    // 5c. TODOs → TODOS map (ambient-filtered) + governance + spawns-from index.
+    // 5. Decisions + TODOs → the reactive store (single owner). Hydrate
+    // mutates the aliased objects (DECISIONS/TODOS) in place; cursor comes from
+    // the sync client when this is the server-bound live project.
     // buildGovernance only picks up kind:'frame' refs; for todos that only have
     // kind:'file' governs, we also resolve file paths to frame ids via
     // FRAME_PATH_INDEX (same path the draw layer uses for decisions).
     const ambientTodos = filterAmbientTodos(todosResp.todos || []);
-    TODOS = {};
-    for (const t of ambientTodos) TODOS[t.id] = t;
+    const decMap = {};
+    for (const d of decs.decisions) decMap[d.id] = d;
+    const todoMap = {};
+    for (const t of ambientTodos) todoMap[t.id] = t;
+    store.hydrate({
+      decisions: decMap,
+      todos: todoMap,
+      cursor: (syncClient && projectName === syncClient.boundProject) ? lastKnownHead : null,
+    });
+    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
     TODO_GOVERNANCE = buildGovernance(ambientTodos);
     // Augment with file-path-resolved frame governs.
     for (const t of ambientTodos) {
@@ -224,6 +242,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         { name: f.name, w: f.w, h: f.h, count: f.count, layer: f.layer },
       ]),
     );
+    lastFrameMeta = frameMeta;
     FRAMES = withGovernedFramesRendered(FRAMES, FRAME_GOVERNANCE, frameMeta);
 
     // 6. Rebuild the in-canvas graph (re-uses existing buildGraph; that fn
@@ -252,7 +271,10 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       if (p.name === active) opt.selected = true;
       select.appendChild(opt);
     }
-    select.addEventListener('change', () => loadGraph(select.value || null));
+    select.addEventListener('change', async () => {
+      await loadGraph(select.value || null);
+      showSyncStatus(lastSyncStatus);
+    });
     themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
 
     const layersBtn = document.getElementById('layers-toggle');
@@ -319,6 +341,52 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 
     await loadGraph(active);
   }
+
+  /** Entity-only resync (decisions + todos + frame map for promotion), used as
+   *  the sync client's snapshot bootstrap/fallback. Cheaper than loadGraph —
+   *  the structural graph doesn't change on the projection channel. */
+  async function resyncEntities(headUlid) {
+    lastKnownHead = headUlid ?? lastKnownHead;
+    const project = currentProject;
+    const [decs, todosResp] = await Promise.all([fetchDecisions(project), fetchTodos(project)]);
+    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
+    const decMap = {}; for (const d of decs.decisions) decMap[d.id] = d;
+    const todoMap = {}; for (const t of ambientTodos) todoMap[t.id] = t;
+    store.hydrate({ decisions: decMap, todos: todoMap, cursor: headUlid ?? null });
+    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
+    TODO_GOVERNANCE = buildGovernance(ambientTodos);
+    for (const t of ambientTodos) {
+      for (const g of t.governs || []) {
+        if (g.kind !== 'file') continue;
+        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+        if (!fid) continue;
+        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
+        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
+      }
+    }
+    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
+    if (lastFrameMeta) FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+    buildGraph();
+  }
+
+  const syncIndicatorEl = document.getElementById('sync-indicator');
+  function showSyncStatus(status) {
+    if (!syncIndicatorEl) return;
+    const onLiveProject = syncClient && currentProject === syncClient.boundProject;
+    syncIndicatorEl.hidden = !onLiveProject;
+    if (!onLiveProject) return;
+    syncIndicatorEl.className = `sync-indicator ${status}`;
+    syncIndicatorEl.querySelector('.word').textContent = status;
+  }
+  let lastSyncStatus = 'offline';
+
+  const syncClient = connectLiveSync({
+    wsUrl: `ws://${location.host}/ws`,
+    store,
+    isLiveProject: () => currentProject === syncClient.boundProject,
+    resnapshot: resyncEntities,
+    onStatus: (s) => { lastSyncStatus = s; showSyncStatus(s); },
+  });
 
   // Deterministic placement primitives: same graph → same dot positions on
   // every load (no Math.random in the render data path), and a jitter-bounded
@@ -423,26 +491,155 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     // Decision prefix '' reproduces the prior seed string (decId + ':' + frameId)
     // byte-for-byte so decision anchors never move. TODOs use 'todo:' prefix to
     // give them an independent seed space.
-    const assignAnchors = (governance, store, prefix) => {
+    const assignAnchors = (governance, entityMap, prefix) => {
       for (const frameId in governance) {
-        const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
         governance[frameId].forEach((entId) => {
-          const ent = store[entId];
-          if (!ent) return;
-          const rng = mulberry32(fnv1a(prefix + entId + ':' + frameId));
-          const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
-          const pool = [...frameNodes];
-          const picked = [];
-          for (let k = 0; k < targetCount; k++) {
-            picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-          }
-          ent._nodeIdxs = picked.map(o => o.i);
+          const ent = entityMap[entId];
+          if (ent) assignAnchorsForEntity(ent, frameId, prefix);
         });
       }
     };
     assignAnchors(FRAME_GOVERNANCE, DECISIONS, '');       // unchanged seed → identical decision anchors
     assignAnchors(TODO_GOVERNANCE, TODOS, 'todo:');       // namespaced seed → independent todo anchors
   }
+
+  // Deterministic per-entity anchor pick — same seeding as the bulk pass in
+  // buildGraph, so incremental assignment for one entity is bit-identical.
+  function assignAnchorsForEntity(ent, frameId, prefix) {
+    const frameNodes = nodes.map((n, i) => ({ n, i })).filter(o => o.n.frameId === frameId);
+    if (!frameNodes.length) { ent._nodeIdxs = []; return; }
+    const rng = mulberry32(fnv1a(prefix + ent.id + ':' + frameId));
+    const targetCount = Math.min(2 + Math.floor(rng() * 2), frameNodes.length);
+    const pool = [...frameNodes];
+    const picked = [];
+    for (let k = 0; k < targetCount; k++) {
+      picked.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+    }
+    ent._nodeIdxs = picked.map(o => o.i);
+  }
+
+  /** Frames (string ids) an entity governs, resolved the same way the bulk
+   *  loaders do: kind:'frame' refs directly; kind:'file' refs via membership. */
+  function governedFrameIdsOf(ent) {
+    const out = [];
+    for (const g of ent.governs || []) {
+      let fid = null;
+      if (g.kind === 'frame') fid = String(g.id);
+      else if (g.kind === 'file') fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
+      if (fid && !out.includes(fid)) out.push(fid);
+    }
+    return out;
+  }
+
+  /** Incrementally rebuild one entity's governance entries + anchors. */
+  function applyGovernanceFor(entity, id) {
+    const gov = entity === 'decision' ? FRAME_GOVERNANCE : TODO_GOVERNANCE;
+    const map = entity === 'decision' ? DECISIONS : TODOS;
+    const prefix = entity === 'decision' ? '' : 'todo:';
+    for (const fid of Object.keys(gov)) {
+      const i = gov[fid].indexOf(id);
+      if (i !== -1) gov[fid].splice(i, 1);
+      if (gov[fid].length === 0) delete gov[fid];
+    }
+    const ent = map[id];
+    if (!ent) return;
+    for (const fid of governedFrameIdsOf(ent)) {
+      if (!gov[fid]) gov[fid] = [];
+      if (!gov[fid].includes(id)) gov[fid].push(id);
+      assignAnchorsForEntity(ent, fid, prefix); // last frame wins — matches bulk pass
+    }
+  }
+
+  // Live-effects trigger: translate applied deltas into transient treatment
+  // state (frame heat, dot birth/halo/leader fire, tombstones, presence pills).
+  // Gating: skip when the change didn't animate (hidden tab, load-time hydrate),
+  // and skip entities whose layer toggle is off. A remove whose prev is undefined
+  // was never rendered — there's no dot to tombstone, so skip it outright.
+  let onLiveChangesApplied = (changes) => {
+    const now = performance.now();
+    for (const c of changes) {
+      if (!c.animate) continue;
+      if (c.entity === 'decision' && !showDecisions) continue;
+      if (c.entity === 'todo' && !showTodos) continue;
+      const ent = c.next ?? c.prev;
+      if (!ent) continue; // never-rendered remove (prev === undefined)
+      liveFx.noteChange({
+        kind: c.op === 'remove' ? 'remove' : (c.prev === undefined ? 'create' : 'update'),
+        entity: c.entity,
+        id: c.id,
+        frameIds: governedFrameIdsOf(ent),
+        actor: c.next?.proposedBy ?? c.prev?.proposedBy ?? 'claude',
+        now,
+      });
+    }
+  };
+
+  const removedRecordSnapshots = {};
+
+  /** Incrementally maintain SPAWNS_FROM for one todo. Mirrors the load-path
+   *  semantics (built from the FULL todo list): a todo that closes
+   *  (done/cancelled) keeps its entry — only a server-side remove drops it.
+   *  Pass ent = the todo's latest shape, or undefined to drop its entry. */
+  function updateSpawnsFromFor(id, ent) {
+    for (const k of Object.keys(SPAWNS_FROM)) {
+      const i = SPAWNS_FROM[k].indexOf(id);
+      if (i !== -1) SPAWNS_FROM[k].splice(i, 1);
+      if (SPAWNS_FROM[k].length === 0) delete SPAWNS_FROM[k];
+    }
+    const parent = ent && ent.spawnsFrom;
+    if (parent) {
+      if (!SPAWNS_FROM[parent]) SPAWNS_FROM[parent] = [];
+      if (!SPAWNS_FROM[parent].includes(id)) SPAWNS_FROM[parent].push(id);
+    }
+  }
+
+  function applyLiveChanges(changes) {
+    const renderedFrames = new Set(FRAMES.map((f) => String(f.id)));
+    let needsPromotionRebuild = false;
+
+    for (const c of changes) {
+      let ambientClosed = false;
+      if (c.entity === 'todo' && c.next && (c.next.state === 'done' || c.next.state === 'cancelled')) {
+        // Ambient filter: closed todos leave the canvas (same rule as load).
+        // Update SPAWNS_FROM before nulling c.next so the closed todo keeps its
+        // entry (load-path parity: load builds from the FULL list including done/cancelled).
+        updateSpawnsFromFor(c.id, c.next);
+        delete TODOS[c.id];
+        c.op = 'remove';
+        c.next = undefined;
+        ambientClosed = true;
+      }
+      applyGovernanceFor(c.entity, c.id);
+      // ambientClosed already kept its SPAWNS_FROM entry above — the generic
+      // remove branch below must not drop it (that's for server-side removes).
+      if (c.entity === 'todo' && !ambientClosed) {
+        if (c.op === 'remove') {
+          // True server-side remove: drop the entry entirely.
+          updateSpawnsFromFor(c.id, undefined);
+        } else if (c.next) {
+          // Upsert (open todo): update to reflect any spawnsFrom change.
+          updateSpawnsFromFor(c.id, c.next);
+        }
+      }
+      for (const fid of c.next ? governedFrameIdsOf(c.next) : []) {
+        if (!renderedFrames.has(fid)) needsPromotionRebuild = true;
+      }
+      // Removed-while-open: keep the card up with a quiet removed note.
+      if (c.op === 'remove' && focusedRecord && focusedRecord.type === c.entity && focusedRecord.id === c.id) {
+        removedRecordSnapshots[c.id] = c.prev;
+        currentRenderedRecord = null; // force re-render with the note
+      }
+    }
+
+    if (needsPromotionRebuild && lastFrameMeta) {
+      // Rare path: a change governs a frame outside the render set — recompute
+      // the promoted-frames overlay + canvas graph (documented spec exception).
+      FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+      buildGraph();
+    }
+    onLiveChangesApplied(changes);
+  }
+  store.subscribe(applyLiveChanges);
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
@@ -671,6 +868,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     previousRecord = focusedRecord;
     focusedRecord = null;
     recordDrawerT0 = performance.now();
+    for (const k of Object.keys(removedRecordSnapshots)) delete removedRecordSnapshots[k];
   }
 
   function openDecisionCard(decId) { openRecord('decision', decId); }
@@ -1050,6 +1248,8 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         state === 'deprecated' ? [134, 239, 172] :
                                  [74, 222, 128];
 
+      liveFx.recordDotPos(dec.id, dotX, dotY);
+
       const isSelected = selectedDecId === dec.id;
       // Hover via the floating dot OR this decision's marginalia pill — either
       // lights up the decision's leader edges (dot AND marginalia connections).
@@ -1065,11 +1265,14 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       // them (brighter + thicker); a selected decision keeps calmer persistent
       // leaders; a frame that merely touches it (focused, not hovered) shows faint
       // guide lines.
-      const leadersOn = isSelected || isHovered;
+      // Update treatment: a fired connection boosts the leaders once, then settles.
+      const fireBoost = liveFx.leaderBoost(dec.id, now);
+      const leadersOn = isSelected || isHovered || fireBoost > 0;
       if (leadersOn) {
         const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(74, 222, 128, ${hl ? 0.6 : 0.22})`;
+          const leadAlpha = hl ? 0.6 : Math.max(0.22, 0.3 + 0.4 * fireBoost);
+          ctx.strokeStyle = `rgba(74, 222, 128, ${leadAlpha})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
           ctx.beginPath();
@@ -1108,11 +1311,38 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         });
       }
 
+      const birthT = liveFx.birth(dec.id, now);
       const dotFillAlpha = state === 'proposed' ? 0.42 : 0.95;
-      ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha})`;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
-      ctx.fill();
+      if (birthT !== null) {
+        // v5 added-node grammar: outline sketch → fill commits (fill lands late).
+        const fillIn = ease(Math.min(1, Math.max(0, (birthT - 0.4) / 0.6)));
+        ctx.strokeStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, 0.9)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.stroke();
+        if (fillIn > 0) {
+          ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha * fillIn})`;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha})`;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Update treatment: halo lifts then drains (no idle halo, no pulse).
+      const lift = liveFx.haloLift(dec.id, now);
+      if (lift > 0) {
+        ctx.strokeStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${0.26 * lift})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       if (state === 'deprecated') {
         ctx.strokeStyle = `rgba(245, 158, 11, 0.8)`;
@@ -1258,12 +1488,17 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       const DOT_R = 4;
       const HIT_R = 14;
 
+      liveFx.recordDotPos(todo.id, dotX, dotY);
+
       // Leader lines: hover HIGHLIGHTS the todo's connections (brighter +
-      // thicker); a selected todo keeps calmer persistent leaders.
-      if (isSelected || isHovered) {
+      // thicker); a selected todo keeps calmer persistent leaders; an applied
+      // update fires them once then settles.
+      const fireBoost = liveFx.leaderBoost(todo.id, now);
+      if (isSelected || isHovered || fireBoost > 0) {
         const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${hl ? 0.6 : 0.22})`;
+          const leadAlpha = hl ? 0.6 : Math.max(0.22, 0.3 + 0.4 * fireBoost);
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${leadAlpha})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash([2, 3]);
           ctx.beginPath();
@@ -1274,11 +1509,37 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         });
       }
 
-      // Dot fill.
-      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
-      ctx.fill();
+      // Dot fill — birth-aware (outline sketch → fill commits) on create.
+      const birthT = liveFx.birth(todo.id, now);
+      if (birthT !== null) {
+        const fillIn = ease(Math.min(1, Math.max(0, (birthT - 0.4) / 0.6)));
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.9)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.stroke();
+        if (fillIn > 0) {
+          ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.95 * fillIn})`;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Update treatment: halo lifts then drains (no idle halo, no pulse).
+      const lift = liveFx.haloLift(todo.id, now);
+      if (lift > 0) {
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.26 * lift})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       // Amber ring for blocked state.
       if (ring) {
@@ -1413,7 +1674,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-        const baseBorderAlpha = 0.08;
+        const baseBorderAlpha = 0.08 + 0.15 * liveFx.frameHeat(frame.id, now);
         const focusBoost = isFocused ? 0.12 : 0;
         const hoverBorderBoost = hoverLevel * 0.2;
         const borderAlphaMult = isLight() ? 3.0 : 1;
@@ -2057,6 +2318,58 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     return null;
   }
 
+  function drawLiveEffects(now) {
+    // Removal: fill drains back to outline, then the sketch fades (reverse of birth).
+    for (const tb of liveFx.tombstones(now)) {
+      if (tb.x === null || tb.y === null) continue;
+      const rgb = tb.entity === 'todo' ? todoDotRGB() : decisionDotRGB();
+      const fade = 1 - ease(tb.t);
+      ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.9 * fade})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(tb.x, tb.y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      const fillFade = Math.max(0, 1 - tb.t * 2); // fill drains in the first half
+      if (fillFade > 0) {
+        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.95 * fillFade})`;
+        ctx.beginPath();
+        ctx.arc(tb.x, tb.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Presence pills — v5 cursor-pill: vertically centered on the node, 11px
+    // right of center; agent = colored fill + ✳ glyph, user = base-white @name.
+    ctx.save();
+    ctx.font = '500 10px "Geist Mono", monospace';
+    ctx.textBaseline = 'middle';
+    for (const p of liveFx.pills(now)) {
+      if (p.x === null || p.y === null) continue;
+      const label = p.name;
+      const glyph = p.isUser ? '' : '✳ ';
+      const text = glyph + label;
+      const padX = 8;
+      const pillH = 18;
+      const pillW = padX + ctx.measureText(text).width + padX;
+      let pillX = p.x + 11;
+      if (pillX + pillW > canvas.clientWidth - 8) pillX = p.x - 11 - pillW; // edge flip
+      const pillY = p.y - pillH / 2;
+      const fill = p.isUser
+        ? (isLight() ? [24, 24, 27] : [237, 237, 237])
+        : [96, 165, 250]; // agent blue (v5 --agent-b)
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = `rgb(${fill[0]}, ${fill[1]}, ${fill[2]})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      const content = p.isUser ? (isLight() ? [250, 250, 250] : [15, 15, 15]) : [15, 15, 15];
+      ctx.fillStyle = `rgb(${content[0]}, ${content[1]}, ${content[2]})`;
+      ctx.textAlign = 'left';
+      ctx.fillText(text, pillX + padX, pillY + pillH / 2);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
   function mainLoop() {
     const now = performance.now();
     updateDecisionCardVisibility();
@@ -2073,6 +2386,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
     drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
+    drawLiveEffects(now);
 
     requestAnimationFrame(mainLoop);
   }
@@ -2126,8 +2440,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   function renderDecisionCard(decId) {
-    const dec = DECISIONS[decId];
+    const dec = DECISIONS[decId] || removedRecordSnapshots[decId];
     if (!dec) { decisionCardEl.innerHTML = ''; return; }
+    const isRemoved = !DECISIONS[decId];
 
     const stateLabel = dec.state;
     const provParts = [];
@@ -2144,6 +2459,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
         </div>
         <div class="dc-summary">${escapeHtml(dec.summary)}</div>
         ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+        ${isRemoved ? '<div class="dc-removed-note">this decision was removed · view is a snapshot</div>' : ''}
       </div>
       <button class="dc-close" id="dc-close" aria-label="close">×</button>
     </div>`;
@@ -2237,8 +2553,9 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
   }
 
   function renderTodoCard(todoId) {
-    const t = TODOS[todoId];
+    const t = TODOS[todoId] || removedRecordSnapshots[todoId];
     if (!t) { decisionCardEl.innerHTML = ''; return; }
+    const isRemoved = !TODOS[todoId];
     const provParts = [];
     if (t.id) provParts.push(`id ${escapeHtml(t.id)}`); // canonical id (display id is the T-<seq> form)
     if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
@@ -2251,6 +2568,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
       </div>
       <div class="dc-summary">${escapeHtml(t.summary || '')}</div>
       ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
+      ${isRemoved ? '<div class="dc-removed-note">this todo was removed · view is a snapshot</div>' : ''}
     </div><button class="dc-close" id="dc-close" aria-label="close">×</button></div>`;
 
     html += '<div class="dc-body">';

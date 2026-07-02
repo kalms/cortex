@@ -84,6 +84,15 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
       return node ? [{ op: 'add_node', node }] : [];
     }
 
+    // TODO entities live in the projection channel, not the graph-mutation
+    // channel — they have no graph nodes. Explicit no-ops keep this switch
+    // total over the Event union (no default: exhaustiveness stays checked).
+    case 'todo.proposed':
+    case 'todo.updated':
+    case 'todo.transitioned':
+    case 'todo.linked':
+      return [];
+
     case 'commit':
       return [];
 

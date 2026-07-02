@@ -4,9 +4,10 @@ import { dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { GraphStore, type NodeRow } from "./graph/store.js";
 import { createServer } from "./mcp-server/server.js";
-import { startViewerServer } from "./mcp-server/api.js";
+import { startViewerServer, buildPathIndices } from "./mcp-server/api.js";
 import { createGracefulShutdown } from "./mcp-server/shutdown.js";
 import { startWsServer, type WsServerHandle } from "./ws/server.js";
+import { deriveProjectionDeltas, type ProjectionSources } from "./mcp-server/projection-deriver.js";
 import { EventBus } from "./events/bus.js";
 import { EventPersister } from "./events/worker/persister.js";
 import { WorkerSupervisor } from "./events/worker-supervisor.js";
@@ -72,6 +73,7 @@ const mainPersister = new EventPersister(eventsDbPath);
 const bus = new EventBus();
 
 let wsHandle: WsServerHandle | null = null;
+let projectionSources: ProjectionSources | null = null;
 
 /**
  * Project NodeRow (SQLite shape with stringified `data`) into the WireNode
@@ -132,8 +134,18 @@ const supervisor = new WorkerSupervisor({
   maxDelayMs: 30_000,
   onSpawn: (w) => {
     w.on("message", (msg) => {
-      if (msg.type === "broadcast" && wsHandle) wsHandle.broadcast(msg.bundle);
-      else if (msg.type === "error") process.stderr.write(`[worker] ${msg.message}\n`);
+      if (msg.type === "broadcast" && wsHandle) {
+        wsHandle.broadcast(msg.bundle);
+        if (projectionSources) {
+          try {
+            const deltas = deriveProjectionDeltas(msg.bundle.events, projectionSources);
+            if (deltas.length) wsHandle.broadcastProjections(deltas);
+          } catch (err) {
+            process.stderr.write(`[projection] derive failed: ${(err as Error).message}\n`);
+            // Skip the projection broadcast — the event/mutation broadcast already happened above.
+          }
+        }
+      } else if (msg.type === "error") process.stderr.write(`[worker] ${msg.message}\n`);
     });
     const wireNodes = toWireNodes(store.getAllNodesUnified(indexerProject ?? undefined));
     const governedFilesMap = buildGovernedFilesMap(store);
@@ -168,6 +180,17 @@ const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 const todosRepo = new TodosRepository(decisionsDb);
 const todoLinksRepo = new TodoLinksRepository(decisionsDb);
 
+// Projection sources for the read-path sync engine. pathIndices() re-reads the
+// graph store per derive batch — events are low-rate (tool calls, commits), so
+// freshness beats caching here; a reindex mid-session is picked up for free.
+projectionSources = {
+  decisions: decisionsRepo,
+  decisionLinks: decisionLinksRepo,
+  todos: todosRepo,
+  todoLinks: todoLinksRepo,
+  pathIndices: () => buildPathIndices(store.getAllNodesUnified(indexerProject ?? undefined)),
+};
+
 const { port, httpServer } = await startViewerServer(
   store,
   indexerProject,
@@ -182,6 +205,17 @@ if (port > 0 && httpServer) {
     persister: mainPersister,
     projectId: indexerProject ?? "",
     serverVersion: "0.2.0",
+    deriveProjections: (events) => {
+      if (!projectionSources) return [];
+      try {
+        return deriveProjectionDeltas(events, projectionSources);
+      } catch (err) {
+        process.stderr.write(`[projection] derive failed during catchup: ${(err as Error).message}\n`);
+        // Degrade to an empty replay — the client sets its cursor to head and
+        // re-converges on the next change or reconnect. Never crash the process.
+        return [];
+      }
+    },
   });
   process.stderr.write(`Cortex viewer: http://localhost:${port}/viewer (WS at /ws)\n`);
 } else {

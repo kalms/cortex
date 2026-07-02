@@ -6,6 +6,7 @@ import { TodoLinksRepository } from "../../todos/links-repository.js";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { validatePrimitiveFields } from "./decision-input-validation.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import type { EventBus } from "../../events/bus.js";
 
 const RepoPathField = z
   .string()
@@ -44,11 +45,13 @@ const todoShape = {
 const todoSchema = z.object(todoShape);
 type TodoArgs = z.infer<typeof todoSchema>;
 
-const todoServiceFor = (ctx: RepoContext): TodoService =>
+const todoServiceFor = (ctx: RepoContext, projectId: string | null, bus?: EventBus): TodoService =>
   new TodoService({
     db: ctx.decisionsDb,
     todos: new TodosRepository(ctx.decisionsDb),
     links: new TodoLinksRepository(ctx.decisionsDb),
+    bus,
+    project_id: projectId ?? "",
   });
 
 function need<T>(v: T | undefined, action: string, field: string): T {
@@ -56,7 +59,7 @@ function need<T>(v: T | undefined, action: string, field: string): T {
   return v;
 }
 
-export const todoHandler = (resolver: RepoContextResolver) =>
+export const todoHandler = (resolver: RepoContextResolver, indexerProject: string | null = null, bus?: EventBus) =>
   registerTool(
     "todo",
     todoSchema,
@@ -68,7 +71,7 @@ export const todoHandler = (resolver: RepoContextResolver) =>
           `Field '${bad.field}' contains marker '${bad.marker}'. Re-send it as a plain string.`,
         );
       }
-      const svc = todoServiceFor(ctx);
+      const svc = todoServiceFor(ctx, indexerProject, bus);
       try {
         switch (args.action) {
           case "propose":
@@ -142,11 +145,16 @@ export const todoHandler = (resolver: RepoContextResolver) =>
     { resolver },
   );
 
-export function registerTodoTools(server: McpServer, resolver: RepoContextResolver): void {
+export function registerTodoTools(
+  server: McpServer,
+  resolver: RepoContextResolver,
+  indexerProject: string | null = null,
+  bus?: EventBus,
+): void {
   server.tool(
     "todo",
     "Manage TODO entities (future planned work). action: propose|get|list|search|update|link|transition. See docs/mcp-tools.md for per-action params.",
     todoShape,
-    todoHandler(resolver),
+    todoHandler(resolver, indexerProject, bus),
   );
 }
