@@ -2,6 +2,7 @@ import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEd
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
 import { createStore } from '/viewer/store.js';
 import { connectLiveSync } from '/viewer/ws-client.js';
+import { createLiveEffects } from '/viewer/live-effects.js';
 
 (() => {
   const canvas = document.getElementById('stage');
@@ -99,6 +100,9 @@ import { connectLiveSync } from '/viewer/ws-client.js';
   let previousFocusId = null;
 
   const store = createStore();
+  const liveFx = createLiveEffects({
+    reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+  });
   const DECISIONS = store.state.decisions; // aliases — object identity is stable
   let FRAME_GOVERNANCE = {};
   const TODOS = store.state.todos;
@@ -546,8 +550,29 @@ import { connectLiveSync } from '/viewer/ws-client.js';
     }
   }
 
-  // Task 11 swaps this for the live-effects trigger.
-  let onLiveChangesApplied = () => {};
+  // Live-effects trigger: translate applied deltas into transient treatment
+  // state (frame heat, dot birth/halo/leader fire, tombstones, presence pills).
+  // Gating: skip when the change didn't animate (hidden tab, load-time hydrate),
+  // and skip entities whose layer toggle is off. A remove whose prev is undefined
+  // was never rendered — there's no dot to tombstone, so skip it outright.
+  let onLiveChangesApplied = (changes) => {
+    const now = performance.now();
+    for (const c of changes) {
+      if (!c.animate) continue;
+      if (c.entity === 'decision' && !showDecisions) continue;
+      if (c.entity === 'todo' && !showTodos) continue;
+      const ent = c.next ?? c.prev;
+      if (!ent) continue; // never-rendered remove (prev === undefined)
+      liveFx.noteChange({
+        kind: c.op === 'remove' ? 'remove' : (c.prev === undefined ? 'create' : 'update'),
+        entity: c.entity,
+        id: c.id,
+        frameIds: governedFrameIdsOf(ent),
+        actor: c.next?.proposedBy ?? c.prev?.proposedBy ?? 'claude',
+        now,
+      });
+    }
+  };
 
   const removedRecordSnapshots = {};
 
@@ -1223,6 +1248,8 @@ import { connectLiveSync } from '/viewer/ws-client.js';
         state === 'deprecated' ? [134, 239, 172] :
                                  [74, 222, 128];
 
+      liveFx.recordDotPos(dec.id, dotX, dotY);
+
       const isSelected = selectedDecId === dec.id;
       // Hover via the floating dot OR this decision's marginalia pill — either
       // lights up the decision's leader edges (dot AND marginalia connections).
@@ -1238,11 +1265,14 @@ import { connectLiveSync } from '/viewer/ws-client.js';
       // them (brighter + thicker); a selected decision keeps calmer persistent
       // leaders; a frame that merely touches it (focused, not hovered) shows faint
       // guide lines.
-      const leadersOn = isSelected || isHovered;
+      // Update treatment: a fired connection boosts the leaders once, then settles.
+      const fireBoost = liveFx.leaderBoost(dec.id, now);
+      const leadersOn = isSelected || isHovered || fireBoost > 0;
       if (leadersOn) {
         const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(74, 222, 128, ${hl ? 0.6 : 0.22})`;
+          const leadAlpha = hl ? 0.6 : Math.max(0.22, 0.3 + 0.4 * fireBoost);
+          ctx.strokeStyle = `rgba(74, 222, 128, ${leadAlpha})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash(state === 'proposed' ? [2, 3] : [2, 2]);
           ctx.beginPath();
@@ -1281,11 +1311,38 @@ import { connectLiveSync } from '/viewer/ws-client.js';
         });
       }
 
+      const birthT = liveFx.birth(dec.id, now);
       const dotFillAlpha = state === 'proposed' ? 0.42 : 0.95;
-      ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha})`;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
-      ctx.fill();
+      if (birthT !== null) {
+        // v5 added-node grammar: outline sketch → fill commits (fill lands late).
+        const fillIn = ease(Math.min(1, Math.max(0, (birthT - 0.4) / 0.6)));
+        ctx.strokeStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, 0.9)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.stroke();
+        if (fillIn > 0) {
+          ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha * fillIn})`;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${dotFillAlpha})`;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Update treatment: halo lifts then drains (no idle halo, no pulse).
+      const lift = liveFx.haloLift(dec.id, now);
+      if (lift > 0) {
+        ctx.strokeStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${0.26 * lift})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       if (state === 'deprecated') {
         ctx.strokeStyle = `rgba(245, 158, 11, 0.8)`;
@@ -1431,12 +1488,17 @@ import { connectLiveSync } from '/viewer/ws-client.js';
       const DOT_R = 4;
       const HIT_R = 14;
 
+      liveFx.recordDotPos(todo.id, dotX, dotY);
+
       // Leader lines: hover HIGHLIGHTS the todo's connections (brighter +
-      // thicker); a selected todo keeps calmer persistent leaders.
-      if (isSelected || isHovered) {
+      // thicker); a selected todo keeps calmer persistent leaders; an applied
+      // update fires them once then settles.
+      const fireBoost = liveFx.leaderBoost(todo.id, now);
+      if (isSelected || isHovered || fireBoost > 0) {
         const hl = isHovered || isSelected; // hover OR open drawer = highlight
         governedPositions.forEach(p => {
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${hl ? 0.6 : 0.22})`;
+          const leadAlpha = hl ? 0.6 : Math.max(0.22, 0.3 + 0.4 * fireBoost);
+          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${leadAlpha})`;
           ctx.lineWidth = hl ? 1.2 : 0.6;
           ctx.setLineDash([2, 3]);
           ctx.beginPath();
@@ -1447,11 +1509,37 @@ import { connectLiveSync } from '/viewer/ws-client.js';
         });
       }
 
-      // Dot fill.
-      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
-      ctx.fill();
+      // Dot fill — birth-aware (outline sketch → fill commits) on create.
+      const birthT = liveFx.birth(todo.id, now);
+      if (birthT !== null) {
+        const fillIn = ease(Math.min(1, Math.max(0, (birthT - 0.4) / 0.6)));
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.9)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.stroke();
+        if (fillIn > 0) {
+          ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.95 * fillIn})`;
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.95)`;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Update treatment: halo lifts then drains (no idle halo, no pulse).
+      const lift = liveFx.haloLift(todo.id, now);
+      if (lift > 0) {
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.26 * lift})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       // Amber ring for blocked state.
       if (ring) {
@@ -1586,7 +1674,7 @@ import { connectLiveSync } from '/viewer/ws-client.js';
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-        const baseBorderAlpha = 0.08;
+        const baseBorderAlpha = 0.08 + 0.15 * liveFx.frameHeat(frame.id, now);
         const focusBoost = isFocused ? 0.12 : 0;
         const hoverBorderBoost = hoverLevel * 0.2;
         const borderAlphaMult = isLight() ? 3.0 : 1;
@@ -2230,6 +2318,58 @@ import { connectLiveSync } from '/viewer/ws-client.js';
     return null;
   }
 
+  function drawLiveEffects(now) {
+    // Removal: fill drains back to outline, then the sketch fades (reverse of birth).
+    for (const tb of liveFx.tombstones(now)) {
+      if (tb.x === null || tb.y === null) continue;
+      const rgb = tb.entity === 'todo' ? todoDotRGB() : decisionDotRGB();
+      const fade = 1 - ease(tb.t);
+      ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.9 * fade})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(tb.x, tb.y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      const fillFade = Math.max(0, 1 - tb.t * 2); // fill drains in the first half
+      if (fillFade > 0) {
+        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${0.95 * fillFade})`;
+        ctx.beginPath();
+        ctx.arc(tb.x, tb.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Presence pills — v5 cursor-pill: vertically centered on the node, 11px
+    // right of center; agent = colored fill + ✳ glyph, user = base-white @name.
+    ctx.save();
+    ctx.font = '500 10px "Geist Mono", monospace';
+    ctx.textBaseline = 'middle';
+    for (const p of liveFx.pills(now)) {
+      if (p.x === null || p.y === null) continue;
+      const label = p.name;
+      const glyph = p.isUser ? '' : '✳ ';
+      const text = glyph + label;
+      const padX = 8;
+      const pillH = 18;
+      const pillW = padX + ctx.measureText(text).width + padX;
+      let pillX = p.x + 11;
+      if (pillX + pillW > canvas.clientWidth - 8) pillX = p.x - 11 - pillW; // edge flip
+      const pillY = p.y - pillH / 2;
+      const fill = p.isUser
+        ? (isLight() ? [24, 24, 27] : [237, 237, 237])
+        : [96, 165, 250]; // agent blue (v5 --agent-b)
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = `rgb(${fill[0]}, ${fill[1]}, ${fill[2]})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      const content = p.isUser ? (isLight() ? [250, 250, 250] : [15, 15, 15]) : [15, 15, 15];
+      ctx.fillStyle = `rgb(${content[0]}, ${content[1]}, ${content[2]})`;
+      ctx.textAlign = 'left';
+      ctx.fillText(text, pillX + padX, pillY + pillH / 2);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
   function mainLoop() {
     const now = performance.now();
     updateDecisionCardVisibility();
@@ -2246,6 +2386,7 @@ import { connectLiveSync } from '/viewer/ws-client.js';
     drawAggregates(now);
     drawHoverPill(now);
     drawCompactHoverBadge(now);
+    drawLiveEffects(now);
 
     requestAnimationFrame(mainLoop);
   }
