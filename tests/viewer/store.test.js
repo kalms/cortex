@@ -99,4 +99,36 @@ describe("createStore", () => {
     run();
     expect(changes[0].animate).toBe(false);
   });
+
+  it("ghost lifecycle: upsert then remove of the same id in one burst", () => {
+    const { schedule, run } = manualScheduler();
+    const store = createStore({ schedule });
+    store.hydrate({ decisions: {}, todos: {}, cursor: null });
+    const changes = [];
+    store.subscribe((c) => changes.push(...c));
+    // Upsert and remove d1 before flush
+    store.apply(d("01B", "d1"));
+    store.apply({ ulid: "01C", entity: "decision", op: "remove", data: { id: "d1" } });
+    run();
+    // Should coalesce to a single remove entry with prev: undefined
+    expect(changes.length).toBe(1);
+    expect(changes[0]).toMatchObject({ op: "remove", id: "d1", prev: undefined, next: undefined });
+    expect(store.state.decisions.d1).toBeUndefined();
+  });
+
+  it("animate OR logic: same id twice in one burst uses final animate", () => {
+    const { schedule, run } = manualScheduler();
+    const store = createStore({ schedule });
+    store.hydrate({ decisions: {}, todos: {}, cursor: null });
+    const changes = [];
+    store.subscribe((c) => changes.push(...c));
+    // Apply the same id twice with different animate values
+    store.apply(d("01B", "d1", { summary: "v1" }), { animate: false });
+    store.apply(d("01C", "d1", { summary: "v2" }), { animate: true });
+    run();
+    // Should coalesce to one upsert with animate: true (OR logic)
+    expect(changes.length).toBe(1);
+    expect(changes[0]).toMatchObject({ op: "upsert", id: "d1", animate: true });
+    expect(store.state.decisions.d1.summary).toBe("v2");
+  });
 });

@@ -49,6 +49,11 @@ export function createStore({ schedule } = {}) {
     });
     requestFlush();
   }
+  // Burst coalescing contract: if an entity is upserted then removed within
+  // one flush window (before run()), the final change entry will be
+  // { op: 'remove', prev: undefined, next: undefined }. A consumer seeing
+  // prev === undefined on a remove means nothing was ever rendered (the entity
+  // appeared and vanished atomically), so teardown/animation can be skipped.
 
   function apply(delta, { animate = true } = {}) {
     if (!hydrated) { queued.push({ delta, animate }); return; }
