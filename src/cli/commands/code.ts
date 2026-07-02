@@ -10,6 +10,8 @@ import { writeRows, chooseFormat } from "../format.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 import { runCodeSearch, rankSearchHits } from "../../graph/code-search.js";
+import { computeHotspots } from "../../architecture/hotspots.js";
+import { loadGovernedPaths } from "../../architecture/governed.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -226,8 +228,34 @@ function cmdTrace(cmd: CodeCommand, ctx: ProjectContext, mode: "calls" | "caller
 
 function cmdArch(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
+  if (cmd.flags.hotspots || cmd.flags.headline) {
+    // --headline formatting is added in Task 9; for now both route to the table.
+    return cmdArchHotspots(ctx, cmd.flags);
+  }
   const aspects = (cmd.flags.aspects as string | undefined)?.split(",") ?? ["all"];
   process.stdout.write(runIndexer("get_architecture", { aspects, project: ctx.projectName }, ctx) + "\n");
+}
+
+/** `cortex code arch --hotspots` — ranked source modules by inbound fan-in. */
+export function cmdArchHotspots(
+  ctx: ProjectContext & { graphDbPath: string; projectName: string },
+  flags: Record<string, string | boolean>,
+): void {
+  const root = ctx.gitRoot ?? ctx.cwd;
+  const store = new GraphStore(ctx.graphDbPath, { readonly: true });
+  try {
+    const areas = computeHotspots(store, ctx.projectName, loadGovernedPaths(root));
+    const fmt = chooseFormat(flags.format as string | undefined, process.stdout.isTTY);
+    const rows = areas.map((a) => ({
+      module: a.path,
+      in_edges: a.in_edges,
+      nodes: a.nodes,
+      decisions: a.governing_decisions,
+    }));
+    writeRows(rows, fmt, `no source modules found for ${ctx.projectName}`);
+  } finally {
+    store.close?.();
+  }
 }
 
 function cmdSchema(cmd: CodeCommand, ctx: ProjectContext): void {

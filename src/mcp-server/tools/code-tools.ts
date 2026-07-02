@@ -37,6 +37,8 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { ensureIndexer } from "../../indexer/binary.js";
+import { computeHotspots } from "../../architecture/hotspots.js";
+import { loadGovernedPaths } from "../../architecture/governed.js";
 
 // Re-exported for the contract tests, which assert on the shared search
 // helpers' arg-building / error-classification behavior.
@@ -519,9 +521,13 @@ export function registerCodeTools(
       getArchitectureSchema,
       async (ctx, args) => {
         const addressedDbPath = ctx.graphDbPath;
-        const indexerArgs: Record<string, unknown> = { aspects: args.aspects ?? ["all"] };
+        const aspects = args.aspects ?? ["all"];
         const project = projectFromCtx(ctx);
-        if (project) indexerArgs.project = project;
+        if (aspects.includes("hotspots")) {
+          const areas = computeHotspots(ctx.store, project ?? "", loadGovernedPaths(ctx.repoPath));
+          return { content: [{ type: "text", text: JSON.stringify({ project, hotspots: areas }) }] };
+        }
+        const indexerArgs: Record<string, unknown> = { aspects, ...(project ? { project } : {}) };
         return callIndexer("get_architecture", indexerArgs, addressedDbPath);
       },
       { resolver, freshnessAware: true },
