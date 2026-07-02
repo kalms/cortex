@@ -17,6 +17,40 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.6] — 2026-07-02
+
+### Changed
+
+- **Design deliberation moved out of the public tree into private `.superpowers/`.**
+  The `docs/superpowers/` plans + specs (raw brainstorming/deliberation) are no
+  longer tracked. The one in-flight topic (reflex layer) was consolidated into a
+  single private `.superpowers/reflex-layer.md`; all shipped topics were dropped
+  (their record lives in this CHANGELOG, the architecture docs, and decisions).
+
+### Added
+
+- **Architecture-doc coverage for shipped subsystems that only lived in deleted
+  specs.** `docs/architecture/frame-extraction.md` gains a consolidated
+  "Frame ranking, layout & layers" section (ranker formula/budget, deterministic
+  d3-force layout, HDBSCAN `min_samples` tuning, label-quality F1, the six-layer
+  agreement-based taxonomy + kind-weight table, earnable-domain, diversity
+  selection, and the "import graph is the wrong signal" negative result).
+  `docs/architecture/graph-storage.md` gains a "Per-call repo routing
+  (RepoContext)" subsection and a "why not `backup()`/`VACUUM INTO`" page-size
+  note. `docs/architecture/decisions-storage.md` gains ID-scheme, Reconciliation,
+  TODO-entity, and Schema-migrations subsections (and the stale `-- UUID` schema
+  comment is corrected).
+
+### Fixed
+
+- **Repointed tracked references off the removed specs onto active docs** — five
+  source-comment citations (`src/db/resolve-path.ts`, `src/events/types.ts`,
+  `src/frame-extraction/frame-kind.ts`, `src/mcp-server/frame-flow-rollup.ts`,
+  `src/mcp-server/repo-context.ts`), `CLAUDE.md`, `HANDOFF.md` (also de-staled:
+  reflex Plan 2 shipped in 1.2.3), several architecture docs, and six CHANGELOG
+  links now point at architecture docs. Seven stale decision governs/reference
+  links to the removed spec paths were dropped from the durable decisions store.
+
 ## [1.2.5] — 2026-07-02
 
 ### Added
@@ -423,8 +457,7 @@ All notable changes to Cortex are documented here. The format follows
   ([`src/mcp-server/api-respond.ts`](src/mcp-server/api-respond.ts)) validates every
   payload (throw in test/CI or under `CORTEX_API_STRICT=1`, else log-and-send) and
   stamps the version/freshness/ETag headers. Decision `D-tszm`;
-  [design](docs/superpowers/specs/2026-06-16-versioned-http-contract-hardening-design.md),
-  [onboarding doc](docs/architecture/http-api-contract.md).
+  [design](docs/architecture/http-api-contract.md).
 - **Freshness over HTTP** — a two-signal model: an `ETag` derived from the index
   baseline drives `If-None-Match` → `304` conditional revalidation on the data
   endpoints, while an `X-Cortex-Freshness` header + a lightweight `GET /api/freshness`
@@ -492,7 +525,7 @@ All notable changes to Cortex are documented here. The format follows
   are emitted in `/api/frames` (non-ambient frames) and `/api/aggregates`
   (positioned aggregates); the viewer renders satellites at those positions,
   visually de-emphasized.
-  [Design](docs/superpowers/specs/2026-06-16-floating-entity-placement-design.md).
+  [Design](docs/architecture/graph-ui.md).
 
 ### Changed
 
@@ -541,7 +574,7 @@ All notable changes to Cortex are documented here. The format follows
   off, golden-tested; `forceCenter` is swapped for a horizontal-only `forceX`
   only when stratifying). `eval-layers` gained a Spearman(y, sink) stratification
   metric for the observe pass. Decision `D-marq`; relates to `D-wvsz` / `D-g4qb`.
-  [Design](docs/superpowers/specs/2026-06-16-layer-adjacency-layout-force-design.md).
+  [Design](docs/architecture/graph-ui.md).
   Floating-entity placement (replacing the fixed bottom strip; subsuming the
   `D-xwxj` governed-frame promotion) is a separate follow-on slice.
 
@@ -581,7 +614,7 @@ All notable changes to Cortex are documented here. The format follows
   to pre-slice when off). `eval-layers` gained a diversity off-vs-on ambient
   delta for the observe pass. Decision `D-wvsz`; relates to `D-g4qb` (kind-weight)
   and `D-qn7z`.
-  [Design](docs/superpowers/specs/2026-06-15-layer-diversity-enable-slice-design.md).
+  [Design](docs/architecture/frame-extraction.md#diversity--ambient-selection).
   Measured on cortex (flag on): ceremony correctly capped 2→1, over-represented
   domain yields a slot, interface gains a second frame, ambient held at budget.
 
@@ -861,7 +894,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   `conf=0.00`). Production `/api/frames` still serializes only `{ frame_id,
   layer }` (negative test extended to the new field).
 - **Observe-phase findings + verdict recorded** ([`HANDOFF.md`](HANDOFF.md),
-  [frame-layers spec](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md)):
+  [frame-layers design](docs/architecture/frame-extraction.md#layer-taxonomy)):
   cross-repo measurement shows `domain` is only ever reached by fallback (never
   earned), orchestration starved on framework idioms, and frame quality is the
   ceiling. Verdict: **do not enable kind-weight** until the domain question is
@@ -927,7 +960,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   which already caught and fixed two classifier bugs pre-merge (ceremony
   leakage via test-path tokens; weak-plurality override at MIN_SIGNAL 0.25).
   Decisions `D-qn7z`, `D-24p0`, `D-b1gd`; design spec
-  [2026-06-12-frame-layers-taxonomy-design.md](docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md).
+  [frame-layers taxonomy](docs/architecture/frame-extraction.md#layer-taxonomy).
 
 ## [0.8.3] — 2026-06-12
 
@@ -1101,6 +1134,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
 [1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4
 [1.2.3]: https://github.com/ruevu/cortex/releases/tag/v1.2.3

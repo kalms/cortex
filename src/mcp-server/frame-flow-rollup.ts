@@ -4,7 +4,7 @@
  * totals. The undirected rollup feeds the layout's gravity force; this one
  * feeds layer classification (frame-kind.ts), where direction is the signal —
  * a frame that is mostly imported is substrate, a frame that mostly imports
- * is surface. Spec: docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md.
+ * is surface. Design: docs/architecture/frame-extraction.md ("Layer taxonomy").
  *
  * PURE — no I/O.
  */

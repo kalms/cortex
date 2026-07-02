@@ -40,7 +40,7 @@ never by graph node IDs, which the indexer regenerates per run.
 ```sql
 -- decisions: the rows users author
 CREATE TABLE decisions (
-  id            TEXT PRIMARY KEY,         -- UUID
+  id            TEXT PRIMARY KEY,         -- canonical id, D-<token> (see ID scheme)
   title         TEXT NOT NULL,
   description   TEXT,
   rationale     TEXT,
@@ -82,13 +82,51 @@ The schema is set up idempotently via `IF NOT EXISTS` on every
 `openDecisionsDb(path)` call. WAL mode + `foreign_keys = ON` are pragma'd
 on every open.
 
+### ID scheme
+
+IDs are `D-<token>` (decisions) and `T-<token>` (TODOs), **not** UUIDs. Each
+row carries two identifiers, minted at a shared `src/ids/` chokepoint:
+
+- **canonical** — the PK. `<prefix>-<token>` where `token` is a 4-char
+  lowercase Crockford base32 string that **always contains ≥1 letter**. Random,
+  durable, and cross-repo: it survives `decision rehome` unchanged.
+- **`seq`** — a per-repo monotonic integer, rendered `D-12` for display. It is
+  presentation-only and **reassigned** on rehome.
+
+Two ids on purpose: a seq-based PK would collide with the destination repo's own
+`D-12` when a decision is rehomed, so the durable handle must be the random
+canonical. Tools accept **either** form — an all-digit token resolves as `seq`,
+otherwise as canonical — unambiguous precisely because canonical tokens always
+carry a letter. PRs are the exception: they stay keyed on the real GitHub PR
+number (no canonical, no seq).
+
+### Reconciliation
+
+Reconciliation splits into two orthogonal axes:
+
+- **`status`** (stored) — human intent: `active` / `proposed` / `superseded` /
+  `deprecated`.
+- **`reconciliation`** (derived) — a verdict of `match` / `partial` / `drift` /
+  `unknown` computed against the current source.
+
+`"stale"` is never stored — it is projected by `displayState`: an `active`
+decision whose verdict is `drift` renders as "stale". The invalidation trigger
+is a `governed_source_hash` computed over the **working tree**, not HEAD (reusing
+the indexer's `grammarPackHash`, at file-level granularity). That working-tree
+basis is the defining property: it surfaces in-session, pre-commit drift and
+decouples the verdict from index freshness — a HEAD-based hash would hide drift
+until the next commit. Judgment is **agent-delegated** (no server-side LLM);
+recording a verdict recomputes the hash server-side so the verdict binds to the
+source the server actually sees. Zero-`GOVERNS` decisions are declarative and
+never reconcilable. The whole flow is gated by `CORTEX_RECONCILE`.
+
 ## `target_kind` taxonomy
 
 | kind       | target_ref                              | example                                |
 |------------|-----------------------------------------|----------------------------------------|
 | `qn`       | qualified name (with `::` member)       | `src/foo.ts::processBatch`             |
 | `path`     | file or directory path                  | `src/payments` or `src/payments/api.ts` |
-| `decision` | another decision's `id`                 | UUID                                   |
+| `decision` | another decision's `id`                 | `D-4h2k`                               |
 | `pr`       | PR number as string                     | `"42"`                                 |
 
 The kind is chosen by `classifyTarget(target)` (in `service.ts`):
@@ -153,6 +191,46 @@ The regression is pinned by `tests/decisions/cache-survival.test.ts`:
 create a decision, overwrite the graph DB with garbage bytes
 (simulating any cache-import or pipeline-reindex), re-open the decisions
 sidecar, confirm the decision is still there.
+
+### TODO entity
+
+TODOs are the third user-authored primitive (after decisions and PRs), and they
+live in the **same** primitives DB (`~/.cortex/<repoId>/decisions.db`) — not a
+separate `todos.db`. Sharing the file lets TODOs reuse the existing machinery:
+the shared `id_sequences` mint (`T-` prefix + per-repo `seq`), FTS-via-triggers,
+and the links pattern (string qn/path refs, **never** graph node ids). A
+separate DB would duplicate all of that and split `id_sequences` across two
+files. Links carry a TODO-specific relation set — `governs` / `blockedBy` /
+`relatedTo` / `spawnsFrom` / `resolvedBy` (`blocks` is derived, never stored).
+State is a **service-enforced** machine — `open → in_progress → blocked →
+done`/`cancelled`, with `done`/`cancelled` terminal — never a direct column
+mutation. (The 17→3 action-dispatched MCP tool consolidation that introduced the
+`todo` tool is documented in [../mcp-tools.md](../mcp-tools.md).)
+
+### Schema migrations
+
+The primitives DB uses a **forward-only, name-keyed** migration runner
+(`runMigrations` in `src/db/migrate.ts`) — **not** `PRAGMA user_version`.
+Applied migrations are recorded by name in a ledger table
+`_cortex_migrations(migration_set, name, applied_at)`; name-keying (rather than a
+monotonic integer) is safe across parallel branches and gap-fills cleanly when
+branches merge out of order. It is **baseline-at-current**: today's declarative
+`ensureX`/FTS schema is the baseline, and the runner records/runs only named
+data + forward migrations layered on top.
+
+Migrations run at a **single chokepoint** — `openDecisionsDb` — so every opener
+(the CLI `openService`, the MCP repo-context, and tests) converges by
+construction. (This chokepoint fixed a real bug where the CLI opened the store
+but skipped data migrations.) A **too-new guard** hard-refuses (exit 4) a store
+carrying migration names this binary doesn't recognize. Before a batch runs, a
+pre-migration file snapshot (`db.backup` / `VACUUM INTO`, last 3 retained) makes
+the batch **all-or-nothing at file granularity** — covering the "migration N+1
+fails after N already committed" gap that per-step transactions cannot.
+
+Scope is the primitives DB **only**. The graph and events DBs are regenerable, so
+`CREATE TABLE IF NOT EXISTS` suffices for them. `migrateDecisionsFromGraphDb`
+stays at the MCP entry points (not this chokepoint) because it needs the graph-DB
+path.
 
 ## Cold-start seeding (machine-proposed decisions)
 

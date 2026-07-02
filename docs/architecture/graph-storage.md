@@ -108,6 +108,15 @@ while a reader holds it open.
    path. This **supersedes** the in-place/inode-preserving truncate (`04c848f0`),
    whose out-of-band `fopen("wb")` under an open WAL handle corrupted index
    b-trees.
+
+   > **Why `INSERT…SELECT`, not `backup()`/`VACUUM INTO`:** the publish copies
+   > rows via `ATTACH` + per-table `INSERT…SELECT` **deliberately** — not
+   > SQLite's backup API or `VACUUM INTO`. The C writer emits a staging DB whose
+   > **page size can differ** from the live file's (e.g. 4096 vs 65536), and the
+   > backup API throws `attempt to write a readonly database` across a page-size
+   > mismatch (reproduced during design). `INSERT…SELECT` copies **logical rows**
+   > and is page-size-agnostic. (`backup()` would also copy the whole image with
+   > no diff and grow the WAL unboundedly under a pinned reader.)
 3. **Serialize.** The whole build+publish runs under `withIndexLock(repoPath, …)`
    (`src/db/index-lock.ts`) — a per-repo `BEGIN EXCLUSIVE` on
    `.cortex/index.lock.db` (auto-released on process death) plus an in-process
@@ -144,6 +153,24 @@ viewer stale-map bug; decision `f1950d3`).
 > This keeps the path mapping a one-place change — e.g. a future branch-keyed
 > graph cache (`.cortex/graph/<ref>.db`) would touch only the resolver, leaving
 > the registry and decisions DB untouched.
+
+### Per-call repo routing (RepoContext)
+
+The MCP server has no startup-bound "home repo." Every tool call carries an
+absolute `repo_path`; `RepoContextResolver.resolve(repo_path)`
+(`src/mcp-server/repo-context.ts`) validates it (exists → is a git root →
+indexed) and returns a pooled `RepoContext` bundling that repo's graph DB,
+decisions sidecar, store, and repositories. This replaced a former
+single-bind-at-startup model where every write (notably decision captures)
+silently pooled into whichever repo the server process happened to start in —
+the cause of one repo's decisions DB accumulating rows governed by unrelated
+sibling repos. Consequently `resolveCortexDbPath`'s global `CORTEX_DB_PATH`
+override (see the chokepoint invariant above) applies **only** to the implicit
+(cwd) case — an explicit `repo_path` always wins, so one override can't collapse
+every addressed repo onto a single path. The `repo_path` input contract, resolver
+modes (default / `crossRepo` / `allowUnindexed`), and error shapes
+(`MissingRepoPathError`, `RepoNotIndexedError`, `PathNotFoundError`,
+`NotAGitRepoError`) are documented in [mcp-tools.md](../mcp-tools.md).
 
 ## Freshness (is the read current?)
 

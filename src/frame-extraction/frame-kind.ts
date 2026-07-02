@@ -19,7 +19,7 @@
  * `classifyFrames` strips it; frame-map reads the internal shape (for `fallback`)
  * but never serializes those fields.
  *
- * Spec: docs/superpowers/specs/2026-06-12-frame-layers-taxonomy-design.md
+ * Design: docs/architecture/frame-extraction.md ("Layer taxonomy").
  * PURE — no I/O.
  */
 

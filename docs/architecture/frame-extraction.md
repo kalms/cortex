@@ -248,6 +248,202 @@ The detection rule lives in
 exact-segment (split on `/`), not substring, so `static` does not
 match `staticAnalysis`.
 
+## Frame ranking, layout & layers
+
+Clustering + labeling produces *every* frame a repo yields; real repos
+overproduce past a readable budget. Ranking, layout, layer classification, and
+ambient selection are the read-time layer that turns the raw frame set into the
+ambient map the viewer draws. All of it is **pure, deterministic, and
+recompute-on-read** — nothing here is persisted alongside `frame_id`.
+
+Pre-implementation design notes live at
+[`docs/specs/cortex-v0.3/frame-ranking.md`](../specs/cortex-v0.3/frame-ranking.md)
+and [`frame-layout.md`](../specs/cortex-v0.3/frame-layout.md) (both retained).
+The **shipped ranker is the taxonomy-free "Path-1" subset** those notes were
+later extended past — treat this section, not the notes' later chapters, as the
+description of what runs.
+
+### The ranker
+
+A deterministic ranker picks an **ambient set** of frames to foreground; the
+rest stay queryable (they are ranked, not dropped). The score is a product:
+
+```
+score = nameability × structural_weight × kind_weight
+nameability      = label_F1 × generic_penalty
+structural_weight = sqrt(member_count)
+kind_weight       = layer weight × diversity   (see below; default 1)
+```
+
+- **budget** = `max(4, min(10, ceil(extracted × 0.7)))` — floors small repos at
+  4, caps large ones at 10.
+- **tie-break** is lexicographic on `frame_id` (stable across runs).
+- Non-ambient frames remain fully queryable; ranking only controls foreground.
+
+### Layout
+
+Positions come from **server-side d3-force**, recomputed on read and fully
+deterministic:
+
+- RNG is **mulberry32 seeded from the SHA-256 of the sorted frame records**, so
+  identical inputs give byte-identical coordinates.
+- Fixed **300 iterations**, then **integer-pixel quantized**.
+- Forces are driven by **rolled-up `CALLS`/`USAGE`/`IMPORTS` edges** (symbol →
+  file → frame), per-frame **mass**, and **collision**.
+
+### Coverage tuning (HDBSCAN noise)
+
+The dominant noise lever is HDBSCAN **`min_samples`**, *not* `min_cluster_size`.
+HDBSCAN silently defaults `min_samples` to `min_cluster_size` — very
+conservative, ≈70% noise on cortex. Shipped configuration:
+
+```
+min_samples = 1
+cluster_selection_method = 'eom'
+min_cluster_size = 5
+```
+
+This drops noise **70% → 34%** with `f1_weighted` held flat. The gate is
+explicit: **F1 must not regress** versus the `min_samples=5` baseline. Fallback
+`min_samples=2` if membership wobbles on a given repo.
+
+**Graph-edge reclamation.** The ≈28–34% residual that won't token-cluster is
+reclaimed by [`frame-reclamation.ts`](../../src/frame-extraction/frame-reclamation.ts):
+each noise file is pulled into the frame it has the most `CALLS`/`USAGE`/`IMPORTS`
+edges to (`argmax` over edge counts, gated by a `minEdges` threshold,
+deterministic). **Invariant:** reclaimed members count toward **layout mass** but
+**nameability F1 is computed over CORE members only** — reclamation can move a
+file into a frame but can never inflate that frame's label score.
+
+### Label quality (F1)
+
+Label quality is an **F1** — the harmonic mean of two content measures over a
+cluster's file blobs:
+
+- **coverage** = cluster members whose blob contains the label ÷ members.
+- **specificity** = members containing the label ÷ *all repo files* containing it.
+
+Specificity is the non-circular half: `pickFrameLabel` only ever looks *inside* a
+cluster, so it never optimizes for repo-ubiquity — specificity is what penalizes
+framework-idiom labels (`index`, `app`) that saturate the whole repo. Multi-word
+labels require a **strict AND** (a blob must contain every word). This same F1 is
+reused as the ranker's `nameability` term.
+
+**Known blind spot:** a content-only metric cannot tell an accurate
+layer-marker label (`controllers`) from a domain label. The LLM
+intruder-detection validator that was trialed as a cross-check was found
+**confounded by cluster coherence** (2026-06-06) and is **not a trusted
+signal**.
+
+### Layer taxonomy
+
+Frames are classified into **six layers** — `interface` | `orchestration` |
+`domain` | `data` | `infrastructure` | `ceremony` — deterministically and
+**read-time in [`frame-map.ts`](../../src/mcp-server/frame-map.ts)**: pure, no
+persistence, no LLM (decision `D-qn7z`).
+
+Classification is **agreement-based**, not first-match-wins: every source emits a
+**weight vector over the six layers**; the vectors are summed and `argmax`'d, with
+a canonical-order tie-break. This replaced the design notes' first-match chain for
+two reasons:
+
+1. That chain's **#1 source (an ACDC dominator symbol) cannot be built** —
+   `tfidf`+`hdbscan` produces no dominator data.
+2. **Topology and vocabulary are authoritative at opposite ends.** Topology
+   separates surface ↔ substrate via a **sink score** `= fanIn / (fanIn + fanOut)`;
+   vocabulary refines the middle. Summing lets each speak where it is strong.
+
+Refinements baked in:
+
+- **Test paths are excluded from the path table** (tests co-cluster with their
+  subjects, so a `/test/` segment is a poor layer signal). Test-ness is treated
+  as content-only: `W_TEST` fires `ceremony` only at a **≥0.8 test fraction**.
+- The Nitro/h3 `*.{get,post,…}.ts` handler idiom is detected as **orchestration**,
+  scoped to `api`/`routes` directories.
+- `is_entry_point` is **unused** — too loose to be a reliable signal.
+
+Named constants (committed):
+
+| Constant | Value | Role |
+|---|---|---|
+| `W_GRAPH` | `1.0` | weight of the topology (sink-score) source |
+| `W_PATH` | `0.8` | weight of the path-table source |
+| `W_TEST` | `0.9` | weight of the test-fraction → `ceremony` source |
+| `MIN_SIGNAL` | `0.4` | floor a layer must clear to count (raised from `0.25`) |
+
+No internals (per-layer confidence, source contributions) are **ever
+serialized** — only the resolved layer surfaces.
+
+### Earnable domain
+
+`domain` carries the top kind-weight, but under the base taxonomy it was only
+reachable as a **fallback** (no positive signal) — the collision that made
+`D-qn7z` a trap. Fix: `domain` becomes **earnable** by a middle-band runtime
+residual
+
+```
+W_DOMAIN_RUNTIME = 0.5 × runtimeFrac
+```
+
+applied **only when no layer-specific source cleared `MIN_SIGNAL`**, so any real
+path/label/content signal still wins — the override protection is **structural
+(gated on nothing else firing), not a weight race**. Because `0.5 × 0.8 =
+MIN_SIGNAL`, the bar to *earn* domain is **≥80% runtime content, mid-band,
+untyped**. An **earned** domain gets kind-weight `1.00`; a **fallback** domain
+gets `0.50`, the two kept distinct by a `fallback` flag.
+
+### Kind-weight table
+
+Layer → kind-weight, shipped **on by default** (decision `D-g4qb`):
+
+| Layer | kind-weight |
+|---|---|
+| `domain` (earned) | `1.00` |
+| `interface` | `0.90` |
+| `orchestration` | `0.85` |
+| `data` | `0.75` |
+| `infrastructure` | `0.55` |
+| `domain` (fallback) | `0.50` |
+| `ceremony` | `0.20` |
+
+**Mechanism invariant:** the ranker stays **layer-agnostic**. `kind_weight` is
+threaded as a plain number **defaulting to 1** — omit it and ranking is
+byte-identical to the taxonomy-free path. The table, the flag, and the layer
+lookup all live at the `frame-map.ts` call site, never inside the ranker.
+
+### Diversity & ambient selection
+
+The naïve top-N ambient cut is replaced by a deterministic greedy selector
+([`frame-diversity.ts`](../../src/frame-extraction/frame-diversity.ts), pure), in
+two phases:
+
+1. **Greedy fill with geometric repeat-decay.** A frame's *effective* score is
+   `score × DIVERSITY_DECAY^k` where `k` is the count of same-layer frames already
+   selected (`DIVERSITY_DECAY = 0.6`); `ceremony` is **capped at 1**. This spreads
+   the ambient set across layers instead of letting one layer dominate.
+2. **Bounded coverage repair.** Guarantee **≥1 of `[domain, interface, data]`**
+   for each such layer the repo actually has, swapping in a missing layer's best
+   candidate **only if it clears `PROMOTION_FLOOR` (0.5) × the displaced score**
+   (the `D-qn7z` junk-leapfrog guard) — and **never** robbing the sole
+   representative of another required layer.
+
+Displayed `rank`/`score` stay in **raw-score order**, so the map can honestly show
+a rank-11 frame as ambient and a rank-8 frame as not.
+
+### What was tried and discarded
+
+- **Graph-signal clustering** (import/`CALLS` affinity term δ; a TypeScript
+  modularity split) was built, swept, and **discarded negative** (2026-06-05). A
+  repo's `IMPORTS`/`CALLS` graph couples files *across* the topical boundaries a
+  frame expresses (CLI → decisions → MCP; tests → everything), so it is the
+  **wrong signal for topical grouping**. Frame-quality work should build on
+  tokenization / labeling / auxiliary-detection and **hierarchy affinity**, not
+  the import graph. The eval guardrail (corpus + label-quality F1 gate) is the
+  regression bar for any such attempt.
+- **Convention-aware tokenization** (Phase 1) was, by contrast, a shipped **win**
+  (label violations **133 → 10**): down-weight bracketed route params, `use*`
+  hooks, and MVC layer markers; prefer domain tokens over layer tokens.
+
 ## Status
 
 The pipeline is shipped end-to-end on `cortex` itself. Eyeball

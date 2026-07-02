@@ -190,7 +190,7 @@ export type ProjectionDelta =
 /**
  * Messages sent from server to client over the WebSocket at `/ws`.
  *
- * See `docs/superpowers/specs/2026-04-17-graph-ui-and-activity-stream-design.md#websocket-protocol`.
+ * See the "WebSocket server" section of `docs/architecture/graph-ui.md`.
  */
 export type ServerMsg =
   | { type: 'hello'; project_id: string; server_version: string; head_ulid: string | null }

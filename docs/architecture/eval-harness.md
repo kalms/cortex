@@ -2,8 +2,7 @@
 
 > Audience: anyone touching `evals/` or the killer-query list. The
 > [field assessment](../field%20reports/field-assessment-nuxt-monorepo.md) is the
-> driving motivation; the implementation plans live under
-> [`docs/superpowers/`](../superpowers/).
+> driving motivation.
 
 ## What this harness is for
 

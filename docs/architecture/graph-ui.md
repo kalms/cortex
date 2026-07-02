@@ -272,7 +272,7 @@ are not testable headlessly).
 The simulation features in the prototype (multi-agent demo, synapse
 animations, PR floating nodes, auto-loop, presence avatars, merge
 animation, cursor traversal) are not in this iteration — explicit
-non-goals per [docs/superpowers/specs/2026-05-17-frames-viewer-design.md](../superpowers/specs/2026-05-17-frames-viewer-design.md).
+non-goals for the frames viewer.
 
 ### Layer lens (taxonomy milestone 1)
 

@@ -27,7 +27,7 @@ function findGitRoot(startDir: string): string | null {
  * SPECIFIC repo (explicit `startDir`), per-call routing wins and the override
  * is ignored: a single global override must never collapse every addressed
  * repo to one path, which silently defeats multi-project routing (see
- * docs/superpowers/specs/2026-06-03-mcp-multi-project-routing-design.md — the
+ * docs/architecture/graph-storage.md, "Per-call repo routing (RepoContext)" — the
  * `.mcp.json` `CORTEX_DB_PATH=.cortex/graph.db` env did exactly that, sending
  * every repo's reads to one relative DB regardless of `repo_path`).
  */
