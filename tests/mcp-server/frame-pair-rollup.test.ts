@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rollupFramePairs, buildNodeFrameIndex } from "../../src/mcp-server/frame-pair-rollup.js";
+import { rollupFramePairs, buildNodeFrameIndex } from "../../src/frame-extraction/positioning/frame-pair-rollup.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 function fileNode(id: string, path: string, frameId?: number): NodeRow {

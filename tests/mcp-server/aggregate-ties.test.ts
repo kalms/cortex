@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAggregatePathIndex, buildAggregateEdgeTies, frameRepDirs, aggregateDirs } from "../../src/mcp-server/aggregate-ties.js";
+import { buildAggregatePathIndex, buildAggregateEdgeTies, frameRepDirs, aggregateDirs } from "../../src/frame-extraction/positioning/aggregate-ties.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 const fileNode = (id: string, file_path: string, frame_id?: number): NodeRow => ({

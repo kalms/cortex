@@ -4,9 +4,9 @@
  * AMBIENT frames. Pure given (nodes, edges, frameMap) — the HTTP handler in
  * api.ts is a thin caller. (Layout slice part 2.)
  */
-import type { NodeRow, EdgeRow } from "../graph/store.js";
+import type { NodeRow, EdgeRow } from "../../graph/store.js";
 import type { FrameMap } from "./frame-map.js";
-import { groupAuxiliaryPaths, type Aggregate } from "../frame-extraction/auxiliary-detection.js";
+import { groupAuxiliaryPaths, type Aggregate } from "../auxiliary-detection.js";
 import { buildAggregateEdgeTies, aggregateDirs, frameRepDirs } from "./aggregate-ties.js";
 import { placeAggregates } from "./floating-placement.js";
 

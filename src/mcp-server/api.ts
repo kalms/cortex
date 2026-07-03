@@ -18,9 +18,9 @@ import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../db/resolve-pat
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 import { buildAdaptedTodos } from "./api-todos.js";
 import { buildFileEdges } from "./api-edges.js";
-import { buildFrameMap } from "./frame-map.js";
-import { STAGE_W, STAGE_H } from "./frame-layout.js";
-import { positionAggregates } from "./aggregate-positioning.js";
+import { buildFrameMap } from "../frame-extraction/positioning/frame-map.js";
+import { STAGE_W, STAGE_H } from "../frame-extraction/positioning/frame-layout.js";
+import { positionAggregates } from "../frame-extraction/positioning/aggregate-positioning.js";
 import { respond, respondError } from "./api-respond.js";
 import { httpFreshnessFor } from "./api-freshness.js";
 import {

@@ -1,4 +1,4 @@
-// src/mcp-server/frame-layout.ts
+// src/frame-extraction/positioning/frame-layout.ts
 /**
  * Deterministic force-directed gravity layout for ambient frames (Path 1).
  *

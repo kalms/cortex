@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { positionAggregates } from "../../src/mcp-server/aggregate-positioning.js";
+import { positionAggregates } from "../../src/frame-extraction/positioning/aggregate-positioning.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
-import type { FrameMap } from "../../src/mcp-server/frame-map.js";
+import type { FrameMap } from "../../src/frame-extraction/positioning/frame-map.js";
 
 const fileNode = (id: string, file_path: string, frame_id?: number): NodeRow => ({
   id, kind: "file", file_path, name: file_path, qualified_name: file_path,

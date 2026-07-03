@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rollupFrameFlows } from "../../src/mcp-server/frame-flow-rollup.js";
+import { rollupFrameFlows } from "../../src/frame-extraction/positioning/frame-flow-rollup.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 function fileNode(id: string, path: string, frameId?: number): NodeRow {

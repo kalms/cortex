@@ -8,7 +8,7 @@
  *
  * PURE — no I/O.
  */
-import type { NodeRow, EdgeRow } from "../graph/store.js";
+import type { NodeRow, EdgeRow } from "../../graph/store.js";
 import { buildNodeFrameIndex, ROLLUP_RELATIONS } from "./frame-pair-rollup.js";
 
 export interface FrameFlow {
