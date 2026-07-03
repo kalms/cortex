@@ -14,6 +14,10 @@ export function Toolbar() {
         <i className="dot" /><span className="word">{syncStatus}</span>
       </span>
       <ProjectSelect />
+      <button id="palette-btn" title="Search (⌘K)"
+        onClick={() => set({ paletteOpen: true })}>
+        <span className="pb-glyph">⌕</span><span className="pb-hint">⌘K</span>
+      </button>
       <button id="records-toggle" title="Records"
         onClick={() => set({ drawerStack: [{ kind: "list", tab: "all" }] })}>
         records

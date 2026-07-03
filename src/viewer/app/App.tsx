@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { CanvasHost, engineRef } from "./CanvasHost";
 import { Toolbar } from "./toolbar/Toolbar";
 import { Drawer } from "./drawer/Drawer";
+import { Palette } from "./palette/Palette";
 import { LS_KEYS, useUiStore } from "./ui-store";
 
 export function App() {
@@ -27,6 +28,12 @@ export function App() {
   }, [drawerStack]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const { set, paletteOpen } = useUiStore.getState();
+        set({ paletteOpen: !paletteOpen });
+        return;
+      }
       if (e.key !== "Escape") return;
       const { drawerStack, paletteOpen, set } = useUiStore.getState();
       if (paletteOpen) return;                    // palette handles its own Esc
@@ -41,6 +48,7 @@ export function App() {
     <CanvasHost />
     <Toolbar />
     <Drawer />
+    <Palette />
     {framesWarning && <div className="frames-warning" id="frames-warning">
       <span className="frames-warning-text">
         {framesWarning.split("cortex index")[0]}
