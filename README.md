@@ -158,7 +158,7 @@ These query the unified `nodes`/`edges` tables directly (SQL, no subprocess):
 | `get_graph_schema` | List node labels and edge types with counts |
 | `search_code` | Grep with graph enrichment — annotates matches with enclosing function/class |
 | `query_graph` | Run a Cypher-flavoured query against the unified graph |
-| `get_architecture` | One-shot architectural histogram (label/edge counts) |
+| `get_architecture` | Architectural overview by aspect — label/edge histogram (`structure`/`all`), or `hotspots`: source modules ranked by external inbound fan-in |
 | `check_contracts` | Report cross-language RPC contract mismatches (arg-key diffs) + coverage, from persisted `BINDS_KEY` edges |
 | `list_projects` | List all indexed projects |
 | `index_status` | Check if the current repository is indexed |

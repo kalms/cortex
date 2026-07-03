@@ -18,6 +18,17 @@
 
 REPO="$PWD"
 
+# SessionStart passes a JSON payload on stdin ({session_id, source, cwd, ...}).
+# Capture it once; degrade to empty on missing jq. Guard on `[ ! -t 0 ]` so a
+# developer running this hook by hand in a terminal (no piped stdin) never
+# blocks on a bare `cat` waiting for EOF.
+HOOK_INPUT=""
+if [ ! -t 0 ]; then HOOK_INPUT="$(cat 2>/dev/null || true)"; fi
+SESSION_ID=""
+if command -v jq >/dev/null 2>&1 && [ -n "$HOOK_INPUT" ]; then
+    SESSION_ID="$(printf '%s' "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null)"
+fi
+
 # The MCP server resolves the read DB via resolveGraphDbForRead(), preferring
 # the canonical <repo>/.cortex/db and falling back to the legacy graph.db /
 # cache slot. We replicate the common cases here. We use `-s` (exists AND
@@ -97,6 +108,22 @@ fi
 if [[ "$INDEX_STATE" == indexed* ]] && [ "${CORTEX_BRIEF:-1}" != "0" ] && [ -n "$CORTEX_BIN" ]; then
     rm -f "$REPO/.cortex/.briefed" "$REPO/.cortex/.brief-blocked" 2>/dev/null || true
     (cd "$REPO" && "$CORTEX_BIN" brief --build-gate-cache >/dev/null 2>&1) || true
+
+    # Onboarding headline: once per session, silence-by-default. Gated by a
+    # session-id sentinel so it fires on a genuinely-new session but not on
+    # resume/compact. CORTEX_ONBOARD=0 disables.
+    if [ "${CORTEX_ONBOARD:-1}" != "0" ]; then
+        ORIENT_FILE="$REPO/.cortex/.oriented"
+        PREV_ID=""
+        [ -f "$ORIENT_FILE" ] && PREV_ID="$(cat "$ORIENT_FILE" 2>/dev/null)"
+        if [ "$PREV_ID" != "$SESSION_ID" ] || [ -z "$SESSION_ID" ]; then
+            HEADLINE="$(cd "$REPO" && "$CORTEX_BIN" code arch --headline 2>/dev/null)"
+            if [ -n "$HEADLINE" ]; then
+                printf '%s\n\n' "$HEADLINE"
+            fi
+            printf '%s' "$SESSION_ID" > "$ORIENT_FILE" 2>/dev/null || true
+        fi
+    fi
 fi
 
 cat <<EOF
