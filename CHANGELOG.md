@@ -17,7 +17,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.2.7] — 2026-07-03
+## [1.3.0] — 2026-07-03
 
 ### Added
 
@@ -1165,6 +1165,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.3.0]: https://github.com/ruevu/cortex/releases/tag/v1.3.0
 [1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
 [1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4
