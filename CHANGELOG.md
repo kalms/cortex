@@ -17,6 +17,31 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.2.8] — 2026-07-03
+
+### Changed
+
+- **Verbosity/layering cleanup from the 2026-07-03 field report** (net −145 LOC,
+  behavior-preserving):
+  - **MCP tool layer**: single shared `RepoPathField` + `AlternativeSchema`/
+    `ProvenanceSchema` (`src/mcp-server/tools/shared-fields.ts`, was copy-pasted
+    across 9 modules) and a shared `execAction()` catch/normalize wrapper
+    applied to 12 verbatim handlers (handlers with materially different catch
+    logic keep their own).
+  - **Layering**: the pure viewer-layout math moved out of `src/mcp-server/`
+    into `src/frame-extraction/positioning/` (`floating-placement`,
+    `frame-layout`, `frame-map`, `frame-pair-rollup`, `frame-flow-rollup`,
+    `aggregate-ties`, `aggregate-positioning`) — consumed only by the HTTP
+    viewer routes and depending entirely on frame-extraction internals.
+  - **Entity stores**: one canonical `toDecision` mapper (`src/decisions/map.ts`,
+    was three byte-identical copies); `classifyTarget()` passthrough inlined.
+
+### Removed
+
+- Dead code: `src/connectors/types.ts` (Phase-2 stub, zero importers), the
+  viewer's no-op `findRecentToucher()` stub, and the inert `.card-scrim`
+  CSS/HTML/JS remnants.
+
 ## [1.2.7] — 2026-07-03
 
 ### Fixed
@@ -1152,6 +1177,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.2.8]: https://github.com/ruevu/cortex/releases/tag/v1.2.8
 [1.2.7]: https://github.com/ruevu/cortex/releases/tag/v1.2.7
 [1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
