@@ -42,3 +42,19 @@ export function fileCardData(bundle: any, path: string) {
     todos: bundle.allTodos.filter(governsPath),
   };
 }
+
+/** Resolve a todo for the drawer: ambient (live) → allTodos (incl. closed) → removed snapshot.
+ *  isRemoved is true ONLY for the snapshot case — closed todos are not "removed". */
+export function resolveTodo(
+  ambient: Record<string, any>,
+  allTodos: any[] | undefined,
+  removed: Record<string, any>,
+  id: string,
+): { todo: any | null; isRemoved: boolean } {
+  const live = ambient[id];
+  if (live) return { todo: live, isRemoved: false };
+  const closed = (allTodos || []).find((t) => t.id === id);
+  if (closed) return { todo: closed, isRemoved: false };
+  const snap = removed[id];
+  return snap ? { todo: snap, isRemoved: true } : { todo: null, isRemoved: false };
+}

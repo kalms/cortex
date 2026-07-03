@@ -3,13 +3,13 @@ import { RefPill } from "./RefPill";
 import { todoDisplayId } from "../display";
 import { entityStore } from "../CanvasHost";
 import { useUiStore } from "../ui-store";
+import { resolveTodo } from "./selectors";
 
 export function TodoView({ id }: { id: string }) {
   const removed = useUiStore((s) => s.removedSnapshots);
   const bundle = useUiStore((s) => s.bundle);
-  const t = entityStore.state.todos[id] || removed[id] || bundle?.allTodos?.find((x: any) => x.id === id);
+  const { todo: t, isRemoved } = resolveTodo(entityStore.state.todos, bundle?.allTodos, removed, id);
   if (!t) return null;
-  const isRemoved = !entityStore.state.todos[id];
   return (<>
     <div className="dc-header">
       <div className="dc-id-block">

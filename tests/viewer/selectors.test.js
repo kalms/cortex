@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fileCardData } from "../../src/viewer/app/drawer/selectors.ts";
+import { fileCardData, resolveTodo } from "../../src/viewer/app/drawer/selectors.ts";
 
 const nodes = [
   { id: "fa", kind: "file", name: "a.ts", file_path: "src/a.ts", data: "{}" },
@@ -41,5 +41,26 @@ describe("fileCardData", () => {
   it("collects governing decisions and related todos", () => {
     expect(card.decisions.map((d) => d.id)).toEqual(["d1"]);
     expect(card.todos.map((t) => t.id)).toEqual(["t1"]);
+  });
+});
+
+describe("resolveTodo", () => {
+  const ambientTodo = { id: "t1", state: "proposed" };
+  const closedTodo = { id: "t2", state: "done" };
+  const removedSnap = { id: "t3", state: "proposed" };
+  const ambient = { t1: ambientTodo };
+  const allTodos = [ambientTodo, closedTodo];
+  const removed = { t3: removedSnap };
+
+  it("resolves an ambient (live) todo with isRemoved false", () => {
+    expect(resolveTodo(ambient, allTodos, removed, "t1")).toEqual({ todo: ambientTodo, isRemoved: false });
+  });
+
+  it("resolves a closed todo (state done) found only in allTodos, isRemoved false", () => {
+    expect(resolveTodo(ambient, allTodos, removed, "t2")).toEqual({ todo: closedTodo, isRemoved: false });
+  });
+
+  it("resolves a todo found only in the removed-snapshots map, isRemoved true", () => {
+    expect(resolveTodo(ambient, allTodos, removed, "t3")).toEqual({ todo: removedSnap, isRemoved: true });
   });
 });
