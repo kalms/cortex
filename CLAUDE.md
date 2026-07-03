@@ -120,12 +120,16 @@ Gate off with `CORTEX_BRIEF=0`. The same headline is available on demand via
 ### Architecture hotspots — ranked-by-risk modules
 
 `get_architecture(aspects=["hotspots"])` returns `{ project, hotspots:
-HotspotArea[] }` — source modules ranked by **external inbound fan-in**
-(distinct CALLS/IMPORTS callers from outside the module). It's computed
-TS-side (no indexer round-trip); `nodes`, `governing_decisions` (distinct
-active decisions governing refs in the module) and `open_todos` (distinct
-non-terminal todos governing refs in the module) are display annotations,
-not part of the ranking. Other aspects (`all`/`structure`/…)
+HotspotArea[] }` — source modules ranked by a composite **`score`** (0–100)
+that blends three signals, each max-normalized across the modules then
+weighted-summed (equal weight by default): **external inbound fan-in**
+(`in_edges` — distinct CALLS/IMPORTS callers from outside the module,
+dependency risk), **`governing_decisions`** (distinct active decisions
+governing refs in the module), and **`open_todos`** (distinct non-terminal
+todos governing refs in the module). This surfaces both *dependency* hotspots
+(much depends on it) and *attention* hotspots (much governance / open work
+lives there). `nodes` is a display annotation only, not scored. It's computed
+TS-side (no indexer round-trip). Other aspects (`all`/`structure`/…)
 still route to the indexer unchanged. Use it before touching a module you
 don't know well — a high fan-in module is the one most apt to break other
 things.

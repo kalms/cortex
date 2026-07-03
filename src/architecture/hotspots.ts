@@ -19,10 +19,11 @@ function bucketByModule(refs: GovernanceRef[]): Map<string, Set<string>> {
 }
 
 /**
- * Rank source modules by external inbound fan-in (distinct CALLS/IMPORTS source
- * nodes from outside the module). `nodes`, `governing_decisions` (distinct active
- * decisions) and `open_todos` (distinct non-terminal todos) are display
- * annotations only — the sort key is fan-in. Deterministic.
+ * Rank source modules by a composite hotspot score: external inbound fan-in
+ * (dependency risk), distinct active governing decisions, and distinct open
+ * todos — each max-normalized to 0–1 across the modules, then weighted-summed
+ * (equal weight by default) and scaled to 0–100. `nodes` is an annotation only,
+ * not scored. Deterministic: ties break on fan-in, then module path.
  */
 export function computeHotspots(
   store: GraphStore,
@@ -68,13 +69,29 @@ export function computeHotspots(
     areas.push({
       module: mod.includes("/") ? mod.slice(mod.lastIndexOf("/") + 1) : mod,
       path: mod,
+      score: 0, // filled in below once per-signal maxima are known
       in_edges: callers.get(mod)?.size ?? 0,
       nodes: nodeCount.get(mod) ?? 0,
       governing_decisions: decisionsByMod.get(mod)?.size ?? 0,
       open_todos: todosByMod.get(mod)?.size ?? 0,
     });
   }
+
+  // Composite score: max-normalize each signal to 0–1, weighted-sum, scale to 0–100.
+  const { fanIn = 1, decisions = 1, todos = 1 } = opts.weights ?? {};
+  const wSum = fanIn + decisions + todos || 1;
+  const maxIn = areas.reduce((m, a) => Math.max(m, a.in_edges), 0) || 1;
+  const maxDec = areas.reduce((m, a) => Math.max(m, a.governing_decisions), 0) || 1;
+  const maxTodo = areas.reduce((m, a) => Math.max(m, a.open_todos), 0) || 1;
+  for (const a of areas) {
+    const composite =
+      (fanIn * (a.in_edges / maxIn) +
+        decisions * (a.governing_decisions / maxDec) +
+        todos * (a.open_todos / maxTodo)) / wSum;
+    a.score = Math.round(composite * 100);
+  }
+
   areas.sort((a, b) =>
-    b.in_edges - a.in_edges || b.nodes - a.nodes || a.path.localeCompare(b.path));
+    b.score - a.score || b.in_edges - a.in_edges || a.path.localeCompare(b.path));
   return areas.slice(0, limit);
 }

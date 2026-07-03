@@ -22,14 +22,17 @@ All notable changes to Cortex are documented here. The format follows
 ### Added
 
 - **Architecture hotspots — a `computeHotspots` primitive ranking source
-  modules by external inbound fan-in** (distinct CALLS/IMPORTS callers from
-  outside the module; `nodes`, `governing_decisions` — distinct active decisions
-  governing refs in the module — and `open_todos` — distinct non-terminal todos
-  governing refs in the module — are display annotations only, not part of the
-  ranking). Deterministic, computed
-  TS-side against the graph store — no indexer round-trip. Bridges the gap
-  between the global `get_architecture` histogram and per-symbol
-  `blastRadius`: fan-in is the "apt to break the most" signal.
+  modules by a composite `score` (0–100)** blending three max-normalized,
+  weighted-summed signals: external inbound fan-in (`in_edges` — distinct
+  CALLS/IMPORTS callers from outside the module, dependency risk),
+  `governing_decisions` (distinct active decisions governing refs in the module),
+  and `open_todos` (distinct non-terminal todos governing refs in the module).
+  Weights default to equal and are caller-tunable. `nodes` is a display
+  annotation only, not scored. Deterministic, computed TS-side against the graph
+  store — no indexer round-trip. Surfaces both *dependency* hotspots (much
+  depends on it) and *attention* hotspots (much governance / open work lives
+  there), bridging the global `get_architecture` histogram and per-symbol
+  `blastRadius`.
 - **`get_architecture(aspects=["hotspots"])`** — new aspect returning
   `{ project, hotspots: HotspotArea[] }`. When combined with other aspects
   (e.g. `["all", "hotspots"]`), the indexer-routed payload for the other

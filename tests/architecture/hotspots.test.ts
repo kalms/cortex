@@ -63,6 +63,33 @@ describe("computeHotspots", () => {
     // ranking still hub first despite db carrying governance
     expect(areas[0].module).toBe("hub");
   });
+  it("composite score lets governance outrank a higher-fan-in module", () => {
+    made = makeStore();
+    // db: zero fan-in but maxes the decisions AND todos axes; hub: max fan-in only.
+    const governance = {
+      decisions: [
+        { id: "D1", ref: "src/db/d.ts" },
+        { id: "D2", ref: "src/db/d.ts" },
+        { id: "D3", ref: "src/db/d.ts" },
+      ],
+      todos: [{ id: "T1", ref: "src/db/d.ts" }],
+    };
+    const areas = computeHotspots(made.store, "p", governance);
+    // db (2 governance axes maxed) outscores hub (1 fan-in axis maxed) under equal weights.
+    expect(areas.map((a) => a.module)).toEqual(["db", "hub", "cli"]);
+    expect(areas.find((a) => a.module === "db")!.score).toBe(67); // (0 + 1 + 1)/3 * 100
+    expect(areas.find((a) => a.module === "hub")!.score).toBe(33); // (1 + 0 + 0)/3 * 100
+  });
+  it("weights let a caller re-tilt the score toward fan-in", () => {
+    made = makeStore();
+    const governance = {
+      decisions: [{ id: "D1", ref: "src/db/d.ts" }, { id: "D2", ref: "src/db/d.ts" }, { id: "D3", ref: "src/db/d.ts" }],
+      todos: [{ id: "T1", ref: "src/db/d.ts" }],
+    };
+    // Heavily weight fan-in → hub (max fan-in) tops again despite db's governance.
+    const areas = computeHotspots(made.store, "p", governance, { weights: { fanIn: 10, decisions: 1, todos: 1 } });
+    expect(areas[0].module).toBe("hub");
+  });
   it("honors the limit", () => {
     made = makeStore();
     expect(computeHotspots(made.store, "p", undefined, { limit: 1 })).toHaveLength(1);

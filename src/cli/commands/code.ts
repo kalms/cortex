@@ -262,6 +262,7 @@ export function cmdArchHotspots(
     const fmt = chooseFormat(flags.format as string | undefined, process.stdout.isTTY);
     const rows = areas.map((a) => ({
       module: a.path,
+      score: a.score,
       in_edges: a.in_edges,
       nodes: a.nodes,
       decisions: a.governing_decisions,
