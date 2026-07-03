@@ -36,7 +36,7 @@ export function App() {
       }
       if (e.key !== "Escape") return;
       const { drawerStack, paletteOpen, set } = useUiStore.getState();
-      if (paletteOpen) return;                    // palette handles its own Esc
+      if (paletteOpen) { set({ paletteOpen: false }); return; }  // close palette when focus escaped it
       if (drawerStack.length) set({ drawerStack: [] });
       else engineRef?.focusFrame(null);
     };
