@@ -3,8 +3,9 @@ import { useUiStore } from "../ui-store";
 import { projectDisplayName } from "../display";
 
 export function ProjectSelect() {
-  const { projects, activeProject, set } = useUiStore((s) => ({
-    projects: s.projects, activeProject: s.activeProject, set: s.set }));
+  const projects = useUiStore((s) => s.projects);
+  const activeProject = useUiStore((s) => s.activeProject);
+  const set = useUiStore((s) => s.set);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
