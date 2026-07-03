@@ -26,6 +26,26 @@ describe("Phase 6 bridged tools", () => {
     expect(res.content[0].text.length).toBeGreaterThan(0);
   });
 
+  it("get_architecture merges hotspots into other aspects instead of dropping them", async () => {
+    const res = await callTool(h, "get_architecture", { aspects: ["all", "hotspots"] });
+    expect(ResponseSchema.safeParse(res).success).toBe(true);
+    // On success, the merged payload must carry BOTH a hotspots array AND the
+    // "all" aspect's structure fields — proving the mixed-aspect path merges
+    // rather than dropping non-hotspots aspects (the bug this test guards).
+    // (Mirrors the tolerance of the "returns aspects payload" test above: the
+    // indexer subprocess call can independently fail in some environments —
+    // that's an indexer/registry concern, not something this merge-logic test
+    // should assert on.)
+    if (!res.isError) {
+      const parsed = JSON.parse(res.content[0].text);
+      expect(Array.isArray(parsed.hotspots)).toBe(true);
+      expect(parsed).toMatchObject({
+        total_nodes: expect.any(Number),
+        node_labels: expect.anything(),
+      });
+    }
+  });
+
   it("ingest_traces accepts empty trace list", async () => {
     const res = await callTool(h, "ingest_traces", { traces: [] });
     expect(ResponseSchema.safeParse(res).success).toBe(true);

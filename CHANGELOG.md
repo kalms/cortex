@@ -17,7 +17,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.2.7] — 2026-07-03
+## [1.3.1] — 2026-07-03
 
 ### Fixed
 
@@ -34,6 +34,36 @@ All notable changes to Cortex are documented here. The format follows
   `"false"`) when `bin/cortex-indexer` is missing, instead of setting the
   skip flag — a missing binary previously skipped 3 suites while the run
   reported green (the fetch step gates the common path; this closes the rest).
+## [1.3.0] — 2026-07-03
+
+### Added
+
+- **Architecture hotspots — a `computeHotspots` primitive ranking source
+  modules by a composite `score` (0–100)** blending three max-normalized,
+  weighted-summed signals: external inbound fan-in (`in_edges` — distinct
+  CALLS/IMPORTS callers from outside the module, dependency risk),
+  `governing_decisions` (distinct active decisions governing refs in the module),
+  and `open_todos` (distinct non-terminal todos governing refs in the module).
+  Weights default to equal and are caller-tunable. `nodes` is a display
+  annotation only, not scored. Deterministic, computed TS-side against the graph
+  store — no indexer round-trip. Surfaces both *dependency* hotspots (much
+  depends on it) and *attention* hotspots (much governance / open work lives
+  there), bridging the global `get_architecture` histogram and per-symbol
+  `blastRadius`.
+- **`get_architecture(aspects=["hotspots"])`** — new aspect returning
+  `{ project, hotspots: HotspotArea[] }`. When combined with other aspects
+  (e.g. `["all", "hotspots"]`), the indexer-routed payload for the other
+  aspects is merged with `hotspots` rather than dropped; `hotspots`-only
+  calls skip the indexer round-trip entirely.
+- **`cortex code arch --hotspots`** — prints the ranked hotspot table.
+  **`cortex code arch --headline`** — prints the bounded (≤8-line) onboarding
+  headline (scale + top hotspots + entrypoints), or nothing on an empty
+  graph.
+- **Sentinel-gated SessionStart onboarding headline.** `hooks/check-index.sh`
+  emits the headline once per session — gated by a session-id sentinel
+  (`<repo>/.cortex/.oriented`) so it fires on a genuinely new session but not
+  on resume/compact — inside the existing `CORTEX_BRIEF` block. Set
+  `CORTEX_ONBOARD=0` to disable it.
 
 ## [1.2.6] — 2026-07-02
 
@@ -1152,7 +1182,8 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
-[1.2.7]: https://github.com/ruevu/cortex/releases/tag/v1.2.7
+[1.3.1]: https://github.com/ruevu/cortex/releases/tag/v1.3.1
+[1.3.0]: https://github.com/ruevu/cortex/releases/tag/v1.3.0
 [1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
 [1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4

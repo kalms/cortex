@@ -210,8 +210,21 @@ List node labels, edge types, and their counts.
 ### `get_architecture`
 Architectural overview by aspect.
 - **Params:** `repo_path`, `aspects?` (e.g. `["all"]`, `structure`,
-  `dependencies`, `routes`).
+  `dependencies`, `routes`, `hotspots`).
 - **Why:** understand project shape without manual `ls`/`find`.
+- **`hotspots` aspect:** computed TS-side (no indexer round-trip). Returns
+  `{ project, hotspots: HotspotArea[] }`, where each `HotspotArea` is
+  `{ module, path, score, in_edges, nodes, governing_decisions, open_todos }`.
+  Source modules are ranked by the composite **`score`** (0–100): each of
+  `in_edges` (distinct external CALLS/IMPORTS callers — dependency risk),
+  `governing_decisions` (distinct active decisions governing refs in the module),
+  and `open_todos` (distinct non-terminal todos governing refs in the module) is
+  max-normalized across the modules, then weighted-summed (equal weight by
+  default). `nodes` is a display annotation only, not scored. Ties break on
+  `in_edges`, then module path (deterministic). Also available from the
+  CLI as `cortex code arch --hotspots` (ranked table) and
+  `cortex code arch --headline` (bounded onboarding summary); the latter also
+  fires once per session from the SessionStart hook unless `CORTEX_ONBOARD=0`.
 
 ### `check_contracts`
 Report cross-language RPC contract mismatches.
