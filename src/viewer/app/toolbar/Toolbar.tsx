@@ -14,6 +14,10 @@ export function Toolbar() {
         <i className="dot" /><span className="word">{syncStatus}</span>
       </span>
       <ProjectSelect />
+      <button id="records-toggle" title="Records"
+        onClick={() => set({ drawerStack: [{ kind: "list", tab: "all" }] })}>
+        records
+      </button>
       <LayersMenu />
       <button id="theme-toggle" title="Toggle light/dark"
         onClick={() => set({ theme: theme === "light" ? "dark" : "light" })}>

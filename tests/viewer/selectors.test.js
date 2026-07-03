@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fileCardData, resolveTodo } from "../../src/viewer/app/drawer/selectors.ts";
+import { fileCardData, resolveTodo, listRows } from "../../src/viewer/app/drawer/selectors.ts";
 
 const nodes = [
   { id: "fa", kind: "file", name: "a.ts", file_path: "src/a.ts", data: "{}" },
@@ -63,4 +63,28 @@ describe("resolveTodo", () => {
   it("resolves a todo found only in the removed-snapshots map, isRemoved true", () => {
     expect(resolveTodo(ambient, allTodos, removed, "t3")).toEqual({ todo: removedSnap, isRemoved: true });
   });
+});
+
+describe("listRows", () => {
+  const b = {
+    decisions: [
+      { id: "d1", seq: 1, summary: "first", state: "active", proposedAt: "2026-06-01" },
+      { id: "d2", seq: 2, summary: "second", state: "active", proposedAt: "2026-07-01" },
+    ],
+    allTodos: [
+      { id: "t1", seq: 1, summary: "open todo", state: "proposed", proposedAt: "2026-06-15" },
+      { id: "t2", seq: 2, summary: "done todo", state: "done", proposedAt: "2026-06-30" },
+    ],
+  };
+  it("all tab: open items newest-first, closed muted at the bottom", () => {
+    const rows = listRows(b, "all");
+    expect(rows.map((r) => r.id)).toEqual(["d2", "t1", "d1", "t2"]);
+    expect(rows[3].closed).toBe(true);
+  });
+  it("decisions tab excludes todos", () =>
+    expect(listRows(b, "decisions").every((r) => r.type === "decision")).toBe(true));
+  it("todos tab includes closed todos", () =>
+    expect(listRows(b, "todos").map((r) => r.id)).toEqual(["t1", "t2"]));
+  it("uses friendly display ids", () =>
+    expect(listRows(b, "decisions")[0].displayId).toBe("D-2"));
 });

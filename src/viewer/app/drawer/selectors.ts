@@ -1,3 +1,5 @@
+import { decisionDisplayId, todoDisplayId } from "../display";
+
 const CONN_RELATIONS = new Set(["CALLS", "IMPORTS"]);
 const SYMBOL_KINDS = new Set(["function", "class", "method", "interface", "type", "variable", "route"]);
 const TOP_N = 8;
@@ -57,4 +59,22 @@ export function resolveTodo(
   if (closed) return { todo: closed, isRemoved: false };
   const snap = removed[id];
   return snap ? { todo: snap, isRemoved: true } : { todo: null, isRemoved: false };
+}
+
+const CLOSED_TODO_STATES = new Set(["done", "cancelled"]);
+
+/** Row list for the records ListView: decisions + todos (per tab filter),
+ *  open items newest-first, closed todos muted to the bottom (also newest-first). */
+export function listRows(bundle: any, tab: "all" | "decisions" | "todos") {
+  const decs = tab === "todos" ? [] : bundle.decisions.map((d: any) => ({
+    type: "decision" as const, id: d.id, displayId: decisionDisplayId(d),
+    title: d.summary, state: d.state, date: d.proposedAt || "", closed: false }));
+  const todos = tab === "decisions" ? [] : bundle.allTodos.map((t: any) => ({
+    type: "todo" as const, id: t.id, displayId: todoDisplayId(t),
+    title: t.summary, state: t.state, date: t.proposedAt || "",
+    closed: CLOSED_TODO_STATES.has(t.state) }));
+  const byDateDesc = (a: any, b: any) => b.date.localeCompare(a.date);
+  const open = [...decs, ...todos].filter((r) => !r.closed).sort(byDateDesc);
+  const closed = [...decs, ...todos].filter((r) => r.closed).sort(byDateDesc);
+  return [...open, ...closed];
 }

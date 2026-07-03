@@ -785,3 +785,90 @@ body.light .dc-symbol.highlighted { border-color: var(--text-2); }
   color: var(--text);
   text-decoration: underline;
 }
+
+/* ── ListView (Task 8) — records tab strip + row list. ── */
+.dc-list-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+.dc-list-tab {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.dc-list-tab:hover {
+  color: var(--text-2);
+  border-color: var(--border-3);
+}
+.dc-list-tab.active {
+  color: var(--text);
+  border-color: var(--border-3);
+  background: rgba(255, 255, 255, 0.05);
+}
+body.light .dc-list-tab.active { background: rgba(0, 0, 0, 0.05); }
+
+.dc-list-body {
+  padding: 8px 10px 28px;
+}
+.dc-list-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.dc-list-row:hover { background: rgba(255, 255, 255, 0.03); }
+body.light .dc-list-row:hover { background: rgba(0, 0, 0, 0.03); }
+.dc-list-row.closed { opacity: 0.45; }
+
+.dc-list-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dc-list-dot.decision { background: #4ade80; }
+.dc-list-dot.todo { background: #facc15; }
+
+.dc-list-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  flex: 0 0 auto;
+}
+.dc-list-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dc-list-date {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.dc-list-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+}
