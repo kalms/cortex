@@ -1,4 +1,4 @@
-// src/mcp-server/frame-pair-rollup.ts
+// src/frame-extraction/positioning/frame-pair-rollup.ts
 /**
  * Roll symbol-level connectivity up to frame-pair weights for the layout's
  * import-neighbourhood force. Mirrors the file_path→frame_id approach used by
@@ -9,7 +9,7 @@
  *
  * PURE — no I/O.
  */
-import type { NodeRow, EdgeRow } from "../graph/store.js";
+import type { NodeRow, EdgeRow } from "../../graph/store.js";
 
 /** Relations rolled up into frame-pair affinity (spec §B force 1). */
 export const ROLLUP_RELATIONS = new Set(["CALLS", "USAGE", "IMPORTS"]);

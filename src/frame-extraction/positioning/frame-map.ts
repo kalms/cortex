@@ -1,4 +1,4 @@
-// src/mcp-server/frame-map.ts
+// src/frame-extraction/positioning/frame-map.ts
 /**
  * Read-time orchestrator behind `/api/frames`. Turns a project's nodes + edges
  * into the viewer's frame map: rank every frame, lay out the ambient ones.
@@ -12,15 +12,15 @@
  * is not supplied (tests pass it explicitly). Kind-weight ranking defaults ON;
  * the env var is an opt-out ("0" disables). The endpoint supplies nodes/edges.
  */
-import type { NodeRow, EdgeRow } from "../graph/store.js";
-import type { FileBlob } from "../frame-extraction/types.js";
-import { buildCorpusIndex } from "../frame-extraction/label-quality.js";
-import { splitSymbol } from "../frame-extraction/text-blob.js";
-import { rankFrames, ambientBudget, type FrameRecord } from "../frame-extraction/frame-ranker.js";
-import { selectAmbientByDiversity } from "../frame-extraction/frame-diversity.js";
+import type { NodeRow, EdgeRow } from "../../graph/store.js";
+import type { FileBlob } from "../types.js";
+import { buildCorpusIndex } from "../label-quality.js";
+import { splitSymbol } from "../text-blob.js";
+import { rankFrames, ambientBudget, type FrameRecord } from "../frame-ranker.js";
+import { selectAmbientByDiversity } from "../frame-diversity.js";
 import { rollupFramePairs } from "./frame-pair-rollup.js";
 import { rollupFrameFlows } from "./frame-flow-rollup.js";
-import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-extraction/frame-kind.js";
+import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-kind.js";
 import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
 import { placeNonAmbientFrames, SATELLITE_SIZE } from "./floating-placement.js";
 

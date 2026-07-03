@@ -1,21 +1,14 @@
 import { z } from "zod";
 import { DecisionPromotion } from "../../decisions/promotion.js";
-import { ok, empty, error as errorResponse } from "../response.js";
+import { ok } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
+import { RepoPathField } from "./shared-fields.js";
+import { execAction } from "./exec-action.js";
 
 // The startup-bound `promotion` parameter is gone — promote() routes per-call
 // via promotionFor(ctx), so the wrapper builds a fresh DecisionPromotion from
 // the addressed repo's decisions DB on every call.
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this decision is about. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const promoteDecisionShape = {
   repo_path: RepoPathField,
@@ -39,17 +32,13 @@ export async function promoteDecisionAction(
   indexerProject?: string | null,
 ) {
   const { id, tier } = args;
-  try {
+  return execAction(`promote_decision(${id})`, () => {
     const promotion = new DecisionPromotion(
       ctx.decisionsRepo,
       bus ? { bus, project_id: indexerProject ?? "" } : {},
     );
     const decision = promotion.promote(id, tier);
     return ok(JSON.stringify(decision, null, 2));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`promote_decision(${id})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 

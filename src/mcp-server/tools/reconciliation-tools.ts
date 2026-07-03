@@ -5,10 +5,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
-
-const RepoPathField = z
-  .string().min(1).optional()
-  .describe("REQUIRED. Absolute path to the indexed git root this decision is about.");
+import { RepoPathField } from "./shared-fields.js";
 
 const recordReconciliationShape = {
   repo_path: RepoPathField,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildFrameMap } from "../../src/mcp-server/frame-map.js";
-import { STAGE_W, STAGE_H } from "../../src/mcp-server/frame-layout.js";
+import { buildFrameMap } from "../../src/frame-extraction/positioning/frame-map.js";
+import { STAGE_W, STAGE_H } from "../../src/frame-extraction/positioning/frame-layout.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 function fileNode(id: string, path: string, frameId: number, label: string): NodeRow {

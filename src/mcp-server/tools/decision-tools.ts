@@ -10,18 +10,8 @@ import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
 import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
 import { RECONCILE_ENABLED } from "../../decisions/reconciliation.js";
-
-const AlternativeSchema = z.object({
-  name: z.string(),
-  reason_rejected: z.string(),
-});
-
-const ProvenanceSchema = z.object({
-  source: z.enum(["adr", "prose", "commits"]),
-  doc_path: z.string().optional(),
-  commit_shas: z.array(z.string()).optional(),
-  confidence: z.enum(["high", "medium", "low"]),
-});
+import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
+import { execAction } from "./exec-action.js";
 
 // ---------------------------------------------------------------------------
 // Per-call repo routing schemas
@@ -31,21 +21,9 @@ const ProvenanceSchema = z.object({
 // raw shapes, not z.object instances) and a paired z.object wrapping the
 // same shape (consumed by `registerTool` which calls `.parse(rawArgs)`).
 //
-// `repo_path` is marked optional at the Zod layer so the SDK's input
-// validation does not fire before `registerTool`'s pre-check has a chance
-// to throw the friendly `MissingRepoPathError` (which carries the list of
-// available projects so an agent can self-correct). The .describe() text
-// makes the field's REQUIRED status explicit to LLM-facing tool listings.
+// `repo_path` comes from shared-fields.ts — see that module for why it is
+// optional at the Zod layer despite being REQUIRED for routing.
 // ---------------------------------------------------------------------------
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this decision is about. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const createDecisionShape = {
   repo_path: RepoPathField,
@@ -190,17 +168,14 @@ export async function createDecisionAction(
       `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
     );
   }
-  try {
+  return execAction(null, () => {
     // Strip repo_path before forwarding to the service — it's a routing
     // concern, not a decision field. The remaining args shape is the
     // legacy CreateDecisionInput contract.
     const { repo_path: _repoPath, ...createArgs } = args;
     const decision = serviceForCtx(ctx, bus, indexerProject).create(createArgs);
     return ok(JSON.stringify(decision, null, 2));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function proposeDecisionAction(
@@ -216,13 +191,11 @@ export async function proposeDecisionAction(
       `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
     );
   }
-  try {
+  return execAction(null, () => {
     const { repo_path: _repoPath, ...proposeArgs } = args;
     const d = serviceForCtx(ctx, bus, indexerProject).propose(proposeArgs);
     return ok(JSON.stringify(d, null, 2));
-  } catch (e) {
-    return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-  }
+  });
 }
 
 export async function supersedeDecisionAction(
@@ -238,15 +211,11 @@ export async function supersedeDecisionAction(
       `Field '${bad.field}' contains structured-marshalling marker '${bad.marker}'. This usually means caller-side XML serialization leaked into the field. Re-send with the field as a plain string.`,
     );
   }
-  try {
+  return execAction(`supersede_decision(${args.old_decision_id})`, () => {
     const { repo_path: _repoPath, ...supersedeArgs } = args;
     const d = serviceForCtx(ctx, bus, indexerProject).supersede(supersedeArgs);
     return ok(JSON.stringify(d, null, 2));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`supersede_decision(${args.old_decision_id})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function updateDecisionAction(
@@ -263,14 +232,10 @@ export async function updateDecisionAction(
     );
   }
   const { repo_path: _repoPath, id, ...updates } = args;
-  try {
+  return execAction(`update_decision(${id})`, () => {
     const decision = serviceForCtx(ctx, bus, indexerProject).update(id, updates);
     return ok(JSON.stringify(decision, null, 2));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`update_decision(${id})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function deleteDecisionAction(
@@ -280,14 +245,10 @@ export async function deleteDecisionAction(
   indexerProject?: string | null,
 ) {
   const { id } = args;
-  try {
+  return execAction(`delete_decision(${id})`, () => {
     serviceForCtx(ctx, bus, indexerProject).delete(id);
     return ok(JSON.stringify({ deleted: id }));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`delete_decision(${id})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function getDecisionAction(
@@ -367,7 +328,7 @@ export async function searchDecisionsAction(
   indexerProject?: string | null,
 ) {
   const { query, scope } = args;
-  try {
+  return execAction(null, () => {
     let results = serviceForCtx(ctx, bus, indexerProject).search(query);
     if (scope) {
       // Filter to decisions whose links table mentions `scope` as a governs
@@ -385,10 +346,7 @@ export async function searchDecisionsAction(
       .map((r) => ctx.decisionsRepo.get(r.id))
       .filter((d): d is NonNullable<typeof d> => d != null);
     return attachDecisionReconciliation(ctx, rawForAttach, okResult);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function whyWasThisBuiltAction(
@@ -488,7 +446,7 @@ export async function linkDecisionAction(
   indexerProject?: string | null,
 ) {
   const { decision_id, target, relation } = args;
-  try {
+  return execAction(`link_decision(${decision_id})`, () => {
     const rel = relation ?? "GOVERNS";
     const scopedService = serviceForCtx(ctx, bus, indexerProject);
     if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target);
@@ -496,18 +454,14 @@ export async function linkDecisionAction(
     else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target);
     else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target);
     return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`link_decision(${decision_id})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function decisionCandidatesAction(
   ctx: RepoContext,
   args: z.infer<typeof decisionCandidatesSchema>,
 ) {
-  try {
+  return execAction(null, () => {
     // frameCandidates walks `repo_path`'s git history + ADR docs. With
     // per-call routing, `ctx.repoPath` IS the repo to scan — no more
     // dbPath-to-repo-root inference required. The function is read-only:
@@ -518,8 +472,6 @@ export async function decisionCandidatesAction(
       max_candidates: args.max_candidates,
     });
     return ok(JSON.stringify(manifest, null, 2));
-  } catch (e) {
-    return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-  }
+  });
 }
 

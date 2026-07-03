@@ -107,10 +107,6 @@
     letter-spacing: -0.01em;
   }
 
-  .card-scrim {
-    display: none;
-  }
-
   .decision-card {
     position: absolute;
     top: 0;

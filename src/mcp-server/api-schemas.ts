@@ -9,7 +9,7 @@
  *
  * Shapes RATIFY the current wire output ("freeze, don't reshape"): they mirror
  * NodeRow/EdgeRow (src/graph/store.ts), IndexerProject (src/graph/code-queries.ts),
- * FrameMapEntry (src/mcp-server/frame-map.ts), FileEdge (src/mcp-server/api-edges.ts),
+ * FrameMapEntry (src/frame-extraction/positioning/frame-map.ts), FileEdge (src/mcp-server/api-edges.ts),
  * Aggregate (src/frame-extraction/auxiliary-detection.ts) and AdaptedDecision.
  * Genuinely evolving fields (`layer`, `provenance`) use permissive Zod so an
  * additive change stays inside contract v1.
@@ -77,7 +77,7 @@ export const ProjectsResponseSchema = z.object({
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 
 // ── Frames ───────────────────────────────────────────────────────────────────
-/** Mirrors FrameMapEntry (src/mcp-server/frame-map.ts). `layer` is a plain
+/** Mirrors FrameMapEntry (src/frame-extraction/positioning/frame-map.ts). `layer` is a plain
  *  string on purpose — the FrameLayer union may grow without breaking v1. */
 export const FrameSchema = z.object({
   id: z.number(),

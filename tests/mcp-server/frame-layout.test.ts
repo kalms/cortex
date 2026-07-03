@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mulberry32, seedFromFrames, layoutFrames, STAGE_W, STAGE_H, type LayoutInputFrame } from "../../src/mcp-server/frame-layout.js";
-import type { FramePairWeight } from "../../src/mcp-server/frame-pair-rollup.js";
+import { mulberry32, seedFromFrames, layoutFrames, STAGE_W, STAGE_H, type LayoutInputFrame } from "../../src/frame-extraction/positioning/frame-layout.js";
+import type { FramePairWeight } from "../../src/frame-extraction/positioning/frame-pair-rollup.js";
 
 describe("mulberry32", () => {
   it("is deterministic for a given seed", () => {

@@ -8,6 +8,7 @@ import { DecisionLinksRepository, TargetKind, Relation } from "./links-repositor
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
 import { classifyGovernsTarget } from "../shared/classify-ref.js";
+import { toDecision } from "./map.js";
 
 export interface DecisionServiceDeps {
   db: Database.Database;
@@ -56,12 +57,12 @@ export class DecisionService {
 
     if (input.governs) {
       for (const target of input.governs) {
-        this.addLink(id, classifyTarget(target), target, "GOVERNS", now);
+        this.addLink(id, classifyGovernsTarget(target), target, "GOVERNS", now);
       }
     }
     if (input.references) {
       for (const ref of input.references) {
-        this.addLink(id, classifyTarget(ref), ref, "REFERENCES", now);
+        this.addLink(id, classifyGovernsTarget(ref), ref, "REFERENCES", now);
       }
     }
 
@@ -180,11 +181,11 @@ export class DecisionService {
   }
 
   linkGoverns(decisionId: string, target: string): void {
-    this.addLink(decisionId, classifyTarget(target), target, "GOVERNS", new Date().toISOString());
+    this.addLink(decisionId, classifyGovernsTarget(target), target, "GOVERNS", new Date().toISOString());
   }
 
   linkReference(decisionId: string, target: string): void {
-    this.addLink(decisionId, classifyTarget(target), target, "REFERENCES", new Date().toISOString());
+    this.addLink(decisionId, classifyGovernsTarget(target), target, "REFERENCES", new Date().toISOString());
   }
 
   supersede(input: SupersedeDecisionInput): Decision {
@@ -342,34 +343,10 @@ export class DecisionService {
         this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
       }
       for (const target of toAdd) {
-        this.addLink(decisionId, classifyTarget(target), target, relation, now);
+        this.addLink(decisionId, classifyGovernsTarget(target), target, relation, now);
       }
     })();
   }
 
   private emit(event: Event): void { this.bus?.emit(event); }
-}
-
-function classifyTarget(target: string): TargetKind {
-  return classifyGovernsTarget(target);
-}
-
-function toDecision(rec: DecisionRecord): Decision {
-  return {
-    id: rec.id,
-    seq: rec.seq,
-    title: rec.title,
-    description: rec.description ?? "",
-    rationale: rec.rationale ?? "",
-    alternatives: rec.alternatives ? JSON.parse(rec.alternatives) : [],
-    tier: rec.tier as Decision["tier"],
-    status: rec.status as Decision["status"],
-    superseded_by: rec.superseded_by,
-    author: rec.author ?? "claude",
-    created_at: rec.created_at,
-    updated_at: rec.updated_at,
-    problem: rec.problem,
-    resolution: rec.resolution,
-    provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
-  };
 }

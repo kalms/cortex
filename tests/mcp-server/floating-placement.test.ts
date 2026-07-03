@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables, ambientCloud, pushOutsideCloud, CLOUD_GAP } from "../../src/mcp-server/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables, ambientCloud, pushOutsideCloud, CLOUD_GAP } from "../../src/frame-extraction/positioning/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -165,7 +165,7 @@ describe("placeNonAmbientFrames", () => {
   });
 });
 
-import { placeAggregates } from "../../src/mcp-server/floating-placement.js";
+import { placeAggregates } from "../../src/frame-extraction/positioning/floating-placement.js";
 
 describe("placeAggregates", () => {
   const ambientPositions = [

@@ -8,8 +8,8 @@
  *     segment) matched against each frame's representative directory.
  * PURE — no I/O. Aggregate ids match `groupAuxiliaryPaths` exactly.
  */
-import type { NodeRow, EdgeRow } from "../graph/store.js";
-import { DEFAULT_AUXILIARY_SEGMENTS } from "../frame-extraction/auxiliary-detection.js";
+import type { NodeRow, EdgeRow } from "../../graph/store.js";
+import { DEFAULT_AUXILIARY_SEGMENTS } from "../auxiliary-detection.js";
 import { ROLLUP_RELATIONS, buildNodeFrameIndex } from "./frame-pair-rollup.js";
 
 /** First auxiliary segment index in a split path, or -1. */

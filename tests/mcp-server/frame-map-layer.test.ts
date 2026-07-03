@@ -1,6 +1,6 @@
 // tests/mcp-server/frame-map-layer.test.ts
 import { describe, it, expect } from "vitest";
-import { buildFrameMap } from "../../src/mcp-server/frame-map.js";
+import { buildFrameMap } from "../../src/frame-extraction/positioning/frame-map.js";
 import { kindWeight } from "../../src/frame-extraction/frame-kind.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 

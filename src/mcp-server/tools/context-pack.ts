@@ -9,6 +9,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
+import { RepoPathField } from "./shared-fields.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,15 +17,6 @@ const CAP_CALLERS = 10;
 const CAP_CALLEES = 10;
 const CAP_DECISIONS = 5;
 const CAP_COMMITS = 5;
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this query targets. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const contextPackShape = {
   repo_path: RepoPathField,
