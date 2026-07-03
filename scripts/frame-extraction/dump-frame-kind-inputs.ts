@@ -7,7 +7,7 @@
  *     > tests/fixtures/frame-layers/cortex-frames.json
  * Requires `npm run dev` (or the MCP plugin server) serving localhost:3334/3333.
  */
-import { rollupFrameFlows } from "../../src/mcp-server/frame-flow-rollup.js";
+import { rollupFrameFlows } from "../../src/frame-extraction/positioning/frame-flow-rollup.js";
 import type { NodeRow, EdgeRow } from "../../src/graph/store.js";
 
 const BASE = process.env.CORTEX_API ?? "http://localhost:3333";

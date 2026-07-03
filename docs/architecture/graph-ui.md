@@ -280,7 +280,7 @@ Every frame carries a deterministic architectural `layer`
 (`interface | orchestration | domain | data | infrastructure | ceremony`),
 classified at read time in `buildFrameMap` by
 [`frame-kind.ts`](../../src/frame-extraction/frame-kind.ts) from directed
-frame flows ([`frame-flow-rollup.ts`](../../src/mcp-server/frame-flow-rollup.ts)),
+frame flows ([`frame-flow-rollup.ts`](../../src/frame-extraction/positioning/frame-flow-rollup.ts)),
 path patterns, and content signals. The viewer's `layers` toolbar menu holds a
 show-layers switch and the only legend; when on, frame fill/border/label take
 a quiet per-layer hue — when off, rendering is pixel-identical to the lens-less
@@ -307,7 +307,7 @@ the **enable slices** have since wired the layer into ranking:
 
 - **Layer-adjacency layout force (layout slice part 1, shipped 0.8.21, ON by
   default since 0.8.22)** — a vertical `forceY(yTarget(sink))` in
-  [`frame-layout.ts`](../../src/mcp-server/frame-layout.ts) stratifies ambient
+  [`frame-layout.ts`](../../src/frame-extraction/positioning/frame-layout.ts) stratifies ambient
   frames surface→substrate from each frame's **measured** sink
   (`fanIn/(fanIn+fanOut)`; per-layer `NOMINAL_SINK` fallback for flowless frames),
   on the proven force base (pair-link clustering / charge / collide unchanged).
@@ -319,12 +319,12 @@ the **enable slices** have since wired the layer into ranking:
 
 - **Floating-entity placement (layout slice part 2, shipped 0.8.23)** — a pure
   server-side **gravity-centroid** pass in
-  [`floating-placement.ts`](../../src/mcp-server/floating-placement.ts) runs
+  [`floating-placement.ts`](../../src/frame-extraction/positioning/floating-placement.ts) runs
   *after* the (byte-identical) ambient force-sim and positions the *satellites*:
   non-ambient frames at the pair-weighted centroid of the ambient frames they
   connect to (`rollupFramePairs`), and auxiliary aggregates via an
   **edge → path → margin** tie cascade
-  ([`aggregate-ties.ts`](../../src/mcp-server/aggregate-ties.ts): CALLS/USAGE/IMPORTS
+  ([`aggregate-ties.ts`](../../src/frame-extraction/positioning/aggregate-ties.ts): CALLS/USAGE/IMPORTS
   edges to frames, else shared directory ancestry, else a de-emphasized margin
   slot). `separateMovables` then guarantees **no satellite overlaps an ambient
   frame or another satellite** (0.8.24): a deterministic greedy free-slot placer —

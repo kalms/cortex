@@ -339,7 +339,7 @@ signal**.
 
 Frames are classified into **six layers** — `interface` | `orchestration` |
 `domain` | `data` | `infrastructure` | `ceremony` — deterministically and
-**read-time in [`frame-map.ts`](../../src/mcp-server/frame-map.ts)**: pure, no
+**read-time in [`frame-map.ts`](../../src/frame-extraction/positioning/frame-map.ts)**: pure, no
 persistence, no LLM (decision `D-qn7z`).
 
 Classification is **agreement-based**, not first-match-wins: every source emits a
