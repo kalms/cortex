@@ -229,8 +229,13 @@ fails after N already committed" gap that per-step transactions cannot.
 
 Scope is the primitives DB **only**. The graph and events DBs are regenerable, so
 `CREATE TABLE IF NOT EXISTS` suffices for them. `migrateDecisionsFromGraphDb`
-stays at the MCP entry points (not this chokepoint) because it needs the graph-DB
-path.
+stays **outside** this chokepoint because it needs the graph-DB path, and it
+deliberately runs from **two call sites** (idempotent at both):
+`repo-context.ts` (per-repo context construction — the normal path) and
+defensively at the top of the `index_repository` handler in `code-tools.ts`
+(so a fresh index on a repo with a legacy graph-DB store imports before any
+write). The viewer HTTP layer gets it transitively via repo-context, not a
+call of its own.
 
 ## Cold-start seeding (machine-proposed decisions)
 

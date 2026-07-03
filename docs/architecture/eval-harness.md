@@ -1,7 +1,7 @@
 # Eval Harness Architecture
 
 > Audience: anyone touching `evals/` or the killer-query list. The
-> [field assessment](../field%20reports/field-assessment-nuxt-monorepo.md) is the
+> [field assessment](../field-reports/field-assessment-nuxt-monorepo.md) is the
 > driving motivation.
 
 ## What this harness is for
@@ -94,7 +94,7 @@ The harness is **scaffolded but not wired together**. The pieces:
 - ❌ `evals/baselines/` — empty; populated on first end-to-end run.
 
 The end-to-end flow (clone → index → score → assert → baseline diff) is
-informed by the [field assessment](../field%20reports/field-assessment-nuxt-monorepo.md).
+informed by the [field assessment](../field-reports/field-assessment-nuxt-monorepo.md).
 
 ## Why the killer queries look the way they do
 

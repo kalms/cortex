@@ -230,7 +230,7 @@ Meta commands: `cortex tour` (guided walkthrough), `cortex help <topic>`, `corte
 
 ## Frames viewer
 
-The viewer at `/viewer` renders the codebase as semantic *frames* — clusters of files that belong together by topic and co-change behaviour. It's derived from the visual prototype at [docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html), wired to live data, and reduced to a static-fetch model (no WebSocket consumption in this iteration).
+The viewer at `/viewer` renders the codebase as semantic *frames* — clusters of files that belong together by topic and co-change behaviour. It's derived from the visual prototype at [docs/specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html](docs/specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html), wired to live data, and reduced to a static-fetch model (no WebSocket consumption in this iteration).
 
 - **Frames** come from cluster output (`data.frame_id` / `data.frame_label` on file nodes, written by `scripts/frame-extraction/inject-frames.ts`).
 - **Decisions** come from the decisions sidecar (`~/.cortex/<repoId>/decisions.db`) via `/api/decisions`, surfaced as governance pills attached to the focused frame.
@@ -313,13 +313,13 @@ NPM scripts:
 | `npm run eval:phase2` | Evaluate a cluster output against co-change + CALLS edges |
 | `npm run setup-python` | Bootstrap the Python venv (`scripts/frame-extraction/python/.venv/`) |
 
-Cluster outputs land in `.tmp/frame-extraction/clusters/<repo-slug>.json`; eval reports in `docs/specs/cortex-v0.3/phase-2-eval/<repo-slug>.md`. See [docs/architecture/frame-extraction.md](docs/architecture/frame-extraction.md) for the full data flow and design rationale.
+Cluster outputs land in `.tmp/frame-extraction/clusters/<repo-slug>.json`; eval reports in `.tmp/frame-extraction/` (phase-2 eval reports were working artifacts, not retained). See [docs/architecture/frame-extraction.md](docs/architecture/frame-extraction.md) for the full data flow and design rationale.
 
 ## Eval harness
 
 A separate eval harness lives under `evals/` and is invoked via `npm run eval`. Unlike the frame-extraction eval (which scores cluster quality), this harness scores Cortex's tool surface against real-world target repos defined in [`evals/targets.json`](evals/targets.json) (currently Nuxt UI, NuxtHub starter, anthill-cloud).
 
-The harness produces a **scorecard** per target: `nodes_by_label` + `edges_by_type` + a fixed list of "killer queries" exercising the queries that the [field assessment](docs/field%20reports/field-assessment-nuxt-monorepo.md) showed Cortex falling short on (high-degree functions in Vue/Nuxt repos, `HTTP_CALLS` edges, composables called, Nitro handlers, etc.). Each query has a baseline_expected `pass`/`fail` and the harness reports anything surprising relative to the baseline.
+The harness produces a **scorecard** per target: `nodes_by_label` + `edges_by_type` + a fixed list of "killer queries" exercising the queries that the [field assessment](docs/field-reports/field-assessment-nuxt-monorepo.md) showed Cortex falling short on (high-degree functions in Vue/Nuxt repos, `HTTP_CALLS` edges, composables called, Nitro handlers, etc.). Each query has a baseline_expected `pass`/`fail` and the harness reports anything surprising relative to the baseline.
 
 The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a stub. See [docs/architecture/eval-harness.md](docs/architecture/eval-harness.md) for the design.
 

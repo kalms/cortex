@@ -4,8 +4,8 @@
 > `scripts/frame-extraction/python/`, or
 > `src/frame-extraction/auxiliary-detection.ts`. For the design
 > rationale and algorithm rationale, the canonical references are
-> [`docs/specs/cortex-v0.3/frame-extraction.md`](../specs/cortex-v0.3/frame-extraction.md)
-> and [`docs/specs/cortex-v0.3/frame-ranking.md`](../specs/cortex-v0.3/frame-ranking.md).
+> [`frame-extraction-design.md`](frame-extraction-design.md)
+> and [`frame-ranking-design.md`](frame-ranking-design.md).
 
 ## What is a frame?
 
@@ -134,9 +134,9 @@ remaining CLI/eval tooling. See
 | Co-change JSONL | `.tmp/frame-extraction/co-change/<repo-slug>.jsonl` | gitignored |
 | File-blob JSONL | `.tmp/frame-extraction/blobs/<repo-slug>.jsonl` | gitignored |
 | Cluster output | `.tmp/frame-extraction/clusters/<repo-slug>.json` | gitignored |
-| Phase 1 results markdown | `docs/specs/cortex-v0.3/phase-1-results.md` | committed |
-| Phase 2 eval markdown | `docs/specs/cortex-v0.3/phase-2-eval/<repo-slug>.md` | committed |
-| Eyeball notes | `docs/specs/cortex-v0.3/phase-2-eval/viewer-eyeball-<scenario>.md` | committed (one per iteration: aux-exclude, real-edges, aggregates, label-quality, …) |
+| Phase 1 results markdown | `docs/specs/archive/cortex-v0.3/phase-1-results.md` | committed (archived) |
+| Phase 2 eval markdown | `.tmp/frame-extraction/` | working artifact, not retained |
+| Eyeball notes | `.tmp/frame-extraction/` | working artifact, not retained (one per iteration: aux-exclude, real-edges, aggregates, label-quality, …) |
 
 JSONL-on-disk over stdin/stdout is deliberate: every stage is debuggable
 in isolation (re-run with different parameters without reindexing) and
@@ -144,7 +144,7 @@ caching is just "is the file there?".
 
 ## Combined topical + co-change distance
 
-Per [`frame-extraction.md` §Co-change as semantic signal](../specs/cortex-v0.3/frame-extraction.md):
+Per [`frame-extraction.md` §Co-change as semantic signal](frame-extraction-design.md):
 
 ```
 combined_distance = (1 − γ) · topical_distance + γ · co_change_distance
@@ -257,8 +257,8 @@ ambient map the viewer draws. All of it is **pure, deterministic, and
 recompute-on-read** — nothing here is persisted alongside `frame_id`.
 
 Pre-implementation design notes live at
-[`docs/specs/cortex-v0.3/frame-ranking.md`](../specs/cortex-v0.3/frame-ranking.md)
-and [`frame-layout.md`](../specs/cortex-v0.3/frame-layout.md) (both retained).
+[`frame-ranking-design.md`](frame-ranking-design.md)
+and [`frame-layout.md`](frame-layout-design.md) (both retained).
 The **shipped ranker is the taxonomy-free "Path-1" subset** those notes were
 later extended past — treat this section, not the notes' later chapters, as the
 description of what runs.
@@ -448,7 +448,7 @@ a rank-11 frame as ambient and a rank-8 frame as not.
 
 The pipeline is shipped end-to-end on `cortex` itself. Eyeball
 verifications across multiple iterations are checked into
-`docs/specs/cortex-v0.3/phase-2-eval/`. Open follow-ups:
+`.tmp/frame-extraction/` (phase-2 eval, not retained). Open follow-ups:
 
 - Tune `γ` per-archetype across the 5-repo Phase 2 corpus
   (`scripts/frame-extraction/phase2-corpus.json`).
@@ -456,6 +456,6 @@ verifications across multiple iterations are checked into
   first non-generic top token with a small stop list).
 - Compare against alternative algorithms (Leiden, pinned-embedding +
   HDBSCAN) — slots described in
-  [`docs/specs/cortex-v0.3/frame-extraction.md` §Three pipelines](../specs/cortex-v0.3/frame-extraction.md).
+  [`frame-extraction-design.md` §Three pipelines](frame-extraction-design.md).
 - Re-introduce live mutation handling in the viewer once the static
   load model has settled.

@@ -242,7 +242,7 @@ Stream rendering is parked alongside the viewer's WebSocket integration in the c
 ## Frames viewer
 
 The viewer is derived from the visual prototype at
-[docs/specs/cortex-v0.3/cortex-frames-prototype-v5.html](../specs/cortex-v0.3/cortex-frames-prototype-v5.html).
+[docs/specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html](../specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html).
 Frames come from cluster output (`data.frame_id`/`frame_label` on file
 nodes, written by `scripts/frame-extraction/inject-frames.ts` — see
 [frame-extraction.md](frame-extraction.md) for the pipeline). Decisions

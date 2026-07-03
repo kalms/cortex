@@ -464,7 +464,7 @@ current transient state from its getter functions.
 
 The grammar is the locked treatment from the design review (option E). It
 re-adopts the live-activity grammar from the original
-[`cortex-frames-prototype-v5.html`](../specs/cortex-v0.3/cortex-frames-prototype-v5.html)
+[`cortex-frames-prototype-v5.html`](../specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html)
 — the layer dropped when the viewer moved to real data — now driven by real
 projection deltas. **No pulse animations** (explicit constraint): every signal
 is a state that decays, never an oscillation.

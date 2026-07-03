@@ -1,3 +1,7 @@
+> **Design note** — promoted from `docs/specs/cortex-v0.3/frame-layout.md`
+> (2026-07-03). The settled design for the force-directed frame layout;
+> implemented in `src/mcp-server/frame-layout.ts` / `floating-placement.ts`.
+
 # Frame layout — design notes
 
 > Companion to `cortex-multiplayer-spec.md` §8 plus

@@ -1,3 +1,7 @@
+> **Design note** — promoted from `docs/specs/cortex-v0.3/frame-extraction.md`
+> (2026-07-03). The settled design for frame extraction; implementation notes
+> live in [`frame-extraction.md`](frame-extraction.md).
+
 # Frame extraction — design notes
 
 > Companion to `cortex-multiplayer-spec.md` §8. Inverts the spec's
@@ -442,7 +446,7 @@ real distributions.
 Run on 2026-05-16 over an 8-repo corpus (Cortex itself + vueuse, TanStack
 table, trpc, nuxt/ui, cobra, click, peft); script + corpus in
 `scripts/frame-extraction/`, raw results in
-[phase-1-results.md](./phase-1-results.md). Distribution observations:
+[phase-1-results.md](../specs/archive/cortex-v0.3/phase-1-results.md). Distribution observations:
 
 | stat | min | p25 | median | p75 | max |
 |---|---:|---:|---:|---:|---:|

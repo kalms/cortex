@@ -1,3 +1,7 @@
+> **Design note** — promoted from `docs/specs/cortex-v0.3/todo-entity.md`
+> (2026-07-03). The settled design for the TODO entity; implemented in
+> `src/todos/` (decision `D-kxj0`).
+
 # TODO entity — design notes
 
 > Companion to `cortex-multiplayer-spec.md`. New entity type for v0.3.

@@ -1,6 +1,17 @@
-# Cortex v0.3 — design corpus
+# Cortex v0.3 — design corpus (ARCHIVED 2026-07-03)
 
-This directory contains the design materials for Cortex v0.3 (the
+> **Archived.** The v0.3 design work shipped (frames, ranking, layout,
+> TODO entity) or was set aside (multiplayer). The four settled design
+> notes were **promoted to `docs/architecture/`** as
+> [`frame-extraction-design.md`](../../../architecture/frame-extraction-design.md),
+> [`frame-ranking-design.md`](../../../architecture/frame-ranking-design.md),
+> [`frame-layout-design.md`](../../../architecture/frame-layout-design.md), and
+> [`todo-entity-design.md`](../../../architecture/todo-entity-design.md).
+> What remains here is historical reference: the original multiplayer
+> spec, the design backlog, the research brief, phase-1 results, and the
+> visual prototype (still authoritative for visual treatment).
+
+This directory contained the design materials for Cortex v0.3 (the
 multiplayer-engineering extension of v0.2.0). The design went through
 multiple brainstorm passes between 2026-04-21 and 2026-05-03;
 historical artifacts and current-state notes coexist in this folder
@@ -18,10 +29,10 @@ supersede the corresponding sections of the original spec.
 
 | File | What it covers |
 |---|---|
-| [`frame-extraction.md`](frame-extraction.md) | Frame extraction algorithm: semantic-first, intrinsic-only, three-pipeline empirical comparison (Leiden vs TF-IDF + HDBSCAN vs pinned-embedding + HDBSCAN). Co-change, framework-aware tokenisation, two content streams, aggregate nodes, bare nodes as gravity. **Supersedes spec §8.** |
-| [`frame-ranking.md`](frame-ranking.md) | Ambient ranking: information-density target, layer-first taxonomy, `FrameKind` payload, classification sources, gravity model for layout. **Companion to spec §8.** |
-| [`frame-layout.md`](frame-layout.md) | Layout implementation: D3-force, mulberry32 PRNG, deterministic seeding, 300-iteration count, frame-size scaling, floating-entity placement. Closes the layout-algorithm risk. |
-| [`todo-entity.md`](todo-entity.md) | New TODO entity type: schema, state machine, drawer surface, MCP tools, external-system bridge. **Adds a new section to spec §3 (data model).** |
+| [`frame-extraction-design.md`](../../../architecture/frame-extraction-design.md) | Frame extraction algorithm: semantic-first, intrinsic-only, three-pipeline empirical comparison (Leiden vs TF-IDF + HDBSCAN vs pinned-embedding + HDBSCAN). Co-change, framework-aware tokenisation, two content streams, aggregate nodes, bare nodes as gravity. **Supersedes spec §8.** |
+| [`frame-ranking-design.md`](../../../architecture/frame-ranking-design.md) | Ambient ranking: information-density target, layer-first taxonomy, `FrameKind` payload, classification sources, gravity model for layout. **Companion to spec §8.** |
+| [`frame-layout-design.md`](../../../architecture/frame-layout-design.md) | Layout implementation: D3-force, mulberry32 PRNG, deterministic seeding, 300-iteration count, frame-size scaling, floating-entity placement. Closes the layout-algorithm risk. |
+| [`todo-entity-design.md`](../../../architecture/todo-entity-design.md) | New TODO entity type: schema, state machine, drawer surface, MCP tools, external-system bridge. **Adds a new section to spec §3 (data model).** |
 
 ### Reference — original spec and historical artifacts
 

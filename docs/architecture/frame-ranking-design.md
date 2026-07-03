@@ -1,3 +1,7 @@
+> **Design note** — promoted from `docs/specs/cortex-v0.3/frame-ranking.md`
+> (2026-07-03). The settled design for ambient frame ranking and the layer
+> taxonomy; implemented in `src/frame-extraction/frame-ranker.ts` / `frame-kind.ts`.
+
 # Frame ambient-ranking — design notes
 
 > Companion to `cortex-multiplayer-spec.md` §8. Adopted direction for v1
