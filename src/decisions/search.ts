@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import type { Decision } from "./types.js";
 import { DecisionsRepository, DecisionRecord } from "./repository.js";
 import { DecisionLinksRepository } from "./links-repository.js";
+import { toDecision } from "./map.js";
 
 export class DecisionSearch {
   constructor(
@@ -68,24 +69,4 @@ export class DecisionSearch {
 function stripQnMember(target: string): string {
   const i = target.indexOf("::");
   return i === -1 ? target : target.slice(0, i);
-}
-
-function toDecision(rec: DecisionRecord): Decision {
-  return {
-    id: rec.id,
-    seq: rec.seq,
-    title: rec.title,
-    description: rec.description ?? "",
-    rationale: rec.rationale ?? "",
-    alternatives: rec.alternatives ? JSON.parse(rec.alternatives) : [],
-    tier: rec.tier as Decision["tier"],
-    status: rec.status as Decision["status"],
-    superseded_by: rec.superseded_by,
-    author: rec.author ?? "claude",
-    created_at: rec.created_at,
-    updated_at: rec.updated_at,
-    problem: rec.problem,
-    resolution: rec.resolution,
-    provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
-  };
 }
