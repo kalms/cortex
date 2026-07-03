@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { connectLiveSync } from "../../src/viewer/ws-client.js";
-import { createStore } from "../../src/viewer/store.js";
+import { connectLiveSync } from "../../src/viewer/app/ws-client.js";
+import { createStore } from "../../src/viewer/app/entity-store.js";
 
 class FakeWS {
   static instances = [];

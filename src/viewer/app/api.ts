@@ -1,13 +1,16 @@
-// src/viewer/data-fetch.js
-/** Network helpers used by viewer.js on load + on project switch. */
+// src/viewer/app/api.ts
+/** Network helpers used by the React shell on load + on project switch.
+ *  Ported verbatim from the vanilla viewer's data-fetch.js. */
 
-export async function fetchProjects() {
+export type ProjectInfo = { name: string; indexed_at: string; root_path: string };
+
+export async function fetchProjects(): Promise<{ projects: ProjectInfo[]; active: string | null }> {
   const r = await fetch("/api/projects");
   if (!r.ok) return { projects: [], active: null };
   return r.json();
 }
 
-export async function fetchGraph(project) {
+export async function fetchGraph(project: string | null) {
   const url = project
     ? `/api/graph?project=${encodeURIComponent(project)}`
     : "/api/graph";
@@ -16,7 +19,7 @@ export async function fetchGraph(project) {
   return r.json();
 }
 
-export async function fetchDecisions(project) {
+export async function fetchDecisions(project: string | null) {
   const url = project
     ? `/api/decisions?project=${encodeURIComponent(project)}`
     : "/api/decisions";
@@ -25,7 +28,7 @@ export async function fetchDecisions(project) {
   return r.json();
 }
 
-export async function fetchAggregates(project) {
+export async function fetchAggregates(project: string | null) {
   const url = project
     ? `/api/aggregates?project=${encodeURIComponent(project)}`
     : "/api/aggregates";
@@ -34,7 +37,7 @@ export async function fetchAggregates(project) {
   return r.json();
 }
 
-export async function fetchFileEdges(project) {
+export async function fetchFileEdges(project: string | null) {
   const url = project
     ? `/api/file-edges?project=${encodeURIComponent(project)}`
     : "/api/file-edges";
@@ -43,7 +46,7 @@ export async function fetchFileEdges(project) {
   return r.json();
 }
 
-export async function fetchFrames(project) {
+export async function fetchFrames(project: string | null) {
   const url = project
     ? `/api/frames?project=${encodeURIComponent(project)}`
     : "/api/frames";
@@ -52,7 +55,7 @@ export async function fetchFrames(project) {
   return r.json();
 }
 
-export async function fetchTodos(project) {
+export async function fetchTodos(project: string | null) {
   const url = project
     ? `/api/todos?project=${encodeURIComponent(project)}`
     : "/api/todos";

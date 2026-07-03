@@ -1,11 +1,22 @@
-import { fetchProjects, fetchGraph, fetchDecisions, fetchAggregates, fetchFileEdges, fetchFrames, fetchTodos } from '/viewer/data-fetch.js';
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, frameCoverage, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from '/viewer/adapters.js';
-import { createStore } from '/viewer/store.js';
-import { connectLiveSync } from '/viewer/ws-client.js';
-import { createLiveEffects } from '/viewer/live-effects.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
+import { createLiveEffects } from './live-effects.js';
 
-(() => {
-  const canvas = document.getElementById('stage');
+// ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
+// neutral; values pinned by the approved design spec. Off = the exact
+// pre-existing draw constants (pixel-identical).
+// Ceremony is a WARM dim taupe (observe-phase fix, 2026-06-13): the
+// original cool gray was indistinguishable from infrastructure's slate at
+// lens alphas — warm-vs-cool separates where lightness alone washed out.
+const LAYER_RGB = {
+  interface:      [92, 161, 237],
+  orchestration:  [171, 130, 237],
+  domain:         [234, 186, 95],
+  data:           [92, 204, 167],
+  infrastructure: [131, 141, 163],
+  ceremony:       [125, 110, 93],
+};
+
+export function createEngine({ canvas, store, callbacks = {} }) {
   const ctx = canvas.getContext('2d');
   const DPR = window.devicePixelRatio || 1;
 
@@ -22,20 +33,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
   function subLabelRGB()          { return isLight() ? [113, 113, 122] : [161, 161, 170]; }
   function countIdleRGB()         { return isLight() ? [161, 161, 170] : [82, 82, 91]; }
 
-  // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
-  // neutral; values pinned by the approved design spec. Off = the exact
-  // pre-existing draw constants (pixel-identical).
-  // Ceremony is a WARM dim taupe (observe-phase fix, 2026-06-13): the
-  // original cool gray was indistinguishable from infrastructure's slate at
-  // lens alphas — warm-vs-cool separates where lightness alone washed out.
-  const LAYER_RGB = {
-    interface:      [92, 161, 237],
-    orchestration:  [171, 130, 237],
-    domain:         [234, 186, 95],
-    data:           [92, 204, 167],
-    infrastructure: [131, 141, 163],
-    ceremony:       [125, 110, 93],
-  };
   const LAYERS_LS_KEY = 'cortex.viewer.layers';
   let layersOn = false;
   try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
@@ -51,6 +48,14 @@ import { createLiveEffects } from '/viewer/live-effects.js';
   let showFrames = readShow(SHOW_LS.frames);
   let showDecisions = readShow(SHOW_LS.decisions);
   let showTodos = readShow(SHOW_LS.todos);
+
+  /** UI command from React — persistence of the prefs moves React-side. */
+  function setLayerPrefs(p) {
+    if (p.showFrames !== undefined) showFrames = p.showFrames;
+    if (p.showDecisions !== undefined) showDecisions = p.showDecisions;
+    if (p.showTodos !== undefined) showTodos = p.showTodos;
+    if (p.layerTint !== undefined) layersOn = p.layerTint;
+  }
 
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function hoverPillBgRGB()       { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -99,7 +104,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  const store = createStore();
   const liveFx = createLiveEffects({
     reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
   });
@@ -111,11 +115,7 @@ import { createLiveEffects } from '/viewer/live-effects.js';
   let AGGREGATES = [];
   let FILE_EDGES = [];
 
-  // Freshest server head, tracked from the sync client's hello/resnapshot so
-  // loadGraph can seed the store cursor when viewing the live-bound project.
-  // Slightly-stale is safe — deltas re-derive current state at catch-up time.
-  let lastKnownHead = null;
-  // Cached frame metadata from the last loadGraph, used by the incremental
+  // Cached frame metadata from the last setData, used by the incremental
   // apply path to recompute promoted-frame overlays without a full reload.
   let lastFrameMeta = null;
 
@@ -127,266 +127,27 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     return (TODO_GOVERNANCE[frameId] || []).map((id) => TODOS[id]).filter(Boolean);
   }
 
-  let currentProject = null;
-
-  // Zero-frames warning: shown when a project has file nodes but none are
-  // framed (graph built by the raw C indexer, which skips frame extraction).
-  // Re-evaluated on every loadGraph; dismiss only hides until next load.
-  function updateFramesWarning(nodes) {
-    const el = document.getElementById('frames-warning');
-    if (!el) return;
-    const { zeroFrames, fileNodes } = frameCoverage(nodes);
-    if (zeroFrames) {
-      const text = document.getElementById('frames-warning-text');
-      if (text) {
-        text.textContent = '';
-        text.append(`${fileNodes} files indexed, 0 frames — reindex via `);
-        const code = document.createElement('code');
-        code.textContent = 'cortex index';
-        text.append(code, ' to generate frames.');
-      }
-      el.hidden = false;
-    } else {
-      el.hidden = true;
-    }
-  }
-
-  async function loadGraph(projectName) {
-    currentProject = projectName;
-    const [graph, decs, aggs, fileEdges, frameMap, todosResp] = await Promise.all([
-      fetchGraph(projectName),
-      fetchDecisions(projectName),
-      fetchAggregates(projectName),
-      fetchFileEdges(projectName),
-      fetchFrames(projectName),
-      fetchTodos(projectName),
-    ]);
-    AGGREGATES = aggs.aggregates || [];
-    FILE_EDGES = fileEdges.file_edges || [];
-
-    // 1. Build frame summaries from the graph.
-    const summaries = groupNodesIntoFrames(graph.nodes);
-    FRAME_PATH_INDEX = buildFramePathIndex(summaries);
-    updateFramesWarning(graph.nodes);
-
-    // 2. Consume server-computed force-directed positions. All positioned frames
-    //    (ambient + non-ambient) are rendered; non-ambient ones are tagged
-    //    deemphasized so drawFrames can reduce their visual prominence.
-    //    Positions are integer px in a fixed virtual stage; the viewer normalizes
-    //    by the stage dims the server reports.
-    const stage = frameMap.stage || { w: 1000, h: 800 };
-    FRAMES = (frameMap.frames || [])
-      .filter((f) => f.x !== null && f.y !== null)
-      .map((f) => ({
-        id: String(f.id),
-        name: f.name,
-        x: f.x / stage.w,
-        y: f.y / stage.h,
-        w: f.w,
-        h: f.h,
-        count: f.count,
-        layer: f.layer,
-        deemphasized: !f.ambient,
-      }));
-
-    // 4. NODE_CFG.count = how many file basenames to show per frame (cap at
-    //    MAX_FRAME_NODES). Track the canonical file_path alongside the basename
-    //    so edge lookups don't have to disambiguate by basename alone.
-    NODE_CFG = {};
-    FILE_NAMES = {};
-    FRAME_FILE_PATHS = {};
-    for (const s of summaries) {
-      const sid = String(s.frame_id);
-      const visibleMembers = s.members.slice(0, MAX_FRAME_NODES);
-      NODE_CFG[sid] = { count: visibleMembers.length };
-      FILE_NAMES[sid] = basenames(visibleMembers, MAX_FRAME_NODES);
-      FRAME_FILE_PATHS[sid] = visibleMembers.map((m) => m.file_path || null);
-    }
-
-    // 5. Decisions + TODOs → the reactive store (single owner). Hydrate
-    // mutates the aliased objects (DECISIONS/TODOS) in place; cursor comes from
-    // the sync client when this is the server-bound live project.
-    // buildGovernance only picks up kind:'frame' refs; for todos that only have
-    // kind:'file' governs, we also resolve file paths to frame ids via
-    // FRAME_PATH_INDEX (same path the draw layer uses for decisions).
-    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
-    const decMap = {};
-    for (const d of decs.decisions) decMap[d.id] = d;
-    const todoMap = {};
-    for (const t of ambientTodos) todoMap[t.id] = t;
-    store.hydrate({
-      decisions: decMap,
-      todos: todoMap,
-      cursor: (syncClient && projectName === syncClient.boundProject) ? lastKnownHead : null,
-    });
-    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
-    TODO_GOVERNANCE = buildGovernance(ambientTodos);
-    // Augment with file-path-resolved frame governs.
-    for (const t of ambientTodos) {
-      for (const g of t.governs || []) {
-        if (g.kind !== 'file') continue;
-        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
-        if (!fid) continue;
-        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
-        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
-      }
-    }
-    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
-
-    // 5b. A decision-governed frame the ranking left non-ambient would never
-    //     render, hiding its decisions (e.g. cortex-indexer's governed frames
-    //     were all non-ambient). Promote any such frame into the render set.
-    const frameMeta = new Map(
-      (frameMap.frames || []).map((f) => [
-        String(f.id),
-        { name: f.name, w: f.w, h: f.h, count: f.count, layer: f.layer },
-      ]),
-    );
-    lastFrameMeta = frameMeta;
-    FRAMES = withGovernedFramesRendered(FRAMES, FRAME_GOVERNANCE, frameMeta);
-
-    // 6. Rebuild the in-canvas graph (re-uses existing buildGraph; that fn
-    // already reads from FRAMES/NODE_CFG/FILE_NAMES/FRAME_GOVERNANCE/DECISIONS).
+  /** Assign the pre-adapted data bundle (Task 3's adaptProjectData) and rebuild
+   *  the in-canvas graph. This is the assignment tail of the old loadGraph —
+   *  fetching/adapting now happens in React; the engine only owns render state. */
+  function setData(bundle, { preserveFocus = false } = {}) {
+    FRAMES = bundle.frames;
+    NODE_CFG = bundle.nodeCfg;
+    FILE_NAMES = bundle.fileNames;
+    FRAME_FILE_PATHS = bundle.frameFilePaths;
+    FRAME_PATH_INDEX = bundle.framePathIndex;
+    FRAME_GOVERNANCE = bundle.frameGovernance;
+    TODO_GOVERNANCE = bundle.todoGovernance;
+    SPAWNS_FROM = bundle.spawnsFrom;
+    AGGREGATES = bundle.aggregates;
+    FILE_EDGES = bundle.fileEdges;
+    lastFrameMeta = bundle.frameMeta;
     buildGraph();
-    focusedFrameId = null;
-    previousFocusId = null;
-  }
-
-  async function initToolbar() {
-    const select = document.getElementById('project-select');
-    const themeToggle = document.getElementById('theme-toggle');
-    const { projects, active } = await fetchProjects();
-    select.innerHTML = '';
-    if (projects.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '(no projects)';
-      opt.disabled = true;
-      select.appendChild(opt);
+    if (!preserveFocus) {
+      focusedFrameId = null;
+      previousFocusId = null;
     }
-    for (const p of projects) {
-      const opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.name;
-      if (p.name === active) opt.selected = true;
-      select.appendChild(opt);
-    }
-    select.addEventListener('change', async () => {
-      await loadGraph(select.value || null);
-      showSyncStatus(lastSyncStatus);
-    });
-    themeToggle.addEventListener('click', () => document.body.classList.toggle('light'));
-
-    const layersBtn = document.getElementById('layers-toggle');
-    const layersMenu = document.getElementById('layers-menu');
-    const layersSwitch = document.getElementById('layers-switch');
-    layersSwitch.classList.toggle('on', layersOn);
-    layersSwitch.setAttribute('aria-checked', String(layersOn));
-    // Legend swatches derive from LAYER_RGB — the palette's single runtime
-    // source. (The CSS used to carry a second hand-synced copy; it drifted.)
-    layersMenu.querySelectorAll('.lm-row i[data-layer]').forEach((sw) => {
-      const rgb = LAYER_RGB[sw.dataset.layer];
-      if (rgb) sw.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    });
-    layersBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      layersMenu.hidden = !layersMenu.hidden;
-    });
-    document.addEventListener('click', (e) => {
-      if (!layersMenu.hidden && !layersMenu.contains(e.target) && e.target !== layersBtn) {
-        layersMenu.hidden = true;
-      }
-    });
-    layersSwitch.addEventListener('click', () => {
-      layersOn = !layersOn;
-      layersSwitch.classList.toggle('on', layersOn);
-      layersSwitch.setAttribute('aria-checked', String(layersOn));
-      try { localStorage.setItem(LAYERS_LS_KEY, layersOn ? '1' : '0'); } catch { /* sandboxed */ }
-    });
-    layersSwitch.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        layersSwitch.click();
-      }
-    });
-
-    const bindSwitch = (el, lsKey, get, set) => {
-      el.classList.toggle('on', get());
-      el.setAttribute('aria-checked', String(get()));
-      const toggle = () => {
-        set(!get());
-        el.classList.toggle('on', get());
-        el.setAttribute('aria-checked', String(get()));
-        try { localStorage.setItem(lsKey, get() ? '1' : '0'); } catch { /* sandboxed */ }
-      };
-      el.addEventListener('click', toggle);
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-      });
-    };
-    bindSwitch(document.getElementById('show-frames'), SHOW_LS.frames,
-      () => showFrames, (v) => { showFrames = v; });
-    bindSwitch(document.getElementById('show-decisions'), SHOW_LS.decisions,
-      () => showDecisions, (v) => { showDecisions = v; });
-    bindSwitch(document.getElementById('show-todos'), SHOW_LS.todos,
-      () => showTodos, (v) => { showTodos = v; });
-
-    const framesDismiss = document.getElementById('frames-warning-dismiss');
-    if (framesDismiss) {
-      framesDismiss.addEventListener('click', () => {
-        const el = document.getElementById('frames-warning');
-        if (el) el.hidden = true;
-      });
-    }
-
-    await loadGraph(active);
   }
-
-  /** Entity-only resync (decisions + todos + frame map for promotion), used as
-   *  the sync client's snapshot bootstrap/fallback. Cheaper than loadGraph —
-   *  the structural graph doesn't change on the projection channel. */
-  async function resyncEntities(headUlid) {
-    lastKnownHead = headUlid ?? lastKnownHead;
-    const project = currentProject;
-    const [decs, todosResp] = await Promise.all([fetchDecisions(project), fetchTodos(project)]);
-    const ambientTodos = filterAmbientTodos(todosResp.todos || []);
-    const decMap = {}; for (const d of decs.decisions) decMap[d.id] = d;
-    const todoMap = {}; for (const t of ambientTodos) todoMap[t.id] = t;
-    store.hydrate({ decisions: decMap, todos: todoMap, cursor: headUlid ?? null });
-    FRAME_GOVERNANCE = buildFrameGovernance(decs.decisions);
-    TODO_GOVERNANCE = buildGovernance(ambientTodos);
-    for (const t of ambientTodos) {
-      for (const g of t.governs || []) {
-        if (g.kind !== 'file') continue;
-        const fid = frameIdForPath(FRAME_PATH_INDEX, g.path);
-        if (!fid) continue;
-        if (!TODO_GOVERNANCE[fid]) TODO_GOVERNANCE[fid] = [];
-        if (!TODO_GOVERNANCE[fid].includes(t.id)) TODO_GOVERNANCE[fid].push(t.id);
-      }
-    }
-    SPAWNS_FROM = buildSpawnsFromIndex(todosResp.todos || []);
-    if (lastFrameMeta) FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
-    buildGraph();
-  }
-
-  const syncIndicatorEl = document.getElementById('sync-indicator');
-  function showSyncStatus(status) {
-    if (!syncIndicatorEl) return;
-    const onLiveProject = syncClient && currentProject === syncClient.boundProject;
-    syncIndicatorEl.hidden = !onLiveProject;
-    if (!onLiveProject) return;
-    syncIndicatorEl.className = `sync-indicator ${status}`;
-    syncIndicatorEl.querySelector('.word').textContent = status;
-  }
-  let lastSyncStatus = 'offline';
-
-  const syncClient = connectLiveSync({
-    wsUrl: `ws://${location.host}/ws`,
-    store,
-    isLiveProject: () => currentProject === syncClient.boundProject,
-    resnapshot: resyncEntities,
-    onStatus: (s) => { lastSyncStatus = s; showSyncStatus(s); },
-  });
 
   // Deterministic placement primitives: same graph → same dot positions on
   // every load (no Math.random in the render data path), and a jitter-bounded
@@ -451,6 +212,7 @@ import { createLiveEffects } from '/viewer/live-effects.js';
         nodes.push({
           id: frame.id + '-' + i,
           frameId: frame.id,
+          indexInFrame: i,
           kind: 'file',
           file_path: paths[i] || null,
           rx: pos.rx,
@@ -627,7 +389,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
       // Removed-while-open: keep the card up with a quiet removed note.
       if (c.op === 'remove' && focusedRecord && focusedRecord.type === c.entity && focusedRecord.id === c.id) {
         removedRecordSnapshots[c.id] = c.prev;
-        currentRenderedRecord = null; // force re-render with the note
       }
     }
 
@@ -639,7 +400,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     }
     onLiveChangesApplied(changes);
   }
-  store.subscribe(applyLiveChanges);
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
@@ -871,10 +631,10 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     for (const k of Object.keys(removedRecordSnapshots)) delete removedRecordSnapshots[k];
   }
 
-  function openDecisionCard(decId) { openRecord('decision', decId); }
-  function closeDecisionCard() { closeRecord(); }
-  function currentDecisionId() {
-    return focusedRecord && focusedRecord.type === 'decision' ? focusedRecord.id : null;
+  /** External command (React: drawer pills / palette / list). */
+  function setActiveRecord(rec) {
+    if (rec) openRecord(rec.type, rec.id);
+    else closeRecord();
   }
 
   const frameHoverState = {};
@@ -887,7 +647,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     canvas.height = canvas.clientHeight * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
-  window.addEventListener('resize', resize);
 
   function marginaliaAtPoint(px, py) {
     for (const r of marginaliaRects) {
@@ -951,6 +710,7 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     focusedFrameId = frameId;
     focusT0 = performance.now();
     if (frameId === null) anchorNodeIdx = null;
+    callbacks.onFrameFocus?.(focusedFrameId);
   }
 
   let mouseX = 0, mouseY = 0;
@@ -1080,22 +840,27 @@ import { createLiveEffects } from '/viewer/live-effects.js';
         const hitId = marginaliaHit.id;
         if (focusedRecord.type === marginaliaHit.type && String(focusedRecord.id) === hitId) {
           closeRecord();
+          callbacks.onRecordDismiss?.();
         } else {
           openRecord(marginaliaHit.type, hitId);
+          callbacks.onRecordClick?.(marginaliaHit.type, hitId);
         }
         return;
       }
       const decHit = decisionNodeAtPoint(px, py);
       if (decHit) {
         openRecord('decision', decHit.id);
+        callbacks.onRecordClick?.('decision', decHit.id);
         return;
       }
       const todoHit = todoNodeAtPoint(px, py);
       if (todoHit) {
         openRecord('todo', todoHit.id);
+        callbacks.onRecordClick?.('todo', todoHit.id);
         return;
       }
       closeRecord();
+      callbacks.onRecordDismiss?.();
       return;
     }
 
@@ -1103,18 +868,21 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     if (marginaliaHit) {
       const hitId = marginaliaHit.id;
       openRecord(marginaliaHit.type, hitId);
+      callbacks.onRecordClick?.(marginaliaHit.type, hitId);
       return;
     }
 
     const decHit = decisionNodeAtPoint(px, py);
     if (decHit) {
       openRecord('decision', decHit.id);
+      callbacks.onRecordClick?.('decision', decHit.id);
       return;
     }
 
     const todoHit = todoNodeAtPoint(px, py);
     if (todoHit) {
       openRecord('todo', todoHit.id);
+      callbacks.onRecordClick?.('todo', todoHit.id);
       return;
     }
 
@@ -1134,6 +902,9 @@ import { createLiveEffects } from '/viewer/live-effects.js';
         pinnedT0 = performance.now();
       }
       anchorNodeIdx = nodeIdx;
+      const fpArr = FRAME_FILE_PATHS[n.frameId];
+      const fp = fpArr ? fpArr[n.indexInFrame] : null;
+      if (fp) callbacks.onFileClick?.({ filePath: fp, frameId: n.frameId });
       if (n.frameId !== focusedFrameId) {
         setFocus(n.frameId);
       }
@@ -2368,7 +2139,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
 
   function mainLoop() {
     const now = performance.now();
-    updateDecisionCardVisibility();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     viewTransform = computeViewTransform();
@@ -2384,246 +2154,36 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     drawCompactHoverBadge(now);
     drawLiveEffects(now);
 
-    requestAnimationFrame(mainLoop);
+    rafId = requestAnimationFrame(mainLoop);
   }
 
-  const decisionCardEl = document.getElementById('decision-card');
+  let rafId = null;
 
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function refPillHtml(ref, refIdx) {
-    let type = '';
-    let name = '';
-    if (ref.kind === 'frame') {
-      type = 'frame';
-      name = ref.label || ref.id;
-    } else if (ref.kind === 'file') {
-      type = 'file';
-      name = ref.path.split('/').slice(-1)[0];
-    } else if (ref.kind === 'function') {
-      type = 'fn';
-      name = ref.name + '()';
-    } else if (ref.kind === 'symbol') {
-      type = 'symbol';
-      name = ref.name;
-    } else if (ref.kind === 'decision') {
-      type = 'decision';
-      // Show the friendly D-<seq> form (consistent with the card header and
-      // pills); the click handler still keys on ref.id via data-ref.
-      name = decisionDisplayId(DECISIONS[ref.id] || ref);
-    } else if (ref.kind === 'todo') {
-      type = 'todo';
-      // Use caller-supplied name when provided (e.g. "T-001 · summary" from the
-      // decision-card Tasks section); fall back to the display-id lookup.
-      name = ref.name || todoDisplayId(TODOS[ref.id] || ref);
-    } else if (ref.kind === 'pr') {
-      type = 'pr';
-      name = ref.id ? `#${ref.id}` : (ref.name || ref.id || '');
-    } else {
-      type = ref.kind || '';
-      name = ref.name || ref.id || ref.path || '';
-    }
-    const refData = encodeURIComponent(JSON.stringify(ref));
-    return `<span class="dc-ref-pill" data-ref-kind="${escapeHtml(ref.kind)}" data-ref="${refData}"><span class="type">${escapeHtml(type)}</span><span class="name">${escapeHtml(name)}</span></span>`;
-  }
-
-  function renderDecisionCard(decId) {
-    const dec = DECISIONS[decId] || removedRecordSnapshots[decId];
-    if (!dec) { decisionCardEl.innerHTML = ''; return; }
-    const isRemoved = !DECISIONS[decId];
-
-    const stateLabel = dec.state;
-    const provParts = [];
-    if (dec.id) provParts.push(`id ${escapeHtml(dec.id)}`); // canonical id (display id is the D-<seq> form)
-    if (dec.proposedBy) provParts.push(`proposed by <span class="agent">@${dec.proposedBy}</span>`);
-    if (dec.proposedAt) provParts.push(`on ${dec.proposedAt}`);
-
-    let html = '';
-    html += `<div class="dc-header">
-      <div class="dc-id-block">
-        <div class="dc-id-row">
-          <span class="dc-id">${escapeHtml(decisionDisplayId(dec))}</span>
-          <span class="dc-state-pill ${stateLabel}"><span class="sw"></span>${stateLabel}</span>
-        </div>
-        <div class="dc-summary">${escapeHtml(dec.summary)}</div>
-        ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
-        ${isRemoved ? '<div class="dc-removed-note">this decision was removed · view is a snapshot</div>' : ''}
-      </div>
-      <button class="dc-close" id="dc-close" aria-label="close">×</button>
-    </div>`;
-
-    html += '<div class="dc-body">';
-
-    if (dec.problem) {
-      html += `<div class="dc-section"><div class="dc-section-label">problem</div><div class="dc-prose">${escapeHtml(dec.problem)}</div></div>`;
-    }
-    if (dec.resolution) {
-      html += `<div class="dc-section"><div class="dc-section-label">resolution</div><div class="dc-prose">${escapeHtml(dec.resolution)}</div></div>`;
-    }
-    if (dec.rationale) {
-      html += `<div class="dc-section"><div class="dc-section-label">rationale</div><div class="dc-prose">${escapeHtml(dec.rationale)}</div></div>`;
-    }
-    if (dec.alternatives && dec.alternatives.length) {
-      html += `<div class="dc-section"><div class="dc-section-label">alternatives considered</div><div class="dc-alt-list">`;
-      dec.alternatives.forEach(alt => {
-        html += `<div class="dc-alt"><div class="dc-alt-title">${escapeHtml(alt.title)}</div><div class="dc-alt-reason">${escapeHtml(alt.reason)}</div></div>`;
-      });
-      html += `</div></div>`;
-    }
-    if (dec.governs && dec.governs.length) {
-      html += `<div class="dc-section"><div class="dc-section-label">governs</div><div class="dc-ref-row">${dec.governs.map(refPillHtml).join('')}</div></div>`;
-    }
-    if (dec.supersedes || dec.supersededBy) {
-      html += `<div class="dc-section"><div class="dc-section-label">supersession</div><div class="dc-supersedes-row">`;
-      if (dec.supersedes) {
-        html += `<span class="dc-supersedes-arrow">supersedes</span>${refPillHtml({ kind: 'decision', id: dec.supersedes })}`;
-      }
-      if (dec.supersededBy) {
-        if (dec.supersedes) html += `<span class="dc-supersedes-arrow" style="margin-left: 6px;">·</span>`;
-        html += `<span class="dc-supersedes-arrow">superseded by</span>${refPillHtml({ kind: 'decision', id: dec.supersededBy })}`;
-      }
-      html += `</div></div>`;
-    }
-    if (dec.relatedTo && dec.relatedTo.length) {
-      html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${dec.relatedTo.map(id => refPillHtml({ kind: 'decision', id })).join('')}</div></div>`;
-    }
-
-    const childTodoIds = SPAWNS_FROM[dec.id] || [];
-    if (childTodoIds.length) {
-      html += `<div class="dc-section"><div class="dc-section-label">tasks</div><div class="dc-ref-row">`;
-      html += childTodoIds.map((id) => {
-        const t = TODOS[id];
-        const label = t ? `${todoDisplayId(t)} · ${t.summary}` : id;
-        return refPillHtml({ kind: 'todo', id, name: label });
-      }).join('');
-      html += `</div></div>`;
-    }
-
-    html += '</div>';
-    decisionCardEl.innerHTML = html;
-
-    const closeBtn = document.getElementById('dc-close');
-    if (closeBtn) closeBtn.addEventListener('click', () => closeDecisionCard());
-
-    wireCardRefPills();
-  }
-
-  function wireCardRefPills() {
-    decisionCardEl.querySelectorAll('.dc-ref-pill').forEach(el => {
-      el.addEventListener('click', () => {
-        const refData = el.dataset.ref;
-        if (!refData) return;
-        let ref;
-        try { ref = JSON.parse(decodeURIComponent(refData)); } catch { return; }
-
-        if (ref.kind === 'decision') {
-          if (DECISIONS[ref.id]) openDecisionCard(ref.id);
-          return;
-        }
-
-        if (ref.kind === 'todo') {
-          if (TODOS[ref.id]) openRecord('todo', ref.id);
-          return;
-        }
-
-        let frameId = null;
-        if (ref.kind === 'frame') {
-          frameId = ref.id;
-        } else if (ref.path) {
-          frameId = frameIdForPath(FRAME_PATH_INDEX, ref.path);
-        }
-        if (frameId) {
-          closeDecisionCard();
-          setFocus(frameId);
-        }
-      });
-    });
-  }
-
-  function renderTodoCard(todoId) {
-    const t = TODOS[todoId] || removedRecordSnapshots[todoId];
-    if (!t) { decisionCardEl.innerHTML = ''; return; }
-    const isRemoved = !TODOS[todoId];
-    const provParts = [];
-    if (t.id) provParts.push(`id ${escapeHtml(t.id)}`); // canonical id (display id is the T-<seq> form)
-    if (t.proposedBy) provParts.push(`proposed by <span class="agent">@${escapeHtml(t.proposedBy)}</span>`);
-    if (t.proposedAt) provParts.push(`on ${escapeHtml(t.proposedAt)}`);
-
-    let html = `<div class="dc-header"><div class="dc-id-block">
-      <div class="dc-id-row">
-        <span class="dc-id todo">${escapeHtml(todoDisplayId(t))}</span>
-        <span class="dc-state-pill ${escapeHtml(t.state || '')}"><span class="sw"></span>${escapeHtml(t.state || '')}</span>
-      </div>
-      <div class="dc-summary">${escapeHtml(t.summary || '')}</div>
-      ${provParts.length ? `<div class="dc-provenance">${provParts.join(' · ')}</div>` : ''}
-      ${isRemoved ? '<div class="dc-removed-note">this todo was removed · view is a snapshot</div>' : ''}
-    </div><button class="dc-close" id="dc-close" aria-label="close">×</button></div>`;
-
-    html += '<div class="dc-body">';
-    if (t.description) html += `<div class="dc-section"><div class="dc-section-label">description</div><div class="dc-prose">${escapeHtml(t.description)}</div></div>`;
-    if (t.governs?.length) html += `<div class="dc-section"><div class="dc-section-label">governs</div><div class="dc-ref-row">${t.governs.map(refPillHtml).join('')}</div></div>`;
-    if (t.spawnsFrom) html += `<div class="dc-section"><div class="dc-section-label">spawned from</div><div class="dc-ref-row">${refPillHtml({ kind: 'decision', id: t.spawnsFrom })}</div></div>`;
-    if (t.resolvedBy?.length) html += `<div class="dc-section"><div class="dc-section-label">resolved by</div><div class="dc-ref-row">${t.resolvedBy.map(id => refPillHtml({ kind: 'pr', id })).join('')}</div></div>`;
-    if (t.blockedBy?.length || t.blocks?.length) {
-      html += `<div class="dc-section"><div class="dc-section-label">dependencies</div><div class="dc-ref-row">`;
-      html += (t.blockedBy || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
-      html += (t.blocks || []).map(r => refPillHtml({ kind: 'todo', id: r.id })).join('');
-      html += `</div></div>`;
-    }
-    if (t.relatedTo?.length) html += `<div class="dc-section"><div class="dc-section-label">related</div><div class="dc-ref-row">${t.relatedTo.map(r => refPillHtml({ kind: 'todo', id: r.id })).join('')}</div></div>`;
-    html += '</div>';
-    decisionCardEl.innerHTML = html;
-
-    const closeBtn = document.getElementById('dc-close');
-    if (closeBtn) closeBtn.addEventListener('click', () => closeRecord());
-    wireCardRefPills();
-  }
-
-  let currentRenderedRecord = null;
-
-  function sameRecord(a, b) {
-    if (!a || !b) return false;
-    return a.type === b.type && a.id === b.id;
-  }
-
-  function updateDecisionCardVisibility() {
-    if (focusedRecord && !sameRecord(focusedRecord, currentRenderedRecord)) {
-      if (focusedRecord.type === 'decision') {
-        renderDecisionCard(focusedRecord.id);
-      } else if (focusedRecord.type === 'todo') {
-        renderTodoCard(focusedRecord.id);
-      }
-      currentRenderedRecord = { ...focusedRecord };
-    }
-    if (focusedRecord) {
-      decisionCardEl.classList.add('visible');
-      document.body.classList.add('card-open');
-    } else {
-      decisionCardEl.classList.remove('visible');
-      document.body.classList.remove('card-open');
-    }
-  }
-
-  window.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    if (focusedRecord) {
-      closeRecord();
-    } else if (focusedFrameId) {
-      anchorNodeIdx = null;
-      setFocus(null);
-    }
-  });
-
-  window.addEventListener('load', async () => {
+  function start() {
     resize();
-    await initToolbar();
-    requestAnimationFrame(mainLoop);
-  });
-})();
+    rafId = requestAnimationFrame(mainLoop);
+  }
+
+  function destroy() {
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    // canvas listeners are on the canvas element itself; removing the canvas
+    // from the DOM (React unmount) drops them. No window listeners remain.
+  }
+
+  return {
+    setData,
+    applyLiveChanges,
+    setLayerPrefs,
+    getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn }),
+    focusFrame: (id) => { anchorNodeIdx = null; setFocus(id); },
+    setActiveRecord,
+    frameIdForFilePath: (p) => frameIdForPath(FRAME_PATH_INDEX, p),
+    getActiveRecord: () => focusedRecord,
+    getFocusedFrameId: () => focusedFrameId,
+    start,
+    resize,
+    destroy,
+  };
+}
+
+export { LAYER_RGB };

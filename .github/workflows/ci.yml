@@ -70,6 +70,17 @@ jobs:
         # next step makes the fetch GATING in CI.
         run: npm ci
 
+      - name: Viewer bundle freshness (committed dist must match source)
+        run: |
+          npm run build:viewer
+          git diff --exit-code -- src/viewer/dist \
+            || { echo "::error::src/viewer/dist is stale — run 'npm run build:viewer' and commit"; exit 1; }
+          test -z "$(git status --porcelain -- src/viewer/dist)" \
+            || { echo "::error::untracked files under src/viewer/dist — commit the full build output"; exit 1; }
+
+      - name: Viewer typecheck
+        run: npx tsc -p src/viewer --noEmit
+
       - name: Fetch + verify the prebuilt indexer (gating in CI)
         # The MCP-contract tests exercise the real binary. postinstall may have
         # soft-warned; ensure the linux-x64 asset is actually present so CI runs

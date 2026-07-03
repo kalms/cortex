@@ -588,3 +588,432 @@ body.light .lm-toggle:hover { background: rgba(0, 0, 0, 0.04); }
 /* Legend swatch colors are injected from viewer.js LAYER_RGB at init — the
    palette's single runtime source. Do not re-add per-layer rules here. */
 .lm-row i { width: 6px; height: 6px; border-radius: 1.5px; flex: 0 0 auto; }
+
+/* ── Project switcher (custom dropdown, replaces the native <select>). The
+   trigger button (#project-select) inherits `.toolbar button`'s background/
+   border/typography — same tokens as #layers-toggle — so no separate
+   #project-select rule is needed here; this block only adds the bits the
+   generic toolbar-button rule doesn't cover: caret layout + a width cap so a
+   long project name doesn't blow out the toolbar row (superseding the old
+   native-select auto-width behavior the frames-warning top-offset comment
+   above refers to). ── */
+.project-select-wrap { position: relative; }
+.project-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+}
+.project-select-btn > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-caret { flex: 0 0 auto; color: var(--text-3); font-size: 9px; }
+.project-select-menu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 40;
+  max-width: 380px;
+  min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+body.light .project-select-menu { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10); }
+.ps-item {
+  padding: 5px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+}
+.ps-item:hover { background: rgba(255, 255, 255, 0.04); }
+body.light .ps-item:hover { background: rgba(0, 0, 0, 0.04); }
+.ps-item.active { background: rgba(255, 255, 255, 0.06); }
+body.light .ps-item.active { background: rgba(0, 0, 0, 0.06); }
+.ps-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-empty {
+  padding: 5px 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+
+/* ── Drawer v2 nav chrome (back + close). The buttons used to be a flex
+   child inside .dc-header; now Drawer.tsx owns them as chrome shared across
+   every stacked view, so they sit absolutely over the header at the same
+   spot the old .dc-close occupied (top:22px, right:26px — .dc-header's own
+   padding), with .dc-back matching its 24x24 hit size to its left. ── */
+.dc-header { padding-right: 92px; }
+.dc-nav {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+.dc-back {
+  background: transparent;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-3);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.dc-back:hover {
+  color: var(--text);
+  border-color: var(--border-3);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ── FileCard (Task 7). Per-layer tint mirrors canvas/engine.js's LAYER_RGB
+   at low alpha — kept in sync by hand since the chip is DOM/CSS, not
+   canvas-drawn (the legend swatches inject LAYER_RGB at runtime instead;
+   see the .lm-row comment above). ── */
+.dc-layer-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 1px solid;
+  text-transform: lowercase;
+  letter-spacing: 0.03em;
+}
+.dc-layer-chip.layer-interface      { background: rgba(92, 161, 237, 0.14);  border-color: rgba(92, 161, 237, 0.4);  color: #9dc4f5; }
+.dc-layer-chip.layer-orchestration  { background: rgba(171, 130, 237, 0.14); border-color: rgba(171, 130, 237, 0.4); color: #c7aef5; }
+.dc-layer-chip.layer-domain         { background: rgba(234, 186, 95, 0.14);  border-color: rgba(234, 186, 95, 0.4);  color: #f0cd8a; }
+.dc-layer-chip.layer-data           { background: rgba(92, 204, 167, 0.14);  border-color: rgba(92, 204, 167, 0.4);  color: #9de0c6; }
+.dc-layer-chip.layer-infrastructure { background: rgba(131, 141, 163, 0.14); border-color: rgba(131, 141, 163, 0.4); color: #b3bccc; }
+.dc-layer-chip.layer-ceremony       { background: rgba(125, 110, 93, 0.16);  border-color: rgba(125, 110, 93, 0.45); color: #c2b3a4; }
+body.light .dc-layer-chip.layer-interface      { color: #2563eb; }
+body.light .dc-layer-chip.layer-orchestration  { color: #7c3aed; }
+body.light .dc-layer-chip.layer-domain         { color: #a16207; }
+body.light .dc-layer-chip.layer-data           { color: #0f766e; }
+body.light .dc-layer-chip.layer-infrastructure { color: #475569; }
+body.light .dc-layer-chip.layer-ceremony       { color: #78716c; }
+
+.dc-file-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.01em;
+  word-break: break-all;
+}
+
+.dc-conn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dc-conn-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.dc-conn-row:hover { background: rgba(255, 255, 255, 0.03); }
+body.light .dc-conn-row:hover { background: rgba(0, 0, 0, 0.03); }
+.dc-conn-name {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.dc-conn-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dc-conn-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-align: right;
+}
+
+.dc-symbol.highlighted {
+  border-color: var(--text);
+  color: var(--text);
+}
+body.light .dc-symbol.highlighted { border-color: var(--text-2); }
+
+.dc-file-link,
+.dc-frame-link {
+  color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
+}
+.dc-file-link:hover,
+.dc-frame-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* ── ListView (Task 8) — records tab strip + row list. ── */
+.dc-list-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+.dc-list-tab {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.dc-list-tab:hover {
+  color: var(--text-2);
+  border-color: var(--border-3);
+}
+.dc-list-tab.active {
+  color: var(--text);
+  border-color: var(--border-3);
+  background: rgba(255, 255, 255, 0.05);
+}
+body.light .dc-list-tab.active { background: rgba(0, 0, 0, 0.05); }
+
+.dc-list-body {
+  padding: 8px 10px 28px;
+}
+.dc-list-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.dc-list-row:hover { background: rgba(255, 255, 255, 0.03); }
+body.light .dc-list-row:hover { background: rgba(0, 0, 0, 0.03); }
+.dc-list-row.closed { opacity: 0.45; }
+
+.dc-list-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dc-list-dot.decision { background: #4ade80; }
+.dc-list-dot.todo { background: #facc15; }
+
+.dc-list-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  flex: 0 0 auto;
+}
+.dc-list-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dc-list-date {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.dc-list-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+/* ── Command palette (⌘K) — Mesh palette language: centered overlay panel,
+   grouped results, selected row = accent-tinted bg + left bar. ── */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+body.light .palette-overlay { background: rgba(0, 0, 0, 0.18); }
+.palette {
+  position: absolute;
+  top: 18vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 640px;
+  max-width: calc(100vw - 40px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+body.light .palette {
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.14), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.palette-header {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding: 12px 16px 0;
+  user-select: none;
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.palette-glyph {
+  color: var(--text-3);
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+.palette-input-row input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--sans);
+  font-size: 16px;
+  color: var(--text);
+  letter-spacing: -0.005em;
+}
+.palette-input-row input::placeholder { color: var(--text-4); }
+.palette-results {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 6px 6px 8px;
+}
+.palette-results::-webkit-scrollbar { width: 4px; }
+.palette-results::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+.palette-group { padding-top: 6px; }
+.palette-group-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding: 4px 12px;
+  user-select: none;
+}
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.palette-item-label {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+.palette-item-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.palette-item.selected {
+  background: rgba(96, 165, 250, 0.10);
+  border-left-color: var(--agent-b);
+}
+.palette-item.selected .palette-item-sub { color: var(--text-3); }
+body.light .palette-item.selected { background: rgba(37, 99, 235, 0.08); }
+.palette-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+}
+.palette-footer {
+  display: flex;
+  gap: 18px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+  user-select: none;
+}
+
+/* Toolbar search button — permanent, glyph + ⌘K hint. */
+#palette-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#palette-btn .pb-glyph { font-size: 12px; line-height: 1; }
+#palette-btn .pb-hint {
+  font-size: 9.5px;
+  color: var(--text-4);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding: 1px 3px;
+  line-height: 1;
+}
