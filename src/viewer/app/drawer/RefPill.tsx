@@ -11,7 +11,8 @@ export function RefPill({ refObj }: { refObj: any }) {
       case "function": return { type: "fn", name: refObj.name + "()" };
       case "symbol": return { type: "symbol", name: refObj.name };
       case "decision": return { type: "decision", name: decisionDisplayId(entityStore.state.decisions[refObj.id] || refObj) };
-      case "todo": return { type: "todo", name: refObj.name || todoDisplayId(entityStore.state.todos[refObj.id] || refObj) };
+      case "todo": return { type: "todo", name: refObj.name || todoDisplayId(entityStore.state.todos[refObj.id]
+        || useUiStore.getState().bundle?.allTodos?.find((t: any) => t.id === refObj.id) || refObj) };
       case "pr": return { type: "pr", name: refObj.id ? `#${refObj.id}` : refObj.name || "" };
       default: return { type: refObj.kind || "", name: refObj.name || refObj.id || refObj.path || "" };
     }
@@ -20,7 +21,8 @@ export function RefPill({ refObj }: { refObj: any }) {
     const { drawerStack, set } = useUiStore.getState();
     if (refObj.kind === "decision" && entityStore.state.decisions[refObj.id])
       return set({ drawerStack: push(drawerStack, { kind: "record", type: "decision", id: refObj.id }) });
-    if (refObj.kind === "todo" && entityStore.state.todos[refObj.id])
+    if (refObj.kind === "todo" && (entityStore.state.todos[refObj.id]
+      || useUiStore.getState().bundle?.allTodos?.some((t: any) => t.id === refObj.id)))
       return set({ drawerStack: push(drawerStack, { kind: "record", type: "todo", id: refObj.id }) });
     if (refObj.kind === "file" && refObj.path)
       return set({ drawerStack: push(drawerStack, { kind: "record", type: "file", id: refObj.path }) });

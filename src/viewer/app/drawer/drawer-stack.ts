@@ -2,6 +2,7 @@ import type { DrawerView } from "../ui-store";
 
 const same = (a: DrawerView, b: DrawerView) =>
   a.kind === "record" && b.kind === "record" ? a.type === b.type && a.id === b.id
+    && (a.type !== "file" || a.symbol === b.symbol)
   : a.kind === "list" && b.kind === "list" ? a.tab === b.tab : false;
 
 export const openReplace = (_s: DrawerView[], v: DrawerView): DrawerView[] => [v];

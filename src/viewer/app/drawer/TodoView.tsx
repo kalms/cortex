@@ -6,7 +6,8 @@ import { useUiStore } from "../ui-store";
 
 export function TodoView({ id }: { id: string }) {
   const removed = useUiStore((s) => s.removedSnapshots);
-  const t = entityStore.state.todos[id] || removed[id];
+  const bundle = useUiStore((s) => s.bundle);
+  const t = entityStore.state.todos[id] || removed[id] || bundle?.allTodos?.find((x: any) => x.id === id);
   if (!t) return null;
   const isRemoved = !entityStore.state.todos[id];
   return (<>

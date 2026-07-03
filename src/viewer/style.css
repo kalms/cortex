@@ -693,3 +693,95 @@ body.light .ps-item.active { background: rgba(0, 0, 0, 0.06); }
   border-color: var(--border-3);
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* ── FileCard (Task 7). Per-layer tint mirrors canvas/engine.js's LAYER_RGB
+   at low alpha — kept in sync by hand since the chip is DOM/CSS, not
+   canvas-drawn (the legend swatches inject LAYER_RGB at runtime instead;
+   see the .lm-row comment above). ── */
+.dc-layer-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 1px solid;
+  text-transform: lowercase;
+  letter-spacing: 0.03em;
+}
+.dc-layer-chip.layer-interface      { background: rgba(92, 161, 237, 0.14);  border-color: rgba(92, 161, 237, 0.4);  color: #9dc4f5; }
+.dc-layer-chip.layer-orchestration  { background: rgba(171, 130, 237, 0.14); border-color: rgba(171, 130, 237, 0.4); color: #c7aef5; }
+.dc-layer-chip.layer-domain         { background: rgba(234, 186, 95, 0.14);  border-color: rgba(234, 186, 95, 0.4);  color: #f0cd8a; }
+.dc-layer-chip.layer-data           { background: rgba(92, 204, 167, 0.14);  border-color: rgba(92, 204, 167, 0.4);  color: #9de0c6; }
+.dc-layer-chip.layer-infrastructure { background: rgba(131, 141, 163, 0.14); border-color: rgba(131, 141, 163, 0.4); color: #b3bccc; }
+.dc-layer-chip.layer-ceremony       { background: rgba(125, 110, 93, 0.16);  border-color: rgba(125, 110, 93, 0.45); color: #c2b3a4; }
+body.light .dc-layer-chip.layer-interface      { color: #2563eb; }
+body.light .dc-layer-chip.layer-orchestration  { color: #7c3aed; }
+body.light .dc-layer-chip.layer-domain         { color: #a16207; }
+body.light .dc-layer-chip.layer-data           { color: #0f766e; }
+body.light .dc-layer-chip.layer-infrastructure { color: #475569; }
+body.light .dc-layer-chip.layer-ceremony       { color: #78716c; }
+
+.dc-file-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.01em;
+  word-break: break-all;
+}
+
+.dc-conn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dc-conn-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.dc-conn-row:hover { background: rgba(255, 255, 255, 0.03); }
+body.light .dc-conn-row:hover { background: rgba(0, 0, 0, 0.03); }
+.dc-conn-name {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.dc-conn-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dc-conn-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-align: right;
+}
+
+.dc-symbol.highlighted {
+  border-color: var(--text);
+  color: var(--text);
+}
+body.light .dc-symbol.highlighted { border-color: var(--text-2); }
+
+.dc-file-link,
+.dc-frame-link {
+  color: var(--text-2);
+  cursor: pointer;
+  text-decoration: none;
+}
+.dc-file-link:hover,
+.dc-frame-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

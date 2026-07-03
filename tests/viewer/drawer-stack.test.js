@@ -14,4 +14,10 @@ describe("drawer stack", () => {
     expect(pop([])).toEqual([]);
   });
   it("closeAll empties", () => expect(closeAll()).toEqual([]));
+  it("push of the same file with a different symbol is NOT a no-op — appends", () => {
+    const file = (symbol) => ({ kind: "record", type: "file", id: "src/a.ts", symbol });
+    expect(push([file("foo")], file("bar"))).toEqual([file("foo"), file("bar")]);
+    expect(push([file("foo")], file(undefined))).toEqual([file("foo"), file(undefined)]);
+    expect(push([file(undefined)], file(undefined))).toEqual([file(undefined)]);
+  });
 });
