@@ -656,3 +656,40 @@ body.light .ps-item.active { background: rgba(0, 0, 0, 0.06); }
   font-size: 10.5px;
   color: var(--text-4);
 }
+
+/* ── Drawer v2 nav chrome (back + close). The buttons used to be a flex
+   child inside .dc-header; now Drawer.tsx owns them as chrome shared across
+   every stacked view, so they sit absolutely over the header at the same
+   spot the old .dc-close occupied (top:22px, right:26px — .dc-header's own
+   padding), with .dc-back matching its 24x24 hit size to its left. ── */
+.dc-header { padding-right: 92px; }
+.dc-nav {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+.dc-back {
+  background: transparent;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-3);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.dc-back:hover {
+  color: var(--text);
+  border-color: var(--border-3);
+  background: rgba(255, 255, 255, 0.03);
+}

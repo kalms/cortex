@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { CanvasHost, engineRef } from "./CanvasHost";
 import { Toolbar } from "./toolbar/Toolbar";
-// import { Drawer } from "./drawer/Drawer";       // Task 6 — until then omit this line/element
+import { Drawer } from "./drawer/Drawer";
 import { LS_KEYS, useUiStore } from "./ui-store";
 
 export function App() {
@@ -40,6 +40,7 @@ export function App() {
   return (<>
     <CanvasHost />
     <Toolbar />
+    <Drawer />
     {framesWarning && <div className="frames-warning" id="frames-warning">
       <span className="frames-warning-text">
         {framesWarning.split("cortex index")[0]}
