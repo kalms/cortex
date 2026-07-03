@@ -10,6 +10,9 @@ import { writeRows, chooseFormat } from "../format.js";
 import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 import { runCodeSearch, rankSearchHits } from "../../graph/code-search.js";
+import { computeHotspots } from "../../architecture/hotspots.js";
+import { loadGovernance } from "../../architecture/governed.js";
+import { composeOnboarding } from "../../onboarding/compose.js";
 
 const INDEXER_BIN = indexerBinPath();
 
@@ -226,8 +229,49 @@ function cmdTrace(cmd: CodeCommand, ctx: ProjectContext, mode: "calls" | "caller
 
 function cmdArch(cmd: CodeCommand, ctx: ProjectContext): void {
   requireIndexed(ctx);
+  if (cmd.flags.headline) return cmdArchHeadline(ctx, cmd.flags);
+  if (cmd.flags.hotspots) return cmdArchHotspots(ctx, cmd.flags);
   const aspects = (cmd.flags.aspects as string | undefined)?.split(",") ?? ["all"];
   process.stdout.write(runIndexer("get_architecture", { aspects, project: ctx.projectName }, ctx) + "\n");
+}
+
+/** `cortex code arch --headline` — the SessionStart onboarding headline (or nothing). */
+export function cmdArchHeadline(
+  ctx: ProjectContext & { graphDbPath: string; projectName: string },
+  _flags: Record<string, string | boolean>,
+): void {
+  const root = ctx.gitRoot ?? ctx.cwd;
+  const store = new GraphStore(ctx.graphDbPath, { readonly: true });
+  try {
+    const { headline } = composeOnboarding({ store, project: ctx.projectName, root });
+    if (headline) process.stdout.write(headline + "\n");
+  } finally {
+    store.close?.();
+  }
+}
+
+/** `cortex code arch --hotspots` — ranked source modules by inbound fan-in. */
+export function cmdArchHotspots(
+  ctx: ProjectContext & { graphDbPath: string; projectName: string },
+  flags: Record<string, string | boolean>,
+): void {
+  const root = ctx.gitRoot ?? ctx.cwd;
+  const store = new GraphStore(ctx.graphDbPath, { readonly: true });
+  try {
+    const areas = computeHotspots(store, ctx.projectName, loadGovernance(root));
+    const fmt = chooseFormat(flags.format as string | undefined, process.stdout.isTTY);
+    const rows = areas.map((a) => ({
+      module: a.path,
+      score: a.score,
+      in_edges: a.in_edges,
+      nodes: a.nodes,
+      decisions: a.governing_decisions,
+      todos: a.open_todos,
+    }));
+    writeRows(rows, fmt, `no source modules found for ${ctx.projectName}`);
+  } finally {
+    store.close?.();
+  }
 }
 
 function cmdSchema(cmd: CodeCommand, ctx: ProjectContext): void {
