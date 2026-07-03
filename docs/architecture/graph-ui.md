@@ -239,40 +239,90 @@ Stream rendering is parked alongside the viewer's WebSocket integration in the c
 
 **`tests/integration/worker.test.ts`** (and related) — covers the full worker message loop: `init` → `event` → `broadcast` round-trip using a real worker thread spawned via the bootstrap.
 
+**`tests/viewer/data-adapt.test.js`** — verifies `adaptProjectData` (`app/data.ts`) turns the six raw API payloads into the exact bundle shape `engine.setData` expects, including `MAX_FRAME_NODES` capping and the `resyncProject` path that reuses `rawFrameMap` to keep frame positions stable across a live resync. Pure function tests — no I/O.
+
+**`tests/viewer/display.test.js`** — verifies `decisionDisplayId`/`todoDisplayId`/`projectDisplayName` (`app/display.ts`) fall back correctly when `seq`/`root_path` are absent. Pure unit tests.
+
+**`tests/viewer/drawer-stack.test.js`** — verifies `openReplace`/`push`/`pop`/`closeAll` (`app/drawer/drawer-stack.ts`), including `push`'s de-dupe-against-top behavior so a same-record re-click doesn't grow the stack. Pure unit tests.
+
+**`tests/viewer/selectors.test.js`** — verifies `fileCardData`, `resolveTodo`'s three-tier fallback (ambient → allTodos → removed snapshot), and `listRows`'s open-then-closed, newest-first ordering (`app/drawer/selectors.ts`). Pure unit tests.
+
+**`tests/viewer/fuzzy.test.js`** — verifies the palette's fuzzy scorer (`app/palette/fuzzy.ts`) ranks contiguous/prefix matches above scattered ones and returns 0 for a non-match. Pure unit tests.
+
+**`tests/viewer/search-index.test.js`** — verifies `buildSearchIndex`/`searchIndex` (`app/palette/search-index.ts`) produce one capped, score-sorted array per non-empty group in fixed `GROUP_ORDER`. Pure unit tests.
+
 ## Frames viewer
 
-The viewer is derived from the visual prototype at
+The viewer's rendering model is derived from the visual prototype at
 [docs/specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html](../specs/archive/cortex-v0.3/cortex-frames-prototype-v5.html).
 Frames come from cluster output (`data.frame_id`/`frame_label` on file
 nodes, written by `scripts/frame-extraction/inject-frames.ts` — see
 [frame-extraction.md](frame-extraction.md) for the pipeline). Decisions
 come from the out-of-repo sidecar `~/.cortex/<repoId>/decisions.db` via the
-`/api/decisions` adapter. CALLS edges are pulled live from `/api/graph` and filtered to
+`/api/decisions` adapter. CALLS edges are pulled from `/api/graph` and filtered to
 intra- and inter-frame pairs. Auxiliary content (locales, vendored,
-__snapshots__, etc.) is bucketed by `groupAuxiliaryPaths` and surfaced
-via `/api/aggregates`. The viewer is static-load: it fetches all data
-once on page load and on project switch. WebSocket integration with the
-event stream is not wired in this iteration.
+`__snapshots__`, etc.) is bucketed by `groupAuxiliaryPaths` and surfaced
+via `/api/aggregates`.
+
+As of the viewer-v2 rewrite, the chrome (toolbar, drawer, command palette)
+is a Vite + React 18 + TypeScript + zustand app under `src/viewer/app/`;
+the canvas draw loop stays the original imperative `requestAnimationFrame`
+engine under `src/viewer/canvas/`, wrapped behind a `createEngine(...)`
+factory so React never draws to the canvas and the engine never touches
+the DOM outside it (decision: "Viewer chrome in React 18 behind an
+imperative canvas engine boundary"). The viewer is still load-then-live:
+all data is fetched once on page load / project switch, but WebSocket
+integration with the event stream **is** wired in this iteration (owned by
+`CanvasHost`, see Data flow below) — live decision/todo changes update the
+canvas and the entity store without a refetch of the whole graph.
 
 ### Module layout
 
 | Module | Owns | Pure? |
 |---|---|---|
-| `index.html` | DOM scaffold (canvas + toolbar) | n/a |
-| `style.css` | CSS variables + theme + toolbar styling | n/a |
-| `viewer.js` | canvas draw loop, frame focus, hover, decision card | no (side-effectful) |
-| `data-fetch.js` | `fetchProjects/fetchGraph/fetchDecisions` | yes |
-| `adapters.js` | `groupNodesIntoFrames`, `basenames`, `buildFrameGovernance`, `edgesInternalIndex` | yes |
-| `layout.js` | `gridLayout(frames, stageW, stageH) → positioned` | yes |
+| `app/main.tsx` | React entry point (`createRoot`) | no |
+| `app/App.tsx` | Top-level layout; global keybindings (⌘K, Esc); syncs theme/`layerPrefs` to `localStorage` + the engine | no |
+| `app/ui-store.ts` | zustand store — single source of UI state (`drawerStack`, `paletteOpen`, `projects`, `activeProject`, `layerPrefs`, `bundle`, sync status, `removedSnapshots`); `LS_KEYS` constants | no |
+| `app/CanvasHost.tsx` | Owns the `<canvas>` element, the `createEngine` instance (`engineRef`), the entity store (`entityStore`), and `ws-client`; boot / project-switch / live-resync orchestration | no |
+| `app/api.ts` | `fetchProjects/fetchGraph/fetchDecisions/fetchAggregates/fetchFileEdges/fetchFrames/fetchTodos` | yes |
+| `app/data.ts` | `adaptProjectData` (pure bundle builder), `loadProject`, `resyncProject` | yes (adapter); I/O at the `load*`/`resync*` boundary |
+| `app/display.ts` | `decisionDisplayId`/`todoDisplayId`/`projectDisplayName` | yes |
+| `app/entity-store.js` (+`.d.ts`) | Reactive decisions/todos store (pre-React module, unchanged; now constructed and owned by `CanvasHost`) | no (mutable store) |
+| `app/ws-client.js` | WS reconnect + resync client (pre-React module, unchanged; now constructed and owned by `CanvasHost`) | no |
+| `app/toolbar/` | `Toolbar.tsx`, `ProjectSelect.tsx` (custom dropdown, click-outside-to-close), `LayersMenu.tsx` (layer toggles + legend, imports `LAYER_RGB` from the engine) | no |
+| `app/drawer/` | `Drawer.tsx` (stack shell), `DecisionView.tsx`, `TodoView.tsx`, `FileCard.tsx`, `ListView.tsx`, `RefPill.tsx`, `drawer-stack.ts` (pure), `selectors.ts` (pure) | mixed — see table rows above |
+| `app/palette/` | `Palette.tsx` (⌘K overlay), `actions.ts` (pure), `fuzzy.ts` (pure), `search-index.ts` (pure) | mixed |
+| `canvas/engine.js` | `createEngine(...)` — the rAF draw loop, frame focus/hover, hit-testing, live-effects wiring; unchanged mechanics, now a boundary the React shell calls into | no (side-effectful) |
+| `canvas/adapters.js` | `groupNodesIntoFrames`, `basenames`, `buildFrameGovernance`, `edgesInternalIndex`, `frameCoverage`, etc. — unchanged | yes |
+| `canvas/live-effects.js` | Tombstone/birth/presence animation state — unchanged | mostly yes |
+| `dist/` | **Committed** Vite build output (`index.html` + hashed `assets/*.js`/`*.css`) — what the server actually serves | n/a (build artifact) |
 
-Pure modules are unit-tested in vitest. `viewer.js` is hand-verified
-against the running dev server (canvas rendering and animation timing
-are not testable headlessly).
+**The `createEngine` interface** (`canvas/engine.js`):
 
-The simulation features in the prototype (multi-agent demo, synapse
+```js
+const engine = createEngine({ canvas, store, callbacks: {
+  onFrameFocus(id: string | null),          // frame focus changed (incl. cleared)
+  onRecordClick(type: string, id: string),  // decision/todo dot clicked
+  onRecordDismiss(),                        // in-canvas dismiss (e.g. click empty space)
+  onFileClick({ filePath: string }),        // file node clicked
+} });
+
+engine.setData(bundle, { preserveFocus? });  // load/replace the render-state bundle
+engine.applyLiveChanges(changes);            // apply entity-store deltas incrementally
+engine.setLayerPrefs(prefs);                 // { showFrames, showDecisions, showTodos, layerTint }
+engine.getLayerPrefs();                      // current prefs (React seeds ui-store from this at boot)
+engine.focusFrame(id | null);
+engine.setActiveRecord({ type, id } | null);
+engine.getActiveRecord(); engine.getFocusedFrameId(); engine.frameIdForFilePath(path);
+engine.start(); engine.resize(); engine.destroy();
+```
+
+`store` is the `entity-store.js` instance — the engine reads `store.state.decisions`/`store.state.todos` by reference (object identity is stable across live updates). Pure modules (`app/data.ts`, `app/display.ts`, `app/drawer/{drawer-stack,selectors}.ts`, `app/palette/{fuzzy,search-index,actions}.ts`, everything in `canvas/adapters.js`) are unit-tested in vitest; `canvas/engine.js` and the React components are hand-verified against the running dev server (canvas rendering/animation timing, and most DOM interaction, aren't practically testable headlessly).
+
+The simulation features in the original prototype (multi-agent demo, synapse
 animations, PR floating nodes, auto-loop, presence avatars, merge
-animation, cursor traversal) are not in this iteration — explicit
-non-goals for the frames viewer.
+animation, cursor traversal) remain out of scope — explicit non-goals for
+the frames viewer.
 
 ### Layer lens (taxonomy milestone 1)
 
@@ -352,7 +402,8 @@ the **enable slices** have since wired the layer into ranking:
 6. `drawFloatingDecisionNodes(now)` — ambient decision dots
 7. `drawHoverPill(now)` / `drawCompactHoverBadge(now)` — hover affordances
 
-`buildGraph()` (called from `loadGraph`) rebuilds the in-memory `nodes`
+`buildGraph()` (called from `setData`, the engine's public entry point for
+a fresh load or a live resync) rebuilds the in-memory `nodes`
 and `edges` arrays from `FRAMES`/`NODE_CFG`/`FILE_NAMES`. Edges are
 real CALLS edges from `/api/graph`, filtered via
 `edgesInternalIndex` (`adapters.js`) to keep only pairs whose endpoints
@@ -364,32 +415,180 @@ dots near related frames — present but visually de-emphasised.
 
 ### Data flow
 
-1. `initToolbar()` fetches `/api/projects`, populates the dropdown
-2. `loadGraph(project)` fetches `/api/graph?project=<name>` and
-   `/api/decisions?project=<name>` in parallel
-3. `groupNodesIntoFrames` buckets nodes by `data.frame_id`
-4. `gridLayout` positions frames deterministically
-5. Globals `FRAMES`, `NODE_CFG`, `FILE_NAMES`, `DECISIONS`,
-   `FRAME_GOVERNANCE` are populated; `buildGraph()` rebuilds
-6. `mainLoop` runs the draw loop using those globals
+1. `CanvasHost`'s mount effect constructs `entityStore` (`entity-store.js`) and
+   `createEngine({ canvas, store, callbacks })`, then calls its own `boot()`.
+2. `boot()` calls `fetchProjects()` (`app/api.ts`), then
+   `loadProject(active)` (`app/data.ts`), which runs the six fetchers
+   (`fetchGraph/fetchDecisions/fetchAggregates/fetchFileEdges/fetchFrames/fetchTodos`)
+   in parallel and pipes the results through `adaptProjectData` — the pure
+   function that owns everything the old `loadGraph` did between "data
+   arrived" and "canvas graph rebuilt" (frame bucketing via
+   `groupNodesIntoFrames`, frame positioning from `/api/frames`, governance
+   maps, `MAX_FRAME_NODES` capping).
+3. `entityStore.hydrate({ decisions, todos, cursor })` seeds the reactive
+   store; `engine.setData(bundle)` assigns render state and calls
+   `buildGraph()`; `engine.start()` kicks off `mainLoop`.
+4. **Project switch** — a zustand subscription in `CanvasHost` watches
+   `activeProject`; on change it re-runs `loadProject`, calls
+   `engine.setData(bundle)` (fresh focus, not preserved), and resets
+   `drawerStack`/`focusedFrameId`.
+5. **Live resync** — `ws-client.js`'s `resnapshot` callback (wired in
+   `CanvasHost`) calls `resyncProject(project, prevBundle)`, which re-fetches
+   only decisions + todos and re-runs `adaptProjectData` against the
+   **original** `frameMap` retained on the bundle as `rawFrameMap` — frame
+   positions are byte-identical across a resync, only entity data changes.
+   `engine.setData(bundle, { preserveFocus: true })` keeps the current
+   frame focus.
+6. `entityStore.subscribe(changes)` (also wired in `CanvasHost`) forwards
+   deltas to `engine.applyLiveChanges(changes)` for canvas-side live effects,
+   and — for the "entity removed while its drawer is open" case — snapshots
+   the removed record (`change.prev`) into `ui-store`'s `removedSnapshots` so
+   the `Drawer` can keep rendering it instead of going blank.
+
+`CanvasHost` is the only component that touches `entityStore`/`ws-client`
+directly; everything else reads through `useUiStore` or the exported
+`entityStore`/`engineRef` module singletons (`app/CanvasHost.tsx`).
 
 ### Extending the viewer
 
-**Adding new frame visuals** — drawing happens in `viewer.js`. Add a
+**Adding new frame visuals** — drawing happens in `canvas/engine.js`. Add a
 helper near `drawFrames`; reference `frameBorderRGB()`/`frameFillRGB()`
-for theme awareness.
+for theme awareness. The engine stays plain JS by design — resist the urge
+to convert it to TSX; if React needs to react to something new happening on
+the canvas, add a callback to the `callbacks` object `createEngine` accepts
+instead.
 
-**Re-introducing WebSocket** — the WS server still emits at `/ws`. A
-follow-up can add a reconnecting client in `data-fetch.js` (or a new
-`websocket.js`) and apply mutations to a state map. Removed in this
-iteration to keep the diff focused.
+**Adding new chrome** (toolbar buttons, drawer views, palette actions) — this
+is ordinary React work under `src/viewer/app/`: add a component, wire it
+through `useUiStore`, and — if it needs to reach into the canvas — call a
+method on `engineRef` (exported from `CanvasHost.tsx`) rather than reaching
+for the DOM directly. Remember: any edit under `src/viewer/**` requires a
+`npm run build:viewer` + committed `dist/` diff (see the committed-dist
+contract below) before it will pass CI.
+
+**WebSocket / live sync** — already wired via `ws-client.js` +
+`entity-store.js`, both instantiated inside `CanvasHost`'s effect (see Data
+flow above). See [viewer-sync-engine.md](viewer-sync-engine.md) for the
+reconnect/backfill protocol; this doc only covers how the React shell owns
+those pieces.
+
+### The committed-dist contract
+
+`src/viewer/dist` is **committed to git**; the server (`VIEWER_DIR` in
+`src/mcp-server/api.ts`) serves it directly, with no build step at install
+or runtime. This keeps `vite`/`react` as devDependencies only — plugin
+users installing from git via `tsx` never run a viewer build.
+
+- **Rule:** after **any** edit under `src/viewer/**`, run
+  `npm run build:viewer` (`vite build src/viewer`) and commit the resulting
+  `dist/` diff along with the source change.
+- **CI enforces this** (`.github/workflows/ci.yml`, `ts-suite` job):
+  1. *Viewer bundle freshness* — reruns `build:viewer`, then fails if
+     `git diff --exit-code -- src/viewer/dist` finds a tracked-file diff, or
+     if `git status --porcelain -- src/viewer/dist` finds any untracked file
+     (a new hashed asset that wasn't committed).
+  2. *Viewer typecheck* — `tsc -p src/viewer --noEmit`.
+- **Merge conflicts in `dist/` are resolved by rebuilding** — never
+  hand-merged. Resolve the conflict in `src/`, then re-run
+  `npm run build:viewer`; the output filenames are content-hashed
+  (`index-<hash>.js`), so a line-level merge of the built assets is
+  meaningless anyway.
+- **Never hand-edit files under `src/viewer/dist`.**
+- **Dev workflows:**
+  - `npm run dev` — the normal server (`tsx src/index.ts`); serves the
+    committed `dist` bundle as-is (no HMR — this is testing the shipped
+    build).
+  - `npm run dev:viewer` — `vite dev src/viewer`; Vite's dev server proxies
+    `/api` and `/ws` to `:3334` (see `src/viewer/vite.config.ts`) so the React
+    app gets HMR against a live backend without rebuilding `dist`.
+
+### Shared-contract invariants
+
+A few values cross a language/tooling boundary and have to be kept in sync
+by hand rather than by import:
+
+- **`LS_KEYS`** (`app/ui-store.ts`) — the literal `localStorage` key strings
+  (`cortex.viewer.layers`, `cortex.viewer.show.frames/decisions/todos`) must
+  match the `SHOW_LS`/`LAYERS_LS_KEY` constants `canvas/engine.js` reads once
+  at construction. React (`App.tsx`'s `layerPrefs` effect) owns writing them
+  on every change; the engine only reads them at boot.
+- **`MAX_FRAME_NODES`** — duplicated as a plain constant in both
+  `app/data.ts` (frame-node cap during adaptation) and `canvas/engine.js`
+  (draw-time cap); each definition carries a "keep in sync" comment pointing
+  at the other.
+- **`LAYER_RGB`** — exported from `canvas/engine.js` as the single runtime
+  source of truth for the per-layer palette; `LayersMenu.tsx` imports it
+  directly for the legend swatches. `FileCard.tsx`'s `.dc-layer-chip.layer-*`
+  rules in `style.css`, however, are a **hand-synced RGB copy** (CSS can't
+  import a JS module) — if `LAYER_RGB` changes, `style.css` must be updated
+  by hand to match.
+
+### Drawer semantics
+
+The drawer holds a **stack** (`DrawerView[]`, `ui-store.ts`'s
+`drawerStack`), not a single view. `app/drawer/drawer-stack.ts` provides the
+four operations: `openReplace` (replace the whole stack with one view),
+`push` (append, deduped against the current top by `same()`), `pop`, and
+`closeAll`.
+
+- **Replace:** canvas selections (frame focus, record click, file click —
+  wired through `createEngine`'s `callbacks` in `CanvasHost`) and palette
+  selections always start a fresh single-entry stack — picking something new
+  from the canvas or ⌘K abandons wherever you were in the drawer.
+- **Push:** in-drawer navigation (`RefPill` clicks, `FileCard`'s
+  co-change/connection links, `ListView` row clicks) uses `push`, so a
+  pivot like A → B → A legitimately grows the stack — each hop is a real
+  user click, bounded only by how many the user makes (no depth cap).
+- **Esc** closes the whole drawer (`closeAll`) in one keystroke — `App.tsx`'s
+  global `Esc` handler is guarded to close the palette first if it's open.
+  The drawer's own back button (`‹`) pops one level at a time.
+- **File records don't drive the canvas highlight** — `setActiveRecord` is
+  only called for non-file drawer views (`App.tsx`'s `drawerStack` effect
+  checks `top.type !== "file"`), so opening a file card never lights up a
+  frame on the canvas.
+- **Closed todos** (state `done`/`cancelled`): the canvas ambient layer
+  excludes them (the engine only tracks `store.state.todos`, the live/open
+  set), but the drawer/list/palette include them via `bundle.allTodos` —
+  `ListView` mutes closed rows to the bottom of a newest-first sort
+  (`selectors.ts`'s `listRows`), and `FileCard`/`RefPill` resolve through
+  `allTodos` as a fallback when a todo isn't in the ambient set
+  (`selectors.ts`'s `resolveTodo`).
+- **Removed-while-open:** if a live change removes the entity currently open
+  in the drawer, `CanvasHost`'s `entityStore.subscribe` snapshots `c.prev`
+  into `ui-store`'s `removedSnapshots` keyed by id, so the drawer keeps
+  rendering it instead of going blank. **Known gap (follow-up todo):** this
+  only snapshots the top-of-stack entry — a removal of an entry *lower* in
+  the stack still produces a blank pop-back when the user hits back.
+
+### Palette
+
+⌘K (or the toolbar's search button) opens `Palette.tsx`. A name-level search
+index (`app/palette/search-index.ts`'s `buildSearchIndex`) is built
+client-side from the current bundle + projects list — a `useMemo` keyed on
+`[bundle, projects]`, so it rebuilds on load and on every project switch,
+not incrementally.
+
+- **Groups**, in fixed order: actions, frames, files, symbols, decisions,
+  todos. Actions (`app/palette/actions.ts`'s `buildActions`) cover browsing
+  records, switching project, the layer toggles, and the theme toggle.
+- Fuzzy scoring (`app/palette/fuzzy.ts`) ranks and caps each group at 5
+  (`searchIndex(entries, query, 5)`); an empty query shows a resting state
+  of matched actions + the top 5 frames.
+- **Explicitly out of scope:** no code-content grep (the index covers
+  names/labels/paths only, never file contents) and no live index updates
+  while the palette is open (a decision/todo change mid-session isn't
+  reflected until the palette is reopened, since the index only rebuilds on
+  `bundle`/`projects` identity change).
 
 ### Routes
 
-- `/viewer` — frames viewer (default).
-- `/viewer/<asset>` — static asset serving from `src/viewer/`; supports
-  files like `/viewer/style.css`, `/viewer/viewer.js`,
-  `/viewer/layout.js`, etc.
+- `/viewer` — frames viewer (default); serves
+  `src/viewer/dist/index.html`.
+- `/viewer/<asset>` — static asset serving from the **committed build
+  output** `src/viewer/dist/` (`VIEWER_DIR` in `src/mcp-server/api.ts`), not
+  from `src/viewer/` source — e.g. `/viewer/assets/index-<hash>.js`,
+  `/viewer/assets/index-<hash>.css`. Traversal-safe (`safeStaticPath`). See
+  the committed-dist contract above for how that bundle gets built.
 
 ### API
 

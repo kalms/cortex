@@ -18,6 +18,34 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.0] — 2026-07-04
+
+### Added
+
+- **⌘K command palette** — a fuzzy-searched jump-to for frames, files,
+  symbols, decisions, and todos, plus quick actions (browse records, switch
+  project, toggle layers/theme).
+- **File knowledge card in the drawer** — opening a file shows its layer,
+  owning frame, fan-in/out, co-change neighbors, symbols, and the
+  decisions/todos that govern it.
+- **Records list** — a `records` drawer view with all/decisions/todos tabs;
+  closed todos are muted to the bottom instead of being hidden.
+- **Project switcher** showing the project's real display name and root
+  path, not just its slug.
+- **Drawer navigation stack with back** — in-drawer links (co-change files,
+  connections, decision/todo references) push a new view instead of
+  replacing the current one, with a back button to retrace.
+
+### Changed
+
+- **Viewer chrome rebuilt as a Vite + React 18 + TypeScript app** (toolbar,
+  drawer, palette, project switcher) around the preserved imperative canvas
+  rendering engine, wrapped behind a `createEngine(...)` boundary — the
+  canvas draw loop is unchanged.
+- **Viewer is served from a committed build** (`src/viewer/dist`); CI gates
+  bundle freshness (a rebuild must match the committed output) and
+  typechecks the viewer app independently of the server build.
+
 ## [1.3.2] — 2026-07-03
 
 ### Changed
@@ -1209,6 +1237,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.0]: https://github.com/ruevu/cortex/releases/tag/v1.4.0
 [1.3.2]: https://github.com/ruevu/cortex/releases/tag/v1.3.2
 [1.3.1]: https://github.com/ruevu/cortex/releases/tag/v1.3.1
 [1.3.0]: https://github.com/ruevu/cortex/releases/tag/v1.3.0
