@@ -21,8 +21,14 @@ export async function setup() {
   process.env.CORTEX_HOME = homeDir;
 
   if (!existsSync(BINARY)) {
-    // CI without the binary — contract suite will fail when harness is used; that's expected.
-    // We deliberately do not silently skip here; absence of binary is a deploy-time concern.
+    // In CI a missing binary must fail loudly: skipIf(BINARY_MISSING) would
+    // otherwise skip the binary-backed contract suites and the run would still
+    // report green. Locally (fresh clone, no prebuilt yet) skipping is fine.
+    if (process.env.CI && process.env.CI !== "false") {
+      throw new Error(
+        `globalSetup: ${BINARY} is missing in CI — refusing to silently skip the MCP-contract suites`
+      );
+    }
     process.env.CORTEX_CONTRACT_BINARY_MISSING = "1";
     return;
   }

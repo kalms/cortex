@@ -17,6 +17,23 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.3.1] — 2026-07-03
+
+### Fixed
+
+- **Decision/todo `update` is now atomic** (field report 2026-07-03 §3). Link
+  replacement in `DecisionService`/`TodoService` deleted old GOVERNS/REFERENCES
+  links and inserted replacements as separate statements — a crash mid-update
+  could leave an entity with a half-replaced governance set (the contract
+  briefing, reconciliation, and `why` all key off). The record patch and both
+  link-replacement passes now land in one `db.transaction()` (nested passes are
+  savepoints), with fault-injection tests covering rollback of removals,
+  partial inserts, and the record patch.
+- **CI can no longer silently skip the binary-backed MCP-contract suites.**
+  `tests/mcp-contract/globalSetup.ts` now throws under CI (`CI` set and not
+  `"false"`) when `bin/cortex-indexer` is missing, instead of setting the
+  skip flag — a missing binary previously skipped 3 suites while the run
+  reported green (the fetch step gates the common path; this closes the rest).
 ## [1.3.0] — 2026-07-03
 
 ### Added
@@ -1165,6 +1182,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.3.1]: https://github.com/ruevu/cortex/releases/tag/v1.3.1
 [1.3.0]: https://github.com/ruevu/cortex/releases/tag/v1.3.0
 [1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5

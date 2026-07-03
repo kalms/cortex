@@ -114,20 +114,18 @@ export class DecisionService {
     if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
     if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
-    this.decisions.update(canonicalId, patch);
-
-    // Governance replacement — full set semantics.
-    // Not wrapped in a transaction because the existing service layer
-    // doesn't take a db handle, and the rest of the codebase's link
-    // operations are not transactional either. If transactional safety
-    // becomes a requirement, refactor the whole link-write surface in one
-    // pass.
-    if (input.governs !== undefined) {
-      this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
-    }
-    if (input.references !== undefined) {
-      this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
-    }
+    // Record patch + governance replacement (full set semantics) land
+    // atomically — a failed link write must not leave the record updated.
+    // The replaceLinks transactions nest as savepoints.
+    this.db.transaction(() => {
+      this.decisions.update(canonicalId, patch);
+      if (input.governs !== undefined) {
+        this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
+      }
+      if (input.references !== undefined) {
+        this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
+      }
+    })();
 
     if (opts.emit !== false) {
       // If the update marked the decision superseded, prefer the
@@ -323,25 +321,30 @@ export class DecisionService {
     });
   }
 
+  // Delete + insert must commit or roll back together: governance links are
+  // the contract briefing, reconciliation, and `why` all key off, so a crash
+  // mid-replacement must not leave a half-replaced set.
   private replaceLinks(
     decisionId: string,
     relation: "GOVERNS" | "REFERENCES",
     newTargets: string[],
     now: string,
   ): void {
-    const current = this.links.findByDecision(decisionId).filter((l) => l.relation === relation);
-    const currentRefs = new Set(current.map((l) => l.target_ref));
-    const newRefs = new Set(newTargets);
+    this.db.transaction(() => {
+      const current = this.links.findByDecision(decisionId).filter((l) => l.relation === relation);
+      const currentRefs = new Set(current.map((l) => l.target_ref));
+      const newRefs = new Set(newTargets);
 
-    const toRemove = current.filter((l) => !newRefs.has(l.target_ref));
-    const toAdd = [...newRefs].filter((t) => !currentRefs.has(t));
+      const toRemove = current.filter((l) => !newRefs.has(l.target_ref));
+      const toAdd = [...newRefs].filter((t) => !currentRefs.has(t));
 
-    for (const link of toRemove) {
-      this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
-    }
-    for (const target of toAdd) {
-      this.addLink(decisionId, classifyTarget(target), target, relation, now);
-    }
+      for (const link of toRemove) {
+        this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
+      }
+      for (const target of toAdd) {
+        this.addLink(decisionId, classifyTarget(target), target, relation, now);
+      }
+    })();
   }
 
   private emit(event: Event): void { this.bus?.emit(event); }
