@@ -15,6 +15,8 @@
     "build": "tsc && cp src/events/worker-bootstrap.mjs dist/events/ && cp src/events/worker/schema.sql dist/events/worker/",
     "start": "node dist/index.js",
     "dev": "CORTEX_VIEWER_PORT=3334 tsx src/index.ts",
+    "dev:viewer": "vite dev src/viewer",
+    "build:viewer": "vite build src/viewer",
     "eval": "tsx evals/src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -41,11 +43,18 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/d3-force": "^3.0.10",
     "@types/node": "^22.15.2",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.7.0",
     "d3-force": "^3.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
+    "vite": "^6.4.3",
     "vitest": "^3.1.2",
-    "zod-to-json-schema": "^3.25.2"
+    "zod-to-json-schema": "^3.25.2",
+    "zustand": "^5.0.14"
   }
 }
