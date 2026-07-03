@@ -588,3 +588,71 @@ body.light .lm-toggle:hover { background: rgba(0, 0, 0, 0.04); }
 /* Legend swatch colors are injected from viewer.js LAYER_RGB at init — the
    palette's single runtime source. Do not re-add per-layer rules here. */
 .lm-row i { width: 6px; height: 6px; border-radius: 1.5px; flex: 0 0 auto; }
+
+/* ── Project switcher (custom dropdown, replaces the native <select>). The
+   trigger button (#project-select) inherits `.toolbar button`'s background/
+   border/typography — same tokens as #layers-toggle — so no separate
+   #project-select rule is needed here; this block only adds the bits the
+   generic toolbar-button rule doesn't cover: caret layout + a width cap so a
+   long project name doesn't blow out the toolbar row (superseding the old
+   native-select auto-width behavior the frames-warning top-offset comment
+   above refers to). ── */
+.project-select-wrap { position: relative; }
+.project-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+}
+.project-select-btn > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-caret { flex: 0 0 auto; color: var(--text-3); font-size: 9px; }
+.project-select-menu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 40;
+  max-width: 380px;
+  min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+body.light .project-select-menu { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10); }
+.ps-item {
+  padding: 5px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+}
+.ps-item:hover { background: rgba(255, 255, 255, 0.04); }
+body.light .ps-item:hover { background: rgba(0, 0, 0, 0.04); }
+.ps-item.active { background: rgba(255, 255, 255, 0.06); }
+body.light .ps-item.active { background: rgba(0, 0, 0, 0.06); }
+.ps-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-empty {
+  padding: 5px 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-4);
+}
