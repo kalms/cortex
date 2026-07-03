@@ -11,7 +11,7 @@ import { indexerBinPath } from "../paths.js";
 import { unwrapIndexerResult, renderIndexerResult } from "../indexer-output.js";
 import { runCodeSearch, rankSearchHits } from "../../graph/code-search.js";
 import { computeHotspots } from "../../architecture/hotspots.js";
-import { loadGovernedPaths } from "../../architecture/governed.js";
+import { loadGovernance } from "../../architecture/governed.js";
 import { composeOnboarding } from "../../onboarding/compose.js";
 
 const INDEXER_BIN = indexerBinPath();
@@ -258,13 +258,14 @@ export function cmdArchHotspots(
   const root = ctx.gitRoot ?? ctx.cwd;
   const store = new GraphStore(ctx.graphDbPath, { readonly: true });
   try {
-    const areas = computeHotspots(store, ctx.projectName, loadGovernedPaths(root));
+    const areas = computeHotspots(store, ctx.projectName, loadGovernance(root));
     const fmt = chooseFormat(flags.format as string | undefined, process.stdout.isTTY);
     const rows = areas.map((a) => ({
       module: a.path,
       in_edges: a.in_edges,
       nodes: a.nodes,
-      governed_paths: a.governing_paths,
+      decisions: a.governing_decisions,
+      todos: a.open_todos,
     }));
     writeRows(rows, fmt, `no source modules found for ${ctx.projectName}`);
   } finally {

@@ -214,11 +214,12 @@ Architectural overview by aspect.
 - **Why:** understand project shape without manual `ls`/`find`.
 - **`hotspots` aspect:** computed TS-side (no indexer round-trip). Returns
   `{ project, hotspots: HotspotArea[] }`, where each `HotspotArea` is
-  `{ module, path, in_edges, nodes, governing_paths }`. Source modules are
-  ranked by **external inbound fan-in** — distinct CALLS/IMPORTS callers from
-  outside the module (`in_edges`, the sort key); `nodes` and
-  `governing_paths` (count of active-decision GOVERNS path-refs resolving
-  into the module) are display annotations only. Also available from the
+  `{ module, path, in_edges, nodes, governing_decisions, open_todos }`. Source
+  modules are ranked by **external inbound fan-in** — distinct CALLS/IMPORTS
+  callers from outside the module (`in_edges`, the sort key); `nodes`,
+  `governing_decisions` (distinct active decisions governing refs in the module)
+  and `open_todos` (distinct non-terminal todos governing refs in the module)
+  are display annotations only. Also available from the
   CLI as `cortex code arch --hotspots` (ranked table) and
   `cortex code arch --headline` (bounded onboarding summary); the latter also
   fires once per session from the SessionStart hook unless `CORTEX_ONBOARD=0`.

@@ -23,9 +23,10 @@ All notable changes to Cortex are documented here. The format follows
 
 - **Architecture hotspots — a `computeHotspots` primitive ranking source
   modules by external inbound fan-in** (distinct CALLS/IMPORTS callers from
-  outside the module; `nodes` and `governing_paths` — count of active-decision
-  GOVERNS path-refs resolving into the module — are display annotations only,
-  not part of the ranking). Deterministic, computed
+  outside the module; `nodes`, `governing_decisions` — distinct active decisions
+  governing refs in the module — and `open_todos` — distinct non-terminal todos
+  governing refs in the module — are display annotations only, not part of the
+  ranking). Deterministic, computed
   TS-side against the graph store — no indexer round-trip. Bridges the gap
   between the global `get_architecture` histogram and per-symbol
   `blastRadius`: fan-in is the "apt to break the most" signal.

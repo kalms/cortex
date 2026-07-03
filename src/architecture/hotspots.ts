@@ -1,16 +1,33 @@
 import type { GraphStore } from "../graph/store.js";
 import { deriveModule } from "./module-path.js";
+import type { Governance, GovernanceRef } from "./governed.js";
 import { CODE_KINDS, type HotspotArea, type HotspotOpts } from "./types.js";
+
+const EMPTY_GOVERNANCE: Governance = { decisions: [], todos: [] };
+
+/** Bucket governance refs by module → set of DISTINCT governing-entity ids. */
+function bucketByModule(refs: GovernanceRef[]): Map<string, Set<string>> {
+  const byMod = new Map<string, Set<string>>();
+  for (const { id, ref } of refs) {
+    const mod = deriveModule(ref);
+    if (!mod) continue;
+    let set = byMod.get(mod);
+    if (!set) { set = new Set(); byMod.set(mod, set); }
+    set.add(id);
+  }
+  return byMod;
+}
 
 /**
  * Rank source modules by external inbound fan-in (distinct CALLS/IMPORTS source
- * nodes from outside the module). `nodes` and `governing_paths` are display
+ * nodes from outside the module). `nodes`, `governing_decisions` (distinct active
+ * decisions) and `open_todos` (distinct non-terminal todos) are display
  * annotations only — the sort key is fan-in. Deterministic.
  */
 export function computeHotspots(
   store: GraphStore,
   project: string,
-  governedPaths: string[] = [],
+  governance: Governance = EMPTY_GOVERNANCE,
   opts: HotspotOpts = {},
 ): HotspotArea[] {
   const limit = opts.limit ?? 12;
@@ -43,11 +60,8 @@ export function computeHotspots(
     set.add(e.source_id);
   }
 
-  const decisions = new Map<string, number>();
-  for (const p of governedPaths) {
-    const mod = deriveModule(p);
-    if (mod) decisions.set(mod, (decisions.get(mod) ?? 0) + 1);
-  }
+  const decisionsByMod = bucketByModule(governance.decisions);
+  const todosByMod = bucketByModule(governance.todos);
 
   const areas: HotspotArea[] = [];
   for (const mod of new Set([...nodeCount.keys(), ...callers.keys()])) {
@@ -56,7 +70,8 @@ export function computeHotspots(
       path: mod,
       in_edges: callers.get(mod)?.size ?? 0,
       nodes: nodeCount.get(mod) ?? 0,
-      governing_paths: decisions.get(mod) ?? 0,
+      governing_decisions: decisionsByMod.get(mod)?.size ?? 0,
+      open_todos: todosByMod.get(mod)?.size ?? 0,
     });
   }
   areas.sort((a, b) =>

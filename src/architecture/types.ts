@@ -3,7 +3,8 @@ export interface HotspotArea {
   path: string;                 // repo-relative module path, e.g. "src/mcp-server"
   in_edges: number;             // score — external inbound fan-in
   nodes: number;                // annotation only
-  governing_paths: number;      // count of active-decision GOVERNS path-refs resolving into this module (display annotation, not ranked)
+  governing_decisions: number;  // distinct active decisions governing refs in this module (annotation, not ranked)
+  open_todos: number;           // distinct non-terminal todos governing refs in this module (annotation, not ranked)
 }
 
 export interface HotspotOpts {

@@ -38,7 +38,7 @@ import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { ensureIndexer } from "../../indexer/binary.js";
 import { computeHotspots } from "../../architecture/hotspots.js";
-import { loadGovernedPaths } from "../../architecture/governed.js";
+import { loadGovernance } from "../../architecture/governed.js";
 
 // Re-exported for the contract tests, which assert on the shared search
 // helpers' arg-building / error-classification behavior.
@@ -524,7 +524,7 @@ export function registerCodeTools(
         const aspects = args.aspects ?? ["all"];
         const project = projectFromCtx(ctx);
         if (aspects.includes("hotspots")) {
-          const hotspots = computeHotspots(ctx.store, project ?? "", loadGovernedPaths(ctx.repoPath));
+          const hotspots = computeHotspots(ctx.store, project ?? "", loadGovernance(ctx.repoPath));
           const other = aspects.filter((a) => a !== "hotspots");
           if (other.length === 0) {
             return { content: [{ type: "text", text: JSON.stringify({ project, hotspots }) }] };

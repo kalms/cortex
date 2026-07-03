@@ -40,16 +40,31 @@ describe("computeHotspots", () => {
     // cli and db have zero inbound → in_edges 0, ranked after hub
     expect(areas.map((a) => a.module)).toEqual(["hub", "cli", "db"]);
   });
-  it("annotates governing_paths from govern paths (display only, not ranked)", () => {
+  it("counts DISTINCT decisions and open todos per module (display only, not ranked)", () => {
     made = makeStore();
-    const areas = computeHotspots(made.store, "p", ["src/db/d.ts", "src/db/other.ts"]);
+    const governance = {
+      decisions: [
+        { id: "D1", ref: "src/db/d.ts" },
+        { id: "D1", ref: "src/db/other.ts" }, // same decision, 2 paths → counts once
+        { id: "D2", ref: "src/db/d.ts::fn" },  // qn ref in the same module
+      ],
+      todos: [
+        { id: "T1", ref: "src/db/d.ts" },
+        { id: "T1", ref: "src/db/d.ts" },       // duplicate link → counts once
+        { id: "T2", ref: "src/hub/a.ts" },
+      ],
+    };
+    const areas = computeHotspots(made.store, "p", governance);
     const db = areas.find((a) => a.module === "db")!;
-    expect(db.governing_paths).toBe(2);
-    // ranking still hub first despite db having decisions
+    expect(db.governing_decisions).toBe(2); // D1, D2 (not 3 refs)
+    expect(db.open_todos).toBe(1);          // T1
+    const hub = areas.find((a) => a.module === "hub")!;
+    expect(hub.open_todos).toBe(1);         // T2
+    // ranking still hub first despite db carrying governance
     expect(areas[0].module).toBe("hub");
   });
   it("honors the limit", () => {
     made = makeStore();
-    expect(computeHotspots(made.store, "p", [], { limit: 1 })).toHaveLength(1);
+    expect(computeHotspots(made.store, "p", undefined, { limit: 1 })).toHaveLength(1);
   });
 });

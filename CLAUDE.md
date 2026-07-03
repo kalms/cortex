@@ -122,9 +122,10 @@ Gate off with `CORTEX_BRIEF=0`. The same headline is available on demand via
 `get_architecture(aspects=["hotspots"])` returns `{ project, hotspots:
 HotspotArea[] }` — source modules ranked by **external inbound fan-in**
 (distinct CALLS/IMPORTS callers from outside the module). It's computed
-TS-side (no indexer round-trip); `nodes` and `governing_paths` (count of
-active-decision GOVERNS path-refs resolving into the module) are display
-annotations, not part of the ranking. Other aspects (`all`/`structure`/…)
+TS-side (no indexer round-trip); `nodes`, `governing_decisions` (distinct
+active decisions governing refs in the module) and `open_todos` (distinct
+non-terminal todos governing refs in the module) are display annotations,
+not part of the ranking. Other aspects (`all`/`structure`/…)
 still route to the indexer unchanged. Use it before touching a module you
 don't know well — a high fan-in module is the one most apt to break other
 things.
