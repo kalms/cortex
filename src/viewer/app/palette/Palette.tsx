@@ -68,7 +68,7 @@ export function Palette() {
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.stopPropagation(); set({ paletteOpen: false }); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, flat.length - 1)); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => flat.length ? Math.min(s + 1, flat.length - 1) : 0); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
     else if (e.key === "Enter" && flat[sel]) { e.preventDefault(); execute(flat[sel]); }
   };
@@ -88,7 +88,7 @@ export function Palette() {
             <div className="palette-group" key={g[0].group}>
               <div className="palette-group-label">{g[0].group}</div>
               {g.map((e) => { idx++; const i = idx; return (
-                <div key={`${e.group}:${e.label}:${e.sublabel}`}
+                <div key={`${e.group}:${e.ref.kind}:${e.ref.id ?? ""}:${e.ref.path ?? ""}:${e.ref.name ?? e.label}`}
                   className={`palette-item${i === sel ? " selected" : ""}`}
                   onMouseEnter={() => setSel(i)} onClick={() => execute(e)}>
                   <span className="palette-item-label">{e.label}</span>

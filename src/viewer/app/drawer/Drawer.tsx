@@ -4,14 +4,17 @@ import { pop, closeAll } from "./drawer-stack";
 import { entityStore } from "../CanvasHost";
 import { DecisionView } from "./DecisionView";
 import { TodoView } from "./TodoView";
-import { FileCard } from "./FileCard";     // Task 7 — stub until then
-import { ListView } from "./ListView";     // Task 8 — stub until then
+import { FileCard } from "./FileCard";
+import { ListView } from "./ListView";
 
 export function Drawer() {
   const stack = useUiStore((s) => s.drawerStack);
   const set = useUiStore((s) => s.set);
   const [, bump] = useReducer((x: number) => x + 1, 0);
-  useEffect(() => entityStore.subscribe(() => bump()), []);
+  useEffect(() => {
+    const unsub = entityStore.subscribe(() => bump());
+    return unsub;
+  }, []);
   const top = stack[stack.length - 1];
   return (
     <div className={`decision-card${top ? " visible" : ""}`} id="decision-card">

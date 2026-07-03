@@ -31,7 +31,7 @@ export function FileCard({ path, symbol }: { path: string; symbol?: string }) {
             onClick={() => openFile(c.path)}>{c.path.split("/").pop()}</span></span>))}</>}
       </div></Section>
       {d.symbols.length > 0 && <Section label={`symbols (${d.symbols.length})`}>
-        <div className="dc-ref-row">{d.symbols.map((s) => (
+        <div className="dc-ref-row">{d.symbols.map((s: any) => (
           <span key={s.id} className={`dc-ref-pill dc-symbol${symbol === s.name ? " highlighted" : ""}`}>
             <span className="type">{s.kind === "function" ? "fn" : s.kind}</span>
             <span className="name">{s.name}</span></span>))}</div></Section>}
