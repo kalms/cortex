@@ -1,7 +1,7 @@
 # Corpus survey
 
 Phase 1 calibration data for frame extraction (see
-[`docs/specs/cortex-v0.3/frame-extraction.md`](../specs/cortex-v0.3/frame-extraction.md)).
+[`docs/architecture/frame-extraction-design.md`](../architecture/frame-extraction-design.md)).
 
 For each repo in the survey:
 

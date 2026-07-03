@@ -20,8 +20,7 @@ via `ingest_traces`, CI-gate-as-conscience; cross-repo queries, viewer
 
 ## ▶ NEXT STEP
 
-In rough priority order (full state in
-[`docs/specs/progress.md`](docs/specs/progress.md)):
+In rough priority order:
 
 1. **TODO hooks + external bridge** (later slice) — `PostMergeHook`
    auto-completing `resolvedBy` TODOs on PR merge; `PostDecisionHook` linking

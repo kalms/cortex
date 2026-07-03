@@ -7,7 +7,8 @@ All notable changes to Cortex are documented here. The format follows
 > **Note — 2026-06-23: repository cleanup & version renumber.** The project
 > history was cleaned up and the release line renumbered to a tidy, monotonic
 > range that better fits the release cadence going forward — the former `0.3.x`
-> series is now `0.8.x` and `0.4.0` is now `0.9.0` (current release: **0.9.0**).
+> series is now `0.8.x` and `0.4.0` is now `0.9.0` (the release current at the
+> time of the renumber; the top entry below is always the current release).
 > CHANGELOG, version metadata, tags/releases, and commit history were all
 > brought onto the new scheme.
 >
@@ -1041,7 +1042,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
 ### Added
 
 - **Field report: Mesh M1 platform-consumer perspective**
-  ([`docs/field reports/field-report-2026-06-12-mesh-m1-platform-consumer.md`](docs/field%20reports/field-report-2026-06-12-mesh-m1-platform-consumer.md)):
+  ([`docs/field-reports/field-report-2026-06-12-mesh-m1-platform-consumer.md`](docs/field-reports/field-report-2026-06-12-mesh-m1-platform-consumer.md)):
   the first report written from the seat of a product *built on* Cortex (Mesh
   consumes the HTTP API as a managed sidecar). Documents the decision layer as
   the behavioral moat, an honest token-economics ledger (roughly neutral for a
