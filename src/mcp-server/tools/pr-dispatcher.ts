@@ -4,6 +4,7 @@ import { registerTool, type RepoContext, type RepoContextResolver } from "../rep
 import { error as errorResponse } from "../response.js";
 import type { EventBus } from "../../events/bus.js";
 import { openPRAction, addPRTouchAction, mergePRAction, getPRAction } from "./pr-tools.js";
+import { RepoPathField } from "./shared-fields.js";
 
 // ---------------------------------------------------------------------------
 // Consolidated `pr` MCP dispatcher (Task 3.3).
@@ -17,15 +18,6 @@ import { openPRAction, addPRTouchAction, mergePRAction, getPRAction } from "./pr
 // back before forwarding to addPRTouchAction (which expects `action` on the
 // args object, matching the original PRService.addTouch contract).
 // ---------------------------------------------------------------------------
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this PR belongs to. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const prShape = {
   repo_path: RepoPathField,

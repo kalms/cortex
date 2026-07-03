@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { PRService } from "../../prs/service.js";
 import { DecisionService } from "../../decisions/service.js";
-import { ok, empty, error as errorResponse } from "../response.js";
+import { ok, empty } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
+import { RepoPathField } from "./shared-fields.js";
+import { execAction } from "./exec-action.js";
 
 // ---------------------------------------------------------------------------
 // PR tools — per-call repo routing (Phase 3 Group B-2).
@@ -18,15 +20,6 @@ import type { EventBus } from "../../events/bus.js";
 // the addressed repo's graph DB + decisions repos. PRService is stateless
 // apart from its handles, so the construction cost is negligible.
 // ---------------------------------------------------------------------------
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this PR belongs to. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const openPRShape = {
   repo_path: RepoPathField,
@@ -104,13 +97,11 @@ export async function openPRAction(
   bus?: EventBus,
   indexerProject?: string | null,
 ) {
-  try {
+  return execAction(null, () => {
     const { repo_path: _repoPath, ...openArgs } = args;
     const pr = makePrService(ctx, bus, indexerProject).open(openArgs);
     return ok(JSON.stringify(pr, null, 2));
-  } catch (e) {
-    return errorResponse("internal_error", e instanceof Error ? e.message : String(e));
-  }
+  });
 }
 
 export async function addPRTouchAction(
@@ -119,15 +110,11 @@ export async function addPRTouchAction(
   bus?: EventBus,
   indexerProject?: string | null,
 ) {
-  try {
+  return execAction(`add_pr_touch(#${args.pr_number})`, () => {
     const { repo_path: _repoPath, ...touchArgs } = args;
     makePrService(ctx, bus, indexerProject).addTouch(touchArgs);
     return ok(JSON.stringify({ ok: true, ...touchArgs }));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`add_pr_touch(#${args.pr_number})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function mergePRAction(
@@ -136,14 +123,10 @@ export async function mergePRAction(
   bus?: EventBus,
   indexerProject?: string | null,
 ) {
-  try {
+  return execAction(`merge_pr(#${args.pr_number})`, () => {
     const result = makePrService(ctx, bus, indexerProject).merge(args.pr_number);
     return ok(JSON.stringify(result, null, 2));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/not found/i.test(msg)) return empty(`merge_pr(#${args.pr_number})`);
-    return errorResponse("internal_error", msg);
-  }
+  });
 }
 
 export async function getPRAction(

@@ -7,15 +7,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validatePrimitiveFields } from "./decision-input-validation.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this TODO belongs to. " +
-      "If you don't know it, call list_projects first.",
-  );
+import { RepoPathField } from "./shared-fields.js";
 
 const todoShape = {
   repo_path: RepoPathField,

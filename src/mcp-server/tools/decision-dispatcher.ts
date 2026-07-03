@@ -17,6 +17,7 @@ import {
 } from "./decision-tools.js";
 import { promoteDecisionAction } from "./promotion-tools.js";
 import { recordReconciliationAction, pendingReconciliationsAction } from "./reconciliation-tools.js";
+import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
 
 // ---------------------------------------------------------------------------
 // The consolidated `decision` MCP tool.
@@ -39,27 +40,6 @@ import { recordReconciliationAction, pendingReconciliationsAction } from "./reco
 //   Net: `why` behaves identically; every other action returns exactly what it
 //   did before, with no freshness penalty.
 // ---------------------------------------------------------------------------
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this decision is about. " +
-      "If you don't know it, call list_projects first.",
-  );
-
-const AlternativeSchema = z.object({
-  name: z.string(),
-  reason_rejected: z.string(),
-});
-
-const ProvenanceSchema = z.object({
-  source: z.enum(["adr", "prose", "commits"]),
-  doc_path: z.string().optional(),
-  commit_shas: z.array(z.string()).optional(),
-  confidence: z.enum(["high", "medium", "low"]),
-});
 
 // Superset shape — every field any of the 13 actions needs, all optional
 // except `action`. Per-action required-field enforcement still happens inside

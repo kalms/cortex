@@ -37,6 +37,7 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { ensureIndexer } from "../../indexer/binary.js";
+import { RepoPathField } from "./shared-fields.js";
 
 // Re-exported for the contract tests, which assert on the shared search
 // helpers' arg-building / error-classification behavior.
@@ -47,19 +48,9 @@ export type { SearchExecError, SearchExecOutcome };
 // Per-call repo routing schemas
 //
 // Mirrors the pattern in decision-tools.ts (see that module's header for
-// the rationale). `RepoPathField` is duplicated here rather than imported —
-// the field is small and self-contained; hoist to a shared module if a third
-// consumer appears. See decision-tools.ts for the canonical declaration.
+// the rationale). `RepoPathField` is the shared declaration in
+// shared-fields.ts.
 // ---------------------------------------------------------------------------
-
-const RepoPathField = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "REQUIRED. Absolute path to the indexed git root this query targets. " +
-      "If you don't know it, call list_projects first.",
-  );
 
 const searchGraphShape = {
   repo_path: RepoPathField,
