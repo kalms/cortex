@@ -40,8 +40,8 @@ export function CanvasHost() {
 
     async function boot() {
       const { projects, active } = await fetchProjects();
-      set({ projects, activeProject: active });
       currentProject = active;
+      set({ projects, activeProject: active });
       const bundle = await loadProject(active);
       // `as any`: entity-store.js is plain JS; TS narrows its `cursor = null`
       // default to `null | undefined`, but the store accepts a ULID string.
@@ -100,7 +100,7 @@ export function CanvasHost() {
     window.addEventListener("resize", onResize);
     boot();
     return () => { unsub(); unsubProject(); window.removeEventListener("resize", onResize);
-      engine.destroy(); engineRef = null; };
+      sync.close(); engine.destroy(); engineRef = null; };
   }, []);
   return <canvas id="stage" ref={canvasRef} />;
 }
