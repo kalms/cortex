@@ -1994,10 +1994,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
     return null;
   }
 
-  function findRecentToucher(nodeIdx) {
-    return null;
-  }
-
   function drawCompactHoverBadge(now) {
     if (pinnedNodeIdx === null) return;
     if (hoveredNodeIdx === null) return;
@@ -2392,7 +2388,6 @@ import { createLiveEffects } from '/viewer/live-effects.js';
   }
 
   const decisionCardEl = document.getElementById('decision-card');
-  const cardScrimEl = document.getElementById('card-scrim');
 
   function escapeHtml(s) {
     return String(s)
