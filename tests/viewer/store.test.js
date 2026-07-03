@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createStore } from "../../src/viewer/store.js";
+import { createStore } from "../../src/viewer/app/entity-store.js";
 
 // Manual scheduler: collects flush callbacks; run() executes them.
 function manualScheduler() {

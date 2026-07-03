@@ -13,7 +13,7 @@ import {
   frameCoverage,
   buildFramePathIndex,
   frameIdForPath,
-} from "../../src/viewer/adapters.js";
+} from "../../src/viewer/canvas/adapters.js";
 
 describe("groupNodesIntoFrames", () => {
   const nodes = [

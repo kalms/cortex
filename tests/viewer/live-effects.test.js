@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createLiveEffects, BIRTH_MS, HALO_MS, LEADER_MS, REMOVE_MS, HEAT_DECAY_MS } from "../../src/viewer/live-effects.js";
+import { createLiveEffects, BIRTH_MS, HALO_MS, LEADER_MS, REMOVE_MS, HEAT_DECAY_MS } from "../../src/viewer/canvas/live-effects.js";
 
 const base = { entity: "decision", id: "d1", frameIds: ["7"], actor: "claude" };
 
