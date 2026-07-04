@@ -44,6 +44,14 @@ export function Palette() {
   }, [query, entries, actions]);
   const flat = groups.flat();
 
+  // Dialog focus restore: return focus to whatever had it before the palette
+  // opened. Declared before the input-focus effect so it captures the opener,
+  // not the just-focused input.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => { prev?.focus(); };
+  }, [open]);
   useEffect(() => { if (open) { setQuery(""); setSel(0); inputRef.current?.focus(); } }, [open]);
   useEffect(() => { setSel(0); }, [query]);
   useEffect(() => {
@@ -71,16 +79,24 @@ export function Palette() {
     else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => flat.length ? Math.min(s + 1, flat.length - 1) : 0); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
     else if (e.key === "Enter" && flat[sel]) { e.preventDefault(); execute(flat[sel]); }
+    // The input is the dialog's only focusable element, so trapping Tab is just
+    // suppressing it; modified combos (Ctrl/Cmd/Alt+Tab) stay with the browser.
+    else if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
   };
 
   let idx = -1;
   return (
     <div className="palette-overlay" onClick={() => set({ paletteOpen: false })}>
-      <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette"
+        onClick={(e) => e.stopPropagation()} onKeyDown={onKey}
+        // Keep focus pinned to the input: a mousedown on results/chrome would
+        // otherwise blur it to <body>, killing arrow/Enter/Tab handling.
+        onMouseDown={(e) => { if (e.target !== inputRef.current) e.preventDefault(); }}>
         <div className="palette-header">JUMP TO</div>
         <div className="palette-input-row">
           <span className="palette-glyph">⌕</span>
-          <input ref={inputRef} value={query} placeholder="Search files, symbols, decisions, todos…"
+          <input ref={inputRef} id="palette-input" aria-label="Search files, symbols, decisions, todos"
+            value={query} placeholder="Search files, symbols, decisions, todos…"
             onChange={(e) => setQuery(e.target.value)} />
         </div>
         <div className="palette-results" ref={resultsRef}>

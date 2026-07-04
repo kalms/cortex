@@ -7,6 +7,7 @@ export function ProjectSelect() {
   const activeProject = useUiStore((s) => s.activeProject);
   const set = useUiStore((s) => s.set);
   const [open, setOpen] = useState(false);
+  const [focusIdx, setFocusIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -16,19 +17,51 @@ export function ProjectSelect() {
     return () => document.removeEventListener("click", onDoc);
   }, [open]);
   const active = projects.find((p) => p.name === activeProject) ?? null;
+
+  const openMenu = () => {
+    const i = projects.findIndex((p) => p.name === activeProject);
+    setFocusIdx(i >= 0 ? i : 0);
+    setOpen(true);
+  };
+  const choose = (name: string) => { setOpen(false); set({ activeProject: name }); };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      // Enter/Space open through the button's native click → onClick → openMenu.
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openMenu(); }
+      return;
+    }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if (e.key === "Tab") setOpen(false);
+    else if (!projects.length) return;
+    else if (e.key === "ArrowDown") { e.preventDefault(); setFocusIdx((i) => Math.min(i + 1, projects.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setFocusIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Home") { e.preventDefault(); setFocusIdx(0); }
+    else if (e.key === "End") { e.preventDefault(); setFocusIdx(projects.length - 1); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (projects[focusIdx]) choose(projects[focusIdx].name); }
+  };
+
   return (
-    <div className="project-select-wrap" ref={rootRef}>
+    <div className="project-select-wrap" ref={rootRef} onKeyDown={onKeyDown}>
       <button id="project-select" className="project-select-btn" title="Project"
-        aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {active ? projectDisplayName(active) : "(no projects)"}
+        // AT only tracks aria-activedescendant on composite roles, not button —
+        // this is the APG select-only combobox pattern.
+        role="combobox" aria-haspopup="listbox" aria-expanded={open}
+        aria-controls="project-select-listbox"
+        aria-activedescendant={open && projects[focusIdx] ? `ps-opt-${focusIdx}` : undefined}
+        onClick={() => (open ? setOpen(false) : openMenu())}>
+        <span className="ps-btn-label">{active ? projectDisplayName(active) : "(no projects)"}</span>
         <span className="ps-caret">▾</span>
       </button>
       {open && (
-        <div className="project-select-menu" role="listbox">
-          {projects.map((p) => (
-            <div key={p.name} role="option" aria-selected={p.name === activeProject}
-              className={`ps-item${p.name === activeProject ? " active" : ""}`}
-              onClick={() => { setOpen(false); set({ activeProject: p.name }); }}>
+        <div className="project-select-menu" id="project-select-listbox" role="listbox" aria-label="Projects"
+          // Keep focus on the button: a mousedown on menu padding would blur to
+          // <body> and strand the menu open with keyboard handling dead.
+          onMouseDown={(e) => e.preventDefault()}>
+          {projects.map((p, i) => (
+            <div key={p.name} id={`ps-opt-${i}`} role="option" aria-selected={p.name === activeProject}
+              className={`ps-item${p.name === activeProject ? " active" : ""}${i === focusIdx ? " focused" : ""}`}
+              onMouseEnter={() => setFocusIdx(i)}
+              onClick={() => choose(p.name)}>
               <div className="ps-name">{projectDisplayName(p)}</div>
               <div className="ps-path">{p.root_path}</div>
             </div>

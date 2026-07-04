@@ -18,6 +18,22 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.1] — 2026-07-04
+
+### Fixed
+
+- **Command palette accessibility** — the palette panel now carries
+  `role="dialog"`/`aria-modal` with a labelled input, traps Tab (modified
+  combos like Ctrl/Cmd+Tab stay with the browser), keeps focus pinned to the
+  search input so arrow/Enter navigation survives clicks in the results area,
+  and restores focus to the opener element on close.
+- **Project switcher keyboard support** — the previously mouse-only dropdown
+  is now a proper select-only combobox (`role="combobox"` +
+  `aria-activedescendant`): ArrowUp/Down open and move the highlight,
+  Home/End jump, Enter/Space select, Escape closes without disturbing the
+  drawer or canvas focus, and clicks on menu chrome no longer strand the
+  menu in a keyboard-dead state.
+
 ## [1.4.0] — 2026-07-04
 
 ### Added
@@ -1237,6 +1253,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.1]: https://github.com/ruevu/cortex/releases/tag/v1.4.1
 [1.4.0]: https://github.com/ruevu/cortex/releases/tag/v1.4.0
 [1.3.2]: https://github.com/ruevu/cortex/releases/tag/v1.3.2
 [1.3.1]: https://github.com/ruevu/cortex/releases/tag/v1.3.1
