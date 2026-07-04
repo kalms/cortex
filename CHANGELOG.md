@@ -18,6 +18,44 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.2] — 2026-07-04
+
+### Added
+
+- **Marginalia "View all" overflow** — a focused frame's decision/todo pill
+  columns stop at the frame's bottom edge; overflow folds into a `View all (N)`
+  pill that opens the records drawer scoped to that frame (new `onViewAll`
+  engine callback, `frameId` on the drawer's list view). The scoped list
+  header names the frame and offers a `×` to widen back to all records.
+
+### Changed
+
+- **Edges render as the lowest canvas layer** — frames, nodes, and marginalia
+  now draw on top of the connectivity web (marginalia could previously be
+  painted over by edges). Light-mode edges use a mid gray at reduced alpha
+  instead of near-black, so dense hubs no longer dominate the scene.
+- **Light-mode frame contrast raised** — frames get a visible soft-gray fill
+  (the old white-on-white fill was invisible on the light page), a stronger
+  border floor, and brighter labels/counts.
+- **UI buttons speak Geist Sans** — toolbar buttons, drawer nav (back/close),
+  and records-list tabs switch from Geist Mono to Sans; Mono stays for
+  data/ids.
+- **Marginalia pills are width-locked** — long summaries truncate at the end
+  (the leading `D-…`/`T-…` id stays visible) so pills never run past the
+  viewport.
+- **Todo marginalia moved to the frame's left edge** — decisions keep the
+  right column, todos get their own left column with the same width, overflow,
+  and View-all rules.
+
+### Fixed
+
+- **File-governed decisions now surface at load** — decision file-kind
+  `governs` refs fold into the frame-governance rollup at data-adapt time
+  (mirroring todos), so their marginalia pills, anchors, and promoted frames
+  appear on load instead of only after the first live update; the
+  frame-scoped records list resolves open AND closed records through one
+  shared membership predicate.
+
 ## [1.4.1] — 2026-07-04
 
 ### Fixed
@@ -1253,6 +1291,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.2]: https://github.com/ruevu/cortex/releases/tag/v1.4.2
 [1.4.1]: https://github.com/ruevu/cortex/releases/tag/v1.4.1
 [1.4.0]: https://github.com/ruevu/cortex/releases/tag/v1.4.0
 [1.3.2]: https://github.com/ruevu/cortex/releases/tag/v1.3.2
