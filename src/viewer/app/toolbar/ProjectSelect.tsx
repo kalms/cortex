@@ -26,31 +26,37 @@ export function ProjectSelect() {
   const choose = (name: string) => { setOpen(false); set({ activeProject: name }); };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!open) {
-      // preventDefault also suppresses the button's native Enter/Space click,
-      // so openMenu is the single open path and the toggle can't double-fire.
-      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); openMenu(); }
+      // Enter/Space open through the button's native click → onClick → openMenu.
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openMenu(); }
       return;
     }
-    if (e.key === "ArrowDown") { e.preventDefault(); setFocusIdx((i) => Math.min(i + 1, projects.length - 1)); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if (e.key === "Tab") setOpen(false);
+    else if (!projects.length) return;
+    else if (e.key === "ArrowDown") { e.preventDefault(); setFocusIdx((i) => Math.min(i + 1, projects.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setFocusIdx((i) => Math.max(i - 1, 0)); }
     else if (e.key === "Home") { e.preventDefault(); setFocusIdx(0); }
     else if (e.key === "End") { e.preventDefault(); setFocusIdx(projects.length - 1); }
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (projects[focusIdx]) choose(projects[focusIdx].name); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); }
-    else if (e.key === "Tab") setOpen(false);
   };
 
   return (
     <div className="project-select-wrap" ref={rootRef} onKeyDown={onKeyDown}>
       <button id="project-select" className="project-select-btn" title="Project"
-        aria-haspopup="listbox" aria-expanded={open}
+        // AT only tracks aria-activedescendant on composite roles, not button —
+        // this is the APG select-only combobox pattern.
+        role="combobox" aria-haspopup="listbox" aria-expanded={open}
+        aria-controls="project-select-listbox"
         aria-activedescendant={open && projects[focusIdx] ? `ps-opt-${focusIdx}` : undefined}
         onClick={() => (open ? setOpen(false) : openMenu())}>
         {active ? projectDisplayName(active) : "(no projects)"}
         <span className="ps-caret">▾</span>
       </button>
       {open && (
-        <div className="project-select-menu" role="listbox" aria-label="Projects">
+        <div className="project-select-menu" id="project-select-listbox" role="listbox" aria-label="Projects"
+          // Keep focus on the button: a mousedown on menu padding would blur to
+          // <body> and strand the menu open with keyboard handling dead.
+          onMouseDown={(e) => e.preventDefault()}>
           {projects.map((p, i) => (
             <div key={p.name} id={`ps-opt-${i}`} role="option" aria-selected={p.name === activeProject}
               className={`ps-item${p.name === activeProject ? " active" : ""}${i === focusIdx ? " focused" : ""}`}
