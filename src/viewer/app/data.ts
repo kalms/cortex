@@ -29,7 +29,17 @@ export function adaptProjectData({ graph, decs, aggs, fileEdges, frameMap, todos
   const ambientTodos = filterAmbientTodos(todosResp.todos || []);
   const ambientTodoMap: any = {}; for (const t of ambientTodos) ambientTodoMap[t.id] = t;
   const decisionMap: any = {}; for (const d of decs.decisions) decisionMap[d.id] = d;
-  const frameGovernance = buildFrameGovernance(decs.decisions);
+  // Both rollups fold file-kind refs through membership (frameIdForPath), so
+  // the load path agrees with the engine's live-update path (applyGovernanceFor
+  // resolves file refs the same way) — a file-governed decision gets its pills,
+  // anchors, and promoted frame at load, not only after its first live change.
+  const frameGovernance = buildFrameGovernance(decs.decisions) as Record<string, string[]>;
+  for (const d of decs.decisions) for (const g of d.governs || []) {
+    if (g.kind !== "file") continue;
+    const fid = frameIdForPath(framePathIndex, g.path);
+    if (!fid) continue;
+    (frameGovernance[fid] ||= []).includes(d.id) || frameGovernance[fid].push(d.id);
+  }
   const todoGovernance = buildGovernance(ambientTodos) as Record<string, string[]>;
   for (const t of ambientTodos) for (const g of t.governs || []) {
     if (g.kind !== "file") continue;

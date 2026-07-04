@@ -3,7 +3,8 @@ import type { ProjectInfo } from "./api";
 
 export type DrawerView =
   | { kind: "record"; type: "decision" | "todo" | "file"; id: string; symbol?: string }
-  | { kind: "list"; tab: "all" | "decisions" | "todos" };
+  /** `frameId` scopes the list to one frame's records (marginalia "View all"). */
+  | { kind: "list"; tab: "all" | "decisions" | "todos"; frameId?: string };
 
 /** localStorage keys — literal strings copied from canvas/engine.js so React
  *  writes the SAME keys the engine reads at boot. */

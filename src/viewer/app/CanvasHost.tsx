@@ -30,6 +30,8 @@ export function CanvasHost() {
         onRecordDismiss: () => set({ drawerStack: [] }),
         onFileClick: ({ filePath }: { filePath: string }) =>
           set({ drawerStack: [{ kind: "record", type: "file", id: filePath }] }),
+        onViewAll: (frameId: string, tab: "decisions" | "todos") =>
+          set({ drawerStack: [{ kind: "list", tab, frameId }] }),
       },
     });
     engineRef = engine;

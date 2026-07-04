@@ -87,4 +87,24 @@ describe("listRows", () => {
     expect(listRows(b, "todos").map((r) => r.id)).toEqual(["t1", "t2"]));
   it("uses friendly display ids", () =>
     expect(listRows(b, "decisions")[0].displayId).toBe("D-2"));
+
+  describe("frameId scoping (marginalia View all)", () => {
+    const fb = {
+      framePathIndex: new Map([["src/a.ts", "1"]]),
+      decisions: [
+        { id: "d1", seq: 1, summary: "in frame", state: "active", proposedAt: "2026-06-01", governs: [{ kind: "frame", id: "1" }] },
+        { id: "d2", seq: 2, summary: "elsewhere", state: "active", proposedAt: "2026-07-01", governs: [] },
+        { id: "d3", seq: 3, summary: "via file ref", state: "active", proposedAt: "2026-07-02", governs: [{ kind: "file", path: "src/a.ts" }] },
+      ],
+      allTodos: [
+        { id: "t1", seq: 1, summary: "in frame", state: "proposed", proposedAt: "2026-06-15", governs: [{ kind: "frame", id: "1" }] },
+        { id: "t2", seq: 2, summary: "elsewhere", state: "proposed", proposedAt: "2026-06-30", governs: [] },
+        { id: "t3", seq: 3, summary: "closed, frame ref", state: "done", proposedAt: "2026-06-20", governs: [{ kind: "frame", id: 1 }] },
+      ],
+    };
+    it("keeps only records governing the frame (frame + file refs, closed included)", () =>
+      expect(listRows(fb, "all", "1").map((r) => r.id).sort()).toEqual(["d1", "d3", "t1", "t3"]));
+    it("without frameId returns everything", () =>
+      expect(listRows(fb, "all").length).toBe(6));
+  });
 });

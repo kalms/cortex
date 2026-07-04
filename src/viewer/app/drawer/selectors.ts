@@ -1,4 +1,5 @@
 import { decisionDisplayId, todoDisplayId } from "../display";
+import { frameIdForPath } from "../../canvas/adapters.js";
 
 const CONN_RELATIONS = new Set(["CALLS", "IMPORTS"]);
 const SYMBOL_KINDS = new Set(["function", "class", "method", "interface", "type", "variable", "route"]);
@@ -63,13 +64,26 @@ export function resolveTodo(
 
 const CLOSED_TODO_STATES = new Set(["done", "cancelled"]);
 
+/** Does an entity govern this frame? One predicate over the record's own
+ *  governs refs — frame refs by id, file refs through membership — so open
+ *  AND closed records resolve identically (the frame-keyed rollups can't be
+ *  used here: they're built from ambient todos only). Same resolution rule
+ *  as the engine's governedFrameIdsOf and the data.ts rollup folds. */
+function governsFrame(ent: any, frameId: string, framePathIndex: any): boolean {
+  return (ent.governs || []).some((g: any) =>
+    g.kind === "frame" ? String(g.id) === frameId
+    : g.kind === "file" && frameIdForPath(framePathIndex, g.path) === frameId);
+}
+
 /** Row list for the records ListView: decisions + todos (per tab filter),
- *  open items newest-first, closed todos muted to the bottom (also newest-first). */
-export function listRows(bundle: any, tab: "all" | "decisions" | "todos") {
-  const decs = tab === "todos" ? [] : bundle.decisions.map((d: any) => ({
+ *  open items newest-first, closed todos muted to the bottom (also newest-first).
+ *  With `frameId`, only records governing that frame (marginalia "View all"). */
+export function listRows(bundle: any, tab: "all" | "decisions" | "todos", frameId?: string | null) {
+  const keep = (ent: any) => !frameId || governsFrame(ent, frameId, bundle.framePathIndex);
+  const decs = tab === "todos" ? [] : bundle.decisions.filter(keep).map((d: any) => ({
     type: "decision" as const, id: d.id, displayId: decisionDisplayId(d),
     title: d.summary, state: d.state, date: d.proposedAt || "", closed: false }));
-  const todos = tab === "decisions" ? [] : bundle.allTodos.map((t: any) => ({
+  const todos = tab === "decisions" ? [] : bundle.allTodos.filter(keep).map((t: any) => ({
     type: "todo" as const, id: t.id, displayId: todoDisplayId(t),
     title: t.summary, state: t.state, date: t.proposedAt || "",
     closed: CLOSED_TODO_STATES.has(t.state) }));
