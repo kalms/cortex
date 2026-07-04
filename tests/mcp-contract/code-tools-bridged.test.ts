@@ -37,7 +37,11 @@ describe("Phase 6 bridged tools", () => {
     // that's an indexer/registry concern, not something this merge-logic test
     // should assert on.)
     if (!res.isError) {
-      const parsed = JSON.parse(res.content[0].text);
+      // attachFreshness appends a "\n\n⚠ cortex freshness: …" line to the
+      // first text block on non-fresh repos (by design) — strip it before
+      // parsing the JSON payload.
+      const payload = res.content[0].text.split("\n\n⚠ cortex freshness:")[0];
+      const parsed = JSON.parse(payload);
       expect(Array.isArray(parsed.hotspots)).toBe(true);
       expect(parsed).toMatchObject({
         total_nodes: expect.any(Number),

@@ -228,9 +228,20 @@ async function invokeIndexer(
         const detail = parsed.content?.[0]?.text ?? "(no detail)";
         return errorResponse("binary_failed", `cortex-indexer ${tool}: ${detail}`);
       }
+      // The CLI prints a full MCP envelope ({content:[{type:"text",text}]}).
+      // Return it as-is rather than re-wrapping the raw stdout — wrapping put
+      // the envelope JSON *inside* content[0].text, so every downstream
+      // consumer of a successful bridged call (hotspots merge, index_status
+      // cache fallback, MCP clients) saw a double-wrapped payload.
+      if (Array.isArray(parsed?.content) && parsed.content.every(
+        (c: unknown) => typeof (c as { text?: unknown })?.text === "string",
+      )) {
+        return parsed as IndexerCallResult;
+      }
     } catch {
       return errorResponse("binary_failed", `cortex-indexer ${tool}: unexpected non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
     }
+    // Defensive: valid JSON but not envelope-shaped — preserve old behavior.
     return ok(stdout);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
