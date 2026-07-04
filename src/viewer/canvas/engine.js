@@ -24,14 +24,19 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
   // Canvas-side theme helpers — small, intentional, not a full abstraction
   function frameBorderRGB()       { return isLight() ? [0, 0, 0]       : [255, 255, 255]; }
-  function frameFillRGB()         { return isLight() ? [255, 255, 255] : [14, 14, 17]; }
+  // Light-mode frames fill with dark ink at low alpha: a white fill on the
+  // #fafafa page was invisible, which read as "frames are missing" in light mode.
+  function frameFillRGB()         { return isLight() ? [24, 24, 27]    : [14, 14, 17]; }
   function nodeBaseRGB()          { return isLight() ? [82, 82, 91]    : [113, 113, 122]; }
+  // Edges get their own ink: light mode uses a mid gray (pure black at the
+  // frame-border alphas made the edge web dominate the scene).
+  function edgeRGB()              { return isLight() ? [113, 113, 122] : [255, 255, 255]; }
   function pillBgRGB()            { return isLight() ? [255, 255, 255] : [17, 18, 27]; }
   function pillBgGreenRGB()       { return isLight() ? [250, 253, 251] : [13, 17, 14]; }
   function pillTextRGB()          { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function primaryLabelRGB()      { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
   function subLabelRGB()          { return isLight() ? [113, 113, 122] : [161, 161, 170]; }
-  function countIdleRGB()         { return isLight() ? [161, 161, 170] : [82, 82, 91]; }
+  function countIdleRGB()         { return isLight() ? [113, 113, 122] : [82, 82, 91]; }
 
   const LAYERS_LS_KEY = 'cortex.viewer.layers';
   let layersOn = false;
@@ -834,8 +839,15 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
 
+    const marginaliaHit = marginaliaAtPoint(px, py);
+    // The View-all pill is an action, not a record — identical handling
+    // whether or not a record drawer is open, so dispatch it before the fork.
+    if (marginaliaHit && marginaliaHit.type === 'viewall') {
+      callbacks.onViewAll?.(marginaliaHit.frameId, marginaliaHit.tab);
+      return;
+    }
+
     if (focusedRecord) {
-      const marginaliaHit = marginaliaAtPoint(px, py);
       if (marginaliaHit) {
         const hitId = marginaliaHit.id;
         if (focusedRecord.type === marginaliaHit.type && String(focusedRecord.id) === hitId) {
@@ -864,7 +876,6 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       return;
     }
 
-    const marginaliaHit = marginaliaAtPoint(px, py);
     if (marginaliaHit) {
       const hitId = marginaliaHit.id;
       openRecord(marginaliaHit.type, hitId);
@@ -1392,7 +1403,6 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   }
 
   function drawFrames(now) {
-    marginaliaRects.length = 0;
     const fp = computeFocusProgress();
     const hasFocus = !!(fp.focused || (fp.from && fp.t < 1));
     const sharpFrameId = fp.focused;
@@ -1436,16 +1446,24 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         const baseFillAlpha = 0.25 * (1 - dimLevel * 0.4);
         const fillAlpha = (baseFillAlpha + hoverLevel * 0.18) * alphaMul;
         const ff = frameFillRGB();
-        const fillAlphaActual = isLight() ? fillAlpha * 0.45 : fillAlpha;
+        // Light: dark-ink fill scaled way down (0.25 base → ~0.055 ink) — a
+        // soft gray panel, clearly visible on #fafafa (was white-on-white).
+        // One scale constant, shared with the tint normalization below (same
+        // pattern as borderBase) so a retune can't drift the two apart.
+        const fillScale = isLight() ? 0.22 : 1;
+        const fillAlphaActual = fillAlpha * fillScale;
         if (lc) {
           // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (isLight() ? 0.25 * 0.45 : 0.25))})`;
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (0.25 * fillScale))})`;
         } else {
           ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-        const baseBorderAlpha = 0.08 + 0.15 * liveFx.frameHeat(frame.id, now);
+        // Light mode gets a higher border floor (0.115 × 3 ≈ 0.35 idle): the
+        // old 0.24 idle black read too faint against the light page.
+        const borderBase = isLight() ? 0.115 : 0.08;
+        const baseBorderAlpha = borderBase + 0.15 * liveFx.frameHeat(frame.id, now);
         const focusBoost = isFocused ? 0.12 : 0;
         const hoverBorderBoost = hoverLevel * 0.2;
         const borderAlphaMult = isLight() ? 3.0 : 1;
@@ -1453,7 +1471,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
         const fb = frameBorderRGB();
         if (lc) {
-          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (0.08 * borderAlphaMult))})`;
+          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (borderBase * borderAlphaMult))})`;
         } else {
           ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
         }
@@ -1462,7 +1480,9 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         ctx.stroke();
 
         const isLabelHovered = hoveredLabelFrameId === frame.id;
-        const labelAlpha = 0.5 * (1 - dimLevel * 0.55) * alphaMul;
+        // Light mode labels sit a step brighter — 0.5 dark ink washed out on the light page.
+        const labelBase = isLight() ? 0.66 : 0.5;
+        const labelAlpha = labelBase * (1 - dimLevel * 0.55) * alphaMul;
         const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
         const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
         const primaryY = -f.h / 2 - 7;
@@ -1489,7 +1509,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         const pathText = truncateMiddle(ctx, frame.name, leftBudget);
         const pl = primaryLabelRGB();
         if (lc) {
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / 0.5))})`;
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / labelBase))})`;
         } else {
           ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
         }
@@ -1498,17 +1518,28 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
       ctx.restore();
     });
-
-    if (showDecisions || showTodos) {
-      if (sharpFrameId) {
-        drawMarginaliaForFrame(sharpFrameId, fp.t);
-      } else if (fp.from) {
-        drawMarginaliaForFrame(fp.from, 1 - fp.t);
-      }
-    }
   }
 
   const marginaliaRects = [];
+
+  /** Marginalia is its own top layer (drawn after edges + nodes in mainLoop)
+   *  so pills and leader lines are never painted over by the edge web. */
+  function drawMarginalia() {
+    marginaliaRects.length = 0;
+    if (!showDecisions && !showTodos) return;
+    const fp = computeFocusProgress();
+    if (fp.focused) {
+      drawMarginaliaForFrame(fp.focused, fp.t);
+    } else if (fp.from) {
+      drawMarginaliaForFrame(fp.from, 1 - fp.t);
+    }
+  }
+
+  // Locked marginalia pill width — long summaries truncate at the end (the
+  // leading ID is the load-bearing part), so pills never run past the viewport.
+  const MARGINALIA_MAX_W = 240;
+  const MARGINALIA_PILL_H = 20;
+  const MARGINALIA_GAP = 8;
 
   function drawMarginaliaForFrame(frameId, alphaMult) {
     // Invisible pills must not register hit rects — anything drawn here is
@@ -1516,8 +1547,8 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (alphaMult <= 0.01) return;
     const frame = FRAMES.find(f => f.id === frameId);
     if (!frame) return;
-    const decs = getFrameDecisions(frameId);
-    const todos = getFrameTodos(frameId);
+    const decs = showDecisions ? getFrameDecisions(frameId) : [];
+    const todos = showTodos ? getFrameTodos(frameId) : [];
     if (!decs.length && !todos.length) return;
 
     // The record whose drawer is currently open — its edges stay lit, like hover.
@@ -1525,22 +1556,37 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     const openTodoId = (focusedRecord && focusedRecord.type === 'todo') ? focusedRecord.id : null;
 
     const f = framePx(frame);
-    const pillX = f.cx + f.w / 2 + 14;
-    let pillY = f.cy - f.h / 2 + 4;
+    const pillH = MARGINALIA_PILL_H;
+    const padX = 10;
+    const markSize = 5;
+    const markGap = 7;
+    const maxTextW = MARGINALIA_MAX_W - padX * 2 - markSize - markGap;
+    const startY = f.cy - f.h / 2 + 4;
+    // Marginalia never extends below the frame's bottom edge: each column
+    // shows what fits and folds the rest into a "View all" pill that opens
+    // the records drawer scoped to this frame.
+    const frameBottom = f.cy + f.h / 2;
+    const capacity = Math.max(1, Math.floor((frameBottom - startY + MARGINALIA_GAP) / (pillH + MARGINALIA_GAP)));
+    // Rows a column actually shows: everything if it fits, else reserve the
+    // last slot for the View-all pill. Shared by both columns so their
+    // overflow thresholds can never drift apart.
+    const shownCount = (n) => (n <= capacity ? n : capacity - 1);
+
+    const rightX = f.cx + f.w / 2 + 14;    // decisions column, grows rightward
+    const leftEdgeX = f.cx - f.w / 2 - 14; // todos column, grows leftward
 
     ctx.save();
     ctx.font = '500 10px "Geist Mono", monospace';
     ctx.textBaseline = 'middle';
 
-    if (showDecisions) decs.forEach((dec) => {
+    let pillY = startY;
+    const decShown = shownCount(decs.length);
+    decs.slice(0, decShown).forEach((dec) => {
       const state = dec.state || 'active';
-      const label = `${decisionDisplayId(dec)} · ${dec.summary}`;
+      const label = truncateEnd(ctx, `${decisionDisplayId(dec)} · ${dec.summary}`, maxTextW);
       const labelW = ctx.measureText(label).width;
-      const pillH = 20;
-      const padX = 10;
-      const markSize = 5;
-      const markGap = 7;
       const pillW = padX + markSize + markGap + labelW + padX;
+      const pillX = rightX;
 
       const desaturated = state === 'superseded' || state === 'stale';
       const stateAlpha = state === 'superseded' ? 0.55 : (state === 'stale' ? 0.7 : 1);
@@ -1636,27 +1682,32 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         frameId,
       });
 
-      pillY += pillH + 8;
+      pillY += pillH + MARGINALIA_GAP;
     });
+    if (decs.length > decShown) {
+      drawViewAllPill('right', rightX, pillY, decs.length, 'decisions', frameId, alphaMult);
+    }
 
-    if (showTodos) todos.forEach((todo) => {
+    pillY = startY;
+    const todoShown = shownCount(todos.length);
+    todos.slice(0, todoShown).forEach((todo) => {
       const { rgb, ring } = todoDotColor(todo.state);
       const leaderColor = [250, 204, 21];
       const leaderAlpha = 0.2;
 
-      const label = `${todoDisplayId(todo)} · ${todo.summary}`;
+      const label = truncateEnd(ctx, `${todoDisplayId(todo)} · ${todo.summary}`, maxTextW);
       const labelW = ctx.measureText(label).width;
-      const pillH = 20;
-      const padX = 10;
-      const markSize = 5;
-      const markGap = 7;
       const pillW = padX + markSize + markGap + labelW + padX;
+      // Todos hang off the frame's LEFT edge (right-aligned column) so the
+      // two record kinds don't compete for the same margin.
+      const pillX = leftEdgeX - pillW;
 
       // Lit when hovered (via this pill OR the floating dot) OR when this todo's
       // drawer is open — keeps the marginalia leader edges highlighted.
       const isHovered = hoveredMarginaliaId === todo.id || hoveredTodoId === todo.id || openTodoId === todo.id;
 
-      // Leader lines to anchor node dots — highlighted on hover.
+      // Leader lines to anchor node dots — highlighted on hover. They leave
+      // from the pill's RIGHT edge (the side facing the frame).
       const nodeIdxs = todo._nodeIdxs || [];
       nodeIdxs.forEach(idx => {
         const p = nodePx(nodes[idx]);
@@ -1664,7 +1715,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         ctx.lineWidth = isHovered ? 1.2 : 0.6;
         ctx.setLineDash([2, 3]);
         ctx.beginPath();
-        ctx.moveTo(pillX, pillY + pillH / 2);
+        ctx.moveTo(pillX + pillW, pillY + pillH / 2);
         ctx.lineTo(p.x, p.y);
         ctx.stroke();
         ctx.setLineDash([]);
@@ -1720,10 +1771,49 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         frameId,
       });
 
-      pillY += pillH + 8;
+      pillY += pillH + MARGINALIA_GAP;
     });
+    if (todos.length > todoShown) {
+      drawViewAllPill('left', leftEdgeX, pillY, todos.length, 'todos', frameId, alphaMult);
+    }
 
     ctx.restore();
+  }
+
+  /** Overflow pill — "View all (N)". Clicking it opens the records drawer
+   *  scoped to this frame (callbacks.onViewAll). Drawn in Sans: it's a button,
+   *  not a record label. */
+  function drawViewAllPill(side, anchorX, pillY, total, tab, frameId, alphaMult) {
+    const pillH = MARGINALIA_PILL_H;
+    const padX = 10;
+    ctx.save(); // font switches to Sans here; restore() hands mono back to the caller
+    ctx.font = '500 10px "Geist", sans-serif';
+    const label = `View all (${total})`;
+    const labelW = ctx.measureText(label).width;
+    const pillW = padX + labelW + padX;
+    const pillX = side === 'right' ? anchorX : anchorX - pillW;
+    const id = `viewall:${tab}:${frameId}`;
+    const isHovered = hoveredMarginaliaId === id;
+
+    const bg = pillBgRGB();
+    ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, ${(isHovered ? 1 : 0.85) * alphaMult})`;
+    roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.fill();
+
+    const bd = frameBorderRGB();
+    ctx.strokeStyle = `rgba(${bd[0]}, ${bd[1]}, ${bd[2]}, ${(isHovered ? 0.55 : 0.3) * alphaMult})`;
+    ctx.lineWidth = 1;
+    roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.stroke();
+
+    const tx = pillTextRGB();
+    ctx.fillStyle = `rgba(${tx[0]}, ${tx[1]}, ${tx[2]}, ${0.92 * alphaMult})`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, pillX + padX, pillY + pillH / 2);
+    ctx.restore();
+
+    marginaliaRects.push({ type: 'viewall', id, tab, frameId, x: pillX, y: pillY, w: pillW, h: pillH });
   }
 
   function drawEdges() {
@@ -1742,10 +1832,10 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       // shared method.
       const baseAlpha = e.interFrame ? 0.09 : 0.15;
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
-      const alpha = baseAlpha * wScale * (isLight() ? 2.2 : 1);
+      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1);
 
       ctx.save();
-      const eb = frameBorderRGB();
+      const eb = edgeRGB();
       ctx.strokeStyle = `rgba(${eb[0]}, ${eb[1]}, ${eb[2]}, ${alpha})`;
       ctx.lineWidth = 0.6;
       ctx.beginPath();
@@ -2009,6 +2099,29 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     ctx.closePath();
   }
 
+  /** End-truncation with ellipsis — for labels whose PREFIX carries the
+   *  identity (marginalia: "D-12 · summary…"). Runs inside the rAF loop for
+   *  every visible pill, so results are memoized: inputs are stable per label
+   *  (fixed 10px mono font, constant MARGINALIA_MAX_W-derived width). */
+  const truncateCache = new Map();
+  function truncateEnd(ctx, text, maxWidth) {
+    const key = maxWidth + '|' + text;
+    const hit = truncateCache.get(key);
+    if (hit !== undefined) return hit;
+    let out = '…';
+    if (ctx.measureText(text).width <= maxWidth) {
+      out = text;
+    } else {
+      for (let keep = text.length - 1; keep >= 1; keep--) {
+        const candidate = text.slice(0, keep).trimEnd() + '…';
+        if (ctx.measureText(candidate).width <= maxWidth) { out = candidate; break; }
+      }
+    }
+    if (truncateCache.size > 500) truncateCache.clear(); // labels churn on live updates; keep it bounded
+    truncateCache.set(key, out);
+    return out;
+  }
+
   function truncateMiddle(ctx, text, maxWidth) {
     if (ctx.measureText(text).width <= maxWidth) return text;
     const ell = '…';
@@ -2142,9 +2255,12 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     viewTransform = computeViewTransform();
-    drawFrames(now);
+    // Edges are the lowest layer — everything (frames, nodes, marginalia)
+    // reads on top of the connectivity web, not under it.
     drawEdges();
+    drawFrames(now);
     drawNodes(now);
+    drawMarginalia();
     if (showDecisions) drawFloatingDecisionNodes(now);
     else decisionNodeRects.length = 0;
     if (showTodos) drawFloatingTodoNodes(now);

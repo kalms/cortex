@@ -28,7 +28,7 @@ export function Drawer() {
         {top.kind === "record" && top.type === "decision" && <DecisionView id={top.id} />}
         {top.kind === "record" && top.type === "todo" && <TodoView id={top.id} />}
         {top.kind === "record" && top.type === "file" && <FileCard path={top.id} symbol={top.symbol} />}
-        {top.kind === "list" && <ListView tab={top.tab} />}
+        {top.kind === "list" && <ListView tab={top.tab} frameId={top.frameId} />}
       </>)}
     </div>
   );

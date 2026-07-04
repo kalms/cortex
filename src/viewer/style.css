@@ -266,7 +266,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: var(--mono);
+    font-family: var(--sans);
     font-size: 14px;
     line-height: 1;
     padding: 0;
@@ -458,9 +458,10 @@
     gap: 6px;
     align-items: center;
   }
+  /* Buttons speak Sans (like headlines); Mono is reserved for data/ids. */
   .toolbar select,
   .toolbar button {
-    font-family: var(--mono);
+    font-family: var(--sans);
     font-size: 11px;
     padding: 5px 8px;
     background: var(--bg-card);
@@ -694,7 +695,7 @@ body.light .ps-item.active { background: rgba(var(--accent-rgb), 0.12); }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 14px;
   line-height: 1;
   padding: 0;
@@ -805,7 +806,7 @@ body.light .dc-symbol.highlighted { border-color: var(--text-2); }
   margin-top: 12px;
 }
 .dc-list-tab {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 10.5px;
   padding: 4px 10px;
   border-radius: 4px;
@@ -826,6 +827,26 @@ body.light .dc-symbol.highlighted { border-color: var(--text-2); }
   background: rgba(255, 255, 255, 0.05);
 }
 body.light .dc-list-tab.active { background: rgba(0, 0, 0, 0.05); }
+
+/* Frame-scope label in the records header ("records · <frame>") — truncates
+   so a long frame name can't blow out the drawer header row. */
+.dc-list-frame {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dc-scope-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-4);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.dc-scope-clear:hover { color: var(--text); }
 
 .dc-list-body {
   padding: 8px 10px 28px;

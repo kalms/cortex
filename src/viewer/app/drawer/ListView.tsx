@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUiStore } from "../ui-store";
 import { push, openReplace } from "./drawer-stack";
 import { listRows } from "./selectors";
@@ -11,7 +11,7 @@ const TABS = ["all", "decisions", "todos"] as const;
 // the top). Per-tab granularity is not required.
 let listScrollTop = 0;
 
-export function ListView({ tab }: { tab: "all" | "decisions" | "todos" }) {
+export function ListView({ tab, frameId }: { tab: "all" | "decisions" | "todos"; frameId?: string }) {
   const bundle = useUiStore((s) => s.bundle);
   const set = useUiStore((s) => s.set);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -25,7 +25,9 @@ export function ListView({ tab }: { tab: "all" | "decisions" | "todos" }) {
     bodyRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const rows = bundle ? listRows(bundle, tab) : [];
+  // Memoized: sel changes re-render on every arrow key / row hover, and the
+  // frame-scoped filter walks every record's governs refs.
+  const rows = useMemo(() => (bundle ? listRows(bundle, tab, frameId) : []), [bundle, tab, frameId]);
   // Rows shrink when switching tabs or on live updates; keep sel in range.
   const selIdx = Math.min(sel, Math.max(0, rows.length - 1));
   const rowsRef = useRef(rows);
@@ -62,12 +64,22 @@ export function ListView({ tab }: { tab: "all" | "decisions" | "todos" }) {
   }, [selIdx]);
 
   if (!bundle) return null;
+  // frameMeta is the canonical id → name index (covers frames the x!==null
+  // render filter dropped); bundle.frames would miss those.
+  const frameName = frameId
+    ? (bundle.frameMeta?.get?.(frameId)?.name ?? frameId)
+    : null;
   return (<>
     <div className="dc-header"><div className="dc-id-block">
-      <div className="dc-id-row"><span className="dc-id">records</span></div>
+      <div className="dc-id-row">
+        <span className="dc-id">records</span>
+        {frameName && <span className="dc-id dc-list-frame" title="scoped to frame">· {frameName}</span>}
+        {frameName && <button className="dc-scope-clear" aria-label="clear frame filter" title="clear frame filter"
+          onClick={() => set({ drawerStack: openReplace([], { kind: "list", tab }) })}>×</button>}
+      </div>
       <div className="dc-list-tabs">{TABS.map((t) => (
         <button key={t} className={`dc-list-tab${t === tab ? " active" : ""}`}
-          onClick={() => set({ drawerStack: openReplace([], { kind: "list", tab: t }) })}>{t}</button>))}
+          onClick={() => set({ drawerStack: openReplace([], { kind: "list", tab: t, frameId }) })}>{t}</button>))}
       </div>
     </div></div>
     <div className="dc-body dc-list-body" ref={bodyRef} tabIndex={-1}

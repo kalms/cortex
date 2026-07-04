@@ -19,6 +19,16 @@ describe("adaptProjectData", () => {
     expect(b.rawNodes).toHaveLength(1);
     expect(b.rawFrameMap).toBe(frameMap);
   });
+  it("folds decision file-kind governs into frameGovernance via membership", () => {
+    const decs = { decisions: [
+      { id: "d1", summary: "frame ref", state: "active", governs: [{ kind: "frame", id: 1 }] },
+      { id: "d2", summary: "file ref", state: "active", governs: [{ kind: "file", path: "src/a.ts" }] },
+      { id: "d3", summary: "unresolvable", state: "active", governs: [{ kind: "file", path: "elsewhere/x.ts" }] },
+    ] };
+    const b = adaptProjectData({ graph, decs, aggs: { aggregates: [] },
+      fileEdges: { file_edges: [] }, frameMap, todosResp: { todos: [] } });
+    expect(b.frameGovernance["1"]).toEqual(["d1", "d2"]);
+  });
   it("keeps closed todos in allTodos but not in the ambient todo map", () => {
     const todosResp = { todos: [
       { id: "t1", seq: 1, summary: "open", state: "proposed", governs: [] },
