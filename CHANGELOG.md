@@ -18,6 +18,25 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.4] — 2026-07-04
+
+### Fixed
+
+- **Light-mode contrast for tinted frames** — the 1.4.2 light-mode contrast
+  pass only reached the untinted (neutral) draw path; the layer-lens tint
+  branches divided the same light-mode boosts back out of their alpha math, so
+  with the layer tint on the layer hues washed out to near-invisible on the
+  light page. Light mode now keeps the true layer hue and raises the rest-state
+  tint alpha to roughly the old hover level (so the resting frame reads the way
+  hovering used to). The untinted (neutral) light-mode frame contrast was eased
+  down a notch to match — pure-black borders/ink read heavier per unit alpha
+  than the lighter coloured hues, so tint-on and tint-off now sit at the same
+  perceived weight. Dark-mode tint is unchanged.
+- **Uniform toolbar button height** — the viewer's toolbar controls (project
+  switcher, search, records, layers, theme toggle) are now a fixed 28px with
+  flex-centered content, so the `◐` theme toggle's taller glyph line box no
+  longer left it ~2.5px taller than the text buttons.
+
 ## [1.4.3] — 2026-07-04
 
 ### Fixed
@@ -1317,6 +1336,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.4]: https://github.com/ruevu/cortex/releases/tag/v1.4.4
 [1.4.3]: https://github.com/ruevu/cortex/releases/tag/v1.4.3
 [1.4.2]: https://github.com/ruevu/cortex/releases/tag/v1.4.2
 [1.4.1]: https://github.com/ruevu/cortex/releases/tag/v1.4.1
