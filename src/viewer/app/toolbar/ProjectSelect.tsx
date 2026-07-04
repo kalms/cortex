@@ -49,7 +49,7 @@ export function ProjectSelect() {
         aria-controls="project-select-listbox"
         aria-activedescendant={open && projects[focusIdx] ? `ps-opt-${focusIdx}` : undefined}
         onClick={() => (open ? setOpen(false) : openMenu())}>
-        {active ? projectDisplayName(active) : "(no projects)"}
+        <span className="ps-btn-label">{active ? projectDisplayName(active) : "(no projects)"}</span>
         <span className="ps-caret">▾</span>
       </button>
       {open && (

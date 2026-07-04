@@ -3,16 +3,11 @@ import { LayersMenu } from "./LayersMenu";
 import { ProjectSelect } from "./ProjectSelect";
 
 export function Toolbar() {
-  const syncStatus = useUiStore((s) => s.syncStatus);
-  const syncVisible = useUiStore((s) => s.syncVisible);
   const theme = useUiStore((s) => s.theme);
   const set = useUiStore((s) => s.set);
 
   return (
     <div className="toolbar">
-      <span id="sync-indicator" className={`sync-indicator ${syncStatus}`} hidden={!syncVisible}>
-        <i className="dot" /><span className="word">{syncStatus}</span>
-      </span>
       <ProjectSelect />
       <button id="palette-btn" title="Search (⌘K)"
         onClick={() => set({ paletteOpen: true })}>

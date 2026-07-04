@@ -10,6 +10,8 @@ export function App() {
   const layerPrefs = useUiStore((s) => s.layerPrefs);
   const drawerStack = useUiStore((s) => s.drawerStack);
   const framesWarning = useUiStore((s) => s.framesWarning);
+  const syncStatus = useUiStore((s) => s.syncStatus);
+  const syncVisible = useUiStore((s) => s.syncVisible);
 
   useEffect(() => { document.body.classList.toggle("light", theme === "light"); }, [theme]);
   useEffect(() => {
@@ -58,6 +60,11 @@ export function App() {
       <button className="frames-warning-dismiss" aria-label="Dismiss"
         onClick={() => useUiStore.getState().set({ framesWarning: null })}>×</button>
     </div>}
-    <div className="logo-mark"><div className="word">cortex</div></div>
+    <div className="logo-mark">
+      <div className="word">cortex</div>
+      <span id="sync-indicator" className={`sync-indicator ${syncStatus}`} hidden={!syncVisible}>
+        <i className="dot" /><span className="word">{syncStatus}</span>
+      </span>
+    </div>
   </>);
 }
