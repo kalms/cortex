@@ -16,6 +16,7 @@ export function Palette() {
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const entries = useMemo(() => (bundle ? buildSearchIndex(bundle, projects) : []), [bundle, projects]);
   // Own memo so a fresh-array-per-render `actions` doesn't defeat the `groups`
@@ -49,6 +50,27 @@ export function Palette() {
   useEffect(() => {
     resultsRef.current?.querySelector(".palette-item.selected")?.scrollIntoView({ block: "nearest" });
   }, [sel]);
+  // Focus trap: window-level (capture) because clicking the results area blurs
+  // the input to <body>, so a handler on the palette div would never see the Tab.
+  useEffect(() => {
+    if (!open) return;
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const root = rootRef.current;
+      if (!root) return;
+      const focusables = Array.from(root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input, textarea, select, [tabindex]:not([tabindex="-1"])',
+      ));
+      if (!focusables.length) { e.preventDefault(); return; }
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !root.contains(active)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", onTab, true);
+    return () => window.removeEventListener("keydown", onTab, true);
+  }, [open]);
   if (!open) return null;
 
   const execute = (e: IndexEntry) => {
@@ -76,11 +98,13 @@ export function Palette() {
   let idx = -1;
   return (
     <div className="palette-overlay" onClick={() => set({ paletteOpen: false })}>
-      <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div className="palette" ref={rootRef} role="dialog" aria-modal="true" aria-label="Command palette"
+        onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="palette-header">JUMP TO</div>
         <div className="palette-input-row">
           <span className="palette-glyph">⌕</span>
-          <input ref={inputRef} value={query} placeholder="Search files, symbols, decisions, todos…"
+          <input ref={inputRef} id="palette-input" aria-label="Search files, symbols, decisions, todos"
+            value={query} placeholder="Search files, symbols, decisions, todos…"
             onChange={(e) => setQuery(e.target.value)} />
         </div>
         <div className="palette-results" ref={resultsRef}>

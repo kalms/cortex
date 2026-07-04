@@ -630,8 +630,8 @@ body.light .project-select-menu { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10); }
   cursor: pointer;
   overflow: hidden;
 }
-.ps-item:hover { background: rgba(255, 255, 255, 0.04); }
-body.light .ps-item:hover { background: rgba(0, 0, 0, 0.04); }
+.ps-item:hover, .ps-item.focused { background: rgba(255, 255, 255, 0.04); }
+body.light .ps-item:hover, body.light .ps-item.focused { background: rgba(0, 0, 0, 0.04); }
 .ps-item.active { background: rgba(255, 255, 255, 0.06); }
 body.light .ps-item.active { background: rgba(0, 0, 0, 0.06); }
 .ps-name {
