@@ -463,7 +463,15 @@
   .toolbar button {
     font-family: var(--sans);
     font-size: 11px;
-    padding: 5px 8px;
+    /* Fixed height + flex-centering so every control matches #theme-toggle
+       regardless of content (glyph vs text vs caret) — content-driven line
+       boxes previously left the ◐ toggle ~2.5px taller than the text buttons.
+       No justify-content here: .project-select-btn keeps its own space-between. */
+    height: 28px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
     background: var(--bg-card);
     color: var(--text);
     border: 1px solid var(--border-2);

@@ -1450,28 +1450,41 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         // soft gray panel, clearly visible on #fafafa (was white-on-white).
         // One scale constant, shared with the tint normalization below (same
         // pattern as borderBase) so a retune can't drift the two apart.
-        const fillScale = isLight() ? 0.22 : 1;
+        const fillScale = isLight() ? 0.20 : 1;
         const fillAlphaActual = fillAlpha * fillScale;
         if (lc) {
-          // Layer tint: hue at the spec's quiet alpha, scaled by the same dim/hover factors.
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.032 * (fillAlphaActual / (0.25 * fillScale))})`;
+          // Keep the TRUE layer hue in both modes (darkening it killed the
+          // colour identity). Light mode just raises the rest alpha to ~the
+          // old hover level, since a light-page tint at the dark-canvas alpha
+          // was near-invisible. Dark: unchanged quiet hue.
+          const tintFillAlpha = isLight()
+            ? 0.08 * (fillAlpha / 0.25)
+            : 0.032 * (fillAlphaActual / (0.25 * fillScale));
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintFillAlpha})`;
         } else {
           ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
-        // Light mode gets a higher border floor (0.115 × 3 ≈ 0.35 idle): the
-        // old 0.24 idle black read too faint against the light page.
+        // Light mode gets a higher border floor (0.115 × 2.4 ≈ 0.28 idle): the
+        // old 0.24 idle black read too faint against the light page. Pulled
+        // down from ×3 so the pure-black neutral border sits at the same
+        // perceived weight as the (lighter) coloured tint borders — black
+        // reads heavier per unit alpha than a mid-lightness hue.
         const borderBase = isLight() ? 0.115 : 0.08;
         const baseBorderAlpha = borderBase + 0.15 * liveFx.frameHeat(frame.id, now);
         const focusBoost = isFocused ? 0.12 : 0;
         const hoverBorderBoost = hoverLevel * 0.2;
-        const borderAlphaMult = isLight() ? 3.0 : 1;
+        const borderAlphaMult = isLight() ? 2.4 : 1;
         const borderAlpha = (baseBorderAlpha + focusBoost + hoverBorderBoost) * (1 - dimLevel * 0.5) * borderAlphaMult * alphaMul;
 
         const fb = frameBorderRGB();
         if (lc) {
-          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${0.22 * (borderAlpha / (borderBase * borderAlphaMult))})`;
+          // True hue; light mode's rest alpha ≈ the old hover level (was 0.22).
+          const tintBorderAlpha = isLight()
+            ? Math.min(0.95, 0.58 * (borderAlpha / (borderBase * borderAlphaMult)))
+            : 0.22 * (borderAlpha / (borderBase * borderAlphaMult));
+          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintBorderAlpha})`;
         } else {
           ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
         }
@@ -1481,7 +1494,8 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
         const isLabelHovered = hoveredLabelFrameId === frame.id;
         // Light mode labels sit a step brighter — 0.5 dark ink washed out on the light page.
-        const labelBase = isLight() ? 0.66 : 0.5;
+        // Eased down from 0.66 to sit level with the coloured tint labels.
+        const labelBase = isLight() ? 0.60 : 0.5;
         const labelAlpha = labelBase * (1 - dimLevel * 0.55) * alphaMul;
         const hoverBoost = isLabelHovered ? (1 - labelAlpha) * 0.85 : 0;
         const labelAlphaFinal = Math.min(1, labelAlpha + hoverBoost);
@@ -1509,7 +1523,11 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         const pathText = truncateMiddle(ctx, frame.name, leftBudget);
         const pl = primaryLabelRGB();
         if (lc) {
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${Math.min(1, 0.55 * (labelAlphaFinal / labelBase))})`;
+          // True hue; light mode's rest alpha ≈ the old hover level (was 0.55).
+          const tintLabelAlpha = isLight()
+            ? Math.min(1, 0.82 * (labelAlphaFinal / labelBase))
+            : Math.min(1, 0.55 * (labelAlphaFinal / labelBase));
+          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintLabelAlpha})`;
         } else {
           ctx.fillStyle = `rgba(${pl[0]}, ${pl[1]}, ${pl[2]}, ${labelAlphaFinal})`;
         }
