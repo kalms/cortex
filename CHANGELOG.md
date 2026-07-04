@@ -18,6 +18,32 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.3] — 2026-07-04
+
+### Fixed
+
+- **Stale graph reads in `query_graph`/`search_graph`/`get_graph_schema`** —
+  the pinned indexer is bumped to
+  [cortex-indexer v0.3.1](https://github.com/ruevu/cortex-indexer/releases/tag/v0.3.1),
+  whose query routing now honors the `CORTEX_DB` env var Cortex sets per call.
+  Previously the C binary always read the shared cache copy
+  (`~/.cache/cortex-indexer/<project>.db`), which could be arbitrarily stale
+  relative to the repo's canonical `.cortex/db` — queries missed anything
+  indexed since the cache was last written. Routing falls back to the cache
+  when the env-named DB doesn't contain the requested project, so
+  cross-project queries keep working.
+- **`n.kind` in Cypher queries** — the indexer's Cypher engine now resolves
+  `kind` (the documented NodeSchema property and SQL column name) as an alias
+  of the internal `label` field, in both `WHERE` and `RETURN`; it previously
+  returned an empty string.
+- **Double-wrapped bridged-tool responses** — successful `query_graph`/
+  `get_architecture`/`ingest_traces`/`detect_changes` calls returned the
+  indexer CLI's MCP envelope re-wrapped inside `content[0].text`;
+  `invokeIndexer` now unwraps the envelope so clients get the payload
+  directly. This was masked because the success path never executed against
+  fixture repos before the routing fix; it also silently broke the
+  hotspots-aspect merge and the `index_status` cache fallback.
+
 ## [1.4.2] — 2026-07-04
 
 ### Added
@@ -1291,6 +1317,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.3]: https://github.com/ruevu/cortex/releases/tag/v1.4.3
 [1.4.2]: https://github.com/ruevu/cortex/releases/tag/v1.4.2
 [1.4.1]: https://github.com/ruevu/cortex/releases/tag/v1.4.1
 [1.4.0]: https://github.com/ruevu/cortex/releases/tag/v1.4.0
