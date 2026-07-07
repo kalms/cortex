@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { RefPill } from "./RefPill";
-import { decisionDisplayId, todoDisplayId } from "../display";
+import { decisionDisplayId, todoDisplayId, formatRelativeDate } from "../display";
 import { entityStore } from "../CanvasHost";
 import { useUiStore } from "../ui-store";
 
@@ -21,7 +21,7 @@ export function DecisionView({ id }: { id: string }) {
         {(dec.id || dec.proposedBy || dec.proposedAt) && (
           <div className="dc-provenance">
             {[dec.id && `id ${dec.id}`, dec.proposedBy && <>proposed by <span className="agent">@{dec.proposedBy}</span></>,
-              dec.proposedAt && `on ${dec.proposedAt}`].filter(Boolean)
+              dec.proposedAt && formatRelativeDate(dec.proposedAt)].filter(Boolean)
               .map((part, i) => <span key={i}>{i > 0 && " · "}{part}</span>)}
           </div>)}
         {isRemoved && <div className="dc-removed-note">this decision was removed · view is a snapshot</div>}
