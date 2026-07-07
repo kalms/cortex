@@ -107,11 +107,15 @@ describe("RepoContextResolver.resolve — error paths", () => {
     }
   });
 
-  it("throws NotAGitRepoError when path is not a git root", () => {
+  it("throws RepoNotIndexedError (not NotAGitRepoError) for a non-git, unindexed path — T-119", () => {
+    // Post-T-119, resolve() never throws NotAGitRepoError: a path outside any
+    // git repo routes by its own realpath instead of being rejected, so an
+    // unindexed non-git dir surfaces the same RepoNotIndexedError a genuinely
+    // non-git-but-indexed dir would clear (see resolve-canonical.test.ts).
     const dir = mkdtempSync(join(tmpdir(), "not-a-repo-"));
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
-      expect(() => resolver.resolve(dir)).toThrow(NotAGitRepoError);
+      expect(() => resolver.resolve(dir)).toThrow(RepoNotIndexedError);
     } finally {
       resolver.shutdown();
     }
