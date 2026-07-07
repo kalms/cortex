@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useUiStore } from "../ui-store";
 import { push, openReplace } from "./drawer-stack";
 import { listRows } from "./selectors";
+import { formatRelativeDate } from "../display";
 
 const TABS = ["all", "decisions", "todos"] as const;
 
@@ -93,7 +94,7 @@ export function ListView({ tab, frameId }: { tab: "all" | "decisions" | "todos";
           <span className={`dc-list-dot ${r.type} ${r.state}`} />
           <span className="dc-list-id">{r.displayId}</span>
           <span className="dc-list-title">{r.title}</span>
-          <span className="dc-list-date">{r.date}</span>
+          <span className="dc-list-date">{formatRelativeDate(r.date)}</span>
         </div>))}
       {rows.length === 0 && <div className="dc-list-empty">no records</div>}
     </div>

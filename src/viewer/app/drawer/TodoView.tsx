@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { RefPill } from "./RefPill";
-import { todoDisplayId } from "../display";
+import { todoDisplayId, formatRelativeDate } from "../display";
 import { entityStore } from "../CanvasHost";
 import { useUiStore } from "../ui-store";
 import { resolveTodo } from "./selectors";
@@ -21,7 +21,7 @@ export function TodoView({ id }: { id: string }) {
         {(t.id || t.proposedBy || t.proposedAt) && (
           <div className="dc-provenance">
             {[t.id && `id ${t.id}`, t.proposedBy && <>proposed by <span className="agent">@{t.proposedBy}</span></>,
-              t.proposedAt && `on ${t.proposedAt}`].filter(Boolean)
+              t.proposedAt && formatRelativeDate(t.proposedAt)].filter(Boolean)
               .map((part, i) => <span key={i}>{i > 0 && " · "}{part}</span>)}
           </div>)}
         {isRemoved && <div className="dc-removed-note">this todo was removed · view is a snapshot</div>}
