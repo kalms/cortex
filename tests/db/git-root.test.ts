@@ -1,10 +1,10 @@
 // tests/db/git-root.test.ts
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, realpathSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { mkdtempSync, rmSync, realpathSync, mkdirSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mainWorktreeRoot } from "../../src/db/git-root.js";
+import { mainWorktreeRoot, canonicalRepoPath } from "../../src/db/git-root.js";
 
 describe("mainWorktreeRoot", () => {
   let root: string;
@@ -37,5 +37,45 @@ describe("mainWorktreeRoot", () => {
     const bare = realpathSync(mkdtempSync(join(tmpdir(), "cortex-nogit-")));
     try { expect(mainWorktreeRoot(bare)).toBeNull(); }
     finally { rmSync(bare, { recursive: true, force: true }); }
+  });
+});
+
+function gitRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "cortex-canon-"));
+  execSync(`git init -q "${root}"`);
+  execSync(`git -C "${root}" commit -q --allow-empty -m init`);
+  return realpathSync(root);
+}
+
+describe("canonicalRepoPath", () => {
+  let root: string;
+  beforeAll(() => { root = gitRepo(); });
+
+  it("returns the root unchanged for the git root itself", () => {
+    expect(canonicalRepoPath(root)).toBe(root);
+  });
+
+  it("collapses a subdir to the git root", () => {
+    const sub = join(root, "packages", "app");
+    mkdirSync(sub, { recursive: true });
+    expect(canonicalRepoPath(sub)).toBe(root);
+  });
+
+  it("collapses a worktree to the canonical root", () => {
+    const wt = join(tmpdir(), `cortex-canon-wt-${Date.now()}`);
+    execSync(`git -C "${root}" worktree add -q "${wt}"`);
+    expect(canonicalRepoPath(wt)).toBe(root);
+    mkdirSync(join(wt, "packages"), { recursive: true });
+    expect(canonicalRepoPath(join(wt, "packages"))).toBe(root); // existing worktree subdir → canonical root
+  });
+
+  it("returns the realpath for a non-git directory", () => {
+    const plain = mkdtempSync(join(tmpdir(), "cortex-nogit-"));
+    expect(canonicalRepoPath(plain)).toBe(realpathSync(plain));
+  });
+
+  it("returns an absolute path for a non-existent non-git path without throwing", () => {
+    const missing = join(tmpdir(), "cortex-does-not-exist-xyz");
+    expect(canonicalRepoPath(missing)).toBe(missing);
   });
 });
