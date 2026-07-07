@@ -66,12 +66,19 @@ reasoning about. Per-call `repo_path` fixes that. See the
 | Error | Meaning | Payload |
 |---|---|---|
 | `MissingRepoPathError` | Tool called without `repo_path` | `available_projects: { name, path, indexed }[]` |
-| `RepoNotIndexedError` | Valid git root but no `.cortex/db` | same `available_projects` payload |
+| `RepoNotIndexedError` | Canonical git root, or a non-git path, has no `.cortex/db` | same `available_projects` payload |
 | `PathNotFoundError` | Path doesn't exist | — |
-| `NotAGitRepoError` | Path is inside a repo but not the root | inferred `gitRoot` |
+| `NotAGitRepoError` | No longer thrown for a subdir/worktree — those canonicalize to the repo root instead (T-119) | inferred `gitRoot` |
 
 `available_projects` lets an agent self-correct without a second
 `list_projects` round-trip.
+
+A subdirectory or linked worktree passed as `repo_path` canonicalizes to the
+repo's main-worktree root before resolution, so it no longer raises
+`NotAGitRepoError`; a genuinely non-git path resolves to its own store, or
+`RepoNotIndexedError` if unindexed. `cortex doctor` audits the project
+registry for orphan entries left over from before this collapse (dry-run by
+default; `--fix` removes them).
 
 ---
 
@@ -245,12 +252,16 @@ Manage the `.cortex/db` graph store and the machine-wide project registry.
 Build (or incrementally update) the knowledge graph for a repo.
 - **Params:** `repo_path`, `mode?` (`fast` | `moderate` | `full`, default
   `full`).
-- **Behavior:** builds into a private staging DB (`.cortex/db.stage-<pid>`),
-  runs frame + contract extraction against it, then **atomically publishes**
-  into `.cortex/db` via a single WAL transaction (`publishStagedDb`) so the
-  live file is never truncated under the server's open handle. Uses a
-  content-hash build cache and serializes concurrent CLI/MCP indexing with
-  `withIndexLock`. Registered `allowUnindexed`.
+- **Behavior:** canonicalizes `repo_path` to the repo's main-worktree root
+  before deriving name/db/staging/registry, so indexing a subdirectory or a
+  linked worktree collapses onto the one canonical index instead of creating
+  an orphan sub-project (T-119); builds into a private staging DB
+  (`.cortex/db.stage-<pid>`), runs frame + contract extraction against it,
+  then **atomically publishes** into `.cortex/db` via a single WAL
+  transaction (`publishStagedDb`) so the live file is never truncated under
+  the server's open handle. Uses a content-hash build cache and serializes
+  concurrent CLI/MCP indexing with `withIndexLock`. Registered
+  `allowUnindexed`.
 - **Why:** this is the tool that brings a repo's graph online and keeps it
   current. See [graph-storage.md](architecture/graph-storage.md#write-path-staging-build--transactional-publish).
 

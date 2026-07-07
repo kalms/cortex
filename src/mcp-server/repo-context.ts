@@ -203,12 +203,13 @@ export class RepoContextResolver {
    * If the supplied path is a `git worktree add` worktree (or the canonical
    * repo itself), the resolver routes to the **canonical repo's `.cortex/`**
    * — every worktree of the same repo shares one `RepoContext`, one pair of
-   * DB handles, and one pool entry. Mechanism: `git rev-parse --git-common-dir`
-   * returns the shared `.git/` directory (relative `.git` from canonical, or
-   * absolute `/<canonical>/.git` from inside a worktree); resolving it
-   * against the input and taking its dirname yields the canonical root.
-   * `ctx.repoPath` always reports the canonical root, never the worktree
-   * path the caller passed.
+   * DB handles, and one pool entry. Mechanism (now performed by
+   * `mainWorktreeRoot` in `src/db/git-root.ts`, not inline here): `git
+   * rev-parse --git-common-dir` returns the shared `.git/` directory
+   * (relative `.git` from canonical, or absolute `/<canonical>/.git` from
+   * inside a worktree); resolving it against the input and taking its
+   * dirname yields the canonical root. `ctx.repoPath` always reports the
+   * canonical root, never the worktree path the caller passed.
    *
    * Why: cortex's invariant is "one index per repo, shared across all
    * worktrees." Worktrees model in-flight branches/PRs against the same
