@@ -18,6 +18,19 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.5] — 2026-07-07
+
+### Fixed
+
+- **Human-readable record timestamps in the viewer** — decision/todo
+  `proposedAt` values rendered as raw ISO strings in the records list, the
+  decision drawer, and the todo drawer. A shared `formatRelativeDate` helper
+  now shows relative time for recent records (`1 min ago`, `2 days ago`) and
+  falls back to an absolute clock (`January 21, 2026 2:34pm`) once the gap
+  reaches 3 days. The list still sorts on the raw ISO, so newest-first order is
+  unchanged; the drawer provenance drops its awkward `on ` prefix
+  (`proposed by @agent · 2 days ago`).
+
 ## [1.4.4] — 2026-07-04
 
 ### Fixed
@@ -1336,6 +1349,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.5]: https://github.com/ruevu/cortex/releases/tag/v1.4.5
 [1.4.4]: https://github.com/ruevu/cortex/releases/tag/v1.4.4
 [1.4.3]: https://github.com/ruevu/cortex/releases/tag/v1.4.3
 [1.4.2]: https://github.com/ruevu/cortex/releases/tag/v1.4.2
