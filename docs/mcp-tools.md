@@ -68,7 +68,7 @@ reasoning about. Per-call `repo_path` fixes that. See the
 | `MissingRepoPathError` | Tool called without `repo_path` | `available_projects: { name, path, indexed }[]` |
 | `RepoNotIndexedError` | Canonical git root, or a non-git path, has no `.cortex/db` | same `available_projects` payload |
 | `PathNotFoundError` | Path doesn't exist | — |
-| `NotAGitRepoError` | No longer thrown for a subdir/worktree — those canonicalize to the repo root instead (T-119) | inferred `gitRoot` |
+| `NotAGitRepoError` | Retained for back-compat; no longer thrown — subdirs/worktrees canonicalize to the repo root, non-git paths route to themselves (T-119) | inferred `gitRoot` |
 
 `available_projects` lets an agent self-correct without a second
 `list_projects` round-trip.
