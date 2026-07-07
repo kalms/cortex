@@ -37,8 +37,9 @@ export function resolveCortexDbPath(startDir?: string): string {
     if (override) return override;
     startDir = process.cwd();
   }
-  const gitRoot = findGitRoot(startDir);
-  const base = gitRoot ?? startDir;
+  // Worktree-aware: a worktree or subdir collapses to the canonical main root
+  // (mainWorktreeRoot uses git --git-common-dir); non-git dirs route to self.
+  const base = mainWorktreeRoot(startDir) ?? startDir;
   return join(base, ".cortex", "db");
 }
 
@@ -104,13 +105,13 @@ function isOpenableSqlite(dbPath: string): boolean {
  * all; the caller raises RepoNotIndexedError.
  */
 export function resolveGraphDbForRead(repoPath: string): string | null {
-  const gitRoot = findGitRoot(repoPath) ?? repoPath;
-  const cortexDb = join(gitRoot, ".cortex", "db");
+  const root = mainWorktreeRoot(repoPath) ?? repoPath;
+  const cortexDb = join(root, ".cortex", "db");
   if (existsSync(cortexDb) && isOpenableSqlite(cortexDb)) return cortexDb;
 
   const legacy = [
-    join(gitRoot, ".cortex", "graph.db"),
-    join(homedir(), ".cache", "cortex-indexer", `${cacheSlug(gitRoot)}.db`),
+    join(root, ".cortex", "graph.db"),
+    join(homedir(), ".cache", "cortex-indexer", `${cacheSlug(root)}.db`),
   ];
   const existing = legacy.filter(existsSync);
   const populated = existing.find(hasNodes);
