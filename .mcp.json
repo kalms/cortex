@@ -2,7 +2,7 @@
   "mcpServers": {
     "cortex": {
       "command": "bash",
-      "args": ["-c", "exec \"${CLAUDE_PLUGIN_ROOT:-$PWD}/bin/cortex-mcp.sh\""]
+      "args": ["-c", "R=\"${CLAUDE_PLUGIN_ROOT}\"; case \"$R\" in ''|*'${'*) R=\"$PWD\";; esac; exec \"$R/bin/cortex-mcp.sh\""]
     }
   }
 }

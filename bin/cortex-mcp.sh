@@ -1,37 +1,50 @@
 #!/usr/bin/env bash
 # Entry point for the Cortex MCP server.
 #
-# This script is invoked from TWO contexts; both land at the same
-# `exec npx tsx src/index.ts` after locating the repo root.
+# Invoked from TWO contexts; both resolve the repo root and `exec npx tsx
+# src/index.ts` from it:
 #
-#   1. Plugin context — Claude Code spawns this from
-#      ~/.claude/plugins/cache/cortex-local/cortex/<version>/.mcp.json.
-#      Claude Code sets $CLAUDE_PLUGIN_ROOT in the child env; we use it
-#      directly. (Runs the cached/published plugin version.)
+#   1. Plugin context — Claude Code spawns this from the installed plugin's
+#      bundled .mcp.json. Claude Code locates the plugin directory by
+#      STRING-SUBSTITUTING the literal `${CLAUDE_PLUGIN_ROOT}` token in the
+#      .mcp.json values before spawn. Two things it does NOT do (both learned
+#      the hard way — MCP error -32000, Connection closed):
+#        - it does NOT export CLAUDE_PLUGIN_ROOT into this process's env, and
+#        - it only substitutes the EXACT bare token, not the bash-style
+#          `${CLAUDE_PLUGIN_ROOT:-default}` form (that form is left for the
+#          general env-interpolation, which has no CLAUDE_PLUGIN_ROOT and so
+#          collapses to the default — the original launch bug, T-mskp).
+#      So .mcp.json uses the bare token and execs us by absolute path.
 #
-#   2. Project context — Claude Code spawns this from the repo's own
-#      .mcp.json at the repo root. $CLAUDE_PLUGIN_ROOT is empty here, so
-#      we fall back to BASH_SOURCE/.. to locate ourselves. (Runs live src/,
-#      no plugin reinstall needed for dev iteration.)
+#   2. Project/dev context — the cortex repo's own .mcp.json is loaded as a
+#      project-scoped server. `${CLAUDE_PLUGIN_ROOT}` is not substituted there,
+#      so .mcp.json falls back to $PWD (the repo root, where Claude spawns the
+#      project server) to locate this script.
 #
-# Why a wrapper at all, instead of `command: "npx", args: ["tsx", "src/index.ts"]`
-# directly in .mcp.json: Claude Code does NOT reliably honor the `cwd` field
-# in .mcp.json configs. In plugin context the inherited cwd is the user's
-# project directory (which has no tsx/src/index.ts), so we must chdir into
-# PLUGIN_ROOT ourselves before exec'ing the server.
+# Because .mcp.json execs us by absolute path in BOTH contexts, BASH_SOURCE
+# points at the real script location, so we self-locate the repo root from it
+# rather than trusting any env var. Running from the repo root lets
+# `npx tsx src/index.ts` resolve tsx and the sources.
 #
-# Why .mcp.json uses `exec "${CLAUDE_PLUGIN_ROOT:-$PWD}/bin/cortex-mcp.sh"`
-# (a single expression that works in both contexts): $CLAUDE_PLUGIN_ROOT is
-# set only when Claude Code spawns plugin-scoped MCP servers; project-scoped
-# servers get an empty value. Bash's `${VAR:-fallback}` parameter expansion
-# evaluates to $CLAUDE_PLUGIN_ROOT when set (plugin context), or to $PWD
-# when unset/empty (project context — $PWD equals the repo root because
-# Claude Code spawns project servers from the repo containing .mcp.json).
-# One file works in both contexts, so the cache stays in sync with the repo
-# without per-context divergence. Earlier iterations used $PWD-only or
-# $CLAUDE_PLUGIN_ROOT-only forms, which each broke the *other* context with
-# `MCP error -32000: Connection closed`.
+# NOTE: everything before `exec` must write ONLY to stderr — stdout is the
+# MCP JSON-RPC channel and any stray byte there corrupts the protocol.
 set -euo pipefail
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-cd "$PLUGIN_ROOT"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+# Native-module self-heal backstop (T-mskp bug 2): some plugin install/update
+# paths copy node_modules without rebuilding better-sqlite3's native binding
+# for this platform, so GraphStore's `new Database()` throws on boot
+# ("Could not locate the bindings file"). Probe the binding and rebuild once
+# if it's missing. Quiet on the happy path; never fatal — if the rebuild can't
+# fix it we still exec and let the real startup error surface.
+if ! node -e 'require("better-sqlite3")' >/dev/null 2>&1; then
+  echo "cortex: better-sqlite3 native binding missing — rebuilding (one-time)…" >&2
+  # Targeted: rebuild the native binding, or reinstall just this one package if
+  # its dir is absent. Deliberately NOT a bare `npm install` — that would pull
+  # the full devDependency tree into the plugin cache to fix one binding.
+  npm rebuild better-sqlite3 1>&2 || npm install better-sqlite3 --no-save --omit=dev 1>&2 || true
+fi
+
 exec npx tsx src/index.ts
