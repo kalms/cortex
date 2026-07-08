@@ -144,18 +144,46 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       shell("detect_changes", { repo_path: repoPath }, { CORTEX_DB: dbPath });
       return;
     }
-    case "list":
-      shell("list_projects", {});
+    case "list": {
+      const projects = listProjectsFromRegistry();
+      if (projects.length === 0) { process.stdout.write("No indexed projects.\n"); return; }
+      for (const p of projects) process.stdout.write(`${p.name} — ${p.root_path}\n`);
       return;
+    }
     case "delete": {
       const project = cmd.positionals[0];
       if (!project) throw new UsageError("missing <project>", "Usage: cortex index delete <project>");
-      shell("delete_project", { project });
+      const found = listProjectsFromRegistry().find((p) => p.name === project);
+      const removed = deleteProjectFromRegistry(project);
+      if (found && process.env.CORTEX_GC !== "0") {
+        try { reapRepoSlugCache(found.root_path); } catch { /* best-effort */ }
+      }
+      process.stdout.write(removed ? `Removed ${project}.\n` : `No such project: ${project}\n`);
       return;
     }
     default:
       throw new UsageError(`unknown command 'cortex index ${cmd.command}'`, "Run: cortex index --help");
   }
+}
+
+/** Enumerate registered projects from the master `Registry` — the same
+ *  audited surface `cortex doctor` and the MCP `list_projects` tool use.
+ *  Replaces the old `shell("list_projects")` cache-dir scan, which surfaced
+ *  phantom `.tmp` corpus entries the registry's `isTmpPath` guard excludes. */
+export function listProjectsFromRegistry(): { name: string; root_path: string }[] {
+  const reg = new Registry();
+  try { return reg.list().map((r) => ({ name: r.name, root_path: r.root_path })); }
+  finally { reg.close(); }
+}
+
+/** Remove a project's registry row; returns whether it existed beforehand. */
+export function deleteProjectFromRegistry(name: string): boolean {
+  const reg = new Registry();
+  try {
+    const existed = reg.findByName(name) !== null;
+    reg.remove(name);
+    return existed;
+  } finally { reg.close(); }
 }
 
 function shell(tool: string, args: Record<string, unknown>, extraEnv?: Record<string, string>): void {
