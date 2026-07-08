@@ -18,7 +18,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.4.6] — 2026-07-07
+## [1.4.7] — 2026-07-08
 
 ### Added
 
@@ -43,6 +43,21 @@ All notable changes to Cortex are documented here. The format follows
 - `resolve()` no longer throws `NotAGitRepoError` for a subdir/worktree (they
   canonicalize to the repo root); a genuinely non-git, unindexed path now
   yields `RepoNotIndexedError` instead of `NotAGitRepoError`.
+
+## [1.4.6] — 2026-07-08
+
+### Fixed
+
+- **`cortex tour` (and CLI index-state detection) misreported canonically-indexed
+  repos as unindexed** — `src/cli/context.ts` carried its own graph-DB resolver
+  that only probed the two *legacy* locations (`<repo>/.cortex/graph.db` and the
+  `~/.cache/cortex-indexer/<slug>.db` cache). Since the canonical store became
+  `<repo>/.cortex/db` (D-2ke5), a repo indexed solely there — the norm — resolved
+  to no DB, so `loadContext` returned `unindexed-repo` and `cortex tour` told the
+  user to index an already-indexed repo (seen in `../cortex-indexer`). The CLI now
+  delegates to `resolveGraphDbForRead`, the single graph-path chokepoint the
+  MCP/viewer/code-query paths already share (prefers `.cortex/db`, keeps the legacy
+  paths as fallback), removing the divergent second resolver.
 
 ## [1.4.5] — 2026-07-07
 
@@ -1375,6 +1390,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
 [1.4.6]: https://github.com/ruevu/cortex/releases/tag/v1.4.6
 [1.4.5]: https://github.com/ruevu/cortex/releases/tag/v1.4.5
 [1.4.4]: https://github.com/ruevu/cortex/releases/tag/v1.4.4

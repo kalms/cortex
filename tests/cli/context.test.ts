@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { GraphStore } from "../../src/graph/store.js";
 import { detectProjectState, deriveProjectName, loadContext } from "../../src/cli/context.js";
 
 describe("context — project state detection", () => {
@@ -33,5 +34,20 @@ describe("context — project state detection", () => {
     const ctx = loadContext(tmp);
     expect(ctx.state).toBe("indexed");
     expect(ctx.graphDbPath).toBe(join(tmp, ".cortex/graph.db"));
+  });
+
+  // Regression: a repo indexed at the CANONICAL <repo>/.cortex/db (the norm
+  // since D-2ke5) — no legacy graph.db, no CLI cache entry — was misreported
+  // as "unindexed-repo" because the old inline resolver only probed the two
+  // legacy locations. `cortex tour` then falsely told the user to index an
+  // already-indexed repo (observed in ../cortex-indexer).
+  it("detects 'indexed' from a populated canonical .cortex/db (no legacy graph.db)", () => {
+    mkdirSync(join(tmp, ".git"));
+    mkdirSync(join(tmp, ".cortex"));
+    const store = new GraphStore(join(tmp, ".cortex", "db")); // populate canonical store
+    store.createNode({ kind: "function", name: "fn", qualified_name: "t.fn", file_path: "x.ts" });
+    const ctx = loadContext(tmp);
+    expect(ctx.state).toBe("indexed");
+    expect(ctx.graphDbPath).toBe(join(tmp, ".cortex/db"));
   });
 });
