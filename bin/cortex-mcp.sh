@@ -39,7 +39,12 @@ cd "$ROOT"
 # ("Could not locate the bindings file"). Probe the binding and rebuild once
 # if it's missing. Quiet on the happy path; never fatal — if the rebuild can't
 # fix it we still exec and let the real startup error surface.
-if ! node -e 'require("better-sqlite3")' >/dev/null 2>&1; then
+#
+# The probe CONSTRUCTS a Database rather than just `require`-ing the package:
+# better-sqlite3's index.js loads fine without the binding — the native `.node`
+# is lazy-loaded only when a Database is instantiated (lib/database.js), which
+# is exactly where boot crashes. A bare `require` probe would falsely pass.
+if ! node -e 'new (require("better-sqlite3"))(":memory:").close()' >/dev/null 2>&1; then
   echo "cortex: better-sqlite3 native binding missing — rebuilding (one-time)…" >&2
   # Targeted: rebuild the native binding, or reinstall just this one package if
   # its dir is absent. Deliberately NOT a bare `npm install` — that would pull
