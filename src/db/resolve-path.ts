@@ -4,6 +4,9 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { ensureRepoId } from "./repo-id.js";
 import { mainWorktreeRoot } from "./git-root.js";
+import { cacheSlug } from "./store-paths.js";
+
+export { cacheSlug };
 
 function findGitRoot(startDir: string): string | null {
   let dir = startDir;
@@ -41,13 +44,6 @@ export function resolveCortexDbPath(startDir?: string): string {
   // (mainWorktreeRoot uses git --git-common-dir); non-git dirs route to self.
   const base = mainWorktreeRoot(startDir) ?? startDir;
   return join(base, ".cortex", "db");
-}
-
-/** Slug-form of an absolute path, matching the standalone indexer's cache
- *  filename convention (leading slash dropped, remaining slashes flattened to
- *  '-'). Mirrors deriveProjectName in src/cli/context.ts. */
-function cacheSlug(absPath: string): string {
-  return absPath.replace(/^\//, "").replace(/\//g, "-");
 }
 
 /** True if `dbPath` is a readable SQLite graph DB whose `nodes` table has at
