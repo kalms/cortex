@@ -19,9 +19,10 @@ import { setupVenv } from "../frame-extraction/venv.js";
 import { runFreshnessCommand } from "./commands/freshness.js";
 import { runReconcileCommand } from "./commands/reconcile.js";
 import { runBriefCommand } from "./commands/brief.js";
+import { runDoctorCommand } from "./commands/doctor.js";
 
 const NAMESPACES = ["code", "decision", "graph", "index", "eval", "todo"];
-const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile", "brief"];
+const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile", "brief", "doctor"];
 
 function getVersion(): string {
   try {
@@ -73,6 +74,10 @@ async function main(): Promise<void> {
   if (argv.namespace === "brief") {
     const ctx = loadContext(process.cwd());
     runBriefCommand(ctx, argv.command ?? argv.positionals[0] ?? null, argv.flags);
+    return;
+  }
+  if (argv.namespace === "doctor") {
+    runDoctorCommand(argv.flags);
     return;
   }
   if (argv.namespace === "help") {

@@ -18,6 +18,7 @@ import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
 import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
+import { canonicalRepoPath } from "../../db/git-root.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -304,7 +305,10 @@ export function registerCodeTools(
       "index_repository",
       indexRepositorySchema,
       async (_resolver, args) => {
-        const repoPath = args.repo_path!;
+        // Canonicalize BEFORE any name/db/staging/registry derivation so a
+        // subdir or worktree path collapses to the one canonical repo root
+        // (T-119). Non-git dirs canonicalize to their own realpath.
+        const repoPath = canonicalRepoPath(args.repo_path!);
         const mode = args.mode ?? "full";
         const dbPath = resolveCortexDbPath(repoPath);
 

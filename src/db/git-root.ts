@@ -27,3 +27,20 @@ export function mainWorktreeRoot(startDir: string): string | null {
     return null;
   }
 }
+
+/**
+ * Canonical repo root for any path: the main-worktree root when `path` is
+ * inside a git repo (worktrees and subdirs collapse to it), else the path's
+ * own realpath (or an absolute literal when it does not exist). Never throws —
+ * the single canonicalizer both the index entry points and the read resolver
+ * route through so no code path re-derives its own notion of "root".
+ */
+export function canonicalRepoPath(path: string): string {
+  const root = mainWorktreeRoot(path);
+  if (root) return root;
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}

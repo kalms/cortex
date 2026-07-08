@@ -25,8 +25,13 @@ describe("resolveCortexDbPath", () => {
   let tmp: string;
 
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "cortex-resolve-"));
-    mkdirSync(join(tmp, ".git"));
+    // A real git repo, not just a `.git` dir stub: resolveCortexDbPath now
+    // roots via mainWorktreeRoot, which shells out to `git rev-parse` and
+    // requires an actual repository — a bare `.git` directory (no HEAD,
+    // objects, etc.) satisfied the old existsSync-based findGitRoot walk-up
+    // but is correctly rejected by real git as "not a git repository".
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "cortex-resolve-")));
+    execFileSync("git", ["init", "-q"], { cwd: tmp });
   });
 
   afterEach(() => {

@@ -18,6 +18,32 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.7] — 2026-07-08
+
+### Added
+
+- **`cortex doctor` CLI command** — audits the project registry and flags
+  (dry-run) or removes (`--fix`) orphan entries (subdirs/worktrees that
+  collapse elsewhere) and dead entries (paths that no longer exist).
+- Genuinely non-git directories are now readable end-to-end — `resolve()`
+  serves a registered non-git project's store instead of throwing.
+
+### Fixed
+
+- **Canonical repo rooting (T-119)** — `index_repository` (MCP handler and
+  the `cortex index` CLI) and the read resolver `resolve()` now canonicalize
+  any path to its worktree-aware git root before deriving name/db/registry.
+  A subdirectory or linked worktree passed to indexing no longer creates an
+  orphan sub-project rooted at that path — it collapses to the canonical
+  repo root. Built on a new `canonicalRepoPath` helper and unifying
+  `resolve-path.ts` on `mainWorktreeRoot`.
+
+### Changed
+
+- `resolve()` no longer throws `NotAGitRepoError` for a subdir/worktree (they
+  canonicalize to the repo root); a genuinely non-git, unindexed path now
+  yields `RepoNotIndexedError` instead of `NotAGitRepoError`.
+
 ## [1.4.6] — 2026-07-08
 
 ### Fixed
@@ -1364,6 +1390,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
 [1.4.6]: https://github.com/ruevu/cortex/releases/tag/v1.4.6
 [1.4.5]: https://github.com/ruevu/cortex/releases/tag/v1.4.5
 [1.4.4]: https://github.com/ruevu/cortex/releases/tag/v1.4.4

@@ -1,10 +1,10 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
-import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, resolve as resolvePath } from "node:path";
+import { resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
+import { mainWorktreeRoot } from "../db/git-root.js";
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
@@ -190,23 +190,23 @@ export class RepoContextResolver {
 
   /**
    * Resolve a repo by path. Throws one of:
-   * {@link PathNotFoundError}, {@link NotAGitRepoError}, {@link RepoNotIndexedError}.
+   * {@link PathNotFoundError}, {@link RepoNotIndexedError}.
    *
-   * The supplied path must be the git root itself — passing a subdirectory
-   * resolves the same git root via `git rev-parse --show-toplevel` and is
-   * rejected as {@link NotAGitRepoError} with the inferred root in the
-   * payload, so the caller can re-issue against the right repo without a
-   * second lookup.
+   * The supplied path is canonicalized to one repo identity: a subdirectory or
+   * a linked worktree collapses to the canonical main-worktree root via
+   * `git --git-common-dir`. A path outside any git repo routes by its own
+   * realpath, so genuinely-non-git projects resolve to their own `.cortex/db`.
+   * `RepoNotIndexedError` is raised only when the resolved root has no store.
    *
    * Worktree collapse
    * -----------------
    * If the supplied path is a `git worktree add` worktree (or the canonical
    * repo itself), the resolver routes to the **canonical repo's `.cortex/`**
    * — every worktree of the same repo shares one `RepoContext`, one pair of
-   * DB handles, and one pool entry. Mechanism: `git rev-parse --git-common-dir`
-   * returns the shared `.git/` directory (relative `.git` from canonical, or
-   * absolute `/<canonical>/.git` from inside a worktree); resolving it
-   * against the input and taking its dirname yields the canonical root.
+   * DB handles, and one pool entry. Mechanism (now performed by
+   * `mainWorktreeRoot` in `src/db/git-root.ts`, not inline here): `git
+   * rev-parse --path-format=absolute --git-common-dir` returns the absolute
+   * shared `.git` directory; its `dirname` is the canonical root.
    * `ctx.repoPath` always reports the canonical root, never the worktree
    * path the caller passed.
    *
@@ -222,37 +222,14 @@ export class RepoContextResolver {
     const abs = resolvePath(repoPath);
     if (!existsSync(abs)) throw new PathNotFoundError(abs);
 
-    let gitRoot: string;
-    try {
-      gitRoot = execSync(`git -C "${abs}" rev-parse --show-toplevel`, {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-    } catch {
-      throw new NotAGitRepoError(abs);
-    }
-    // Symlink-tolerant comparison: macOS routinely surfaces `/tmp/foo` while
-    // git reports `/private/tmp/foo`. Both normalize to the same realpath
-    // when the supplied path IS the root (canonical or a worktree); they
-    // diverge when the caller passed a subdir.
-    if (realpathSync(gitRoot) !== realpathSync(abs)) {
-      throw new NotAGitRepoError(abs, gitRoot);
-    }
-
-    // Worktree collapse — see JSDoc above for rationale. We realpath the
-    // result because:
-    //   - From the canonical, `--git-common-dir` returns relative `.git`,
-    //     yielding the input path verbatim (which may contain symlinks like
-    //     macOS's /tmp → /private/tmp).
-    //   - From a worktree, `--git-common-dir` returns an absolute path that
-    //     git has already resolved through symlinks.
-    // Without normalization, the two paths differ as pool keys and dedupe
-    // fails. realpath normalizes both forms to the same value.
-    const commonDir = execSync(`git -C "${abs}" rev-parse --git-common-dir`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const canonical = realpathSync(dirname(resolvePath(abs, commonDir)));
+    // Canonicalize to one repo identity. mainWorktreeRoot uses
+    // `git --git-common-dir`, so a worktree OR a subdir of a repo collapses to
+    // the canonical main-worktree root (the "one index per repo" invariant).
+    // A non-git path routes by its own realpath — genuinely-non-git projects
+    // are supported and read back through their own .cortex/db. This replaces
+    // the former show-toplevel + subdir-reject preamble (T-119): subdirs no
+    // longer throw NotAGitRepoError, they resolve to their repo.
+    const canonical = mainWorktreeRoot(abs) ?? realpathSync(abs);
 
     // Pool is keyed by canonical so every worktree of the same repo dedupes
     // to one cached entry. Fast path when the canonical is already pooled

@@ -172,6 +172,15 @@ modes (default / `crossRepo` / `allowUnindexed`), and error shapes
 (`MissingRepoPathError`, `RepoNotIndexedError`, `PathNotFoundError`,
 `NotAGitRepoError`) are documented in [mcp-tools.md](../mcp-tools.md).
 
+Both the index write paths and this read resolver canonicalize through the
+same helper: `mainWorktreeRoot` (`src/db/git-root.ts`) collapses a
+subdirectory or linked worktree to the canonical main-worktree root before
+any name/db/registry derivation, so a subdir or worktree passed to indexing
+or to a read tool never creates an orphan sub-project — it resolves onto the
+one canonical repo. A path outside any git repo is not rejected — it
+canonicalizes to its own realpath and is served as a literal-path (non-git)
+project.
+
 ## Freshness (is the read current?)
 
 The read path above will, by design, serve a *populated fallback*

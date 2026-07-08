@@ -18,6 +18,7 @@ import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
+import { canonicalRepoPath } from "../../db/git-root.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,7 +53,7 @@ export type IndexCommand = {
 export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): Promise<void> {
   // 'cortex index' with no subcommand → index the cwd (or given path)
   if (cmd.command === null || cmd.command === undefined || cmd.command === ".") {
-    const repoPath = resolve(cmd.positionals[0] ?? ctx.cwd);
+    const repoPath = canonicalRepoPath(resolve(cmd.positionals[0] ?? ctx.cwd));
     const mode = resolveIndexMode(cmd.flags);
     const dbPath = resolveCortexDbPath(repoPath); // <repo>/.cortex/db — canonical READ/PUBLISH target
 
