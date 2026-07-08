@@ -63,3 +63,15 @@ it("sweepCurrentRepo removes this repo's slug + stale tmp-ctx_incr, keeps fresh 
   expect(existsSync(fresh)).toBe(true);
   expect(res.bytes).toBeGreaterThan(0);
 });
+
+it("sweepCurrentRepo reaps a stale db.stage-* but leaves a fresh one alone", () => {
+  const root = join(tmp, "repo2"); graph(root);
+  const staleStage = join(root, ".cortex", "db.stage-1111"); writeFileSync(staleStage, "x");
+  const old = Date.now() / 1000 - 2 * 86400; utimesSync(staleStage, old, old);
+  const freshStage = join(root, ".cortex", "db.stage-2222"); writeFileSync(freshStage, "x");
+  const res = sweepCurrentRepo(root, { maxStagingAgeMs: 86400_000 });
+  expect(existsSync(staleStage)).toBe(false);
+  expect(existsSync(freshStage)).toBe(true);
+  expect(res.removed).toContain(staleStage);
+  expect(res.removed).not.toContain(freshStage);
+});

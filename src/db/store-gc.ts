@@ -64,12 +64,17 @@ export function isStaleStaging(path: string, nowMs: number, maxAgeMs: number): b
   }
 }
 
-/** Unlink a db file plus its -wal/-shm sidecars. Returns bytes freed. */
+/** Unlink a db file plus its -wal/-shm sidecars. Returns bytes freed — only for
+ *  sidecars whose unlink actually succeeded. */
 export function reapFile(path: string): number {
   let bytes = 0;
   for (const ext of ["", "-wal", "-shm"]) {
     const p = path + ext;
-    try { bytes += statSync(p).size; unlinkSync(p); } catch { /* absent — fine */ }
+    try {
+      const size = statSync(p).size;
+      unlinkSync(p);
+      bytes += size;
+    } catch { /* absent or unlink failed — fine, don't count it */ }
   }
   return bytes;
 }
@@ -113,7 +118,9 @@ export function sweepCurrentRepo(
     for (const f of readdirSync(cortexDir)) {
       if (f.startsWith("db.stage-")) {
         const p = join(cortexDir, f);
-        const b = reapFile(p); if (b > 0) { bytes += b; removed.push(p); }
+        if (isStaleStaging(p, now, maxAge)) {
+          const b = reapFile(p); if (b > 0) { bytes += b; removed.push(p); }
+        }
       }
     }
   } catch { /* no .cortex — fine */ }
