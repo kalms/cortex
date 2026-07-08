@@ -19,6 +19,7 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { canonicalRepoPath } from "../../db/git-root.js";
+import { reapRepoSlugCache } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -115,6 +116,11 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
           const reg = new Registry();
           try { reg.register(project, repoPath); } finally { reg.close(); }
         } catch { /* non-fatal */ }
+
+        // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
+        if (process.env.CORTEX_GC !== "0") {
+          try { reapRepoSlugCache(repoPath); } catch { /* non-fatal */ }
+        }
       } finally {
         cleanupStagingDb(stagePath); // never leak staging — even on indexer error / throw
       }
