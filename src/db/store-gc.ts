@@ -1,17 +1,9 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
+import { readRepoId } from "./repo-id.js";
 
-/** repoId from <root>/cortex.json, or null on any read/parse failure. */
-export function readRepoId(repoRoot: string): string | null {
-  try {
-    const raw = readFileSync(join(repoRoot, "cortex.json"), "utf-8");
-    const id = JSON.parse(raw)?.repoId;
-    return typeof id === "string" && id.length > 0 ? id : null;
-  } catch {
-    return null;
-  }
-}
+export { readRepoId };
 
 /** repoIds of currently-registered repos (the "live" set). */
 export function liveRepoIds(entries: { root_path: string }[]): Set<string> {

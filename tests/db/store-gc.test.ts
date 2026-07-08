@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import {
-  readRepoId, isEmptyDecisionDir, hasValidCanonicalGraph, isReapableSlugCache, isStaleStaging,
+  isEmptyDecisionDir, hasValidCanonicalGraph, isReapableSlugCache, isStaleStaging,
 } from "../../src/db/store-gc.js";
 
 let tmp: string;
@@ -25,13 +25,6 @@ function makeGraphDb(repoRoot: string, nodes: number) {
   for (let i = 0; i < nodes; i++) db.prepare("INSERT INTO nodes (id) VALUES (?)").run(`ctx-${i}`);
   db.close();
 }
-
-it("readRepoId reads cortex.json, null when absent/garbage", () => {
-  const root = join(tmp, "repo"); mkdirSync(root, { recursive: true });
-  expect(readRepoId(root)).toBeNull();
-  writeFileSync(join(root, "cortex.json"), JSON.stringify({ repoId: "abc-123" }));
-  expect(readRepoId(root)).toBe("abc-123");
-});
 
 it("isEmptyDecisionDir: 0 rows → true, ≥1 → false, unreadable → false (keep)", () => {
   const empty = join(tmp, "empty"); makeDecisionsDb(empty, 0);
