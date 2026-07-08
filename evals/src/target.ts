@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Target } from "./assertions/types.js";
+import { evalIndexerEnv } from "../../src/cli/commands/eval.js";
 
 export type AcquiredTarget = {
   name: string;
@@ -71,7 +72,11 @@ function maybeReindex(workdir: string, graphDbPath: string): number | null {
     ["cli", "index_repository", JSON.stringify({ repo_path: workdir })],
     {
       stdio: "inherit",
-      env: { ...process.env, CORTEX_DB: graphDbPath },
+      // Redirect the indexer's slug cache + durable home into evals/cache
+      // (already gitignored eval scratch space) so corpus-target indexing
+      // never leaks entries into the real ~/.cache/cortex-indexer or
+      // ~/.cortex.
+      env: { ...process.env, CORTEX_DB: graphDbPath, ...evalIndexerEnv(CACHE_ROOT) },
     },
   );
   return (Date.now() - start) / 1000;

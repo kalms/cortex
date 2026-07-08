@@ -7,6 +7,14 @@ import { repoRoot } from "../paths.js";
 
 const EVAL_CLI = join(repoRoot(), "evals/src/cli.ts");
 
+/** Env overrides that keep an eval/corpus indexing run from polluting the
+ *  real `~/.cache/cortex-indexer` and `~/.cortex` with throwaway slug
+ *  caches + repoId dirs. Merge the result into the env of every indexer /
+ *  `cortex index` subprocess the eval harness spawns. */
+export function evalIndexerEnv(scratchDir: string): { CTX_CACHE_DIR: string; CORTEX_HOME: string } {
+  return { CTX_CACHE_DIR: join(scratchDir, "cache"), CORTEX_HOME: join(scratchDir, "home") };
+}
+
 export type EvalCommand = {
   command: string | null;
   positionals: string[];
