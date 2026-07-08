@@ -18,6 +18,28 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.8] — 2026-07-08
+
+### Fixed
+
+- **Plugin MCP server never launched for plugin-install users (T-mskp).** The
+  bundled `.mcp.json` wired the server with `${CLAUDE_PLUGIN_ROOT:-$PWD}`, but
+  Claude Code neither exports `CLAUDE_PLUGIN_ROOT` into the MCP child's
+  environment nor substitutes the defaulted form — it only string-substitutes
+  the **exact bare `${CLAUDE_PLUGIN_ROOT}` token**. The expression collapsed to
+  `$PWD`, so in any repo other than the cortex checkout the server exec'd a
+  nonexistent `<cwd>/bin/cortex-mcp.sh` and died with `MCP error -32000:
+  Connection closed`. `.mcp.json` now uses the bare token with a bash `$PWD`
+  fallback for the repo's own project-scoped load, and `bin/cortex-mcp.sh`
+  self-locates the repo root from `BASH_SOURCE` rather than trusting an env
+  var. Decision `D-b2wf`.
+- **`better-sqlite3` native binding missing in the plugin cache crashed boot.**
+  Some plugin install/update paths copy `node_modules` without rebuilding the
+  compiled binding for the platform, so `GraphStore`'s `new Database()` threw
+  "Could not locate the bindings file" on startup. `bin/cortex-mcp.sh` now runs
+  a stderr-only, non-fatal self-heal that probes the binding and rebuilds it
+  once if missing.
+
 ## [1.4.7] — 2026-07-08
 
 ### Added
@@ -1390,6 +1412,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.8]: https://github.com/ruevu/cortex/releases/tag/v1.4.8
 [1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
 [1.4.6]: https://github.com/ruevu/cortex/releases/tag/v1.4.6
 [1.4.5]: https://github.com/ruevu/cortex/releases/tag/v1.4.5
