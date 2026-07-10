@@ -1,11 +1,11 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Registry } from "./registry.js";
 import { durableStoreRoot } from "./resolve-path.js";
 import { indexerCacheDir, slugCachePath } from "./store-paths.js";
 import {
   liveRepoIds, isEmptyDecisionDir, isReapableSlugCache, isStaleStaging,
-  reapFile, archiveDecisionDir,
+  reapFile, archiveDecisionDir, repoRootFromSlug,
 } from "./store-gc.js";
 
 export interface StoreAudit {
@@ -75,12 +75,15 @@ export function auditStores(registry: Registry): StoreAudit {
           reapable.push({ path: p, bytes: fileSize(p), reason: "consumed slug cache" });
         }
       } else {
-        // No registered owner and the slug is lossy (can't reliably reconstruct
-        // the repo root), so we can't consult isReapableSlugCache here — reap
-        // unconditionally instead. Safe because a slug cache holds only
-        // regenerable graph data (the canonical store is .cortex/db); worst
-        // case is a forced reindex, never decision loss.
-        reapable.push({ path: p, bytes: fileSize(p), reason: "orphan slug cache (no registered repo)" });
+        // No registered owner — reconstruct a candidate repo root from the slug
+        // (best-effort, lossy) and apply the same guard as the registered-owner
+        // branch: reap only if that root is gone or has a valid canonical graph.
+        // A wrong reconstruction just yields a non-existent path → reap, same
+        // as before; a correct one protects a live repo's only graph copy.
+        const candidateRoot = repoRootFromSlug(basename(p, ".db"));
+        if (isReapableSlugCache(candidateRoot)) {
+          reapable.push({ path: p, bytes: fileSize(p), reason: "orphan slug cache (no registered repo)" });
+        }
       }
     }
   } catch { /* no cache dir */ }

@@ -5,6 +5,16 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { Registry } from "../../src/db/registry.js";
 import { auditStores, fixStores } from "../../src/db/store-gc-audit.js";
+import { cacheSlug } from "../../src/db/store-paths.js";
+
+/** repoRootFromSlug (`/` + slug.replace(/-/g, "/")) can never reconstruct a
+ *  path containing a literal '-', so orphan-slug tests need a hyphen-free
+ *  base dir to round-trip. `os.tmpdir()` is hyphen-free on macOS/Linux CI in
+ *  practice; fall back to `/tmp` on the off chance it isn't. */
+function hyphenFreeTmpBase(): string {
+  const t = tmpdir();
+  return t.includes("-") ? "/tmp" : t;
+}
 
 let tmp: string;
 const saved = { home: process.env.CORTEX_HOME, cache: process.env.CTX_CACHE_DIR, reg: process.env.CORTEX_REGISTRY_DB };
@@ -68,5 +78,39 @@ describe("store-gc-audit", () => {
     expect(a.reapable.some((r) => r.path.includes("_archive"))).toBe(false);
     expect(a.reapable.some((r) => r.path.endsWith("_registry.db"))).toBe(false);
     expect(a.archiveCandidates.some((c) => c.repoId === "_archive")).toBe(false);
+  });
+
+  it("orphan slug caches are guarded by isReapableSlugCache, same as registered ones", () => {
+    const base = join(hyphenFreeTmpBase(), `cortexgcorphan${process.pid}`);
+    rmSync(base, { recursive: true, force: true });
+    mkdirSync(base, { recursive: true });
+
+    // candidate root never created → "gone" → reaped
+    const goneRoot = join(base, "gone");
+    // candidate root exists with a populated canonical .cortex/db → reaped
+    const validRoot = join(base, "valid");
+    mkdirSync(join(validRoot, ".cortex"), { recursive: true });
+    const gdb = new BetterSqlite3(join(validRoot, ".cortex", "db"));
+    gdb.exec("CREATE TABLE nodes (id TEXT PRIMARY KEY)");
+    gdb.prepare("INSERT INTO nodes VALUES (?)").run("n1");
+    gdb.close();
+    // candidate root exists but has no valid canonical .cortex/db → kept
+    const invalidRoot = join(base, "invalid");
+    mkdirSync(invalidRoot, { recursive: true });
+
+    const slugPath = (root: string) => join(tmp, "cache", `${cacheSlug(root)}.db`);
+    const goneSlugPath = slugPath(goneRoot);
+    const validSlugPath = slugPath(validRoot);
+    const invalidSlugPath = slugPath(invalidRoot);
+    writeFileSync(goneSlugPath, "x");
+    writeFileSync(validSlugPath, "x");
+    writeFileSync(invalidSlugPath, "x");
+
+    const a = auditStores(new Registry());
+    expect(a.reapable.some((r) => r.path === goneSlugPath)).toBe(true);
+    expect(a.reapable.some((r) => r.path === validSlugPath)).toBe(true);
+    expect(a.reapable.some((r) => r.path === invalidSlugPath)).toBe(false);
+
+    rmSync(base, { recursive: true, force: true });
   });
 });

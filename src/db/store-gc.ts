@@ -92,6 +92,17 @@ export function archiveDecisionDir(repoId: string): string | null {
   return dest;
 }
 
+/** Best-effort reconstruction of a repo root from a slug-cache filename.
+ *  The slug flatten (/ → -) is lossy, so this is only a CANDIDATE: a repo
+ *  path containing a literal '-' segment won't round-trip. It exists solely
+ *  to apply the same reap guard to orphan slug caches as everywhere else —
+ *  a wrong guess yields a non-existent path, which isReapableSlugCache treats
+ *  as "gone" (→ reap), identical to the prior unguarded behavior; a correct
+ *  guess protects a live repo whose only graph copy is the cache. */
+export function repoRootFromSlug(slug: string): string {
+  return "/" + slug.replace(/-/g, "/");
+}
+
 /** Reap the repo's slug cache iff safe (canonical exists or repo gone). */
 export function reapRepoSlugCache(repoRoot: string): number {
   if (!isReapableSlugCache(repoRoot)) return 0;
