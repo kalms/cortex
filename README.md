@@ -72,19 +72,47 @@ Starts the MCP server (stdio) and the 2D frames viewer at [http://localhost:3334
 
 **`/mcp` shows `cortex` as `✘ failed` with `-32000 connection closed`**
 
-Most common cause: a project-scoped `.mcp.json` is referenced by `enabledMcpjsonServers` in `.claude/settings.local.json` but the file itself is missing. Either restore the file or remove `"cortex"` from `enabledMcpjsonServers` and rely on the plugin install instead.
+Common causes:
 
-If you're on the plugin path and still see this, the plugin cache may have an unbuilt native addon — see the better-sqlite3 entry below.
+- **Plugin-install users on cortex &lt; 1.4.8** hit a launch-resolution bug: the
+  bundled `.mcp.json` used `${CLAUDE_PLUGIN_ROOT:-$PWD}`, which Claude Code does
+  **not** substitute — it substitutes only the exact bare `${CLAUDE_PLUGIN_ROOT}`
+  token and does not export it into the server's environment. The path collapsed
+  to the current repo, so the server exec'd a nonexistent `<cwd>/bin/cortex-mcp.sh`
+  and died before startup. **Fixed in 1.4.8 — update cortex** (`claude plugin
+  update cortex@cortex-local`, or `git pull` a source install).
+- A project-scoped `.mcp.json` is referenced by `enabledMcpjsonServers` in
+  `.claude/settings.local.json` but the file itself is missing. Either restore the
+  file or remove `"cortex"` from `enabledMcpjsonServers` and rely on the plugin
+  install instead.
+- An unbuilt `better-sqlite3` native addon — see the entry below. (As of 1.4.8 the
+  launcher self-heals this on boot.)
 
 `/mcp` displays which config file it loaded under `Config location`. Three locations are searched in order — the first match wins:
 
 1. `<your-project>/.mcp.json` — project-level override
 2. `~/.claude.json` under `projects["<your-project>"].mcpServers` — per-project user config (added by `claude mcp add`)
-3. `~/.claude/plugins/cache/cortex-local/cortex/<ver>/.mcp.json` — the plugin's own config
+3. the plugin's own config — see the source-vs-cache note below for *where* this is read from
+
+> **Source vs. cache — where the plugin actually runs from.** For a **git
+> install** (`claude plugin add github:ruevu/cortex`), the plugin is materialized
+> into `~/.claude/plugins/cache/cortex-local/cortex/<ver>/` and read from there.
+> For a **`directory`-source marketplace** (the local-dev install whose
+> `source.path` points at your cortex checkout), Claude Code reads the plugin's
+> files **live from that source checkout** — *not* the versioned cache. So editing
+> the checkout takes effect on the next session, and patching a cache dir has no
+> effect (the versioned cache dirs are stale snapshots from past
+> `claude plugin update` runs). When a launch change "won't take", confirm which
+> of the two you're on before touching the cache.
 
 **The plugin runs an old version of cortex**
 
-The plugin cache at `~/.claude/plugins/cache/cortex-local/cortex/<ver>/` is a snapshot taken at install time. Bumping cortex's `plugin.json` version (and `marketplace.json` version) forces a re-sync on the next Claude Code session. For a force-refresh today:
+For a **git install**, the plugin cache at
+`~/.claude/plugins/cache/cortex-local/cortex/<ver>/` is a snapshot taken at
+install time; bumping cortex's `plugin.json` version (and `marketplace.json`
+version) forces a re-sync on the next Claude Code session. (A **directory
+marketplace** reads the source checkout live, so it's never stale relative to your
+working tree.) For a force-refresh of a git-install cache today:
 
 ```bash
 rm -rf ~/.claude/plugins/cache/cortex-local/cortex/<old-ver>
@@ -93,11 +121,17 @@ rm -rf ~/.claude/plugins/cache/cortex-local/cortex/<old-ver>
 
 **`Error: Could not locate the bindings file` (better-sqlite3)**
 
-The native addon wasn't compiled in the plugin cache. Rebuild it in place:
+The native addon wasn't compiled for your platform. **As of 1.4.8,
+`bin/cortex-mcp.sh` detects a missing binding on boot and rebuilds it once
+automatically** (logged to stderr, never fatal) — so this usually resolves itself
+on the next launch. If it persists, rebuild in place, in the directory the
+launcher actually runs from (see the source-vs-cache note above):
 
 ```bash
-cd ~/.claude/plugins/cache/cortex-local/cortex/<ver>
-npm rebuild better-sqlite3
+# directory-marketplace (dev) install — rebuild in your checkout:
+cd /path/to/your/cortex && npm rebuild better-sqlite3
+# git install — rebuild in the versioned cache dir:
+cd ~/.claude/plugins/cache/cortex-local/cortex/<ver> && npm rebuild better-sqlite3
 ```
 
 ## Architecture
