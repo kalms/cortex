@@ -192,6 +192,48 @@ create a decision, overwrite the graph DB with garbage bytes
 (simulating any cache-import or pipeline-reindex), re-open the decisions
 sidecar, confirm the decision is still there.
 
+## Storage garbage collection: empty dirs and archived orphans
+
+`resolveDecisionsDbPath` (`src/db/resolve-path.ts`) creates `~/.cortex/<repoId>/`
+and opens `decisions.db` in it (via `ensureRepoId` + `openDecisionsDb`) on the
+**first touch of the repo**, not on the first authored decision — any
+`decision`/`todo` read, an MCP `RepoContext` construction, or eval/corpus
+indexing of a throwaway clone all mint the dir and its (empty) schema. Before
+this GC layer, that dir lived forever: migration (above) is deliberately
+non-destructive, so nothing ever swept it, and eval/corpus runs in particular
+minted one `repoId` dir per ephemeral clone with zero decisions in it. That's
+the leak this closes:
+
+- **Empty dirs are reaped, not archived.** `isEmptyDecisionDir(repoIdDir)`
+  (`src/db/store-gc.ts`) opens the dir's `decisions.db` read-only and checks
+  `COUNT(*) FROM decisions`. Any open/query failure counts as **not** empty —
+  an uninspectable store is never treated as safe to remove. `cortex doctor
+  --fix` (via `auditStores`/`fixStores` in `src/db/store-gc-audit.ts`)
+  `rmSync`s these dirs outright: zero decisions means zero user data, so
+  there's nothing to preserve.
+- **Content-bearing orphans are archived, never deleted.** A dir with ≥1
+  decision row whose `repoId` is no longer in the registry's live set (the
+  repo was renamed, moved, or deleted, and never re-indexed under that id) is
+  a genuine "what do I do with this" case — the decisions are real,
+  user-authored data, but there's no live repo left to attribute them to.
+  `archiveDecisionDir(repoId)` moves (never deletes) the whole dir to
+  `~/.cortex/_archive/<repoId>/` (`archiveRoot()` in `src/db/store-paths.ts`),
+  de-duplicating with a `-1`/`-2`/… suffix if the destination already exists.
+  The data stays on disk, inspectable, and restorable — just out of the path
+  `auditStores` scans on the next run.
+- **Eval/corpus isolation stops the leak at the source.** Rather than relying
+  solely on cleanup after the fact, `evals/src/target.ts` now indexes corpus
+  targets under a scratch `CTX_CACHE_DIR`/`CORTEX_HOME` (`evalIndexerEnv` in
+  `src/cli/commands/eval.ts`), so ephemeral eval clones never mint a
+  `repoId` dir under the real `~/.cortex` in the first place. The
+  `cortex doctor` audit remains the backstop for anything that still slips
+  through (a manually-cloned throwaway repo, an interrupted run, etc.).
+
+See [graph-storage.md](graph-storage.md#garbage-collection) for the sibling
+GC passes over the graph-side stores (slug caches, staging files) — this
+section covers only the decisions-sidecar side of the same `CORTEX_GC`-gated
+system.
+
 ### TODO entity
 
 TODOs are the third user-authored primitive (after decisions and PRs), and they

@@ -47,8 +47,13 @@ backward compatibility and are *read fallbacks*, never write targets:
 - `<repo>/.cortex/graph.db` — the **old** graph filename. Some older docs/code
   still say "graph.db"; treat that as a synonym for the legacy location.
 - `~/.cache/cortex-indexer/<slug>.db` — the standalone indexer's old per-project
-  cache. **Retired as a graph store.** Still read as a last resort and used as
-  the migration source (below).
+  cache. **Retired as a graph store** for the read/write paths above — but not
+  dead: the direct-indexer CLI path and eval/corpus indexing (see
+  [Garbage collection](#garbage-collection) below) still write it as a
+  by-product on every run, so a repo continues to accumulate a slug cache even
+  though nothing reads it back as a graph store. It's read only as a last
+  resort and used as the migration source (below); the GC layer is what keeps
+  it from growing unbounded now that nothing else consumes it.
 
 > **Two unrelated "caches" share a prefix — do not confuse them:**
 > `~/.cache/**cortex**/<hash>.db` is the content-hash **build cache**
@@ -242,6 +247,61 @@ path step 3) covers them.
 > `~/.cache/cortex-indexer/_config.db` into the data dir on first use
 > (`CTX_DATA_DIR` overrides the location, mirroring `CTX_CACHE_DIR`).
 
+## Garbage collection
+
+Migration (above) is non-destructive by design — old files are left in place
+rather than deleted. That's the right default for a one-time seed, but left
+unchecked it means the legacy slug cache (and other regenerable copies) grow
+forever: every `cortex index` / `index_repository` run still writes
+`~/.cache/cortex-indexer/<slug>.db` as a side effect of the C indexer's own
+cache discipline, even though `resolveGraphDbForRead` only ever consults it as
+a last-resort fallback. Storage GC is the layer that reaps what's provably
+regenerable and never touches what might not be — three complementary passes,
+all gated by a single `CORTEX_GC` env var (default on; `CORTEX_GC=0` disables
+all three) and built on shared classification predicates in
+`src/db/store-gc.ts` / path derivation in `src/db/store-paths.ts`:
+
+1. **Reap-after-publish.** Both index write paths (`src/cli/commands/index.ts`
+   and the `index_repository` MCP handler in `code-tools.ts`) call
+   `reapRepoSlugCache(repoPath)` immediately after a successful publish +
+   registry registration. It deletes `~/.cache/cortex-indexer/<slug>.db` (plus
+   `-wal`/`-shm` sidecars) for the just-indexed repo, but only when
+   `isReapableSlugCache` confirms it's safe: the repo's canonical
+   `<repo>/.cortex/db` opens as SQLite with ≥1 `nodes` row (`hasValidCanonicalGraph`),
+   or the repo path no longer exists at all. If neither holds — e.g. the
+   publish somehow left the canonical store empty — the slug cache is the only
+   copy left and is never touched. `cortex index delete <project>` reaps the
+   same way before removing the registry row.
+2. **SessionStart current-repo sweep.** `hooks/check-index.sh` shells out to
+   `cortex index sweep` on every session start (best-effort, output
+   discarded), which calls `sweepCurrentRepo(repoRoot)`. Beyond the
+   reap-after-publish slug-cache check, this also clears two staging-file
+   classes that can strand mid-index artifacts if a run is interrupted:
+   `<repo>/.cortex/db.stage-*` siblings and `tmp-ctx_incr_*` files in the
+   shared indexer cache dir, both gated by `isStaleStaging` (mtime older than
+   24h by default) so an in-flight index's own staging file is never raced.
+   This is deliberately scoped to the *current* repo only — cheap enough to
+   run unconditionally at every session start without a machine-wide scan.
+3. **`cortex doctor` all-stores audit.** The machine-wide backstop.
+   `auditStores(registry)` (`src/db/store-gc-audit.ts`) walks every durable
+   decision dir (`~/.cortex/<repoId>/`) and the whole shared indexer cache dir,
+   dry-run classifying each entry as either **reapable** (empty decision dirs
+   with zero `decisions` rows, consumed/orphaned slug caches, stale
+   `tmp-ctx_incr_*`) or an **archive candidate** (a decision dir with ≥1
+   decision row whose `repoId` is no longer in the registry's live set — i.e.
+   its repo was renamed, moved, or deleted). `cortex doctor` prints the dry-run
+   report by default; `--fix` calls `fixStores`, which deletes the reapable
+   set and, for archive candidates, calls `archiveDecisionDir` to **move**
+   (never delete) the dir to `~/.cortex/_archive/<repoId>/` — content-bearing
+   user data is irreplaceable, so the worst case is "relocated, still on disk,"
+   never "gone." See [decisions-storage.md](decisions-storage.md#storage-garbage-collection-empty-dirs-and-archived-orphans)
+   for the empty-dir leak this closes.
+
+Every reap/archive action is wrapped in a try/catch that swallows failures —
+storage GC is a best-effort background convenience, and it must never fail an
+index, a session start, or a `cortex doctor` invocation because of a
+permissions error or a concurrent deletion.
+
 ## Key files
 
 | File | Responsibility |
@@ -254,3 +314,7 @@ path step 3) covers them.
 | `src/graph/code-queries.ts` · `src/mcp-server/repo-context.ts` · `src/mcp-server/api.ts` | Read + enumeration + startup migration |
 | `src/graph/index-meta.ts` · `src/graph/capture-index-meta.ts` | Freshness baseline (`cortex_index_meta`): write at index, read at check |
 | `src/mcp-server/freshness.ts` · `src/cli/commands/freshness.ts` | Freshness classifier + memoized resolver + `attachFreshness`; `cortex freshness` CLI |
+| `src/db/store-paths.ts` | Cache/store path derivation (`cacheSlug`, `slugCachePath`, `archiveRoot`, `indexerCacheDir`) — shared by GC and the read resolver |
+| `src/db/store-gc.ts` | GC classification predicates + actions: `isReapableSlugCache`, `isEmptyDecisionDir`, `reapRepoSlugCache`, `sweepCurrentRepo`, `archiveDecisionDir` |
+| `src/db/store-gc-audit.ts` | `cortex doctor`'s all-stores dry-run audit (`auditStores`) + apply (`fixStores`) |
+| `src/cli/commands/doctor.ts` · `hooks/check-index.sh` | `cortex doctor --fix` (machine-wide backstop) and the SessionStart current-repo sweep (`cortex index sweep`) |

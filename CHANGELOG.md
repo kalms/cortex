@@ -18,6 +18,44 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.4.9] — 2026-07-10
+
+### Added
+
+- **Self-maintaining storage garbage collection.** Three complementary,
+  `CORTEX_GC`-gated passes (default on) reap what's provably regenerable and
+  archive — never delete — what might be irreplaceable user data:
+  - **Reap-after-publish** — a successful `cortex index` / `index_repository`
+    now deletes its just-consumed `~/.cache/cortex-indexer/<slug>.db` slug
+    cache, guarded by `isReapableSlugCache` (only when the repo's canonical
+    `.cortex/db` provably has ≥1 node, or the repo path is gone).
+  - **SessionStart current-repo sweep** — the SessionStart hook now runs
+    `cortex index sweep`, clearing this repo's slug cache plus stale
+    `db.stage-*`/`tmp-ctx_incr_*` staging leftovers (24h age guard).
+  - **`cortex doctor` all-stores audit** — `--fix` now reaps regenerable
+    copies (slug caches, stale staging, empty `~/.cortex/<repoId>` decision
+    dirs) across the whole machine and **archives** (moves, never deletes)
+    content-bearing orphan decision dirs to `~/.cortex/_archive/<repoId>/`.
+  - New `src/db/store-paths.ts` (centralized cache/store path derivation) and
+    `src/db/store-gc.ts` / `src/db/store-gc-audit.ts` (classification
+    predicates + reap/archive/sweep + the all-stores audit) back all three.
+
+### Changed
+
+- **`cortex index list`/`delete` now read the TS `Registry`**, not the
+  indexer's cache-dir scan — the same authoritative source `cortex doctor`
+  and the MCP `list_projects` tool already use, so the CLI no longer surfaces
+  phantom `.tmp` corpus entries or diverges from what's actually registered.
+
+### Fixed
+
+- **Eval/corpus indexing leaked slug caches and empty `~/.cortex/<repoId>`
+  decision dirs** into the real `~/.cache/cortex-indexer` and `~/.cortex` on
+  every ephemeral-clone run. Eval/corpus indexing now runs under a scratch
+  `CTX_CACHE_DIR`/`CORTEX_HOME` (`evalIndexerEnv`), stopping the leak at the
+  source; the `cortex doctor` audit is the backstop for anything that still
+  slips through.
+
 ## [1.4.8] — 2026-07-08
 
 ### Fixed
@@ -1412,6 +1450,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.4.9]: https://github.com/ruevu/cortex/releases/tag/v1.4.9
 [1.4.8]: https://github.com/ruevu/cortex/releases/tag/v1.4.8
 [1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
 [1.4.6]: https://github.com/ruevu/cortex/releases/tag/v1.4.6
