@@ -19,7 +19,7 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { canonicalRepoPath } from "../../db/git-root.js";
-import { reapRepoSlugCache } from "../../db/store-gc.js";
+import { reapRepoSlugCache, sweepCurrentRepo } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +50,22 @@ export type IndexCommand = {
   positionals: string[];
   flags: Record<string, string | boolean>;
 };
+
+/** SessionStart current-repo storage sweep — reaps this repo's guarded slug
+ *  cache + stale `db.stage-*` + stale `tmp-ctx_incr_*` (see {@link sweepCurrentRepo}).
+ *  Best-effort and silent by default: never throws, and only emits a
+ *  one-line stderr summary when `CORTEX_CLI_DEBUG=1`. No-op when
+ *  `CORTEX_GC=0`. Called both from `cortex index sweep` and, indirectly,
+ *  the SessionStart hook (hooks/check-index.sh). */
+export function runSweep(repoRoot: string): void {
+  if (process.env.CORTEX_GC === "0") return;
+  try {
+    const res = sweepCurrentRepo(repoRoot);
+    if (res.bytes > 0 && process.env.CORTEX_CLI_DEBUG === "1") {
+      process.stderr.write(`cortex gc: reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)\n`);
+    }
+  } catch { /* best-effort */ }
+}
 
 export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): Promise<void> {
   // 'cortex index' with no subcommand → index the cwd (or given path)
@@ -142,6 +158,18 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       }
       const dbPath = ctx.graphDbPath ?? resolveCortexDbPath(repoPath);
       shell("detect_changes", { repo_path: repoPath }, { CORTEX_DB: dbPath });
+      return;
+    }
+    case "sweep": {
+      // SessionStart hook entry — best-effort current-repo storage GC.
+      // No-op (not an error) outside a git repo, since the hook fires in
+      // every cwd regardless of whether it's a Cortex-managed repo.
+      const repoPath = ctx.gitRoot;
+      if (!repoPath) {
+        process.stdout.write("Not in a git repository — nothing to sweep.\n");
+        return;
+      }
+      runSweep(repoPath);
       return;
     }
     case "list": {
