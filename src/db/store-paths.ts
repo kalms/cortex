@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { durableStoreRoot } from "./resolve-path.js";
 
 /** Slug-form of an absolute path, matching the standalone indexer's cache
- *  filename convention (leading slash dropped, remaining slashes → '-'). */
+ *  filename convention (leading slash dropped, remaining slashes → '-').
+ *  Must stay byte-identical to `deriveProjectName` (src/cli/context.ts). */
 export function cacheSlug(absPath: string): string {
   return absPath.replace(/^\//, "").replace(/\//g, "-");
 }

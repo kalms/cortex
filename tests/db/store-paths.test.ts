@@ -6,8 +6,10 @@ import { join } from "node:path";
 describe("store-paths", () => {
   const saved = { cache: process.env.CTX_CACHE_DIR, home: process.env.CORTEX_HOME };
   afterEach(() => {
-    process.env.CTX_CACHE_DIR = saved.cache;
-    process.env.CORTEX_HOME = saved.home;
+    if (saved.cache === undefined) delete process.env.CTX_CACHE_DIR;
+    else process.env.CTX_CACHE_DIR = saved.cache;
+    if (saved.home === undefined) delete process.env.CORTEX_HOME;
+    else process.env.CORTEX_HOME = saved.home;
   });
 
   it("cacheSlug flattens an absolute path the way the indexer names its cache", () => {

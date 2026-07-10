@@ -75,6 +75,11 @@ export function auditStores(registry: Registry): StoreAudit {
           reapable.push({ path: p, bytes: fileSize(p), reason: "consumed slug cache" });
         }
       } else {
+        // No registered owner and the slug is lossy (can't reliably reconstruct
+        // the repo root), so we can't consult isReapableSlugCache here — reap
+        // unconditionally instead. Safe because a slug cache holds only
+        // regenerable graph data (the canonical store is .cortex/db); worst
+        // case is a forced reindex, never decision loss.
         reapable.push({ path: p, bytes: fileSize(p), reason: "orphan slug cache (no registered repo)" });
       }
     }
