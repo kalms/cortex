@@ -126,6 +126,12 @@ if [[ "$INDEX_STATE" == indexed* ]] && [ "${CORTEX_BRIEF:-1}" != "0" ] && [ -n "
     fi
 fi
 
+# Storage GC: reap this repo's consumed slug cache + stale staging. Best-effort,
+# current-repo only; machine-wide orphans are handled by `cortex doctor --fix`.
+if [ "${CORTEX_GC:-1}" != "0" ] && [ -n "$CORTEX_BIN" ]; then
+    (cd "$REPO" && "$CORTEX_BIN" index sweep >/dev/null 2>&1) || true
+fi
+
 cat <<EOF
 === Cortex routing for this session ===
 

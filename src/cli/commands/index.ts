@@ -19,6 +19,7 @@ import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
 import { canonicalRepoPath } from "../../db/git-root.js";
+import { reapRepoSlugCache, sweepCurrentRepo } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +50,22 @@ export type IndexCommand = {
   positionals: string[];
   flags: Record<string, string | boolean>;
 };
+
+/** SessionStart current-repo storage sweep — reaps this repo's guarded slug
+ *  cache + stale `db.stage-*` + stale `tmp-ctx_incr_*` (see {@link sweepCurrentRepo}).
+ *  Best-effort and silent by default: never throws, and only emits a
+ *  one-line stderr summary when `CORTEX_CLI_DEBUG=1`. No-op when
+ *  `CORTEX_GC=0`. Called both from `cortex index sweep` and, indirectly,
+ *  the SessionStart hook (hooks/check-index.sh). */
+export function runSweep(repoRoot: string): void {
+  if (process.env.CORTEX_GC === "0") return;
+  try {
+    const res = sweepCurrentRepo(repoRoot);
+    if (res.bytes > 0 && process.env.CORTEX_CLI_DEBUG === "1") {
+      process.stderr.write(`cortex gc: reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)\n`);
+    }
+  } catch { /* best-effort */ }
+}
 
 export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): Promise<void> {
   // 'cortex index' with no subcommand → index the cwd (or given path)
@@ -115,6 +132,11 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
           const reg = new Registry();
           try { reg.register(project, repoPath); } finally { reg.close(); }
         } catch { /* non-fatal */ }
+
+        // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
+        if (process.env.CORTEX_GC !== "0") {
+          try { reapRepoSlugCache(repoPath); } catch { /* non-fatal */ }
+        }
       } finally {
         cleanupStagingDb(stagePath); // never leak staging — even on indexer error / throw
       }
@@ -138,18 +160,58 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
       shell("detect_changes", { repo_path: repoPath }, { CORTEX_DB: dbPath });
       return;
     }
-    case "list":
-      shell("list_projects", {});
+    case "sweep": {
+      // SessionStart hook entry — best-effort current-repo storage GC.
+      // No-op (not an error) outside a git repo, since the hook fires in
+      // every cwd regardless of whether it's a Cortex-managed repo.
+      const repoPath = ctx.gitRoot;
+      if (!repoPath) {
+        process.stdout.write("Not in a git repository — nothing to sweep.\n");
+        return;
+      }
+      runSweep(repoPath);
       return;
+    }
+    case "list": {
+      const projects = listProjectsFromRegistry();
+      if (projects.length === 0) { process.stdout.write("No indexed projects.\n"); return; }
+      for (const p of projects) process.stdout.write(`${p.name} — ${p.root_path}\n`);
+      return;
+    }
     case "delete": {
       const project = cmd.positionals[0];
       if (!project) throw new UsageError("missing <project>", "Usage: cortex index delete <project>");
-      shell("delete_project", { project });
+      const found = listProjectsFromRegistry().find((p) => p.name === project);
+      const removed = deleteProjectFromRegistry(project);
+      if (found && process.env.CORTEX_GC !== "0") {
+        try { reapRepoSlugCache(found.root_path); } catch { /* best-effort */ }
+      }
+      process.stdout.write(removed ? `Removed ${project}.\n` : `No such project: ${project}\n`);
       return;
     }
     default:
       throw new UsageError(`unknown command 'cortex index ${cmd.command}'`, "Run: cortex index --help");
   }
+}
+
+/** Enumerate registered projects from the master `Registry` — the same
+ *  audited surface `cortex doctor` and the MCP `list_projects` tool use.
+ *  Replaces the old `shell("list_projects")` cache-dir scan, which surfaced
+ *  phantom `.tmp` corpus entries the registry's `isTmpPath` guard excludes. */
+export function listProjectsFromRegistry(): { name: string; root_path: string }[] {
+  const reg = new Registry();
+  try { return reg.list().map((r) => ({ name: r.name, root_path: r.root_path })); }
+  finally { reg.close(); }
+}
+
+/** Remove a project's registry row; returns whether it existed beforehand. */
+export function deleteProjectFromRegistry(name: string): boolean {
+  const reg = new Registry();
+  try {
+    const existed = reg.findByName(name) !== null;
+    reg.remove(name);
+    return existed;
+  } finally { reg.close(); }
 }
 
 function shell(tool: string, args: Record<string, unknown>, extraEnv?: Record<string, string>): void {

@@ -37,6 +37,7 @@ import { invalidateFreshness } from "../freshness.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
+import { reapRepoSlugCache } from "../../db/store-gc.js";
 import { ensureIndexer } from "../../indexer/binary.js";
 import { RepoPathField } from "./shared-fields.js";
 import { computeHotspots } from "../../architecture/hotspots.js";
@@ -317,6 +318,11 @@ export function registerCodeTools(
             const reg = new Registry();
             try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
           } catch { /* non-fatal: registration must never fail the index */ }
+
+          // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
+          if (process.env.CORTEX_GC !== "0") {
+            try { reapRepoSlugCache(repoPath); } catch { /* non-fatal */ }
+          }
         };
 
         // Defensive: before we touch the graph DB (which a cache import will

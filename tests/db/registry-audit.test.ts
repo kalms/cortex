@@ -9,7 +9,16 @@ import { runDoctorCommand } from "../../src/cli/commands/doctor.js";
 
 describe("registry-audit", () => {
   let root: string, sub: string, wt: string, nested: string, nogit: string, dead: string, regDir: string;
+  let storeHomeDir: string;
+  const savedStoreEnv = { home: process.env.CORTEX_HOME, cache: process.env.CTX_CACHE_DIR };
   beforeAll(() => {
+    // runDoctorCommand (Task 6) also audits ~/.cortex and the indexer cache —
+    // isolate both so `--fix` in this suite never touches the real user home.
+    storeHomeDir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-aud-store-")));
+    process.env.CORTEX_HOME = storeHomeDir;
+    process.env.CTX_CACHE_DIR = join(storeHomeDir, "cache");
+    mkdirSync(process.env.CTX_CACHE_DIR, { recursive: true });
+
     root = realpathSync(mkdtempSync(join(tmpdir(), "cortex-aud-")));
     execSync(`git init -q "${root}"`);
     execSync(`git -C "${root}" commit -q --allow-empty -m init`);
@@ -37,6 +46,11 @@ describe("registry-audit", () => {
     // Isolated registry from the --fix test: drop the env override and its tmp dir.
     delete process.env.CORTEX_REGISTRY_DB;
     if (regDir) rmSync(regDir, { recursive: true, force: true });
+
+    // Restore the store-audit env isolation set up in beforeAll.
+    process.env.CORTEX_HOME = savedStoreEnv.home;
+    process.env.CTX_CACHE_DIR = savedStoreEnv.cache;
+    rmSync(storeHomeDir, { recursive: true, force: true });
   });
 
   it("flags subdir and worktree entries as orphans; keeps roots, nested repos, non-git", () => {
