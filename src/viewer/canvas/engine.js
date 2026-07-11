@@ -1,6 +1,7 @@
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
+import { dotBudget, labelAlpha, shedAlpha, applyHysteresis } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -90,11 +91,6 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return (t.seq != null) ? ('T-' + t.seq) : t.id;
   }
 
-  // Max file-dots rendered per frame. Raising it surfaces more nodes per frame
-  // and, because edges only draw between visible dots, recovers more of the
-  // graph's connectivity on the map (the cap is the dominant edge filter).
-  const MAX_FRAME_NODES = 22;
-
   let FRAMES = [];
   let frameById = new Map();
   let NODE_CFG = {};
@@ -156,6 +152,11 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (!preserveFocus) {
       focusedFrameId = null;
       previousFocusId = null;
+      // Frame ids collide across projects (every project has a frame "1"), so
+      // a project switch must not reuse the old project's reveal state — reset
+      // for an instant calibrated render. The resnapshot path (preserveFocus:
+      // true) keeps its reveal state for continuity.
+      for (const k of Object.keys(frameReveal)) delete frameReveal[k];
     }
     invalidateFrameGeometry();
   }
@@ -250,8 +251,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
     // Real edges from /api/file-edges. Each FileEdge already has a weight
     // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
-    // Edges where either endpoint isn't on canvas (file beyond the per-frame
-    // cap MAX_FRAME_NODES, or in noise / auxiliary content) are silently dropped.
+    // Edges where either endpoint isn't on canvas (in noise / auxiliary
+    // content, outside any frame) are silently dropped. The per-frame LOD
+    // dot budget is applied at draw time (lod.js), not here.
     for (const fe of FILE_EDGES) {
       const a = pathToIdx.get(fe.from_path);
       const b = pathToIdx.get(fe.to_path);
@@ -628,6 +630,32 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     };
   }
 
+  // ── LOD: per-frame animated dot reveal. `shown` glides toward the budget;
+  // dot i draws at alpha clamp(shown - i, 0, 1) so reveals/sheds fade
+  // sequentially instead of popping (§0.4).
+  const REVEAL_MS = 240;
+  const frameReveal = {}; // frameId → { shown, target, from, t0 }
+  let lodByFrame = new Map(); // frameId → { shown, label } — rebuilt per tick
+  let detailShed = 1;
+  function computeLod(now) {
+    lodByFrame = new Map();
+    detailShed = shedAlpha(camera.zoom);
+    for (const fr of FRAMES) {
+      if (!visibleFrames.has(fr.id)) continue;
+      const f = framePx(fr);
+      const members = (NODE_CFG[fr.id] || { count: 0 }).count;
+      const rawTarget = dotBudget(f.w * f.h, members);
+      let st = frameReveal[fr.id];
+      if (!st) st = frameReveal[fr.id] = { shown: rawTarget, target: rawTarget, from: rawTarget, t0: 0 };
+      const target = applyHysteresis(st.target, rawTarget);
+      if (target !== st.target) { st.from = st.shown; st.target = target; st.t0 = now; }
+      const t = st.t0 === 0 ? 1 : Math.min(1, (now - st.t0) / REVEAL_MS);
+      st.shown = st.from + (st.target - st.from) * ease(t);
+      const spacing = Math.sqrt((f.w * f.h) / Math.max(1, st.target));
+      lodByFrame.set(fr.id, { shown: st.shown, label: labelAlpha(spacing) });
+    }
+  }
+
   let hoveredLabelFrameId = null;
   let hoveredFrameId = null;
   let hoveredNodeIdx = null;
@@ -706,6 +734,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     let bestDist = Infinity;
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
+      const lod = lodByFrame.get(n.frameId);
+      if (lod && lod.shown - n.indexInFrame < 0.5) return;
       const p = nodePx(n);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
@@ -1959,6 +1989,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
     edges.forEach((e) => {
       if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
+      const la = lodByFrame.get(nodes[e.a].frameId);
+      const lb = lodByFrame.get(nodes[e.b].frameId);
+      const ra = la ? Math.max(0, Math.min(1, la.shown - nodes[e.a].indexInFrame)) : 1;
+      const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].indexInFrame)) : 1;
+      const lodMul = Math.min(ra, rb) * detailShed;
+      if (lodMul <= 0.01) return;
       const a = nodePx(nodes[e.a]);
       const b = nodePx(nodes[e.b]);
       // Inter-frame edges read at lower base alpha so they don't drown out
@@ -1967,7 +2003,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       // shared method.
       const baseAlpha = e.interFrame ? 0.09 : 0.15;
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
-      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1);
+      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul;
 
       ctx.save();
       const eb = edgeRGB();
@@ -2173,6 +2209,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
+      const lod = lodByFrame.get(n.frameId);
+      const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.indexInFrame)) : 1;
+      const detail = reveal * detailShed;
+      if (detail <= 0.01) return; // skip un-revealed dots entirely
       const p = nodePx(n);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
@@ -2182,13 +2222,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
       ctx.save();
       if (n.kind === 'decision') {
-        ctx.fillStyle = 'rgba(74, 222, 128, 0.85)';
+        ctx.fillStyle = `rgba(74, 222, 128, ${0.85 * detail})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 2.8 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
       } else {
         const nb = nodeBaseRGB();
-        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, 0.75)`;
+        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, ${0.75 * detail})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 1.9 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
@@ -2218,6 +2258,18 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       }
 
       ctx.restore();
+
+      const la = (lod ? lod.label : 0) * detail;
+      if (la > 0.02 && n.kind !== 'decision') {
+        ctx.save();
+        ctx.font = '400 9px "Geist Mono", monospace';
+        const sl = subLabelRGB();
+        ctx.fillStyle = `rgba(${sl[0]}, ${sl[1]}, ${sl[2]}, ${0.85 * la})`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(truncateEnd(ctx, n.name, 110), p.x + 5, p.y);
+        ctx.restore();
+      }
     });
   }
 
@@ -2412,6 +2464,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     viewTransform = compose(computeViewTransform(), cameraNow(now));
     framePxCache.clear();
     computeVisibleFrames();
+    computeLod(now);
     // Edges are the lowest layer — everything (frames, nodes, marginalia)
     // reads on top of the connectivity web, not under it.
     drawEdges();

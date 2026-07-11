@@ -7,8 +7,6 @@ import {
   buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos,
 } from "./adapters.js";
 
-const MAX_FRAME_NODES = 22; // keep in sync with canvas/engine.js
-
 export function adaptProjectData({ graph, decs, aggs, fileEdges, frameMap, todosResp }) {
   const summaries = groupNodesIntoFrames(graph.nodes);
   const framePathIndex = buildFramePathIndex(summaries);
@@ -20,10 +18,10 @@ export function adaptProjectData({ graph, decs, aggs, fileEdges, frameMap, todos
   const nodeCfg = {}, fileNames = {}, frameFilePaths = {};
   for (const s of summaries) {
     const sid = String(s.frame_id);
-    const visible = s.members.slice(0, MAX_FRAME_NODES);
-    nodeCfg[sid] = { count: visible.length };
-    fileNames[sid] = basenames(visible, MAX_FRAME_NODES);
-    frameFilePaths[sid] = visible.map((m) => m.file_path || null);
+    // Full member lists: the engine's LOD budget decides how many draw per tick.
+    nodeCfg[sid] = { count: s.members.length };
+    fileNames[sid] = basenames(s.members, s.members.length);
+    frameFilePaths[sid] = s.members.map((m) => m.file_path || null);
   }
   const ambientTodos = filterAmbientTodos(todosResp.todos || []);
   const ambientTodoMap = {}; for (const t of ambientTodos) ambientTodoMap[t.id] = t;

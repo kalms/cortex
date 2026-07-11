@@ -58,4 +58,11 @@ describe("adaptProjectData (canvas/adapt.js)", () => {
     expect(b.aggregates).toHaveLength(1);
     expect(b.fileEdges[0].weight).toBe(2);
   });
+  it("carries ALL frame members (LOD budgets at draw time, not adapt time)", () => {
+    const f = fixture();
+    f.graph.nodes = Array.from({ length: 40 }, (_, i) => node(`m${i}`, `src/m${i}.ts`, 1));
+    const b = adaptProjectData(f);
+    expect(b.nodeCfg["1"].count).toBe(40);
+    expect(b.fileNames["1"]).toHaveLength(40);
+  });
 });
