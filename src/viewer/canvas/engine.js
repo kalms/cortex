@@ -16,11 +16,13 @@ const LAYER_RGB = {
   ceremony:       [125, 110, 93],
 };
 
-export function createEngine({ canvas, store, callbacks = {} }) {
+export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn, storagePrefix = 'cortex.viewer' }) {
   const ctx = canvas.getContext('2d');
   const DPR = window.devicePixelRatio || 1;
 
-  function isLight() { return document.body.classList.contains('light'); }
+  // Theme probe — injectable so an embedder (Mesh) can bind its own theme
+  // attribute; default preserves the Cortex viewer's body-class convention.
+  const isLight = isLightFn ?? (() => document.body.classList.contains('light'));
 
   // Canvas-side theme helpers — small, intentional, not a full abstraction
   function frameBorderRGB()       { return isLight() ? [0, 0, 0]       : [255, 255, 255]; }
@@ -38,14 +40,14 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   function subLabelRGB()          { return isLight() ? [113, 113, 122] : [161, 161, 170]; }
   function countIdleRGB()         { return isLight() ? [113, 113, 122] : [82, 82, 91]; }
 
-  const LAYERS_LS_KEY = 'cortex.viewer.layers';
+  const LAYERS_LS_KEY = `${storagePrefix}.layers`;
   let layersOn = false;
   try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
 
   const SHOW_LS = {
-    frames: 'cortex.viewer.show.frames',
-    decisions: 'cortex.viewer.show.decisions',
-    todos: 'cortex.viewer.show.todos',
+    frames: `${storagePrefix}.show.frames`,
+    decisions: `${storagePrefix}.show.decisions`,
+    todos: `${storagePrefix}.show.todos`,
   };
   function readShow(key) {
     try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
