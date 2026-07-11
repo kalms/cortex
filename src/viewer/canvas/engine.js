@@ -96,6 +96,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   const MAX_FRAME_NODES = 22;
 
   let FRAMES = [];
+  let frameById = new Map();
   let NODE_CFG = {};
   let FILE_NAMES = {};
   let FRAME_FILE_PATHS = {};
@@ -140,6 +141,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  fetching/adapting now happens in React; the engine only owns render state. */
   function setData(bundle, { preserveFocus = false } = {}) {
     FRAMES = bundle.frames;
+    frameById = new Map(FRAMES.map((f) => [f.id, f]));
     NODE_CFG = bundle.nodeCfg;
     FILE_NAMES = bundle.fileNames;
     FRAME_FILE_PATHS = bundle.frameFilePaths;
@@ -155,6 +157,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       focusedFrameId = null;
       previousFocusId = null;
     }
+    invalidateFrameGeometry();
   }
 
   // Deterministic placement primitives: same graph → same dot positions on
@@ -404,7 +407,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       // Rare path: a change governs a frame outside the render set — recompute
       // the promoted-frames overlay + canvas graph (documented spec exception).
       FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+      frameById = new Map(FRAMES.map((f) => [f.id, f]));
       buildGraph();
+      invalidateFrameGeometry();
     }
     onLiveChangesApplied(changes);
   }
@@ -558,7 +563,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const ux = dx / dist;
     const uy = dy / dist;
 
-    const focusedFrame = FRAMES.find(f => f.id === focusedId);
+    const focusedFrame = frameById.get(focusedId);
     if (!focusedFrame) return base;
     const focusedW = Math.min(stageW * 0.55, 560);
     const focusedH = Math.min(stageH * 0.55, 360);
@@ -580,32 +585,42 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return { cx: newCx, cy: newCy, w: compressedW, h: compressedH };
   }
 
+  const framePxCache = new Map(); // cleared per tick — framePx is pure within one frame
+  /** Geometry changed outside the rAF tick (resize / data swap): refresh the
+   *  view transform (framePxBase reads it, and only mainLoop recomputes it),
+   *  drop cached framePx values, and recompute the visible set so a hit-test
+   *  landing before the next tick sees fresh geometry (recompute — an emptied
+   *  set would make nodeAtPoint miss everything during the sub-16ms window).
+   *  `camera` (not cameraNow) is correct outside a tick: it holds the current
+   *  value, and mid-animation the next rAF re-lerps anyway. */
+  function invalidateFrameGeometry() {
+    viewTransform = compose(computeViewTransform(), camera);
+    framePxCache.clear();
+    computeVisibleFrames();
+  }
   function framePx(frame) {
+    const hit = framePxCache.get(frame.id);
+    if (hit) return hit;
     const fp = computeFocusProgress();
     const base = framePxBase(frame);
-
-    if (!fp.focused && !fp.from) return base;
-
-    const target = fp.focused
-      ? framePxFocused(frame, fp.focused)
-      : base;
-
-    const source = fp.from
-      ? framePxFocused(frame, fp.from)
-      : base;
-
-    if (fp.t >= 1) return target;
-
-    return {
-      cx: source.cx + (target.cx - source.cx) * fp.t,
-      cy: source.cy + (target.cy - source.cy) * fp.t,
-      w:  source.w  + (target.w  - source.w)  * fp.t,
-      h:  source.h  + (target.h  - source.h)  * fp.t,
-    };
+    let out;
+    if (!fp.focused && !fp.from) out = base;
+    else {
+      const target = fp.focused ? framePxFocused(frame, fp.focused) : base;
+      const source = fp.from ? framePxFocused(frame, fp.from) : base;
+      out = fp.t >= 1 ? target : {
+        cx: source.cx + (target.cx - source.cx) * fp.t,
+        cy: source.cy + (target.cy - source.cy) * fp.t,
+        w:  source.w  + (target.w  - source.w)  * fp.t,
+        h:  source.h  + (target.h  - source.h)  * fp.t,
+      };
+    }
+    framePxCache.set(frame.id, out);
+    return out;
   }
 
   function nodePx(node) {
-    const frame = FRAMES.find(f => f.id === node.frameId);
+    const frame = frameById.get(node.frameId);
     const f = framePx(frame);
     return {
       x: f.cx - f.w / 2 + node.rx * f.w,
@@ -671,6 +686,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     canvas.width = canvas.clientWidth * DPR;
     canvas.height = canvas.clientHeight * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    invalidateFrameGeometry();
   }
 
   function marginaliaAtPoint(px, py) {
@@ -689,8 +705,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     let best = null;
     let bestDist = Infinity;
     nodes.forEach((n, i) => {
+      if (!visibleFrames.has(n.frameId)) return;
       const p = nodePx(n);
-      const frame = FRAMES.find(f => f.id === n.frameId);
+      const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const baseR = n.kind === 'decision' ? 2.8 : 2.2;
@@ -1110,6 +1127,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         tries++;
       }
 
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (dotX < -60 || dotX > W + 60 || dotY < -60 || dotY > H + 60) {
+        liveFx.recordDotPos(dec.id, dotX, dotY); // keep effect anchors current
+        return;
+      }
+
       const state = dec.state;
       const dotColor =
         state === 'stale'      ? [160, 175, 165] :
@@ -1345,6 +1368,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         tries++;
       }
 
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (dotX < -60 || dotX > W + 60 || dotY < -60 || dotY > H + 60) {
+        liveFx.recordDotPos(todo.id, dotX, dotY); // keep effect anchors current
+        return;
+      }
+
       const { rgb, ring } = todoDotColor(todo.state);
       // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
 
@@ -1494,6 +1523,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const sharpFrameId = fp.focused;
 
     FRAMES.forEach(frame => {
+      if (!visibleFrames.has(frame.id)) return;
       const f = framePx(frame);
       const isFocused = frame.id === sharpFrameId;
       // Satellite (non-ambient) frames are drawn at half prominence so they
@@ -1649,7 +1679,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // Invisible pills must not register hit rects — anything drawn here is
     // hoverable/clickable via marginaliaRects, so skip the fully-faded state.
     if (alphaMult <= 0.01) return;
-    const frame = FRAMES.find(f => f.id === frameId);
+    const frame = frameById.get(frameId);
     if (!frame) return;
     const decs = showDecisions ? getFrameDecisions(frameId) : [];
     const todos = showTodos ? getFrameTodos(frameId) : [];
@@ -1928,6 +1958,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       if (e.weight && e.weight > maxW) maxW = e.weight;
     }
     edges.forEach((e) => {
+      if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
       const a = nodePx(nodes[e.a]);
       const b = nodePx(nodes[e.b]);
       // Inter-frame edges read at lower base alpha so they don't drown out
@@ -1971,7 +2002,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (alpha <= 0) return;
 
     const n = nodes[hoveredNodeIdx];
-    const frame = FRAMES.find(f => f.id === n.frameId);
+    const frame = frameById.get(n.frameId);
     const inFocused = focusedFrameId && frame?.id === focusedFrameId;
     const fp = computeFocusProgress();
     const sizeMult = inFocused ? 1 + 0.4 * fp.t : 1;
@@ -2101,7 +2132,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (pillNodeIdx === null || pillAlpha <= 0) return;
 
     const n = nodes[pillNodeIdx];
-    const frame = FRAMES.find(f => f.id === n.frameId);
+    const frame = frameById.get(n.frameId);
     const p = nodePx(n);
 
     const TEXT_RGB = hoverPillTextPrimaryRGB();
@@ -2141,8 +2172,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const focusedId = fp.focused;
 
     nodes.forEach((n, i) => {
+      if (!visibleFrames.has(n.frameId)) return;
       const p = nodePx(n);
-      const frame = FRAMES.find(f => f.id === n.frameId);
+      const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const isAnchor = anchorNodeIdx === i && inFocused;
@@ -2357,11 +2389,29 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     ctx.restore();
   }
 
+  let visibleFrames = new Set();
+  // Margin covers content drawn OUTSIDE the frame box: marginalia pill columns
+  // (≤ MARGINALIA_MAX_W + 14) and labels — a culled frame must not pop its pills.
+  const CULL_MARGIN = 260;
+  function computeVisibleFrames() {
+    visibleFrames = new Set();
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    for (const fr of FRAMES) {
+      const f = framePx(fr);
+      if (f.cx + f.w / 2 + CULL_MARGIN > 0 && f.cx - f.w / 2 - CULL_MARGIN < W &&
+          f.cy + f.h / 2 + CULL_MARGIN > 0 && f.cy - f.h / 2 - CULL_MARGIN < H) {
+        visibleFrames.add(fr.id);
+      }
+    }
+  }
+
   function mainLoop() {
     const now = performance.now();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     viewTransform = compose(computeViewTransform(), cameraNow(now));
+    framePxCache.clear();
+    computeVisibleFrames();
     // Edges are the lowest layer — everything (frames, nodes, marginalia)
     // reads on top of the connectivity web, not under it.
     drawEdges();
