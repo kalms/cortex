@@ -1,5 +1,6 @@
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
+import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -470,6 +471,23 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   // from the UNFOCUSED base positions (independent of focus animation → stable).
   let viewTransform = { scale: 1, ox: 0, oy: 0 };
 
+  // ── Camera: pure post-transform on the fit view (see camera.js). Identity
+  // renders exactly today's fit-to-content scene. Animated moves reuse the
+  // focus-transition idiom (ease + FOCUS_DURATION).
+  let camera = createCamera();
+  let camAnim = null; // { from, to, t0 }
+  function cameraNow(now) {
+    if (!camAnim) return camera;
+    const t = Math.min(1, (now - camAnim.t0) / FOCUS_DURATION);
+    camera = lerpCamera(camAnim.from, camAnim.to, ease(t));
+    if (t >= 1) { camera = camAnim.to; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+    return camera;
+  }
+  function setCamera(next, { animate = false } = {}) {
+    if (animate) { camAnim = { from: { ...camera }, to: { ...next }, t0: performance.now() }; }
+    else { camera = { ...next }; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+  }
+
   function computeViewTransform() {
     const stageW = canvas.clientWidth || 1;
     const stageH = canvas.clientHeight || 1;
@@ -723,6 +741,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   let mouseX = 0, mouseY = 0;
 
   canvas.addEventListener('mousemove', (e) => {
+    if (panState?.dragging) return;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -833,10 +852,14 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (frame) {
       anchorNodeIdx = null;
       setFocus(frame.id === focusedFrameId ? null : frame.id);
+      return;
     }
+    // Empty canvas: return the camera to the fit view (identity), animated.
+    if (!isIdentity(camera)) setCamera(createCamera(), { animate: true });
   });
 
   canvas.addEventListener('click', (e) => {
+    if (suppressClick) { suppressClick = false; return; }
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -945,6 +968,67 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       }
     }
   });
+
+  let wheelSettleTimer = null;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    camAnim = null;
+    camera = zoomAt(camera, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+    callbacks.onCameraChange?.({ ...camera });
+    // Below-fit overscroll (and a leftover pan at the fit floor) springs back
+    // once the gesture pauses — same easing family as the focus transition.
+    clearTimeout(wheelSettleTimer);
+    wheelSettleTimer = setTimeout(settleIfNeeded, 160);
+  }, { passive: false });
+
+  // Below-fit is transient (camera.js invariant): spring back to the fit floor
+  // whenever a gesture ends — the wheel pause AND every pan-end path. Never
+  // settles out from under an active drag (the drag owns the camera); the
+  // at-rest identity case is a no-op.
+  function settleIfNeeded() {
+    const target = settleTarget(camera);
+    if (!panState?.dragging && target !== camera && !isIdentity(camera)) setCamera(target, { animate: true });
+  }
+
+  let panState = null; // { startX, startY, camAtStart, pointerId, dragging }
+  let suppressClick = false;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    clearTimeout(wheelSettleTimer); // a new gesture cancels any pending wheel settle
+    panState = { startX: e.clientX, startY: e.clientY, camAtStart: { ...camera }, pointerId: e.pointerId, dragging: false };
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    // Self-heal: if pointer capture failed and the button was released outside
+    // the canvas, no pointerup/pointercancel ever fired here — a buttons-up
+    // move means the pan already ended elsewhere. End it WITHOUT suppressing
+    // the next click (no trailing canvas click follows an outside release).
+    if (panState && e.buttons === 0) { panState = null; canvas.style.cursor = 'default'; settleIfNeeded(); return; }
+    if (!panState) return;
+    const dx = e.clientX - panState.startX;
+    const dy = e.clientY - panState.startY;
+    if (!panState.dragging) {
+      if (Math.hypot(dx, dy) < 4) return; // click/dblclick/hover stay intact under the threshold
+      panState.dragging = true;
+      try { canvas.setPointerCapture(panState.pointerId); } catch { /* capture unavailable */ }
+      canvas.style.cursor = 'grabbing';
+    }
+    camAnim = null;
+    camera = panBy(panState.camAtStart, dx, dy);
+    callbacks.onCameraChange?.({ ...camera });
+  });
+  function endPan(suppress) {
+    if (panState?.dragging) {
+      // Only a real pointerup has a trailing canvas click to eat; a cancelled
+      // pointer produces none — suppressing there would eat the NEXT click.
+      if (suppress) suppressClick = true;
+      canvas.style.cursor = 'default';
+    }
+    panState = null;
+    settleIfNeeded();
+  }
+  canvas.addEventListener('pointerup', () => endPan(true));
+  canvas.addEventListener('pointercancel', () => endPan(false));
 
   const decisionNodeRects = [];
   const todoNodeRects = [];
@@ -2176,8 +2260,11 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       // Aggregates don't drive the fit (computeViewTransform frames the cloud
       // only), so a dot the keep-out flung far out could map off-canvas — clamp
       // it back on-screen so it stays visible.
-      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
-      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, (ny * stageH) * v.scale + v.oy));
+      const rawX = (nx * stageW) * v.scale + v.ox;
+      const rawY = (ny * stageH) * v.scale + v.oy;
+      const clampOn = isIdentity(camera) && !camAnim;
+      const cx = clampOn ? Math.max(dotR + 4, Math.min(stageW - dotR - 4, rawX)) : rawX;
+      const cy = clampOn ? Math.max(dotR + 4, Math.min(stageH - dotR - 4, rawY)) : rawY;
 
       const isHovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
@@ -2274,7 +2361,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const now = performance.now();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    viewTransform = computeViewTransform();
+    viewTransform = compose(computeViewTransform(), cameraNow(now));
     // Edges are the lowest layer — everything (frames, nodes, marginalia)
     // reads on top of the connectivity web, not under it.
     drawEdges();
@@ -2316,6 +2403,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     frameIdForFilePath: (p) => frameIdForPath(FRAME_PATH_INDEX, p),
     getActiveRecord: () => focusedRecord,
     getFocusedFrameId: () => focusedFrameId,
+    getCamera: () => ({ ...camera }),
+    setCamera,
     start,
     resize,
     destroy,
