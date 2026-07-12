@@ -1,7 +1,7 @@
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
-import { dotBudget, labelAlpha, shedAlpha, applyHysteresis } from './lod.js';
+import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -232,6 +232,17 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
           name: names[i] || 'n-' + i,
         });
         adjacency[nodes.length - 1] = [];
+      }
+      // Reveal order: seeded scatter so a partial budget samples the whole
+      // grid instead of filling the top rows (positions stay index-seeded).
+      const order = Array.from({ length: cfg.count }, (_, k) => k);
+      const rng = mulberry32(fnv1a('reveal:' + frame.id));
+      for (let k = order.length - 1; k > 0; k--) {
+        const j = Math.floor(rng() * (k + 1));
+        [order[k], order[j]] = [order[j], order[k]];
+      }
+      for (let k = 0; k < cfg.count; k++) {
+        nodes[nodes.length - cfg.count + k].revealRank = order[k];
       }
     });
 
@@ -735,7 +746,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
-      if (lod && lod.shown - n.indexInFrame < 0.5) return;
+      if (lod && lod.shown - n.revealRank < 0.5) return;
       const p = nodePx(n);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
@@ -1987,12 +1998,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     for (const e of edges) {
       if (e.weight && e.weight > maxW) maxW = e.weight;
     }
+    // Hoisted once per call (not per edge): inter-frame edges recede as the
+    // camera zooms past fit, so zoomed-in reading stays local.
+    const interZoomFade = interEdgeZoomFade(camera.zoom);
     edges.forEach((e) => {
       if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
       const la = lodByFrame.get(nodes[e.a].frameId);
       const lb = lodByFrame.get(nodes[e.b].frameId);
-      const ra = la ? Math.max(0, Math.min(1, la.shown - nodes[e.a].indexInFrame)) : 1;
-      const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].indexInFrame)) : 1;
+      const ra = la ? Math.max(0, Math.min(1, la.shown - nodes[e.a].revealRank)) : 1;
+      const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].revealRank)) : 1;
       const lodMul = Math.min(ra, rb) * detailShed;
       if (lodMul <= 0.01) return;
       const a = nodePx(nodes[e.a]);
@@ -2003,7 +2017,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       // shared method.
       const baseAlpha = e.interFrame ? 0.09 : 0.15;
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
-      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul;
+      const zoomFade = e.interFrame ? interZoomFade : 1;
+      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul * zoomFade;
 
       ctx.save();
       const eb = edgeRGB();
@@ -2210,7 +2225,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
-      const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.indexInFrame)) : 1;
+      const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
       const detail = reveal * detailShed;
       if (detail <= 0.01) return; // skip un-revealed dots entirely
       const p = nodePx(n);
@@ -2337,8 +2352,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      // Uniform dot size — aggregates are not sized by member_count.
-      const dotR = AGG_DOT_R * v.scale;
+      // Uniform dot size — aggregates are not sized by member_count. Capped so
+      // aggregate dots don't balloon past file dots at high zoom.
+      const dotR = Math.min(AGG_DOT_R * v.scale, AGG_DOT_R * 1.6);
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
       // Aggregates don't drive the fit (computeViewTransform frames the cloud

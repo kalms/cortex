@@ -7,8 +7,8 @@
  */
 export const PX_PER_DOT = 800;
 export const MIN_DOTS = 6;
-export const LABEL_SPACING_MIN = 44;  // px between dots where file labels start
-export const LABEL_SPACING_FULL = 64; // fully legible
+export const LABEL_SPACING_MIN = 64;  // px between dots where file labels start
+export const LABEL_SPACING_FULL = 96; // fully legible
 
 export function dotBudget(frameAreaPx, memberCount) {
   if (memberCount <= 0) return 0;
@@ -32,4 +32,11 @@ export function shedAlpha(zoom) {
 /** Deadband so a budget hovering on a floor() boundary can't flicker. */
 export function applyHysteresis(current, target) {
   return Math.abs(target - current) < 2 ? current : target;
+}
+
+/** Inter-frame edges recede as the camera zooms past fit — zoomed-in reading
+ *  is local; long context edges otherwise dominate the viewport. */
+export function interEdgeZoomFade(zoom) {
+  if (zoom <= 1.25) return 1;
+  return Math.max(0.3, 1.25 / zoom);
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  dotBudget, labelAlpha, shedAlpha, applyHysteresis,
+  dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade,
   PX_PER_DOT, MIN_DOTS,
 } from "../../src/viewer/canvas/lod.js";
 
@@ -19,9 +19,9 @@ describe("lod", () => {
     expect(dotBudget(150 * 4 * 120 * 4, 100)).toBe(100); // capped at members
   });
   it("labelAlpha ramps across the spacing band", () => {
-    expect(labelAlpha(44)).toBe(0);
-    expect(labelAlpha(54)).toBeCloseTo(0.5, 5);
-    expect(labelAlpha(64)).toBe(1);
+    expect(labelAlpha(64)).toBe(0);
+    expect(labelAlpha(80)).toBeCloseTo(0.5, 5);
+    expect(labelAlpha(96)).toBe(1);
     expect(labelAlpha(200)).toBe(1);
   });
   it("shedAlpha is 1 at/above fit and fades during overscroll", () => {
@@ -33,5 +33,11 @@ describe("lod", () => {
     expect(applyHysteresis(22, 23)).toBe(22);
     expect(applyHysteresis(22, 21)).toBe(22);
     expect(applyHysteresis(22, 24)).toBe(24);
+  });
+  it("interEdgeZoomFade holds at 1 through fit, then recedes with zoom", () => {
+    expect(interEdgeZoomFade(1)).toBe(1);
+    expect(interEdgeZoomFade(1.25)).toBe(1);
+    expect(interEdgeZoomFade(2.5)).toBeCloseTo(0.5, 5);
+    expect(interEdgeZoomFade(4)).toBeCloseTo(Math.max(0.3, 0.3125), 5);
   });
 });
