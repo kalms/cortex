@@ -18,6 +18,37 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.5.1] — 2026-07-12
+
+### Added
+
+- **Viewer camera — pan & zoom.** The graph canvas gains a camera composed as
+  a pure post-transform on the fit-to-content view (identity renders exactly
+  the previous scene): cursor-anchored wheel zoom (up to 4×), drag-to-pan with
+  a 4px threshold that keeps click/dblclick/hover semantics intact, dblclick
+  on empty canvas to animate back to fit, and an elastic below-fit overscroll
+  that springs home. New engine API: `getCamera()` / `setCamera()` /
+  `callbacks.onCameraChange`.
+- **Screen-area LOD.** Per-frame dot budgets driven by on-screen frame area
+  (`canvas/lod.js`, ~the old 22-dot look at fit on normal frames, fewer on
+  squeezed ones — the dense-project fit view finally breathes; all members
+  reveal as you zoom), with a deterministic scattered reveal order, per-file
+  labels past 64px dot spacing, inter-frame edges receding at high zoom, and
+  sub-frame detail shedding during overscroll.
+- **Viewport culling + per-tick geometry cache** — large graphs (activator)
+  hold ~120fps at fit and deep zoom.
+- **Embeddable engine unit.** `adaptProjectData` moved into `canvas/adapt.js`
+  (re-exported from `app/data.ts`), and `createEngine` accepts optional
+  `isLight` and `storagePrefix` — the `canvas/` modules +
+  `app/{entity-store,ws-client}.js` now form a dependency-free unit an
+  embedder (Mesh) can vendor. Documented in
+  `docs/architecture/viewer-sync-engine.md`.
+
+### Changed
+
+- Frame-member adaptation no longer pre-slices to 22 nodes (`MAX_FRAME_NODES`
+  removed); the LOD budget decides draw-time counts.
+
 ## [1.5.0] — 2026-07-10
 
 ### Added
@@ -1450,6 +1481,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.5.1]: https://github.com/ruevu/cortex/releases/tag/v1.5.1
 [1.5.0]: https://github.com/ruevu/cortex/releases/tag/v1.5.0
 [1.4.8]: https://github.com/ruevu/cortex/releases/tag/v1.4.8
 [1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
