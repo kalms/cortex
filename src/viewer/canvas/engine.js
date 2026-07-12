@@ -18,7 +18,7 @@ const LAYER_RGB = {
   ceremony:       [125, 110, 93],
 };
 
-export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn, storagePrefix = 'cortex.viewer' }) {
+export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn = undefined, storagePrefix = 'cortex.viewer' }) {
   const ctx = canvas.getContext('2d');
   const DPR = window.devicePixelRatio || 1;
 
