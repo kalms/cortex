@@ -239,7 +239,7 @@ Stream rendering is parked alongside the viewer's WebSocket integration in the c
 
 **`tests/integration/worker.test.ts`** (and related) — covers the full worker message loop: `init` → `event` → `broadcast` round-trip using a real worker thread spawned via the bootstrap.
 
-**`tests/viewer/data-adapt.test.js`** — verifies `adaptProjectData` (`app/data.ts`) turns the six raw API payloads into the exact bundle shape `engine.setData` expects, including `MAX_FRAME_NODES` capping and the `resyncProject` path that reuses `rawFrameMap` to keep frame positions stable across a live resync. Pure function tests — no I/O.
+**`tests/viewer/data-adapt.test.js`** — verifies `adaptProjectData` (now `canvas/adapt.js`, re-exported through `app/data.ts`) turns the six raw API payloads into the exact bundle shape `engine.setData` expects — full member lists (the LOD dot budget caps at draw time, not adapt time) — and the `resyncProject` path that reuses `rawFrameMap` to keep frame positions stable across a live resync. Pure function tests — no I/O. (`tests/viewer/adapt.test.js` covers the direct `canvas/adapt.js` import path.)
 
 **`tests/viewer/display.test.js`** — verifies `decisionDisplayId`/`todoDisplayId`/`projectDisplayName` (`app/display.ts`) fall back correctly when `seq`/`root_path` are absent. Pure unit tests.
 
@@ -420,11 +420,12 @@ dots near related frames — present but visually de-emphasised.
 2. `boot()` calls `fetchProjects()` (`app/api.ts`), then
    `loadProject(active)` (`app/data.ts`), which runs the six fetchers
    (`fetchGraph/fetchDecisions/fetchAggregates/fetchFileEdges/fetchFrames/fetchTodos`)
-   in parallel and pipes the results through `adaptProjectData` — the pure
-   function that owns everything the old `loadGraph` did between "data
-   arrived" and "canvas graph rebuilt" (frame bucketing via
+   in parallel and pipes the results through `adaptProjectData` (now in
+   `canvas/adapt.js`, re-exported by `app/data.ts` — part of the vendorable
+   engine unit) — the pure function that owns everything the old `loadGraph`
+   did between "data arrived" and "canvas graph rebuilt" (frame bucketing via
    `groupNodesIntoFrames`, frame positioning from `/api/frames`, governance
-   maps, `MAX_FRAME_NODES` capping).
+   maps; full member lists — the LOD dot budget decides draw-time counts).
 3. `entityStore.hydrate({ decisions, todos, cursor })` seeds the reactive
    store; `engine.setData(bundle)` assigns render state and calls
    `buildGraph()`; `engine.start()` kicks off `mainLoop`.
@@ -512,10 +513,10 @@ by hand rather than by import:
   match the `SHOW_LS`/`LAYERS_LS_KEY` constants `canvas/engine.js` reads once
   at construction. React (`App.tsx`'s `layerPrefs` effect) owns writing them
   on every change; the engine only reads them at boot.
-- **`MAX_FRAME_NODES`** — duplicated as a plain constant in both
-  `app/data.ts` (frame-node cap during adaptation) and `canvas/engine.js`
-  (draw-time cap); each definition carries a "keep in sync" comment pointing
-  at the other.
+- **`MAX_FRAME_NODES`** — gone (2026-07): adaptation carries full member
+  lists and the draw-time cap is the screen-area LOD dot budget
+  (`canvas/lod.js`, `PX_PER_DOT`), so the old dual-constant coupling no
+  longer exists. See `viewer-sync-engine.md` §"Camera, LOD, and embedding".
 - **`LAYER_RGB`** — exported from `canvas/engine.js` as the single runtime
   source of truth for the per-layer palette; `LayersMenu.tsx` imports it
   directly for the legend swatches. `FileCard.tsx`'s `.dc-layer-chip.layer-*`
