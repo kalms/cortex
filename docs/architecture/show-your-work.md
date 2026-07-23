@@ -281,7 +281,12 @@ composes into the presence pipeline:
     dot is shed at low zoom it falls back to the frame center (never a stale
     dot position). `frameCenterPx` / `dotPxIfDrawn` reuse the same
     camera-composed per-tick `framePx` cache and `visibleFrames` culling as
-    `drawFrames`, so cursors and heat stay glued under pan/zoom.
+    `drawFrames`, so cursors and heat stay glued under pan/zoom. Each cursor
+    also carries the prototype v5 name pill (`drawCursors` 1:1): a fully
+    rounded pill 11px right of the dot with the claude ✳ glyph +
+    `@workspace`, its fill lerping from neutral `IDLE_GREY` toward the session
+    hue by `colorAmount` (cools to a quiet grey pill at rest — it persists, it
+    never fades out) and sharing the dot's idle dimming.
 
   Fully inert (no-op) when the pref is off or the roster is empty.
 - **Roster → React** — `scheduleRosterCallback()` throttles

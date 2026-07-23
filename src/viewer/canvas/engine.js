@@ -2414,6 +2414,27 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     ctx.closePath();
   }
 
+  /** Prototype v5 `drawProviderGlyph` (claude branch) — the ✳-style asterisk
+   *  the presence strip uses, drawn on the canvas. Four crossing strokes of
+   *  radius 3.2 centered at (x, y) in the given ink. Presence sessions are all
+   *  agent cursors, so only the claude glyph is ported here. */
+  function drawClaudeGlyph(ctx, x, y, color, alpha) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 4;
+      const r = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * -r, Math.sin(a) * -r);
+      ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /** End-truncation with ellipsis — for labels whose PREFIX carries the
    *  identity (marginalia: "D-12 · summary…"). Runs inside the rAF loop for
    *  every visible pill, so results are memoized: inputs are stable per label
@@ -2653,10 +2674,49 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const dotAlpha = (0.4 + cAmt * 0.55) * idleMul;
 
       ctx.save();
+      ctx.translate(px.x, px.y);
+
+      // Breathing cursor dot (colorAmount-cooled toward neutral at rest).
       ctx.beginPath();
-      ctx.arc(px.x, px.y, 3 * breath, 0, Math.PI * 2);
+      ctx.arc(0, 0, 3 * breath, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r},${g},${bl},${dotAlpha.toFixed(3)})`;
       ctx.fill();
+
+      // Name pill riding the cursor (prototype v5 `drawCursors` 1:1): a fully
+      // rounded pill 11px right of the dot, vertically centered. Content = the
+      // claude ✳ glyph + `@workspace`. The fill lerps from a neutral IDLE_GREY
+      // toward the session hue by colorAmount, so at rest it cools to a quiet
+      // grey pill (prototype persists at rest — it never fades out); text stays
+      // near-black. The whole pill shares the cursor's idle dimming so an
+      // idle-faded cursor carries a matching quiet pill.
+      const IDLE_GREY = isLight() ? [161, 161, 170] : [82, 82, 91];
+      const fillR = Math.round(IDLE_GREY[0] + (hue[0] - IDLE_GREY[0]) * cAmt);
+      const fillG = Math.round(IDLE_GREY[1] + (hue[1] - IDLE_GREY[1]) * cAmt);
+      const fillB = Math.round(IDLE_GREY[2] + (hue[2] - IDLE_GREY[2]) * cAmt);
+
+      ctx.font = '500 10px "Geist Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const username = `@${s.workspace ?? ''}`;
+      const labelW = ctx.measureText(username).width;
+      const padX = 8;
+      const glyphSize = 8;
+      const glyphGap = 6;
+      const pillH = 18;
+      const pillW = padX + glyphSize + glyphGap + labelW + padX;
+      const pillX = 11;
+      const pillY = -pillH / 2;
+      const contentColor = [15, 15, 15];
+
+      ctx.globalAlpha = idleMul;
+      ctx.fillStyle = `rgb(${fillR}, ${fillG}, ${fillB})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      drawClaudeGlyph(ctx, pillX + padX + glyphSize / 2, 0, contentColor, 1);
+      ctx.fillStyle = `rgb(${contentColor[0]}, ${contentColor[1]}, ${contentColor[2]})`;
+      ctx.fillText(username, pillX + padX + glyphSize + glyphGap, 0);
+      ctx.globalAlpha = 1;
+
       ctx.restore();
     }
   }
