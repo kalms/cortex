@@ -203,6 +203,22 @@ export const TodosResponseSchema = z.object({
   todos: z.array(AdaptedTodoSchema),
 });
 
+// ── Presence ───────────────────────────────────────────────────────────────────
+export const PresencePostSchema = z.object({
+  session_id: z.string().min(1).max(200),
+  repo_path: z.string().min(1).max(1000),
+  workspace: z.string().min(1).max(200),
+  activity: z.enum(['studied', 'edited', 'traced', 'consulted']),
+  refs: z.array(z.string().min(1).max(500)).max(50),
+});
+export type PresencePost = z.infer<typeof PresencePostSchema>;
+
+export const PresenceAckResponseSchema = z.object({
+  version: Version,
+  accepted: z.boolean(),
+});
+export type PresenceAckResponse = z.infer<typeof PresenceAckResponseSchema>;
+
 // ── Freshness + health ───────────────────────────────────────────────────────
 export const FreshnessStateSchema = z.enum([
   "fresh", "stale:commits", "stale:dirty", "stale:both", "empty", "unknown",
@@ -234,6 +250,7 @@ export const RESPONSE_SCHEMAS = {
   decisions: DecisionsResponseSchema,
   "decision-detail": DecisionDetailResponseSchema,
   todos: TodosResponseSchema,
+  "presence-ack": PresenceAckResponseSchema,
   freshness: FreshnessResponseSchema,
   health: HealthResponseSchema,
 } as const;
