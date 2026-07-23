@@ -79,6 +79,18 @@
             "if": "Bash(git commit*)"
           }
         ]
+      },
+      {
+        "matcher": "Read|Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/show-presence.sh" }
+        ]
+      },
+      {
+        "matcher": "mcp__.*cortex.*__(get_code_snippet|context_pack|search_graph|trace_path|decision)",
+        "hooks": [
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/show-presence.sh" }
+        ]
       }
     ]
   }
