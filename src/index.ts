@@ -18,6 +18,8 @@ import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import { TodosRepository } from "./todos/repository.js";
 import { TodoLinksRepository } from "./todos/links-repository.js";
 import type { WireNode } from "./events/types.js";
+import { newUlid } from "./events/ulid.js";
+import { canonicalRepoPath } from "./db/git-root.js";
 
 const dbPath = resolveCortexDbPath();
 const eventsDbPath = process.env.CORTEX_EVENTS_DB_PATH || ".cortex/events.db";
@@ -198,6 +200,17 @@ const { port, httpServer } = await startViewerServer(
   decisionLinksRepo,
   todosRepo,
   todoLinksRepo,
+  {
+    homeRoot: canonicalRepoPath(cwd),
+    emit: (p) => bus.emit({
+      id: newUlid(),
+      kind: "presence.activity",
+      actor: "claude",
+      created_at: Date.now(),
+      project_id: indexerProject ?? "",
+      payload: { session_id: p.session_id, workspace: p.workspace, activity: p.activity, refs: p.refs },
+    }),
+  },
 );
 if (port > 0 && httpServer) {
   wsHandle = startWsServer({
