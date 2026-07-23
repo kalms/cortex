@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { frameIdsForRefs, buildFrameAdjacency, frameBfsPath } from "../../src/viewer/canvas/adapters.js";
+import { frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath } from "../../src/viewer/canvas/adapters.js";
 
 const index = new Map([["src/a.ts", "1"], ["src/b/c.ts", "2"]]);
 
@@ -9,6 +9,18 @@ describe("frameIdsForRefs", () => {
       .toEqual(["1", "2"]);
   });
   it("empty refs → empty", () => { expect(frameIdsForRefs(index, [])).toEqual([]); });
+});
+
+describe("primaryRefPath", () => {
+  it("returns the path of the first resolving ref (the traversal target's anchor)", () => {
+    // D-/T- and unresolvable refs are skipped; qn prefix is stripped to the path.
+    expect(primaryRefPath(index, ["D-abcd", "nope.ts", "src/b/c.ts::fn", "src/a.ts"])).toBe("src/b/c.ts");
+    expect(primaryRefPath(index, ["src/a.ts"])).toBe("src/a.ts");
+  });
+  it("null when nothing resolves", () => {
+    expect(primaryRefPath(index, ["D-abcd", "nope.ts"])).toBe(null);
+    expect(primaryRefPath(index, [])).toBe(null);
+  });
 });
 
 describe("buildFrameAdjacency / frameBfsPath", () => {

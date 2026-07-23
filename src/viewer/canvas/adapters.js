@@ -239,6 +239,19 @@ export function frameIdsForRefs(pathIndex, refs) {
   return out;
 }
 
+/** The path (not qn) of the FIRST ref that resolves to a frame — i.e. the ref
+ *  anchoring `frameIdsForRefs(...)[0]`, the session's traversal target. Used to
+ *  target the presence cursor at that file's actual dot (dot-level approach)
+ *  when the dot is currently drawn. null when no ref resolves. */
+export function primaryRefPath(pathIndex, refs) {
+  for (const ref of refs || []) {
+    if (/^[DT]-/.test(ref)) continue;
+    const path = ref.includes("::") ? ref.split("::")[0] : ref;
+    if (frameIdForPath(pathIndex, path) != null) return path;
+  }
+  return null;
+}
+
 /** Undirected frame adjacency from inter-frame pairs [{a, b}]. */
 export function buildFrameAdjacency(pairs) {
   const adj = new Map();

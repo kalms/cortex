@@ -31,6 +31,26 @@ All notable changes to Cortex are documented here. The format follows
   24 h. Epoch-guard hardening on the viewer's frame/backfill/live loaders
   closes a boot-vs-backfill race so late-arriving frames can't stomp a
   since-superseded load. Opt out: `CORTEX_PRESENCE=0`. Decision: `D-zwrt`.
+- **Presence visual fidelity — ported 1:1 from the refined v5 prototype.**
+  - _Avatar strip + presence-tip._ The toolbar roster is now the prototype
+    `.presence` strip: 28px overlapping session-colored avatar rings with the
+    claude provider glyph, hover-lift, and a `presence-tip` showing `@handle`
+    (workspace) + provider line. Idle sessions dim to neutral grey.
+  - _Edge-riding synapses._ A traversal pulse now rides the **actual drawn
+    inter-frame edge**'s geometry when one exists between the segment's frame
+    pair (prototype `drawSynapses`), falling back to center-to-center only
+    when no edge is drawn.
+  - _Dot-level cursor approach._ When a session's ref resolves to a file whose
+    dot is currently drawn (LOD budget + culling), the cursor targets that
+    **dot**, not the frame center; it falls back to frame center when dots are
+    shed at low zoom. The cursor itself is the prototype's breathing dot with
+    a post-arrival `colorAmount` fade (~3.5 s) from hue to neutral ink.
+  - _Two-tier heat (fixes the wide-border storm)._ Presence heat splits into a
+    prominent **FLASH** tier applied on arrival (wide session-colored border,
+    6 s decay — only the frame a session is on / just reached) and a faint
+    **TRAIL** tier applied at event time (thin outline, 90 s decay — the
+    reload-backfill trail). Backfill / reduced-motion applies TRAIL only, so a
+    reload never lights every touched frame's wide border at once.
 ## [1.5.1] — 2026-07-12
 
 ### Added

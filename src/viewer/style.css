@@ -553,31 +553,69 @@ body.light .frames-warning {
   color: #b45309;
 }
 
-/* ── Presence strip: one dot per active session, right-aligned before the
-   layers menu in the toolbar row. Session hues come from JS (PRESENCE_COLORS
-   in canvas/presence.js, mirrored in PresenceStrip.tsx) — not theme tokens,
-   since they must match the canvas dots regardless of light/dark. ── */
-.presence-strip {
+/* ── Presence strip (prototype v5 `.presence`): overlapping session avatars in
+   the toolbar row, session-colored, lifting on hover to reveal a presence-tip.
+   Session hues come from JS (PRESENCE_COLORS in canvas/presence.js, mirrored in
+   PresenceStrip.tsx) — not theme tokens, since they must match the canvas dots
+   regardless of light/dark. React owns this DOM; the canvas never draws it. ── */
+.presence {
+  position: relative;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+}
+.avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-.presence-avatar {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  font-family: var(--sans);
-  font-size: 9px;
-  font-weight: 600;
-  color: #0a0a0a;
-  border: 1px solid var(--border-2);
+  cursor: pointer;
   box-sizing: border-box;
-  user-select: none;
+  border: 2px solid var(--bg);
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.presence-avatar.idle { opacity: 0.5; }
+.avatar + .avatar { margin-right: -8px; }
+.avatar.lifted { transform: translateY(-3px); z-index: 10; }
+.avatar.idle { background: var(--text-4); }
+.avatar svg { width: 14px; height: 14px; display: block; }
+.avatar .glyph-line {
+  stroke: #0f0f11;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.presence-tip {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  z-index: 40;
+}
+.presence-tip.visible { opacity: 1; transform: translateY(0); }
+.presence-tip .handle { font-weight: 500; }
+.presence-tip .provider {
+  color: var(--text-4);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
 
 /* ── Layers menu (taxonomy milestone 1). Legend lives HERE only. ── */
 .layers-wrap { position: relative; }

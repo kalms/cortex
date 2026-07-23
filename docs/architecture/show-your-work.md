@@ -180,45 +180,61 @@ session roster / travel state every draw.
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `PRESENCE_HEAT_MS` | 90,000 (90 s) | Linear decay window for session-colored frame heat |
+| `PRESENCE_HEAT_MS` | 90,000 (90 s) | Linear decay window for the faint **TRAIL** heat tier |
+| `PRESENCE_FLASH_MS` | 6,000 (6 s) | Linear decay window for the prominent **FLASH** heat tier (arrival glow) |
+| `COLOR_FADE_MS` | 3,500 (3.5 s) | Cursor `colorAmount` fade after arrival — a resting cursor cools from its hue to neutral ink (prototype v5) |
 | `IDLE_MS` | 120,000 (2 min) | No events past this age → session drawn dimmed ("idle") but still present |
 | `GONE_MS` | 900,000 (15 min) | No events past this age → session dropped from every query (roster, sessions, heat) |
 | `TRAVERSE_SEG_MS` | 580 ms | Per-segment eased traversal duration when an avatar moves frame-to-frame |
-| `HEAT_BY_ACTIVITY` | `edited:1.0, studied:0.6, traced:0.6, consulted:0.4` | Heat contribution per activity kind, capped at 1.0 total |
-| `PRESENCE_COLORS` | 6 RGB triples (amber, blue, purple, emerald, rose, teal) | Deterministic per-session color via `colorIdxFor(sessionId)` (base-31 polynomial hash of `sessionId`, mod 6) — distinct from `LAYER_RGB` and the theme accent |
+| `HEAT_BY_ACTIVITY` | `edited:1.0, studied:0.6, traced:0.6, consulted:0.4` | TRAIL contribution per activity kind, capped at 1.0 total |
+| `PRESENCE_COLORS` | 6 RGB triples (amber, blue, purple, emerald, rose, teal) | Deterministic per-session color via `colorIdxFor(sessionId)` (base-31 polynomial hash of `sessionId`, mod 6) — first three mirror the prototype's `--agent-a/b/c`; distinct from `LAYER_RGB` and the theme accent |
 
 Grammar, in brief (full prose is in the module's header comment):
 
-- **`noteActivity`** — upserts the session's roster entry, bumps heat on
-  every resolved frame, and sets the traversal target to the first resolved
-  frame. No prior position (new session), `animate:false` (replayed
-  backfill), or `reducedMotion` → teleport directly. Otherwise the target
-  becomes **pending** for the engine to resolve into a BFS path via
-  `setPath`.
+- **`noteActivity`** — upserts the session's roster entry, bumps the faint
+  **TRAIL** heat on every resolved frame, stores the `targetPath` (the ref
+  anchoring the target frame, for the dot-level cursor approach), and sets
+  the traversal target to the first resolved frame. No prior position (new
+  session), `animate:false` (replayed backfill), or `reducedMotion` →
+  teleport directly. Otherwise the target becomes **pending** for the engine
+  to resolve into a BFS path via `setPath`.
 - **`setPath`** — the engine hands back a frame-to-frame path; the session
   advances it lazily, one `TRAVERSE_SEG_MS` segment at a time inside
-  `sessions(now)` (no timers), firing one synapse pulse per segment —
-  including catch-up: if two+ segments complete between polls, each crossed
-  boundary still gets its own historically-timed pulse rather than one
-  merged jump.
+  `sessions(now)` (no timers), firing one synapse pulse per segment and one
+  **FLASH** per arrival — including catch-up: if two+ segments complete
+  between polls, each crossed boundary still gets its own historically-timed
+  pulse and flash rather than one merged jump.
 - **Idle/gone** — `lastSeen` age past `IDLE_MS` dims the avatar; past
   `GONE_MS` the session is pruned entirely (every query calls `prune(now)`
   first).
-- **Heat** — `presenceHeat(frameId, now)` is a deliberately **pure read**:
-  no self-delete-on-read (unlike `live-effects.js`'s transient queues),
-  because heat entries are bounded by distinct frame count (not event
-  volume) and must stay a pure function of `(value, t0)` — a caller querying
-  an earlier `now` after a later one still sees correct decay.
+- **Heat** — `presenceHeat(frameId, now)` is a deliberately **pure read**
+  (no self-delete-on-read, unlike `live-effects.js`'s transient queues):
+  heat entries are bounded by distinct frame count (not event volume) and
+  must stay a pure function of `(value, t0)`. It returns
+  `{ flash, trail, flashColorIdx, trailColorIdx }` (each tier in `[0,1]`) or
+  `0` when neither tier is live.
+- **Cursor `colorAmount`** — `sessions(now)` reports a per-session
+  `colorAmount`: `1` while traversing, then fading to `0` over
+  `COLOR_FADE_MS` after arrival, so the engine can lerp a resting cursor's
+  color from its hue back to neutral ink (prototype v5 cursor treatment).
 
-### Two heat channels, kept distinct
+### Three heat tiers, kept distinct
 
-| Channel | Owner | Decay | Color | Answers |
-|---|---|---|---|---|
-| Mutation heat | `live-effects.js`, `HEAT_DECAY_MS = 5500` (5.5 s) | fast, linear | uncolored (border warmth only) | "something changed here" |
-| Presence heat | `canvas/presence.js`, `PRESENCE_HEAT_MS = 90000` (90 s) | slow, linear | session-colored (`PRESENCE_COLORS`) | "someone is working here" |
+Presence heat is **two-tier** — this is what fixes the "wide-border storm"
+(too many frames glowing at once because heat was event-time-applied with a
+90 s decay). FLASH marks *where a session is now*; TRAIL is the slow *where
+work has happened lately* backfill trail.
 
-Both render simultaneously and independently — they're different questions
-about the same frame, not a replacement of one by the other.
+| Tier | Owner | Decay | Applied on | Draw (max α) | Answers |
+|---|---|---|---|---|---|
+| Mutation heat | `live-effects.js`, `HEAT_DECAY_MS = 5500` (5.5 s) | fast, linear | server mutation | uncolored border warmth | "something changed here" |
+| Presence FLASH | `canvas/presence.js`, `PRESENCE_FLASH_MS = 6000` (6 s) | fast, linear | **arrival** (live teleport, each traversal-segment arrival, or live re-activity on the current frame) | session-colored **wide border** (0.35) | "a session is HERE now" |
+| Presence TRAIL | `canvas/presence.js`, `PRESENCE_HEAT_MS = 90000` (90 s) | slow, linear | **event time**, every resolved frame | session-colored faint outline (0.12) | "work happened here lately" |
+
+Backfill / `reducedMotion` (`animate:false`) applies **TRAIL only, never
+FLASH** — so a reload never lights every touched frame's wide border at
+once. The engine draws the faint trail **under** the wide flash. All tiers
+render simultaneously and independently.
 
 ### `adapters.js` helpers
 
@@ -229,6 +245,11 @@ composes into the presence pipeline:
   (file paths, `"path::symbol"` qualified names) to frame ids via the
   frame-path index. Decision/todo ids (`/^[DT]-/`) have no frame anchor and
   are skipped; unresolvable paths drop silently. De-duped, order-preserving.
+- **`primaryRefPath(pathIndex, refs)`** — the file path of the **first**
+  resolving ref (the ref anchoring `frameIdsForRefs(...)[0]`, i.e. the
+  traversal target). Carried on the session as `targetPath` so the cursor
+  can target that file's actual dot when it's drawn. `null` when nothing
+  resolves.
 - **`buildFrameAdjacency(pairs)`** — builds an undirected adjacency map from
   inter-frame pairs (the same connectivity the edge web draws), rebuilt on
   every `setData` (project switch).
@@ -245,9 +266,24 @@ composes into the presence pipeline:
   (falling back to a direct 1-hop "path" when no route exists or there's no
   prior position). Inert until events arrive: an empty roster draws nothing.
 - **`drawPresence(now)`** — called last from `mainLoop`, gated on the
-  `showPresence` layer pref: draws synapse pulses along in-flight traversal
-  segments, then session cursors on top. Fully inert (no-op) when the pref
-  is off or the roster is empty.
+  `showPresence` layer pref. Draws, in order:
+  - **Synapse pulses** — a bright head + fading trail in the moving
+    session's hue. When a real inter-frame edge between the two frames is
+    **currently drawn** (`drawnInterFrameEdgePx` — both endpoint dots pass
+    the same LOD reveal + cull gating `drawNodes` uses), the pulse rides that
+    edge's actual endpoint geometry (prototype `drawSynapses`); otherwise it
+    runs frame-center to frame-center.
+  - **Session cursors** — the prototype v5 cursor: a breathing dot whose
+    color lerps from neutral base ink toward the session hue by `colorAmount`
+    (fading over `COLOR_FADE_MS` after arrival). At rest the dot targets the
+    ref's **actual dot** (`dotPxIfDrawn`) when that dot is drawn at the
+    current LOD; during traversal it lerps along the active segment; when the
+    dot is shed at low zoom it falls back to the frame center (never a stale
+    dot position). `frameCenterPx` / `dotPxIfDrawn` reuse the same
+    camera-composed per-tick `framePx` cache and `visibleFrames` culling as
+    `drawFrames`, so cursors and heat stay glued under pan/zoom.
+
+  Fully inert (no-op) when the pref is off or the roster is empty.
 - **Roster → React** — `scheduleRosterCallback()` throttles
   `onPresenceRoster` to at most once per second, and `emitRosterIfChanged()`
   skips the callback entirely when the JSON-serialized roster hasn't changed
@@ -261,15 +297,21 @@ composes into the presence pipeline:
 
 ### `PresenceStrip.tsx` — roster UI
 
-`src/viewer/app/toolbar/PresenceStrip.tsx` renders one avatar dot per active
-session from `useUiStore((s) => s.presenceRoster)` (populated by
-`CanvasHost`'s `onPresenceRoster` callback), hidden entirely when
-`showPresence` is off or the roster is empty. Each dot: first letter of
-`workspace` (uppercased), background color from a **hand-synced** copy of
+`src/viewer/app/toolbar/PresenceStrip.tsx` renders the prototype v5
+`.presence` strip — one **28px overlapping avatar ring** per active session
+from `useUiStore((s) => s.presenceRoster)` (populated by `CanvasHost`'s
+`onPresenceRoster` callback), hidden entirely when `showPresence` is off or
+the roster is empty. Each avatar: session hue from a **hand-synced** copy of
 `PRESENCE_COLORS` (`COLORS` array, kept in sync by comment since CSS-in-JS
-can't import the canvas module), dimmed via an `idle` class, and a title
-tooltip with `workspace` (+ `" (idle)"` suffix). Mounted in `Toolbar.tsx`
-alongside `LayersMenu`.
+can't import the canvas module), the claude "session" provider glyph (the
+prototype's 4-line asterisk), a `border: 2px solid var(--bg)` separation
+ring, `-8px` overlap, and an `idle` class that swaps the hue for neutral
+grey. Hovering an avatar lifts it (`.lifted`, `translateY(-3px)`) and reveals
+a single shared `.presence-tip` showing `@handle` (the workspace) + a
+provider line (`claude session · <6-char session id>`) — same light/dark
+`var(--*)` token treatment as the prototype. React owns this DOM (house
+rule); the canvas presence layer draws cursors/heat, never the strip. Mounted
+in `Toolbar.tsx` alongside `LayersMenu`.
 
 ### Viewer-side race handling (`CanvasHost.tsx`)
 

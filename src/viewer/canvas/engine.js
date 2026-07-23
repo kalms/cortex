@@ -1,4 +1,4 @@
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, buildFrameAdjacency, frameBfsPath } from './adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
@@ -107,6 +107,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   const nodes = [];
   const edges = [];
   const adjacency = {};
+  // file_path → canvas node index, for resolving a presence ref to its dot so
+  // the presence cursor can target the actual dot (not the frame center) when
+  // that dot is currently drawn. Rebuilt by buildGraph.
+  let PATH_TO_IDX = new Map();
 
   let focusedFrameId = null;
   let focusT0 = 0;
@@ -119,6 +123,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   // synapses). Pure state like liveFx; the engine feeds it BFS paths over the
   // frame graph and pushes roster snapshots to React via onPresenceRoster.
   const presenceFx = createPresence({ reducedMotion });
+  // Max stroke alpha for the two presence-heat tiers. Flash is the prominent
+  // wide border; trail is the faint slow-decay outline (~1/3 of flash).
+  const PRESENCE_FLASH_ALPHA = 0.35;
+  const PRESENCE_TRAIL_ALPHA = 0.12;
   // Undirected frame adjacency for traversal pathfinding, rebuilt on every
   // setData (project switch) from the same inter-frame connectivity the edge
   // web draws (FILE_EDGES resolved through FRAME_PATH_INDEX).
@@ -198,6 +206,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         workspace: p.workspace,
         activity: p.activity,
         frameIds: frameIdsForRefs(FRAME_PATH_INDEX, p.refs || []),
+        targetPath: primaryRefPath(FRAME_PATH_INDEX, p.refs || []),
         now,
         animate: ev.live !== false,
       });
@@ -324,12 +333,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       adjacency[b].push({ to: a, edge: edges.length - 1 });
     }
 
-    // Build path → canvas-index lookup for the visible (capped) nodes.
+    // Build path → canvas-index lookup for the visible (capped) nodes. Hoisted
+    // to closure scope (PATH_TO_IDX) so the presence layer can resolve a ref's
+    // path to its dot for the dot-level cursor approach.
     const pathToIdx = new Map();
     for (let i = 0; i < nodes.length; i++) {
       const p = nodes[i].file_path;
       if (p) pathToIdx.set(p, i);
     }
+    PATH_TO_IDX = pathToIdx;
 
     // Real edges from /api/file-edges. Each FileEdge already has a weight
     // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
@@ -1762,18 +1774,32 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.fillText(pathText, -f.w / 2, primaryY);
       }
 
-      // Presence heat — a soft session-colored glow around the frame, drawn
-      // alongside (not replacing) the mutation heat already folded into the
-      // border alpha above. Gated on showPresence only, so it still reads with
-      // frames hidden; inert when no session has touched this frame.
+      // Presence heat — two tiers, drawn alongside (not replacing) the mutation
+      // heat already folded into the border alpha above. Gated on showPresence
+      // only, so it still reads with frames hidden; inert when no session has
+      // touched this frame.
+      //   TRAIL: faint thin outline, slow 90 s decay — the reload-backfill
+      //          "where has work happened lately" trail. Drawn UNDER the flash.
+      //   FLASH: prominent wide-border glow, fast 6 s decay — only the frame a
+      //          session is CURRENTLY on / just arrived at. This is what fixes
+      //          the "too many frames hot at once" storm.
       if (showPresence) {
         const ph = presenceFx.presenceHeat(String(frame.id), now);
         if (ph) {
-          const [pr, pg, pb] = PRESENCE_COLORS[ph.colorIdx];
-          ctx.strokeStyle = `rgba(${pr},${pg},${pb},${(0.35 * ph.value).toFixed(3)})`;
-          ctx.lineWidth = 2.5;
-          roundedRect(ctx, -f.w / 2 - 2, -f.h / 2 - 2, f.w + 4, f.h + 4, 5);
-          ctx.stroke();
+          if (ph.trail > 0) {
+            const [tr, tg, tb] = PRESENCE_COLORS[ph.trailColorIdx];
+            ctx.strokeStyle = `rgba(${tr},${tg},${tb},${(PRESENCE_TRAIL_ALPHA * ph.trail).toFixed(3)})`;
+            ctx.lineWidth = 1.5;
+            roundedRect(ctx, -f.w / 2 - 1, -f.h / 2 - 1, f.w + 2, f.h + 2, 4.5);
+            ctx.stroke();
+          }
+          if (ph.flash > 0) {
+            const [pr, pg, pb] = PRESENCE_COLORS[ph.flashColorIdx];
+            ctx.strokeStyle = `rgba(${pr},${pg},${pb},${(PRESENCE_FLASH_ALPHA * ph.flash).toFixed(3)})`;
+            ctx.lineWidth = 2.5;
+            roundedRect(ctx, -f.w / 2 - 2, -f.h / 2 - 2, f.w + 4, f.h + 4, 5);
+            ctx.stroke();
+          }
         }
       }
 
@@ -2506,6 +2532,47 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return { x: fp.cx, y: fp.cy };
   }
 
+  // Is node `idx`'s dot currently drawn? Mirrors drawNodes' gating exactly
+  // (frame visible + LOD reveal past its rank, scaled by the zoom detail shed),
+  // so presence never targets a dot the graph isn't actually painting.
+  function isDotDrawn(idx) {
+    const n = nodes[idx];
+    if (!n || !visibleFrames.has(n.frameId)) return false;
+    const lod = lodByFrame.get(n.frameId);
+    const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
+    return reveal * detailShed > 0.01;
+  }
+
+  // Canvas-px of a presence ref's dot within `frameId`, IF that dot is drawn at
+  // the current LOD; else null (caller falls back to frame center). The path
+  // must belong to the named frame — a stale targetPath never yields a dot.
+  function dotPxIfDrawn(frameId, filePath) {
+    if (!filePath) return null;
+    const idx = PATH_TO_IDX.get(filePath);
+    if (idx === undefined) return null;
+    if (String(nodes[idx].frameId) !== String(frameId)) return null;
+    if (!isDotDrawn(idx)) return null;
+    return nodePx(nodes[idx]);
+  }
+
+  // A currently-drawn inter-frame edge between the two frames, oriented
+  // from→to (a in fromFrameId, b in toFrameId), or null when none is drawn.
+  // Lets a traversal synapse ride the real edge's geometry (prototype
+  // drawSynapses) instead of a center-to-center straight line.
+  function drawnInterFrameEdgePx(fromFrameId, toFrameId) {
+    for (const e of edges) {
+      if (!e.interFrame) continue;
+      const fa = String(nodes[e.a].frameId), fb = String(nodes[e.b].frameId);
+      let aIdx, bIdx;
+      if (fa === String(fromFrameId) && fb === String(toFrameId)) { aIdx = e.a; bIdx = e.b; }
+      else if (fa === String(toFrameId) && fb === String(fromFrameId)) { aIdx = e.b; bIdx = e.a; }
+      else continue;
+      if (!isDotDrawn(aIdx) || !isDotDrawn(bIdx)) continue;
+      return { a: nodePx(nodes[aIdx]), b: nodePx(nodes[bIdx]) };
+    }
+    return null;
+  }
+
   // Presence layer draw: traversal synapse pulses + session cursors. Fully
   // gated on showPresence and inert when the roster is empty. Called last from
   // drawLiveEffects so it reads on top of the graph and live-effects chrome.
@@ -2521,10 +2588,19 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
 
     // Synapse pulses — a bright head sliding from→to with a short fading trail,
-    // echoing the live-effects leader-line aesthetic in the session hue.
+    // in the moving session's hue. When a real inter-frame edge between the two
+    // frames is currently drawn, the pulse RIDES that edge's actual endpoint
+    // geometry (prototype drawSynapses); otherwise it runs frame-center to
+    // frame-center as a fallback.
     for (const sy of presenceFx.synapses(now)) {
-      const a = frameCenterPx(sy.fromFrameId);
-      const b = frameCenterPx(sy.toFrameId);
+      const edgePx = drawnInterFrameEdgePx(sy.fromFrameId, sy.toFrameId);
+      let a, b;
+      if (edgePx) {
+        a = edgePx.a; b = edgePx.b;
+      } else {
+        a = frameCenterPx(sy.fromFrameId);
+        b = frameCenterPx(sy.toFrameId);
+      }
       if (!a || !b) continue;
       const ci = segColor.get(sy.fromFrameId + '>' + sy.toFrameId) ?? 0;
       const [r, g, bl] = PRESENCE_COLORS[ci];
@@ -2548,9 +2624,14 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       ctx.restore();
     }
 
-    // Session cursors — a small filled dot + ring at the frame center, or
-    // lerped along the active segment; dimmed when idle. Workspace labels live
-    // in the React presence strip, so the canvas cursor is just the dot.
+    // Session cursors — prototype v5 cursor treatment: a small breathing dot
+    // whose color lerps from the neutral base ink toward the session hue by
+    // `colorAmount` (1 while traversing, fading to 0 over ~3.5 s after arrival),
+    // so a resting cursor cools to neutral. At rest the dot targets the ref's
+    // actual DOT when that dot is currently drawn (dot-level approach); during
+    // traversal it lerps along the active segment; when the dot is shed at low
+    // zoom it falls back to the frame center (never a stale dot position).
+    const BASE = isLight() ? [24, 24, 27] : [237, 237, 237];
     for (const s of sessions) {
       let px = null;
       if (s.seg) {
@@ -2558,21 +2639,24 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         const b = frameCenterPx(s.seg.toFrameId);
         if (a && b) px = { x: a.x + (b.x - a.x) * s.seg.t, y: a.y + (b.y - a.y) * s.seg.t };
       } else if (s.frameId != null) {
-        px = frameCenterPx(s.frameId);
+        px = dotPxIfDrawn(s.frameId, s.targetPath) || frameCenterPx(s.frameId);
       }
       if (!px) continue;
-      const [r, g, bl] = PRESENCE_COLORS[s.colorIdx];
-      const alpha = s.idle ? 0.35 : 0.9;
+
+      const hue = PRESENCE_COLORS[s.colorIdx];
+      const cAmt = s.colorAmount ?? 0;
+      const r = Math.round(BASE[0] + (hue[0] - BASE[0]) * cAmt);
+      const g = Math.round(BASE[1] + (hue[1] - BASE[1]) * cAmt);
+      const bl = Math.round(BASE[2] + (hue[2] - BASE[2]) * cAmt);
+      const breath = 1 + 0.04 * Math.sin(now * 0.002 + s.colorIdx * 1.7);
+      const idleMul = s.idle ? 0.5 : 1;
+      const dotAlpha = (0.4 + cAmt * 0.55) * idleMul;
+
       ctx.save();
       ctx.beginPath();
-      ctx.arc(px.x, px.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
+      ctx.arc(px.x, px.y, 3 * breath, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${dotAlpha.toFixed(3)})`;
       ctx.fill();
-      ctx.beginPath();
-      ctx.arc(px.x, px.y, 5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${r},${g},${bl},${Math.min(1, alpha + 0.1).toFixed(3)})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
       ctx.restore();
     }
   }
