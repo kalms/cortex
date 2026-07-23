@@ -1,6 +1,8 @@
 import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, buildFrameAdjacency, frameBfsPath } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
+import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
+import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -17,11 +19,13 @@ const LAYER_RGB = {
   ceremony:       [125, 110, 93],
 };
 
-export function createEngine({ canvas, store, callbacks = {} }) {
+export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn = undefined, storagePrefix = 'cortex.viewer' }) {
   const ctx = canvas.getContext('2d');
   const DPR = window.devicePixelRatio || 1;
 
-  function isLight() { return document.body.classList.contains('light'); }
+  // Theme probe — injectable so an embedder (Mesh) can bind its own theme
+  // attribute; default preserves the Cortex viewer's body-class convention.
+  const isLight = isLightFn ?? (() => document.body.classList.contains('light'));
 
   // Canvas-side theme helpers — small, intentional, not a full abstraction
   function frameBorderRGB()       { return isLight() ? [0, 0, 0]       : [255, 255, 255]; }
@@ -39,15 +43,15 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   function subLabelRGB()          { return isLight() ? [113, 113, 122] : [161, 161, 170]; }
   function countIdleRGB()         { return isLight() ? [113, 113, 122] : [82, 82, 91]; }
 
-  const LAYERS_LS_KEY = 'cortex.viewer.layers';
+  const LAYERS_LS_KEY = `${storagePrefix}.layers`;
   let layersOn = false;
   try { layersOn = localStorage.getItem(LAYERS_LS_KEY) === '1'; } catch { /* sandboxed */ }
 
   const SHOW_LS = {
-    frames: 'cortex.viewer.show.frames',
-    decisions: 'cortex.viewer.show.decisions',
-    todos: 'cortex.viewer.show.todos',
-    presence: 'cortex.viewer.show.presence',
+    frames: `${storagePrefix}.show.frames`,
+    decisions: `${storagePrefix}.show.decisions`,
+    todos: `${storagePrefix}.show.todos`,
+    presence: `${storagePrefix}.show.presence`,
   };
   function readShow(key) {
     try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
@@ -91,12 +95,8 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     return (t.seq != null) ? ('T-' + t.seq) : t.id;
   }
 
-  // Max file-dots rendered per frame. Raising it surfaces more nodes per frame
-  // and, because edges only draw between visible dots, recovers more of the
-  // graph's connectivity on the map (the cap is the dominant edge filter).
-  const MAX_FRAME_NODES = 22;
-
   let FRAMES = [];
+  let frameById = new Map();
   let NODE_CFG = {};
   let FILE_NAMES = {};
   let FRAME_FILE_PATHS = {};
@@ -148,6 +148,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
    *  fetching/adapting now happens in React; the engine only owns render state. */
   function setData(bundle, { preserveFocus = false } = {}) {
     FRAMES = bundle.frames;
+    frameById = new Map(FRAMES.map((f) => [f.id, f]));
     NODE_CFG = bundle.nodeCfg;
     FILE_NAMES = bundle.fileNames;
     FRAME_FILE_PATHS = bundle.frameFilePaths;
@@ -172,7 +173,13 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (!preserveFocus) {
       focusedFrameId = null;
       previousFocusId = null;
+      // Frame ids collide across projects (every project has a frame "1"), so
+      // a project switch must not reuse the old project's reveal state — reset
+      // for an instant calibrated render. The resnapshot path (preserveFocus:
+      // true) keeps its reveal state for continuity.
+      for (const k of Object.keys(frameReveal)) delete frameReveal[k];
     }
+    invalidateFrameGeometry();
   }
 
   // ── Live agent presence ────────────────────────────────────────────────
@@ -297,6 +304,17 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         });
         adjacency[nodes.length - 1] = [];
       }
+      // Reveal order: seeded scatter so a partial budget samples the whole
+      // grid instead of filling the top rows (positions stay index-seeded).
+      const order = Array.from({ length: cfg.count }, (_, k) => k);
+      const rng = mulberry32(fnv1a('reveal:' + frame.id));
+      for (let k = order.length - 1; k > 0; k--) {
+        const j = Math.floor(rng() * (k + 1));
+        [order[k], order[j]] = [order[j], order[k]];
+      }
+      for (let k = 0; k < cfg.count; k++) {
+        nodes[nodes.length - cfg.count + k].revealRank = order[k];
+      }
     });
 
     function addEdge(a, b, interFrame, weight) {
@@ -315,8 +333,9 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
     // Real edges from /api/file-edges. Each FileEdge already has a weight
     // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
-    // Edges where either endpoint isn't on canvas (file beyond the per-frame
-    // cap MAX_FRAME_NODES, or in noise / auxiliary content) are silently dropped.
+    // Edges where either endpoint isn't on canvas (in noise / auxiliary
+    // content, outside any frame) are silently dropped. The per-frame LOD
+    // dot budget is applied at draw time (lod.js), not here.
     for (const fe of FILE_EDGES) {
       const a = pathToIdx.get(fe.from_path);
       const b = pathToIdx.get(fe.to_path);
@@ -472,7 +491,9 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       // Rare path: a change governs a frame outside the render set — recompute
       // the promoted-frames overlay + canvas graph (documented spec exception).
       FRAMES = withGovernedFramesRendered(FRAMES.filter((f) => !f.promotedForGovernance), FRAME_GOVERNANCE, lastFrameMeta);
+      frameById = new Map(FRAMES.map((f) => [f.id, f]));
       buildGraph();
+      invalidateFrameGeometry();
     }
     onLiveChangesApplied(changes);
   }
@@ -538,6 +559,23 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   // frame content never clips. Capped at 1 (never magnify), recomputed each frame
   // from the UNFOCUSED base positions (independent of focus animation → stable).
   let viewTransform = { scale: 1, ox: 0, oy: 0 };
+
+  // ── Camera: pure post-transform on the fit view (see camera.js). Identity
+  // renders exactly today's fit-to-content scene. Animated moves reuse the
+  // focus-transition idiom (ease + FOCUS_DURATION).
+  let camera = createCamera();
+  let camAnim = null; // { from, to, t0 }
+  function cameraNow(now) {
+    if (!camAnim) return camera;
+    const t = Math.min(1, (now - camAnim.t0) / FOCUS_DURATION);
+    camera = lerpCamera(camAnim.from, camAnim.to, ease(t));
+    if (t >= 1) { camera = camAnim.to; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+    return camera;
+  }
+  function setCamera(next, { animate = false } = {}) {
+    if (animate) { camAnim = { from: { ...camera }, to: { ...next }, t0: performance.now() }; }
+    else { camera = { ...next }; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+  }
 
   function computeViewTransform() {
     const stageW = canvas.clientWidth || 1;
@@ -609,7 +647,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     const ux = dx / dist;
     const uy = dy / dist;
 
-    const focusedFrame = FRAMES.find(f => f.id === focusedId);
+    const focusedFrame = frameById.get(focusedId);
     if (!focusedFrame) return base;
     const focusedW = Math.min(stageW * 0.55, 560);
     const focusedH = Math.min(stageH * 0.55, 360);
@@ -631,37 +669,73 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     return { cx: newCx, cy: newCy, w: compressedW, h: compressedH };
   }
 
+  const framePxCache = new Map(); // cleared per tick — framePx is pure within one frame
+  /** Geometry changed outside the rAF tick (resize / data swap): refresh the
+   *  view transform (framePxBase reads it, and only mainLoop recomputes it),
+   *  drop cached framePx values, and recompute the visible set so a hit-test
+   *  landing before the next tick sees fresh geometry (recompute — an emptied
+   *  set would make nodeAtPoint miss everything during the sub-16ms window).
+   *  `camera` (not cameraNow) is correct outside a tick: it holds the current
+   *  value, and mid-animation the next rAF re-lerps anyway. */
+  function invalidateFrameGeometry() {
+    viewTransform = compose(computeViewTransform(), camera);
+    framePxCache.clear();
+    computeVisibleFrames();
+  }
   function framePx(frame) {
+    const hit = framePxCache.get(frame.id);
+    if (hit) return hit;
     const fp = computeFocusProgress();
     const base = framePxBase(frame);
-
-    if (!fp.focused && !fp.from) return base;
-
-    const target = fp.focused
-      ? framePxFocused(frame, fp.focused)
-      : base;
-
-    const source = fp.from
-      ? framePxFocused(frame, fp.from)
-      : base;
-
-    if (fp.t >= 1) return target;
-
-    return {
-      cx: source.cx + (target.cx - source.cx) * fp.t,
-      cy: source.cy + (target.cy - source.cy) * fp.t,
-      w:  source.w  + (target.w  - source.w)  * fp.t,
-      h:  source.h  + (target.h  - source.h)  * fp.t,
-    };
+    let out;
+    if (!fp.focused && !fp.from) out = base;
+    else {
+      const target = fp.focused ? framePxFocused(frame, fp.focused) : base;
+      const source = fp.from ? framePxFocused(frame, fp.from) : base;
+      out = fp.t >= 1 ? target : {
+        cx: source.cx + (target.cx - source.cx) * fp.t,
+        cy: source.cy + (target.cy - source.cy) * fp.t,
+        w:  source.w  + (target.w  - source.w)  * fp.t,
+        h:  source.h  + (target.h  - source.h)  * fp.t,
+      };
+    }
+    framePxCache.set(frame.id, out);
+    return out;
   }
 
   function nodePx(node) {
-    const frame = FRAMES.find(f => f.id === node.frameId);
+    const frame = frameById.get(node.frameId);
     const f = framePx(frame);
     return {
       x: f.cx - f.w / 2 + node.rx * f.w,
       y: f.cy - f.h / 2 + node.ry * f.h,
     };
+  }
+
+  // ── LOD: per-frame animated dot reveal. `shown` glides toward the budget;
+  // dot i draws at alpha clamp(shown - i, 0, 1) so reveals/sheds fade
+  // sequentially instead of popping (§0.4).
+  const REVEAL_MS = 240;
+  const frameReveal = {}; // frameId → { shown, target, from, t0 }
+  let lodByFrame = new Map(); // frameId → { shown, label } — rebuilt per tick
+  let detailShed = 1;
+  function computeLod(now) {
+    lodByFrame = new Map();
+    detailShed = shedAlpha(camera.zoom);
+    for (const fr of FRAMES) {
+      if (!visibleFrames.has(fr.id)) continue;
+      const f = framePx(fr);
+      const members = (NODE_CFG[fr.id] || { count: 0 }).count;
+      const rawTarget = dotBudget(f.w * f.h, members);
+      let st = frameReveal[fr.id];
+      if (!st) st = frameReveal[fr.id] = { shown: rawTarget, target: rawTarget, from: rawTarget, t0: 0 };
+      const target = applyHysteresis(st.target, rawTarget);
+      if (target !== st.target) { st.from = st.shown; st.target = target; st.t0 = now; }
+      const t = st.t0 === 0 ? 1 : Math.min(1, (now - st.t0) / REVEAL_MS);
+      st.shown = st.from + (st.target - st.from) * ease(t);
+      const spacing = Math.sqrt((f.w * f.h) / Math.max(1, st.target));
+      lodByFrame.set(fr.id, { shown: st.shown, label: labelAlpha(spacing) });
+    }
   }
 
   let hoveredLabelFrameId = null;
@@ -722,6 +796,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     canvas.width = canvas.clientWidth * DPR;
     canvas.height = canvas.clientHeight * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    invalidateFrameGeometry();
   }
 
   function marginaliaAtPoint(px, py) {
@@ -740,8 +815,11 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     let best = null;
     let bestDist = Infinity;
     nodes.forEach((n, i) => {
+      if (!visibleFrames.has(n.frameId)) return;
+      const lod = lodByFrame.get(n.frameId);
+      if (lod && lod.shown - n.revealRank < 0.5) return;
       const p = nodePx(n);
-      const frame = FRAMES.find(f => f.id === n.frameId);
+      const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const baseR = n.kind === 'decision' ? 2.8 : 2.2;
@@ -792,6 +870,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   let mouseX = 0, mouseY = 0;
 
   canvas.addEventListener('mousemove', (e) => {
+    if (panState?.dragging) return;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -902,10 +981,14 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (frame) {
       anchorNodeIdx = null;
       setFocus(frame.id === focusedFrameId ? null : frame.id);
+      return;
     }
+    // Empty canvas: return the camera to the fit view (identity), animated.
+    if (!isIdentity(camera)) setCamera(createCamera(), { animate: true });
   });
 
   canvas.addEventListener('click', (e) => {
+    if (suppressClick) { suppressClick = false; return; }
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -1015,6 +1098,67 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     }
   });
 
+  let wheelSettleTimer = null;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    camAnim = null;
+    camera = zoomAt(camera, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+    callbacks.onCameraChange?.({ ...camera });
+    // Below-fit overscroll (and a leftover pan at the fit floor) springs back
+    // once the gesture pauses — same easing family as the focus transition.
+    clearTimeout(wheelSettleTimer);
+    wheelSettleTimer = setTimeout(settleIfNeeded, 160);
+  }, { passive: false });
+
+  // Below-fit is transient (camera.js invariant): spring back to the fit floor
+  // whenever a gesture ends — the wheel pause AND every pan-end path. Never
+  // settles out from under an active drag (the drag owns the camera); the
+  // at-rest identity case is a no-op.
+  function settleIfNeeded() {
+    const target = settleTarget(camera);
+    if (!panState?.dragging && target !== camera && !isIdentity(camera)) setCamera(target, { animate: true });
+  }
+
+  let panState = null; // { startX, startY, camAtStart, pointerId, dragging }
+  let suppressClick = false;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    clearTimeout(wheelSettleTimer); // a new gesture cancels any pending wheel settle
+    panState = { startX: e.clientX, startY: e.clientY, camAtStart: { ...camera }, pointerId: e.pointerId, dragging: false };
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    // Self-heal: if pointer capture failed and the button was released outside
+    // the canvas, no pointerup/pointercancel ever fired here — a buttons-up
+    // move means the pan already ended elsewhere. End it WITHOUT suppressing
+    // the next click (no trailing canvas click follows an outside release).
+    if (panState && e.buttons === 0) { panState = null; canvas.style.cursor = 'default'; settleIfNeeded(); return; }
+    if (!panState) return;
+    const dx = e.clientX - panState.startX;
+    const dy = e.clientY - panState.startY;
+    if (!panState.dragging) {
+      if (Math.hypot(dx, dy) < 4) return; // click/dblclick/hover stay intact under the threshold
+      panState.dragging = true;
+      try { canvas.setPointerCapture(panState.pointerId); } catch { /* capture unavailable */ }
+      canvas.style.cursor = 'grabbing';
+    }
+    camAnim = null;
+    camera = panBy(panState.camAtStart, dx, dy);
+    callbacks.onCameraChange?.({ ...camera });
+  });
+  function endPan(suppress) {
+    if (panState?.dragging) {
+      // Only a real pointerup has a trailing canvas click to eat; a cancelled
+      // pointer produces none — suppressing there would eat the NEXT click.
+      if (suppress) suppressClick = true;
+      canvas.style.cursor = 'default';
+    }
+    panState = null;
+    settleIfNeeded();
+  }
+  canvas.addEventListener('pointerup', () => endPan(true));
+  canvas.addEventListener('pointercancel', () => endPan(false));
+
   const decisionNodeRects = [];
   const todoNodeRects = [];
   const aggregateRects = [];
@@ -1093,6 +1237,12 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         }
         if (!overlap) break;
         tries++;
+      }
+
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (dotX < -60 || dotX > W + 60 || dotY < -60 || dotY > H + 60) {
+        liveFx.recordDotPos(dec.id, dotX, dotY); // keep effect anchors current
+        return;
       }
 
       const state = dec.state;
@@ -1330,6 +1480,12 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         tries++;
       }
 
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (dotX < -60 || dotX > W + 60 || dotY < -60 || dotY > H + 60) {
+        liveFx.recordDotPos(todo.id, dotX, dotY); // keep effect anchors current
+        return;
+      }
+
       const { rgb, ring } = todoDotColor(todo.state);
       // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
 
@@ -1479,6 +1635,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     const sharpFrameId = fp.focused;
 
     FRAMES.forEach(frame => {
+      if (!visibleFrames.has(frame.id)) return;
       const f = framePx(frame);
       const isFocused = frame.id === sharpFrameId;
       // Satellite (non-ambient) frames are drawn at half prominence so they
@@ -1649,7 +1806,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     // Invisible pills must not register hit rects — anything drawn here is
     // hoverable/clickable via marginaliaRects, so skip the fully-faded state.
     if (alphaMult <= 0.01) return;
-    const frame = FRAMES.find(f => f.id === frameId);
+    const frame = frameById.get(frameId);
     if (!frame) return;
     const decs = showDecisions ? getFrameDecisions(frameId) : [];
     const todos = showTodos ? getFrameTodos(frameId) : [];
@@ -1927,7 +2084,17 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     for (const e of edges) {
       if (e.weight && e.weight > maxW) maxW = e.weight;
     }
+    // Hoisted once per call (not per edge): inter-frame edges recede as the
+    // camera zooms past fit, so zoomed-in reading stays local.
+    const interZoomFade = interEdgeZoomFade(camera.zoom);
     edges.forEach((e) => {
+      if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
+      const la = lodByFrame.get(nodes[e.a].frameId);
+      const lb = lodByFrame.get(nodes[e.b].frameId);
+      const ra = la ? Math.max(0, Math.min(1, la.shown - nodes[e.a].revealRank)) : 1;
+      const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].revealRank)) : 1;
+      const lodMul = Math.min(ra, rb) * detailShed;
+      if (lodMul <= 0.01) return;
       const a = nodePx(nodes[e.a]);
       const b = nodePx(nodes[e.b]);
       // Inter-frame edges read at lower base alpha so they don't drown out
@@ -1936,7 +2103,8 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       // shared method.
       const baseAlpha = e.interFrame ? 0.09 : 0.15;
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
-      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1);
+      const zoomFade = e.interFrame ? interZoomFade : 1;
+      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul * zoomFade;
 
       ctx.save();
       const eb = edgeRGB();
@@ -1971,7 +2139,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (alpha <= 0) return;
 
     const n = nodes[hoveredNodeIdx];
-    const frame = FRAMES.find(f => f.id === n.frameId);
+    const frame = frameById.get(n.frameId);
     const inFocused = focusedFrameId && frame?.id === focusedFrameId;
     const fp = computeFocusProgress();
     const sizeMult = inFocused ? 1 + 0.4 * fp.t : 1;
@@ -2101,7 +2269,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (pillNodeIdx === null || pillAlpha <= 0) return;
 
     const n = nodes[pillNodeIdx];
-    const frame = FRAMES.find(f => f.id === n.frameId);
+    const frame = frameById.get(n.frameId);
     const p = nodePx(n);
 
     const TEXT_RGB = hoverPillTextPrimaryRGB();
@@ -2141,8 +2309,13 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     const focusedId = fp.focused;
 
     nodes.forEach((n, i) => {
+      if (!visibleFrames.has(n.frameId)) return;
+      const lod = lodByFrame.get(n.frameId);
+      const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
+      const detail = reveal * detailShed;
+      if (detail <= 0.01) return; // skip un-revealed dots entirely
       const p = nodePx(n);
-      const frame = FRAMES.find(f => f.id === n.frameId);
+      const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const isAnchor = anchorNodeIdx === i && inFocused;
@@ -2150,13 +2323,13 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
       ctx.save();
       if (n.kind === 'decision') {
-        ctx.fillStyle = 'rgba(74, 222, 128, 0.85)';
+        ctx.fillStyle = `rgba(74, 222, 128, ${0.85 * detail})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 2.8 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
       } else {
         const nb = nodeBaseRGB();
-        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, 0.75)`;
+        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, ${0.75 * detail})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 1.9 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
@@ -2186,6 +2359,18 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       }
 
       ctx.restore();
+
+      const la = (lod ? lod.label : 0) * detail;
+      if (la > 0.02 && n.kind !== 'decision') {
+        ctx.save();
+        ctx.font = '400 9px "Geist Mono", monospace';
+        const sl = subLabelRGB();
+        ctx.fillStyle = `rgba(${sl[0]}, ${sl[1]}, ${sl[2]}, ${0.85 * la})`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(truncateEnd(ctx, n.name, 110), p.x + 5, p.y);
+        ctx.restore();
+      }
     });
   }
 
@@ -2253,15 +2438,19 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     ctx.save();
     for (let i = 0; i < AGGREGATES.length; i++) {
       const agg = AGGREGATES[i];
-      // Uniform dot size — aggregates are not sized by member_count.
-      const dotR = AGG_DOT_R * v.scale;
+      // Uniform dot size — aggregates are not sized by member_count. Capped so
+      // aggregate dots don't balloon past file dots at high zoom.
+      const dotR = Math.min(AGG_DOT_R * v.scale, AGG_DOT_R * 1.6);
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
       // Aggregates don't drive the fit (computeViewTransform frames the cloud
       // only), so a dot the keep-out flung far out could map off-canvas — clamp
       // it back on-screen so it stays visible.
-      const cx = Math.max(dotR + 4, Math.min(stageW - dotR - 4, (nx * stageW) * v.scale + v.ox));
-      const cy = Math.max(dotR + 4, Math.min(stageH - dotR - 4, (ny * stageH) * v.scale + v.oy));
+      const rawX = (nx * stageW) * v.scale + v.ox;
+      const rawY = (ny * stageH) * v.scale + v.oy;
+      const clampOn = isIdentity(camera) && !camAnim;
+      const cx = clampOn ? Math.max(dotR + 4, Math.min(stageW - dotR - 4, rawX)) : rawX;
+      const cy = clampOn ? Math.max(dotR + 4, Math.min(stageH - dotR - 4, rawY)) : rawY;
 
       const isHovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
@@ -2302,12 +2491,17 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     return null;
   }
 
-  // Canvas-px center of a frame, honoring the current focus transform (reuses
-  // framePx, the same world→screen mapping drawFrames uses). null for unknown
-  // frames — presence data can name a frame that isn't in the current project.
+  // Canvas-px center of a frame, honoring the current camera + focus transform
+  // (reuses framePx, the same camera-composed world→screen mapping drawFrames
+  // uses, so presence cursors stay glued to their frame under pan/zoom). null
+  // for unknown frames — presence data can name a frame that isn't in the
+  // current project — and for frames culled off-viewport, so presence draws
+  // stay consistent with main's viewport culling (a small fixed-cost overlay,
+  // exempt from LOD dot-budget shedding but not from culling).
   function frameCenterPx(frameId) {
     const frame = FRAMES.find((f) => String(f.id) === String(frameId));
     if (!frame) return null;
+    if (!visibleFrames.has(frame.id)) return null;
     const fp = framePx(frame);
     return { x: fp.cx, y: fp.cy };
   }
@@ -2438,6 +2632,22 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   }
 
   let presenceTick = 0;
+  let visibleFrames = new Set();
+  // Margin covers content drawn OUTSIDE the frame box: marginalia pill columns
+  // (≤ MARGINALIA_MAX_W + 14) and labels — a culled frame must not pop its pills.
+  const CULL_MARGIN = 260;
+  function computeVisibleFrames() {
+    visibleFrames = new Set();
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    for (const fr of FRAMES) {
+      const f = framePx(fr);
+      if (f.cx + f.w / 2 + CULL_MARGIN > 0 && f.cx - f.w / 2 - CULL_MARGIN < W &&
+          f.cy + f.h / 2 + CULL_MARGIN > 0 && f.cy - f.h / 2 - CULL_MARGIN < H) {
+        visibleFrames.add(fr.id);
+      }
+    }
+  }
+
   function mainLoop() {
     const now = performance.now();
 
@@ -2446,7 +2656,10 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if ((presenceTick = (presenceTick + 1) % 60) === 0) scheduleRosterCallback();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    viewTransform = computeViewTransform();
+    viewTransform = compose(computeViewTransform(), cameraNow(now));
+    framePxCache.clear();
+    computeVisibleFrames();
+    computeLod(now);
     // Edges are the lowest layer — everything (frames, nodes, marginalia)
     // reads on top of the connectivity web, not under it.
     drawEdges();
@@ -2490,6 +2703,8 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     frameIdForFilePath: (p) => frameIdForPath(FRAME_PATH_INDEX, p),
     getActiveRecord: () => focusedRecord,
     getFocusedFrameId: () => focusedFrameId,
+    getCamera: () => ({ ...camera }),
+    setCamera,
     start,
     resize,
     destroy,

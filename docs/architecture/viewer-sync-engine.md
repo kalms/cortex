@@ -692,6 +692,114 @@ a round-trip serialize + deserialize of the entire entity set). Above 500, a
 snapshot is both faster and simpler. On localhost either path completes in
 milliseconds; the threshold is a guard for future server deployments.
 
+## Camera, LOD, and embedding (2026-07)
+
+A second engine subsystem sits alongside the sync pipeline above: the camera
+(user-driven zoom/pan) and the level-of-detail policy that decides how many
+dots and labels a frame draws. Both were tuned against the large `activator`
+project, where dense frames and deep zoom first exposed the failure modes
+below. This section also describes the embedder surface, since Mesh vendors
+this subsystem directly rather than depending on the sync protocol.
+
+### Camera as a pure post-transform
+
+`camera.js` composes onto the engine's existing fit-to-content transform
+rather than replacing it: `screen = fitPx · zoom + pan` (`compose()` in
+`camera.js`). Camera identity (`{ zoom: 1, panX: 0, panY: 0 }`) reproduces the
+exact fit render, so every draw and hit-test path that already consumed
+`viewTransform` inherits camera support for free — no dual code path.
+
+- **Wheel** zooms anchored at the cursor (`zoomAt`): the point under the
+  cursor stays fixed while zoom changes.
+- **Drag** pans once the pointer has moved ≥4px (`panState.dragging`
+  threshold in `engine.js`) — keeps click/dblclick/hover intact under the
+  threshold.
+- **Double-click on empty canvas** resets the camera to identity, animated
+  through the same ease/`FOCUS_DURATION` idiom as frame focus.
+- **Below-fit is a transient elastic overscroll**, not a resting state:
+  `MIN_ZOOM = 1` is the floor, but `zoomAt` allows dipping to
+  `OVERSCROLL_MIN = 0.8` for a springy feel. `settleTarget()` snaps back to
+  identity once a gesture ends (wheel pause via a 160ms debounce, or
+  pointerup/pointercancel) — `settleIfNeeded()` is the single call site for
+  this spring-back and never fires mid-drag.
+
+### Viewport culling and per-tick frame geometry
+
+`computeVisibleFrames()` culls off-screen frames before LOD/draw work touches
+them. `framePx()` memoizes each frame's on-screen box in `framePxCache` for
+the duration of one render tick (cache is pure within a tick since focus
+progress and camera are fixed); `invalidateFrameGeometry()` clears the cache
+and recomputes the view transform whenever geometry changes outside the rAF
+loop — resize, or `setData()` swapping in a new project. Without this
+invalidation, a resize or project switch would render one frame against a
+stale transform.
+
+### LOD policy (`lod.js`)
+
+The dot budget is area-driven, not a flat cap: `dotBudget(frameAreaPx,
+memberCount)` divides a frame's on-screen pixel area by `PX_PER_DOT = 800`.
+That constant is calibrated so a full-size 150×120 frame at fit shows ≈22
+dots — matching the old flat `MAX_FRAME_NODES` cap — while the same rule
+naturally sheds dots for a squeezed-small frame and reveals more as the
+camera zooms in (area grows ∝ zoom²). `applyHysteresis` deadbands a budget
+hovering on a floor() boundary so it can't flicker frame-to-frame.
+
+Four tuning fixes came out of activator visual QA:
+
+- **Scattered reveal order.** Dots used to reveal in `indexInFrame` order, so
+  a budgeted (partial) reveal filled only the grid's top rows — a large frame
+  read as a thin strip of dots in an otherwise empty box. `buildGraph()` now
+  assigns each node a `revealRank`: a seeded Fisher–Yates permutation of
+  `[0..count)`, keyed off `'reveal:' + frame.id` (deterministic per frame,
+  independent of the position-seeding RNG). Positions (`dotPosition`, keyed
+  off file path) are untouched — only reveal order changed. The three reveal
+  sites (`drawNodes`, `nodeAtPoint`'s shown-guard, `drawEdges`'s two endpoint
+  reveal computations) read `revealRank` instead of `indexInFrame`;
+  `indexInFrame` still backs the file-path lookup in the click handler, where
+  positional identity (not reveal order) is what matters.
+- **Label spacing thresholds.** `LABEL_SPACING_MIN`/`LABEL_SPACING_FULL` were
+  44/64px — narrower than a 9px-font label actually needs, so dense frames
+  produced overlapping label soup. Raised to 64/96px.
+- **Inter-frame edge zoom fade.** At high zoom, edges reaching to off-screen
+  frames turned the viewport into scratched glass — zoomed-in viewing is a
+  local-inspection mode where distant context should recede.
+  `interEdgeZoomFade(zoom)` returns 1 up to `zoom = 1.25` (fit and just past
+  it), then decays toward a 0.3 floor as zoom increases
+  (`Math.max(0.3, 1.25 / zoom)`). `drawEdges` computes this once per call
+  (hoisted above the per-edge loop, not recomputed per edge) and multiplies
+  it into inter-frame edges' alpha only — intra-frame edges are unaffected.
+- **Aggregate dot radius cap.** Aggregate dots scale with `viewTransform.scale`
+  like everything else, but had no ceiling — at high zoom they ballooned to
+  ~30px while file dots stayed pinned at ~2px. `drawAggregates` now clamps:
+  `Math.min(AGG_DOT_R * v.scale, AGG_DOT_R * 1.6)`.
+- **Overscroll shedding.** Separately, `shedAlpha(zoom)` fades sub-frame
+  detail during the below-fit elastic overscroll (zoom < 1), so the spring-back
+  region reads as "zooming out of detail" rather than a jarring pop.
+
+### Embedder surface
+
+Mesh vendors this engine directly (not via the WS protocol above) as a
+self-contained rendering unit. `createEngine({ canvas, store, callbacks,
+isLight, storagePrefix })` takes two injection points that let an embedder
+bind its own conventions instead of the Cortex viewer's defaults: `isLight`
+(theme probe function, default reads `document.body.classList`) and
+`storagePrefix` (localStorage key prefix for layer/show prefs, default
+`'cortex.viewer'`). Camera state is exposed and controllable from outside:
+`getCamera()` / `setCamera(next, { animate })` / the `onCameraChange`
+callback, so a host app can persist camera position or drive it
+programmatically.
+
+The vendorable unit is:
+
+- `canvas/{engine,adapters,live-effects,adapt,camera,lod}.js`
+- `app/{entity-store,ws-client}.js`
+
+pulling in `canvas/engine.js` alone is not sufficient — it depends on the
+other `canvas/*.js` modules for adapters, live-effects treatment, and the
+camera/LOD policies documented above, and on `app/entity-store.js` +
+`app/ws-client.js` for the reactive store and protocol client the engine's
+`setData`/live-changes path expects.
+
 ## Deferred work
 
 | Item | Notes |

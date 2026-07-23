@@ -22,7 +22,7 @@ export function connectLiveSync({
   resnapshot,
   onStatus,
   onEvent,
-  eventBackfill = null,
+  eventBackfill = /** @type {{limit:number}|null} */ (null),
   WebSocketImpl = globalThis.WebSocket,
   retryDelays = DEFAULT_RETRY_DELAYS,
   setTimeoutImpl = (fn, ms) => setTimeout(fn, ms),
