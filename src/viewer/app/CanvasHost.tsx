@@ -58,6 +58,13 @@ export function CanvasHost() {
     // roster but with no canvas heat/dot, permanently (no re-resolution). Buffer
     // until the engine has data, then flush in arrival order.
     let framesReady = false;
+    // Monotonic load token. Each async loader (boot, resnapshot, project switch)
+    // increments it synchronously on entry and captures the value; after every
+    // await it abandons its continuation if the token has advanced — i.e. a newer
+    // loader has taken over. Without this, a loader for project A resolving after
+    // a switch to B has begun would re-arm framesReady and hydrate stale data
+    // against B's frame index (and flash A's bundle). The latest loader wins.
+    let loadEpoch = 0;
     const pendingPresence: Array<[any, { live: boolean }]> = [];
     function applyPresenceEvent(event: any, meta: { live: boolean }) {
       if (event?.kind !== "presence.activity") return;
@@ -76,10 +83,13 @@ export function CanvasHost() {
     }
 
     async function boot() {
+      const epoch = ++loadEpoch;
       const { projects, active } = await fetchProjects();
+      if (epoch !== loadEpoch) return;
       currentProject = active;
       set({ projects, activeProject: active });
       const bundle = await loadProject(active);
+      if (epoch !== loadEpoch) return;
       // `as any`: entity-store.js is plain JS; TS narrows its `cursor = null`
       // default to `null | undefined`, but the store accepts a ULID string.
       entityStore.hydrate({ decisions: bundle.decisionMap, todos: bundle.ambientTodoMap,
@@ -105,12 +115,14 @@ export function CanvasHost() {
         lastKnownHead = headUlid ?? lastKnownHead;
         const prev = useUiStore.getState().bundle;
         if (!prev) return;
+        const epoch = ++loadEpoch;
         // Same-project resync: re-arm the frame gate around it too, since the
         // frame index is briefly stale mid-resync (ws-client doesn't pause
         // `event` delivery for this — only `projection` deltas are buffered).
         framesReady = false;
         pendingPresence.length = 0;
         const bundle = await resyncProject(currentProject, prev);
+        if (epoch !== loadEpoch) return;
         entityStore.hydrate({ decisions: bundle.decisionMap, todos: bundle.ambientTodoMap, cursor: (headUlid ?? null) as any });
         engine.setData(bundle, { preserveFocus: true });
         useUiStore.getState().set({ bundle });
@@ -124,7 +136,12 @@ export function CanvasHost() {
         // ws-client doesn't filter `event` messages by project (see isLiveProject
         // comment above) — drop anything not for the currently-bound project so
         // a background project's presence can't be misapplied onto this one.
-        if (!isLiveProject()) return;
+        // Exception: pre-boot (`currentProject === null`, until fetchProjects
+        // resolves) isLiveProject() is false but `sync.boundProject` is already
+        // set from `hello`, so the drop would silently lose every event in that
+        // window. Buffer instead — boot() flushes once the frame index lands.
+        // The drop only applies once we actually know the active project.
+        if (currentProject !== null && !isLiveProject()) return;
         // Hold until the engine's frame index exists (see framesReady above),
         // otherwise refs resolve to nothing and the session never gets a dot.
         if (!framesReady) { bufferPresence(event, meta); return; }
@@ -147,6 +164,7 @@ export function CanvasHost() {
     // project switching: subscribe to activeProject changes
     const unsubProject = useUiStore.subscribe(async (s, prevS) => {
       if (s.activeProject !== prevS.activeProject && s.activeProject !== currentProject) {
+        const epoch = ++loadEpoch;
         // Re-arm the frame gate around the switch: the old frame index is gone
         // the instant currentProject flips, so anything queued for the prior
         // project (or arriving mid-await, now guarded by isLiveProject too) must
@@ -156,6 +174,7 @@ export function CanvasHost() {
         pendingPresence.length = 0;
         currentProject = s.activeProject;
         const bundle = await loadProject(currentProject);
+        if (epoch !== loadEpoch) return;
         entityStore.hydrate({ decisions: bundle.decisionMap, todos: bundle.ambientTodoMap,
           cursor: (currentProject === sync.boundProject ? lastKnownHead : null) as any });
         engine.setData(bundle);
