@@ -153,5 +153,9 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
           fields: { data: { status: 'active' } },
         })),
       ];
+
+    // Presence is telemetry, not knowledge: it never mutates the graph.
+    case 'presence.activity':
+      return [];
   }
 }
