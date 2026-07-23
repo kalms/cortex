@@ -1,5 +1,6 @@
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, buildFrameAdjacency, frameBfsPath } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
+import { createPresence, PRESENCE_COLORS } from './presence.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -46,6 +47,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     frames: 'cortex.viewer.show.frames',
     decisions: 'cortex.viewer.show.decisions',
     todos: 'cortex.viewer.show.todos',
+    presence: 'cortex.viewer.show.presence',
   };
   function readShow(key) {
     try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
@@ -53,6 +55,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   let showFrames = readShow(SHOW_LS.frames);
   let showDecisions = readShow(SHOW_LS.decisions);
   let showTodos = readShow(SHOW_LS.todos);
+  let showPresence = readShow(SHOW_LS.presence);
 
   /** UI command from React — persistence of the prefs moves React-side. */
   function setLayerPrefs(p) {
@@ -60,6 +63,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     if (p.showDecisions !== undefined) showDecisions = p.showDecisions;
     if (p.showTodos !== undefined) showTodos = p.showTodos;
     if (p.layerTint !== undefined) layersOn = p.layerTint;
+    if (typeof p.showPresence === 'boolean') showPresence = p.showPresence;
   }
 
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -109,9 +113,16 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  const liveFx = createLiveEffects({
-    reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
-  });
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  const liveFx = createLiveEffects({ reducedMotion });
+  // Live agent-presence layer (avatars, session-colored heat, traversal
+  // synapses). Pure state like liveFx; the engine feeds it BFS paths over the
+  // frame graph and pushes roster snapshots to React via onPresenceRoster.
+  const presenceFx = createPresence({ reducedMotion });
+  // Undirected frame adjacency for traversal pathfinding, rebuilt on every
+  // setData (project switch) from the same inter-frame connectivity the edge
+  // web draws (FILE_EDGES resolved through FRAME_PATH_INDEX).
+  let FRAME_ADJ = new Map();
   const DECISIONS = store.state.decisions; // aliases — object identity is stable
   let FRAME_GOVERNANCE = {};
   const TODOS = store.state.todos;
@@ -147,11 +158,71 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     AGGREGATES = bundle.aggregates;
     FILE_EDGES = bundle.fileEdges;
     lastFrameMeta = bundle.frameMeta;
+    // Rebuild presence traversal adjacency from the inter-frame connectivity.
+    // Each FileEdge is a file→file pair; resolve both endpoints to their frame
+    // via FRAME_PATH_INDEX. buildFrameAdjacency drops null/self/intra-frame
+    // pairs, leaving an undirected frame-to-frame graph for frameBfsPath.
+    FRAME_ADJ = buildFrameAdjacency(
+      (FILE_EDGES || []).map((fe) => ({
+        a: frameIdForPath(FRAME_PATH_INDEX, fe.from_path),
+        b: frameIdForPath(FRAME_PATH_INDEX, fe.to_path),
+      })),
+    );
     buildGraph();
     if (!preserveFocus) {
       focusedFrameId = null;
       previousFocusId = null;
     }
+  }
+
+  // ── Live agent presence ────────────────────────────────────────────────
+  // Ingest a batch of presence events from React. Each event carries a payload
+  // (session_id, workspace, activity, refs) and a `live` flag (false = replayed
+  // history, which teleports rather than animates). Resolves each session's
+  // pending traversal target into a BFS path over FRAME_ADJ and hands it back to
+  // presenceFx. Inert until events arrive: no events → empty roster → no draw.
+  function applyPresence(events) {
+    if (!events || events.length === 0) return;
+    const now = performance.now();
+    for (const ev of events) {
+      const p = ev.payload || {};
+      presenceFx.noteActivity({
+        sessionId: p.session_id,
+        workspace: p.workspace,
+        activity: p.activity,
+        frameIds: frameIdsForRefs(FRAME_PATH_INDEX, p.refs || []),
+        now,
+        animate: ev.live !== false,
+      });
+      const pending = presenceFx.pendingTarget(p.session_id);
+      if (pending) {
+        const path = pending.fromFrameId
+          ? frameBfsPath(FRAME_ADJ, pending.fromFrameId, pending.toFrameId)
+          : [];
+        presenceFx.setPath(p.session_id, path.length >= 2 ? path : [pending.toFrameId], now);
+      }
+    }
+    scheduleRosterCallback();
+  }
+
+  // Roster snapshots reach React through onPresenceRoster, throttled to at most
+  // once per second and fired only when the roster content actually changes
+  // (idle/gone transitions age without events, so mainLoop also pokes this).
+  let lastRosterJson = null;
+  let rosterTimer = null;
+  function emitRosterIfChanged() {
+    rosterTimer = null;
+    if (!callbacks.onPresenceRoster) return;
+    const roster = presenceFx.roster(performance.now());
+    const json = JSON.stringify(roster);
+    if (json === lastRosterJson) return;
+    lastRosterJson = json;
+    callbacks.onPresenceRoster(roster);
+  }
+  function scheduleRosterCallback() {
+    if (!callbacks.onPresenceRoster) return; // no listener → nothing to schedule
+    if (rosterTimer !== null) return; // a check is already pending within this 1s window
+    rosterTimer = setTimeout(emitRosterIfChanged, 1000);
   }
 
   // Deterministic placement primitives: same graph → same dot positions on
@@ -1534,6 +1605,21 @@ export function createEngine({ canvas, store, callbacks = {} }) {
         ctx.fillText(pathText, -f.w / 2, primaryY);
       }
 
+      // Presence heat — a soft session-colored glow around the frame, drawn
+      // alongside (not replacing) the mutation heat already folded into the
+      // border alpha above. Gated on showPresence only, so it still reads with
+      // frames hidden; inert when no session has touched this frame.
+      if (showPresence) {
+        const ph = presenceFx.presenceHeat(String(frame.id), now);
+        if (ph) {
+          const [pr, pg, pb] = PRESENCE_COLORS[ph.colorIdx];
+          ctx.strokeStyle = `rgba(${pr},${pg},${pb},${(0.35 * ph.value).toFixed(3)})`;
+          ctx.lineWidth = 2.5;
+          roundedRect(ctx, -f.w / 2 - 2, -f.h / 2 - 2, f.w + 4, f.h + 4, 5);
+          ctx.stroke();
+        }
+      }
+
       ctx.restore();
     });
   }
@@ -2216,6 +2302,87 @@ export function createEngine({ canvas, store, callbacks = {} }) {
     return null;
   }
 
+  // Canvas-px center of a frame, honoring the current focus transform (reuses
+  // framePx, the same world→screen mapping drawFrames uses). null for unknown
+  // frames — presence data can name a frame that isn't in the current project.
+  function frameCenterPx(frameId) {
+    const frame = FRAMES.find((f) => String(f.id) === String(frameId));
+    if (!frame) return null;
+    const fp = framePx(frame);
+    return { x: fp.cx, y: fp.cy };
+  }
+
+  // Presence layer draw: traversal synapse pulses + session cursors. Fully
+  // gated on showPresence and inert when the roster is empty. Called last from
+  // drawLiveEffects so it reads on top of the graph and live-effects chrome.
+  function drawPresence(now) {
+    if (!showPresence) return;
+    const sessions = presenceFx.sessions(now);
+
+    // Map each in-flight segment to its session hue so a traversal synapse
+    // pulses in the moving session's color (synapses() carries no color).
+    const segColor = new Map();
+    for (const s of sessions) {
+      if (s.seg) segColor.set(s.seg.fromFrameId + '>' + s.seg.toFrameId, s.colorIdx);
+    }
+
+    // Synapse pulses — a bright head sliding from→to with a short fading trail,
+    // echoing the live-effects leader-line aesthetic in the session hue.
+    for (const sy of presenceFx.synapses(now)) {
+      const a = frameCenterPx(sy.fromFrameId);
+      const b = frameCenterPx(sy.toFrameId);
+      if (!a || !b) continue;
+      const ci = segColor.get(sy.fromFrameId + '>' + sy.toFrameId) ?? 0;
+      const [r, g, bl] = PRESENCE_COLORS[ci];
+      const fade = 1 - sy.t;
+      const hx = a.x + (b.x - a.x) * sy.t;
+      const hy = a.y + (b.y - a.y) * sy.t;
+      const TRAIL = 0.18; // trail spans this fraction of the segment behind the head
+      const tx = a.x + (b.x - a.x) * Math.max(0, sy.t - TRAIL);
+      const ty = a.y + (b.y - a.y) * Math.max(0, sy.t - TRAIL);
+      ctx.save();
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${(0.5 * fade).toFixed(3)})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx, hy, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${(0.9 * fade).toFixed(3)})`;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Session cursors — a small filled dot + ring at the frame center, or
+    // lerped along the active segment; dimmed when idle. Workspace labels live
+    // in the React presence strip, so the canvas cursor is just the dot.
+    for (const s of sessions) {
+      let px = null;
+      if (s.seg) {
+        const a = frameCenterPx(s.seg.fromFrameId);
+        const b = frameCenterPx(s.seg.toFrameId);
+        if (a && b) px = { x: a.x + (b.x - a.x) * s.seg.t, y: a.y + (b.y - a.y) * s.seg.t };
+      } else if (s.frameId != null) {
+        px = frameCenterPx(s.frameId);
+      }
+      if (!px) continue;
+      const [r, g, bl] = PRESENCE_COLORS[s.colorIdx];
+      const alpha = s.idle ? 0.35 : 0.9;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(px.x, px.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${alpha})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px.x, px.y, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${Math.min(1, alpha + 0.1).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   function drawLiveEffects(now) {
     // Removal: fill drains back to outline, then the sketch fades (reverse of birth).
     for (const tb of liveFx.tombstones(now)) {
@@ -2266,10 +2433,17 @@ export function createEngine({ canvas, store, callbacks = {} }) {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+
+    drawPresence(now);
   }
 
+  let presenceTick = 0;
   function mainLoop() {
     const now = performance.now();
+
+    // Idle/gone roster transitions age without any inbound event, so poke the
+    // (throttled) roster callback periodically to let them propagate to React.
+    if ((presenceTick = (presenceTick + 1) % 60) === 0) scheduleRosterCallback();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     viewTransform = computeViewTransform();
@@ -2300,6 +2474,7 @@ export function createEngine({ canvas, store, callbacks = {} }) {
 
   function destroy() {
     if (rafId !== null) cancelAnimationFrame(rafId);
+    if (rosterTimer !== null) { clearTimeout(rosterTimer); rosterTimer = null; }
     // canvas listeners are on the canvas element itself; removing the canvas
     // from the DOM (React unmount) drops them. No window listeners remain.
   }
@@ -2307,8 +2482,9 @@ export function createEngine({ canvas, store, callbacks = {} }) {
   return {
     setData,
     applyLiveChanges,
+    applyPresence,
     setLayerPrefs,
-    getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn }),
+    getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn, showPresence }),
     focusFrame: (id) => { anchorNodeIdx = null; setFocus(id); },
     setActiveRecord,
     frameIdForFilePath: (p) => frameIdForPath(FRAME_PATH_INDEX, p),
