@@ -1,0 +1,23 @@
+{
+  "$ref": "#/definitions/show-focus-ack",
+  "definitions": {
+    "show-focus-ack": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "version",
+        "accepted"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
