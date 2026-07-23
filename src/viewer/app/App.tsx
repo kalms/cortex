@@ -21,6 +21,7 @@ export function App() {
       localStorage.setItem(LS_KEYS.frames, layerPrefs.showFrames ? "1" : "0");
       localStorage.setItem(LS_KEYS.decisions, layerPrefs.showDecisions ? "1" : "0");
       localStorage.setItem(LS_KEYS.todos, layerPrefs.showTodos ? "1" : "0");
+      localStorage.setItem(LS_KEYS.presence, layerPrefs.showPresence ? "1" : "0");
     } catch { /* sandboxed */ }
   }, [layerPrefs]);
   useEffect(() => {

@@ -56,6 +56,8 @@ export function LayersMenu() {
             onToggle={() => patch({ showDecisions: !layerPrefs.showDecisions })} />
           <LmToggle id="show-todos" label="todos" on={layerPrefs.showTodos}
             onToggle={() => patch({ showTodos: !layerPrefs.showTodos })} />
+          <LmToggle id="lm-presence" label="presence" on={layerPrefs.showPresence}
+            onToggle={() => patch({ showPresence: !layerPrefs.showPresence })} />
           <div className="lm-sep" />
           <LmToggle id="layers-switch" label="layer tint" on={layerPrefs.layerTint}
             onToggle={() => patch({ layerTint: !layerPrefs.layerTint })} />

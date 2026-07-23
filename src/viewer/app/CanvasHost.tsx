@@ -10,6 +10,10 @@ import { frameCoverage } from "../canvas/adapters.js";
 export const entityStore = createStore();     // module singleton (decisions/todos)
 export let engineRef: ReturnType<typeof createEngine> | null = null;
 
+// Replayed backfill events older than this are dropped rather than re-applied
+// on reconnect (the client re-sends backfill on every hello — see ws-client.js).
+const BACKFILL_WINDOW_MS = 1_800_000;
+
 function applyFramesWarning(bundle: any) {
   const { zeroFrames, fileNodes } = frameCoverage(bundle.rawNodes);
   useUiStore.getState().set({ framesWarning: zeroFrames
@@ -32,6 +36,7 @@ export function CanvasHost() {
           set({ drawerStack: [{ kind: "record", type: "file", id: filePath }] }),
         onViewAll: (frameId: string, tab: "decisions" | "todos") =>
           set({ drawerStack: [{ kind: "list", tab, frameId }] }),
+        onPresenceRoster: (roster: any) => set({ presenceRoster: roster }),
       },
     });
     engineRef = engine;
@@ -70,6 +75,12 @@ export function CanvasHost() {
       },
       onStatus: (s: string) => useUiStore.getState().set({
         syncStatus: s, syncVisible: currentProject === sync.boundProject }),
+      eventBackfill: { limit: 200 },
+      onEvent: (event: any, meta: { live: boolean }) => {
+        if (event?.kind !== "presence.activity") return;
+        if (!meta.live && event.created_at < Date.now() - BACKFILL_WINDOW_MS) return;
+        engine.applyPresence([{ payload: event.payload, live: meta.live }]);
+      },
     });
 
     const unsub = entityStore.subscribe((changes: any[]) => {

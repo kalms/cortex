@@ -553,6 +553,32 @@ body.light .frames-warning {
   color: #b45309;
 }
 
+/* ── Presence strip: one dot per active session, right-aligned before the
+   layers menu in the toolbar row. Session hues come from JS (PRESENCE_COLORS
+   in canvas/presence.js, mirrored in PresenceStrip.tsx) — not theme tokens,
+   since they must match the canvas dots regardless of light/dark. ── */
+.presence-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.presence-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 600;
+  color: #0a0a0a;
+  border: 1px solid var(--border-2);
+  box-sizing: border-box;
+  user-select: none;
+}
+.presence-avatar.idle { opacity: 0.5; }
+
 /* ── Layers menu (taxonomy milestone 1). Legend lives HERE only. ── */
 .layers-wrap { position: relative; }
 .layers-menu {
