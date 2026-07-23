@@ -18,6 +18,20 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.6.0] — 2026-07-23
+
+### Added
+
+- **Live presence in the viewer** (show-your-work slice 1): a `PostToolUse`
+  hook streams agent activity (files studied/edited, symbols traced,
+  decisions consulted) to `POST /api/presence`; sessions render as colored
+  avatars traversing the frame map with session-colored heat. Multi-session
+  aware (worktrees canonicalize to one project); layers-menu toggle; 30-min
+  backfill for late-joining tabs; `presence.activity` events reaped after
+  24 h. Epoch-guard hardening on the viewer's frame/backfill/live loaders
+  closes a boot-vs-backfill race so late-arriving frames can't stomp a
+  since-superseded load. Opt out: `CORTEX_PRESENCE=0`. Decision: `D-zwrt`.
+
 ## [1.5.0] — 2026-07-10
 
 ### Added
@@ -1450,6 +1464,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.6.0]: https://github.com/ruevu/cortex/releases/tag/v1.6.0
 [1.5.0]: https://github.com/ruevu/cortex/releases/tag/v1.5.0
 [1.4.8]: https://github.com/ruevu/cortex/releases/tag/v1.4.8
 [1.4.7]: https://github.com/ruevu/cortex/releases/tag/v1.4.7
