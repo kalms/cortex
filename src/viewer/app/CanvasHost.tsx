@@ -45,6 +45,20 @@ export function CanvasHost() {
     let currentProject: string | null = null;
     let lastKnownHead: string | null = null;
 
+    // Presence events (live or backfilled) can arrive on the WS `hello`/backfill
+    // round-trip before boot()'s awaited HTTP fetches populate the engine's frame
+    // index. applyPresence resolves refs→frames eagerly, so any event applied
+    // before setData resolves to an empty frame set — leaving the session in the
+    // roster but with no canvas heat/dot, permanently (no re-resolution). Buffer
+    // until the engine has data, then flush in arrival order.
+    let framesReady = false;
+    const pendingPresence: Array<[any, { live: boolean }]> = [];
+    function applyPresenceEvent(event: any, meta: { live: boolean }) {
+      if (event?.kind !== "presence.activity") return;
+      if (!meta.live && event.created_at < Date.now() - BACKFILL_WINDOW_MS) return;
+      engine.applyPresence([{ payload: event.payload, live: meta.live }]);
+    }
+
     async function boot() {
       const { projects, active } = await fetchProjects();
       currentProject = active;
@@ -58,6 +72,8 @@ export function CanvasHost() {
       set({ bundle });
       applyFramesWarning(bundle);
       engine.start();
+      framesReady = true;
+      for (const [event, meta] of pendingPresence.splice(0)) applyPresenceEvent(event, meta);
     }
 
     const sync = connectLiveSync({
@@ -78,8 +94,10 @@ export function CanvasHost() {
       eventBackfill: { limit: 200 },
       onEvent: (event: any, meta: { live: boolean }) => {
         if (event?.kind !== "presence.activity") return;
-        if (!meta.live && event.created_at < Date.now() - BACKFILL_WINDOW_MS) return;
-        engine.applyPresence([{ payload: event.payload, live: meta.live }]);
+        // Hold until the engine's frame index exists (see framesReady above),
+        // otherwise refs resolve to nothing and the session never gets a dot.
+        if (!framesReady) { pendingPresence.push([event, meta]); return; }
+        applyPresenceEvent(event, meta);
       },
     });
 
