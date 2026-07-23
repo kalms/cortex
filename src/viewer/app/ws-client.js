@@ -21,6 +21,8 @@ export function connectLiveSync({
   isLiveProject,
   resnapshot,
   onStatus,
+  onEvent,
+  eventBackfill = null,
   WebSocketImpl = globalThis.WebSocket,
   retryDelays = DEFAULT_RETRY_DELAYS,
   setTimeoutImpl = (fn, ms) => setTimeout(fn, ms),
@@ -79,6 +81,9 @@ export function connectLiveSync({
         } else {
           ws.send(JSON.stringify({ type: "catchup", since: store.state.cursor }));
         }
+        if (eventBackfill && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "backfill", limit: eventBackfill.limit }));
+        }
         return;
       }
       case "catchup_result": {
@@ -103,8 +108,16 @@ export function connectLiveSync({
         store.apply(msg.delta, { animate: animateNow() });
         return;
       }
+      case "event": {
+        if (onEvent) onEvent(msg.event, { live: true });
+        return;
+      }
+      case "backfill_page": {
+        if (onEvent && eventBackfill) for (const e of msg.events) onEvent(e, { live: false });
+        return;
+      }
       default:
-        return; // event / mutation / backfill_page / pong — other consumers' channels
+        return; // mutation / pong — other consumers' channels
     }
   }
 
