@@ -87,4 +87,15 @@ describe("presence state machine", () => {
     expect(p.roster(T0)).toHaveLength(1);
     expect(p.sessions(T0)[0].frameId).toBe(null);
   });
+
+  it("synapses tolerate non-monotonic query time: skip not-yet-started, preserve in-flight", () => {
+    const p = createPresence();
+    p.noteActivity({ sessionId: "s1", workspace: "w", activity: "studied", frameIds: ["1"], now: T0 });
+    p.noteActivity({ sessionId: "s1", workspace: "w", activity: "studied", frameIds: ["3"], now: T0 });
+    p.setPath("s1", ["1", "2", "3"], T0);
+    // Query before the first synapse has started (t < 0)
+    expect(p.synapses(T0 - 100)).toHaveLength(0);
+    // Query during the first segment (should still see the pulse)
+    expect(p.synapses(T0 + TRAVERSE_SEG_MS / 2)).toHaveLength(1);
+  });
 });

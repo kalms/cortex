@@ -206,7 +206,8 @@ export function createPresence({ reducedMotion = false } = {}) {
       const out = [];
       for (let i = syn.length - 1; i >= 0; i--) {
         const t = (now - syn[i].t0) / TRAVERSE_SEG_MS;
-        if (t < 0 || t >= 1) { syn.splice(i, 1); continue; }
+        if (t >= 1) { syn.splice(i, 1); continue; }
+        if (t < 0) continue;
         out.push({ fromFrameId: syn[i].fromFrameId, toFrameId: syn[i].toFrameId, t });
       }
       return out;
