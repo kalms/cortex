@@ -31,7 +31,8 @@ import {
   FileEdgesResponseSchema, AggregatesResponseSchema, DecisionsResponseSchema,
   DecisionDetailResponseSchema, TodosResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
   ProjectParamSchema, DecisionIdParamSchema, PresencePostSchema, PresenceAckResponseSchema,
-  type PresencePost,
+  ShowFocusPostSchema, ShowFocusAckResponseSchema,
+  type PresencePost, type ShowFocusPost,
 } from "./api-schemas.js";
 import { TodosRepository } from "../todos/repository.js";
 import { TodoLinksRepository } from "../todos/links-repository.js";
@@ -286,7 +287,7 @@ export function startViewerServer(
   decisionLinksRepo?: DecisionLinksRepository,
   todosRepo?: TodosRepository,
   todoLinksRepo?: TodoLinksRepository,
-  presence?: { homeRoot: string; emit: (p: PresencePost) => void },
+  presence?: { homeRoot: string; emit: (p: PresencePost) => void; emitFocus: (p: ShowFocusPost) => void },
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     // Master registry, opened once for the server's lifetime. Seed it on first
@@ -316,7 +317,8 @@ export function startViewerServer(
       // only) — special-cased here for the one write route rather than widening
       // the shared set, so every other path keeps its GET/HEAD-only contract.
       const isPresencePost = req.method === "POST" && pathname === "/api/presence";
-      if (!methodAllowed(req.method) && !isPresencePost) { respondError(res, 405, "method not allowed", cors); return; }
+      const isShowFocusPost = req.method === "POST" && pathname === "/api/show-focus";
+      if (!methodAllowed(req.method) && !isPresencePost && !isShowFocusPost) { respondError(res, 405, "method not allowed", cors); return; }
       // Auth (API paths only; static viewer is public).
       if (pathname.startsWith("/api/") && !checkAuth(pathname, req.headers["authorization"], process.env)) {
         respondError(res, 401, "unauthorized", cors);
@@ -360,6 +362,23 @@ export function startViewerServer(
           if (accepted) presence.emit(parsed.data);
         }
         respond(res, PresenceAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
+        return;
+      }
+
+      // ── /api/show-focus ── (POST only; GET/HEAD fall through to the 405 below)
+      if (pathname === "/api/show-focus") {
+        if (!isShowFocusPost) { respondError(res, 405, "method not allowed", cors); return; }
+        const raw = await readJsonBody(req, MAX_PRESENCE_BODY);
+        const parsed = ShowFocusPostSchema.safeParse(raw);
+        if (!parsed.success) { respondError(res, 400, "invalid show-focus body", cors); return; }
+        let accepted = false;
+        if (presence) {
+          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
+          // so a session in ../repo-wt-x matches the server's home repo.
+          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
+          if (accepted) presence.emitFocus(parsed.data);
+        }
+        respond(res, ShowFocusAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;
       }
 

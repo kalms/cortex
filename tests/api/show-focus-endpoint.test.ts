@@ -1,28 +1,28 @@
-// tests/api/presence-endpoint.test.ts
-// Integration test for POST /api/presence: canonical repo gate, bus emit, and
-// the 405 contract for other routes/methods (mirrors todos-route.test.ts harness).
+// tests/api/show-focus-endpoint.test.ts
+// Integration test for POST /api/show-focus: canonical repo gate, bus emit, and
+// the 405 contract for other routes/methods (mirrors presence-endpoint.test.ts).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GraphStore } from "../../src/graph/store.js";
 import { startViewerServer, type ViewerServerHandle } from "../../src/mcp-server/api.js";
-import type { PresencePost } from "../../src/mcp-server/api-schemas.js";
+import type { ShowFocusPost } from "../../src/mcp-server/api-schemas.js";
 
 let handle: ViewerServerHandle;
 let base: string;
 let store: GraphStore;
 let dir: string;
-const emitted: PresencePost[] = [];
+const emitted: ShowFocusPost[] = [];
 
 beforeAll(async () => {
   process.env.CORTEX_VIEWER_PORT = "0";
-  dir = mkdtempSync(join(tmpdir(), "cortex-presence-"));
+  dir = mkdtempSync(join(tmpdir(), "cortex-show-focus-"));
   store = new GraphStore(join(dir, "db"));
   handle = await startViewerServer(store, null, undefined, undefined, undefined, undefined, {
     homeRoot: "/canonical/home",
-    emit: (p) => emitted.push(p),
-    emitFocus: () => {},
+    emit: () => {},
+    emitFocus: (p) => emitted.push(p),
   });
   base = `http://127.0.0.1:${handle.port}`;
 });
@@ -34,21 +34,21 @@ afterAll(() => {
 });
 
 const post = (body: unknown) =>
-  fetch(`${base}/api/presence`, {
+  fetch(`${base}/api/show-focus`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 
-describe("POST /api/presence", () => {
-  const good = { session_id: "s-1", repo_path: "/canonical/home", workspace: "home", activity: "studied", refs: ["src/a.ts"] };
+describe("POST /api/show-focus", () => {
+  const good = { repo_path: "/canonical/home", refs: ["src/a.ts"], note: "look here" };
 
   it("accepts a matching repo and emits", async () => {
     const res = await post(good);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ accepted: true });
     expect(emitted).toHaveLength(1);
-    expect(emitted[0]).toMatchObject({ session_id: "s-1", activity: "studied" });
+    expect(emitted[0]).toMatchObject({ refs: ["src/a.ts"], note: "look here" });
   });
 
   it("drops a non-matching repo without emitting", async () => {
@@ -56,6 +56,14 @@ describe("POST /api/presence", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ accepted: false });
     expect(emitted).toHaveLength(1); // unchanged
+  });
+
+  it("accepts empty refs (clear is a valid focus)", async () => {
+    const res = await post({ repo_path: "/canonical/home", refs: [] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ accepted: true });
+    expect(emitted).toHaveLength(2);
+    expect(emitted[1]).toMatchObject({ refs: [] });
   });
 
   it("400s an invalid body", async () => {
@@ -68,8 +76,8 @@ describe("POST /api/presence", () => {
     expect(res.status).toBe(405);
   });
 
-  it("405s GET /api/presence", async () => {
-    const res = await fetch(`${base}/api/presence`);
+  it("405s GET /api/show-focus", async () => {
+    const res = await fetch(`${base}/api/show-focus`);
     expect(res.status).toBe(405);
   });
 });

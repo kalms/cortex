@@ -210,6 +210,14 @@ const { port, httpServer } = await startViewerServer(
       project_id: indexerProject ?? "",
       payload: { session_id: p.session_id, workspace: p.workspace, activity: p.activity, refs: p.refs },
     }),
+    emitFocus: (p) => bus.emit({
+      id: newUlid(),
+      kind: "show.focus",
+      actor: "claude",
+      created_at: Date.now(),
+      project_id: indexerProject ?? "",
+      payload: { refs: p.refs, note: p.note },
+    }),
   },
 );
 if (port > 0 && httpServer) {
