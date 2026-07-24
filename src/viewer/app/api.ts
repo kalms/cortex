@@ -63,3 +63,23 @@ export async function fetchTodos(project: string | null) {
   if (!r.ok) return { todos: [] };
   return r.json();
 }
+
+export async function fetchStories(project: string | null): Promise<{ stories: any[] }> {
+  const url = project
+    ? `/api/stories?project=${encodeURIComponent(project)}`
+    : "/api/stories";
+  const r = await fetch(url);
+  if (!r.ok) return { stories: [] };
+  return r.json();
+}
+
+export async function fetchStory(id: string, project: string | null): Promise<any | null> {
+  const base = `/api/stories/${encodeURIComponent(id)}`;
+  const url = project
+    ? `${base}?project=${encodeURIComponent(project)}`
+    : base;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const { story } = await r.json();
+  return story;
+}

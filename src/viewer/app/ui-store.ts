@@ -28,6 +28,16 @@ export type Spotlight = {
   unresolved: string[];
 };
 
+/** Story playback state. `step`/`agentStep` are 1-based. `following` = the
+ *  card tracks live advance events; a manual page-away flips it off until the
+ *  user clicks the "agent is on step N →" chip. */
+export type StoryPlayback = {
+  story: any;              // AdaptedStoryDetail verbatim from /api/stories/:id
+  step: number;
+  agentStep: number | null;
+  following: boolean;
+};
+
 type UiState = {
   theme: "dark" | "light";
   projects: ProjectInfo[];
@@ -43,6 +53,8 @@ type UiState = {
   focusedFrameId: string | null;
   removedSnapshots: Record<string, any>;
   spotlight: Spotlight | null;
+  stories: any[];
+  story: StoryPlayback | null;
   set: (p: Partial<UiState>) => void;
 };
 
@@ -59,5 +71,7 @@ export const useUiStore = create<UiState>((set) => ({
   focusedFrameId: null,
   removedSnapshots: {},
   spotlight: null,
+  stories: [],
+  story: null,
   set: (p) => set(p),
 }));
