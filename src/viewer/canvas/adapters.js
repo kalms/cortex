@@ -239,6 +239,45 @@ export function frameIdsForRefs(pathIndex, refs) {
   return out;
 }
 
+/**
+ * Partition spotlight refs into frame ids, decision ids, todo ids, and unresolved paths.
+ *
+ * Unlike `frameIdsForRefs`, which skips D-/T- refs and silently drops unresolvable paths,
+ * `partitionSpotlightRefs` captures them:
+ *   - D-* refs → decisionIds (verbatim, deduped)
+ *   - T-* refs → todoIds (verbatim, deduped)
+ *   - Path refs (with :: suffix stripped like `frameIdsForRefs`) → frameIds if resolved via
+ *     `frameIdForPath`, or unresolved if no frame matches
+ *
+ * Returns: { frameIds: string[], decisionIds: string[], todoIds: string[], unresolved: string[] }
+ * Insertion order preserved within each bucket; all deduped.
+ */
+export function partitionSpotlightRefs(pathIndex, refs) {
+  const frameIds = [];
+  const decisionIds = [];
+  const todoIds = [];
+  const unresolved = [];
+
+  for (const ref of refs || []) {
+    if (ref.startsWith("D-")) {
+      if (!decisionIds.includes(ref)) decisionIds.push(ref);
+    } else if (ref.startsWith("T-")) {
+      if (!todoIds.includes(ref)) todoIds.push(ref);
+    } else {
+      // Path ref: strip :: suffix and resolve via frameIdForPath
+      const path = ref.includes("::") ? ref.split("::")[0] : ref;
+      const fid = frameIdForPath(pathIndex, path);
+      if (fid != null) {
+        if (!frameIds.includes(fid)) frameIds.push(fid);
+      } else {
+        if (!unresolved.includes(path)) unresolved.push(path);
+      }
+    }
+  }
+
+  return { frameIds, decisionIds, todoIds, unresolved };
+}
+
 /** The path (not qn) of the FIRST ref that resolves to a frame — i.e. the ref
  *  anchoring `frameIdsForRefs(...)[0]`, the session's traversal target. Used to
  *  target the presence cursor at that file's actual dot (dot-level approach)
