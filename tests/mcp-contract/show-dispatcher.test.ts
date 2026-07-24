@@ -144,23 +144,6 @@ describe.skipIf(BINARY_MISSING)("show dispatcher contract", () => {
       expect(res.content[0].text).toBe("No viewer reachable — story persists; open it via its viewer_url");
     });
 
-    it("action:advance resolves a seq-form story_id to its canonical id in the text", async () => {
-      const create = await dispatch({
-        repo_path: repo,
-        action: "story",
-        title: "Seq-form advance",
-        steps: [{ caption: "only step", refs: [] }],
-      });
-      const id = JSON.parse(create.content[0].text).story_id;
-      const seq = id.replace(/^S-/, "");
-
-      const res = await dispatch({ repo_path: repo, action: "advance", story_id: seq, step: 1 });
-      expect(res.isError).toBeFalsy();
-      // Still reports "No viewer reachable" (fetch is mocked down), proving
-      // checkAdvance resolved the seq-form id without throwing.
-      expect(res.content[0].text).toBe("No viewer reachable — story persists; open it via its viewer_url");
-    });
-
     it("action:advance with a step out of range returns malformed_input", async () => {
       const create = await dispatch({
         repo_path: repo,
@@ -260,6 +243,68 @@ describe.skipIf(BINARY_MISSING)("show dispatcher contract", () => {
       } finally {
         rmSync(emptyRepo, { recursive: true });
       }
+    });
+  });
+
+  describe("action:advance delivers the resolved canonical id to a real viewer", () => {
+    // Mirrors the focus describe block's capture-server pattern above — a
+    // real ephemeral HTTP server, not a mocked fetch, so the captured POST
+    // body actually pins what gets sent over the wire. Uses its own fresh
+    // repo (not the shared `repo`) so this story's `seq` is deterministically
+    // 1, independent of how many stories other tests in this file created.
+    let server: ReturnType<typeof createServer>;
+    let port: number;
+    let requests: Array<{ path: string; body: unknown }>;
+    let prevPort: string | undefined;
+    let seqRepo: string;
+
+    beforeAll(async () => {
+      seqRepo = makeIndexedRepoFixture();
+      requests = [];
+      server = createServer((req, res) => {
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        req.on("end", () => {
+          requests.push({ path: req.url ?? "", body: raw ? JSON.parse(raw) : undefined });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ version: 1, accepted: true }));
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      port = (server.address() as AddressInfo).port;
+      prevPort = process.env.CORTEX_VIEWER_PORT;
+      process.env.CORTEX_VIEWER_PORT = String(port);
+    });
+
+    afterAll(async () => {
+      if (prevPort === undefined) delete process.env.CORTEX_VIEWER_PORT;
+      else process.env.CORTEX_VIEWER_PORT = prevPort;
+      await new Promise((resolve) => server.close(() => resolve(undefined)));
+      try { rmSync(seqRepo, { recursive: true }); } catch { /* ignore */ }
+    });
+
+    it("posts the canonical S- id, not the raw seq-form input, to /api/show-advance", async () => {
+      const create = await dispatch({
+        repo_path: seqRepo,
+        action: "story",
+        title: "Seq-form advance",
+        steps: [{ caption: "only step", refs: [] }],
+      });
+      const canonicalId = JSON.parse(create.content[0].text).story_id;
+      expect(canonicalId).toMatch(/^S-/);
+
+      // First story minted in a fresh repo → seq 1. "1" is the seq-form
+      // reference (parseRef treats an all-digit body as a seq lookup).
+      const res = await dispatch({ repo_path: seqRepo, action: "advance", story_id: "1", step: 1 });
+      expect(res.isError).toBeFalsy();
+      expect(res.content[0].text).toBe(`Story ${canonicalId} → step 1/1 pushed to viewer`);
+
+      const advanceReq = requests.find((r) => r.path === "/api/show-advance");
+      expect(advanceReq).toBeDefined();
+      const body = advanceReq!.body as { story_id: string; step: number };
+      expect(body.story_id).toBe(canonicalId);
+      expect(body.story_id).not.toBe("1");
+      expect(body.step).toBe(1);
     });
   });
 
