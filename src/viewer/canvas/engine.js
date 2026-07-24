@@ -1,4 +1,4 @@
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath } from './adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath, partitionSpotlightRefs } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
@@ -117,6 +117,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
+  // Held show-focus spotlight (slice 2a). Null = inert (every draw path must be
+  // pixel-identical to pre-spotlight when null). When active:
+  //   { frameSet, decSet, todoSet: Set<string>, t0 } — t0 anchors the dim ease.
+  // Set members are String()-coerced ids: frame ids for frames, and both the
+  // seq display id (D-12 / T-3) and canonical id for dots, so a ref in either
+  // form matches. Cleared on setData (project switch/resync wipes it — the
+  // agent re-issues focus). Fires callbacks.onSpotlight(payload|null).
+  let spotlight = null;
+
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   const liveFx = createLiveEffects({ reducedMotion });
   // Live agent-presence layer (avatars, session-colored heat, traversal
@@ -178,6 +187,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       })),
     );
     buildGraph();
+    // A project switch/resync invalidates any held spotlight (frame ids collide
+    // across projects, dot ids don't carry over) — clear it and notify React so
+    // the store's spotlight banner drops. The agent re-issues focus if wanted.
+    if (spotlight) {
+      spotlight = null;
+      callbacks.onSpotlight?.(null);
+    }
     if (!preserveFocus) {
       focusedFrameId = null;
       previousFocusId = null;
@@ -522,6 +538,44 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (raw >= 1) previousFocusId = null;
     const t = ease(raw);
     return { t, focused: focusedFrameId, from: previousFocusId };
+  }
+
+  /** Held show-focus spotlight command from React. `null`, `refs: []`, or a
+   *  resolution with no frames/decisions/todos AND no ids clears the spotlight
+   *  (fires onSpotlight(null)). Otherwise stores the resolved Sets + an ease
+   *  anchor and fires onSpotlight with the exact ui-store shape Task 7 stores
+   *  verbatim: { note, resolved: { frames, decisions, todos }, unresolved }. */
+  function applySpotlight(cmd) {
+    if (!cmd || !cmd.refs || cmd.refs.length === 0) {
+      spotlight = null;
+      callbacks.onSpotlight?.(null);
+      return;
+    }
+    const { frameIds, decisionIds, todoIds, unresolved } =
+      partitionSpotlightRefs(FRAME_PATH_INDEX, cmd.refs);
+    // Nothing resolved and nothing left dangling → treat as a clear.
+    if (!frameIds.length && !decisionIds.length && !todoIds.length && !unresolved.length) {
+      spotlight = null;
+      callbacks.onSpotlight?.(null);
+      return;
+    }
+    // Dots carry canonical ids; refs arrive as seq display ids (D-12 / T-3).
+    // Coerce both into the Sets so membership matches regardless of ref form.
+    const decSet = new Set();
+    for (const id of decisionIds) decSet.add(String(id));
+    const todoSet = new Set();
+    for (const id of todoIds) todoSet.add(String(id));
+    spotlight = {
+      frameSet: new Set(frameIds.map(String)),
+      decSet,
+      todoSet,
+      t0: performance.now(),
+    };
+    callbacks.onSpotlight?.({
+      note: cmd.note,
+      resolved: { frames: frameIds, decisions: decisionIds, todos: todoIds },
+      unresolved,
+    });
   }
 
   // Keep-out margins so frames stay clear of the canvas edges and the UI
@@ -1266,6 +1320,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       liveFx.recordDotPos(dec.id, dotX, dotY);
 
       const isSelected = selectedDecId === dec.id;
+      // Held spotlight: is this decision in the spotlight set? Match either the
+      // seq display id (how refs arrive) or the canonical id (belt-and-braces).
+      const inSpot = !!spotlight && (spotlight.decSet.has(decisionDisplayId(dec)) || spotlight.decSet.has(String(dec.id)));
+      // While a spotlight is active, non-member dots recede to 0.45 opacity
+      // (whole-dot: fill, leaders, ring, pill). Members and the no-spotlight
+      // case render at full alpha (pixel-identical when spotlight is null).
+      if (spotlight && !inSpot) ctx.globalAlpha = 0.45;
       // Hover via the floating dot OR this decision's marginalia pill — either
       // lights up the decision's leader edges (dot AND marginalia connections).
       const isHovered = hoveredDecisionId === dec.id || hoveredMarginaliaId === dec.id;
@@ -1376,6 +1437,17 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.stroke();
       }
 
+      // Spotlight ring — same treatment as the selection ring, drawn additively
+      // (a decision can be both selected and spotlighted; both rings show).
+      if (inSpot) {
+        const spotRingAlpha = state === 'proposed' ? 0.32 : 0.5;
+        ctx.strokeStyle = `rgba(${dotColor[0]}, ${dotColor[1]}, ${dotColor[2]}, ${spotRingAlpha})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       let pillRect = null;
       if (expand > 0.001) {
         // Node label shows ONLY the sequenced id (e.g. "D-12"); the title lives
@@ -1425,6 +1497,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         pillRect,
         cx: dotX, cy: dotY,
       });
+      // Reset the per-dot spotlight fade so the next iteration starts clean.
+      if (spotlight && !inSpot) ctx.globalAlpha = 1;
     });
 
     ctx.restore();
@@ -1502,6 +1576,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       // in_progress: no per-assignee identity color in this viewer → yellow base (rgb).
 
       const isSelected = selectedTodoId === todo.id;
+      // Held spotlight membership — match the seq display id or the canonical id.
+      const inSpot = !!spotlight && (spotlight.todoSet.has(todoDisplayId(todo)) || spotlight.todoSet.has(String(todo.id)));
+      // Non-member dots recede to 0.45 while a spotlight is active (whole-dot).
+      if (spotlight && !inSpot) ctx.globalAlpha = 0.45;
       // Hover via the floating dot OR this todo's marginalia pill.
       const isHovered = hoveredTodoId === todo.id || hoveredMarginaliaId === todo.id;
       const pillVisible = isHovered || isSelected;
@@ -1580,6 +1658,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.stroke();
       }
 
+      // Spotlight ring — same treatment as selection, drawn additively.
+      if (inSpot) {
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.5)`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, DOT_R + 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       // Node label: just the sequenced id "T-NNN" (title lives in the marginalia).
       let pillRect = null;
       if (pillVisible) {
@@ -1625,6 +1712,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         pillRect,
         cx: dotX, cy: dotY,
       });
+      // Reset the per-dot spotlight fade before the next iteration.
+      if (spotlight && !inSpot) ctx.globalAlpha = 1;
     });
 
     ctx.restore();
@@ -1657,6 +1746,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       let dimLevel = 0;
       if (hasFocus && !isFocused) {
         dimLevel = fp.focused ? fp.t : (1 - fp.t);
+      }
+      // Held spotlight: frames NOT in the spotlight set dim in, eased over
+      // FOCUS_DURATION from t0, composed as the max of any single-focus dim so
+      // the two never cancel. Spotlighted frames keep their existing dimLevel.
+      if (spotlight && !spotlight.frameSet.has(String(frame.id))) {
+        const spotDim = ease(Math.min(1, (now - spotlight.t0) / FOCUS_DURATION));
+        dimLevel = Math.max(dimLevel, spotDim);
       }
 
       let hoverLevel = 0;
@@ -2840,6 +2936,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     setData,
     applyLiveChanges,
     applyPresence,
+    applySpotlight,
     setLayerPrefs,
     getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn, showPresence }),
     focusFrame: (id) => { anchorNodeIdx = null; setFocus(id); },
