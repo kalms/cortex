@@ -17,6 +17,7 @@ import { openDecisionsDb } from "../decisions/db.js";
 import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 import { buildAdaptedTodos } from "./api-todos.js";
+import { buildAdaptedStory, buildAdaptedStoryDetail } from "./api-stories.js";
 import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "../frame-extraction/positioning/frame-map.js";
 import { STAGE_W, STAGE_H } from "../frame-extraction/positioning/frame-layout.js";
@@ -32,10 +33,14 @@ import {
   DecisionDetailResponseSchema, TodosResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
   ProjectParamSchema, DecisionIdParamSchema, PresencePostSchema, PresenceAckResponseSchema,
   ShowFocusPostSchema, ShowFocusAckResponseSchema,
-  type PresencePost, type ShowFocusPost,
+  StoriesResponseSchema, StoryDetailResponseSchema, StoryIdParamSchema,
+  ShowAdvancePostSchema, ShowAdvanceAckResponseSchema,
+  type PresencePost, type ShowFocusPost, type ShowAdvancePost,
 } from "./api-schemas.js";
 import { TodosRepository } from "../todos/repository.js";
 import { TodoLinksRepository } from "../todos/links-repository.js";
+import { StoriesRepository, StoryStepsRepository } from "../stories/repository.js";
+import { parseRef } from "../ids/short-id.js";
 import { canonicalRepoPath } from "../db/git-root.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -159,6 +164,48 @@ export function openProjectTodos(
   };
 }
 
+/** A stories repo pair resolved for one viewer request, plus a `close` the
+ *  caller MUST invoke (a no-op for the server-bound home repo). */
+export interface ProjectStories {
+  stories: StoriesRepository;
+  steps: StoryStepsRepository;
+  owned: boolean;
+  close(): void;
+}
+
+/**
+ * Resolve the stories repos for a viewer request's `project`, mirroring
+ * {@link openProjectTodos}.
+ *
+ * Stories share the same decisions DB path (`~/.cortex/<repo-id>/decisions.db`),
+ * so this follows the same resolution logic: the server-bound (home) repos are
+ * returned for the bound project or a project unknown to the registry; any OTHER
+ * registered project has its decisions DB opened and the caller MUST `close()` it
+ * (`owned: true`).
+ */
+export function openProjectStories(
+  boundStories: StoriesRepository,
+  boundSteps: StoryStepsRepository,
+  boundProject: string | null | undefined,
+  requestedProject: string | null | undefined,
+  registry: { findByName(name: string): { root_path: string } | null },
+): ProjectStories {
+  if (!requestedProject || requestedProject === boundProject) {
+    return { stories: boundStories, steps: boundSteps, owned: false, close: NOOP_CLOSE };
+  }
+  const rootPath = registry.findByName(requestedProject)?.root_path ?? null;
+  if (!rootPath) {
+    return { stories: boundStories, steps: boundSteps, owned: false, close: NOOP_CLOSE };
+  }
+  const db = openDecisionsDb(resolveDecisionsDbPath(rootPath), legacyDecisionsDbPath(rootPath));
+  return {
+    stories: new StoriesRepository(db),
+    steps: new StoryStepsRepository(db),
+    owned: true,
+    close: () => db.close(),
+  };
+}
+
 /**
  * Resolve the decisions repos for a viewer request's `project`, mirroring
  * {@link openProjectStore}.
@@ -273,6 +320,9 @@ export async function bindWithRetry(
  * @param todosRepo Optional todos repo for the home project (the
  *   `/api/todos` route returns `503` without it).
  * @param todoLinksRepo Optional todo-links repo, paired with the above.
+ * @param storiesRepo Optional stories repo for the home project (the
+ *   `/api/stories*` routes return `503` without it).
+ * @param storyStepsRepo Optional story-steps repo, paired with the above.
  * @param presence Optional presence wiring for `POST /api/presence`. Absent,
  *   the route still 200s but always reports `accepted: false` (no emit).
  *   `homeRoot` MUST already be canonicalized (see {@link canonicalRepoPath})
@@ -287,7 +337,14 @@ export function startViewerServer(
   decisionLinksRepo?: DecisionLinksRepository,
   todosRepo?: TodosRepository,
   todoLinksRepo?: TodoLinksRepository,
-  presence?: { homeRoot: string; emit: (p: PresencePost) => void; emitFocus: (p: ShowFocusPost) => void },
+  storiesRepo?: StoriesRepository,
+  storyStepsRepo?: StoryStepsRepository,
+  presence?: {
+    homeRoot: string;
+    emit: (p: PresencePost) => void;
+    emitFocus: (p: ShowFocusPost) => void;
+    emitAdvance: (p: ShowAdvancePost) => void;
+  },
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     // Master registry, opened once for the server's lifetime. Seed it on first
@@ -318,7 +375,8 @@ export function startViewerServer(
       // the shared set, so every other path keeps its GET/HEAD-only contract.
       const isPresencePost = req.method === "POST" && pathname === "/api/presence";
       const isShowFocusPost = req.method === "POST" && pathname === "/api/show-focus";
-      if (!methodAllowed(req.method) && !isPresencePost && !isShowFocusPost) { respondError(res, 405, "method not allowed", cors); return; }
+      const isShowAdvancePost = req.method === "POST" && pathname === "/api/show-advance";
+      if (!methodAllowed(req.method) && !isPresencePost && !isShowFocusPost && !isShowAdvancePost) { respondError(res, 405, "method not allowed", cors); return; }
       // Auth (API paths only; static viewer is public).
       if (pathname.startsWith("/api/") && !checkAuth(pathname, req.headers["authorization"], process.env)) {
         respondError(res, 401, "unauthorized", cors);
@@ -379,6 +437,23 @@ export function startViewerServer(
           if (accepted) presence.emitFocus(parsed.data);
         }
         respond(res, ShowFocusAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
+        return;
+      }
+
+      // ── /api/show-advance ── (POST only; GET/HEAD fall through to the 405 below)
+      if (pathname === "/api/show-advance") {
+        if (!isShowAdvancePost) { respondError(res, 405, "method not allowed", cors); return; }
+        const raw = await readJsonBody(req, MAX_PRESENCE_BODY);
+        const parsed = ShowAdvancePostSchema.safeParse(raw);
+        if (!parsed.success) { respondError(res, 400, "invalid show-advance body", cors); return; }
+        let accepted = false;
+        if (presence) {
+          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
+          // so a session in ../repo-wt-x matches the server's home repo.
+          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
+          if (accepted) presence.emitAdvance(parsed.data);
+        }
+        respond(res, ShowAdvanceAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;
       }
 
@@ -469,6 +544,42 @@ export function startViewerServer(
         } finally {
           if (resolved?.owned) resolved.store.close();
           pt.close();
+        }
+        return;
+      }
+
+      // ── /api/stories/:id ── (must precede the list route)
+      if (pathname.startsWith("/api/stories/")) {
+        if (!storiesRepo || !storyStepsRepo) { respondError(res, 503, "stories repos unavailable", cors); return; }
+        const idRaw = decodeURIComponent(pathname.slice("/api/stories/".length));
+        const idParsed = StoryIdParamSchema.safeParse(idRaw);
+        if (!idParsed.success) { respondError(res, 400, "invalid story id", cors); return; }
+        const ps = openProjectStories(storiesRepo, storyStepsRepo, indexerProject, project, registry);
+        try {
+          let rec = ps.stories.get(idParsed.data);
+          if (!rec) {
+            const ref = parseRef("story", idParsed.data);
+            if (ref) rec = ref.kind === "seq" ? ps.stories.getBySeq(ref.seq) : ps.stories.get(ref.id);
+          }
+          if (!rec) { respondError(res, 404, "story not found", cors); return; }
+          const story = buildAdaptedStoryDetail(rec, ps.steps.listByStory(rec.id));
+          respond(res, StoryDetailResponseSchema, { version: CONTRACT_VERSION, story }, freshCtx());
+        } finally {
+          ps.close();
+        }
+        return;
+      }
+
+      // ── /api/stories ──
+      if (pathname === "/api/stories") {
+        if (!storiesRepo || !storyStepsRepo) { respondError(res, 503, "stories repos unavailable", cors); return; }
+        const ps = openProjectStories(storiesRepo, storyStepsRepo, indexerProject, project, registry);
+        try {
+          const counts = ps.stories.stepCounts();
+          const stories = ps.stories.list().map((rec) => buildAdaptedStory(rec, counts.get(rec.id) ?? 0));
+          respond(res, StoriesResponseSchema, { version: CONTRACT_VERSION, stories }, freshCtx());
+        } finally {
+          ps.close();
         }
         return;
       }

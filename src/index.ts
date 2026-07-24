@@ -17,6 +17,7 @@ import { DecisionsRepository } from "./decisions/repository.js";
 import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import { TodosRepository } from "./todos/repository.js";
 import { TodoLinksRepository } from "./todos/links-repository.js";
+import { StoriesRepository, StoryStepsRepository } from "./stories/repository.js";
 import type { WireNode } from "./events/types.js";
 import { newUlid } from "./events/ulid.js";
 import { canonicalRepoPath } from "./db/git-root.js";
@@ -181,6 +182,8 @@ const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 const todosRepo = new TodosRepository(decisionsDb);
 const todoLinksRepo = new TodoLinksRepository(decisionsDb);
+const storiesRepo = new StoriesRepository(decisionsDb);
+const storyStepsRepo = new StoryStepsRepository(decisionsDb);
 
 // Projection sources for the read-path sync engine. pathIndices() re-reads the
 // graph store per derive batch — events are low-rate (tool calls, commits), so
@@ -200,6 +203,8 @@ const { port, httpServer } = await startViewerServer(
   decisionLinksRepo,
   todosRepo,
   todoLinksRepo,
+  storiesRepo,
+  storyStepsRepo,
   {
     homeRoot: canonicalRepoPath(cwd),
     emit: (p) => bus.emit({
@@ -217,6 +222,14 @@ const { port, httpServer } = await startViewerServer(
       created_at: Date.now(),
       project_id: indexerProject ?? "",
       payload: { refs: p.refs, note: p.note },
+    }),
+    emitAdvance: (p) => bus.emit({
+      id: newUlid(),
+      kind: "show.advance",
+      actor: "claude",
+      created_at: Date.now(),
+      project_id: indexerProject ?? "",
+      payload: { story_id: p.story_id, step: p.step },
     }),
   },
 );
