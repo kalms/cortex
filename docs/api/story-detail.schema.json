@@ -1,0 +1,121 @@
+{
+  "$ref": "#/definitions/story-detail",
+  "definitions": {
+    "story-detail": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "story": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "seq": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "createdBy": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "stepCount": {
+              "type": "number"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step_index": {
+                    "type": "number"
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "emphasis_edges": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "layout_hint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "step_index",
+                  "caption",
+                  "refs",
+                  "emphasis_edges",
+                  "layout_hint"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "seq",
+            "title",
+            "description",
+            "status",
+            "createdBy",
+            "createdAt",
+            "updatedAt",
+            "stepCount",
+            "steps"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "story"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
