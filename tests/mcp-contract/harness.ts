@@ -6,6 +6,7 @@ import { registerCodeTools } from "../../src/mcp-server/tools/code-tools.js";
 import { registerTodoTools } from "../../src/mcp-server/tools/todo-tools.js";
 import { registerDecisionDispatcher } from "../../src/mcp-server/tools/decision-dispatcher.js";
 import { registerPRDispatcher } from "../../src/mcp-server/tools/pr-dispatcher.js";
+import { registerShowDispatcher } from "../../src/mcp-server/tools/show-dispatcher.js";
 import { DecisionService } from "../../src/decisions/service.js";
 import { PRService } from "../../src/prs/service.js";
 import { openDecisionsDb } from "../../src/decisions/db.js";
@@ -151,6 +152,7 @@ export async function createHarness(): Promise<HarnessContext> {
   registerTodoTools(server, resolver);
   registerDecisionDispatcher(server, resolver, project);
   registerPRDispatcher(server, resolver, project);
+  registerShowDispatcher(server, resolver);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

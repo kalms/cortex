@@ -18,6 +18,24 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.7.0] — 2026-07-24
+
+### Added
+
+- **`show` MCP tool — held focus spotlight (show-your-work slice 2a).** A
+  `focus` verb holds a spotlight on refs (paths, qualified names, `D-`/`T-`
+  ids) in the live viewer: the targeted frames/decisions/todos stay lit while
+  everything else dims, with a caption card describing the held state.
+  Clears on `Esc`, on a replacing `focus` call, or on `refs: []`. Delivery is
+  live-only (no persistence) and gated to the canonical repo, so a stray
+  worktree/clone can't paint someone else's viewer. Decision `D-aqt6`
+  (spotlight is held presentation state delivered via the existing presence
+  transport — explanations can't ride decaying telemetry).
+- **Skills:** new `show-your-work` skill (drives the `show` tool while
+  narrating a change); `explain-architecture` gains a "spotlight while you
+  explain" step so architecture walkthroughs highlight the relevant frames
+  live instead of describing them blind.
+
 ## [1.6.0] — 2026-07-23
 
 ### Added
@@ -1514,6 +1532,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.7.0]: https://github.com/ruevu/cortex/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ruevu/cortex/releases/tag/v1.6.0
 [1.5.1]: https://github.com/ruevu/cortex/releases/tag/v1.5.1
 [1.5.0]: https://github.com/ruevu/cortex/releases/tag/v1.5.0

@@ -42,3 +42,27 @@ Combine the results into a narrative:
 4. **What it depends on / what depends on it** — from the call chain
 
 Present this as a coherent explanation, not raw tool output.
+
+## Step 5: Spotlight while you explain
+
+Optional — when a live viewer is reachable and a visual pointer would help,
+hold a spotlight on each synthesis section as you present it:
+
+```
+show({ action: "focus", repo_path, refs: ["<section files>", "<D-decision-ids>"], note: "<section headline>" })
+```
+
+Post one `focus` call per section — its files together with any decision ids
+that govern them — with a short `note` naming the section, so the caption
+card advances in step with the narration. Clear the spotlight when you're
+done:
+
+```
+show({ action: "focus", repo_path, refs: [] })
+```
+
+Degrade gracefully: `show` never throws for an unreachable viewer, and the
+prose explanation must stand on its own whether or not anyone is watching
+it. Treat this step as discretionary, never as ceremony — skip it for a
+quick, single-file answer or when a viewer is unlikely to be open. See the
+[`show-your-work`](../show-your-work/SKILL.md) skill for the full contract.

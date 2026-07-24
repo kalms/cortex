@@ -3,6 +3,7 @@ import { registerCodeTools } from "./tools/code-tools.js";
 import { registerTodoTools } from "./tools/todo-tools.js";
 import { registerDecisionDispatcher } from "./tools/decision-dispatcher.js";
 import { registerPRDispatcher } from "./tools/pr-dispatcher.js";
+import { registerShowDispatcher } from "./tools/show-dispatcher.js";
 import { RepoContextResolver } from "./repo-context.js";
 import type { EventBus } from "../events/bus.js";
 
@@ -48,6 +49,7 @@ export function createServer(
   registerTodoTools(server, resolver, indexerProject, bus);
   registerDecisionDispatcher(server, resolver, indexerProject, bus);
   registerPRDispatcher(server, resolver, indexerProject, bus);
+  registerShowDispatcher(server, resolver);
 
   return server;
 }

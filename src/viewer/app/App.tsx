@@ -3,6 +3,7 @@ import { CanvasHost, engineRef } from "./CanvasHost";
 import { Toolbar } from "./toolbar/Toolbar";
 import { Drawer } from "./drawer/Drawer";
 import { Palette } from "./palette/Palette";
+import { SpotlightCard } from "./SpotlightCard";
 import { LS_KEYS, useUiStore } from "./ui-store";
 
 export function App() {
@@ -40,8 +41,10 @@ export function App() {
       if (e.key !== "Escape") return;
       const { drawerStack, paletteOpen, set } = useUiStore.getState();
       if (paletteOpen) { set({ paletteOpen: false }); return; }  // close palette when focus escaped it
-      if (drawerStack.length) set({ drawerStack: [] });
-      else engineRef?.focusFrame(null);
+      if (drawerStack.length) { set({ drawerStack: [] }); return; }
+      const { spotlight } = useUiStore.getState();
+      if (spotlight) { engineRef?.applySpotlight(null); return; }  // onSpotlight(null) clears the store
+      engineRef?.focusFrame(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -52,6 +55,7 @@ export function App() {
     <Toolbar />
     <Drawer />
     <Palette />
+    <SpotlightCard />
     {framesWarning && <div className="frames-warning" id="frames-warning">
       <span className="frames-warning-text">
         {framesWarning.split("cortex index")[0]}

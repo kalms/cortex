@@ -6,9 +6,12 @@
 <title>Cortex</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="/viewer/assets/index-BDPcQY8V.js"></script>
-  <link rel="stylesheet" crossorigin href="/viewer/assets/index-Pv_hcXXO.css">
+<!-- Non-blocking font load: never let an unreachable external host stall first paint.
+     Loads with media="print" (doesn't block render), then swaps to "all" on load. -->
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
+  <script type="module" crossorigin src="/viewer/assets/index-C3kLtYxB.js"></script>
+  <link rel="stylesheet" crossorigin href="/viewer/assets/index-1UnWaBCU.css">
 </head>
 <body>
 <div id="root"></div>

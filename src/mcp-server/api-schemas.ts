@@ -219,6 +219,20 @@ export const PresenceAckResponseSchema = z.object({
 });
 export type PresenceAckResponse = z.infer<typeof PresenceAckResponseSchema>;
 
+// ── Show-focus ─────────────────────────────────────────────────────────────────
+export const ShowFocusPostSchema = z.object({
+  repo_path: z.string().min(1).max(1000),
+  refs: z.array(z.string().min(1).max(500)).max(50),
+  note: z.string().max(2000).optional(),
+});
+export type ShowFocusPost = z.infer<typeof ShowFocusPostSchema>;
+
+export const ShowFocusAckResponseSchema = z.object({
+  version: Version,
+  accepted: z.boolean(),
+});
+export type ShowFocusAckResponse = z.infer<typeof ShowFocusAckResponseSchema>;
+
 // ── Freshness + health ───────────────────────────────────────────────────────
 export const FreshnessStateSchema = z.enum([
   "fresh", "stale:commits", "stale:dirty", "stale:both", "empty", "unknown",
@@ -251,6 +265,7 @@ export const RESPONSE_SCHEMAS = {
   "decision-detail": DecisionDetailResponseSchema,
   todos: TodosResponseSchema,
   "presence-ack": PresenceAckResponseSchema,
+  "show-focus-ack": ShowFocusAckResponseSchema,
   freshness: FreshnessResponseSchema,
   health: HealthResponseSchema,
 } as const;

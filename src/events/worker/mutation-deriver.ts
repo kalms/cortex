@@ -157,5 +157,9 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
     // Presence is telemetry, not knowledge: it never mutates the graph.
     case 'presence.activity':
       return [];
+
+    // Spotlight is presentation, not knowledge.
+    case 'show.focus':
+      return [];
   }
 }

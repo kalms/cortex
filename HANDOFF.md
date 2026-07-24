@@ -2,6 +2,15 @@
 
 ## ✅ Recently shipped
 
+- **v1.7.0 — `show` tool: held focus spotlight (show-your-work slice 2a).**
+  A `focus` verb holds a spotlight on refs (paths/qns/`D-`/`T-` ids) in the
+  live viewer — targeted frames/decisions/todos lit, everything else dimmed,
+  caption card describing the held state; clears on `Esc`, a replacing call,
+  or `refs: []`. Live-only, canonical-repo gated. Decision `D-aqt6`
+  (spotlight is held presentation state on the existing presence transport —
+  explanations can't ride decaying telemetry). New `show-your-work` skill;
+  `explain-architecture` spotlights while it explains. Follow-up `T-7e5b`
+  (hardening).
 - **v1.6.0 — live presence in the viewer (show-your-work slice 1).** A
   `PostToolUse` hook streams agent activity (files studied/edited, symbols
   traced, decisions consulted) to `POST /api/presence` → event bus → WS;
@@ -26,14 +35,17 @@
 
 ## ▶ NEXT — in rough priority order
 
-1. **TODO hooks + external bridge** — `PostMergeHook` auto-completing `resolvedBy`
+1. **Show-your-work slice 2b — stories.** Durable walkthroughs building on
+   the 2a held-focus spotlight (`D-aqt6`); hardening todo `T-7e5b` rides
+   along.
+2. **TODO hooks + external bridge** — `PostMergeHook` auto-completing `resolvedBy`
    TODOs on PR merge; `PostDecisionHook` linking `spawnsFrom`; Linear/JIRA/GitHub
    mirroring (bidirectional sync is v1.5).
-2. **Frame-quality + Louvain `concern` axis** (larger) — the upstream fix for
+3. **Frame-quality + Louvain `concern` axis** (larger) — the upstream fix for
    fragmented/test-mixed clusters and the substrate-band core domain (`SRC·863`
    mega-frame), the ceiling the taxonomy observe phase repeatedly hit. Deferred
    in `D-8vbv`.
-3. **Remaining agentic-experience items** (2026-06-12 field report): **P4**
+4. **Remaining agentic-experience items** (2026-06-12 field report): **P4**
    warm-path decision drafting, **P5** cross-repo decision search, **P7(b/c)**
    tighten tool descriptions / lazy-load the long tail, **P8** temporal
    `changes_since`. (P1/P2/P3/P6 shipped; P7(a) shipped in 1.0.0.)
@@ -41,8 +53,10 @@
 **Tier 2/3 reflex roadmap:** provenance chain `todo→decision→PR→code`,
 static×runtime fusion via `ingest_traces`, CI-gate-as-conscience; cross-repo
 queries, specialist subagents, graph-as-grader. Viewer "show-your-work":
-slice 1 (presence) SHIPPED in 1.6.0 (`D-zwrt`); slice 2 (stories / `show`
-tool) and slice 3 (network layout) are NEXT-queue candidates.
+slice 1 (presence) SHIPPED in 1.6.0 (`D-zwrt`); slice 2a (held focus spotlight
+/ `show` tool) SHIPPED in 1.7.0 (`D-aqt6`); slice 2b (stories — durable
+walkthroughs building on focus; hardening todo `T-7e5b` rides along) and
+slice 3 (network layout) are NEXT-queue candidates.
 
 ## Open, non-blocking
 

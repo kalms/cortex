@@ -31,6 +31,11 @@ export interface PresenceActivityPayload {
   refs: string[];
 }
 
+export interface ShowFocusPayload {
+  refs: string[];
+  note?: string;
+}
+
 /**
  * Discriminated union of all v1 event kinds.
  *
@@ -133,6 +138,10 @@ export type Event =
   | (EventEnvelope & {
       kind: 'presence.activity';
       payload: PresenceActivityPayload;
+    })
+  | (EventEnvelope & {
+      kind: 'show.focus';
+      payload: ShowFocusPayload;
     });
 
 /**

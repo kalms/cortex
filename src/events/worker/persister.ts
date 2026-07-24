@@ -127,10 +127,10 @@ export class EventPersister {
     return row?.id ?? null;
   }
 
-  /** Delete presence.* rows older than the retention window. Returns rows deleted. */
+  /** Delete presence.* and show.* rows older than the retention window. Returns rows deleted. */
   reapPresence(nowMs: number): number {
     const res = this.db
-      .prepare(`DELETE FROM events WHERE kind LIKE 'presence.%' AND created_at < ?`)
+      .prepare(`DELETE FROM events WHERE (kind LIKE 'presence.%' OR kind LIKE 'show.%') AND created_at < ?`)
       .run(nowMs - PRESENCE_RETENTION_MS);
     return res.changes;
   }

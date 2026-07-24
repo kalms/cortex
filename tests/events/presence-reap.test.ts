@@ -5,18 +5,22 @@ import type { Event } from '../../src/events/types.js';
 const NOW = 1_721_700_000_000;
 
 function makeEvent(overrides: Partial<Event> = {}): Event {
+  const basePayload = overrides.kind === 'show.focus'
+    ? { refs: [] }
+    : {
+        session_id: 's',
+        workspace: 'w',
+        activity: 'studied',
+        refs: [],
+      };
+
   return {
     id: '01HXZ00000000000000000000A',
     kind: 'presence.activity',
     actor: 'claude',
     created_at: 1_700_000_000_000,
     project_id: 'cortex',
-    payload: {
-      session_id: 's',
-      workspace: 'w',
-      activity: 'studied',
-      refs: [],
-    },
+    payload: basePayload,
     ...overrides,
   } as Event;
 }
@@ -34,5 +38,14 @@ describe('reapPresence', () => {
     expect(p.reapPresence(NOW)).toBe(1);
     const { events } = p.backfill({ limit: 10 });
     expect(events.map((e) => e.id).sort()).toEqual(['01J0000000000000000000000B', '01J0000000000000000000000C']);
+  });
+
+  it('reaps old show.focus events alongside presence', () => {
+    p = new EventPersister(':memory:');
+    p.insert(makeEvent({ id: '01J0000000000000000000001', kind: 'show.focus', created_at: NOW - PRESENCE_RETENTION_MS - 1000, payload: { refs: [] } })); // old show.focus → reaped
+    p.insert(makeEvent({ id: '01J0000000000000000000002', kind: 'show.focus', created_at: NOW - 1000, payload: { refs: [] } }));                       // fresh show.focus → kept
+    expect(p.reapPresence(NOW)).toBe(1);
+    const { events } = p.backfill({ limit: 10 });
+    expect(events.map((e) => e.id).sort()).toEqual(['01J0000000000000000000002']);
   });
 });
