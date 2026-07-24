@@ -5,7 +5,7 @@ import {
   Server as HttpServer,
 } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { join, extname, sep } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
 import { listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
@@ -535,7 +535,23 @@ export function startViewerServer(
         try {
           const content = await readFile(filePath);
           const ext = extname(filePath);
-          res.writeHead(200, { "Content-Type": MIME_TYPES[ext] || "application/octet-stream", ...SECURITY_HEADERS, ...cors });
+          // HTML (index.html, served at "/" and "/viewer") is tiny and must
+          // revalidate every load — browsers otherwise heuristically cache it,
+          // and a stale index.html references content-hashed assets from a
+          // build that no longer exists on disk (404 → blank page that never
+          // boots). Hashed assets under /assets/ are immutable by construction
+          // (Vite renames on every content change), so cache them for a year.
+          const cacheControl = ext === ".html"
+            ? "no-cache"
+            : filePath.includes(`${sep}assets${sep}`)
+              ? "public, max-age=31536000, immutable"
+              : "no-cache";
+          res.writeHead(200, {
+            "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+            "Cache-Control": cacheControl,
+            ...SECURITY_HEADERS,
+            ...cors,
+          });
           res.end(content);
         } catch {
           respondError(res, 404, "not found", cors);
