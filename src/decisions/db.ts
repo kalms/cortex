@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 );
 
 CREATE TABLE IF NOT EXISTS id_sequences (
-  entity_type TEXT PRIMARY KEY,   -- 'decision' | 'todo'
+  entity_type TEXT PRIMARY KEY,   -- 'decision' | 'todo' | 'story'
   next_val    INTEGER NOT NULL    -- next seq to hand out (1-based)
 );
 
@@ -78,6 +78,38 @@ CREATE TABLE IF NOT EXISTS todo_links (
 );
 CREATE INDEX IF NOT EXISTS idx_todo_links_todo   ON todo_links(todo_id);
 CREATE INDEX IF NOT EXISTS idx_todo_links_target ON todo_links(target_kind, target_ref);
+
+CREATE TABLE IF NOT EXISTS stories (
+  id           TEXT PRIMARY KEY,
+  seq          INTEGER,
+  title        TEXT NOT NULL,
+  description  TEXT,
+  status       TEXT NOT NULL DEFAULT 'open',
+  created_by   TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS story_steps (
+  rowid       INTEGER PRIMARY KEY AUTOINCREMENT,
+  story_id    TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  step_index  INTEGER NOT NULL,           -- 1-based
+  caption     TEXT NOT NULL,
+  refs        TEXT NOT NULL,              -- JSON string[]
+  emphasis_edges TEXT,                    -- JSON [string,string][] | NULL
+  layout_hint TEXT                        -- 'network' | 'organic' | NULL (slice 3)
+);
+CREATE INDEX IF NOT EXISTS idx_story_steps_story ON story_steps(story_id, step_index);
+
+CREATE TABLE IF NOT EXISTS story_links (
+  rowid       INTEGER PRIMARY KEY AUTOINCREMENT,
+  story_id    TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  target_kind TEXT NOT NULL,              -- 'decision' | 'pr'
+  target_ref  TEXT NOT NULL,
+  relation    TEXT NOT NULL,              -- 'ABOUT'
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_story_links_story ON story_links(story_id);
 `;
 
 /*
