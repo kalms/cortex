@@ -19,6 +19,15 @@ export const LS_KEYS = {
 /** One roster entry per active session, as emitted by engine.onPresenceRoster. */
 export type Roster = { sessionId: string; workspace: string; colorIdx: number; idle: boolean; lastSeenMs: number };
 
+/** Payload fired by engine.onSpotlight — stored verbatim, no transform. Each
+ *  `resolved` bucket is the array of ids that matched (not a count); consumers
+ *  read `.length` for the caption card's counts line. */
+export type Spotlight = {
+  note?: string;
+  resolved: { frames: string[]; decisions: string[]; todos: string[] };
+  unresolved: string[];
+};
+
 type UiState = {
   theme: "dark" | "light";
   projects: ProjectInfo[];
@@ -33,6 +42,7 @@ type UiState = {
   paletteOpen: boolean;
   focusedFrameId: string | null;
   removedSnapshots: Record<string, any>;
+  spotlight: Spotlight | null;
   set: (p: Partial<UiState>) => void;
 };
 
@@ -48,5 +58,6 @@ export const useUiStore = create<UiState>((set) => ({
   paletteOpen: false,
   focusedFrameId: null,
   removedSnapshots: {},
+  spotlight: null,
   set: (p) => set(p),
 }));

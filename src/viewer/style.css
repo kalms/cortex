@@ -553,6 +553,69 @@ body.light .frames-warning {
   color: #b45309;
 }
 
+.spotlight-card {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 640px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.24);
+}
+.spotlight-card-body { min-width: 0; }
+.spotlight-card-note {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spotlight-card-counts {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.spotlight-card-unresolved {
+  margin-top: 2px;
+  color: var(--text-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spotlight-card-esc {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  border: 1px solid var(--border-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.spotlight-card-dismiss {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.8;
+}
+.spotlight-card-dismiss:hover { opacity: 1; color: var(--text); }
+
 /* ── Presence strip (prototype v5 `.presence`): overlapping session avatars in
    the toolbar row, session-colored, lifting on hover to reveal a presence-tip.
    Session hues come from JS (PRESENCE_COLORS in canvas/presence.js, mirrored in

@@ -43,6 +43,7 @@ export function CanvasHost() {
         onViewAll: (frameId: string, tab: "decisions" | "todos") =>
           set({ drawerStack: [{ kind: "list", tab, frameId }] }),
         onPresenceRoster: (roster: any) => set({ presenceRoster: roster }),
+        onSpotlight: (p: any) => set({ spotlight: p }),
       },
     });
     engineRef = engine;
@@ -132,6 +133,13 @@ export function CanvasHost() {
         syncStatus: s, syncVisible: currentProject === sync.boundProject }),
       eventBackfill: { limit: 200 },
       onEvent: (event: any, meta: { live: boolean }) => {
+        if (event?.kind === "show.focus") {
+          if (!meta.live) return;                                  // spotlight is live-only — never from backfill
+          if (currentProject !== null && !isLiveProject()) return; // same cross-project drop as presence
+          if (!framesReady) return;                                // pre-boot focus is meaningless; agent re-issues
+          engine.applySpotlight(event.payload ?? { refs: [] });
+          return;
+        }
         if (event?.kind !== "presence.activity") return;
         // ws-client doesn't filter `event` messages by project (see isLiveProject
         // comment above) — drop anything not for the currently-bound project so
