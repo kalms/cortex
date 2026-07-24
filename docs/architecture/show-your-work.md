@@ -1,8 +1,9 @@
-# Show Your Work — Presence Pipeline (Slice 1)
+# Show Your Work — Presence Pipeline (Slice 1) + Focus Spotlight (Slice 2a)
 
 > Living document. Started 2026-07-23. Covers what has **shipped** — the
-> live presence pipeline. Stories (agent-curated walkthroughs) and network
-> layout mode are future slices of the same design; see
+> live presence pipeline (slice 1) and the `show` tool's `focus` spotlight
+> (slice 2a). Stories (agent-curated walkthroughs) and network layout mode
+> are future slices of the same design; see
 > [the design spec](../superpowers/specs/2026-07-23-show-your-work-design.md)
 > for their shape. This doc does not describe unshipped behavior.
 
@@ -13,17 +14,22 @@ Make the agent's work *visible* in the frames viewer, three ways:
 1. **Live ambient presence** (this doc, shipped) — automatic, hook-fed: what
    the agent is studying/editing streams into the viewer as avatar motion +
    frame heat. Zero agent effort.
-2. **Stories** (future slice) — agent-curated walkthroughs the user pages
+2. **Focus spotlight** (this doc, shipped — slice 2a) — the `show` tool's
+   `focus` action: the agent explicitly holds a spotlight on refs (paths,
+   qns, decision/todo ids) in the viewer while explaining an area or
+   previewing a change. Discretionary, agent-initiated. See
+   [Focus spotlight](#focus-spotlight-slice-2a) below.
+3. **Stories** (future slice) — agent-curated walkthroughs the user pages
    through: checkpoints, branch walkthroughs, blast-radius previews.
-3. **Explain-architecture aid** (future slice) — the `explain-architecture`
-   skill emits its explanation as a story so the user can follow it on the
-   graph.
 
 **Agent stance:** presence is automatic and requires no agent action —
 every `Read`/`Edit`/`Write`/`MultiEdit` and a handful of Cortex read tools
-stream a beacon on their own via a hook. The (future) `show` tool is
-**discretionary** — used when visual detail benefits the user, never as
-ceremony. Slice 1 ships presence only; there is no `show` tool yet.
+stream a beacon on their own via a hook. The `show` tool is **discretionary**
+— used when visual detail benefits the user, never as ceremony (see the
+[`show-your-work`](../../skills/show-your-work/SKILL.md) skill, and the
+`explain-architecture` skill's spotlight step). Presence and spotlight are
+separate signals: using one is not a substitute for or a prerequisite of the
+other.
 
 ## Presence pipeline
 
@@ -335,16 +341,140 @@ pre-boot exception (buffer instead of drop) for the window between the WS
 `hello` (which already knows `boundProject`) and `fetchProjects()` resolving
 (where `currentProject` is still `null`).
 
-## What's in scope vs. not (slice 1)
+## Focus spotlight (slice 2a)
 
-**Shipped, in scope:** the presence pipeline above — hook → HTTP → bus →
-worker → WS → viewer avatars/traversal/heat/roster strip.
+The `show` tool's one action (`focus`) posts an agent-held **spotlight** to
+the viewer. The transport mirrors presence almost exactly — same event bus,
+same worker, same WS channel — but spotlight is a **presentation** signal
+the agent issues explicitly, not telemetry a hook streams automatically, and
+it behaves differently at every layer where that distinction matters.
+
+### Transport (mirrors presence)
+
+```
+show({action:"focus",...})    HTTP                     EventBus          Worker thread         WS
+───────────────────────────    ────                     ───────            ────────────          ──
+show-dispatcher.ts         POST /api/show-focus  →   bus.emit(        processEvent():       broadcast
+  postToViewer()               │                       show.focus)   →  persister.insert()  →  { type:'event',
+  (port discovery,           Zod-validated,                              deriveMutations→[]        event }
+   Bearer, 800ms/port,       16 KB cap (shared                           (zero mutations)            │
+   never throws)             w/ presence),                                                        viewer:
+                              canonical-root gate                                                  ws-client.js
+                              accepted:true/false                                                   onEvent →
+                                                                                                      CanvasHost →
+                                                                                                      engine.applySpotlight
+```
+
+1. **`show({action:"focus", repo_path, refs?, note?})`**
+   ([`show-dispatcher.ts`](../../src/mcp-server/tools/show-dispatcher.ts)) —
+   `refs` capped at 50, `note` capped at 2000 chars. Delivers via
+   `postToViewer(path, body, env)`
+   ([`viewer-post.ts`](../../src/mcp-server/tools/viewer-post.ts)): tries
+   `CORTEX_VIEWER_PORT` (env override), then `3333`, then `3334`, deduped;
+   `Authorization: Bearer <CORTEX_API_TOKEN>` when set; 800 ms timeout per
+   candidate; first 2xx wins. **Never throws** — every failure mode (no
+   port answers, non-2xx, timeout) resolves to `{delivered:false,
+   accepted:false}`, which the dispatcher turns into the
+   `No viewer reachable` result text rather than an MCP error. This is the
+   one MCP tool that posts an HTTP body itself — presence's beacons are
+   hook-driven `curl`, not an MCP tool call, because presence must stay
+   agent-effort-free while spotlight is an explicit agent action.
+2. **`POST /api/show-focus`** ([`api.ts`](../../src/mcp-server/api.ts)) —
+   validates against `ShowFocusPostSchema`
+   ([`api-schemas.ts`](../../src/mcp-server/api-schemas.ts)), the same
+   `MAX_PRESENCE_BODY` (16 KB) cap and `canonicalRepoPath(repo_path) ===
+   presence.homeRoot` gate `/api/presence` uses, then calls
+   `presence.emitFocus(parsed.data)` on accept. Response is always
+   `{version, accepted}` — a repo mismatch is `accepted:false`, never an
+   error status.
+3. **Bus wiring** ([`src/index.ts`](../../src/index.ts)) — `emitFocus` wraps
+   the POST body into a full `Event` envelope (`kind: "show.focus"`) and
+   calls `bus.emit(...)` — the same EventBus → worker → WS pipeline every
+   other event kind rides (see
+   [graph-ui.md](graph-ui.md#event-flow-claude-creates-a-decision)).
+4. **Worker** — `deriveMutations()`'s `show.focus` case returns `[]`
+   unconditionally: *"Spotlight is presentation, not knowledge."* Zero graph
+   mutations, same guarantee as presence.
+5. **Retention** — `EventPersister.reapPresence(nowMs)` deletes `events`
+   rows where `kind LIKE 'presence.%' OR kind LIKE 'show.%'` older than
+   `PRESENCE_RETENTION_MS` (24 h) — one shared reap sweep covers both event
+   families; no separate retention path for spotlight.
+
+### Viewer: live-only, held, Esc chain
+
+Where spotlight diverges hardest from presence:
+
+- **Live-only.** `CanvasHost.tsx`'s `onEvent` branches on
+  `event.kind === "show.focus"` above the presence branch and returns early
+  unless `meta.live === true` — a backfilled (`live:false`) focus event is
+  **dropped, never buffered**. A tab that reconnects mid-session does not
+  replay a stale spotlight; the agent re-issues `focus` if one should still
+  be showing. (Contrast presence, which buffers pre-boot events and replays
+  up to 200 backfilled events per reconnect.)
+- **Held, not decaying.** `engine.js`'s `applySpotlight(cmd)` stores
+  `{ frameSet, decSet, todoSet, t0 }` (or clears to `null`) and the
+  spotlight stays exactly as set — no timer, no decay — until: the agent
+  posts a new `focus` (replaces it), the agent posts `refs: []` (clears it),
+  the user presses Esc, or a project switch/resync wipes it (`setData`
+  clears `spotlight` and fires `onSpotlight(null)`; the agent re-issues on
+  the new project if still wanted).
+- **Dim composes with single-frame focus.** `drawFrames` computes a
+  `spotDim` (eased over `FOCUS_DURATION`) for every frame **not** in
+  `frameSet`, then takes `Math.max(dimLevel, spotDim)` against the existing
+  single-frame `computeFocusProgress` dim — the two dims compose rather than
+  one overriding the other.
+- **`D-`/`T-` refs ring decision/todo dots**, matched against **both** the
+  display id (`D-12`/`T-3`, seq form) and the canonical id
+  (`decisionDisplayId(dec)`/`String(dec.id)`) — a ref in either form lights
+  the dot. Non-member decision/todo dots recede to `globalAlpha = 0.45`
+  (whole-dot: fill, leaders, ring, pill) while a spotlight is active;
+  members and the no-spotlight case render at full alpha.
+- **Unresolved refs surface verbatim** on the caption card
+  (`SpotlightCard.tsx`, bottom-center, mounted in `App.tsx`): `not in
+  graph: <ref>, <ref>` for anything `partitionSpotlightRefs`
+  (`src/viewer/canvas/adapters.js`) couldn't resolve to a frame, decision,
+  or todo — the original ref string (qualifier suffix included) is kept,
+  even though frame *resolution* strips `::symbol` before matching.
+- **Esc chain.** `App.tsx`'s global `Escape` handler tries, in order,
+  **palette → drawer → spotlight → frame-focus** — the first open layer
+  wins and the rest are left alone. A held spotlight is the third rung,
+  ahead of clearing the single-frame camera focus.
+
+### Ref forms
+
+The three forms `partitionSpotlightRefs` understands:
+
+| Form | Example | Resolves to |
+|---|---|---|
+| Repo-relative path | `src/viewer/canvas/engine.js` | a frame, via the frame-path index |
+| `"path::symbol"` qualified name | `src/viewer/canvas/engine.js::applySpotlight` | the path prefix resolves to a frame; the qualifier is stripped for matching but kept verbatim in `unresolved` if it doesn't resolve |
+| Decision / TODO id | `D-zwrt`, `T-119` | a decision/todo dot, matched verbatim against either display or canonical id |
+
+### Spotlight vs. presence
+
+| | Presence | Spotlight |
+|---|---|---|
+| Trigger | Automatic — every `Read`/`Edit`/`Write`/`MultiEdit` + a few Cortex read tools, via a `PostToolUse` hook | Explicit — the agent calls `show({action:"focus", ...})` |
+| Lifetime | **Decaying** — FLASH (6 s), TRAIL (90 s), idle (2 min), gone (15 min) | **Held** — no decay; lasts until replaced, cleared (`refs: []`), Esc, or a project switch |
+| Purpose | **Telemetry** — "work happened here," ambient | **Presentation** — "look here," curated |
+| Graph mutation | Zero (`deriveMutations` → `[]`) | Zero (`deriveMutations` → `[]`) |
+| Backfill | **Replayed** on reconnect (200-event backfill, 30 min animate window) | **Live-only** — dropped on backfill, never replayed |
+| Server retention | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'presence.%'` | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'show.%'` — same reap sweep |
+| Viewer surface | Avatar cursors, synapse pulses, frame heat, roster strip | Frame dim, decision/todo dot rings + fade, caption card |
+| Esc | Not dismissible via Esc | Third rung of the Esc chain (palette → drawer → spotlight → frame-focus) |
+
+## What's in scope vs. not (slice 1 + 2a)
+
+**Shipped, in scope:** the presence pipeline (slice 1) — hook → HTTP → bus →
+worker → WS → viewer avatars/traversal/heat/roster strip — and the `show`
+tool's `focus` spotlight (slice 2a) — MCP tool → HTTP → bus → worker → WS →
+viewer dim/rings/caption card, both described above.
 
 **Explicitly future slices** (see
 [the design spec](../superpowers/specs/2026-07-23-show-your-work-design.md)):
-the `show` MCP tool, agent-curated stories (`stories`/`story_steps` tables,
-story-mode viewer UI, deep-linking), and network layout mode. None of that
-exists yet — do not build against it.
+agent-curated stories (`stories`/`story_steps` tables, story-mode viewer UI,
+deep-linking), and network layout mode. None of that exists yet — do not
+build against it.
 
 **Still out of scope** (unchanged from
 [graph-ui.md](graph-ui.md#module-layout)'s original non-goal list): the v5

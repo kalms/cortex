@@ -492,6 +492,48 @@ Transition a TODO to a new state.
 
 ---
 
+## `show` tool
+
+Single-action tool that posts a **spotlight** to the local viewer's HTTP API.
+Delivery-only: it never touches the graph or the decisions store, and it
+never throws for an unreachable viewer — "no viewer running" is a normal,
+expected result, not a tool failure. See
+[show-your-work.md](architecture/show-your-work.md#focus-spotlight-slice-2a)
+for the full transport + viewer-side contract.
+
+**Params common to all actions:** `repo_path`, `action`.
+
+### `action: "focus"`
+Hold a spotlight on `refs` in the connected viewer.
+- **Params:** `refs?` (string[], max 50 — repo-relative paths,
+  `"path::symbol"` qualified names, or `D-`/`T-` decision/todo ids; omitted
+  or `[]` clears the spotlight), `note?` (string, max 2000 chars — shown on
+  the viewer's caption card).
+- **Behavior:** posts `{repo_path, refs, note}` to `POST /api/show-focus` via
+  `postToViewer` ([`viewer-post.ts`](../src/mcp-server/tools/viewer-post.ts)).
+  Port discovery: `CORTEX_VIEWER_PORT` env override, then `3333` (plugin
+  default), then `3334` (dev-server default) — first responder wins, 800 ms
+  timeout per candidate. Sends `Authorization: Bearer <CORTEX_API_TOKEN>`
+  when that env var is set.
+- **Delivery caveat:** requires a reachable viewer server (the MCP server's
+  own HTTP port, or a separate `npm run dev` instance) — a spotlight call
+  with no viewer running is a no-op, reported back as text, not an error.
+- **Returns one of four result texts:**
+  - `Spotlight set (<n> refs) — clear with refs: []` — delivered, accepted,
+    non-empty refs.
+  - `Spotlight cleared` — delivered, accepted, empty/omitted refs.
+  - `Viewer rejected (different repo owns the viewer)` — delivered, but the
+    viewer's home repo doesn't match `repo_path`
+    (`canonicalRepoPath(repo_path) !== homeRoot`).
+  - `No viewer reachable (start the MCP server / check CORTEX_VIEWER_PORT)` —
+    every candidate port failed or timed out.
+- **Why:** a discretionary presentation aid — point the live viewer at the
+  code/decisions/todos an explanation or a pre-change walkthrough is about.
+  See the [`show-your-work`](../skills/show-your-work/SKILL.md) skill for
+  when to reach for it.
+
+---
+
 ## Quick reference — tool ↔ mode
 
 | Tool | Mode | Freshness-aware |
@@ -500,4 +542,4 @@ Transition a TODO to a new state.
 | `get_graph_schema`, `check_contracts`, `detect_changes`, `ingest_traces` | default | — |
 | `index_repository`, `index_status` | allowUnindexed | — |
 | `list_projects`, `delete_project` | crossRepo | — |
-| `decision` (all other actions), `pr` (all actions), `todo` (all actions) | default | — |
+| `decision` (all other actions), `pr` (all actions), `todo` (all actions), `show` (all actions) | default | — |
