@@ -161,5 +161,9 @@ export function deriveMutations(event: Event, lookup: NodeLookup): GraphMutation
     // Spotlight is presentation, not knowledge.
     case 'show.focus':
       return [];
+
+    // Story paging is presentation, not knowledge.
+    case 'show.advance':
+      return [];
   }
 }
