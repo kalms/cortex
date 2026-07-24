@@ -5,7 +5,7 @@ describe("consolidated tool surface", () => {
   it("exposes decision/todo/pr and none of the old primitive names", () => {
     const server = createServer(null);
     const names = Object.keys((server as any)._registeredTools ?? {});
-    expect(names).toEqual(expect.arrayContaining(["decision", "todo", "pr"]));
+    expect(names).toEqual(expect.arrayContaining(["decision", "todo", "pr", "show"]));
     for (const gone of [
       "create_decision",
       "update_decision",
