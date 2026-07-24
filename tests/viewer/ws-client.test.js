@@ -4,7 +4,7 @@ import { createStore } from "../../src/viewer/app/entity-store.js";
 
 class FakeWS {
   static instances = [];
-  constructor(url) { this.url = url; this.sent = []; FakeWS.instances.push(this); }
+  constructor(url) { this.url = url; this.sent = []; this.readyState = 1; FakeWS.instances.push(this); }
   send(s) { this.sent.push(JSON.parse(s)); }
   close() { this.onclose?.(); }
   // test hooks
@@ -12,7 +12,7 @@ class FakeWS {
   recv(msg) { this.onmessage?.({ data: JSON.stringify(msg) }); }
 }
 
-function harness({ cursor = null } = {}) {
+function harness({ cursor = null, ...rest } = {}) {
   FakeWS.instances = [];
   const store = createStore({ schedule: (fn) => fn() }); // sync flush in tests
   store.hydrate({ decisions: {}, todos: {}, cursor });
@@ -27,8 +27,10 @@ function harness({ cursor = null } = {}) {
     onStatus: (s) => statuses.push(s),
     WebSocketImpl: FakeWS,
     setTimeoutImpl: (fn, ms) => { timeouts.push({ fn, ms }); return 0; },
+    ...rest,
   });
-  return { store, statuses, resnapshot, sync, timeouts, ws: () => FakeWS.instances.at(-1) };
+  const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
+  return { store, statuses, resnapshot, sync, timeouts, ws: () => FakeWS.instances.at(-1), flush };
 }
 
 describe("connectLiveSync", () => {
@@ -162,5 +164,35 @@ describe("connectLiveSync", () => {
 
     expect(store.state.todos["t-ignored"]).toBeUndefined();
     expect(store.state.cursor).toBe(cursorBefore); // cursor must not have advanced
+  });
+
+  it("event messages reach onEvent with live:true", async () => {
+    const seen = [];
+    const h = harness({ onEvent: (e, m) => seen.push([e, m]) }); // extend harness to pass through extra opts
+    h.ws().recv({ type: "hello", project_id: "p", server_version: "0.2.0", head_ulid: "01H" });
+    await h.flush();
+    h.ws().recv({ type: "event", event: { id: "01E", kind: "presence.activity", actor: "claude",
+      created_at: 1, project_id: "p", payload: { session_id: "s", workspace: "w", activity: "studied", refs: ["a.ts"] } } });
+    expect(seen).toHaveLength(1);
+    expect(seen[0][0].kind).toBe("presence.activity");
+    expect(seen[0][1]).toEqual({ live: true });
+  });
+
+  it("eventBackfill sends backfill after hello and routes the page to onEvent with live:false", async () => {
+    const seen = [];
+    const h = harness({ onEvent: (e, m) => seen.push(m.live), eventBackfill: { limit: 200 } });
+    h.ws().recv({ type: "hello", project_id: "p", server_version: "0.2.0", head_ulid: "01H" });
+    await h.flush();
+    expect(h.ws().sent).toContainEqual({ type: "backfill", limit: 200 });
+    h.ws().recv({ type: "backfill_page", events: [{ id: "01E", kind: "presence.activity", actor: "claude",
+      created_at: 1, project_id: "p", payload: {} }], mutations: [], has_more: false });
+    expect(seen).toEqual([false]);
+  });
+
+  it("no onEvent option → event/backfill_page messages are still ignored (regression)", async () => {
+    const h = harness({});
+    h.ws().recv({ type: "hello", project_id: "p", server_version: "0.2.0", head_ulid: "01H" });
+    await h.flush();
+    expect(() => h.ws().recv({ type: "event", event: { kind: "presence.activity" } })).not.toThrow();
   });
 });

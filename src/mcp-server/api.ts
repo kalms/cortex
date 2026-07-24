@@ -30,10 +30,12 @@ import {
   CONTRACT_VERSION, GraphResponseSchema, ProjectsResponseSchema, FramesResponseSchema,
   FileEdgesResponseSchema, AggregatesResponseSchema, DecisionsResponseSchema,
   DecisionDetailResponseSchema, TodosResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
-  ProjectParamSchema, DecisionIdParamSchema,
+  ProjectParamSchema, DecisionIdParamSchema, PresencePostSchema, PresenceAckResponseSchema,
+  type PresencePost,
 } from "./api-schemas.js";
 import { TodosRepository } from "../todos/repository.js";
 import { TodoLinksRepository } from "../todos/links-repository.js";
+import { canonicalRepoPath } from "../db/git-root.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -47,6 +49,38 @@ const MIME_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".woff2": "font/woff2",
 };
+
+/** Cap on the `POST /api/presence` request body (bytes). A presence beacon is
+ *  a handful of short strings + up to 50 short refs — 16KB is generous
+ *  headroom while still bounding a malicious/misbehaving sender. */
+const MAX_PRESENCE_BODY = 16 * 1024;
+
+/** Read + JSON-parse a request body, bounded by `maxBytes`. Resolves `null`
+ *  (never rejects) on an oversized body, a socket error, or invalid JSON —
+ *  the caller turns that into a 400/413-equivalent response uniformly. */
+function readJsonBody(req: IncomingMessage, maxBytes: number): Promise<unknown | null> {
+  return new Promise((resolvePromise) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > maxBytes) {
+        resolvePromise(null);
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      try {
+        resolvePromise(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        resolvePromise(null);
+      }
+    });
+    req.on("error", () => resolvePromise(null));
+  });
+}
 
 /**
  * Handle returned by {@link startViewerServer}.
@@ -238,6 +272,11 @@ export async function bindWithRetry(
  * @param todosRepo Optional todos repo for the home project (the
  *   `/api/todos` route returns `503` without it).
  * @param todoLinksRepo Optional todo-links repo, paired with the above.
+ * @param presence Optional presence wiring for `POST /api/presence`. Absent,
+ *   the route still 200s but always reports `accepted: false` (no emit).
+ *   `homeRoot` MUST already be canonicalized (see {@link canonicalRepoPath})
+ *   — the route compares it against the canonicalized `repo_path` from the
+ *   POST body so a session in a linked worktree matches the server's home repo.
  * @returns A {@link ViewerServerHandle}; `port` is `-1` when the bind failed.
  */
 export function startViewerServer(
@@ -247,6 +286,7 @@ export function startViewerServer(
   decisionLinksRepo?: DecisionLinksRepository,
   todosRepo?: TodosRepository,
   todoLinksRepo?: TodoLinksRepository,
+  presence?: { homeRoot: string; emit: (p: PresencePost) => void },
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     // Master registry, opened once for the server's lifetime. Seed it on first
@@ -272,8 +312,11 @@ export function startViewerServer(
         else respondError(res, 405, "method not allowed");
         return;
       }
-      // Method gate.
-      if (!methodAllowed(req.method)) { respondError(res, 405, "method not allowed", cors); return; }
+      // Method gate. POST is otherwise disallowed (ALLOWED_METHODS is GET/HEAD
+      // only) — special-cased here for the one write route rather than widening
+      // the shared set, so every other path keeps its GET/HEAD-only contract.
+      const isPresencePost = req.method === "POST" && pathname === "/api/presence";
+      if (!methodAllowed(req.method) && !isPresencePost) { respondError(res, 405, "method not allowed", cors); return; }
       // Auth (API paths only; static viewer is public).
       if (pathname.startsWith("/api/") && !checkAuth(pathname, req.headers["authorization"], process.env)) {
         respondError(res, 401, "unauthorized", cors);
@@ -300,6 +343,23 @@ export function startViewerServer(
       if (pathname === "/api/freshness") {
         const { verdict, etag } = httpFreshnessFor(project ?? null, registry);
         respond(res, FreshnessResponseSchema, { version: CONTRACT_VERSION, ...verdict }, { req, freshness: verdict, etag, headers: cors });
+        return;
+      }
+
+      // ── /api/presence ── (POST only; GET/HEAD fall through to the 405 below)
+      if (pathname === "/api/presence") {
+        if (!isPresencePost) { respondError(res, 405, "method not allowed", cors); return; }
+        const raw = await readJsonBody(req, MAX_PRESENCE_BODY);
+        const parsed = PresencePostSchema.safeParse(raw);
+        if (!parsed.success) { respondError(res, 400, "invalid presence body", cors); return; }
+        let accepted = false;
+        if (presence) {
+          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
+          // so a session in ../repo-wt-x matches the server's home repo.
+          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
+          if (accepted) presence.emit(parsed.data);
+        }
+        respond(res, PresenceAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;
       }
 

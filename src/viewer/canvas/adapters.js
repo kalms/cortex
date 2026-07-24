@@ -225,3 +225,65 @@ export function edgesInternalIndex(edges) {
   }
   return set;
 }
+
+/** Resolve presence refs (paths, "path::symbol" qns, decision/todo ids) to frame ids.
+ *  Decision/todo ids have no frame anchor and are skipped; unresolvable paths drop. */
+export function frameIdsForRefs(pathIndex, refs) {
+  const out = [];
+  for (const ref of refs) {
+    if (/^[DT]-/.test(ref)) continue;
+    const path = ref.includes("::") ? ref.split("::")[0] : ref;
+    const fid = frameIdForPath(pathIndex, path);
+    if (fid != null && !out.includes(fid)) out.push(fid);
+  }
+  return out;
+}
+
+/** The path (not qn) of the FIRST ref that resolves to a frame — i.e. the ref
+ *  anchoring `frameIdsForRefs(...)[0]`, the session's traversal target. Used to
+ *  target the presence cursor at that file's actual dot (dot-level approach)
+ *  when the dot is currently drawn. null when no ref resolves. */
+export function primaryRefPath(pathIndex, refs) {
+  for (const ref of refs || []) {
+    if (/^[DT]-/.test(ref)) continue;
+    const path = ref.includes("::") ? ref.split("::")[0] : ref;
+    if (frameIdForPath(pathIndex, path) != null) return path;
+  }
+  return null;
+}
+
+/** Undirected frame adjacency from inter-frame pairs [{a, b}]. */
+export function buildFrameAdjacency(pairs) {
+  const adj = new Map();
+  const add = (x, y) => {
+    if (!adj.has(x)) adj.set(x, new Set());
+    adj.get(x).add(y);
+  };
+  for (const { a, b } of pairs) {
+    if (a == null || b == null || a === b) continue;
+    add(String(a), String(b)); add(String(b), String(a));
+  }
+  return adj;
+}
+
+/** Shortest frame-to-frame path (inclusive). [] when unreachable/unknown. */
+export function frameBfsPath(adj, fromId, toId) {
+  if (fromId === toId) return fromId == null ? [] : [fromId];
+  if (!adj.has(fromId) || !adj.has(toId)) return [];
+  const prev = new Map([[fromId, null]]);
+  const queue = [fromId];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const nxt of adj.get(cur) ?? []) {
+      if (prev.has(nxt)) continue;
+      prev.set(nxt, cur);
+      if (nxt === toId) {
+        const path = [toId];
+        for (let p = cur; p != null; p = prev.get(p)) path.unshift(p);
+        return path;
+      }
+      queue.push(nxt);
+    }
+  }
+  return [];
+}

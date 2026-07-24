@@ -1,5 +1,6 @@
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor } from './adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
+import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
 import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
 
@@ -50,6 +51,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     frames: `${storagePrefix}.show.frames`,
     decisions: `${storagePrefix}.show.decisions`,
     todos: `${storagePrefix}.show.todos`,
+    presence: `${storagePrefix}.show.presence`,
   };
   function readShow(key) {
     try { return localStorage.getItem(key) !== '0'; } catch { return true; } // default ON
@@ -57,6 +59,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   let showFrames = readShow(SHOW_LS.frames);
   let showDecisions = readShow(SHOW_LS.decisions);
   let showTodos = readShow(SHOW_LS.todos);
+  let showPresence = readShow(SHOW_LS.presence);
 
   /** UI command from React — persistence of the prefs moves React-side. */
   function setLayerPrefs(p) {
@@ -64,6 +67,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (p.showDecisions !== undefined) showDecisions = p.showDecisions;
     if (p.showTodos !== undefined) showTodos = p.showTodos;
     if (p.layerTint !== undefined) layersOn = p.layerTint;
+    if (typeof p.showPresence === 'boolean') showPresence = p.showPresence;
   }
 
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -103,15 +107,30 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   const nodes = [];
   const edges = [];
   const adjacency = {};
+  // file_path → canvas node index, for resolving a presence ref to its dot so
+  // the presence cursor can target the actual dot (not the frame center) when
+  // that dot is currently drawn. Rebuilt by buildGraph.
+  let PATH_TO_IDX = new Map();
 
   let focusedFrameId = null;
   let focusT0 = 0;
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
-  const liveFx = createLiveEffects({
-    reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
-  });
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  const liveFx = createLiveEffects({ reducedMotion });
+  // Live agent-presence layer (avatars, session-colored heat, traversal
+  // synapses). Pure state like liveFx; the engine feeds it BFS paths over the
+  // frame graph and pushes roster snapshots to React via onPresenceRoster.
+  const presenceFx = createPresence({ reducedMotion });
+  // Max stroke alpha for the two presence-heat tiers. Flash is the prominent
+  // wide border; trail is the faint slow-decay outline (~1/3 of flash).
+  const PRESENCE_FLASH_ALPHA = 0.35;
+  const PRESENCE_TRAIL_ALPHA = 0.12;
+  // Undirected frame adjacency for traversal pathfinding, rebuilt on every
+  // setData (project switch) from the same inter-frame connectivity the edge
+  // web draws (FILE_EDGES resolved through FRAME_PATH_INDEX).
+  let FRAME_ADJ = new Map();
   const DECISIONS = store.state.decisions; // aliases — object identity is stable
   let FRAME_GOVERNANCE = {};
   const TODOS = store.state.todos;
@@ -148,6 +167,16 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     AGGREGATES = bundle.aggregates;
     FILE_EDGES = bundle.fileEdges;
     lastFrameMeta = bundle.frameMeta;
+    // Rebuild presence traversal adjacency from the inter-frame connectivity.
+    // Each FileEdge is a file→file pair; resolve both endpoints to their frame
+    // via FRAME_PATH_INDEX. buildFrameAdjacency drops null/self/intra-frame
+    // pairs, leaving an undirected frame-to-frame graph for frameBfsPath.
+    FRAME_ADJ = buildFrameAdjacency(
+      (FILE_EDGES || []).map((fe) => ({
+        a: frameIdForPath(FRAME_PATH_INDEX, fe.from_path),
+        b: frameIdForPath(FRAME_PATH_INDEX, fe.to_path),
+      })),
+    );
     buildGraph();
     if (!preserveFocus) {
       focusedFrameId = null;
@@ -159,6 +188,57 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       for (const k of Object.keys(frameReveal)) delete frameReveal[k];
     }
     invalidateFrameGeometry();
+  }
+
+  // ── Live agent presence ────────────────────────────────────────────────
+  // Ingest a batch of presence events from React. Each event carries a payload
+  // (session_id, workspace, activity, refs) and a `live` flag (false = replayed
+  // history, which teleports rather than animates). Resolves each session's
+  // pending traversal target into a BFS path over FRAME_ADJ and hands it back to
+  // presenceFx. Inert until events arrive: no events → empty roster → no draw.
+  function applyPresence(events) {
+    if (!events || events.length === 0) return;
+    const now = performance.now();
+    for (const ev of events) {
+      const p = ev.payload || {};
+      presenceFx.noteActivity({
+        sessionId: p.session_id,
+        workspace: p.workspace,
+        activity: p.activity,
+        frameIds: frameIdsForRefs(FRAME_PATH_INDEX, p.refs || []),
+        targetPath: primaryRefPath(FRAME_PATH_INDEX, p.refs || []),
+        now,
+        animate: ev.live !== false,
+      });
+      const pending = presenceFx.pendingTarget(p.session_id);
+      if (pending) {
+        const path = pending.fromFrameId
+          ? frameBfsPath(FRAME_ADJ, pending.fromFrameId, pending.toFrameId)
+          : [];
+        presenceFx.setPath(p.session_id, path.length >= 2 ? path : [pending.toFrameId], now);
+      }
+    }
+    scheduleRosterCallback();
+  }
+
+  // Roster snapshots reach React through onPresenceRoster, throttled to at most
+  // once per second and fired only when the roster content actually changes
+  // (idle/gone transitions age without events, so mainLoop also pokes this).
+  let lastRosterJson = null;
+  let rosterTimer = null;
+  function emitRosterIfChanged() {
+    rosterTimer = null;
+    if (!callbacks.onPresenceRoster) return;
+    const roster = presenceFx.roster(performance.now());
+    const json = JSON.stringify(roster);
+    if (json === lastRosterJson) return;
+    lastRosterJson = json;
+    callbacks.onPresenceRoster(roster);
+  }
+  function scheduleRosterCallback() {
+    if (!callbacks.onPresenceRoster) return; // no listener → nothing to schedule
+    if (rosterTimer !== null) return; // a check is already pending within this 1s window
+    rosterTimer = setTimeout(emitRosterIfChanged, 1000);
   }
 
   // Deterministic placement primitives: same graph → same dot positions on
@@ -253,12 +333,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       adjacency[b].push({ to: a, edge: edges.length - 1 });
     }
 
-    // Build path → canvas-index lookup for the visible (capped) nodes.
+    // Build path → canvas-index lookup for the visible (capped) nodes. Hoisted
+    // to closure scope (PATH_TO_IDX) so the presence layer can resolve a ref's
+    // path to its dot for the dot-level cursor approach.
     const pathToIdx = new Map();
     for (let i = 0; i < nodes.length; i++) {
       const p = nodes[i].file_path;
       if (p) pathToIdx.set(p, i);
     }
+    PATH_TO_IDX = pathToIdx;
 
     // Real edges from /api/file-edges. Each FileEdge already has a weight
     // (count of underlying entity-level CALLS, threshold ≥ 2 server-side).
@@ -1691,6 +1774,35 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.fillText(pathText, -f.w / 2, primaryY);
       }
 
+      // Presence heat — two tiers, drawn alongside (not replacing) the mutation
+      // heat already folded into the border alpha above. Gated on showPresence
+      // only, so it still reads with frames hidden; inert when no session has
+      // touched this frame.
+      //   TRAIL: faint thin outline, slow 90 s decay — the reload-backfill
+      //          "where has work happened lately" trail. Drawn UNDER the flash.
+      //   FLASH: prominent wide-border glow, fast 6 s decay — only the frame a
+      //          session is CURRENTLY on / just arrived at. This is what fixes
+      //          the "too many frames hot at once" storm.
+      if (showPresence) {
+        const ph = presenceFx.presenceHeat(String(frame.id), now);
+        if (ph) {
+          if (ph.trail > 0) {
+            const [tr, tg, tb] = PRESENCE_COLORS[ph.trailColorIdx];
+            ctx.strokeStyle = `rgba(${tr},${tg},${tb},${(PRESENCE_TRAIL_ALPHA * ph.trail).toFixed(3)})`;
+            ctx.lineWidth = 1.5;
+            roundedRect(ctx, -f.w / 2 - 1, -f.h / 2 - 1, f.w + 2, f.h + 2, 4.5);
+            ctx.stroke();
+          }
+          if (ph.flash > 0) {
+            const [pr, pg, pb] = PRESENCE_COLORS[ph.flashColorIdx];
+            ctx.strokeStyle = `rgba(${pr},${pg},${pb},${(PRESENCE_FLASH_ALPHA * ph.flash).toFixed(3)})`;
+            ctx.lineWidth = 2.5;
+            roundedRect(ctx, -f.w / 2 - 2, -f.h / 2 - 2, f.w + 4, f.h + 4, 5);
+            ctx.stroke();
+          }
+        }
+      }
+
       ctx.restore();
     });
   }
@@ -2302,6 +2414,27 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     ctx.closePath();
   }
 
+  /** Prototype v5 `drawProviderGlyph` (claude branch) — the ✳-style asterisk
+   *  the presence strip uses, drawn on the canvas. Four crossing strokes of
+   *  radius 3.2 centered at (x, y) in the given ink. Presence sessions are all
+   *  agent cursors, so only the claude glyph is ported here. */
+  function drawClaudeGlyph(ctx, x, y, color, alpha) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 4;
+      const r = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * -r, Math.sin(a) * -r);
+      ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /** End-truncation with ellipsis — for labels whose PREFIX carries the
    *  identity (marginalia: "D-12 · summary…"). Runs inside the rAF loop for
    *  every visible pill, so results are memoized: inputs are stable per label
@@ -2405,6 +2538,189 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return null;
   }
 
+  // Canvas-px center of a frame, honoring the current camera + focus transform
+  // (reuses framePx, the same camera-composed world→screen mapping drawFrames
+  // uses, so presence cursors stay glued to their frame under pan/zoom). null
+  // for unknown frames — presence data can name a frame that isn't in the
+  // current project — and for frames culled off-viewport, so presence draws
+  // stay consistent with main's viewport culling (a small fixed-cost overlay,
+  // exempt from LOD dot-budget shedding but not from culling).
+  function frameCenterPx(frameId) {
+    const frame = FRAMES.find((f) => String(f.id) === String(frameId));
+    if (!frame) return null;
+    if (!visibleFrames.has(frame.id)) return null;
+    const fp = framePx(frame);
+    return { x: fp.cx, y: fp.cy };
+  }
+
+  // Is node `idx`'s dot currently drawn? Mirrors drawNodes' gating exactly
+  // (frame visible + LOD reveal past its rank, scaled by the zoom detail shed),
+  // so presence never targets a dot the graph isn't actually painting.
+  function isDotDrawn(idx) {
+    const n = nodes[idx];
+    if (!n || !visibleFrames.has(n.frameId)) return false;
+    const lod = lodByFrame.get(n.frameId);
+    const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
+    return reveal * detailShed > 0.01;
+  }
+
+  // Canvas-px of a presence ref's dot within `frameId`, IF that dot is drawn at
+  // the current LOD; else null (caller falls back to frame center). The path
+  // must belong to the named frame — a stale targetPath never yields a dot.
+  function dotPxIfDrawn(frameId, filePath) {
+    if (!filePath) return null;
+    const idx = PATH_TO_IDX.get(filePath);
+    if (idx === undefined) return null;
+    if (String(nodes[idx].frameId) !== String(frameId)) return null;
+    if (!isDotDrawn(idx)) return null;
+    return nodePx(nodes[idx]);
+  }
+
+  // A currently-drawn inter-frame edge between the two frames, oriented
+  // from→to (a in fromFrameId, b in toFrameId), or null when none is drawn.
+  // Lets a traversal synapse ride the real edge's geometry (prototype
+  // drawSynapses) instead of a center-to-center straight line.
+  function drawnInterFrameEdgePx(fromFrameId, toFrameId) {
+    for (const e of edges) {
+      if (!e.interFrame) continue;
+      const fa = String(nodes[e.a].frameId), fb = String(nodes[e.b].frameId);
+      let aIdx, bIdx;
+      if (fa === String(fromFrameId) && fb === String(toFrameId)) { aIdx = e.a; bIdx = e.b; }
+      else if (fa === String(toFrameId) && fb === String(fromFrameId)) { aIdx = e.b; bIdx = e.a; }
+      else continue;
+      if (!isDotDrawn(aIdx) || !isDotDrawn(bIdx)) continue;
+      return { a: nodePx(nodes[aIdx]), b: nodePx(nodes[bIdx]) };
+    }
+    return null;
+  }
+
+  // Presence layer draw: traversal synapse pulses + session cursors. Fully
+  // gated on showPresence and inert when the roster is empty. Called last from
+  // drawLiveEffects so it reads on top of the graph and live-effects chrome.
+  function drawPresence(now) {
+    if (!showPresence) return;
+    const sessions = presenceFx.sessions(now);
+
+    // Map each in-flight segment to its session hue so a traversal synapse
+    // pulses in the moving session's color (synapses() carries no color).
+    const segColor = new Map();
+    for (const s of sessions) {
+      if (s.seg) segColor.set(s.seg.fromFrameId + '>' + s.seg.toFrameId, s.colorIdx);
+    }
+
+    // Synapse pulses — a bright head sliding from→to with a short fading trail,
+    // in the moving session's hue. When a real inter-frame edge between the two
+    // frames is currently drawn, the pulse RIDES that edge's actual endpoint
+    // geometry (prototype drawSynapses); otherwise it runs frame-center to
+    // frame-center as a fallback.
+    for (const sy of presenceFx.synapses(now)) {
+      const edgePx = drawnInterFrameEdgePx(sy.fromFrameId, sy.toFrameId);
+      let a, b;
+      if (edgePx) {
+        a = edgePx.a; b = edgePx.b;
+      } else {
+        a = frameCenterPx(sy.fromFrameId);
+        b = frameCenterPx(sy.toFrameId);
+      }
+      if (!a || !b) continue;
+      const ci = segColor.get(sy.fromFrameId + '>' + sy.toFrameId) ?? 0;
+      const [r, g, bl] = PRESENCE_COLORS[ci];
+      const fade = 1 - sy.t;
+      const hx = a.x + (b.x - a.x) * sy.t;
+      const hy = a.y + (b.y - a.y) * sy.t;
+      const TRAIL = 0.18; // trail spans this fraction of the segment behind the head
+      const tx = a.x + (b.x - a.x) * Math.max(0, sy.t - TRAIL);
+      const ty = a.y + (b.y - a.y) * Math.max(0, sy.t - TRAIL);
+      ctx.save();
+      ctx.strokeStyle = `rgba(${r},${g},${bl},${(0.5 * fade).toFixed(3)})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx, hy, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${(0.9 * fade).toFixed(3)})`;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Session cursors — prototype v5 cursor treatment: a small breathing dot
+    // whose color lerps from the neutral base ink toward the session hue by
+    // `colorAmount` (1 while traversing, fading to 0 over ~3.5 s after arrival),
+    // so a resting cursor cools to neutral. At rest the dot targets the ref's
+    // actual DOT when that dot is currently drawn (dot-level approach); during
+    // traversal it lerps along the active segment; when the dot is shed at low
+    // zoom it falls back to the frame center (never a stale dot position).
+    const BASE = isLight() ? [24, 24, 27] : [237, 237, 237];
+    for (const s of sessions) {
+      let px = null;
+      if (s.seg) {
+        const a = frameCenterPx(s.seg.fromFrameId);
+        const b = frameCenterPx(s.seg.toFrameId);
+        if (a && b) px = { x: a.x + (b.x - a.x) * s.seg.t, y: a.y + (b.y - a.y) * s.seg.t };
+      } else if (s.frameId != null) {
+        px = dotPxIfDrawn(s.frameId, s.targetPath) || frameCenterPx(s.frameId);
+      }
+      if (!px) continue;
+
+      const hue = PRESENCE_COLORS[s.colorIdx];
+      const cAmt = s.colorAmount ?? 0;
+      const r = Math.round(BASE[0] + (hue[0] - BASE[0]) * cAmt);
+      const g = Math.round(BASE[1] + (hue[1] - BASE[1]) * cAmt);
+      const bl = Math.round(BASE[2] + (hue[2] - BASE[2]) * cAmt);
+      const breath = 1 + 0.04 * Math.sin(now * 0.002 + s.colorIdx * 1.7);
+      const idleMul = s.idle ? 0.5 : 1;
+      const dotAlpha = (0.4 + cAmt * 0.55) * idleMul;
+
+      ctx.save();
+      ctx.translate(px.x, px.y);
+
+      // Breathing cursor dot (colorAmount-cooled toward neutral at rest).
+      ctx.beginPath();
+      ctx.arc(0, 0, 3 * breath, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},${dotAlpha.toFixed(3)})`;
+      ctx.fill();
+
+      // Name pill riding the cursor (prototype v5 `drawCursors` 1:1): a fully
+      // rounded pill 11px right of the dot, vertically centered. Content = the
+      // claude ✳ glyph + `@workspace`. The fill lerps from a neutral IDLE_GREY
+      // toward the session hue by colorAmount, so at rest it cools to a quiet
+      // grey pill (prototype persists at rest — it never fades out); text stays
+      // near-black. The whole pill shares the cursor's idle dimming so an
+      // idle-faded cursor carries a matching quiet pill.
+      const IDLE_GREY = isLight() ? [161, 161, 170] : [82, 82, 91];
+      const fillR = Math.round(IDLE_GREY[0] + (hue[0] - IDLE_GREY[0]) * cAmt);
+      const fillG = Math.round(IDLE_GREY[1] + (hue[1] - IDLE_GREY[1]) * cAmt);
+      const fillB = Math.round(IDLE_GREY[2] + (hue[2] - IDLE_GREY[2]) * cAmt);
+
+      ctx.font = '500 10px "Geist Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const username = `@${s.workspace ?? ''}`;
+      const labelW = ctx.measureText(username).width;
+      const padX = 8;
+      const glyphSize = 8;
+      const glyphGap = 6;
+      const pillH = 18;
+      const pillW = padX + glyphSize + glyphGap + labelW + padX;
+      const pillX = 11;
+      const pillY = -pillH / 2;
+      const contentColor = [15, 15, 15];
+
+      ctx.globalAlpha = idleMul;
+      ctx.fillStyle = `rgb(${fillR}, ${fillG}, ${fillB})`;
+      roundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      drawClaudeGlyph(ctx, pillX + padX + glyphSize / 2, 0, contentColor, 1);
+      ctx.fillStyle = `rgb(${contentColor[0]}, ${contentColor[1]}, ${contentColor[2]})`;
+      ctx.fillText(username, pillX + padX + glyphSize + glyphGap, 0);
+      ctx.globalAlpha = 1;
+
+      ctx.restore();
+    }
+  }
+
   function drawLiveEffects(now) {
     // Removal: fill drains back to outline, then the sketch fades (reverse of birth).
     for (const tb of liveFx.tombstones(now)) {
@@ -2455,8 +2771,11 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+
+    drawPresence(now);
   }
 
+  let presenceTick = 0;
   let visibleFrames = new Set();
   // Margin covers content drawn OUTSIDE the frame box: marginalia pill columns
   // (≤ MARGINALIA_MAX_W + 14) and labels — a culled frame must not pop its pills.
@@ -2475,6 +2794,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
   function mainLoop() {
     const now = performance.now();
+
+    // Idle/gone roster transitions age without any inbound event, so poke the
+    // (throttled) roster callback periodically to let them propagate to React.
+    if ((presenceTick = (presenceTick + 1) % 60) === 0) scheduleRosterCallback();
 
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     viewTransform = compose(computeViewTransform(), cameraNow(now));
@@ -2508,6 +2831,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
   function destroy() {
     if (rafId !== null) cancelAnimationFrame(rafId);
+    if (rosterTimer !== null) { clearTimeout(rosterTimer); rosterTimer = null; }
     // canvas listeners are on the canvas element itself; removing the canvas
     // from the DOM (React unmount) drops them. No window listeners remain.
   }
@@ -2515,8 +2839,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   return {
     setData,
     applyLiveChanges,
+    applyPresence,
     setLayerPrefs,
-    getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn }),
+    getLayerPrefs: () => ({ showFrames, showDecisions, showTodos, layerTint: layersOn, showPresence }),
     focusFrame: (id) => { anchorNodeIdx = null; setFocus(id); },
     setActiveRecord,
     frameIdForFilePath: (p) => frameIdForPath(FRAME_PATH_INDEX, p),

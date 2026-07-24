@@ -78,6 +78,13 @@ parentPort.on('message', (msg: InMsg) => {
         persister = new EventPersister(msg.events_db_path);
         nodeMap = new Map(msg.nodes.map((n) => [n.id, n]));
 
+        try {
+          persister.reapPresence(Date.now());
+        } catch (err) {
+          // Retention is best-effort; never block event processing on it.
+          post({ type: 'error', message: `presence reap failed: ${(err as Error).message}` });
+        }
+
         if (msg.repo_path) {
           gitWatcher = new GitWatcher({
             repoPath: msg.repo_path,

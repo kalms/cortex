@@ -186,6 +186,21 @@ The Cortex process is always started for one project (the cwd). A `{ type:'subsc
 
 Nothing else changes — the event flows through the pipeline automatically.
 
+**Worked example — `presence.activity` (zero-mutation kind):** the
+`PresenceActivityPayload` discriminant was added to `Event` in
+`src/events/types.ts`; `deriveMutations()`'s `presence.activity` case
+returns `[]` unconditionally with the comment *"Presence is telemetry, not
+knowledge: it never mutates the graph."* Emission is triggered by an HTTP
+route rather than a service method — `POST /api/presence`
+(`src/mcp-server/api.ts`) validates the body and calls a `presence.emit`
+callback wired in `src/index.ts`, which wraps it in an `Event` envelope
+(`newUlid()`, `actor: "claude"`) and calls `bus.emit(...)` — same bus, same
+worker persist/derive/broadcast path as every other kind, just a
+non-MCP-tool producer and an always-empty mutation list. The event still
+reaches the viewer over WS (`{ type: 'event' }`) for display — "no graph
+mutation" is not "no client visibility." Full pipeline, hook producer, and
+viewer consumption: [show-your-work.md](show-your-work.md).
+
 ### Adding a new data source (e.g., a filesystem watcher for non-git events)
 
 1. Create a class in `src/events/worker/` similar to `GitWatcher` — accepts `emit: (event: Event) => void`.
@@ -293,8 +308,10 @@ canvas and the entity store without a refetch of the whole graph.
 | `app/drawer/` | `Drawer.tsx` (stack shell), `DecisionView.tsx`, `TodoView.tsx`, `FileCard.tsx`, `ListView.tsx`, `RefPill.tsx`, `drawer-stack.ts` (pure), `selectors.ts` (pure) | mixed — see table rows above |
 | `app/palette/` | `Palette.tsx` (⌘K overlay), `actions.ts` (pure), `fuzzy.ts` (pure), `search-index.ts` (pure) | mixed |
 | `canvas/engine.js` | `createEngine(...)` — the rAF draw loop, frame focus/hover, hit-testing, live-effects wiring; unchanged mechanics, now a boundary the React shell calls into | no (side-effectful) |
-| `canvas/adapters.js` | `groupNodesIntoFrames`, `basenames`, `buildFrameGovernance`, `edgesInternalIndex`, `frameCoverage`, etc. — unchanged | yes |
-| `canvas/live-effects.js` | Tombstone/birth/presence animation state — unchanged | mostly yes |
+| `canvas/adapters.js` | `groupNodesIntoFrames`, `basenames`, `buildFrameGovernance`, `edgesInternalIndex`, `frameCoverage`, `frameIdsForRefs`, `buildFrameAdjacency`, `frameBfsPath`, etc. — unchanged | yes |
+| `canvas/live-effects.js` | Tombstone/birth/mutation-heat animation state — unchanged | mostly yes |
+| `canvas/presence.js` | `createPresence(...)` — live agent-presence state machine (roster, session-colored frame heat, BFS traversal + synapse pulses); shipped as part of [show-your-work.md](show-your-work.md) | yes (pure state machine, injectable `now`) |
+| `app/toolbar/PresenceStrip.tsx` | Roster UI — one avatar dot per active session, sourced from `ui-store`'s `presenceRoster` (populated via `engine`'s `onPresenceRoster` callback); see [show-your-work.md](show-your-work.md) | no |
 | `dist/` | **Committed** Vite build output (`index.html` + hashed `assets/*.js`/`*.css`) — what the server actually serves | n/a (build artifact) |
 
 **The `createEngine` interface** (`canvas/engine.js`):
@@ -323,6 +340,15 @@ The simulation features in the original prototype (multi-agent demo, synapse
 animations, PR floating nodes, auto-loop, presence avatars, merge
 animation, cursor traversal) remain out of scope — explicit non-goals for
 the frames viewer.
+
+> **Un-parked (show-your-work slice 1):** presence avatars and cursor
+> traversal (with their synapse-pulse animation) are **no longer** non-goals
+> — they shipped, driven by real `presence.activity` events rather than the
+> prototype's simulation. See [show-your-work.md](show-your-work.md) for the
+> pipeline and `canvas/presence.js` for the traversal state machine. The
+> prototype's **multi-agent demo mode, PR floating nodes, auto-loop, and
+> merge animation stay out of scope** — this list supersedes only the two
+> items named above.
 
 ### Layer lens (taxonomy milestone 1)
 

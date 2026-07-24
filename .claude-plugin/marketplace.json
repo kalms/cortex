@@ -12,7 +12,7 @@
       "name": "cortex",
       "source": "./",
       "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 2D frames viewer",
-      "version": "1.5.1"
+      "version": "1.6.0"
     }
   ]
 }

@@ -24,6 +24,13 @@ export interface EventEnvelope {
   project_id: string;
 }
 
+export interface PresenceActivityPayload {
+  session_id: string;
+  workspace: string;
+  activity: 'studied' | 'edited' | 'traced' | 'consulted';
+  refs: string[];
+}
+
 /**
  * Discriminated union of all v1 event kinds.
  *
@@ -122,6 +129,10 @@ export type Event =
         pr_number: number;
         ratified_decisions: string[];
       };
+    })
+  | (EventEnvelope & {
+      kind: 'presence.activity';
+      payload: PresenceActivityPayload;
     });
 
 /**

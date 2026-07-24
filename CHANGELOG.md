@@ -18,6 +18,39 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.6.0] — 2026-07-23
+
+### Added
+
+- **Live presence in the viewer** (show-your-work slice 1): a `PostToolUse`
+  hook streams agent activity (files studied/edited, symbols traced,
+  decisions consulted) to `POST /api/presence`; sessions render as colored
+  avatars traversing the frame map with session-colored heat. Multi-session
+  aware (worktrees canonicalize to one project); layers-menu toggle; 30-min
+  backfill for late-joining tabs; `presence.activity` events reaped after
+  24 h. Epoch-guard hardening on the viewer's frame/backfill/live loaders
+  closes a boot-vs-backfill race so late-arriving frames can't stomp a
+  since-superseded load. Opt out: `CORTEX_PRESENCE=0`. Decision: `D-zwrt`.
+- **Presence visual fidelity — ported 1:1 from the refined v5 prototype.**
+  - _Avatar strip + presence-tip._ The toolbar roster is now the prototype
+    `.presence` strip: 28px overlapping session-colored avatar rings with the
+    claude provider glyph, hover-lift, and a `presence-tip` showing `@handle`
+    (workspace) + provider line. Idle sessions dim to neutral grey.
+  - _Edge-riding synapses._ A traversal pulse now rides the **actual drawn
+    inter-frame edge**'s geometry when one exists between the segment's frame
+    pair (prototype `drawSynapses`), falling back to center-to-center only
+    when no edge is drawn.
+  - _Dot-level cursor approach._ When a session's ref resolves to a file whose
+    dot is currently drawn (LOD budget + culling), the cursor targets that
+    **dot**, not the frame center; it falls back to frame center when dots are
+    shed at low zoom. The cursor itself is the prototype's breathing dot with
+    a post-arrival `colorAmount` fade (~3.5 s) from hue to neutral ink.
+  - _Two-tier heat (fixes the wide-border storm)._ Presence heat splits into a
+    prominent **FLASH** tier applied on arrival (wide session-colored border,
+    6 s decay — only the frame a session is on / just reached) and a faint
+    **TRAIL** tier applied at event time (thin outline, 90 s decay — the
+    reload-backfill trail). Backfill / reduced-motion applies TRAIL only, so a
+    reload never lights every touched frame's wide border at once.
 ## [1.5.1] — 2026-07-12
 
 ### Added
@@ -1481,6 +1514,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.6.0]: https://github.com/ruevu/cortex/releases/tag/v1.6.0
 [1.5.1]: https://github.com/ruevu/cortex/releases/tag/v1.5.1
 [1.5.0]: https://github.com/ruevu/cortex/releases/tag/v1.5.0
 [1.4.8]: https://github.com/ruevu/cortex/releases/tag/v1.4.8

@@ -7,6 +7,9 @@ import type { Event } from '../types.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(__dirname, 'schema.sql');
 
+/** Presence events are ephemeral telemetry — reaped after 24 h (spec: show-your-work §3). */
+export const PRESENCE_RETENTION_MS = 86_400_000;
+
 /**
  * Opens/creates `events.db` and exposes insert + backfill + meta operations.
  *
@@ -122,6 +125,14 @@ export class EventPersister {
   head(): string | null {
     const row = this.headStmt.get() as { id: string } | undefined;
     return row?.id ?? null;
+  }
+
+  /** Delete presence.* rows older than the retention window. Returns rows deleted. */
+  reapPresence(nowMs: number): number {
+    const res = this.db
+      .prepare(`DELETE FROM events WHERE kind LIKE 'presence.%' AND created_at < ?`)
+      .run(nowMs - PRESENCE_RETENTION_MS);
+    return res.changes;
   }
 
   close(): void {

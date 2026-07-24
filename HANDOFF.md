@@ -2,6 +2,13 @@
 
 ## ✅ Recently shipped
 
+- **v1.6.0 — live presence in the viewer (show-your-work slice 1).** A
+  `PostToolUse` hook streams agent activity (files studied/edited, symbols
+  traced, decisions consulted) to `POST /api/presence` → event bus → WS;
+  sessions render as colored avatars traversing the frame map with
+  session-colored heat, layers-menu toggle, 30-min backfill for late-joining
+  tabs. Decision `D-zwrt`; Gate-0 9/9 with epoch-guard hardening on the
+  boot-vs-backfill race. Follow-ups `T-0a2g` / `T-pyx1`.
 - **v1.4.8 — plugin MCP launch fix (`T-mskp`).** Cortex installed as a Claude
   Code plugin now connects in any repo, not just the cortex checkout. `.mcp.json`
   uses the bare `${CLAUDE_PLUGIN_ROOT}` token (Claude substitutes only the exact
@@ -33,7 +40,9 @@
 
 **Tier 2/3 reflex roadmap:** provenance chain `todo→decision→PR→code`,
 static×runtime fusion via `ingest_traces`, CI-gate-as-conscience; cross-repo
-queries, viewer "show-your-work", specialist subagents, graph-as-grader.
+queries, specialist subagents, graph-as-grader. Viewer "show-your-work":
+slice 1 (presence) SHIPPED in 1.6.0 (`D-zwrt`); slice 2 (stories / `show`
+tool) and slice 3 (network layout) are NEXT-queue candidates.
 
 ## Open, non-blocking
 

@@ -1,5 +1,6 @@
 import { useUiStore } from "../ui-store";
 import { LayersMenu } from "./LayersMenu";
+import { PresenceStrip } from "./PresenceStrip";
 import { ProjectSelect } from "./ProjectSelect";
 
 export function Toolbar() {
@@ -17,6 +18,7 @@ export function Toolbar() {
         onClick={() => set({ drawerStack: [{ kind: "list", tab: "all" }] })}>
         records
       </button>
+      <PresenceStrip />
       <LayersMenu />
       <button id="theme-toggle" title="Toggle light/dark"
         onClick={() => set({ theme: theme === "light" ? "dark" : "light" })}>
