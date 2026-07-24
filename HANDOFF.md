@@ -3,14 +3,19 @@
 ## ✅ Recently shipped
 
 - **v1.7.0 — `show` tool: held focus spotlight (show-your-work slice 2a).**
-  A `focus` verb holds a spotlight on refs (paths/qns/`D-`/`T-` ids) in the
-  live viewer — targeted frames/decisions/todos lit, everything else dimmed,
-  caption card describing the held state; clears on `Esc`, a replacing call,
-  or `refs: []`. Live-only, canonical-repo gated. Decision `D-aqt6`
-  (spotlight is held presentation state on the existing presence transport —
+  MERGED + TAGGED (PR #62 → `362dfc8`, released 2026-07-24). A `focus` verb
+  holds a spotlight on refs (paths/qns/`D-`/`T-` ids) in the live viewer —
+  targeted frames/decisions/todos lit, everything else dimmed, caption card
+  describing the held state; clears on `Esc`, a replacing call, or
+  `refs: []`. Live-only, canonical-repo gated. Decision `D-aqt6` (spotlight
+  is held presentation state on the existing presence transport —
   explanations can't ride decaying telemetry). New `show-your-work` skill;
-  `explain-architecture` spotlights while it explains. Follow-up `T-7e5b`
-  (hardening).
+  `explain-architecture` spotlights while it explains. Rode along: two
+  hand-test-found infra fixes — viewer static caching (`no-cache` HTML,
+  immutable hashed assets; stale cached index.html previously 404'd its
+  assets after a build swap → dead page) and a non-blocking font stylesheet
+  (viewer no longer render-blocks on fonts.googleapis.com when DNS is
+  down). Follow-up `T-7e5b` (hardening).
 - **v1.6.0 — live presence in the viewer (show-your-work slice 1).** A
   `PostToolUse` hook streams agent activity (files studied/edited, symbols
   traced, decisions consulted) to `POST /api/presence` → event bus → WS;
@@ -35,9 +40,16 @@
 
 ## ▶ NEXT — in rough priority order
 
-1. **Show-your-work slice 2b — stories.** Durable walkthroughs building on
-   the 2a held-focus spotlight (`D-aqt6`); hardening todo `T-7e5b` rides
-   along.
+1. **Show-your-work slice 2b — stories.** Durable walkthroughs (S-ids in the
+   decisions.db sidecar, story-mode UI with `‹ n/m ›` paging, `advance` verb)
+   building on the 2a held-focus spotlight (`D-aqt6`); spec §1/§2/§5 + §7b in
+   `.superpowers/specs/2026-07-23-show-your-work-design.md` (main checkout,
+   gitignored). In-scope riders: **`T-bty4`** (user ask — caption-card refs
+   become clickable chips via RefPill/drawerStack; onSpotlight already passes
+   id arrays), `T-7e5b` (dispatcher default + refs bounds), `T-a1kg`
+   (raw-cwd indexerProject lookup → "(no projects)" dropdown from worktree
+   launches), and a possible focus-replay-on-WS-hello enhancement (discussed,
+   not filed). Slice 3 (network layout) follows.
 2. **TODO hooks + external bridge** — `PostMergeHook` auto-completing `resolvedBy`
    TODOs on PR merge; `PostDecisionHook` linking `spawnsFrom`; Linear/JIRA/GitHub
    mirroring (bidirectional sync is v1.5).
