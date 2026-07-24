@@ -1,12 +1,13 @@
 import { randomInt } from "node:crypto";
 
 /** Entity types that receive the full short-id + seq treatment. */
-export type EntityType = "decision" | "todo";
+export type EntityType = "decision" | "todo" | "story";
 
 /** Single-letter display/canonical prefix per entity type. */
 export const PREFIX: Record<EntityType, string> = {
   decision: "D",
   todo: "T",
+  story: "S",
 };
 
 /**

@@ -49,3 +49,16 @@ describe("short-id grammar", () => {
     expect(parseRef("decision", "D-")).toBeNull();
   });
 });
+
+describe("story ids", () => {
+  it("formats canonical story ids with the S prefix", () => {
+    expect(PREFIX.story).toBe("S");
+    expect(formatCanonical("story", "9m2x")).toBe("S-9m2x");
+  });
+  it("parses seq and canonical story refs", () => {
+    expect(parseRef("story", "S-12")).toEqual({ kind: "seq", seq: 12 });
+    expect(parseRef("story", "S-9m2x")).toEqual({ kind: "canonical", id: "S-9m2x" });
+    expect(parseRef("story", "9m2x")).toEqual({ kind: "canonical", id: "S-9m2x" });
+    expect(parseRef("story", "D-9m2x")).toBeNull();
+  });
+});
