@@ -42,6 +42,12 @@ if (!existsSync(gitignorePath)) {
 const store = new GraphStore(dbPath);
 
 const cwd = process.cwd();
+// Canonicalize before the ctx_projects lookup: launched from a linked worktree,
+// raw cwd != the indexed root_path, which left indexerProject null ("(no
+// projects)" dropdown, empty hello.project_id) even on an indexed repo (T-a1kg).
+let lookupRoot = cwd;
+try { lookupRoot = canonicalRepoPath(cwd); } catch { /* not a git repo — raw cwd */ }
+
 let indexerProject: string | null = null;
 
 // Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
@@ -53,13 +59,13 @@ try {
   const row = store
     .queryRaw<{ name: string }>(
       "SELECT name FROM ctx_projects WHERE root_path = ? LIMIT 1",
-      [cwd],
+      [lookupRoot],
     )[0];
   if (row) {
     indexerProject = row.name;
-    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${cwd})\n`);
+    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${lookupRoot})\n`);
   } else {
-    process.stderr.write(`Cortex: no indexed project for ${cwd} — run index_repository\n`);
+    process.stderr.write(`Cortex: no indexed project for ${lookupRoot} — run index_repository\n`);
   }
 } catch (e) {
   // ctx_projects table doesn't exist yet — first run, indexer hasn't created it.
