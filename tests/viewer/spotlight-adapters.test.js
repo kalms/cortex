@@ -91,4 +91,17 @@ describe("partitionSpotlightRefs", () => {
     expect(result.frameIds).toEqual(["1", "2"]);
     expect(result.unresolved).toEqual([]);
   });
+
+  it("keeps D-/T- refs with :: suffix verbatim (ID check before strip)", () => {
+    const result = partitionSpotlightRefs(index, ["D-abc::x", "T-xyz::func"]);
+    expect(result.decisionIds).toEqual(["D-abc::x"]);
+    expect(result.todoIds).toEqual(["T-xyz::func"]);
+    expect(result.frameIds).toEqual([]);
+    expect(result.unresolved).toEqual([]);
+  });
+
+  it("preserves original ref in unresolved (not stripped path)", () => {
+    const result = partitionSpotlightRefs(index, ["nope.ts::fn"]);
+    expect(result.unresolved).toEqual(["nope.ts::fn"]);
+  });
 });

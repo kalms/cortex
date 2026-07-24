@@ -270,7 +270,8 @@ export function partitionSpotlightRefs(pathIndex, refs) {
       if (fid != null) {
         if (!frameIds.includes(fid)) frameIds.push(fid);
       } else {
-        if (!unresolved.includes(path)) unresolved.push(path);
+        // Keep original ref in unresolved (not stripped path) for accurate UI display
+        if (!unresolved.includes(ref)) unresolved.push(ref);
       }
     }
   }
