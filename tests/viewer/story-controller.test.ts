@@ -186,6 +186,31 @@ describe("story-controller", () => {
     ]);
   });
 
+  it("handleAdvanceEvent for a different, nonexistent story leaves the open story untouched", async () => {
+    await openStory("s1", 1);
+    await handleAdvanceEvent("s1", 2); // agentStep=2, following=true (baseline)
+    const before = useUiStore.getState().story!;
+    engine.calls.length = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await handleAdvanceEvent("s2", 5); // s2 404s via deps.fetchStory
+    warn.mockRestore();
+    const after = useUiStore.getState().story!;
+    expect(after.story.id).toBe("s1");
+    expect(after.step).toBe(before.step);
+    expect(after.agentStep).toBe(before.agentStep); // must stay 2, not get stamped with s2's step 5
+    expect(after.following).toBe(before.following);
+    expect(engine.calls).toEqual([]);
+  });
+
+  it("openStory clamps an out-of-range step to stepCount", async () => {
+    await openStory("s1", 99);
+    const s = useUiStore.getState().story!;
+    expect(s.step).toBe(3);
+    expect(engine.calls).toEqual([
+      { refs: ["ref-3"], note: "Step 3", emphasis_edges: [["a3", "b3"]], fit: true },
+    ]);
+  });
+
   it("closeStory nulls state and clears the spotlight", async () => {
     await openStory("s1", 1);
     engine.calls.length = 0;

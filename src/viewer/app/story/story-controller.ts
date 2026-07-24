@@ -24,7 +24,8 @@ export async function openStory(id: string, step: number = 1): Promise<void> {
     console.warn(`story-controller: openStory(${id}) — story not found`);
     return;
   }
-  useUiStore.getState().set({ story: { story, step, agentStep: null, following: true } });
+  const clamped = Math.max(1, Math.min(story.stepCount, step));
+  useUiStore.getState().set({ story: { story, step: clamped, agentStep: null, following: true } });
   applyCurrentStep();
 }
 
@@ -59,18 +60,24 @@ export function syncToAgent(): void {
 export async function handleAdvanceEvent(storyId: string, step: number): Promise<void> {
   const cur = useUiStore.getState().story;
   if (cur && cur.story.id === storyId) {
+    const clamped = Math.max(1, Math.min(cur.story.stepCount, step));
     if (cur.following) {
-      useUiStore.getState().set({ story: { ...cur, step, agentStep: step, following: true } });
+      useUiStore.getState().set({ story: { ...cur, step: clamped, agentStep: clamped, following: true } });
       applyCurrentStep();
     } else {
-      useUiStore.getState().set({ story: { ...cur, agentStep: step } });
+      useUiStore.getState().set({ story: { ...cur, agentStep: clamped } });
     }
     return;
   }
+  // openStory clamps `step` against the freshly-fetched story's stepCount;
+  // reuse its clamped `.step` rather than re-deriving from the raw arg.
   await openStory(storyId, step);
   const next = useUiStore.getState().story;
-  if (next) {
-    useUiStore.getState().set({ story: { ...next, agentStep: step } });
+  // Guard on identity: openStory may 404 (next stays whatever was open before —
+  // possibly a DIFFERENT story), so only stamp agentStep when the now-open
+  // story really is the one this advance event was about.
+  if (next && next.story.id === storyId) {
+    useUiStore.getState().set({ story: { ...next, agentStep: next.step } });
   }
 }
 
