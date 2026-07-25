@@ -505,7 +505,7 @@ one atomic call, `advance` additionally pages a live viewer the same
 delivery-only way `focus` does. See
 [show-your-work.md](architecture/show-your-work.md#focus-spotlight-slice-2a)
 for the focus transport and
-[show-your-work.md#stories](architecture/show-your-work.md#stories) for the
+[show-your-work.md#stories](architecture/show-your-work.md#stories-slice-2b) for the
 story storage + delivery contract.
 
 **Params common to all actions:** `repo_path`, `action`.

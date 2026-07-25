@@ -22,7 +22,7 @@ Make the agent's work *visible* in the frames viewer, three ways:
 3. **Stories** (this doc, shipped — slice 2b) — the `show` tool's
    `story`/`advance`/`get`/`list`/`close`/`delete` actions: agent-curated,
    durable walkthroughs the user pages through — checkpoints, branch
-   walkthroughs, blast-radius previews. See [Stories](#stories) below.
+   walkthroughs, blast-radius previews. See [Stories](#stories-slice-2b) below.
 
 **Agent stance:** presence is automatic and requires no agent action —
 every `Read`/`Edit`/`Write`/`MultiEdit` and a handful of Cortex read tools

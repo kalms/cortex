@@ -16,13 +16,18 @@ importantly — how to evolve it without breaking either consumer.
 
 ## Overview
 
-Nine endpoints make up the contract. Two are operational (liveness +
-freshness); the other seven are the data endpoints the viewer and Mesh read.
+Fifteen endpoints make up the contract. Two are operational (liveness +
+freshness); three are write-only **ingest** routes for the show-your-work
+pipeline (POST-only, method-gate carved out — see below); the other ten are
+GET data endpoints the viewer and Mesh read.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Unauthenticated liveness probe — `{ version, ok: true }`, no data. |
 | GET | `/api/freshness` | The live freshness verdict for a project (cheap, no graph pull). |
+| POST | `/api/presence` | Presence-beacon ingest (hook-fed); `{ version, accepted }` ack, never an error status. |
+| POST | `/api/show-focus` | Spotlight ingest for `show({action:"focus"})`; same `{ version, accepted }` ack shape as `/api/presence`. |
+| POST | `/api/show-advance` | Story-paging ingest for `show({action:"advance"})`; same `{ version, accepted }` ack shape. |
 | GET | `/api/projects` | The machine-wide registry of indexed projects + the active one. |
 | GET | `/api/graph` | The full node/edge graph for a project. |
 | GET | `/api/frames` | The frame map (clusters) + virtual-stage dimensions. |
@@ -30,6 +35,24 @@ freshness); the other seven are the data endpoints the viewer and Mesh read.
 | GET | `/api/aggregates` | Positioned auxiliary-path aggregates (e.g. `locales`, `vendored`). |
 | GET | `/api/decisions` | All decisions for a project, adapted for rendering. |
 | GET | `/api/decisions/:id` | One decision by id. |
+| GET | `/api/todos` | All TODOs for a project, adapted for rendering. |
+| GET | `/api/stories` | All stories for a project (no steps), adapted for rendering. |
+| GET | `/api/stories/:id` | One story + its steps, by canonical id (`S-xxxx`) or display seq. |
+
+The three POST routes are a deliberate, narrow carve-out: the shared method
+gate (below) is otherwise GET/HEAD-only, and each of these three is
+special-cased past it (`isPresencePost` / `isShowFocusPost` /
+`isShowAdvancePost` in `api.ts`) rather than widening the gate itself, so
+every other route keeps its GET/HEAD-only contract. All three validate their
+body against a dedicated Zod schema (`PresencePostSchema` /
+`ShowFocusPostSchema` / `ShowAdvancePostSchema`), share the same
+`MAX_PRESENCE_BODY` (16 KB) request cap, and gate on
+`canonicalRepoPath(repo_path) === presence.homeRoot` — a repo/project
+mismatch is `accepted: false`, never an error status. See
+[show-your-work.md](show-your-work.md) for the event-bus wiring downstream
+of each ack (`StoriesResponseSchema` / `StoryDetailResponseSchema` back the
+two GET `/api/stories*` routes above; `ShowAdvanceAckResponseSchema` backs
+the `/api/show-advance` ack).
 
 Every response carries a top-level `version` field (currently `1`) as a
 **sibling** of the data fields — never an `{ version, data }` envelope — so a
