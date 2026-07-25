@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { CanvasHost, engineRef } from "./CanvasHost";
 import { Toolbar } from "./toolbar/Toolbar";
 import { Drawer } from "./drawer/Drawer";
 import { Palette } from "./palette/Palette";
 import { SpotlightCard } from "./SpotlightCard";
+import { StoryCard } from "./story/StoryCard";
+import { closeStory, openStory, pageStory } from "./story/story-controller";
 import { LS_KEYS, useUiStore } from "./ui-store";
 
 export function App() {
@@ -13,8 +15,18 @@ export function App() {
   const framesWarning = useUiStore((s) => s.framesWarning);
   const syncStatus = useUiStore((s) => s.syncStatus);
   const syncVisible = useUiStore((s) => s.syncVisible);
+  const bundle = useUiStore((s) => s.bundle);
+  const deepLinked = useRef(false);
 
   useEffect(() => { document.body.classList.toggle("light", theme === "light"); }, [theme]);
+  // One-shot deep link: opens a story ONLY when ?story= is present on the
+  // first bundle load — the viewer must never auto-open a story otherwise.
+  useEffect(() => {
+    if (!bundle || deepLinked.current) return;
+    deepLinked.current = true;
+    const id = new URLSearchParams(location.search).get("story");
+    if (id) openStory(id);
+  }, [bundle]);
   useEffect(() => {
     engineRef?.setLayerPrefs(layerPrefs);
     try {
@@ -38,10 +50,18 @@ export function App() {
         set({ paletteOpen: !paletteOpen });
         return;
       }
+      if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && useUiStore.getState().story
+        && !useUiStore.getState().paletteOpen && useUiStore.getState().drawerStack.length === 0) {
+        e.preventDefault();
+        pageStory(e.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
       if (e.key !== "Escape") return;
       const { drawerStack, paletteOpen, set } = useUiStore.getState();
       if (paletteOpen) { set({ paletteOpen: false }); return; }  // close palette when focus escaped it
       if (drawerStack.length) { set({ drawerStack: [] }); return; }
+      const { story } = useUiStore.getState();
+      if (story) { closeStory(); return; }
       const { spotlight } = useUiStore.getState();
       if (spotlight) { engineRef?.applySpotlight(null); return; }  // onSpotlight(null) clears the store
       engineRef?.focusFrame(null);
@@ -56,6 +76,7 @@ export function App() {
     <Drawer />
     <Palette />
     <SpotlightCard />
+    <StoryCard />
     {framesWarning && <div className="frames-warning" id="frames-warning">
       <span className="frames-warning-text">
         {framesWarning.split("cortex index")[0]}

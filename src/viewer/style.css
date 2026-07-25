@@ -616,6 +616,108 @@ body.light .frames-warning {
 }
 .spotlight-card-dismiss:hover { opacity: 1; color: var(--text); }
 
+.spotlight-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+/* ── Story card: same bottom-center floating treatment as .spotlight-card,
+   widened for a title row + nav row + chip row. ── */
+.story-card {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 760px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: var(--bg-card);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.24);
+}
+.story-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 40px; /* clear the absolutely-positioned esc/dismiss controls */
+}
+.story-card-title {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-card-age {
+  flex: 0 0 auto;
+  color: var(--text-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.story-card-caption {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.story-card-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+.story-card-nav button {
+  background: transparent;
+  border: 1px solid var(--border-3);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.story-card-nav button:hover:not(:disabled) { color: var(--text); border-color: var(--border-4, var(--border-3)); }
+.story-card-nav button:disabled { opacity: 0.35; cursor: default; }
+.story-card-pos {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+.story-card-agent-chip {
+  margin-left: auto;
+  background: rgba(99, 102, 241, 0.1) !important;
+  border-color: rgba(129, 140, 248, 0.35) !important;
+  color: #a5b4fc !important;
+  font-family: var(--sans) !important;
+  font-size: 11px !important;
+}
+.story-card-agent-chip:hover { border-color: rgba(129, 140, 248, 0.5) !important; }
+body.light .story-card-agent-chip {
+  background: rgba(79, 70, 229, 0.06) !important;
+  border-color: rgba(79, 70, 229, 0.25) !important;
+  color: #4f46e5 !important;
+}
+.story-card > .spotlight-card-esc {
+  position: absolute;
+  top: 10px;
+  right: 32px;
+}
+.story-card > .spotlight-card-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+}
+
 /* ── Presence strip (prototype v5 `.presence`): overlapping session avatars in
    the toolbar row, session-colored, lifting on hover to reveal a presence-tip.
    Session hues come from JS (PRESENCE_COLORS in canvas/presence.js, mirrored in
