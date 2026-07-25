@@ -2,6 +2,21 @@
 
 ## ✅ Recently shipped
 
+- **v1.8.0 — durable stories (show-your-work slice 2b).** MERGED + TAGGED
+  (PR #63 → `0b47b32`, released 2026-07-25). `show` gains
+  `story|advance|get|list|close|delete`: stories are `S-xxxx` entities in the
+  decisions.db sidecar (`stories`/`story_steps`/`story_links`, atomic create,
+  1-based steps) returned with a `viewer_url`; `advance` rides the 2a
+  delivery path as a **`show.advance`** event (deliberate deviation from the
+  spec's `story.advance` — rides the `show.%` reap + live-only namespace).
+  Viewer story mode: deep link / ⌘K stories group / live advance (never
+  auto-opens on load), per-step held spotlight + camera fit + emphasis-edge
+  pulses, theme-INVERTING story card (yellow/black in dark mode, dark
+  translucent in light, black nav pills, clickable `esc` pill — user design),
+  **user-wins pacing** (`following`/`agentStep` + "agent is on step N →"
+  chip). `T-bty4` chips on both caption cards; `T-7e5b` + `T-a1kg` fixed.
+  Decision `D-wn74` (links `D-aqt6`/`D-zwrt`). Demo story `S-50vj` lives in
+  the sidecar — its refs resolve now that the graph is reindexed post-merge.
 - **v1.7.0 — `show` tool: held focus spotlight (show-your-work slice 2a).**
   MERGED + TAGGED (PR #62 → `362dfc8`, released 2026-07-24). A `focus` verb
   holds a spotlight on refs (paths/qns/`D-`/`T-` ids) in the live viewer —
@@ -40,16 +55,19 @@
 
 ## ▶ NEXT — in rough priority order
 
-1. **Show-your-work slice 2b — stories.** Durable walkthroughs (S-ids in the
-   decisions.db sidecar, story-mode UI with `‹ n/m ›` paging, `advance` verb)
-   building on the 2a held-focus spotlight (`D-aqt6`); spec §1/§2/§5 + §7b in
+1. **Show-your-work slice 3 — network layout mode.** The last slice of the
+   approved design: `organic ⇄ network` toolbar toggle, six horizontal layer
+   bands (interface → orchestration → domain → data → infrastructure →
+   ceremony), server-side pure `network-layout.ts` at the `buildFrameMap`
+   call site (band assignment from per-frame layer + barycenter ordering,
+   two deterministic sweeps), dual `pos`/`network_pos` in `/api/frames` +
+   `/api/aggregates`, ~600 ms position lerp on toggle, upward-edge warning
+   tint, story steps honor `layout_hint` (already stored/served by 2b; the
+   viewer currently ignores it). Spec §6 in
    `.superpowers/specs/2026-07-23-show-your-work-design.md` (main checkout,
-   gitignored). In-scope riders: **`T-bty4`** (user ask — caption-card refs
-   become clickable chips via RefPill/drawerStack; onSpotlight already passes
-   id arrays), `T-7e5b` (dispatcher default + refs bounds), `T-a1kg`
-   (raw-cwd indexerProject lookup → "(no projects)" dropdown from worktree
-   launches), and a possible focus-replay-on-WS-hello enhancement (discussed,
-   not filed). Slice 3 (network layout) follows.
+   gitignored). Known engine note from the 2b final review: `fitToFrames`
+   doesn't re-fit on window resize — worth folding into the layout work.
+   Open idea, still unfiled: focus/story-replay-on-WS-hello.
 2. **TODO hooks + external bridge** — `PostMergeHook` auto-completing `resolvedBy`
    TODOs on PR merge; `PostDecisionHook` linking `spawnsFrom`; Linear/JIRA/GitHub
    mirroring (bidirectional sync is v1.5).
@@ -65,13 +83,19 @@
 **Tier 2/3 reflex roadmap:** provenance chain `todo→decision→PR→code`,
 static×runtime fusion via `ingest_traces`, CI-gate-as-conscience; cross-repo
 queries, specialist subagents, graph-as-grader. Viewer "show-your-work":
-slice 1 (presence) SHIPPED in 1.6.0 (`D-zwrt`); slice 2a (held focus spotlight
-/ `show` tool) SHIPPED in 1.7.0 (`D-aqt6`); slice 2b (stories — durable
-walkthroughs building on focus; hardening todo `T-7e5b` rides along) and
-slice 3 (network layout) are NEXT-queue candidates.
+slice 1 (presence) SHIPPED in 1.6.0 (`D-zwrt`); slice 2a (held focus
+spotlight) SHIPPED in 1.7.0 (`D-aqt6`); slice 2b (stories) SHIPPED in 1.8.0
+(`D-wn74`); slice 3 (network layout) is the remaining NEXT-queue candidate.
 
 ## Open, non-blocking
 
+- **Viewer fonts blocked by CSP** — todo `T-aap4`: the v1.7.0 non-blocking
+  font pattern's inline `onload` is blocked by `script-src 'self'`, so the
+  served viewer always renders fallback fonts (and logs a console error on
+  every load). Move the media-swap into the bundle or hash-allow it.
+- **tests/api registry flake** — todo `T-zkfx`: route suites open the real
+  XDG registry; parallel WAL init races throw "database is locked". Add a
+  `CORTEX_REGISTRY_DB` test override.
 - **Layout reshuffle on reindex** — todo `T-g2pv` (warm-start/anchor positions or
   a stable seed for `seedFromFrames`).
 - **TODO viewer parity gaps** (deferred from 1.1.1) — standalone TODOs with no
