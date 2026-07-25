@@ -40,8 +40,7 @@ export function StoryCard() {
         {agentStep !== null && !following && agentStep !== step &&
           <button className="story-card-agent-chip" onClick={() => syncToAgent()}>agent is on step {agentStep} →</button>}
       </div>
-      <kbd className="spotlight-card-esc">esc</kbd>
-      <button className="spotlight-card-dismiss" aria-label="Close story" onClick={() => closeStory()}>×</button>
+      <button className="story-card-esc" aria-label="Close story (Esc)" onClick={() => closeStory()}>esc</button>
     </div>
   );
 }

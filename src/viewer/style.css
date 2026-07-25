@@ -708,20 +708,23 @@ body.light .frames-warning {
   font-size: 11px !important;
 }
 .story-card-agent-chip:hover { background: #18181b !important; }
-.story-card > .spotlight-card-esc {
+/* Single close control: a clickable esc pill where the × used to sit —
+   black-on-yellow (inverts with the card in light mode). */
+.story-card-esc {
   position: absolute;
-  top: 10px;
-  right: 32px;
-  color: rgba(24, 24, 27, 0.6);
-  border-color: rgba(24, 24, 27, 0.3);
-}
-.story-card > .spotlight-card-dismiss {
-  position: absolute;
-  top: 8px;
+  top: 9px;
   right: 10px;
-  color: rgba(24, 24, 27, 0.6);
+  background: rgba(24, 24, 27, 0.88);
+  border: none;
+  border-radius: 4px;
+  color: #fde047;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
 }
-.story-card > .spotlight-card-dismiss:hover { color: #18181b; }
+.story-card-esc:hover { background: #18181b; color: #fef08a; }
 .story-card .spotlight-card-unresolved { color: rgba(24, 24, 27, 0.5); }
 .story-card .dc-ref-pill {
   background: rgba(24, 24, 27, 0.08);
@@ -756,12 +759,11 @@ body.light .story-card-agent-chip {
   color: #18181b !important;
 }
 body.light .story-card-agent-chip:hover { background: #facc15 !important; }
-body.light .story-card > .spotlight-card-esc {
-  color: rgba(237, 237, 237, 0.55);
-  border-color: rgba(237, 237, 237, 0.3);
+body.light .story-card-esc {
+  background: rgba(253, 224, 71, 0.92);
+  color: #18181b;
 }
-body.light .story-card > .spotlight-card-dismiss { color: rgba(237, 237, 237, 0.6); }
-body.light .story-card > .spotlight-card-dismiss:hover { color: #ffffff; }
+body.light .story-card-esc:hover { background: #fde047; color: #18181b; }
 body.light .story-card .spotlight-card-unresolved { color: rgba(237, 237, 237, 0.45); }
 body.light .story-card .dc-ref-pill {
   background: rgba(255, 255, 255, 0.08);
