@@ -624,7 +624,13 @@ body.light .frames-warning {
 }
 
 /* ── Story card: same bottom-center floating treatment as .spotlight-card,
-   widened for a title row + nav row + chip row. ── */
+   widened for a title row + nav row + chip row. Deliberately THEME-INVERTING
+   (user design, 2026-07-26): the map itself is dark in dark mode and light in
+   light mode, so a same-theme card sinks into it. Dark mode gets a yellow
+   card with black text; light mode gets the old dark translucent card. No
+   border in either mode — the fill IS the contrast. Shared .spotlight-card-*
+   and .dc-ref-pill children are recolored via scoped overrides below (higher
+   specificity than their theme defaults, so order doesn't matter). ── */
 .story-card {
   position: fixed;
   bottom: 24px;
@@ -640,10 +646,10 @@ body.light .frames-warning {
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.4;
-  background: var(--bg-card);
-  border: 1px solid var(--border-2);
-  color: var(--text);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.24);
+  background: rgba(250, 204, 21, 0.96);
+  border: none;
+  color: #18181b;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
 }
 .story-card-head {
   display: flex;
@@ -653,7 +659,7 @@ body.light .frames-warning {
   padding-right: 40px; /* clear the absolutely-positioned esc/dismiss controls */
 }
 .story-card-title {
-  color: var(--text);
+  color: #18181b;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -661,12 +667,12 @@ body.light .frames-warning {
 }
 .story-card-age {
   flex: 0 0 auto;
-  color: var(--text-4);
+  color: rgba(24, 24, 27, 0.55);
   font-family: var(--mono);
   font-size: 10px;
 }
 .story-card-caption {
-  color: var(--text-2);
+  color: rgba(24, 24, 27, 0.8);
   font-size: 12.5px;
 }
 .story-card-nav {
@@ -677,46 +683,96 @@ body.light .frames-warning {
 }
 .story-card-nav button {
   background: transparent;
-  border: 1px solid var(--border-3);
+  border: 1px solid rgba(24, 24, 27, 0.3);
   border-radius: 4px;
-  color: var(--text-2);
+  color: rgba(24, 24, 27, 0.75);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1;
   padding: 3px 8px;
   cursor: pointer;
 }
-.story-card-nav button:hover:not(:disabled) { color: var(--text); border-color: var(--border-4, var(--border-3)); }
+.story-card-nav button:hover:not(:disabled) { color: #18181b; border-color: rgba(24, 24, 27, 0.55); }
 .story-card-nav button:disabled { opacity: 0.35; cursor: default; }
 .story-card-pos {
   font-family: var(--mono);
   font-size: 10.5px;
-  color: var(--text-4);
+  color: rgba(24, 24, 27, 0.55);
 }
 .story-card-agent-chip {
   margin-left: auto;
-  background: rgba(99, 102, 241, 0.1) !important;
-  border-color: rgba(129, 140, 248, 0.35) !important;
-  color: #a5b4fc !important;
+  background: rgba(24, 24, 27, 0.9) !important;
+  border-color: transparent !important;
+  color: #facc15 !important;
   font-family: var(--sans) !important;
   font-size: 11px !important;
 }
-.story-card-agent-chip:hover { border-color: rgba(129, 140, 248, 0.5) !important; }
-body.light .story-card-agent-chip {
-  background: rgba(79, 70, 229, 0.06) !important;
-  border-color: rgba(79, 70, 229, 0.25) !important;
-  color: #4f46e5 !important;
-}
+.story-card-agent-chip:hover { background: #18181b !important; }
 .story-card > .spotlight-card-esc {
   position: absolute;
   top: 10px;
   right: 32px;
+  color: rgba(24, 24, 27, 0.6);
+  border-color: rgba(24, 24, 27, 0.3);
 }
 .story-card > .spotlight-card-dismiss {
   position: absolute;
   top: 8px;
   right: 10px;
+  color: rgba(24, 24, 27, 0.6);
 }
+.story-card > .spotlight-card-dismiss:hover { color: #18181b; }
+.story-card .spotlight-card-unresolved { color: rgba(24, 24, 27, 0.5); }
+.story-card .dc-ref-pill {
+  background: rgba(24, 24, 27, 0.08);
+  border-color: rgba(24, 24, 27, 0.28);
+}
+.story-card .dc-ref-pill .type { color: rgba(24, 24, 27, 0.5); }
+.story-card .dc-ref-pill .name { color: rgba(24, 24, 27, 0.8); }
+.story-card .dc-ref-pill:hover {
+  background: rgba(24, 24, 27, 0.14);
+  border-color: rgba(24, 24, 27, 0.45);
+}
+.story-card .dc-ref-pill:hover .name { color: #18181b; }
+
+/* Light mode: the old dark-card treatment, slightly transparent, borderless. */
+body.light .story-card {
+  background: rgba(13, 13, 15, 0.88);
+  color: #ededed;
+}
+body.light .story-card-title { color: #ededed; }
+body.light .story-card-age { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-caption { color: rgba(237, 237, 237, 0.78); }
+body.light .story-card-nav button {
+  border-color: rgba(237, 237, 237, 0.28);
+  color: rgba(237, 237, 237, 0.75);
+}
+body.light .story-card-nav button:hover:not(:disabled) { color: #ffffff; border-color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-pos { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-agent-chip {
+  background: rgba(250, 204, 21, 0.92) !important;
+  border-color: transparent !important;
+  color: #18181b !important;
+}
+body.light .story-card-agent-chip:hover { background: #facc15 !important; }
+body.light .story-card > .spotlight-card-esc {
+  color: rgba(237, 237, 237, 0.55);
+  border-color: rgba(237, 237, 237, 0.3);
+}
+body.light .story-card > .spotlight-card-dismiss { color: rgba(237, 237, 237, 0.6); }
+body.light .story-card > .spotlight-card-dismiss:hover { color: #ffffff; }
+body.light .story-card .spotlight-card-unresolved { color: rgba(237, 237, 237, 0.45); }
+body.light .story-card .dc-ref-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(237, 237, 237, 0.25);
+}
+body.light .story-card .dc-ref-pill .type { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card .dc-ref-pill .name { color: rgba(237, 237, 237, 0.8); }
+body.light .story-card .dc-ref-pill:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(237, 237, 237, 0.45);
+}
+body.light .story-card .dc-ref-pill:hover .name { color: #ffffff; }
 
 /* ── Presence strip (prototype v5 `.presence`): overlapping session avatars in
    the toolbar row, session-colored, lifting on hover to reveal a presence-tip.
