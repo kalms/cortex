@@ -7,6 +7,7 @@ import { push } from "./drawer/drawer-stack";
  *  the camera focus; both compose with the held spotlight. */
 export function SpotlightChips({ resolved }: { resolved: { frames: string[]; decisions: string[]; todos: string[] } }) {
   const bundle = useUiStore((s) => s.bundle);
+  if (resolved.frames.length === 0 && resolved.decisions.length === 0 && resolved.todos.length === 0) return null;
   const frameName = (id: string) => bundle?.frames?.find((f: any) => String(f.id) === String(id))?.name ?? `frame ${id}`;
   const open = (type: "decision" | "todo", id: string) => {
     const { drawerStack, set } = useUiStore.getState();

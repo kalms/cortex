@@ -438,9 +438,9 @@ Where spotlight diverges hardest from presence:
   or todo — the original ref string (qualifier suffix included) is kept,
   even though frame *resolution* strips `::symbol` before matching.
 - **Esc chain.** `App.tsx`'s global `Escape` handler tries, in order,
-  **palette → drawer → spotlight → frame-focus** — the first open layer
-  wins and the rest are left alone. A held spotlight is the third rung,
-  ahead of clearing the single-frame camera focus.
+  **palette → drawer → story → spotlight → frame-focus** — the first open
+  layer wins and the rest are left alone. A held spotlight is the fourth
+  rung, ahead of clearing the single-frame camera focus.
 
 ### Ref forms
 
@@ -463,7 +463,7 @@ The three forms `partitionSpotlightRefs` understands:
 | Backfill | **Replayed** on reconnect (200-event backfill, 30 min animate window) | **Live-only** — dropped on backfill, never replayed |
 | Server retention | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'presence.%'` | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'show.%'` — same reap sweep |
 | Viewer surface | Avatar cursors, synapse pulses, frame heat, roster strip | Frame dim, decision/todo dot rings + fade, caption card |
-| Esc | Not dismissible via Esc | Third rung of the Esc chain (palette → drawer → spotlight → frame-focus) |
+| Esc | Not dismissible via Esc | Fourth rung of the Esc chain (palette → drawer → story → spotlight → frame-focus) |
 
 ## Stories (slice 2b)
 
@@ -595,7 +595,7 @@ show-dispatcher.ts          POST /api/show-advance   →   bus.emit(        proc
 ### Viewer state machine (`story-controller.ts`)
 
 [`src/viewer/app/story/story-controller.ts`](../../src/viewer/app/story/story-controller.ts)
-owns story-mode as one piece of UI state: `{ story: StoryWithSteps, step,
+owns story-mode as one piece of UI state: `{ story: AdaptedStoryDetail, step,
 agentStep, following } | null` in `useUiStore`.
 
 - **Entry points — deep link, palette, live advance, never load.**
@@ -633,7 +633,9 @@ agentStep, following } | null` in `useUiStore`.
 - **`closeStory()`** — `story: null` + `applySpotlight(null)`; does **not**
   call `show({action:"close",...})` — closing the viewer's local playback
   and closing the *record* (ending its eligibility for further `advance`)
-  are independent operations.
+  are independent operations. Because `closeStory()` also clears the
+  spotlight, a single Esc at the story rung exits both story mode and any
+  held spotlight together.
 
 ### `/api/stories` contract
 

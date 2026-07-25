@@ -12,7 +12,7 @@ export function buildSearchIndex(bundle: any, _projects: any[], stories: any[] =
   const out: IndexEntry[] = [];
   for (const s of stories)
     out.push({ group: "stories", label: `${s.id} · ${s.title}`,
-      sublabel: `${s.stepCount} steps · ${s.status}`,
+      sublabel: `${s.stepCount} step${s.stepCount === 1 ? "" : "s"} · ${s.status}`,
       haystack: `${s.id} ${s.title}`, ref: { kind: "story", id: s.id } });
   for (const f of bundle.frames)
     out.push({ group: "frames", label: f.name, sublabel: f.layer || "frame",

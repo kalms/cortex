@@ -23,7 +23,7 @@ export class StoriesRepository {
   }
 
   list(): StoryRecord[] {
-    return this.db.prepare(`SELECT ${STORY_COLS} FROM stories ORDER BY created_at DESC`).all() as StoryRecord[];
+    return this.db.prepare(`SELECT ${STORY_COLS} FROM stories ORDER BY created_at DESC, seq DESC`).all() as StoryRecord[];
   }
 
   setStatus(id: string, status: string, updatedAt: string): void {

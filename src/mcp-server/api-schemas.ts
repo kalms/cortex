@@ -234,6 +234,10 @@ export const ShowFocusAckResponseSchema = z.object({
 export type ShowFocusAckResponse = z.infer<typeof ShowFocusAckResponseSchema>;
 
 // ── Stories ────────────────────────────────────────────────────────────────
+// snake_case field names below (step_index/emphasis_edges/layout_hint) are
+// INTENTIONAL, not a camelCase miss: they pass through verbatim from
+// rowToStep, and the engine reads cmd.emphasis_edges directly — do not
+// camelCase them.
 export const StoryStepWireSchema = z.object({
   step_index: z.number(),
   caption: z.string(),

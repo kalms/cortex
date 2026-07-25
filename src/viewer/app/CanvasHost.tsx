@@ -195,7 +195,7 @@ export function CanvasHost() {
           cursor: (currentProject === sync.boundProject ? lastKnownHead : null) as any });
         engine.setData(bundle);
         useUiStore.getState().set({ bundle, drawerStack: [], focusedFrameId: null, story: null,
-          syncVisible: currentProject === sync.boundProject });
+          stories: [], syncVisible: currentProject === sync.boundProject });
         applyFramesWarning(bundle);
         armFramesReady();
       }
