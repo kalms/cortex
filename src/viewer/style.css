@@ -646,7 +646,7 @@ body.light .frames-warning {
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.4;
-  background: rgba(250, 204, 21, 0.96);
+  background: rgba(253, 224, 71, 0.97);
   border: none;
   color: #18181b;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
@@ -682,17 +682,17 @@ body.light .frames-warning {
   margin-top: 2px;
 }
 .story-card-nav button {
-  background: transparent;
-  border: 1px solid rgba(24, 24, 27, 0.3);
+  background: rgba(24, 24, 27, 0.88);
+  border: 1px solid transparent;
   border-radius: 4px;
-  color: rgba(24, 24, 27, 0.75);
+  color: #fde047;
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1;
   padding: 3px 8px;
   cursor: pointer;
 }
-.story-card-nav button:hover:not(:disabled) { color: #18181b; border-color: rgba(24, 24, 27, 0.55); }
+.story-card-nav button:hover:not(:disabled) { background: #18181b; color: #fef08a; }
 .story-card-nav button:disabled { opacity: 0.35; cursor: default; }
 .story-card-pos {
   font-family: var(--mono);
@@ -744,10 +744,11 @@ body.light .story-card-title { color: #ededed; }
 body.light .story-card-age { color: rgba(237, 237, 237, 0.5); }
 body.light .story-card-caption { color: rgba(237, 237, 237, 0.78); }
 body.light .story-card-nav button {
-  border-color: rgba(237, 237, 237, 0.28);
-  color: rgba(237, 237, 237, 0.75);
+  background: rgba(253, 224, 71, 0.92);
+  border-color: transparent;
+  color: #18181b;
 }
-body.light .story-card-nav button:hover:not(:disabled) { color: #ffffff; border-color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-nav button:hover:not(:disabled) { background: #fde047; color: #18181b; }
 body.light .story-card-pos { color: rgba(237, 237, 237, 0.5); }
 body.light .story-card-agent-chip {
   background: rgba(250, 204, 21, 0.92) !important;
