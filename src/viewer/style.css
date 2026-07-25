@@ -616,6 +616,167 @@ body.light .frames-warning {
 }
 .spotlight-card-dismiss:hover { opacity: 1; color: var(--text); }
 
+.spotlight-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+/* ── Story card: same bottom-center floating treatment as .spotlight-card,
+   widened for a title row + nav row + chip row. Deliberately THEME-INVERTING
+   (user design, 2026-07-26): the map itself is dark in dark mode and light in
+   light mode, so a same-theme card sinks into it. Dark mode gets a yellow
+   card with black text; light mode gets the old dark translucent card. No
+   border in either mode — the fill IS the contrast. Shared .spotlight-card-*
+   and .dc-ref-pill children are recolored via scoped overrides below (higher
+   specificity than their theme defaults, so order doesn't matter). ── */
+.story-card {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 760px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(253, 224, 71, 0.97);
+  border: none;
+  color: #18181b;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
+}
+.story-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 40px; /* clear the absolutely-positioned esc/dismiss controls */
+}
+.story-card-title {
+  color: #18181b;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-card-age {
+  flex: 0 0 auto;
+  color: rgba(24, 24, 27, 0.55);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.story-card-caption {
+  color: rgba(24, 24, 27, 0.8);
+  font-size: 12.5px;
+}
+.story-card-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+.story-card-nav button {
+  background: rgba(24, 24, 27, 0.88);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #fde047;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.story-card-nav button:hover:not(:disabled) { background: #18181b; color: #fef08a; }
+.story-card-nav button:disabled { opacity: 0.35; cursor: default; }
+.story-card-pos {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: rgba(24, 24, 27, 0.55);
+}
+.story-card-agent-chip {
+  margin-left: auto;
+  background: rgba(24, 24, 27, 0.9) !important;
+  border-color: transparent !important;
+  color: #facc15 !important;
+  font-family: var(--sans) !important;
+  font-size: 11px !important;
+}
+.story-card-agent-chip:hover { background: #18181b !important; }
+/* Single close control: a clickable esc pill where the × used to sit —
+   black-on-yellow (inverts with the card in light mode). */
+.story-card-esc {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  background: rgba(24, 24, 27, 0.88);
+  border: none;
+  border-radius: 4px;
+  color: #fde047;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.story-card-esc:hover { background: #18181b; color: #fef08a; }
+.story-card .spotlight-card-unresolved { color: rgba(24, 24, 27, 0.5); }
+.story-card .dc-ref-pill {
+  background: rgba(24, 24, 27, 0.08);
+  border-color: rgba(24, 24, 27, 0.28);
+}
+.story-card .dc-ref-pill .type { color: rgba(24, 24, 27, 0.5); }
+.story-card .dc-ref-pill .name { color: rgba(24, 24, 27, 0.8); }
+.story-card .dc-ref-pill:hover {
+  background: rgba(24, 24, 27, 0.14);
+  border-color: rgba(24, 24, 27, 0.45);
+}
+.story-card .dc-ref-pill:hover .name { color: #18181b; }
+
+/* Light mode: the old dark-card treatment, slightly transparent, borderless. */
+body.light .story-card {
+  background: rgba(13, 13, 15, 0.88);
+  color: #ededed;
+}
+body.light .story-card-title { color: #ededed; }
+body.light .story-card-age { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-caption { color: rgba(237, 237, 237, 0.78); }
+body.light .story-card-nav button {
+  background: rgba(253, 224, 71, 0.92);
+  border-color: transparent;
+  color: #18181b;
+}
+body.light .story-card-nav button:hover:not(:disabled) { background: #fde047; color: #18181b; }
+body.light .story-card-pos { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card-agent-chip {
+  background: rgba(250, 204, 21, 0.92) !important;
+  border-color: transparent !important;
+  color: #18181b !important;
+}
+body.light .story-card-agent-chip:hover { background: #facc15 !important; }
+body.light .story-card-esc {
+  background: rgba(253, 224, 71, 0.92);
+  color: #18181b;
+}
+body.light .story-card-esc:hover { background: #fde047; color: #18181b; }
+body.light .story-card .spotlight-card-unresolved { color: rgba(237, 237, 237, 0.45); }
+body.light .story-card .dc-ref-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(237, 237, 237, 0.25);
+}
+body.light .story-card .dc-ref-pill .type { color: rgba(237, 237, 237, 0.5); }
+body.light .story-card .dc-ref-pill .name { color: rgba(237, 237, 237, 0.8); }
+body.light .story-card .dc-ref-pill:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(237, 237, 237, 0.45);
+}
+body.light .story-card .dc-ref-pill:hover .name { color: #ffffff; }
+
 /* ── Presence strip (prototype v5 `.presence`): overlapping session avatars in
    the toolbar row, session-colored, lifting on hover to reveal a presence-tip.
    Session hues come from JS (PRESENCE_COLORS in canvas/presence.js, mirrored in

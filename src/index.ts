@@ -17,6 +17,7 @@ import { DecisionsRepository } from "./decisions/repository.js";
 import { DecisionLinksRepository } from "./decisions/links-repository.js";
 import { TodosRepository } from "./todos/repository.js";
 import { TodoLinksRepository } from "./todos/links-repository.js";
+import { StoriesRepository, StoryStepsRepository } from "./stories/repository.js";
 import type { WireNode } from "./events/types.js";
 import { newUlid } from "./events/ulid.js";
 import { canonicalRepoPath } from "./db/git-root.js";
@@ -41,6 +42,12 @@ if (!existsSync(gitignorePath)) {
 const store = new GraphStore(dbPath);
 
 const cwd = process.cwd();
+// Canonicalize before the ctx_projects lookup: launched from a linked worktree,
+// raw cwd != the indexed root_path, which left indexerProject null ("(no
+// projects)" dropdown, empty hello.project_id) even on an indexed repo (T-a1kg).
+let lookupRoot = cwd;
+try { lookupRoot = canonicalRepoPath(cwd); } catch { /* not a git repo — raw cwd */ }
+
 let indexerProject: string | null = null;
 
 // Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
@@ -52,13 +59,13 @@ try {
   const row = store
     .queryRaw<{ name: string }>(
       "SELECT name FROM ctx_projects WHERE root_path = ? LIMIT 1",
-      [cwd],
+      [lookupRoot],
     )[0];
   if (row) {
     indexerProject = row.name;
-    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${cwd})\n`);
+    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${lookupRoot})\n`);
   } else {
-    process.stderr.write(`Cortex: no indexed project for ${cwd} — run index_repository\n`);
+    process.stderr.write(`Cortex: no indexed project for ${lookupRoot} — run index_repository\n`);
   }
 } catch (e) {
   // ctx_projects table doesn't exist yet — first run, indexer hasn't created it.
@@ -181,6 +188,8 @@ const decisionsRepo = new DecisionsRepository(decisionsDb);
 const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 const todosRepo = new TodosRepository(decisionsDb);
 const todoLinksRepo = new TodoLinksRepository(decisionsDb);
+const storiesRepo = new StoriesRepository(decisionsDb);
+const storyStepsRepo = new StoryStepsRepository(decisionsDb);
 
 // Projection sources for the read-path sync engine. pathIndices() re-reads the
 // graph store per derive batch — events are low-rate (tool calls, commits), so
@@ -200,6 +209,8 @@ const { port, httpServer } = await startViewerServer(
   decisionLinksRepo,
   todosRepo,
   todoLinksRepo,
+  storiesRepo,
+  storyStepsRepo,
   {
     homeRoot: canonicalRepoPath(cwd),
     emit: (p) => bus.emit({
@@ -217,6 +228,14 @@ const { port, httpServer } = await startViewerServer(
       created_at: Date.now(),
       project_id: indexerProject ?? "",
       payload: { refs: p.refs, note: p.note },
+    }),
+    emitAdvance: (p) => bus.emit({
+      id: newUlid(),
+      kind: "show.advance",
+      actor: "claude",
+      created_at: Date.now(),
+      project_id: indexerProject ?? "",
+      payload: { story_id: p.story_id, step: p.step },
     }),
   },
 );

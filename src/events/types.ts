@@ -36,6 +36,11 @@ export interface ShowFocusPayload {
   note?: string;
 }
 
+export interface ShowAdvancePayload {
+  story_id: string;
+  step: number;          // 1-based
+}
+
 /**
  * Discriminated union of all v1 event kinds.
  *
@@ -142,6 +147,10 @@ export type Event =
   | (EventEnvelope & {
       kind: 'show.focus';
       payload: ShowFocusPayload;
+    })
+  | (EventEnvelope & {
+      kind: 'show.advance';
+      payload: ShowAdvancePayload;
     });
 
 /**

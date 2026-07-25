@@ -2,14 +2,18 @@ import { fuzzyScore } from "./fuzzy";
 import { decisionDisplayId, todoDisplayId } from "../display";
 
 export type IndexEntry = {
-  group: "actions" | "frames" | "files" | "symbols" | "decisions" | "todos";
+  group: "actions" | "stories" | "frames" | "files" | "symbols" | "decisions" | "todos";
   label: string; sublabel: string; haystack: string; ref: any;
 };
-const GROUP_ORDER: IndexEntry["group"][] = ["actions", "frames", "files", "symbols", "decisions", "todos"];
+const GROUP_ORDER: IndexEntry["group"][] = ["actions", "stories", "frames", "files", "symbols", "decisions", "todos"];
 const SYMBOL_KINDS = new Set(["function", "class", "method", "interface", "type", "route"]);
 
-export function buildSearchIndex(bundle: any, _projects: any[]): IndexEntry[] {
+export function buildSearchIndex(bundle: any, _projects: any[], stories: any[] = []): IndexEntry[] {
   const out: IndexEntry[] = [];
+  for (const s of stories)
+    out.push({ group: "stories", label: `${s.id} · ${s.title}`,
+      sublabel: `${s.stepCount} step${s.stepCount === 1 ? "" : "s"} · ${s.status}`,
+      haystack: `${s.id} ${s.title}`, ref: { kind: "story", id: s.id } });
   for (const f of bundle.frames)
     out.push({ group: "frames", label: f.name, sublabel: f.layer || "frame",
       haystack: f.name, ref: { kind: "frame", id: f.id } });

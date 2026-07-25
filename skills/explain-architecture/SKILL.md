@@ -66,3 +66,34 @@ prose explanation must stand on its own whether or not anyone is watching
 it. Treat this step as discretionary, never as ceremony — skip it for a
 quick, single-file answer or when a viewer is unlikely to be open. See the
 [`show-your-work`](../show-your-work/SKILL.md) skill for the full contract.
+
+### Always finish by emitting the story
+
+In addition to any live spotlighting above, **always** close out the
+explanation by persisting it as a story — one step per synthesis section,
+so the user (or a later session) can page back through the explanation on
+the graph:
+
+```
+show({ action: "story", repo_path, title: "<area> — architecture", closed: true, steps: [
+  { caption: "<1–2 sentence distillation of this section>", refs: ["<section files/qns>", "<D-decision-ids>"] },
+  …one step per section…
+] })
+  → { story_id, step_count, viewer_url }
+```
+
+- **One step per section** from Step 4's synthesis, in the same order —
+  reuse each section's refs (files, qualified names, governing decision
+  ids) verbatim.
+- **Caption = a 1–2 sentence distillation**, not the full prose — the
+  caption card is a pointer back into the explanation, not a replacement
+  for it.
+- **Always `closed: true`.** This narration was never live — it must not
+  receive a stray `advance`, and it should only ever surface via its link
+  or the story palette, not as something mid-playback.
+- **No viewer-liveness probe.** Unlike `focus`, don't check whether a
+  viewer is reachable first — `story` persists regardless, and the
+  `viewer_url` it returns works whenever a viewer is next opened.
+- **Hand back the `viewer_url`** in your final message alongside the prose
+  explanation. The prose must stay fully self-sufficient on its own — the
+  story is a bonus artifact, never a substitute for the written answer.

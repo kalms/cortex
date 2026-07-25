@@ -160,9 +160,8 @@ Full per-tool reference (params, return shapes, errors):
 
 - `decision` — action-dispatched: `create|update|delete|get|search|why|candidates|link|promote|propose|supersede|reconcile|pending`
 - `pr` — `open|touch|merge|get` · `todo` — `propose|get|list|search|update|link|transition`
-- `show` — `focus` (hold a spotlight on refs — paths/qns/`D-`/`T-` ids — in
-  the live viewer; `refs: []` clears; delivery-only, never throws for an
-  unreachable viewer)
+- `show` — `focus` (held spotlight) · `story|advance|get|list|close|delete`
+  (durable walkthroughs the viewer pages through; steps 1-based)
 - Code & graph: `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `check_contracts`
 - Index lifecycle: `index_repository`, `detect_changes`, `index_status`, `list_projects`, `delete_project`, `ingest_traces`
 

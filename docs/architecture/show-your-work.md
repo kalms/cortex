@@ -1,11 +1,11 @@
-# Show Your Work — Presence Pipeline (Slice 1) + Focus Spotlight (Slice 2a)
+# Show Your Work — Presence (Slice 1) + Focus Spotlight (Slice 2a) + Stories (Slice 2b)
 
 > Living document. Started 2026-07-23. Covers what has **shipped** — the
-> live presence pipeline (slice 1) and the `show` tool's `focus` spotlight
-> (slice 2a). Stories (agent-curated walkthroughs) and network layout mode
-> are future slices of the same design; see
+> live presence pipeline (slice 1), the `show` tool's `focus` spotlight
+> (slice 2a), and durable **stories** (slice 2b). Network layout mode is a
+> future slice of the same design; see
 > [the design spec](../superpowers/specs/2026-07-23-show-your-work-design.md)
-> for their shape. This doc does not describe unshipped behavior.
+> for its shape. This doc does not describe unshipped behavior.
 
 ## Purpose
 
@@ -19,8 +19,10 @@ Make the agent's work *visible* in the frames viewer, three ways:
    qns, decision/todo ids) in the viewer while explaining an area or
    previewing a change. Discretionary, agent-initiated. See
    [Focus spotlight](#focus-spotlight-slice-2a) below.
-3. **Stories** (future slice) — agent-curated walkthroughs the user pages
-   through: checkpoints, branch walkthroughs, blast-radius previews.
+3. **Stories** (this doc, shipped — slice 2b) — the `show` tool's
+   `story`/`advance`/`get`/`list`/`close`/`delete` actions: agent-curated,
+   durable walkthroughs the user pages through — checkpoints, branch
+   walkthroughs, blast-radius previews. See [Stories](#stories-slice-2b) below.
 
 **Agent stance:** presence is automatic and requires no agent action —
 every `Read`/`Edit`/`Write`/`MultiEdit` and a handful of Cortex read tools
@@ -164,7 +166,7 @@ the hook entirely (checked first, before even the `jq` presence check).
 
 | Layer | Window | Mechanism |
 |---|---|---|
-| Server event log | 24 h (`PRESENCE_RETENTION_MS` = `86_400_000` ms) | `EventPersister.reapPresence()`, run once at worker `init` |
+| Server event log | 24 h (`PRESENCE_RETENTION_MS` = `86_400_000` ms) | `EventPersister.reapPresence()`, run once at worker `init` — deletes rows where `kind LIKE 'presence.%' OR kind LIKE 'show.%'` (so `show.focus` **and** `show.advance` events share this sweep; the `stories`/`story_steps`/`story_links` **records** are untouched — only the *event-log* rows for `advance` pushes are reaped, not the durable story) |
 | Viewer backfill replay | 30 min (`BACKFILL_WINDOW_MS` = `1_800_000` ms in `CanvasHost.tsx`) | Backfilled (`live:false`) events older than the window are dropped before reaching `engine.applyPresence` — live events are never window-filtered |
 
 The two windows serve different jobs: the server retains a day of raw
@@ -436,9 +438,9 @@ Where spotlight diverges hardest from presence:
   or todo — the original ref string (qualifier suffix included) is kept,
   even though frame *resolution* strips `::symbol` before matching.
 - **Esc chain.** `App.tsx`'s global `Escape` handler tries, in order,
-  **palette → drawer → spotlight → frame-focus** — the first open layer
-  wins and the rest are left alone. A held spotlight is the third rung,
-  ahead of clearing the single-frame camera focus.
+  **palette → drawer → story → spotlight → frame-focus** — the first open
+  layer wins and the rest are left alone. A held spotlight is the fourth
+  rung, ahead of clearing the single-frame camera focus.
 
 ### Ref forms
 
@@ -461,20 +463,209 @@ The three forms `partitionSpotlightRefs` understands:
 | Backfill | **Replayed** on reconnect (200-event backfill, 30 min animate window) | **Live-only** — dropped on backfill, never replayed |
 | Server retention | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'presence.%'` | 24 h (`PRESENCE_RETENTION_MS`), `kind LIKE 'show.%'` — same reap sweep |
 | Viewer surface | Avatar cursors, synapse pulses, frame heat, roster strip | Frame dim, decision/todo dot rings + fade, caption card |
-| Esc | Not dismissible via Esc | Third rung of the Esc chain (palette → drawer → spotlight → frame-focus) |
+| Esc | Not dismissible via Esc | Fourth rung of the Esc chain (palette → drawer → story → spotlight → frame-focus) |
 
-## What's in scope vs. not (slice 1 + 2a)
+## Stories (slice 2b)
+
+A **story** is a durable, ordered walkthrough — `title` + `description?` +
+an inline array of steps (`caption`, `refs`, `emphasis_edges?`,
+`layout_hint?`), each resolved and rendered by the viewer at *read* time,
+never baked into a graph node. Where focus is a one-shot, live-only signal,
+a story is a record: it survives the chat, survives a reindex, and can be
+paged live (`advance`) or opened cold from a link.
+
+### Storage — sidecar tables, S-ids, atomic create
+
+Three new tables in the **same** `~/.cortex/<repoId>/decisions.db` sidecar
+that holds decisions and todos (`src/decisions/db.ts`'s `BASE_SCHEMA`) — not
+the graph store, so stories are **durable across reindex by construction**,
+exactly like decisions/todos:
+
+- **`stories`** — `id` (canonical `S-xxxx`, e.g. `S-9m2x`), `seq` (the
+  display-form counter, `S-12`), `title`, `description`, `status`
+  (`open` | `closed`), `created_by`, `created_at`, `updated_at`.
+- **`story_steps`** — one row per step, `story_id` + 1-based `step_index` +
+  `caption` + `refs` (JSON `string[]`) + `emphasis_edges` (JSON
+  `[string,string][]` or `NULL`) + `layout_hint` (`NULL` | `'network'` |
+  `'organic'`, slice 3), `ON DELETE CASCADE` off `stories`.
+- **`story_links`** — `story_id` → `{target_kind: 'decision'|'pr',
+  target_ref, relation: 'ABOUT'}`, the same string-keyed link pattern
+  decisions/todos use (survives reindex; PR links key on PR number, not a
+  graph node id).
+
+Ids are minted via the shared `mintId(db, "story", existsFn)`
+([`src/ids/allocator.ts`](../../src/ids/allocator.ts)) / short-id scheme
+([`src/ids/short-id.ts`](../../src/ids/short-id.ts)) — `story` is a third
+`EntityType` alongside `decision`/`todo`, prefix `S`. A `story_id` param
+accepts either form: the canonical id or the bare/`S-`-prefixed seq
+(`parseRef("story", ref)`), same as decision/todo refs.
+
+**`StoryService.create`** ([`src/stories/service.ts`](../../src/stories/service.ts))
+wraps the story row + all step rows + all links in a **single
+`db.transaction(...)`** — a story is written whole or not at all; there is
+no incremental step-building API, so a half-built story can never dangle
+mid-creation. `show({action:"story",...})`'s `steps` array is therefore
+required and non-empty (`"story requires at least one step"` otherwise) and
+capped at 20 steps by the MCP schema (recommended shape is 3–7 — see the
+[`show-your-work`](../../skills/show-your-work/SKILL.md) skill).
+
+### Naming deviation: `show.advance`, not `story.advance`
+
+The [design spec](../superpowers/specs/2026-07-23-show-your-work-design.md#3-presence-pipeline)
+names the live-paging event `story.advance`. **The shipped event kind is
+`show.advance`** — a deliberate deviation, for two reasons that both key on
+the `show.` prefix rather than `story.`:
+
+1. **Retention reap.** `EventPersister.reapPresence()`
+   ([`src/events/worker/persister.ts`](../../src/events/worker/persister.ts))
+   already deletes `events` rows matching `kind LIKE 'presence.%' OR kind
+   LIKE 'show.%'` — added for `show.focus` in slice 2a. Naming the new kind
+   `show.advance` lets it ride that existing sweep for free; `story.advance`
+   would need its own `LIKE 'story.%'` clause (and story *records* must
+   **never** be reaped — only their transient event-log paging rows — so a
+   `story.%` pattern would be one keystroke away from a dangerous typo
+   against the durable `stories` table).
+2. **Live-only viewer namespace.** The viewer's live-event handling
+   (`CanvasHost.tsx`'s `onEvent`) already special-cases `kind ===
+   "show.focus"` as live-only, never-backfilled. `show.advance` joins that
+   same `show.*` family and the same live-only treatment (a backfilled
+   `advance` from 20 minutes ago must not silently re-page a story a user
+   is actively reading) — one namespace, one rule, instead of a parallel
+   `story.*` family needing its own case.
+
+The MCP-facing **action** name is still `advance` (`show({action:"advance",
+...})` — see [the `show` tool reference](../mcp-tools.md#action-advance));
+only the internal event `kind` differs from the spec's working name.
+
+### Delivery path
+
+`advance` reuses the exact focus transport
+([Focus spotlight](#focus-spotlight-slice-2a) above), swapped to the story
+endpoint:
+
+```
+show({action:"advance",...})   HTTP                       EventBus            Worker thread         WS                    Viewer
+─────────────────────────────   ────                       ───────             ────────────          ──                    ──────
+show-dispatcher.ts          POST /api/show-advance   →   bus.emit(        processEvent():       broadcast             CanvasHost.tsx
+  StoryService                  │                          show.advance) →  persister.insert()  →  { type:'event',       onEvent →
+  .checkAdvance() (pre-flight,  Zod-validated,                              deriveMutations→[]        event }           handleAdvanceEvent()
+   throws on missing/closed/    16 KB cap,                                  (zero mutations)            │              (story-controller.ts)
+   out-of-range BEFORE POST)    canonical-root gate                                                  live-only:
+  postToViewer()                accepted:true/false                                                  dropped if
+  (port discovery,                                                                                    !meta.live
+   Bearer, 800ms/port,
+   never throws)
+```
+
+1. **`show({action:"advance", repo_path, story_id, step})`**
+   ([`show-dispatcher.ts`](../../src/mcp-server/tools/show-dispatcher.ts)) —
+   validates via `StoryService.checkAdvance` (story exists, is `open`,
+   `step` in `[1, step_count]`) **before** posting, so a validation failure
+   never reaches the network. `step` is capped `[1, 9999]` at the MCP schema
+   layer; the real bound is the story's own `step_count`, enforced by
+   `checkAdvance`. On a validation pass, delivers via the same
+   `postToViewer(path, body, env)`
+   ([`viewer-post.ts`](../../src/mcp-server/tools/viewer-post.ts)) focus
+   uses — same port discovery, same 800 ms/candidate timeout, same
+   never-throws contract. **The story is already durably persisted by this
+   point** — `postToViewer` failing (`{delivered:false}`) is reported back
+   as `"No viewer reachable — story persists; open it via its viewer_url"`,
+   a normal outcome, never a tool error.
+2. **`POST /api/show-advance`** ([`api.ts`](../../src/mcp-server/api.ts)) —
+   validates against `ShowAdvancePostSchema`
+   ([`api-schemas.ts`](../../src/mcp-server/api-schemas.ts): `repo_path`,
+   `story_id`, `step` int `[1,9999]`), same `MAX_PRESENCE_BODY` cap and
+   `canonicalRepoPath(repo_path) === presence.homeRoot` gate every
+   `show`/presence POST route shares, then calls
+   `presence.emitAdvance(parsed.data)` on accept.
+3. **Bus wiring** ([`src/index.ts`](../../src/index.ts)) — `emitAdvance`
+   wraps the POST body into a full `Event` envelope (`kind:
+   "show.advance"`, payload `{story_id, step}`) and calls `bus.emit(...)` —
+   the same EventBus → worker → WS pipeline every other event kind rides.
+4. **Worker** — `deriveMutations()`'s `show.advance` case
+   (`src/events/worker/mutation-deriver.ts`) returns `[]` unconditionally:
+   *"Story paging is presentation, not knowledge."* Zero graph mutations,
+   same guarantee as `show.focus`/presence.
+5. **Viewer** — `CanvasHost.tsx`'s `onEvent` routes a live (`meta.live ===
+   true`) `show.advance` to `story-controller.ts`'s `handleAdvanceEvent(
+   story_id, step)` — backfilled `show.advance` events are dropped, same
+   live-only rule `show.focus` uses (see the naming-deviation rationale
+   above).
+
+### Viewer state machine (`story-controller.ts`)
+
+[`src/viewer/app/story/story-controller.ts`](../../src/viewer/app/story/story-controller.ts)
+owns story-mode as one piece of UI state: `{ story: AdaptedStoryDetail, step,
+agentStep, following } | null` in `useUiStore`.
+
+- **Entry points — deep link, palette, live advance, never load.**
+  `openStory(id, step=1)` fetches via `/api/stories/:id`, clamps `step` into
+  `[1, story.stepCount]`, and sets `following: true`. It's called from
+  exactly three places — a `?story=S-xxxx` deep link, an explicit "Open
+  story…" palette pick, or `handleAdvanceEvent` opening a story that wasn't
+  already active — **never** from page load itself. That's the
+  **never-auto-open invariant**: opening the viewer after any session
+  always shows the normal map; a persisted story waits in the palette until
+  someone reaches for it.
+- **`pageStory(delta)`** — manual arrow/button paging, clamped to
+  `[1, stepCount]`; sets `following = (newStep === agentStep)` — paging
+  back *onto* wherever the agent currently is resumes following without a
+  separate action.
+- **`handleAdvanceEvent(story_id, step)`** — the live-`show.advance`
+  entry point, and where **following/agentStep pacing** (the design spec's
+  "user wins" rule) lives:
+  - Same story already open **and** `following: true` → both `step` and
+    `agentStep` jump to the (clamped) new step; the view moves.
+  - Same story open **but the user has paged away** (`following: false`) →
+    only `agentStep` updates. The **step the user is looking at does not
+    move** — the UI instead surfaces a "agent is on step N →" chip
+    (`syncToAgent()` jumps to it and re-arms `following: true` on click).
+  - No story open, or a *different* story's id → `openStory(story_id,
+    step)`, then stamps `agentStep` to the freshly-opened story's clamped
+    step — an arriving live narration takes the stage, guarded on identity
+    so a 404 (which leaves whatever was open before, possibly a different
+    story) can't misattribute `agentStep`.
+- **`applyCurrentStep()`** — drives the canvas engine for
+  `steps[step - 1]` via `engine.applySpotlight({ refs, note: caption,
+  emphasis_edges, fit: true })` — story playback reuses the exact same
+  spotlight primitive `focus` uses; a story is spotlight-with-a-timeline,
+  not a parallel rendering path.
+- **`closeStory()`** — `story: null` + `applySpotlight(null)`; does **not**
+  call `show({action:"close",...})` — closing the viewer's local playback
+  and closing the *record* (ending its eligibility for further `advance`)
+  are independent operations. Because `closeStory()` also clears the
+  spotlight, a single Esc at the story rung exits both story mode and any
+  held spotlight together.
+
+### `/api/stories` contract
+
+`GET /api/stories` (list, no steps) and `GET /api/stories/:id` (one story +
+steps, accepts canonical id or seq) are versioned Zod-enforced routes in
+[`api.ts`](../../src/mcp-server/api.ts) /
+[`api-schemas.ts`](../../src/mcp-server/api-schemas.ts)
+(`StoriesResponseSchema` / `StoryDetailResponseSchema`, wire shape
+`AdaptedStory` / `AdaptedStoryDetail`) — both `503` when the server has no
+stories repo wired, and both follow the same freshness/ETag/versioning
+contract as every other `/api/*` route; see
+[http-api-contract.md](http-api-contract.md) for that shared machinery.
+`story-controller.ts`'s `fetchStory` (`src/viewer/app/api.ts`) is the sole
+viewer-side caller of the detail route.
+
+## What's in scope vs. not (slices 1 + 2a + 2b)
 
 **Shipped, in scope:** the presence pipeline (slice 1) — hook → HTTP → bus →
-worker → WS → viewer avatars/traversal/heat/roster strip — and the `show`
-tool's `focus` spotlight (slice 2a) — MCP tool → HTTP → bus → worker → WS →
-viewer dim/rings/caption card, both described above.
+worker → WS → viewer avatars/traversal/heat/roster strip; the `show` tool's
+`focus` spotlight (slice 2a) — MCP tool → HTTP → bus → worker → WS → viewer
+dim/rings/caption card; and durable **stories** (slice 2b) — the `show`
+tool's `story`/`advance`/`get`/`list`/`close`/`delete` actions, the sidecar
+storage, the `/api/stories` routes, and the viewer's story-mode playback —
+all described above.
 
 **Explicitly future slices** (see
 [the design spec](../superpowers/specs/2026-07-23-show-your-work-design.md)):
-agent-curated stories (`stories`/`story_steps` tables, story-mode viewer UI,
-deep-linking), and network layout mode. None of that exists yet — do not
-build against it.
+network layout mode (`network-layout.ts`, dual `pos`/`network_pos`, the
+`organic ⇄ network` toggle, `layout_hint: "network"` actually changing
+rendering). None of that exists yet — do not build against it.
 
 **Still out of scope** (unchanged from
 [graph-ui.md](graph-ui.md#module-layout)'s original non-goal list): the v5

@@ -6,6 +6,7 @@ import { fetchProjects } from "./api";
 import { loadProject, resyncProject } from "./data";
 import { useUiStore } from "./ui-store";
 import { frameCoverage } from "../canvas/adapters.js";
+import { handleAdvanceEvent } from "./story/story-controller";
 
 export const entityStore = createStore();     // module singleton (decisions/todos)
 export let engineRef: ReturnType<typeof createEngine> | null = null;
@@ -140,6 +141,13 @@ export function CanvasHost() {
           engine.applySpotlight(event.payload ?? { refs: [] });
           return;
         }
+        if (event?.kind === "show.advance") {
+          if (!meta.live) return;                                  // live-only, like show.focus
+          if (currentProject !== null && !isLiveProject()) return; // same cross-project drop as presence
+          if (!framesReady) return;                                // pre-boot advance is meaningless; agent re-issues
+          void handleAdvanceEvent(event.payload?.story_id, event.payload?.step ?? 1);
+          return;
+        }
         if (event?.kind !== "presence.activity") return;
         // ws-client doesn't filter `event` messages by project (see isLiveProject
         // comment above) — drop anything not for the currently-bound project so
@@ -186,8 +194,8 @@ export function CanvasHost() {
         entityStore.hydrate({ decisions: bundle.decisionMap, todos: bundle.ambientTodoMap,
           cursor: (currentProject === sync.boundProject ? lastKnownHead : null) as any });
         engine.setData(bundle);
-        useUiStore.getState().set({ bundle, drawerStack: [], focusedFrameId: null,
-          syncVisible: currentProject === sync.boundProject });
+        useUiStore.getState().set({ bundle, drawerStack: [], focusedFrameId: null, story: null,
+          stories: [], syncVisible: currentProject === sync.boundProject });
         applyFramesWarning(bundle);
         armFramesReady();
       }

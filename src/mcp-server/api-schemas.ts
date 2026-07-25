@@ -233,6 +233,47 @@ export const ShowFocusAckResponseSchema = z.object({
 });
 export type ShowFocusAckResponse = z.infer<typeof ShowFocusAckResponseSchema>;
 
+// ── Stories ────────────────────────────────────────────────────────────────
+// snake_case field names below (step_index/emphasis_edges/layout_hint) are
+// INTENTIONAL, not a camelCase miss: they pass through verbatim from
+// rowToStep, and the engine reads cmd.emphasis_edges directly — do not
+// camelCase them.
+export const StoryStepWireSchema = z.object({
+  step_index: z.number(),
+  caption: z.string(),
+  refs: z.array(z.string()),
+  emphasis_edges: z.array(z.tuple([z.string(), z.string()])),
+  layout_hint: z.string().nullable(),
+});
+export const AdaptedStorySchema = z.object({
+  id: z.string(),
+  seq: z.number().nullable(),
+  title: z.string(),
+  description: z.string(),
+  status: z.string(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  stepCount: z.number(),
+});
+export const AdaptedStoryDetailSchema = AdaptedStorySchema.extend({
+  steps: z.array(StoryStepWireSchema),
+});
+export type AdaptedStory = z.infer<typeof AdaptedStorySchema>;
+export type AdaptedStoryDetail = z.infer<typeof AdaptedStoryDetailSchema>;
+export const StoriesResponseSchema = z.object({ version: Version, stories: z.array(AdaptedStorySchema) });
+export const StoryDetailResponseSchema = z.object({ version: Version, story: AdaptedStoryDetailSchema });
+
+export const ShowAdvancePostSchema = z.object({
+  repo_path: z.string().min(1).max(1000),
+  story_id: z.string().min(1).max(200),
+  step: z.number().int().min(1).max(9999),
+});
+export type ShowAdvancePost = z.infer<typeof ShowAdvancePostSchema>;
+export const ShowAdvanceAckResponseSchema = z.object({ version: Version, accepted: z.boolean() });
+
+export const StoryIdParamSchema = z.string().min(1).max(200);
+
 // ── Freshness + health ───────────────────────────────────────────────────────
 export const FreshnessStateSchema = z.enum([
   "fresh", "stale:commits", "stale:dirty", "stale:both", "empty", "unknown",
@@ -266,6 +307,9 @@ export const RESPONSE_SCHEMAS = {
   todos: TodosResponseSchema,
   "presence-ack": PresenceAckResponseSchema,
   "show-focus-ack": ShowFocusAckResponseSchema,
+  stories: StoriesResponseSchema,
+  "story-detail": StoryDetailResponseSchema,
+  "show-advance-ack": ShowAdvanceAckResponseSchema,
   freshness: FreshnessResponseSchema,
   health: HealthResponseSchema,
 } as const;

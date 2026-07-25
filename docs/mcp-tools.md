@@ -494,12 +494,19 @@ Transition a TODO to a new state.
 
 ## `show` tool
 
-Single-action tool that posts a **spotlight** to the local viewer's HTTP API.
-Delivery-only: it never touches the graph or the decisions store, and it
-never throws for an unreachable viewer — "no viewer running" is a normal,
-expected result, not a tool failure. See
+Action-dispatched tool spanning two families: `focus` is a delivery-only
+**spotlight** posted to the local viewer's HTTP API — it never touches the
+graph or the decisions store, and never throws for an unreachable viewer
+("no viewer running" is a normal, expected result, not a tool failure).
+`story` / `advance` / `get` / `list` / `close` / `delete` are durable
+**story walkthroughs**, backed by `StoryService` (`src/stories/service.ts`)
+and stored in the decisions sidecar — `story` persists a full walkthrough in
+one atomic call, `advance` additionally pages a live viewer the same
+delivery-only way `focus` does. See
 [show-your-work.md](architecture/show-your-work.md#focus-spotlight-slice-2a)
-for the full transport + viewer-side contract.
+for the focus transport and
+[show-your-work.md#stories](architecture/show-your-work.md#stories-slice-2b) for the
+story storage + delivery contract.
 
 **Params common to all actions:** `repo_path`, `action`.
 
@@ -531,6 +538,90 @@ Hold a spotlight on `refs` in the connected viewer.
   code/decisions/todos an explanation or a pre-change walkthrough is about.
   See the [`show-your-work`](../skills/show-your-work/SKILL.md) skill for
   when to reach for it.
+
+### `action: "story"`
+Persist a durable, ordered walkthrough — one atomic call, no incremental
+step-building (a half-built story can never dangle).
+- **Params:** `title` (string, 1–300 chars), `description?` (string, max
+  5000 chars), `steps` (array, 1–20 entries), `links?`
+  (`{ decision_ids?: string[] (max 20), pr_number?: number }`), `closed?`
+  (boolean — create already-closed; `explain-architecture` uses this so its
+  emitted stories can't receive a stray `advance`).
+  - Each step: `caption` (string, 1–2000 chars), `refs` (string[], max 50 —
+    same three ref forms as `focus`: paths, `"path::symbol"` qns, `D-`/`T-`
+    ids), `emphasis_edges?` (array of `[from, to]` ref-pair tuples, max 20 —
+    edges to pulse on this step), `layout_hint?` (`"network"` | `"organic"`,
+    slice 3).
+- **Returns:** `{ story_id, step_count, status, viewer_url }` as JSON text —
+  `story_id` is a canonical `S-xxxx` id, `viewer_url` is
+  `http://localhost:<port>/viewer?story=<story_id>` (port via the same
+  discovery `focus` uses, falling back to `CORTEX_VIEWER_PORT` or `3333`).
+- **Errors:** missing `title`/`steps` or an empty `steps` array →
+  `malformed_input` (`"story requires at least one step"` from
+  `StoryService.create`, or the dispatcher's own `"show(story) requires
+  '<field>'"`).
+- **Why:** the durable counterpart to `focus` — see the
+  [`show-your-work`](../skills/show-your-work/SKILL.md) skill's Stories
+  section for when a story beats a run of `focus` calls, and its
+  composition rules.
+
+### `action: "advance"`
+Page a live viewer to a step of an already-created story. **1-based** —
+`step: 1` is the first step.
+- **Params:** `story_id`, `step` (integer, 1–9999 — the schema cap; the
+  actual valid range is `[1, story.step_count]`, enforced separately).
+- **Behavior:** validates the story exists, is open, and `step` is in range
+  (`StoryService.checkAdvance`), then posts `{repo_path, story_id, step}` to
+  `POST /api/show-advance` via the same `postToViewer` transport `focus`
+  uses. The story is already durably persisted before this call — delivery
+  failure never loses it.
+- **Returns one of these result texts:**
+  - `` Story <id> → step <n>/<step_count> pushed to viewer `` — delivered,
+    accepted.
+  - `Viewer rejected (different repo owns the viewer)` — delivered, wrong
+    repo.
+  - `No viewer reachable — story persists; open it via its viewer_url` —
+    every candidate port failed. **This is a normal outcome, not an
+    error** — the story already exists and its `viewer_url` still opens it
+    whenever a viewer is next reachable.
+- **Errors:** unknown `story_id` → empty envelope (not found is treated as
+  "nothing to advance", not a validation failure); a closed story
+  (`"Story <id> is closed"`) or an out-of-range `step`
+  (`"Step <n> out of range (story has <m> steps)"`) → `malformed_input`.
+- **Why user paging wins:** the viewer only *moves the indicator* — if the
+  user has paged away from the agent's step, it surfaces a "agent is on
+  step N →" chip instead of yanking the view. Don't spam `advance` for
+  every micro-step; call it at real checkpoints.
+
+### `action: "get"`
+Fetch one story with its steps.
+- **Params:** `story_id` (accepts either the canonical `S-xxxx` id or the
+  bare/`S-`-prefixed display seq, e.g. `S-12` or `12`).
+- **Returns:** the full story (`id`, `seq`, `title`, `description`,
+  `status`, `created_by`, `created_at`, `updated_at`, `step_count`, `steps`)
+  as pretty-printed JSON, or an empty envelope if not found.
+
+### `action: "list"`
+List all stories (no filtering — the viewer's ⌘K "Open story…" list is the
+same data).
+- **Params:** none beyond `repo_path`/`action`.
+- **Returns:** stories (without steps), newest `created_at` first, as
+  pretty-printed JSON, or an empty envelope if there are none.
+
+### `action: "close"`
+End a story's live association — it stops being eligible for further
+`advance` narration but stays listable/openable.
+- **Params:** `story_id`.
+- **Returns:** the updated story as JSON. Unknown `story_id` → empty
+  envelope. Idempotent: closing an already-closed story is a no-op that
+  still returns it.
+
+### `action: "delete"`
+Remove a story record entirely (steps and links cascade via `ON DELETE
+CASCADE`).
+- **Params:** `story_id`.
+- **Returns:** `` Deleted <id> `` on success, or an empty envelope if
+  `story_id` didn't resolve to an existing story.
 
 ---
 

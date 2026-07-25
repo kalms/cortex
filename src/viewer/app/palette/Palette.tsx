@@ -4,6 +4,8 @@ import { buildSearchIndex, searchIndex, type IndexEntry } from "./search-index";
 import { buildActions } from "./actions";
 import { fuzzyScore } from "./fuzzy";
 import { engineRef } from "../CanvasHost";
+import { fetchStories } from "../api";
+import { openStory } from "../story/story-controller";
 
 export function Palette() {
   const open = useUiStore((s) => s.paletteOpen);
@@ -11,13 +13,17 @@ export function Palette() {
   const projects = useUiStore((s) => s.projects);
   const activeProject = useUiStore((s) => s.activeProject);
   const layerPrefs = useUiStore((s) => s.layerPrefs);
+  const stories = useUiStore((s) => s.stories);
   const set = useUiStore((s) => s.set);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  const entries = useMemo(() => (bundle ? buildSearchIndex(bundle, projects) : []), [bundle, projects]);
+  const entries = useMemo(
+    () => (bundle ? buildSearchIndex(bundle, projects, stories) : []),
+    [bundle, projects, stories],
+  );
   // Own memo so a fresh-array-per-render `actions` doesn't defeat the `groups`
   // memo below — actions only need to change when the ingredients they're
   // built from change. `set`/`toggleTheme` are stable via the getState
@@ -53,6 +59,13 @@ export function Palette() {
     return () => { prev?.focus(); };
   }, [open]);
   useEffect(() => { if (open) { setQuery(""); setSel(0); inputRef.current?.focus(); } }, [open]);
+  // Fire-and-forget refresh of the stories group whenever the palette opens —
+  // stories can change between opens (new steps, status flips) so we don't
+  // rely on the bundle's staleness.
+  useEffect(() => {
+    if (!open) return;
+    fetchStories(activeProject).then((r) => set({ stories: r.stories }));
+  }, [open]);
   useEffect(() => { setSel(0); }, [query]);
   useEffect(() => {
     resultsRef.current?.querySelector(".palette-item.selected")?.scrollIntoView({ block: "nearest" });
@@ -73,6 +86,7 @@ export function Palette() {
       return set({ drawerStack: [{ kind: "record", type: "file", id: r.path, symbol: r.name }] });
     if (r.kind === "decision" || r.kind === "todo")
       return set({ drawerStack: [{ kind: "record", type: r.kind, id: r.id }] });
+    if (r.kind === "story") return openStory(r.id);
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.stopPropagation(); set({ paletteOpen: false }); }

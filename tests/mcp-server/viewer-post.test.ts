@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { IncomingHttpHeaders } from "node:http";
-import { postToViewer } from "../../src/mcp-server/tools/viewer-post.js";
+import { postToViewer, discoverViewerPort } from "../../src/mcp-server/tools/viewer-post.js";
 
 interface CapturedRequest {
   path: string;
@@ -193,5 +193,45 @@ describe("postToViewer", () => {
     } finally {
       await new Promise((r) => server.close(() => r(undefined)));
     }
+  });
+});
+
+describe("discoverViewerPort", () => {
+  const origFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = origFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("returns the CORTEX_VIEWER_PORT candidate when its /api/health answers 200", async () => {
+    const server = createServer((req, res) => {
+      if (req.url === "/api/health") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const result = await discoverViewerPort({ CORTEX_VIEWER_PORT: String(port) });
+      expect(result).toBe(String(port));
+    } finally {
+      await new Promise((r) => server.close(() => r(undefined)));
+    }
+  });
+
+  it("returns null when nothing answers /api/health on any candidate port", async () => {
+    // Mocking fetch (rather than relying on real ports being free) keeps
+    // this deterministic regardless of whatever else is listening on the
+    // machine's conventional 3333/3334 viewer ports.
+    global.fetch = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+
+    const result = await discoverViewerPort({});
+    expect(result).toBeNull();
   });
 });

@@ -279,6 +279,31 @@ export function partitionSpotlightRefs(pathIndex, refs) {
   return { frameIds, decisionIds, todoIds, unresolved };
 }
 
+/**
+ * Resolve emphasis edge pairs `[[fromRef, toRef], ...]` to frame-id pairs,
+ * reusing the same path-resolution logic `partitionSpotlightRefs` uses for
+ * path refs (strip `::` suffix, `frameIdForPath`). D-/T- refs never resolve
+ * (they aren't paths, so `frameIdForPath` never matches). A pair is kept
+ * only when BOTH ends resolve AND resolve to DIFFERENT frame ids (self-pairs
+ * dropped). Returns `Array<{ from: string, to: string }>` (stringified ids).
+ */
+export function resolveEmphasisPairs(pathIndex, pairs) {
+  const resolve = (ref) => {
+    if (typeof ref !== "string" || /^[DT]-/.test(ref)) return null;
+    const path = ref.includes("::") ? ref.split("::")[0] : ref;
+    return frameIdForPath(pathIndex, path);
+  };
+  const out = [];
+  for (const [fromRef, toRef] of pairs || []) {
+    const from = resolve(fromRef);
+    const to = resolve(toRef);
+    if (from != null && to != null && from !== to) {
+      out.push({ from: String(from), to: String(to) });
+    }
+  }
+  return out;
+}
+
 /** The path (not qn) of the FIRST ref that resolves to a frame — i.e. the ref
  *  anchoring `frameIdsForRefs(...)[0]`, the session's traversal target. Used to
  *  target the presence cursor at that file's actual dot (dot-level approach)

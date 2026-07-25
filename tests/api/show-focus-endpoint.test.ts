@@ -19,10 +19,11 @@ beforeAll(async () => {
   process.env.CORTEX_VIEWER_PORT = "0";
   dir = mkdtempSync(join(tmpdir(), "cortex-show-focus-"));
   store = new GraphStore(join(dir, "db"));
-  handle = await startViewerServer(store, null, undefined, undefined, undefined, undefined, {
+  handle = await startViewerServer(store, null, undefined, undefined, undefined, undefined, undefined, undefined, {
     homeRoot: "/canonical/home",
     emit: () => {},
     emitFocus: (p) => emitted.push(p),
+    emitAdvance: () => {},
   });
   base = `http://127.0.0.1:${handle.port}`;
 });
