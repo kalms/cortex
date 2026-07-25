@@ -18,6 +18,46 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.8.0] — 2026-07-25
+
+### Added
+
+- **`show` MCP tool — durable stories (show-your-work slice 2b).** New verbs
+  `story | advance | get | list | close | delete` beside 2a's `focus`. A
+  story is an agent-curated walkthrough — ordered steps of caption + refs —
+  minted atomically as an `S-xxxx` entity in the decisions.db sidecar
+  (durable across reindex, shared by worktrees/clones), returned with a
+  `viewer_url` deep link. `advance` pages every live viewer tab via the 2a
+  delivery path (`POST /api/show-advance` → `show.advance` event, live-only,
+  reaped with the `show.%` sweep). Steps are 1-based everywhere.
+- **Viewer story mode.** Entry via `?story=S-xxxx` deep link, the ⌘K
+  palette's new stories group, or a live advance — the viewer never
+  auto-opens a story on load. Each step drives the held spotlight (lit refs,
+  dimmed rest), animates a camera fit to the step's frames, and pulses
+  `emphasis_edges` between frames. Bottom-center story card with title,
+  relative age, caption, `‹ n/m ›` paging (arrow keys work), and Esc chain
+  placement palette → drawer → story → spotlight → frame focus. **User-wins
+  pacing:** a live advance moves the view only while you're following; if
+  you paged away, an "agent is on step N →" chip appears and one click
+  re-syncs. Decision `D-wn74`.
+- **Clickable ref chips on caption cards (`T-bty4`).** Both the focus
+  spotlight card and the story card now render their resolved refs as chips —
+  frame chips move the camera, decision/todo chips open the drawer — without
+  clearing the held spotlight.
+- **HTTP contract:** `GET /api/stories`, `GET /api/stories/:id`,
+  `POST /api/show-advance` (Zod schemas + generated docs).
+- **Skills:** `show-your-work` gains story-authoring guidance;
+  `explain-architecture` now always emits its explanation as an
+  already-closed story and hands back the `viewer_url`.
+
+### Fixed
+
+- **`T-a1kg`:** the boot-time indexed-project lookup now canonicalizes the
+  launch directory, so a server started from a linked worktree resolves its
+  project instead of showing "(no projects)".
+- **`T-7e5b`:** `show` dispatcher hardening — per-element ref bounds matching
+  the endpoint schema, and a default arm for unknown actions.
+
 ## [1.7.0] — 2026-07-24
 
 ### Added
@@ -1532,6 +1572,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.8.0]: https://github.com/ruevu/cortex/releases/tag/v1.8.0
 [1.7.0]: https://github.com/ruevu/cortex/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ruevu/cortex/releases/tag/v1.6.0
 [1.5.1]: https://github.com/ruevu/cortex/releases/tag/v1.5.1
