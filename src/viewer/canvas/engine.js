@@ -701,16 +701,23 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  view). reducedMotion snaps instead of animating. */
   function fitToFrames(frameIds) {
     const ids = new Set([...frameIds].map(String));
+    const stageW = canvas.clientWidth || 1, stageH = canvas.clientHeight || 1;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    // Measure in camera-FREE fit space (computeViewTransform), not framePxBase —
+    // framePxBase reads the module-level viewTransform, which mainLoop overwrites
+    // every tick with compose(fit, camera). Measuring through it would fit against
+    // already-panned/zoomed screen px, compounding on every non-identity camera.
+    const v = computeViewTransform();
     for (const f of FRAMES) {
       if (!ids.has(String(f.id))) continue;
-      const p = framePxBase(f);
-      minX = Math.min(minX, p.cx - p.w / 2); maxX = Math.max(maxX, p.cx + p.w / 2);
-      minY = Math.min(minY, p.cy - p.h / 2); maxY = Math.max(maxY, p.cy + p.h / 2);
+      const cx = (f.x * stageW) * v.scale + v.ox;
+      const cy = (f.y * stageH) * v.scale + v.oy;
+      const w = f.w * v.scale, h = f.h * v.scale;
+      minX = Math.min(minX, cx - w / 2); maxX = Math.max(maxX, cx + w / 2);
+      minY = Math.min(minY, cy - h / 2); maxY = Math.max(maxY, cy + h / 2);
     }
     const animate = !reducedMotion;
     if (!isFinite(minX)) { setCamera(createCamera(), { animate }); return; }
-    const stageW = canvas.clientWidth || 1, stageH = canvas.clientHeight || 1;
     const PAD = 70;   // spotlight framing margin: clears card chrome + frame labels
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
     const zoom = Math.max(1, Math.min((stageW - 2 * PAD) / w, (stageH - 2 * PAD) / h, MAX_ZOOM));

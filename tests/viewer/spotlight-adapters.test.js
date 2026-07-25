@@ -122,4 +122,10 @@ describe("resolveEmphasisPairs", () => {
       ["D-zwrt", "src/b.ts"],            // D- ref never resolves → dropped
     ])).toEqual([{ from: "1", to: "2" }]);
   });
+
+  it("strips a :: suffix on either end before resolving via the path prefix", () => {
+    expect(resolveEmphasisPairs(emphasisIndex, [
+      ["src/a.ts::someFunc", "src/b.ts::otherFunc"],
+    ])).toEqual([{ from: "1", to: "2" }]);
+  });
 });
