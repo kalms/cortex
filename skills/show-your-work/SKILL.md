@@ -56,9 +56,65 @@ show({ action: "focus", repo_path, refs: ["src/mcp-server/api.ts", "D-zwrt"], no
 show({ action: "focus", repo_path, refs: [] })   # done — clear the spotlight
 ```
 
+## Stories
+
+A story is a **durable, ordered walkthrough** — steps the user pages through
+in the viewer, either live as you narrate or later on their own. Reach for
+one instead of a run of `focus` calls when:
+
+- **A multi-file explanation the user will revisit** — `focus` is live-only
+  (never backfilled) and evaporates when the tab closes; a story persists and
+  can be reopened via its `viewer_url` or the palette.
+- **Pre-refactor blast radius** — a checkpoint the user can page back through
+  while they review, not just something that flashed by during the chat.
+- **A branch walkthrough** — one step per commit/concern, so the reviewer
+  controls the pace instead of following your narration in real time.
+
+For a quick, single-shot pointer during a live explanation, `focus` is still
+the right (cheaper, non-durable) tool — see above. Don't reach for a story
+for a one-file answer.
+
+### Composition rules
+
+- **3–7 steps.** Fewer reads as not worth a story; more dilutes each step —
+  split into a shorter story or trim to the throughline.
+- **One idea per step.** Each step is a single checkpoint, not a paragraph
+  compressed into a caption.
+- **Refs that resolve.** Prefer refs you know are in the current graph
+  (paths, `"path::symbol"` qualified names, `D-`/`T-` ids) — an unresolvable
+  ref still renders (as a plain mention on the caption card, never an error)
+  but it's a weaker step.
+- **Captions say *why*, not just what.** "Presence hook posts here" is
+  weaker than "Presence hook posts here because it must degrade-safe on a
+  dead viewer."
+
+### The contract
+
+```
+show({ action: "story", repo_path, title, description?, closed?, steps: [
+  { caption, refs, emphasis_edges?, layout_hint? }, …
+], links?: { decision_ids?, pr_number? } })
+  → { story_id, step_count, viewer_url }
+show({ action: "advance", repo_path, story_id, step })   // 1-based; user paging wins — never spam advance
+show({ action: "get" | "list" | "close" | "delete", repo_path, story_id? })
+```
+
+- `story` is **atomic** — steps are inline in one call; there's no
+  incremental step-building, so a half-built story never dangles.
+- **Stories persist.** Share the `viewer_url` — it works whenever a viewer
+  opens, live or not, this session or a later one.
+- **`close` when live narration ends.** A closed story is done being paged
+  live but stays listable/openable; use it once you're finished driving
+  `advance` for a given walkthrough. (`explain-architecture` creates its
+  stories already-closed — see that skill.)
+- **`focus` remains the cheap, non-durable spotlight** for everything that
+  doesn't need to survive the chat.
+- **Presence stays automatic** — neither `focus` nor a story replaces it or
+  requires it; they're separate signals.
+
 ## Not this skill
 
 - **Automatic presence** — hook-fed, zero agent effort, always on. See
   [show-your-work.md](../../docs/architecture/show-your-work.md).
-- **Agent-curated stories, deep-linking, network layout** — future slices,
-  not shipped; do not build against them.
+- **Network layout mode** — future slice (3), not shipped; do not build
+  against it.
