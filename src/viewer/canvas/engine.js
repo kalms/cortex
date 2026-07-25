@@ -1,7 +1,7 @@
-import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath, partitionSpotlightRefs } from './adapters.js';
+import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFramesRendered, buildFramePathIndex, frameIdForPath, buildGovernance, buildSpawnsFromIndex, filterAmbientTodos, todoDotColor, frameIdsForRefs, primaryRefPath, buildFrameAdjacency, frameBfsPath, partitionSpotlightRefs, resolveEmphasisPairs } from './adapters.js';
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
-import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera } from './camera.js';
+import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera, MAX_ZOOM } from './camera.js';
 import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
@@ -571,6 +571,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       todoSet,
       t0: performance.now(),
     };
+    spotlight.emphasis = Array.isArray(cmd.emphasis_edges)
+      ? resolveEmphasisPairs(FRAME_PATH_INDEX, cmd.emphasis_edges)
+      : [];
+    if (cmd.fit) fitToFrames(frameIds);
     callbacks.onSpotlight?.({
       note: cmd.note,
       resolved: { frames: frameIds, decisions: decisionIds, todos: todoIds },
@@ -690,6 +694,28 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       w: frame.w * v.scale,
       h: frame.h * v.scale,
     };
+  }
+
+  /** Animate the camera to fit the given frames (bbox of their fit-space rects,
+   *  padded), zoom clamped to [1, MAX_ZOOM]. Empty/unknown set → identity (fit
+   *  view). reducedMotion snaps instead of animating. */
+  function fitToFrames(frameIds) {
+    const ids = new Set([...frameIds].map(String));
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const f of FRAMES) {
+      if (!ids.has(String(f.id))) continue;
+      const p = framePxBase(f);
+      minX = Math.min(minX, p.cx - p.w / 2); maxX = Math.max(maxX, p.cx + p.w / 2);
+      minY = Math.min(minY, p.cy - p.h / 2); maxY = Math.max(maxY, p.cy + p.h / 2);
+    }
+    const animate = !reducedMotion;
+    if (!isFinite(minX)) { setCamera(createCamera(), { animate }); return; }
+    const stageW = canvas.clientWidth || 1, stageH = canvas.clientHeight || 1;
+    const PAD = 70;   // spotlight framing margin: clears card chrome + frame labels
+    const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+    const zoom = Math.max(1, Math.min((stageW - 2 * PAD) / w, (stageH - 2 * PAD) / h, MAX_ZOOM));
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    setCamera({ zoom, panX: stageW / 2 - cx * zoom, panY: stageH / 2 - cy * zoom }, { animate });
   }
 
   function framePxFocused(frame, focusedId) {
@@ -2690,6 +2716,35 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return null;
   }
 
+  // Spotlight emphasis pulses — a looping bright head sliding from→to on each
+  // emphasized pair while the spotlight holds. Editorial accent: neutral theme
+  // ink (vs presence pulses, which carry session hues). Skipped entirely under
+  // reducedMotion (the pair's frames are already spotlight-lit).
+  const EMPHASIS_LOOP_MS = 1600;
+  function drawSpotlightEmphasis(now) {
+    if (!spotlight || !spotlight.emphasis?.length || reducedMotion) return;
+    const BASE = isLight() ? [24, 24, 27] : [237, 237, 237];
+    spotlight.emphasis.forEach((pair, i) => {
+      const edgePx = drawnInterFrameEdgePx(pair.from, pair.to);
+      const a = edgePx ? edgePx.a : frameCenterPx(pair.from);
+      const b = edgePx ? edgePx.b : frameCenterPx(pair.to);
+      if (!a || !b) return;
+      const t = ((now - spotlight.t0) / EMPHASIS_LOOP_MS + i * 0.35) % 1;
+      const hx = a.x + (b.x - a.x) * t, hy = a.y + (b.y - a.y) * t;
+      const TRAIL = 0.18;
+      const tx = a.x + (b.x - a.x) * Math.max(0, t - TRAIL);
+      const ty = a.y + (b.y - a.y) * Math.max(0, t - TRAIL);
+      ctx.save();
+      ctx.strokeStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.35)`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.beginPath(); ctx.arc(hx, hy, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.8)`;
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
   // Presence layer draw: traversal synapse pulses + session cursors. Fully
   // gated on showPresence and inert when the roster is empty. Called last from
   // drawLiveEffects so it reads on top of the graph and live-effects chrome.
@@ -2868,6 +2923,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
     ctx.restore();
 
+    drawSpotlightEmphasis(now);
     drawPresence(now);
   }
 
@@ -2946,6 +3002,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     getFocusedFrameId: () => focusedFrameId,
     getCamera: () => ({ ...camera }),
     setCamera,
+    fitToFrames,
     start,
     resize,
     destroy,

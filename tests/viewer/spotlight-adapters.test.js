@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { partitionSpotlightRefs } from "../../src/viewer/canvas/adapters.js";
+import { partitionSpotlightRefs, resolveEmphasisPairs } from "../../src/viewer/canvas/adapters.js";
 
 const index = new Map([["src/a.ts", "1"], ["src/b/c.ts", "2"]]);
 
@@ -103,5 +103,23 @@ describe("partitionSpotlightRefs", () => {
   it("preserves original ref in unresolved (not stripped path)", () => {
     const result = partitionSpotlightRefs(index, ["nope.ts::fn"]);
     expect(result.unresolved).toEqual(["nope.ts::fn"]);
+  });
+});
+
+describe("resolveEmphasisPairs", () => {
+  // src/a.ts and src/a2.ts share frame "1"; src/b.ts is frame "2".
+  const emphasisIndex = new Map([
+    ["src/a.ts", "1"],
+    ["src/a2.ts", "1"],
+    ["src/b.ts", "2"],
+  ]);
+
+  it("resolves both-ends pairs to frame ids and drops the rest", () => {
+    expect(resolveEmphasisPairs(emphasisIndex, [
+      ["src/a.ts", "src/b.ts"],          // both resolve, different frames → kept
+      ["src/a.ts", "src/a2.ts"],         // same frame → dropped
+      ["src/a.ts", "not/indexed.ts"],    // one end unresolved → dropped
+      ["D-zwrt", "src/b.ts"],            // D- ref never resolves → dropped
+    ])).toEqual([{ from: "1", to: "2" }]);
   });
 });
