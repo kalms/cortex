@@ -41,7 +41,11 @@ re-verified against the current codebase before implementation.
   repo — addressed repo first — plus a `skipped` list for registry rows that
   no longer resolve. Results deliberately stay grouped (FTS5 rank values are
   not comparable across databases); `scope` cannot combine with
-  `cross_repo`.
+  `cross_repo`. CLI parity: `cortex decision list --cross-repo [--query=…]`
+  prints flat rows with a `repo` column (addressed repo first, unreachable
+  registry rows noted on stderr) — deliberately lighter than the MCP path:
+  it opens only each repo's decisions sidecar, no graph DB or indexed-repo
+  requirement.
 - **Branch-scoped decision candidates (field-report P4).**
   `decision({action:"candidates", base})` / `cortex decision candidates
   --base=<ref>` scope the manifest to `base..HEAD` commit clusters and
