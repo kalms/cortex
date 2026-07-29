@@ -52,13 +52,15 @@ re-verified against the current codebase before implementation.
 
 ### Changed
 
-- **suggest-capture hook is now a drafting trigger on merges.** On a merge
-  commit (and now also after `git merge` / `gh pr merge`) the post-commit
-  nudge becomes an active warm-path instruction: run branch-scoped
+- **suggest-capture hook is now a drafting trigger on merges.** A local
+  merge commit (HEAD^2 present, e.g. after `git merge`) turns the
+  post-commit nudge into an active warm-path instruction: run branch-scoped
   candidates (`base:"HEAD^1"`), propose `author:"cortex:draft"` drafts
   (proposed-only per `D-vz80`), and present them for one-tap ratification
-  via `decision({action:"promote"})`. Ordinary commits keep the original
-  reminder.
+  via `decision({action:"promote"})`. A `gh pr merge` (remote merge — local
+  HEAD unmoved, squash/rebase merges never create a HEAD^2) gets its own
+  sync-then-draft instruction anchored to the pre-merge `origin/<default>`
+  sha. Ordinary commits keep the original reminder.
 
 ### Closed without code (field-report P7 b/c)
 

@@ -45,10 +45,12 @@ describe("resolveSinceWindow", () => {
       .toThrow(/unresolvable since/);
   });
 
-  it("resolves an ISO date", () => {
+  it("resolves an ISO date, normalized to full UTC ISO", () => {
+    // git parses bare --since dates in LOCAL time; the sidecar compares UTC —
+    // the window carries the normalized form so both sides agree.
     const w = resolveSinceWindow(repo, "2026-07-01", () => null);
     expect(w.kind).toBe("date");
-    expect(w.window_start).toBe("2026-07-01");
+    expect(w.window_start).toBe("2026-07-01T00:00:00.000Z");
   });
 
   it("resolves a git ref and derives the ref's commit time", () => {

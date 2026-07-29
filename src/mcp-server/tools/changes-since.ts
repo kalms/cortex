@@ -22,7 +22,7 @@
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import { parseGitLogOutput } from "../../events/worker/git-log-parser.js";
-import { displayState } from "../../decisions/reconciliation.js";
+import { displayState, refToFile } from "../../decisions/reconciliation.js";
 import type { DecisionRecord } from "../../decisions/repository.js";
 import { type RepoContext } from "../repo-context.js";
 import { ok, error as errorResponse } from "../response.js";
@@ -67,7 +67,9 @@ export function resolveSinceWindow(
     return { kind: "decision", window_start: dec.created_at };
   }
   if (/^\d{4}-\d{2}-\d{2}/.test(since) && !Number.isNaN(Date.parse(since))) {
-    return { kind: "date", window_start: since };
+    // Normalize to full UTC ISO so `git log --since` (which parses bare
+    // dates in LOCAL time) and the sidecar timestamp comparisons agree.
+    return { kind: "date", window_start: new Date(Date.parse(since)).toISOString() };
   }
   try {
     execFileSync(
@@ -88,21 +90,6 @@ export function resolveSinceWindow(
   return { kind: "ref", window_start: new Date(refTime).toISOString(), range: `${since}..HEAD` };
 }
 
-interface GovernsLinkLite {
-  decision_id: string;
-  target_kind: string;
-  target_ref: string;
-}
-
-/** Repo-relative file a GOVERNS link points at, or null for D-/PR refs.
- *  Mirrors reconciliation.refToFile but tolerant of the links-repo shape. */
-function linkFile(link: GovernsLinkLite): string | null {
-  if (link.target_kind === "decision" || link.target_kind === "pr") return null;
-  const r = link.target_ref;
-  if (r.includes("::")) return r.slice(0, r.indexOf("::"));
-  return r;
-}
-
 export async function changesSinceAction(
   ctx: RepoContext,
   args: z.infer<typeof changesSinceSchema>,
@@ -121,18 +108,24 @@ export async function changesSinceAction(
     // ── Commit window ────────────────────────────────────────────────────
     const cap = args.max_commits ?? DEFAULT_MAX_COMMITS;
     const selector = window.range ? [window.range] : [`--since=${window.window_start}`];
+    // The scope rides as a git pathspec so `-n` counts SCOPE-MATCHING
+    // commits — filtering after an unscoped cap would both hide in-scope
+    // commits beyond the cap and let `truncated` under-report.
+    const pathspec = args.scope ? ["--", args.scope] : [];
     // cap+1 so truncation is detectable without a second git call.
     const raw = execFileSync(
       "git",
       ["-C", ctx.repoPath, "log", `-n${cap + 1}`, ...selector,
-        "--format=%H%x00%s%x00%an%x00%at", "--name-status"],
+        "--format=%H%x00%s%x00%an%x00%at", "--name-status", ...pathspec],
       { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
     );
     let parsed = parseGitLogOutput(raw);
     if (args.scope) {
-      const prefix = args.scope;
+      // Belt-and-braces on top of the pathspec, segment-aware so scope
+      // "src" cannot match "src2/…".
+      const p = args.scope.endsWith("/") ? args.scope.slice(0, -1) : args.scope;
       parsed = parsed
-        .map((c) => ({ ...c, files: c.files.filter((f) => f.path.startsWith(prefix)) }))
+        .map((c) => ({ ...c, files: c.files.filter((f) => f.path === p || f.path.startsWith(`${p}/`)) }))
         .filter((c) => c.files.length > 0);
     }
     const truncated = parsed.length > cap;
@@ -186,7 +179,7 @@ export async function changesSinceAction(
         .filter((l) => l.relation === "GOVERNS");
       const matched = new Set<string>();
       for (const l of links) {
-        const file = linkFile(l);
+        const file = refToFile(l);
         if (!file) continue;
         // A governed dir/file matches when any changed file sits under it.
         for (const cf of changedFiles) {

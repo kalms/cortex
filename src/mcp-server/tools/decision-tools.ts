@@ -5,8 +5,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
-import { type RepoContext, type RepoContextResolver } from "../repo-context.js";
-import { basename } from "node:path";
+import { type RepoContext, type RepoContextResolver, deriveProjectName } from "../repo-context.js";
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
 import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
@@ -389,7 +388,9 @@ function crossRepoSearch(
   const seen = new Set<string>([ctx.repoPath]);
   const home = serviceForCtx(ctx, bus, indexerProject).search(query);
   if (home.length > 0) {
-    repos.push({ repo: basename(ctx.repoPath), path: ctx.repoPath, decisions: home });
+    // Same naming convention as the fan-out entries (registry rows use
+    // deriveProjectName too), so one repo never appears under two names.
+    repos.push({ repo: deriveProjectName(ctx.repoPath), path: ctx.repoPath, decisions: home });
   }
 
   for (const known of resolver?.listKnownRepos() ?? []) {
@@ -410,7 +411,11 @@ function crossRepoSearch(
     }
   }
 
-  if (repos.length === 0) return empty(`search_decisions(${query}, cross_repo)`);
+  // Zero hits with a clean fan-out is a plain no-results; zero hits with
+  // skipped repos is NOT — the caller must see that the answer is partial.
+  if (repos.length === 0 && skipped.length === 0) {
+    return empty(`search_decisions(${query}, cross_repo)`);
+  }
   return ok(JSON.stringify({ query, repos, skipped }, null, 2));
 }
 

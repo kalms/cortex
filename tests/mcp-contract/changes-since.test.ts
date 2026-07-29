@@ -115,6 +115,30 @@ describe("changes_since contract", () => {
     expect(payload.changed_files).toEqual([]);
   });
 
+  it("scope + max_commits stays honest: the cap counts in-scope commits", async () => {
+    // Two more src/ commits so the scoped window holds 3 commits total.
+    for (const n of [1, 2]) {
+      writeFileSync(join(h.repoPath, "src", `extra${n}.ts`), `export const e${n} = ${n};\n`);
+      git("add", `src/extra${n}.ts`);
+      git("commit", "--no-gpg-sign", "-m", `feat(server): extra ${n}`);
+    }
+    // A trailing docs-only commit that must NOT consume the cap when scoped.
+    writeFileSync(join(h.repoPath, "NOTES.md"), "# notes\n");
+    git("add", "NOTES.md");
+    git("commit", "--no-gpg-sign", "-m", "docs: notes");
+
+    const res = await callTool(h, "changes_since", { since: "v0", scope: "src/", max_commits: 2 });
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(res.content[0].text.split("\n\n⚠")[0]);
+    // The two NEWEST in-scope commits fill the cap (the docs commit is
+    // invisible to the scoped log), and truncation is reported because a
+    // third in-scope commit exists beyond the cap.
+    expect(payload.commits.length).toBe(2);
+    expect(payload.commits.map((c: { subject: string }) => c.subject))
+      .toEqual(["feat(server): extra 2", "feat(server): extra 1"]);
+    expect(payload.truncated).toBe(true);
+  });
+
   it("garbage since is malformed_input", async () => {
     const res = await callTool(h, "changes_since", { since: "definitely-not-a-thing" });
     expect(res.isError).toBe(true);

@@ -62,6 +62,20 @@ describe("suggest-capture.sh — commit reminder vs merge drafting trigger", () 
     expect(out).not.toContain("Were any architectural or design decisions made");
   });
 
+  it("a gh pr merge trigger gets the remote-merge sync-then-draft instructions", () => {
+    // Simulate the PostToolUse payload: the hook reads the triggering
+    // command from stdin. gh pr merge merges on the REMOTE — local HEAD has
+    // no HEAD^2 — so the drafting anchor is the pre-merge origin sha.
+    const payload = JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: "gh pr merge feature/y --merge" },
+    });
+    const out = execFileSync("bash", [HOOK], { cwd: repo, encoding: "utf-8", input: payload });
+    expect(out).toContain("A PR just merged on the remote");
+    expect(out).toContain('decision({action:"candidates", base:');
+    expect(out).not.toContain("Were any architectural or design decisions made");
+  });
+
   it("degrades to the plain reminder outside a git repo", () => {
     const out = execFileSync("bash", [HOOK], { cwd: tmpdir(), encoding: "utf-8" });
     expect(out).toContain("Were any architectural or design decisions made");

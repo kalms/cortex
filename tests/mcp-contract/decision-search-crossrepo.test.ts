@@ -167,9 +167,13 @@ describe("decision search cross_repo mode", () => {
     expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
   });
 
-  it("cross_repo with zero hits anywhere is still a clean no-results", async () => {
+  it("cross_repo with zero hits but skipped repos returns the partial-answer payload", async () => {
+    // A ghost registry row means the answer is PARTIAL — the caller must see
+    // `skipped`, not a clean "No results" that implies full coverage.
     const res = await call({ action: "search", repo_path: repoA, query: "nonexistentterm", cross_repo: true });
     expect(res.isError).toBeFalsy();
-    expect(res.content[0].text).toMatch(/^No results:/);
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.repos).toEqual([]);
+    expect((payload.skipped as Array<{ path: string }>).map((s) => s.path)).toContain(ghostPath);
   });
 });

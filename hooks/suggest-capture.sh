@@ -2,15 +2,27 @@
 # Hook: suggest-capture
 #
 # Fires after git commits and merges. Nudges, in order of specificity:
-#   1. Merge commit just landed → WARM-PATH DRAFTING: run branch-scoped
-#      decision candidates and propose drafts for one-tap ratification
-#      (field-report P4; drafts are proposed-only per decision D-vz80).
-#   2. Ordinary commit → the original "were decisions made?" reminder.
-#   3. If code files changed → detect_changes + incremental index_repository
+#   1. `gh pr merge` just ran → the merge happened on the REMOTE (and may be
+#      a squash/rebase that never creates a local merge commit): emit a
+#      sync-then-draft instruction anchored to the pre-merge origin sha.
+#   2. Local merge commit landed (HEAD^2 exists) → WARM-PATH DRAFTING: run
+#      branch-scoped decision candidates and propose drafts for one-tap
+#      ratification (field-report P4; proposed-only per decision D-vz80).
+#   3. Ordinary commit → the original "were decisions made?" reminder.
+#   4. If code files changed → detect_changes + incremental index_repository
 #      to keep the Cortex graph current with the commit.
 #
 # Wired via hooks.json PostToolUse with if: "Bash(git commit*)",
 # "Bash(git merge*)" and "Bash(gh pr merge*)".
+
+# The PostToolUse payload (JSON on stdin) tells us WHICH command fired the
+# hook — a remote `gh pr merge` needs different guidance from a local merge.
+# Degrade-safe: no stdin / no jq / no payload → treat as a plain commit.
+TRIGGER_CMD=""
+if [ ! -t 0 ] && command -v jq >/dev/null 2>&1; then
+    PAYLOAD="$(cat 2>/dev/null)"
+    [ -n "$PAYLOAD" ] && TRIGGER_CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
+fi
 
 # Detect whether the last commit touched code (not just docs/config).
 # We grep the most-recent commit's diff-stat for known code extensions.
@@ -29,6 +41,28 @@ fi
 
 echo ""
 echo "---"
+case "$TRIGGER_CMD" in
+    "gh pr merge"*)
+        # Remote merge: local HEAD hasn't moved (and squash/rebase merges
+        # never create a HEAD^2). Anchor drafting to the pre-fetch origin
+        # default-branch sha — after the pull, base..HEAD is the PR's delta.
+        DEFAULT_REMOTE="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
+        [ -n "$DEFAULT_REMOTE" ] || DEFAULT_REMOTE="origin/main"
+        PRE_MERGE_SHA="$(git rev-parse -q --verify "$DEFAULT_REMOTE" 2>/dev/null)"
+        echo "A PR just merged on the remote. Draft the decisions it embodies (warm path):"
+        echo "  1. Sync the default branch (e.g. git checkout main && git pull)"
+        if [ -n "$PRE_MERGE_SHA" ]; then
+            echo "  2. decision({action:\"candidates\", base:\"$PRE_MERGE_SHA\"})  ← pre-merge $DEFAULT_REMOTE"
+        else
+            echo "  2. decision({action:\"candidates\", base:\"<pre-merge $DEFAULT_REMOTE sha>\"})"
+        fi
+        echo "  3. For each GENUINE choice: decision({action:\"propose\", author:\"cortex:draft\", provenance:{...}})"
+        echo "  4. Present the proposed drafts to the user for ratification (decision({action:\"promote\"}))."
+        echo "Check decision({action:\"search\"}) first to avoid duplicating an existing decision."
+        echo "---"
+        exit 0
+        ;;
+esac
 if [ "$IS_MERGE" -eq 1 ]; then
     echo "A branch was just merged. Draft the decisions it embodies (warm path):"
     echo "  1. decision({action:\"candidates\", base:\"HEAD^1\"})"
