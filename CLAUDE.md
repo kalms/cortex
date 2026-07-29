@@ -23,6 +23,8 @@ state and the repo path; act on it.
 | Text search across code with structural annotation | `search_code(pattern="…")` | `Grep` |
 | Complex graph query | `query_graph(query=Cypher)` | grep + manual joins |
 | Check why code looks the way it does | `decision({action:"why", qualified_name:"…"})` | guessing |
+| What changed since a ref/date/decision | `changes_since(since="…")` | git spelunking |
+| Find decisions across ALL repos | `decision({action:"search", cross_repo:true})` | per-repo searches |
 
 Fall back to `Grep`/`Glob`/`Read` only when the target is a non-code file
 (config, JSON, Markdown, log), you need a regex feature `search_code`
@@ -162,7 +164,7 @@ Full per-tool reference (params, return shapes, errors):
 - `pr` — `open|touch|merge|get` · `todo` — `propose|get|list|search|update|link|transition`
 - `show` — `focus` (held spotlight) · `story|advance|get|list|close|delete`
   (durable walkthroughs the viewer pages through; steps 1-based)
-- Code & graph: `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `check_contracts`
+- Code & graph: `search_graph`, `trace_path`, `get_code_snippet`, `get_graph_schema`, `search_code`, `query_graph`, `get_architecture`, `check_contracts`, `changes_since`
 - Index lifecycle: `index_repository`, `detect_changes`, `index_status`, `list_projects`, `delete_project`, `ingest_traces`
 
 ## Viewer

@@ -273,6 +273,22 @@ Map a git diff to affected symbols.
 - **Why:** before an incremental re-index, see what changed and what it
   impacts.
 
+### `changes_since`
+The temporal layer: what changed since a point in time, joined against the
+graph and the decision sidecar. Computed TS-side (no indexer round-trip).
+- **Params:** `repo_path`, `since` (a git ref, an ISO date, or a decision id
+  — `D-xxxx` opens the window at that decision's capture time), `scope?`
+  (repo-relative path prefix), `max_commits?` (default 100).
+- **Returns:** `{ since: { input, kind, window_start }, commits, truncated,
+  changed_files, affected_nodes, decisions: { created, reconciled,
+  governing_changed } }` — `governing_changed` carries each decision's
+  reconciliation `display_state` and the changed files it governs.
+- **Errors:** an unresolvable `since` is `malformed_input` — it never
+  degrades to an unbounded window.
+- **Why:** "what changed in this subsystem since `D-2exa` was captured, and
+  does it still hold?" without git spelunking. Pairs with reconciliation:
+  drift *judgment* stays with `decision({action:"reconcile"})`.
+
 ### `index_status`
 Check whether a repo is indexed.
 - **Params:** `repo_path`. Registered `allowUnindexed` (answering "no" is a
@@ -358,9 +374,18 @@ Fetch a decision with all resolved relationships.
 ### `action: "search"`
 Full-text search over decision titles, descriptions, and rationale.
 - **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to
-  governing decisions).
+  governing decisions), `cross_repo?` (boolean).
+- **`cross_repo: true`:** fans out over every repo the resolver knows
+  (pooled + master registry) and returns
+  `{ query, repos: [{ repo, path, decisions }], skipped: [{ repo, path, reason }] }`
+  — the addressed repo's hits first, then other repos with ≥1 hit. Results
+  stay **grouped per repo** (FTS5 rank is not comparable across databases);
+  registry rows that fail to resolve land in `skipped`, never fail the call.
+  Cannot be combined with `scope` (`malformed_input`); reconciliation attach
+  stays single-repo-only.
 - **Why:** check for duplicates before creating a decision; explore why an area
-  was built a certain way.
+  was built a certain way; answer "have I decided anything about X in *any*
+  repo?" (`cross_repo`).
 
 ### `action: "why"`
 Find decisions governing a code entity. Freshness-aware.
@@ -378,11 +403,18 @@ Attach an edge from a decision to a target.
 - **Why:** add governance/reference edges after a decision exists.
 
 ### `action: "candidates"`
-Read-only: frame cold-start decision candidates from git history + ADR docs.
-- **Params:** `max_candidates?` (default 20).
-- **Returns:** a manifest the `seed-decisions` skill turns into proposed
-  decisions. **Writes nothing.**
-- **Why:** bootstrap a freshly-indexed repo that has zero decisions.
+Read-only: frame decision candidates from git history + ADR docs.
+- **Params:** `max_candidates?` (default 20), `base?` (git ref).
+- **`base`:** scopes the manifest to the warm path — commit clusters cover
+  only `base..HEAD` and doc candidates only markdown touched in
+  `base...HEAD`. This is the post-merge drafting input (the suggest-capture
+  hook prompts `base: "HEAD^1"` after a merge commit). An invalid ref is
+  `malformed_input`, never a silent whole-history manifest. CLI:
+  `cortex decision candidates --base=<ref>`.
+- **Returns:** a manifest the `seed-decisions` skill (cold start) or the
+  warm-path drafting flow turns into proposed decisions. **Writes nothing.**
+- **Why:** bootstrap a freshly-indexed repo that has zero decisions (cold
+  start), or draft the decisions a just-merged branch embodies (warm path).
 
 ### `action: "promote"`
 Promote a decision to a visibility tier.
@@ -629,7 +661,7 @@ CASCADE`).
 
 | Tool | Mode | Freshness-aware |
 |---|---|---|
-| `search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `search_code`, `query_graph`, `get_architecture`, `decision({action:"why"})` | default | ✅ |
+| `search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `search_code`, `query_graph`, `get_architecture`, `changes_since`, `decision({action:"why"})` | default | ✅ |
 | `get_graph_schema`, `check_contracts`, `detect_changes`, `ingest_traces` | default | — |
 | `index_repository`, `index_status` | allowUnindexed | — |
 | `list_projects`, `delete_project` | crossRepo | — |

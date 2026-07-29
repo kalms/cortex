@@ -18,6 +18,57 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.8.1] — 2026-07-29
+
+The last items from the 2026-06-12 agentic-experience field report, each
+re-verified against the current codebase before implementation.
+
+### Added
+
+- **`changes_since` MCP tool (field-report P8, lean v1).** The temporal
+  layer: `since` accepts a git ref, an ISO date, or a **decision id**
+  (`D-xxxx` opens the window at that decision's capture time — "what moved
+  since D-x was decided, and does it still hold?"). Returns a bounded commit
+  window (`scope` path-prefix filter, `max_commits` cap + `truncated` flag),
+  the changed files, the graph nodes they define, and the decision layer in
+  the window: decisions created, reconciled, and governing the changed code
+  (with reconciliation display state). Computed TS-side like the hotspots
+  aspect — no indexer round-trip. An unresolvable `since` is
+  `malformed_input`, never a silent unbounded window.
+- **Cross-repo decision search (field-report P5).**
+  `decision({action:"search", cross_repo:true})` fans out over every repo
+  the server knows (pool + master registry) and returns hits grouped per
+  repo — addressed repo first — plus a `skipped` list for registry rows that
+  no longer resolve. Results deliberately stay grouped (FTS5 rank values are
+  not comparable across databases); `scope` cannot combine with
+  `cross_repo`.
+- **Branch-scoped decision candidates (field-report P4).**
+  `decision({action:"candidates", base})` / `cortex decision candidates
+  --base=<ref>` scope the manifest to `base..HEAD` commit clusters and
+  markdown touched in `base...HEAD` — turning the cold-start seed machinery
+  into the warm-path drafting input. Invalid refs error
+  (`malformed_input` / `UsageError`) instead of silently returning the
+  whole-history manifest.
+
+### Changed
+
+- **suggest-capture hook is now a drafting trigger on merges.** On a merge
+  commit (and now also after `git merge` / `gh pr merge`) the post-commit
+  nudge becomes an active warm-path instruction: run branch-scoped
+  candidates (`base:"HEAD^1"`), propose `author:"cortex:draft"` drafts
+  (proposed-only per `D-vz80`), and present them for one-tap ratification
+  via `decision({action:"promote"})`. Ordinary commits keep the original
+  reminder.
+
+### Closed without code (field-report P7 b/c)
+
+- **Tool-description tightening (P7b)** — measured as already done by the
+  1.0.0 consolidation (every tool description is a one-liner deferring to
+  `docs/mcp-tools.md`). **Lazy-loading the schema long tail (P7c)** —
+  obsoleted upstream: Claude Code now defers MCP tool schemas host-side
+  (ToolSearch), and no MCP server-side mechanism exists to influence it.
+  Todo `T-v9w3` cancelled with rationale.
+
 ## [1.8.0] — 2026-07-25
 
 ### Added
@@ -1572,6 +1623,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.8.1]: https://github.com/ruevu/cortex/releases/tag/v1.8.1
 [1.8.0]: https://github.com/ruevu/cortex/releases/tag/v1.8.0
 [1.7.0]: https://github.com/ruevu/cortex/releases/tag/v1.7.0
 [1.6.0]: https://github.com/ruevu/cortex/releases/tag/v1.6.0
