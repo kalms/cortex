@@ -186,6 +186,42 @@ describe("decision_candidates MCP tool", () => {
     expect(res.content[0].text).toMatch(/repo_path required/);
   });
 
+  it("base scopes candidates to base..HEAD (warm path)", async () => {
+    // Add a branch commit on top of the fixture's single main commit, then
+    // ask for candidates with base=main — only the branch cluster may appear.
+    execFileSync("git", ["-C", repoRoot, "checkout", "-b", "feature/warm"]);
+    writeFileSync(join(repoRoot, "warm.ts"), "export const warm = 1;\n");
+    execFileSync("git", ["-C", repoRoot, "add", "."]);
+    execFileSync("git", ["-C", repoRoot, "commit", "--no-gpg-sign", "-m", "feat(warm): branch-only change"]);
+    try {
+      const result = await harness.client.callTool({
+        name: "decision",
+        arguments: { action: "candidates", repo_path: repoRoot, base: "main" },
+      });
+      const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(res.isError).toBeFalsy();
+      const candidates = JSON.parse(res.content[0].text);
+      const text = JSON.stringify(candidates);
+      expect(text).toContain("branch-only change");
+      // The pre-base commit and untouched ADR are out of scope.
+      expect(text).not.toContain("use SQLite for decision storage");
+      expect(text).not.toContain("sqlite-decisions");
+    } finally {
+      execFileSync("git", ["-C", repoRoot, "checkout", "main"]);
+      execFileSync("git", ["-C", repoRoot, "branch", "-D", "feature/warm"]);
+    }
+  });
+
+  it("an invalid base ref is malformed_input", async () => {
+    const result = await harness.client.callTool({
+      name: "decision",
+      arguments: { action: "candidates", repo_path: repoRoot, base: "no-such-ref" },
+    });
+    const res = result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input: invalid base ref/);
+  });
+
   it("routes to the addressed repo (a different repoB returns its own manifest)", async () => {
     // Build a second fixture repo with a different ADR title so we can
     // distinguish its manifest from `repoRoot`'s. Routing-correctness check:

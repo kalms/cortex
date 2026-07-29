@@ -123,6 +123,8 @@ const whyWasThisBuiltSchema = z.object(whyWasThisBuiltShape);
 const decisionCandidatesShape = {
   repo_path: RepoPathField,
   max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+  base: z.string().min(1).optional()
+    .describe("Git ref: scope candidates to base..HEAD (warm path, e.g. after a merge). Omit for whole-history cold start"),
 } as const;
 const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 
@@ -530,11 +532,19 @@ export async function decisionCandidatesAction(
     // dbPath-to-repo-root inference required. The function is read-only:
     // it never touches the decisions DB, just spawns `git log` under
     // ctx.repoPath and reads files via the filesystem.
-    const manifest = frameCandidates({
-      repo_path: ctx.repoPath,
-      max_candidates: args.max_candidates,
-    });
-    return ok(JSON.stringify(manifest, null, 2));
+    try {
+      const manifest = frameCandidates({
+        repo_path: ctx.repoPath,
+        max_candidates: args.max_candidates,
+        base: args.base,
+      });
+      return ok(JSON.stringify(manifest, null, 2));
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("invalid base ref")) {
+        return errorResponse("malformed_input", e.message);
+      }
+      throw e;
+    }
   });
 }
 

@@ -68,7 +68,7 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
     },
   },
   decision: {
-    candidates: { usage: "cortex decision candidates [--max=N]",        description: "Frame decision candidates from git history + docs (machine manifest; no writes). Optional --max=N to cap.", examples: ["cortex decision candidates", "cortex decision candidates --max=20"] },
+    candidates: { usage: "cortex decision candidates [--max=N] [--base=<ref>]", description: "Frame decision candidates from git history + docs (machine manifest; no writes). --max=N caps; --base=<ref> scopes to base..HEAD (warm path, e.g. after a merge).", examples: ["cortex decision candidates", "cortex decision candidates --base=main"] },
     count:      { usage: "cortex decision count",                        description: "Print the number of decisions in this repo (cold-start probe used by hooks).", examples: ["cortex decision count"] },
     create:  { usage: "cortex decision create --title=... --description=... --rationale=...", description: "Create a new decision.", examples: ["cortex decision create --title='use Postgres' --description=... --rationale=..."] },
     delete:  { usage: "cortex decision delete <id>",                description: "Delete a decision.", examples: ["cortex decision delete abc-123"] },

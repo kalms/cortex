@@ -6,18 +6,34 @@ const CONVENTIONAL = /^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/;
 // Enough subjects per cluster for the LLM to infer intent without burying signal.
 const EXCERPT_SUBJECTS = 12;
 
+/** Throws unless `ref` names a commit in the repo. Callers pass user input
+ *  (the warm-path `base`), so a typo must surface, not silently produce a
+ *  whole-history manifest. */
+export function assertValidRef(repoPath: string, ref: string): void {
+  try {
+    execFileSync(
+      "git",
+      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+      { encoding: "utf-8" },
+    );
+  } catch {
+    throw new Error(`invalid base ref: ${ref}`);
+  }
+}
+
 /** Run git log in the NUL-delimited format parseGitLogOutput expects. */
-function readGitLog(repoPath: string, maxCommits: number): ParsedCommit[] {
+function readGitLog(repoPath: string, maxCommits: number, base?: string): ParsedCommit[] {
   // git log limit. Callers pass max_commits from FrameCandidatesOptions
   // (default 500). We clamp here so a careless caller can't blow past the
   // 64 MB maxBuffer below — at ~10 KB/commit average that ceiling is roughly
   // 6k commits; 5k leaves headroom.
   const cap = Math.min(Math.max(maxCommits, 0), 5000);
+  const range = base ? [`${base}..HEAD`] : [];
   let raw = "";
   try {
     raw = execFileSync(
       "git",
-      ["-C", repoPath, "log", `-n${cap}`, "--format=%H%x00%s%x00%an%x00%at", "--name-status"],
+      ["-C", repoPath, "log", `-n${cap}`, ...range, "--format=%H%x00%s%x00%an%x00%at", "--name-status"],
       { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
     );
   } catch (err: unknown) {
@@ -49,8 +65,8 @@ function clusterKey(message: string): string {
  * decision-worthy change happened and which files it touched; the LLM supplies
  * the rationale the messages lack.
  */
-export function clusterCommitCandidates(repoPath: string, maxCommits: number): DecisionCandidate[] {
-  const commits = readGitLog(repoPath, maxCommits);
+export function clusterCommitCandidates(repoPath: string, maxCommits: number, base?: string): DecisionCandidate[] {
+  const commits = readGitLog(repoPath, maxCommits, base);
   const buckets = new Map<string, ParsedCommit[]>();
   for (const c of commits) {
     const key = clusterKey(c.message);

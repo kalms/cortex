@@ -63,11 +63,21 @@ function cmdCandidates(cmd: DecisionCommand, ctx: ProjectContext): void {
     );
   }
   const max = rawMax;
+  const base = typeof cmd.flags["base"] === "string" && cmd.flags["base"].length > 0
+    ? cmd.flags["base"]
+    : undefined;
   // repo_path must be the git root, not the invocation cwd — otherwise running
   // `cortex decision candidates` from a subdirectory misses docs/ ADRs.
-  const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max });
-  // Always JSON — this is a machine manifest, not a human row list.
-  process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+  try {
+    const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max, base });
+    // Always JSON — this is a machine manifest, not a human row list.
+    process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("invalid base ref")) {
+      throw new UsageError(e.message, "Example: cortex decision candidates --base=main");
+    }
+    throw e;
+  }
 }
 
 function cmdCount(_cmd: DecisionCommand, ctx: ProjectContext): void {

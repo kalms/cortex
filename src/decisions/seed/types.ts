@@ -25,4 +25,7 @@ export interface FrameCandidatesOptions {
   repo_path: string;
   max_candidates?: number; // default DEFAULT_MAX_CANDIDATES
   max_commits?: number;    // default DEFAULT_MAX_COMMITS
+  /** Git ref: scope to base..HEAD commits and base...HEAD-touched docs
+   *  (warm path). Omitted = whole-history cold start. Invalid ref throws. */
+  base?: string;
 }

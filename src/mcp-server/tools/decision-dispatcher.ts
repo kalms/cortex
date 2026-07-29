@@ -88,6 +88,8 @@ const decisionShape = {
   qualified_name: z.string().optional(),
   // candidates
   max_candidates: z.number().int().positive().optional(),
+  base: z.string().min(1).optional()
+    .describe("candidates: scope to base..HEAD (warm path). Omit for cold start"),
   // link
   decision_id: z.string().optional(),
   target: z.string().optional(),
