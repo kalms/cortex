@@ -75,6 +75,16 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/suggest-capture.sh",
+            "if": "Bash(git merge*)"
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/suggest-capture.sh",
+            "if": "Bash(gh pr merge*)"
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-commit-refresh.sh",
             "if": "Bash(git commit*)"
           }

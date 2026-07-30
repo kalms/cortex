@@ -27,6 +27,7 @@ import { runContractExtraction } from "../../contracts/run-contracts.js";
 import { computeContractReport } from "./contract-tools.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { changesSinceShape, changesSinceSchema, changesSinceAction } from "./changes-since.js";
 import {
   buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec, runCodeSearch,
 } from "../../graph/code-search.js";
@@ -445,6 +446,21 @@ export function registerCodeTools(
         );
       },
       { resolver },
+    ),
+  );
+
+  // changes_since — temporal layer (field-report P8, lean v1). TS-side, no
+  // indexer round-trip: git supplies the commit window, ctx.graphDb supplies
+  // node identity, the decisions sidecar supplies the why-layer.
+  server.tool(
+    "changes_since",
+    "What changed since a ref, date, or decision id: commits + affected graph nodes + decisions created/reconciled/governing the change",
+    changesSinceShape,
+    registerTool(
+      "changes_since",
+      changesSinceSchema,
+      async (ctx, args) => changesSinceAction(ctx, args),
+      { resolver, freshnessAware: true },
     ),
   );
 

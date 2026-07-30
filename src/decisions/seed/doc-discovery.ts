@@ -39,13 +39,18 @@ function walkMarkdown(root: string, dir: string, out: string[]): void {
  * docs under a docs/ tree are medium-confidence prose. Top-level READMEs and
  * non-doc markdown are ignored — they are rarely decision records.
  */
-export function discoverDocCandidates(repoPath: string): DecisionCandidate[] {
+export function discoverDocCandidates(
+  repoPath: string,
+  onlyPaths?: ReadonlySet<string>,
+): DecisionCandidate[] {
   const files: string[] = [];
   walkMarkdown(repoPath, repoPath, files);
   const candidates: DecisionCandidate[] = [];
 
   for (const abs of files) {
     const rel = relative(repoPath, abs).split(sep).join("/");
+    // Warm path (base set): only docs touched in the scoped diff qualify.
+    if (onlyPaths && !onlyPaths.has(rel)) continue;
     let body = "";
     try {
       if (statSync(abs).size > 512 * 1024) continue; // skip huge generated docs

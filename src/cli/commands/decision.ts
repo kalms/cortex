@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
+import { Registry } from "../../db/registry.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { DecisionsRepository } from "../../decisions/repository.js";
 import { DecisionLinksRepository } from "../../decisions/links-repository.js";
@@ -63,11 +66,21 @@ function cmdCandidates(cmd: DecisionCommand, ctx: ProjectContext): void {
     );
   }
   const max = rawMax;
+  const base = typeof cmd.flags["base"] === "string" && cmd.flags["base"].length > 0
+    ? cmd.flags["base"]
+    : undefined;
   // repo_path must be the git root, not the invocation cwd — otherwise running
   // `cortex decision candidates` from a subdirectory misses docs/ ADRs.
-  const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max });
-  // Always JSON — this is a machine manifest, not a human row list.
-  process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+  try {
+    const manifest = frameCandidates({ repo_path: ctx.gitRoot ?? ctx.cwd, max_candidates: max, base });
+    // Always JSON — this is a machine manifest, not a human row list.
+    process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("invalid base ref")) {
+      throw new UsageError(e.message, "Example: cortex decision candidates --base=main");
+    }
+    throw e;
+  }
 }
 
 function cmdCount(_cmd: DecisionCommand, ctx: ProjectContext): void {
@@ -117,12 +130,25 @@ export async function runDecisionCommand(cmd: DecisionCommand, ctx: ProjectConte
 }
 
 function cmdList(cmd: DecisionCommand, ctx: ProjectContext): void {
+  const query = typeof cmd.flags.query === "string" ? cmd.flags.query : "";
+  const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
+
+  if (cmd.flags["cross-repo"]) {
+    const rows = crossRepoRows(ctx, query);
+    writeRows(
+      rows,
+      fmt,
+      query
+        ? `no decisions matched '${query}' in any registered repo`
+        : `no decisions in any registered repo`,
+    );
+    return;
+  }
+
   const { db, svc } = openService(ctx);
   try {
-    const query = typeof cmd.flags.query === "string" ? cmd.flags.query : "";
     const results = query ? svc.search(query) : svc.list();
     const rows = results.map((d) => ({ id: d.id, title: d.title, status: d.status }));
-    const fmt = chooseFormat(cmd.flags.format as string | undefined, process.stdout.isTTY);
     writeRows(
       rows,
       fmt,
@@ -133,6 +159,79 @@ function cmdList(cmd: DecisionCommand, ctx: ProjectContext): void {
   } finally {
     db.close();
   }
+}
+
+/**
+ * CLI half of P5 cross-repo decision search (contract per decision D-hajs):
+ * fan out over the master registry, flat rows with a `repo` column,
+ * addressed repo first, unreachable rows noted on stderr — stdout stays
+ * parseable. Lighter than the MCP fan-out on purpose: only each repo's
+ * decisions sidecar is opened (no graph DB, no indexed-repo requirement).
+ */
+function crossRepoRows(
+  ctx: ProjectContext,
+  query: string,
+): Array<{ repo: string; id: string; title: string; status: string }> {
+  if (ctx.state === "no-project") {
+    throw new EnvironmentError(
+      "decisions require a git repository — cd into a repo first",
+      "cortex tour    to see what's available without a project",
+    );
+  }
+  const rows: Array<{ repo: string; id: string; title: string; status: string }> = [];
+  const skipped: Array<{ repo: string; path: string; reason: string }> = [];
+  // Dedupe on the RESOLVED sidecar path: worktrees/clones of one repo share a
+  // durable store, and a CORTEX_DECISIONS_DB override collapses every repo to
+  // one file — either way the same DB must not be read (and re-listed) twice.
+  const seenDbPaths = new Set<string>();
+
+  const homeRoot = ctx.gitRoot ?? ctx.cwd;
+  const collect = (repoName: string, root: string) => {
+    const dbPath = resolveDecisionsDbPath(root);
+    if (seenDbPaths.has(dbPath)) return;
+    seenDbPaths.add(dbPath);
+    if (!existsSync(dbPath)) return; // no sidecar yet — zero decisions, not an error
+    const db = openDecisionsDb(dbPath, legacyDecisionsDbPath(root));
+    try {
+      const repo = new DecisionsRepository(db);
+      for (const d of query ? repo.search(query) : repo.list()) {
+        rows.push({ repo: repoName, id: d.id, title: d.title, status: d.status });
+      }
+    } finally {
+      db.close();
+    }
+  };
+
+  collect(basename(homeRoot), homeRoot);
+
+  let registry: Registry | null = null;
+  try {
+    registry = new Registry();
+    for (const r of registry.list()) {
+      try {
+        if (!existsSync(r.root_path)) {
+          skipped.push({ repo: r.name, path: r.root_path, reason: "path missing" });
+          continue;
+        }
+        collect(r.name, r.root_path);
+      } catch (e) {
+        skipped.push({
+          repo: r.name,
+          path: r.root_path,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  } catch {
+    process.stderr.write("cortex: cross-repo: registry unavailable — searched the current repo only\n");
+  } finally {
+    registry?.close();
+  }
+
+  for (const s of skipped) {
+    process.stderr.write(`cortex: cross-repo: skipped ${s.repo} (${s.path}): ${s.reason}\n`);
+  }
+  return rows;
 }
 
 function cmdShow(cmd: DecisionCommand, ctx: ProjectContext): void {

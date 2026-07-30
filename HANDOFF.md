@@ -2,6 +2,24 @@
 
 ## ✅ Recently shipped
 
+- **v1.8.1 — agentic-experience followups (field-report P4/P5/P8; P7 closed).**
+  The last items from the 2026-06-12 field report, each re-judged against the
+  current codebase before implementation:
+  - **P5 (as planned):** `decision({action:"search", cross_repo:true})` fans
+    out over the registry, grouped-per-repo hits + `skipped` (no cross-DB rank
+    merge — FTS5 rank isn't comparable). `T-4sbr`.
+  - **P4 (amended):** no server-side drafting (Cortex has no LLM; drafts are
+    proposed-only per `D-vz80`) — instead `candidates` gained `base` (branch
+    scoping: `base..HEAD` commits, diff-touched docs) and suggest-capture
+    became a merge-aware drafting trigger (`candidates base:"HEAD^1"` →
+    `propose author:"cortex:draft"` → user ratifies). `T-51f1`.
+  - **P8 (amended down, large→medium):** lean `changes_since(since, scope?)`
+    — since = ref | ISO date | decision id; returns commits + affected graph
+    nodes + decisions created/reconciled/governing-changed. TS-side. `T-nq4m`.
+  - **P7(b/c) closed without code:** descriptions already tight post-1.0.0;
+    host-side deferred MCP schema loading (Claude Code ToolSearch) made
+    server-side lazy-loading moot. `T-v9w3` cancelled with rationale.
+
 - **v1.8.0 — durable stories (show-your-work slice 2b).** MERGED + TAGGED
   (PR #63 → `0b47b32`, released 2026-07-25). `show` gains
   `story|advance|get|list|close|delete`: stories are `S-xxxx` entities in the
@@ -75,10 +93,9 @@
    fragmented/test-mixed clusters and the substrate-band core domain (`SRC·863`
    mega-frame), the ceiling the taxonomy observe phase repeatedly hit. Deferred
    in `D-8vbv`.
-4. **Remaining agentic-experience items** (2026-06-12 field report): **P4**
-   warm-path decision drafting, **P5** cross-repo decision search, **P7(b/c)**
-   tighten tool descriptions / lazy-load the long tail, **P8** temporal
-   `changes_since`. (P1/P2/P3/P6 shipped; P7(a) shipped in 1.0.0.)
+4. ~~Remaining agentic-experience items~~ — SHIPPED in 1.8.1 (P4/P5/P8
+   implemented as amended, P7(b/c) closed; see Recently shipped). The
+   2026-06-12 field-report line is now fully closed.
 
 **Tier 2/3 reflex roadmap:** provenance chain `todo→decision→PR→code`,
 static×runtime fusion via `ingest_traces`, CI-gate-as-conscience; cross-repo

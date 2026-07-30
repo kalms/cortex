@@ -82,10 +82,14 @@ const decisionShape = {
   // search
   query: z.string().optional(),
   scope: z.string().optional(),
+  cross_repo: z.boolean().optional()
+    .describe("search: fan out over every registered repo; results grouped per repo"),
   // why
   qualified_name: z.string().optional(),
   // candidates
   max_candidates: z.number().int().positive().optional(),
+  base: z.string().min(1).optional()
+    .describe("candidates: scope to base..HEAD (warm path). Omit for cold start"),
   // link
   decision_id: z.string().optional(),
   target: z.string().optional(),
@@ -129,7 +133,7 @@ export const decisionHandler = (
         case "get":
           return getDecisionAction(ctx, args as any, bus, indexerProject);
         case "search":
-          return searchDecisionsAction(ctx, args as any, bus, indexerProject);
+          return searchDecisionsAction(ctx, args as any, bus, indexerProject, resolver);
         case "why":
           return whyWasThisBuiltAction(ctx, args as any, bus, indexerProject);
         case "candidates":

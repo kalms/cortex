@@ -5,7 +5,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { validateDecisionFields } from "./decision-input-validation.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
-import { type RepoContext } from "../repo-context.js";
+import { type RepoContext, type RepoContextResolver, deriveProjectName } from "../repo-context.js";
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
 import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
@@ -52,6 +52,8 @@ const searchDecisionsShape = {
   repo_path: RepoPathField,
   query: z.string().describe("Search query (FTS5 syntax)"),
   scope: z.string().optional().describe("Qualified name or file path to scope results"),
+  cross_repo: z.boolean().optional()
+    .describe("Fan out over every registered repo; results grouped per repo"),
 } as const;
 const searchDecisionsSchema = z.object(searchDecisionsShape);
 
@@ -120,6 +122,8 @@ const whyWasThisBuiltSchema = z.object(whyWasThisBuiltShape);
 const decisionCandidatesShape = {
   repo_path: RepoPathField,
   max_candidates: z.number().int().positive().optional().describe("Cap on returned candidates (default 20)"),
+  base: z.string().min(1).optional()
+    .describe("Git ref: scope candidates to base..HEAD (warm path, e.g. after a merge). Omit for whole-history cold start"),
 } as const;
 const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 
@@ -326,8 +330,19 @@ export async function searchDecisionsAction(
   args: z.infer<typeof searchDecisionsSchema>,
   bus?: EventBus,
   indexerProject?: string | null,
+  resolver?: RepoContextResolver,
 ) {
   const { query, scope } = args;
+  if (args.cross_repo) {
+    if (scope) {
+      return errorResponse(
+        "malformed_input",
+        "scope cannot be combined with cross_repo — scope is a single-repo governs filter",
+      );
+    }
+    return execAction(null, () =>
+      crossRepoSearch(ctx, query, bus, indexerProject, resolver));
+  }
   return execAction(null, () => {
     let results = serviceForCtx(ctx, bus, indexerProject).search(query);
     if (scope) {
@@ -347,6 +362,61 @@ export async function searchDecisionsAction(
       .filter((d): d is NonNullable<typeof d> => d != null);
     return attachDecisionReconciliation(ctx, rawForAttach, okResult);
   });
+}
+
+/**
+ * cross_repo search body: FTS the addressed repo, then every other repo the
+ * resolver knows (pooled + master registry), grouping hits per repo. Repos
+ * that fail to resolve (deleted path, not a git repo, not indexed) are
+ * reported in `skipped` — a broken registry row must never fail the search.
+ *
+ * Deliberate limits: results stay GROUPED per repo (FTS5 rank values are not
+ * comparable across databases, so no merged ranking), and reconciliation
+ * attach is single-repo-only (verdict hashing walks a working tree; doing
+ * that across N repos per search is not worth the read cost).
+ */
+function crossRepoSearch(
+  ctx: RepoContext,
+  query: string,
+  bus?: EventBus,
+  indexerProject?: string | null,
+  resolver?: RepoContextResolver,
+) {
+  const repos: Array<{ repo: string; path: string; decisions: unknown[] }> = [];
+  const skipped: Array<{ repo: string; path: string; reason: string }> = [];
+
+  const seen = new Set<string>([ctx.repoPath]);
+  const home = serviceForCtx(ctx, bus, indexerProject).search(query);
+  if (home.length > 0) {
+    // Same naming convention as the fan-out entries (registry rows use
+    // deriveProjectName too), so one repo never appears under two names.
+    repos.push({ repo: deriveProjectName(ctx.repoPath), path: ctx.repoPath, decisions: home });
+  }
+
+  for (const known of resolver?.listKnownRepos() ?? []) {
+    if (seen.has(known.path)) continue;
+    seen.add(known.path);
+    try {
+      const other = resolver!.resolve(known.path);
+      if (seen.has(other.repoPath) && other.repoPath !== known.path) continue; // symlink/canonical dup
+      seen.add(other.repoPath);
+      const hits = serviceForCtx(other, bus, indexerProject).search(query);
+      if (hits.length > 0) repos.push({ repo: known.name, path: known.path, decisions: hits });
+    } catch (e) {
+      skipped.push({
+        repo: known.name,
+        path: known.path,
+        reason: e instanceof Error ? e.constructor.name : String(e),
+      });
+    }
+  }
+
+  // Zero hits with a clean fan-out is a plain no-results; zero hits with
+  // skipped repos is NOT — the caller must see that the answer is partial.
+  if (repos.length === 0 && skipped.length === 0) {
+    return empty(`search_decisions(${query}, cross_repo)`);
+  }
+  return ok(JSON.stringify({ query, repos, skipped }, null, 2));
 }
 
 export async function whyWasThisBuiltAction(
@@ -467,11 +537,19 @@ export async function decisionCandidatesAction(
     // dbPath-to-repo-root inference required. The function is read-only:
     // it never touches the decisions DB, just spawns `git log` under
     // ctx.repoPath and reads files via the filesystem.
-    const manifest = frameCandidates({
-      repo_path: ctx.repoPath,
-      max_candidates: args.max_candidates,
-    });
-    return ok(JSON.stringify(manifest, null, 2));
+    try {
+      const manifest = frameCandidates({
+        repo_path: ctx.repoPath,
+        max_candidates: args.max_candidates,
+        base: args.base,
+      });
+      return ok(JSON.stringify(manifest, null, 2));
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("invalid base ref")) {
+        return errorResponse("malformed_input", e.message);
+      }
+      throw e;
+    }
   });
 }
 

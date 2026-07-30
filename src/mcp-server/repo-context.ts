@@ -100,7 +100,7 @@ export class RepoContextPool {
  * standalone indexer CLI so cache directory filenames line up with what
  * `list_projects` reports.
  */
-function deriveProjectName(absPath: string): string {
+export function deriveProjectName(absPath: string): string {
   return absPath.replace(/^\//, "").replace(/\//g, "-");
 }
 

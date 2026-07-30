@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { discoverDocCandidates } from "./doc-discovery.js";
-import { clusterCommitCandidates } from "./commit-clustering.js";
+import { clusterCommitCandidates, assertValidRef } from "./commit-clustering.js";
 import { DEFAULT_MAX_CANDIDATES, DEFAULT_MAX_COMMITS } from "./types.js";
 import type { DecisionCandidate, FrameCandidatesOptions, Confidence } from "./types.js";
 
@@ -20,9 +21,22 @@ export function frameCandidates(opts: FrameCandidatesOptions): DecisionCandidate
   const max = opts.max_candidates ?? DEFAULT_MAX_CANDIDATES;
   const maxCommits = opts.max_commits ?? DEFAULT_MAX_COMMITS;
 
+  // Warm path: scope docs to the base...HEAD diff so cold-start ADR noise
+  // can't drown the merged branch's own decisions.
+  let onlyDocs: ReadonlySet<string> | undefined;
+  if (opts.base) {
+    assertValidRef(opts.repo_path, opts.base);
+    const diff = execFileSync(
+      "git",
+      ["-C", opts.repo_path, "diff", "--name-only", `${opts.base}...HEAD`],
+      { encoding: "utf-8", maxBuffer: 16 * 1024 * 1024 },
+    );
+    onlyDocs = new Set(diff.split("\n").filter((l) => l.length > 0));
+  }
+
   const all: DecisionCandidate[] = [
-    ...discoverDocCandidates(opts.repo_path),
-    ...clusterCommitCandidates(opts.repo_path, maxCommits),
+    ...discoverDocCandidates(opts.repo_path, onlyDocs),
+    ...clusterCommitCandidates(opts.repo_path, maxCommits, opts.base),
   ];
 
   all.sort((a, b) => {
