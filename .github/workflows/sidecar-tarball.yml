@@ -1,0 +1,103 @@
+name: sidecar-tarball
+
+# Builds the self-contained sidecar tarball Mesh embeds (see mesh's
+# docs/superpowers/specs/2026-08-03-embedded-cortex-sidecar-design.md).
+# Runs when a release is published, or manually for an existing tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v1.8.1)"
+        required: true
+
+permissions:
+  contents: write # gh release upload
+
+jobs:
+  tarball:
+    runs-on: macos-14 # arm64 — the only published sidecar platform
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      # postinstall fetches bin/cortex-indexer (pinned version) — required cargo.
+      - name: Install
+        run: npm ci
+
+      - name: Guard — tag matches package.json
+        run: |
+          VERSION="${TAG#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "tag $TAG != package.json $PKG" >&2; exit 1
+          fi
+          test -x bin/cortex-indexer || { echo "bin/cortex-indexer missing (postinstall failed?)" >&2; exit 1; }
+
+      - name: Build
+        run: npm run build && npm run build:viewer
+
+      - name: Assemble staging tree
+        run: |
+          set -euo pipefail
+          STAGE="$RUNNER_TEMP/sidecar-stage"
+          mkdir -p "$STAGE"
+          cp package.json "$STAGE/"
+          cp -R dist "$STAGE/dist"
+          mkdir -p "$STAGE/src/viewer"
+          cp -R src/viewer/dist "$STAGE/src/viewer/dist"
+          mkdir -p "$STAGE/bin"
+          cp bin/cortex-indexer "$STAGE/bin/cortex-indexer"
+          chmod 755 "$STAGE/bin/cortex-indexer"
+          # Production node_modules: fresh install with cortex's own postinstall
+          # stripped (no indexer refetch, no git hooks) — dependency install
+          # scripts still run (ripgrep binary, better-sqlite3 build).
+          PROD="$RUNNER_TEMP/prod-install"
+          mkdir -p "$PROD"
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            delete p.scripts.postinstall;
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(p, null, 2));
+          ' "$PROD"
+          cp package-lock.json "$PROD/"
+          (cd "$PROD" && npm ci --omit=dev)
+          mv "$PROD/node_modules" "$STAGE/node_modules"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      # The extracted tree must actually serve before it may ship. The sidecar
+      # exits on stdin EOF, so hold stdin open while polling.
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          PORT=4599
+          (cd "$STAGE" && sleep 300 | CORTEX_VIEWER_PORT=$PORT node dist/index.js) &
+          SIDE=$!
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:$PORT/api/projects" >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$SIDE" 2>/dev/null || true
+          [ -n "$ok" ] || { echo "sidecar never became healthy" >&2; exit 1; }
+
+      - name: Tar, checksum, upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          NAME="cortex-sidecar-${VERSION}-darwin-arm64.tar.gz"
+          tar -czf "$NAME" -C "$STAGE" .
+          shasum -a 256 "$NAME" > "$NAME.sha256"
+          cat "$NAME.sha256"
+          gh release upload "$TAG" "$NAME" "$NAME.sha256" --clobber
