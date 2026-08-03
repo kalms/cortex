@@ -18,6 +18,31 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.8.2] — 2026-08-03
+
+Packaging release: makes Cortex embeddable as the Mesh app's sidecar. No
+tool or API behavior changes.
+
+### Added
+
+- **`sidecar-tarball` release workflow.** On every release publish (or manual
+  dispatch for an existing tag), CI builds and uploads
+  `cortex-sidecar-<version>-darwin-arm64.tar.gz` (+ `.sha256`) — a
+  self-contained sidecar tree (`dist/`, viewer assets, production
+  `node_modules`, and the prebuilt `cortex-indexer` at `bin/`) that downstream
+  apps (Mesh) pin by version + checksum and embed. The tarball is smoke-tested
+  (extract → serve → healthy) before upload; the tar step ships an explicit
+  five-entry allowlist so runtime state can never leak into the artifact.
+
+### Fixed
+
+- **`d3-force` was a devDependency but is imported at runtime** (viewer API →
+  frame layout) — a production-only install could never serve. Moved to
+  `dependencies`; caught by the sidecar smoke test.
+- **`better-sqlite3` bumped 11 → 12.** 11.x cannot compile against Electron
+  43's V8, which blocked Mesh's Electron-ABI rebuild of the embedded sidecar;
+  12.11.1 is drop-in (full suite green) and matches what Mesh itself ships.
+
 ## [1.8.1] — 2026-07-29
 
 The last items from the 2026-06-12 agentic-experience field report, each
@@ -1629,6 +1654,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
 [1.8.1]: https://github.com/ruevu/cortex/releases/tag/v1.8.1
 [1.8.0]: https://github.com/ruevu/cortex/releases/tag/v1.8.0
 [1.7.0]: https://github.com/ruevu/cortex/releases/tag/v1.7.0
