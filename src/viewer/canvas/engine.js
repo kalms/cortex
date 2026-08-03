@@ -2,7 +2,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera, MAX_ZOOM } from './camera.js';
-import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
+import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade, quantizeAlpha } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -808,14 +808,27 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return out;
   }
 
-  function nodePx(node) {
+  // `out` lets hot call sites (drawEdges' two live endpoints, the per-node
+  // draw loop, the node hit-test loop) write into a reusable scratch object
+  // instead of allocating a fresh {x,y} every call. Callers that need to
+  // retain the result past the NEXT nodePx call (e.g. an array of positions
+  // read back later, or a returned {x,y} the caller stores) must omit `out`
+  // and let this allocate — see the Task-9 call-site audit in the report.
+  function nodePx(node, out) {
     const frame = frameById.get(node.frameId);
     const f = framePx(frame);
-    return {
-      x: f.cx - f.w / 2 + node.rx * f.w,
-      y: f.cy - f.h / 2 + node.ry * f.h,
-    };
+    const p = out || {};
+    p.x = f.cx - f.w / 2 + node.rx * f.w;
+    p.y = f.cy - f.h / 2 + node.ry * f.h;
+    return p;
   }
+
+  // Module-scope scratch objects for the hot nodePx call sites (Task 9).
+  // drawEdges needs two — both endpoints of an edge are alive simultaneously.
+  const _edgeA = { x: 0, y: 0 };
+  const _edgeB = { x: 0, y: 0 };
+  const _nodeDrawScratch = { x: 0, y: 0 }; // drawNodes' per-node loop
+  const _hitTestScratch = { x: 0, y: 0 };  // nodeAtPoint's per-node hit-test loop
 
   // ── LOD: per-frame animated dot reveal. `shown` glides toward the budget;
   // dot i draws at alpha clamp(shown - i, 0, 1) so reveals/sheds fade
@@ -926,7 +939,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
       if (lod && lod.shown - n.revealRank < 0.5) return;
-      const p = nodePx(n);
+      const p = nodePx(n, _hitTestScratch);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
@@ -1864,9 +1877,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
           const tintFillAlpha = isLight()
             ? 0.08 * (fillAlpha / 0.25)
             : 0.032 * (fillAlphaActual / (0.25 * fillScale));
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintFillAlpha})`;
+          ctx.fillStyle = rgbaStr(lc[0], lc[1], lc[2], tintFillAlpha);
         } else {
-          ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+          ctx.fillStyle = rgbaStr(ff[0], ff[1], ff[2], fillAlphaActual);
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
@@ -1888,9 +1901,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
           const tintBorderAlpha = isLight()
             ? Math.min(0.95, 0.58 * (borderAlpha / (borderBase * borderAlphaMult)))
             : 0.22 * (borderAlpha / (borderBase * borderAlphaMult));
-          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintBorderAlpha})`;
+          ctx.strokeStyle = rgbaStr(lc[0], lc[1], lc[2], tintBorderAlpha);
         } else {
-          ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+          ctx.strokeStyle = rgbaStr(fb[0], fb[1], fb[2], borderAlpha);
         }
         ctx.lineWidth = isFocused ? 1.2 : 1;
         roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
@@ -2267,6 +2280,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     marginaliaRects.push({ type: 'viewall', id, tab, frameId, x: pillX, y: pillY, w: pillW, h: pillH });
   }
 
+  // Bucket map reused across calls: keys are quantized alphas (≤ 32 of them),
+  // so clearing + repopulating each drawEdges() call is cheap and avoids a
+  // fresh Map allocation per frame.
+  const _edgeBuckets = new Map();
   function drawEdges() {
     // Compute the max weight once so we can scale opacity. Falls back to 1
     // when all edges have unit weight (or none).
@@ -2277,6 +2294,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // Hoisted once per call (not per edge): inter-frame edges recede as the
     // camera zooms past fit, so zoomed-in reading stays local.
     const interZoomFade = interEdgeZoomFade(camera.zoom);
+    const eb = edgeRGB(); // same ink for every edge this call — hoisted out of the loop
+
+    // Pass 1: bucket visible edges by quantized alpha (1/32 steps). Same
+    // culling (frame visibility + LOD) and same alpha computation as before;
+    // quantizing only changes how many distinct strokeStyle values get used.
+    _edgeBuckets.clear();
     edges.forEach((e) => {
       if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
       const la = lodByFrame.get(nodes[e.a].frameId);
@@ -2285,8 +2308,6 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].revealRank)) : 1;
       const lodMul = Math.min(ra, rb) * detailShed;
       if (lodMul <= 0.01) return;
-      const a = nodePx(nodes[e.a]);
-      const b = nodePx(nodes[e.b]);
       // Inter-frame edges read at lower base alpha so they don't drown out
       // the local connectivity inside each frame. Then scale by sqrt(weight)
       // so a heavy CALLS relationship reads visibly heavier than a single
@@ -2295,17 +2316,35 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
       const zoomFade = e.interFrame ? interZoomFade : 1;
       const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul * zoomFade;
+      const q = quantizeAlpha(alpha);
 
-      ctx.save();
-      const eb = edgeRGB();
-      ctx.strokeStyle = `rgba(${eb[0]}, ${eb[1]}, ${eb[2]}, ${alpha})`;
-      ctx.lineWidth = 0.6;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      ctx.restore();
+      // Both endpoints alive at once (a and b), so drawEdges gets two scratch
+      // objects. Their .x/.y are copied into the bucket's flat number array
+      // immediately — nothing retains the scratch objects themselves.
+      const a = nodePx(nodes[e.a], _edgeA);
+      const b = nodePx(nodes[e.b], _edgeB);
+      let seg = _edgeBuckets.get(q);
+      if (!seg) _edgeBuckets.set(q, seg = []);
+      seg.push(a.x, a.y, b.x, b.y);
     });
+
+    // Pass 2: one memoized rgba() strokeStyle + one beginPath() + all
+    // segments + one stroke() per bucket — caps the per-frame
+    // strokeStyle/beginPath/stroke count at ≤32 instead of edge-count.
+    // lineWidth is constant across every edge, so it's set once here, and
+    // there is no save/restore at all: this function only ever sets
+    // strokeStyle/lineWidth, which every other draw pass in mainLoop already
+    // sets fresh before using.
+    ctx.lineWidth = 0.6;
+    for (const [q, seg] of _edgeBuckets) {
+      ctx.strokeStyle = rgbaStr(eb[0], eb[1], eb[2], q);
+      ctx.beginPath();
+      for (let i = 0; i < seg.length; i += 4) {
+        ctx.moveTo(seg[i], seg[i + 1]);
+        ctx.lineTo(seg[i + 2], seg[i + 3]);
+      }
+      ctx.stroke();
+    }
   }
 
   function findGoverningDecision(nodeIdx) {
@@ -2498,28 +2537,32 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const fp = computeFocusProgress();
     const focusedId = fp.focused;
 
+    // Hoisted: the per-node body below only ever sets fillStyle/strokeStyle/
+    // lineWidth/font/textAlign/textBaseline before using them — no clip, no
+    // transform — so one save/restore wraps the whole loop instead of two
+    // pairs (dot + label) per node.
+    ctx.save();
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
       const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
       const detail = reveal * detailShed;
       if (detail <= 0.01) return; // skip un-revealed dots entirely
-      const p = nodePx(n);
+      const p = nodePx(n, _nodeDrawScratch);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const isAnchor = anchorNodeIdx === i && inFocused;
       const isHovered = hoveredNodeIdx === i;
 
-      ctx.save();
       if (n.kind === 'decision') {
-        ctx.fillStyle = `rgba(74, 222, 128, ${0.85 * detail})`;
+        ctx.fillStyle = rgbaStr(74, 222, 128, 0.85 * detail);
         ctx.beginPath();
         ctx.arc(p.x, p.y, 2.8 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
       } else {
         const nb = nodeBaseRGB();
-        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, ${0.75 * detail})`;
+        ctx.fillStyle = rgbaStr(nb[0], nb[1], nb[2], 0.75 * detail);
         ctx.beginPath();
         ctx.arc(p.x, p.y, 1.9 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
@@ -2548,20 +2591,17 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.stroke();
       }
 
-      ctx.restore();
-
       const la = (lod ? lod.label : 0) * detail;
       if (la > 0.02 && n.kind !== 'decision') {
-        ctx.save();
         ctx.font = '400 9px "Geist Mono", monospace';
         const sl = subLabelRGB();
         ctx.fillStyle = `rgba(${sl[0]}, ${sl[1]}, ${sl[2]}, ${0.85 * la})`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(truncateEnd(ctx, n.name, 110), p.x + 5, p.y);
-        ctx.restore();
       }
     });
+    ctx.restore();
   }
 
   function roundedRect(ctx, x, y, w, h, r) {
@@ -2622,16 +2662,47 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return out;
   }
 
+  /** Middle-truncation with ellipsis — for labels whose SUFFIX carries the
+   *  identity (frame path labels: "…/deep/path/file.ts"). Same hot-loop
+   *  shape as truncateEnd (every visible frame label, every tick a frame is
+   *  drawn), so it's memoized the same way: bounded cache, size-guard 500.
+   *  Shares truncateCache — the 'M|' prefix can't collide with truncateEnd's
+   *  numeric-maxWidth-first keys. */
   function truncateMiddle(ctx, text, maxWidth) {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    const ell = '…';
-    for (let keep = text.length - 1; keep >= 2; keep--) {
-      const leftLen = Math.ceil(keep / 2);
-      const rightLen = keep - leftLen;
-      const candidate = text.slice(0, leftLen) + ell + text.slice(text.length - rightLen);
-      if (ctx.measureText(candidate).width <= maxWidth) return candidate;
+    const key = 'M|' + maxWidth + '|' + text;
+    const hit = truncateCache.get(key);
+    if (hit !== undefined) return hit;
+    let out = text;
+    if (ctx.measureText(text).width > maxWidth) {
+      out = '…';
+      for (let keep = text.length - 1; keep >= 2; keep--) {
+        const leftLen = Math.ceil(keep / 2);
+        const rightLen = keep - leftLen;
+        const candidate = text.slice(0, leftLen) + '…' + text.slice(text.length - rightLen);
+        if (ctx.measureText(candidate).width <= maxWidth) { out = candidate; break; }
+      }
     }
-    return ell;
+    if (truncateCache.size > 500) truncateCache.clear();
+    truncateCache.set(key, out);
+    return out;
+  }
+
+  /** Bounded memo for `rgba(r, g, b, a)` strings — HOT loops only (edge
+   *  buckets, per-node dot fills, per-frame box strokes/fills), not a
+   *  repo-wide rewrite of every template literal. Cleared wholesale past
+   *  2000 entries rather than LRU'd — alpha churns continuously (hover/LOD/
+   *  live-effect eases), so a bounded-and-cleared cache is simpler than
+   *  eviction bookkeeping for the same steady-state hit rate. */
+  const rgbaCache = new Map();
+  function rgbaStr(r, g, b, a) {
+    const k = ((r << 16) | (g << 8) | b) + '|' + a;
+    let v = rgbaCache.get(k);
+    if (v === undefined) {
+      v = `rgba(${r}, ${g}, ${b}, ${a})`;
+      if (rgbaCache.size > 2000) rgbaCache.clear();
+      rgbaCache.set(k, v);
+    }
+    return v;
   }
 
   /**
@@ -2766,6 +2837,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   function drawSpotlightEmphasis(now) {
     if (!spotlight || !spotlight.emphasis?.length || reducedMotion) return;
     const BASE = isLight() ? [24, 24, 27] : [237, 237, 237];
+    // Hoisted: no per-pair clip/transform below — strokeStyle/lineWidth/
+    // fillStyle are all set fresh before each use — so one save/restore wraps
+    // the whole loop instead of one pair per emphasis pair.
+    ctx.save();
     spotlight.emphasis.forEach((pair, i) => {
       const edgePx = drawnInterFrameEdgePx(pair.from, pair.to);
       const a = edgePx ? edgePx.a : frameCenterPx(pair.from);
@@ -2776,15 +2851,14 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const TRAIL = 0.18;
       const tx = a.x + (b.x - a.x) * Math.max(0, t - TRAIL);
       const ty = a.y + (b.y - a.y) * Math.max(0, t - TRAIL);
-      ctx.save();
       ctx.strokeStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.35)`;
       ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
       ctx.beginPath(); ctx.arc(hx, hy, 2.2, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.8)`;
       ctx.fill();
-      ctx.restore();
     });
+    ctx.restore();
   }
 
   // Presence layer draw: traversal synapse pulses + session cursors. Fully
@@ -2806,6 +2880,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // frames is currently drawn, the pulse RIDES that edge's actual endpoint
     // geometry (prototype drawSynapses); otherwise it runs frame-center to
     // frame-center as a fallback.
+    // Hoisted: no per-synapse clip/transform below, so one save/restore wraps
+    // the whole loop instead of one pair per synapse pulse.
+    ctx.save();
     for (const sy of presenceFx.synapses(now)) {
       const edgePx = drawnInterFrameEdgePx(sy.fromFrameId, sy.toFrameId);
       let a, b;
@@ -2824,7 +2901,6 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const TRAIL = 0.18; // trail spans this fraction of the segment behind the head
       const tx = a.x + (b.x - a.x) * Math.max(0, sy.t - TRAIL);
       const ty = a.y + (b.y - a.y) * Math.max(0, sy.t - TRAIL);
-      ctx.save();
       ctx.strokeStyle = `rgba(${r},${g},${bl},${(0.5 * fade).toFixed(3)})`;
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -2835,8 +2911,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       ctx.arc(hx, hy, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r},${g},${bl},${(0.9 * fade).toFixed(3)})`;
       ctx.fill();
-      ctx.restore();
     }
+    ctx.restore();
 
     // Session cursors — prototype v5 cursor treatment: a small breathing dot
     // whose color lerps from the neutral base ink toward the session hue by

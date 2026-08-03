@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade,
-  PX_PER_DOT, MIN_DOTS,
+  quantizeAlpha, PX_PER_DOT, MIN_DOTS,
 } from "../../src/viewer/canvas/lod.js";
 
 describe("lod", () => {
@@ -39,5 +39,20 @@ describe("lod", () => {
     expect(interEdgeZoomFade(1.25)).toBe(1);
     expect(interEdgeZoomFade(2.5)).toBeCloseTo(0.5, 5);
     expect(interEdgeZoomFade(4)).toBeCloseTo(Math.max(0.3, 0.3125), 5);
+  });
+  it("quantizeAlpha snaps to 1/32 steps and clamps to [0,1]", () => {
+    expect(quantizeAlpha(0.151)).toBe(0.15625);
+    expect(quantizeAlpha(0)).toBe(0);
+    expect(quantizeAlpha(1.2)).toBe(1);
+    expect(quantizeAlpha(-0.3)).toBe(0);
+  });
+  it("quantizeAlpha is monotonic over [0,1]", () => {
+    let prev = -Infinity;
+    for (let i = 0; i <= 100; i++) {
+      const a = i / 100;
+      const q = quantizeAlpha(a);
+      expect(q).toBeGreaterThanOrEqual(prev);
+      prev = q;
+    }
   });
 });
