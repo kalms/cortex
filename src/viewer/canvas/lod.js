@@ -40,3 +40,10 @@ export function interEdgeZoomFade(zoom) {
   if (zoom <= 1.25) return 1;
   return Math.max(0.3, 1.25 / zoom);
 }
+
+/** Quantize an edge alpha to 1/32 steps so strokes can batch per bucket —
+ *  visually indistinguishable at edge alphas (≤ ~0.2), and it caps the
+ *  per-frame strokeStyle/beginPath count at 32 instead of edge-count. */
+export function quantizeAlpha(a) {
+  return Math.min(1, Math.max(0, Math.round(a * 32) / 32));
+}

@@ -67,6 +67,28 @@ export function createLiveEffects({ reducedMotion = false } = {}) {
     noteChange,
     recordDotPos(id, x, y) { dotPos.set(id, { x, y }); },
 
+    /** True while any birth/halo/leader/heat/tombstone/pill is inside its
+     *  animation window — the render loop's "still settling?" probe. Applies
+     *  the same windows as the draw queries WITHOUT relying on a prior query
+     *  having pruned the maps: an entry for an off-canvas dot is never queried
+     *  (and so never self-cleans), and size-only checks would report it as
+     *  active forever. Pills are the exception — pills(now) runs on every draw
+     *  pass, so stale pills report active for exactly one pass to self-clean. */
+    isActive(now) {
+      if (reducedMotion) return pillsByActor.size > 0;
+      for (const t0 of births.values()) if (now - t0 < BIRTH_MS) return true;
+      for (const t0 of halos.values()) if (now - t0 < HALO_MS) return true;
+      for (const t0 of leaders.values()) if (now - t0 < LEADER_MS) return true;
+      for (const tb of tombs.values()) if (now - tb.t0 < REMOVE_MS) return true;
+      for (const h of heat.values()) {
+        if (h.value * (1 - (now - h.t0) / HEAT_DECAY_MS) > 0) return true;
+      }
+      for (const p of pillsByActor.values()) {
+        if (now - p.t0 < HALO_MS) return true; // pills() live window (non-reduced)
+      }
+      return pillsByActor.size > 0; // stale pills still need one pass to self-clean
+    },
+
     birth(id, now) {
       const t0 = births.get(id);
       if (t0 === undefined) return null;

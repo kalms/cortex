@@ -2,7 +2,7 @@ import { groupNodesIntoFrames, basenames, buildFrameGovernance, withGovernedFram
 import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera, MAX_ZOOM } from './camera.js';
-import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade } from './lod.js';
+import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade, quantizeAlpha } from './lod.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -68,6 +68,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (p.showTodos !== undefined) showTodos = p.showTodos;
     if (p.layerTint !== undefined) layersOn = p.layerTint;
     if (typeof p.showPresence === 'boolean') showPresence = p.showPresence;
+    invalidate();
   }
 
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -204,6 +205,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       for (const k of Object.keys(frameReveal)) delete frameReveal[k];
     }
     invalidateFrameGeometry();
+    invalidate();
   }
 
   // ── Live agent presence ────────────────────────────────────────────────
@@ -234,6 +236,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         presenceFx.setPath(p.session_id, path.length >= 2 ? path : [pending.toFrameId], now);
       }
     }
+    invalidate();
     scheduleRosterCallback();
   }
 
@@ -524,6 +527,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       invalidateFrameGeometry();
     }
     onLiveChangesApplied(changes);
+    invalidate();
   }
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
@@ -546,6 +550,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  anchor and fires onSpotlight with the exact ui-store shape Task 7 stores
    *  verbatim: { note, resolved: { frames, decisions, todos }, unresolved }. */
   function applySpotlight(cmd) {
+    invalidate(); // every path below mutates (or clears) the held spotlight
     if (!cmd || !cmd.refs || cmd.refs.length === 0) {
       spotlight = null;
       callbacks.onSpotlight?.(null);
@@ -645,6 +650,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   function setCamera(next, { animate = false } = {}) {
     if (animate) { camAnim = { from: { ...camera }, to: { ...next }, t0: performance.now() }; }
     else { camera = { ...next }; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+    invalidate();
   }
 
   function computeViewTransform() {
@@ -802,14 +808,27 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return out;
   }
 
-  function nodePx(node) {
+  // `out` lets hot call sites (drawEdges' two live endpoints, the per-node
+  // draw loop, the node hit-test loop) write into a reusable scratch object
+  // instead of allocating a fresh {x,y} every call. Callers that need to
+  // retain the result past the NEXT nodePx call (e.g. an array of positions
+  // read back later, or a returned {x,y} the caller stores) must omit `out`
+  // and let this allocate — see the Task-9 call-site audit in the report.
+  function nodePx(node, out) {
     const frame = frameById.get(node.frameId);
     const f = framePx(frame);
-    return {
-      x: f.cx - f.w / 2 + node.rx * f.w,
-      y: f.cy - f.h / 2 + node.ry * f.h,
-    };
+    const p = out || {};
+    p.x = f.cx - f.w / 2 + node.rx * f.w;
+    p.y = f.cy - f.h / 2 + node.ry * f.h;
+    return p;
   }
+
+  // Module-scope scratch objects for the hot nodePx call sites (Task 9).
+  // drawEdges needs two — both endpoints of an edge are alive simultaneously.
+  const _edgeA = { x: 0, y: 0 };
+  const _edgeB = { x: 0, y: 0 };
+  const _nodeDrawScratch = { x: 0, y: 0 }; // drawNodes' per-node loop
+  const _hitTestScratch = { x: 0, y: 0 };  // nodeAtPoint's per-node hit-test loop
 
   // ── LOD: per-frame animated dot reveal. `shown` glides toward the budget;
   // dot i draws at alpha clamp(shown - i, 0, 1) so reveals/sheds fade
@@ -870,6 +889,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     previousRecord = focusedRecord;
     focusedRecord = { type, id };
     recordDrawerT0 = performance.now();
+    invalidate();
   }
 
   function closeRecord() {
@@ -878,6 +898,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     focusedRecord = null;
     recordDrawerT0 = performance.now();
     for (const k of Object.keys(removedRecordSnapshots)) delete removedRecordSnapshots[k];
+    invalidate();
   }
 
   /** External command (React: drawer pills / palette / list). */
@@ -896,6 +917,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     canvas.height = canvas.clientHeight * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     invalidateFrameGeometry();
+    invalidate();
   }
 
   function marginaliaAtPoint(px, py) {
@@ -917,7 +939,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
       if (lod && lod.shown - n.revealRank < 0.5) return;
-      const p = nodePx(n);
+      const p = nodePx(n, _hitTestScratch);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
@@ -963,6 +985,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     focusedFrameId = frameId;
     focusT0 = performance.now();
     if (frameId === null) anchorNodeIdx = null;
+    invalidate();
     callbacks.onFrameFocus?.(focusedFrameId);
   }
 
@@ -980,9 +1003,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const labelFrame = (marginaliaHit || !showFrames) ? null : frameLabelAtPoint(px, py);
     const bodyFrame = (marginaliaHit || !showFrames) ? null : frameAtPoint(px, py);
 
+    // Hover invalidation discipline: invalidate() ONLY inside the
+    // changed-branches below — never unconditionally per mousemove, or an
+    // idle-but-moving cursor would keep the draw loop hot.
     const newHoveredMarginalia = marginaliaHit?.id || null;
     if (newHoveredMarginalia !== hoveredMarginaliaId) {
       hoveredMarginaliaId = newHoveredMarginalia;
+      invalidate();
     }
 
     const newHoveredLabel = labelFrame?.id || null;
@@ -990,6 +1017,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
     if (newHoveredLabel !== hoveredLabelFrameId) {
       hoveredLabelFrameId = newHoveredLabel;
+      invalidate();
     }
 
     if (newHoveredFrame !== hoveredFrameId) {
@@ -1003,6 +1031,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         frameHoverState[newHoveredFrame] = { direction: 'in', t0: now, startLevel: prev.level ?? 0 };
       }
       hoveredFrameId = newHoveredFrame;
+      invalidate();
     }
 
     if (nodeIdx !== hoveredNodeIdx) {
@@ -1015,16 +1044,29 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       if (nodeIdx !== null) {
         nodeHoverT0 = now;
       }
+      invalidate();
     }
 
     const decHover = decisionNodeAtPoint(px, py);
-    hoveredDecisionId = decHover ? decHover.id : null;
+    const newHoveredDecision = decHover ? decHover.id : null;
+    if (newHoveredDecision !== hoveredDecisionId) {
+      hoveredDecisionId = newHoveredDecision;
+      invalidate();
+    }
 
     const todoHover = todoNodeAtPoint(px, py);
-    hoveredTodoId = todoHover ? todoHover.id : null;
+    const newHoveredTodo = todoHover ? todoHover.id : null;
+    if (newHoveredTodo !== hoveredTodoId) {
+      hoveredTodoId = newHoveredTodo;
+      invalidate();
+    }
 
     const aggHover = aggregateAtPoint(px, py);
-    hoveredAggregateId = aggHover ? aggHover.id : null;
+    const newHoveredAggregate = aggHover ? aggHover.id : null;
+    if (newHoveredAggregate !== hoveredAggregateId) {
+      hoveredAggregateId = newHoveredAggregate;
+      invalidate();
+    }
 
     if (decHover || todoHover || aggHover) {
       canvas.style.cursor = 'pointer';
@@ -1062,6 +1104,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     hoveredTodoId = null;
     hoveredAggregateId = null;
     canvas.style.cursor = 'default';
+    // Rare discrete event (one per canvas exit) — a plain invalidate is fine.
+    invalidate();
   });
 
   canvas.addEventListener('dblclick', (e) => {
@@ -1166,6 +1210,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         pinnedT0 = performance.now();
       }
       anchorNodeIdx = nodeIdx;
+      invalidate(); // pin/anchor changed even when focus below is a no-op
       const fpArr = FRAME_FILE_PATHS[n.frameId];
       const fp = fpArr ? fpArr[n.indexInFrame] : null;
       if (fp) callbacks.onFileClick?.({ filePath: fp, frameId: n.frameId });
@@ -1179,6 +1224,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       lastPinnedNodeIdx = pinnedNodeIdx;
       pinnedLeavingT0 = performance.now();
       pinnedNodeIdx = null;
+      invalidate();
     }
 
     const labelFrame = showFrames ? frameLabelAtPoint(px, py) : null;
@@ -1203,6 +1249,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const rect = canvas.getBoundingClientRect();
     camAnim = null;
     camera = zoomAt(camera, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+    invalidate();
     callbacks.onCameraChange?.({ ...camera });
     // Below-fit overscroll (and a leftover pan at the fit floor) springs back
     // once the gesture pauses — same easing family as the focus transition.
@@ -1243,6 +1290,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
     camAnim = null;
     camera = panBy(panState.camAtStart, dx, dy);
+    invalidate();
     callbacks.onCameraChange?.({ ...camera });
   });
   function endPan(suppress) {
@@ -1829,9 +1877,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
           const tintFillAlpha = isLight()
             ? 0.08 * (fillAlpha / 0.25)
             : 0.032 * (fillAlphaActual / (0.25 * fillScale));
-          ctx.fillStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintFillAlpha})`;
+          ctx.fillStyle = rgbaStr(lc[0], lc[1], lc[2], tintFillAlpha);
         } else {
-          ctx.fillStyle = `rgba(${ff[0]}, ${ff[1]}, ${ff[2]}, ${fillAlphaActual})`;
+          ctx.fillStyle = rgbaStr(ff[0], ff[1], ff[2], fillAlphaActual);
         }
         ctx.fillRect(-f.w / 2, -f.h / 2, f.w, f.h);
 
@@ -1853,9 +1901,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
           const tintBorderAlpha = isLight()
             ? Math.min(0.95, 0.58 * (borderAlpha / (borderBase * borderAlphaMult)))
             : 0.22 * (borderAlpha / (borderBase * borderAlphaMult));
-          ctx.strokeStyle = `rgba(${lc[0]}, ${lc[1]}, ${lc[2]}, ${tintBorderAlpha})`;
+          ctx.strokeStyle = rgbaStr(lc[0], lc[1], lc[2], tintBorderAlpha);
         } else {
-          ctx.strokeStyle = `rgba(${fb[0]}, ${fb[1]}, ${fb[2]}, ${borderAlpha})`;
+          ctx.strokeStyle = rgbaStr(fb[0], fb[1], fb[2], borderAlpha);
         }
         ctx.lineWidth = isFocused ? 1.2 : 1;
         roundedRect(ctx, -f.w / 2, -f.h / 2, f.w, f.h, 4);
@@ -2232,6 +2280,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     marginaliaRects.push({ type: 'viewall', id, tab, frameId, x: pillX, y: pillY, w: pillW, h: pillH });
   }
 
+  // Bucket map reused across calls: keys are quantized alphas (≤ 32 of them),
+  // so clearing + repopulating each drawEdges() call is cheap and avoids a
+  // fresh Map allocation per frame.
+  const _edgeBuckets = new Map();
   function drawEdges() {
     // Compute the max weight once so we can scale opacity. Falls back to 1
     // when all edges have unit weight (or none).
@@ -2242,6 +2294,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // Hoisted once per call (not per edge): inter-frame edges recede as the
     // camera zooms past fit, so zoomed-in reading stays local.
     const interZoomFade = interEdgeZoomFade(camera.zoom);
+    const eb = edgeRGB(); // same ink for every edge this call — hoisted out of the loop
+
+    // Pass 1: bucket visible edges by quantized alpha (1/32 steps). Same
+    // culling (frame visibility + LOD) and same alpha computation as before;
+    // quantizing only changes how many distinct strokeStyle values get used.
+    _edgeBuckets.clear();
     edges.forEach((e) => {
       if (!visibleFrames.has(nodes[e.a].frameId) && !visibleFrames.has(nodes[e.b].frameId)) return;
       const la = lodByFrame.get(nodes[e.a].frameId);
@@ -2250,8 +2308,6 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const rb = lb ? Math.max(0, Math.min(1, lb.shown - nodes[e.b].revealRank)) : 1;
       const lodMul = Math.min(ra, rb) * detailShed;
       if (lodMul <= 0.01) return;
-      const a = nodePx(nodes[e.a]);
-      const b = nodePx(nodes[e.b]);
       // Inter-frame edges read at lower base alpha so they don't drown out
       // the local connectivity inside each frame. Then scale by sqrt(weight)
       // so a heavy CALLS relationship reads visibly heavier than a single
@@ -2260,17 +2316,35 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
       const zoomFade = e.interFrame ? interZoomFade : 1;
       const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul * zoomFade;
+      const q = quantizeAlpha(alpha);
 
-      ctx.save();
-      const eb = edgeRGB();
-      ctx.strokeStyle = `rgba(${eb[0]}, ${eb[1]}, ${eb[2]}, ${alpha})`;
-      ctx.lineWidth = 0.6;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      ctx.restore();
+      // Both endpoints alive at once (a and b), so drawEdges gets two scratch
+      // objects. Their .x/.y are copied into the bucket's flat number array
+      // immediately — nothing retains the scratch objects themselves.
+      const a = nodePx(nodes[e.a], _edgeA);
+      const b = nodePx(nodes[e.b], _edgeB);
+      let seg = _edgeBuckets.get(q);
+      if (!seg) _edgeBuckets.set(q, seg = []);
+      seg.push(a.x, a.y, b.x, b.y);
     });
+
+    // Pass 2: one memoized rgba() strokeStyle + one beginPath() + all
+    // segments + one stroke() per bucket — caps the per-frame
+    // strokeStyle/beginPath/stroke count at ≤32 instead of edge-count.
+    // lineWidth is constant across every edge, so it's set once here, and
+    // there is no save/restore at all: this function only ever sets
+    // strokeStyle/lineWidth, which every other draw pass in mainLoop already
+    // sets fresh before using.
+    ctx.lineWidth = 0.6;
+    for (const [q, seg] of _edgeBuckets) {
+      ctx.strokeStyle = rgbaStr(eb[0], eb[1], eb[2], q);
+      ctx.beginPath();
+      for (let i = 0; i < seg.length; i += 4) {
+        ctx.moveTo(seg[i], seg[i + 1]);
+        ctx.lineTo(seg[i + 2], seg[i + 3]);
+      }
+      ctx.stroke();
+    }
   }
 
   function findGoverningDecision(nodeIdx) {
@@ -2463,28 +2537,32 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const fp = computeFocusProgress();
     const focusedId = fp.focused;
 
+    // Hoisted: the per-node body below only ever sets fillStyle/strokeStyle/
+    // lineWidth/font/textAlign/textBaseline before using them — no clip, no
+    // transform — so one save/restore wraps the whole loop instead of two
+    // pairs (dot + label) per node.
+    ctx.save();
     nodes.forEach((n, i) => {
       if (!visibleFrames.has(n.frameId)) return;
       const lod = lodByFrame.get(n.frameId);
       const reveal = lod ? Math.max(0, Math.min(1, lod.shown - n.revealRank)) : 1;
       const detail = reveal * detailShed;
       if (detail <= 0.01) return; // skip un-revealed dots entirely
-      const p = nodePx(n);
+      const p = nodePx(n, _nodeDrawScratch);
       const frame = frameById.get(n.frameId);
       const inFocused = focusedId && frame?.id === focusedId;
       const sizeMult = inFocused ? 1 + 0.4 * fp.t : (fp.from && frame?.id === fp.from ? 1 + 0.4 * (1 - fp.t) : 1);
       const isAnchor = anchorNodeIdx === i && inFocused;
       const isHovered = hoveredNodeIdx === i;
 
-      ctx.save();
       if (n.kind === 'decision') {
-        ctx.fillStyle = `rgba(74, 222, 128, ${0.85 * detail})`;
+        ctx.fillStyle = rgbaStr(74, 222, 128, 0.85 * detail);
         ctx.beginPath();
         ctx.arc(p.x, p.y, 2.8 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
       } else {
         const nb = nodeBaseRGB();
-        ctx.fillStyle = `rgba(${nb[0]}, ${nb[1]}, ${nb[2]}, ${0.75 * detail})`;
+        ctx.fillStyle = rgbaStr(nb[0], nb[1], nb[2], 0.75 * detail);
         ctx.beginPath();
         ctx.arc(p.x, p.y, 1.9 * sizeMult, 0, Math.PI * 2);
         ctx.fill();
@@ -2513,20 +2591,17 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         ctx.stroke();
       }
 
-      ctx.restore();
-
       const la = (lod ? lod.label : 0) * detail;
       if (la > 0.02 && n.kind !== 'decision') {
-        ctx.save();
         ctx.font = '400 9px "Geist Mono", monospace';
         const sl = subLabelRGB();
         ctx.fillStyle = `rgba(${sl[0]}, ${sl[1]}, ${sl[2]}, ${0.85 * la})`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(truncateEnd(ctx, n.name, 110), p.x + 5, p.y);
-        ctx.restore();
       }
     });
+    ctx.restore();
   }
 
   function roundedRect(ctx, x, y, w, h, r) {
@@ -2567,10 +2642,16 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   /** End-truncation with ellipsis — for labels whose PREFIX carries the
    *  identity (marginalia: "D-12 · summary…"). Runs inside the rAF loop for
    *  every visible pill, so results are memoized: inputs are stable per label
-   *  (fixed 10px mono font, constant MARGINALIA_MAX_W-derived width). */
+   *  (fixed 10px mono font, constant MARGINALIA_MAX_W-derived width). Keyed on
+   *  `ctx.font` (not just maxWidth+text): truncateEnd is called from two
+   *  different font contexts sharing this cache (marginalia pills' 10px
+   *  Geist Mono, drawNodes' 9px sub-labels) — measureText depends on
+   *  whatever font is currently set, so a coincidental text+maxWidth match
+   *  across those two contexts would otherwise silently serve a truncation
+   *  measured at the wrong font. */
   const truncateCache = new Map();
   function truncateEnd(ctx, text, maxWidth) {
-    const key = maxWidth + '|' + text;
+    const key = ctx.font + '|' + maxWidth + '|' + text;
     const hit = truncateCache.get(key);
     if (hit !== undefined) return hit;
     let out = '…';
@@ -2587,16 +2668,48 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return out;
   }
 
+  /** Middle-truncation with ellipsis — for labels whose SUFFIX carries the
+   *  identity (frame path labels: "…/deep/path/file.ts"). Same hot-loop
+   *  shape as truncateEnd (every visible frame label, every tick a frame is
+   *  drawn), so it's memoized the same way: bounded cache, size-guard 500.
+   *  Shares truncateCache — the 'M|' prefix can't collide with truncateEnd's
+   *  keys. Also keyed on `ctx.font` for the same reason truncateEnd is (see
+   *  above) — cheap and correct since measureText already depends on it. */
   function truncateMiddle(ctx, text, maxWidth) {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    const ell = '…';
-    for (let keep = text.length - 1; keep >= 2; keep--) {
-      const leftLen = Math.ceil(keep / 2);
-      const rightLen = keep - leftLen;
-      const candidate = text.slice(0, leftLen) + ell + text.slice(text.length - rightLen);
-      if (ctx.measureText(candidate).width <= maxWidth) return candidate;
+    const key = 'M|' + ctx.font + '|' + maxWidth + '|' + text;
+    const hit = truncateCache.get(key);
+    if (hit !== undefined) return hit;
+    let out = text;
+    if (ctx.measureText(text).width > maxWidth) {
+      out = '…';
+      for (let keep = text.length - 1; keep >= 2; keep--) {
+        const leftLen = Math.ceil(keep / 2);
+        const rightLen = keep - leftLen;
+        const candidate = text.slice(0, leftLen) + '…' + text.slice(text.length - rightLen);
+        if (ctx.measureText(candidate).width <= maxWidth) { out = candidate; break; }
+      }
     }
-    return ell;
+    if (truncateCache.size > 500) truncateCache.clear();
+    truncateCache.set(key, out);
+    return out;
+  }
+
+  /** Bounded memo for `rgba(r, g, b, a)` strings — HOT loops only (edge
+   *  buckets, per-node dot fills, per-frame box strokes/fills), not a
+   *  repo-wide rewrite of every template literal. Cleared wholesale past
+   *  2000 entries rather than LRU'd — alpha churns continuously (hover/LOD/
+   *  live-effect eases), so a bounded-and-cleared cache is simpler than
+   *  eviction bookkeeping for the same steady-state hit rate. */
+  const rgbaCache = new Map();
+  function rgbaStr(r, g, b, a) {
+    const k = ((r << 16) | (g << 8) | b) + '|' + a;
+    let v = rgbaCache.get(k);
+    if (v === undefined) {
+      v = `rgba(${r}, ${g}, ${b}, ${a})`;
+      if (rgbaCache.size > 2000) rgbaCache.clear();
+      rgbaCache.set(k, v);
+    }
+    return v;
   }
 
   /**
@@ -2731,6 +2844,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   function drawSpotlightEmphasis(now) {
     if (!spotlight || !spotlight.emphasis?.length || reducedMotion) return;
     const BASE = isLight() ? [24, 24, 27] : [237, 237, 237];
+    // Hoisted: no per-pair clip/transform below — strokeStyle/lineWidth/
+    // fillStyle are all set fresh before each use — so one save/restore wraps
+    // the whole loop instead of one pair per emphasis pair.
+    ctx.save();
     spotlight.emphasis.forEach((pair, i) => {
       const edgePx = drawnInterFrameEdgePx(pair.from, pair.to);
       const a = edgePx ? edgePx.a : frameCenterPx(pair.from);
@@ -2741,15 +2858,14 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const TRAIL = 0.18;
       const tx = a.x + (b.x - a.x) * Math.max(0, t - TRAIL);
       const ty = a.y + (b.y - a.y) * Math.max(0, t - TRAIL);
-      ctx.save();
       ctx.strokeStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.35)`;
       ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
       ctx.beginPath(); ctx.arc(hx, hy, 2.2, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${BASE[0]},${BASE[1]},${BASE[2]},0.8)`;
       ctx.fill();
-      ctx.restore();
     });
+    ctx.restore();
   }
 
   // Presence layer draw: traversal synapse pulses + session cursors. Fully
@@ -2771,6 +2887,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // frames is currently drawn, the pulse RIDES that edge's actual endpoint
     // geometry (prototype drawSynapses); otherwise it runs frame-center to
     // frame-center as a fallback.
+    // Hoisted: no per-synapse clip/transform below, so one save/restore wraps
+    // the whole loop instead of one pair per synapse pulse.
+    ctx.save();
     for (const sy of presenceFx.synapses(now)) {
       const edgePx = drawnInterFrameEdgePx(sy.fromFrameId, sy.toFrameId);
       let a, b;
@@ -2789,7 +2908,6 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const TRAIL = 0.18; // trail spans this fraction of the segment behind the head
       const tx = a.x + (b.x - a.x) * Math.max(0, sy.t - TRAIL);
       const ty = a.y + (b.y - a.y) * Math.max(0, sy.t - TRAIL);
-      ctx.save();
       ctx.strokeStyle = `rgba(${r},${g},${bl},${(0.5 * fade).toFixed(3)})`;
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -2800,8 +2918,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       ctx.arc(hx, hy, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r},${g},${bl},${(0.9 * fade).toFixed(3)})`;
       ctx.fill();
-      ctx.restore();
     }
+    ctx.restore();
 
     // Session cursors — prototype v5 cursor treatment: a small breathing dot
     // whose color lerps from the neutral base ink toward the session hue by
@@ -2951,32 +3069,98 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
   }
 
+  // ── Idle discipline (perf phase 1): the rAF heartbeat always runs, but the
+  // ten draw passes execute only when something changed (needsDraw, set by
+  // invalidate() from every discrete mutation) or an animation is mid-flight
+  // (animating(now) consults each self-settling source). A missed invalidate
+  // shows as a stale frame — when adding a mutation, add its invalidate().
+  let needsDraw = true;
+  function invalidate() { needsDraw = true; }
+
+  function animating(now) {
+    // Camera lerp (setCamera animate / fitToFrames / settle springs).
+    if (camAnim) return true;
+    // Focus / defocus frame transition.
+    if ((focusedFrameId || previousFocusId) && now - focusT0 < FOCUS_DURATION) return true;
+    // Record drawer open/close ease.
+    if (now - recordDrawerT0 < RECORD_DRAWER_DURATION) return true;
+    // Frame hover border/fill eases (an 'in' entry persists at level 1; the
+    // window check lets it settle without keeping the loop hot).
+    for (const id in frameHoverState) {
+      const st = frameHoverState[id];
+      if (st && now - st.t0 < Math.max(HOVER_IN_MS, HOVER_OUT_MS)) return true;
+    }
+    // Node hover pill/ring: delayed fade-in, then fade-out after leave.
+    if (hoveredNodeIdx !== null && now - nodeHoverT0 < NODE_HOVER_DELAY + NODE_HOVER_IN_MS) return true;
+    if (lastHoveredNodeIdx !== null && now - nodeHoverLeaveT0 < NODE_HOVER_OUT_MS) return true;
+    // Pinned info-pill in/out eases (click-pinned hover pill).
+    if (pinnedNodeIdx !== null && now - pinnedT0 < PIN_IN_MS) return true;
+    if (lastPinnedNodeIdx !== null && now - pinnedLeavingT0 < PIN_OUT_MS) return true;
+    // Decision id-pill expand/collapse eases (entries persist; window-gated).
+    for (const id in decisionExpandState) {
+      const st = decisionExpandState[id];
+      if (now - st.t0 < Math.max(DECISION_EXPAND_IN_MS, DECISION_EXPAND_OUT_MS)) return true;
+    }
+    // LOD reveal glides — visible frames only (computeLod skips culled frames,
+    // freezing their glide; a frozen off-viewport glide must not hold the loop
+    // hot). Window check, not shown !== target: the FP lerp lands on
+    // from + (target-from)*1, which need not compare equal to target.
+    for (const fr of FRAMES) {
+      if (!visibleFrames.has(fr.id)) continue;
+      const st = frameReveal[fr.id];
+      if (st && st.t0 !== 0 && now - st.t0 < REVEAL_MS) return true;
+    }
+    // Anchor-node ring pulses continuously while a focused frame holds one.
+    if (anchorNodeIdx !== null && focusedFrameId !== null) return true;
+    // Spotlight: dim-in ease, then looping emphasis pulses while held.
+    if (spotlight) {
+      if (now - spotlight.t0 < FOCUS_DURATION) return true;
+      if (!reducedMotion && spotlight.emphasis?.length) return true;
+    }
+    // Live-change treatments (births/halos/leaders/heat/tombstones/pills).
+    if (liveFx.isActive(now)) return true;
+    // Presence cursors breathe continuously while a roster exists; synapse and
+    // heat windows too. Gated on showPresence — nothing presence-related draws
+    // while hidden, and re-enabling goes through setLayerPrefs → invalidate().
+    if (showPresence && presenceFx.isActive(now)) return true;
+    return false;
+  }
+
   function mainLoop() {
     const now = performance.now();
 
-    // Idle/gone roster transitions age without any inbound event, so poke the
-    // (throttled) roster callback periodically to let them propagate to React.
+    // Heartbeat work stays unconditional: idle/gone roster transitions age
+    // without any inbound event, so poke the (throttled) roster callback
+    // periodically to let them propagate to React even while draws are skipped.
     if ((presenceTick = (presenceTick + 1) % 60) === 0) scheduleRosterCallback();
 
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    viewTransform = compose(computeViewTransform(), cameraNow(now));
-    framePxCache.clear();
-    computeVisibleFrames();
-    computeLod(now);
-    // Edges are the lowest layer — everything (frames, nodes, marginalia)
-    // reads on top of the connectivity web, not under it.
-    drawEdges();
-    drawFrames(now);
-    drawNodes(now);
-    drawMarginalia();
-    if (showDecisions) drawFloatingDecisionNodes(now);
-    else decisionNodeRects.length = 0;
-    if (showTodos) drawFloatingTodoNodes(now);
-    else todoNodeRects.length = 0;
-    drawAggregates(now);
-    drawHoverPill(now);
-    drawCompactHoverBadge(now);
-    drawLiveEffects(now);
+    if (needsDraw || animating(now)) {
+      needsDraw = false;
+      // Full-store clear (not clientWidth): between a CSS resize and an
+      // embedder's debounced backing-store realloc the store is larger than
+      // the client box, and a clientWidth clear leaves stale columns on
+      // shrink. clearRect runs under the DPR setTransform, so width/height in
+      // user units over-clear — clamped and harmless.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      viewTransform = compose(computeViewTransform(), cameraNow(now));
+      framePxCache.clear();
+      computeVisibleFrames();
+      computeLod(now);
+      // Edges are the lowest layer — everything (frames, nodes, marginalia)
+      // reads on top of the connectivity web, not under it.
+      drawEdges();
+      drawFrames(now);
+      drawNodes(now);
+      drawMarginalia();
+      if (showDecisions) drawFloatingDecisionNodes(now);
+      else decisionNodeRects.length = 0;
+      if (showTodos) drawFloatingTodoNodes(now);
+      else todoNodeRects.length = 0;
+      drawAggregates(now);
+      drawHoverPill(now);
+      drawCompactHoverBadge(now);
+      drawLiveEffects(now);
+    }
 
     rafId = requestAnimationFrame(mainLoop);
   }
@@ -3010,6 +3194,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     getCamera: () => ({ ...camera }),
     setCamera,
     fitToFrames,
+    // Request one draw pass on the next rAF tick. For embedder-side visual
+    // state the engine can't observe — e.g. a theme flip re-resolving the
+    // isLight() probe — and any future mutation without its own invalidate.
+    invalidate,
     start,
     resize,
     destroy,

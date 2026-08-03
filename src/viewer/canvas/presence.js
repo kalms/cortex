@@ -206,6 +206,29 @@ export function createPresence({ reducedMotion = false } = {}) {
     setPath,
     pendingTarget,
 
+    /** True while anything presence-drawn is alive or still settling — the
+     *  render loop's "still settling?" probe. A session inside its GONE window
+     *  keeps this true (cursors breathe / idle-dim / color-fade continuously
+     *  while a roster exists, in reducedMotion too); otherwise any in-flight
+     *  synapse or still-decaying flash/trail heat holds it. Applies the same
+     *  windows as the queries WITHOUT relying on sessions()/roster() having
+     *  pruned the maps. */
+    isActive(now) {
+      for (const s of sess.values()) {
+        if (now - s.lastSeen <= GONE_MS) return true;
+      }
+      for (const sy of syn) {
+        if (now - sy.t0 < TRAVERSE_SEG_MS) return true;
+      }
+      for (const h of flash.values()) {
+        if (h.value * (1 - (now - h.t0) / PRESENCE_FLASH_MS) > 0) return true;
+      }
+      for (const h of trail.values()) {
+        if (h.value * (1 - (now - h.t0) / PRESENCE_HEAT_MS) > 0) return true;
+      }
+      return false;
+    },
+
     sessions(now) {
       prune(now);
       const out = [];

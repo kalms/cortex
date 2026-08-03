@@ -163,6 +163,39 @@ describe("presence state machine", () => {
     expect(p.sessions(T0)[0].frameId).toBe(null);
   });
 
+  // ── isActive: the render loop's "still settling?" probe ──────────────────
+
+  it("isActive is false on a fresh instance", () => {
+    const p = createPresence();
+    expect(p.isActive(T0)).toBe(false);
+  });
+
+  it("isActive: false → true while a session is inside its GONE window → false after", () => {
+    const p = createPresence();
+    expect(p.isActive(T0)).toBe(false);
+    p.noteActivity({ sessionId: "s1", workspace: "w", activity: "edited", frameIds: ["1"], now: T0 });
+    expect(p.isActive(T0)).toBe(true);
+    expect(p.isActive(T0 + IDLE_MS + 1)).toBe(true);   // idle sessions still draw (dimmed)
+    // Past GONE_MS the session is dropped from every query; heat decayed long ago.
+    expect(p.isActive(T0 + GONE_MS + 1)).toBe(false);
+  });
+
+  it("isActive does not rely on sessions() having pruned the roster", () => {
+    const p = createPresence();
+    p.noteActivity({ sessionId: "s1", workspace: "w", activity: "edited", frameIds: ["1"], now: T0 });
+    // No sessions()/roster() query in between — the sess map still holds the
+    // entry, but the GONE window has elapsed.
+    expect(p.isActive(T0 + GONE_MS + 1)).toBe(false);
+  });
+
+  it("isActive under reducedMotion still reports the live roster", () => {
+    const p = createPresence({ reducedMotion: true });
+    expect(p.isActive(T0)).toBe(false);
+    p.noteActivity({ sessionId: "s1", workspace: "w", activity: "edited", frameIds: ["1"], now: T0 });
+    expect(p.isActive(T0)).toBe(true);
+    expect(p.isActive(T0 + GONE_MS + 1)).toBe(false);
+  });
+
   it("synapses tolerate non-monotonic query time: skip not-yet-started, preserve in-flight", () => {
     const p = createPresence();
     p.noteActivity({ sessionId: "s1", workspace: "w", activity: "studied", frameIds: ["1"], now: T0 });

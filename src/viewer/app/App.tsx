@@ -18,7 +18,12 @@ export function App() {
   const bundle = useUiStore((s) => s.bundle);
   const deepLinked = useRef(false);
 
-  useEffect(() => { document.body.classList.toggle("light", theme === "light"); }, [theme]);
+  useEffect(() => {
+    document.body.classList.toggle("light", theme === "light");
+    // The engine's isLight() probe reads this body class; the flip is invisible
+    // to it, so request a draw pass (the idle render loop skips unchanged frames).
+    engineRef?.invalidate();
+  }, [theme]);
   // One-shot deep link: opens a story ONLY when ?story= is present on the
   // first bundle load — the viewer must never auto-open a story otherwise.
   useEffect(() => {
