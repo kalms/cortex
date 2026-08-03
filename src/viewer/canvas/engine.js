@@ -2642,10 +2642,16 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   /** End-truncation with ellipsis — for labels whose PREFIX carries the
    *  identity (marginalia: "D-12 · summary…"). Runs inside the rAF loop for
    *  every visible pill, so results are memoized: inputs are stable per label
-   *  (fixed 10px mono font, constant MARGINALIA_MAX_W-derived width). */
+   *  (fixed 10px mono font, constant MARGINALIA_MAX_W-derived width). Keyed on
+   *  `ctx.font` (not just maxWidth+text): truncateEnd is called from two
+   *  different font contexts sharing this cache (marginalia pills' 10px
+   *  Geist Mono, drawNodes' 9px sub-labels) — measureText depends on
+   *  whatever font is currently set, so a coincidental text+maxWidth match
+   *  across those two contexts would otherwise silently serve a truncation
+   *  measured at the wrong font. */
   const truncateCache = new Map();
   function truncateEnd(ctx, text, maxWidth) {
-    const key = maxWidth + '|' + text;
+    const key = ctx.font + '|' + maxWidth + '|' + text;
     const hit = truncateCache.get(key);
     if (hit !== undefined) return hit;
     let out = '…';
@@ -2667,9 +2673,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  shape as truncateEnd (every visible frame label, every tick a frame is
    *  drawn), so it's memoized the same way: bounded cache, size-guard 500.
    *  Shares truncateCache — the 'M|' prefix can't collide with truncateEnd's
-   *  numeric-maxWidth-first keys. */
+   *  keys. Also keyed on `ctx.font` for the same reason truncateEnd is (see
+   *  above) — cheap and correct since measureText already depends on it. */
   function truncateMiddle(ctx, text, maxWidth) {
-    const key = 'M|' + maxWidth + '|' + text;
+    const key = 'M|' + ctx.font + '|' + maxWidth + '|' + text;
     const hit = truncateCache.get(key);
     if (hit !== undefined) return hit;
     let out = text;
