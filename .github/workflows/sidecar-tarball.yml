@@ -80,7 +80,12 @@ jobs:
         run: |
           set -euo pipefail
           PORT=4599
-          (cd "$STAGE" && sleep 300 | CORTEX_VIEWER_PORT=$PORT node dist/index.js) &
+          # Run with cwd outside $STAGE — the sidecar resolves .cortex/ relative
+          # to cwd when started outside a git repo, and $STAGE must stay pristine
+          # (only the allowlisted tree gets tarred below).
+          SCRATCH="$RUNNER_TEMP/smoke-cwd"
+          mkdir -p "$SCRATCH"
+          (cd "$SCRATCH" && sleep 300 | CORTEX_VIEWER_PORT=$PORT node "$STAGE/dist/index.js") &
           SIDE=$!
           ok=""
           for i in $(seq 1 60); do
@@ -97,7 +102,10 @@ jobs:
           set -euo pipefail
           VERSION="${TAG#v}"
           NAME="cortex-sidecar-${VERSION}-darwin-arm64.tar.gz"
-          tar -czf "$NAME" -C "$STAGE" .
+          # Allowlist, not cleanup: archive only the expected top-level
+          # entries, so stray state (e.g. a .cortex/ dir written by some
+          # future step) can never ship regardless of what touches $STAGE.
+          tar -czf "$NAME" -C "$STAGE" package.json dist src node_modules bin
           shasum -a 256 "$NAME" > "$NAME.sha256"
           cat "$NAME.sha256"
           gh release upload "$TAG" "$NAME" "$NAME.sha256" --clobber
