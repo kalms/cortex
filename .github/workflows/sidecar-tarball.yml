@@ -26,7 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag || 'v1.8.1' }}
+          # TEMP(trial): push fallback checks out the pushed commit
+          # (github.sha), not the frozen v1.8.1 tag — otherwise fix commits
+          # on this branch would never actually get built during the trial.
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
