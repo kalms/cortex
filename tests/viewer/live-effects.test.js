@@ -76,6 +76,56 @@ describe("createLiveEffects", () => {
     expect(fx.pills(100).length).toBe(2);
   });
 
+  // ── isActive: the render loop's "still settling?" probe ──────────────────
+
+  it("isActive is false on a fresh instance", () => {
+    const fx = createLiveEffects();
+    expect(fx.isActive(0)).toBe(false);
+  });
+
+  it("isActive: false → true after noteChange → false once every window elapses", () => {
+    const fx = createLiveEffects();
+    expect(fx.isActive(0)).toBe(false);
+    fx.noteChange({ ...base, kind: "update", now: 1000 });
+    expect(fx.isActive(1000)).toBe(true);                       // halo + leader + heat + pill live
+    expect(fx.isActive(1000 + LEADER_MS + 1)).toBe(true);       // leader done, halo/heat/pill remain
+    // Longest windows here are HALO_MS (halo + pill) and HEAT_DECAY_MS (heat).
+    const allDone = 1000 + Math.max(HALO_MS, HEAT_DECAY_MS) + 1;
+    // Stale pills report active for one pass until a pills() query self-cleans.
+    expect(fx.isActive(allDone)).toBe(true);
+    fx.pills(allDone);
+    expect(fx.isActive(allDone)).toBe(false);
+  });
+
+  it("isActive does not rely on a prior query having pruned the maps", () => {
+    const fx = createLiveEffects();
+    fx.noteChange({ ...base, kind: "create", now: 0 });
+    // No birth()/leaderBoost()/frameHeat() queries in between: the maps still
+    // hold entries, but every window has elapsed → not active (pills excepted,
+    // which need one self-clean pass).
+    const late = Math.max(HALO_MS, HEAT_DECAY_MS) + 1;
+    fx.pills(late); // clear the attribution pill
+    expect(fx.isActive(late)).toBe(false);
+  });
+
+  it("isActive covers a remove's tombstone window", () => {
+    const fx = createLiveEffects();
+    fx.recordDotPos("d1", 1, 2);
+    fx.noteChange({ ...base, kind: "remove", now: 0 });
+    fx.pills(HALO_MS + 1); // drop the attribution pill so only the tombstone could hold it
+    expect(fx.isActive(REMOVE_MS - 1)).toBe(true);
+    expect(fx.isActive(Math.max(HALO_MS, HEAT_DECAY_MS) + 1)).toBe(false);
+  });
+
+  it("isActive under reducedMotion tracks only the pills", () => {
+    const fx = createLiveEffects({ reducedMotion: true });
+    expect(fx.isActive(0)).toBe(false);
+    fx.noteChange({ ...base, kind: "update", now: 0 });
+    expect(fx.isActive(0)).toBe(true);
+    fx.pills(2001); // REDUCED_PILL_MS elapsed → query self-cleans
+    expect(fx.isActive(2001)).toBe(false);
+  });
+
   it("reducedMotion collapses motion but keeps attribution pills", () => {
     const fx = createLiveEffects({ reducedMotion: true });
     fx.recordDotPos("d1", 1, 2);

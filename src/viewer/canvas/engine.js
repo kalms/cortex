@@ -68,6 +68,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     if (p.showTodos !== undefined) showTodos = p.showTodos;
     if (p.layerTint !== undefined) layersOn = p.layerTint;
     if (typeof p.showPresence === 'boolean') showPresence = p.showPresence;
+    invalidate();
   }
 
   function agentAUserRGB()        { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -204,6 +205,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       for (const k of Object.keys(frameReveal)) delete frameReveal[k];
     }
     invalidateFrameGeometry();
+    invalidate();
   }
 
   // ── Live agent presence ────────────────────────────────────────────────
@@ -234,6 +236,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         presenceFx.setPath(p.session_id, path.length >= 2 ? path : [pending.toFrameId], now);
       }
     }
+    invalidate();
     scheduleRosterCallback();
   }
 
@@ -524,6 +527,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       invalidateFrameGeometry();
     }
     onLiveChangesApplied(changes);
+    invalidate();
   }
 
   function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
@@ -546,6 +550,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  anchor and fires onSpotlight with the exact ui-store shape Task 7 stores
    *  verbatim: { note, resolved: { frames, decisions, todos }, unresolved }. */
   function applySpotlight(cmd) {
+    invalidate(); // every path below mutates (or clears) the held spotlight
     if (!cmd || !cmd.refs || cmd.refs.length === 0) {
       spotlight = null;
       callbacks.onSpotlight?.(null);
@@ -645,6 +650,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   function setCamera(next, { animate = false } = {}) {
     if (animate) { camAnim = { from: { ...camera }, to: { ...next }, t0: performance.now() }; }
     else { camera = { ...next }; camAnim = null; callbacks.onCameraChange?.({ ...camera }); }
+    invalidate();
   }
 
   function computeViewTransform() {
@@ -870,6 +876,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     previousRecord = focusedRecord;
     focusedRecord = { type, id };
     recordDrawerT0 = performance.now();
+    invalidate();
   }
 
   function closeRecord() {
@@ -878,6 +885,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     focusedRecord = null;
     recordDrawerT0 = performance.now();
     for (const k of Object.keys(removedRecordSnapshots)) delete removedRecordSnapshots[k];
+    invalidate();
   }
 
   /** External command (React: drawer pills / palette / list). */
@@ -896,6 +904,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     canvas.height = canvas.clientHeight * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     invalidateFrameGeometry();
+    invalidate();
   }
 
   function marginaliaAtPoint(px, py) {
@@ -963,6 +972,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     focusedFrameId = frameId;
     focusT0 = performance.now();
     if (frameId === null) anchorNodeIdx = null;
+    invalidate();
     callbacks.onFrameFocus?.(focusedFrameId);
   }
 
@@ -980,9 +990,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const labelFrame = (marginaliaHit || !showFrames) ? null : frameLabelAtPoint(px, py);
     const bodyFrame = (marginaliaHit || !showFrames) ? null : frameAtPoint(px, py);
 
+    // Hover invalidation discipline: invalidate() ONLY inside the
+    // changed-branches below — never unconditionally per mousemove, or an
+    // idle-but-moving cursor would keep the draw loop hot.
     const newHoveredMarginalia = marginaliaHit?.id || null;
     if (newHoveredMarginalia !== hoveredMarginaliaId) {
       hoveredMarginaliaId = newHoveredMarginalia;
+      invalidate();
     }
 
     const newHoveredLabel = labelFrame?.id || null;
@@ -990,6 +1004,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
     if (newHoveredLabel !== hoveredLabelFrameId) {
       hoveredLabelFrameId = newHoveredLabel;
+      invalidate();
     }
 
     if (newHoveredFrame !== hoveredFrameId) {
@@ -1003,6 +1018,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         frameHoverState[newHoveredFrame] = { direction: 'in', t0: now, startLevel: prev.level ?? 0 };
       }
       hoveredFrameId = newHoveredFrame;
+      invalidate();
     }
 
     if (nodeIdx !== hoveredNodeIdx) {
@@ -1015,16 +1031,29 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       if (nodeIdx !== null) {
         nodeHoverT0 = now;
       }
+      invalidate();
     }
 
     const decHover = decisionNodeAtPoint(px, py);
-    hoveredDecisionId = decHover ? decHover.id : null;
+    const newHoveredDecision = decHover ? decHover.id : null;
+    if (newHoveredDecision !== hoveredDecisionId) {
+      hoveredDecisionId = newHoveredDecision;
+      invalidate();
+    }
 
     const todoHover = todoNodeAtPoint(px, py);
-    hoveredTodoId = todoHover ? todoHover.id : null;
+    const newHoveredTodo = todoHover ? todoHover.id : null;
+    if (newHoveredTodo !== hoveredTodoId) {
+      hoveredTodoId = newHoveredTodo;
+      invalidate();
+    }
 
     const aggHover = aggregateAtPoint(px, py);
-    hoveredAggregateId = aggHover ? aggHover.id : null;
+    const newHoveredAggregate = aggHover ? aggHover.id : null;
+    if (newHoveredAggregate !== hoveredAggregateId) {
+      hoveredAggregateId = newHoveredAggregate;
+      invalidate();
+    }
 
     if (decHover || todoHover || aggHover) {
       canvas.style.cursor = 'pointer';
@@ -1062,6 +1091,8 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     hoveredTodoId = null;
     hoveredAggregateId = null;
     canvas.style.cursor = 'default';
+    // Rare discrete event (one per canvas exit) — a plain invalidate is fine.
+    invalidate();
   });
 
   canvas.addEventListener('dblclick', (e) => {
@@ -1166,6 +1197,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
         pinnedT0 = performance.now();
       }
       anchorNodeIdx = nodeIdx;
+      invalidate(); // pin/anchor changed even when focus below is a no-op
       const fpArr = FRAME_FILE_PATHS[n.frameId];
       const fp = fpArr ? fpArr[n.indexInFrame] : null;
       if (fp) callbacks.onFileClick?.({ filePath: fp, frameId: n.frameId });
@@ -1179,6 +1211,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       lastPinnedNodeIdx = pinnedNodeIdx;
       pinnedLeavingT0 = performance.now();
       pinnedNodeIdx = null;
+      invalidate();
     }
 
     const labelFrame = showFrames ? frameLabelAtPoint(px, py) : null;
@@ -1203,6 +1236,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const rect = canvas.getBoundingClientRect();
     camAnim = null;
     camera = zoomAt(camera, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015));
+    invalidate();
     callbacks.onCameraChange?.({ ...camera });
     // Below-fit overscroll (and a leftover pan at the fit floor) springs back
     // once the gesture pauses — same easing family as the focus transition.
@@ -1243,6 +1277,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
     camAnim = null;
     camera = panBy(panState.camAtStart, dx, dy);
+    invalidate();
     callbacks.onCameraChange?.({ ...camera });
   });
   function endPan(suppress) {
@@ -2951,32 +2986,98 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     }
   }
 
+  // ── Idle discipline (perf phase 1): the rAF heartbeat always runs, but the
+  // ten draw passes execute only when something changed (needsDraw, set by
+  // invalidate() from every discrete mutation) or an animation is mid-flight
+  // (animating(now) consults each self-settling source). A missed invalidate
+  // shows as a stale frame — when adding a mutation, add its invalidate().
+  let needsDraw = true;
+  function invalidate() { needsDraw = true; }
+
+  function animating(now) {
+    // Camera lerp (setCamera animate / fitToFrames / settle springs).
+    if (camAnim) return true;
+    // Focus / defocus frame transition.
+    if ((focusedFrameId || previousFocusId) && now - focusT0 < FOCUS_DURATION) return true;
+    // Record drawer open/close ease.
+    if (now - recordDrawerT0 < RECORD_DRAWER_DURATION) return true;
+    // Frame hover border/fill eases (an 'in' entry persists at level 1; the
+    // window check lets it settle without keeping the loop hot).
+    for (const id in frameHoverState) {
+      const st = frameHoverState[id];
+      if (st && now - st.t0 < Math.max(HOVER_IN_MS, HOVER_OUT_MS)) return true;
+    }
+    // Node hover pill/ring: delayed fade-in, then fade-out after leave.
+    if (hoveredNodeIdx !== null && now - nodeHoverT0 < NODE_HOVER_DELAY + NODE_HOVER_IN_MS) return true;
+    if (lastHoveredNodeIdx !== null && now - nodeHoverLeaveT0 < NODE_HOVER_OUT_MS) return true;
+    // Pinned info-pill in/out eases (click-pinned hover pill).
+    if (pinnedNodeIdx !== null && now - pinnedT0 < PIN_IN_MS) return true;
+    if (lastPinnedNodeIdx !== null && now - pinnedLeavingT0 < PIN_OUT_MS) return true;
+    // Decision id-pill expand/collapse eases (entries persist; window-gated).
+    for (const id in decisionExpandState) {
+      const st = decisionExpandState[id];
+      if (now - st.t0 < Math.max(DECISION_EXPAND_IN_MS, DECISION_EXPAND_OUT_MS)) return true;
+    }
+    // LOD reveal glides — visible frames only (computeLod skips culled frames,
+    // freezing their glide; a frozen off-viewport glide must not hold the loop
+    // hot). Window check, not shown !== target: the FP lerp lands on
+    // from + (target-from)*1, which need not compare equal to target.
+    for (const fr of FRAMES) {
+      if (!visibleFrames.has(fr.id)) continue;
+      const st = frameReveal[fr.id];
+      if (st && st.t0 !== 0 && now - st.t0 < REVEAL_MS) return true;
+    }
+    // Anchor-node ring pulses continuously while a focused frame holds one.
+    if (anchorNodeIdx !== null && focusedFrameId !== null) return true;
+    // Spotlight: dim-in ease, then looping emphasis pulses while held.
+    if (spotlight) {
+      if (now - spotlight.t0 < FOCUS_DURATION) return true;
+      if (!reducedMotion && spotlight.emphasis?.length) return true;
+    }
+    // Live-change treatments (births/halos/leaders/heat/tombstones/pills).
+    if (liveFx.isActive(now)) return true;
+    // Presence cursors breathe continuously while a roster exists; synapse and
+    // heat windows too. Gated on showPresence — nothing presence-related draws
+    // while hidden, and re-enabling goes through setLayerPrefs → invalidate().
+    if (showPresence && presenceFx.isActive(now)) return true;
+    return false;
+  }
+
   function mainLoop() {
     const now = performance.now();
 
-    // Idle/gone roster transitions age without any inbound event, so poke the
-    // (throttled) roster callback periodically to let them propagate to React.
+    // Heartbeat work stays unconditional: idle/gone roster transitions age
+    // without any inbound event, so poke the (throttled) roster callback
+    // periodically to let them propagate to React even while draws are skipped.
     if ((presenceTick = (presenceTick + 1) % 60) === 0) scheduleRosterCallback();
 
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    viewTransform = compose(computeViewTransform(), cameraNow(now));
-    framePxCache.clear();
-    computeVisibleFrames();
-    computeLod(now);
-    // Edges are the lowest layer — everything (frames, nodes, marginalia)
-    // reads on top of the connectivity web, not under it.
-    drawEdges();
-    drawFrames(now);
-    drawNodes(now);
-    drawMarginalia();
-    if (showDecisions) drawFloatingDecisionNodes(now);
-    else decisionNodeRects.length = 0;
-    if (showTodos) drawFloatingTodoNodes(now);
-    else todoNodeRects.length = 0;
-    drawAggregates(now);
-    drawHoverPill(now);
-    drawCompactHoverBadge(now);
-    drawLiveEffects(now);
+    if (needsDraw || animating(now)) {
+      needsDraw = false;
+      // Full-store clear (not clientWidth): between a CSS resize and an
+      // embedder's debounced backing-store realloc the store is larger than
+      // the client box, and a clientWidth clear leaves stale columns on
+      // shrink. clearRect runs under the DPR setTransform, so width/height in
+      // user units over-clear — clamped and harmless.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      viewTransform = compose(computeViewTransform(), cameraNow(now));
+      framePxCache.clear();
+      computeVisibleFrames();
+      computeLod(now);
+      // Edges are the lowest layer — everything (frames, nodes, marginalia)
+      // reads on top of the connectivity web, not under it.
+      drawEdges();
+      drawFrames(now);
+      drawNodes(now);
+      drawMarginalia();
+      if (showDecisions) drawFloatingDecisionNodes(now);
+      else decisionNodeRects.length = 0;
+      if (showTodos) drawFloatingTodoNodes(now);
+      else todoNodeRects.length = 0;
+      drawAggregates(now);
+      drawHoverPill(now);
+      drawCompactHoverBadge(now);
+      drawLiveEffects(now);
+    }
 
     rafId = requestAnimationFrame(mainLoop);
   }
@@ -3010,6 +3111,10 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     getCamera: () => ({ ...camera }),
     setCamera,
     fitToFrames,
+    // Request one draw pass on the next rAF tick. For embedder-side visual
+    // state the engine can't observe — e.g. a theme flip re-resolving the
+    // isLight() probe — and any future mutation without its own invalidate.
+    invalidate,
     start,
     resize,
     destroy,
