@@ -11,9 +11,6 @@ on:
       tag:
         description: "Existing tag to build (e.g. v1.8.1)"
         required: true
-  # TEMP(trial): push trigger for pre-merge testing — REMOVE before PR merge
-  push:
-    branches: [feat/sidecar-tarball-ci]
 
 permissions:
   contents: write # gh release upload
@@ -22,14 +19,11 @@ jobs:
   tarball:
     runs-on: macos-14 # arm64 — the only published sidecar platform
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag || 'v1.8.1' }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
-          # TEMP(trial): push fallback checks out the pushed commit
-          # (github.sha), not the frozen v1.8.1 tag — otherwise fix commits
-          # on this branch would never actually get built during the trial.
-          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: actions/setup-node@v6
         with:
