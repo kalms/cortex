@@ -10,10 +10,19 @@ let server: Server; let base: string; let bodies: any[] = [];
 let repo: string;
 
 const runHook = (payload: object, env: Record<string, string> = {}) => {
-  execFileSync('bash', [HOOK], {
-    input: JSON.stringify(payload),
-    env: { ...process.env, CORTEX_PRESENCE_URL: base, ...env },
-  });
+  try {
+    execFileSync('bash', [HOOK], {
+      input: JSON.stringify(payload),
+      env: { ...process.env, CORTEX_PRESENCE_URL: base, ...env },
+    });
+  } catch (e) {
+    // A hook that exits before reading stdin (CORTEX_PRESENCE=0's fast path,
+    // or any early guard) races execFileSync's input write: the pipe closes
+    // mid-write and the call throws EPIPE even though the child exited
+    // cleanly. That early exit is exactly the behavior under test — tolerate
+    // only that shape and rethrow everything else.
+    if ((e as NodeJS.ErrnoException)?.code !== 'EPIPE') throw e;
+  }
 };
 // The POST is backgrounded; poll briefly for arrival.
 const waitFor = async (n: number) => {
