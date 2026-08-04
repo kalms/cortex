@@ -3168,12 +3168,17 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   let rafId = null;
 
   function start() {
+    if (rafId !== null) return; // never double-schedule the loop
     resize();
     rafId = requestAnimationFrame(mainLoop);
   }
 
+  function stop() {
+    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+  }
+
   function destroy() {
-    if (rafId !== null) cancelAnimationFrame(rafId);
+    stop();
     if (rosterTimer !== null) { clearTimeout(rosterTimer); rosterTimer = null; }
     // canvas listeners are on the canvas element itself; removing the canvas
     // from the DOM (React unmount) drops them. No window listeners remain.
@@ -3199,6 +3204,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // isLight() probe — and any future mutation without its own invalidate.
     invalidate,
     start,
+    stop,
     resize,
     destroy,
   };
