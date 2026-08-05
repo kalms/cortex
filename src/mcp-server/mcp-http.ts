@@ -23,7 +23,17 @@ export function createMcpHttpHandler(
       enableJsonResponse: true,
     });
     res.on("close", () => { void transport.close(); void server.close(); });
-    await server.connect(transport);
-    await transport.handleRequest(req, res);
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error("Error handling MCP request:", error);
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: "Internal server error" }, id: null }));
+      }
+      void transport.close();
+      void server.close();
+    }
   };
 }
