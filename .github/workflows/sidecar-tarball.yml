@@ -58,6 +58,22 @@ jobs:
           mkdir -p "$STAGE/bin"
           cp bin/cortex-indexer "$STAGE/bin/cortex-indexer"
           chmod 755 "$STAGE/bin/cortex-indexer"
+          cp -R skills "$STAGE/skills"
+          cp -R hooks "$STAGE/hooks"
+          # Sidecar-variant plugin manifest: skills + hooks ONLY. Mesh injects
+          # the MCP transport itself (--mcp-config, HTTP); a mcpServers key here
+          # would double-spawn a server the packaged tree cannot run (no tsx).
+          node -e '
+            const fs = require("fs");
+            const version = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+            fs.writeFileSync(process.argv[1] + "/plugin.json", JSON.stringify({
+              name: "mesh-cortex",
+              version,
+              description: "Cortex skills + hooks for the Mesh-embedded sidecar (MCP arrives via Mesh-injected HTTP config)",
+              skills: "./skills/",
+              hooks: "./hooks/hooks.json",
+            }, null, 2) + "\n");
+          ' "$STAGE"
           # Production node_modules: fresh install with cortex's own postinstall
           # stripped (no indexer refetch, no git hooks) — dependency install
           # scripts still run (ripgrep binary, better-sqlite3 build).
@@ -92,8 +108,20 @@ jobs:
             if curl -fsS "http://127.0.0.1:$PORT/api/projects" >/dev/null 2>&1; then ok=1; break; fi
             sleep 1
           done
-          kill "$SIDE" 2>/dev/null || true
           [ -n "$ok" ] || { echo "sidecar never became healthy" >&2; exit 1; }
+          # /mcp answers JSON-RPC (initialize) — the endpoint mesh pins against.
+          curl -fsS -X POST "http://127.0.0.1:$PORT/mcp" \
+            -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' \
+            | grep -q '"serverInfo"' || { echo "/mcp did not answer initialize" >&2; exit 1; }
+          # Plugin assets staged and shaped right.
+          test -d "$STAGE/skills/capture-decision" || { echo "skills/ missing" >&2; exit 1; }
+          test -f "$STAGE/hooks/hooks.json" || { echo "hooks/ missing" >&2; exit 1; }
+          node -e '
+            const p = require(process.argv[1] + "/plugin.json");
+            if (p.name !== "mesh-cortex" || !p.skills || !p.hooks || "mcpServers" in p) process.exit(1);
+          ' "$STAGE" || { echo "staged plugin.json malformed" >&2; exit 1; }
+          kill "$SIDE" 2>/dev/null || true
 
       - name: Tar, checksum, upload
         env:
@@ -105,7 +133,9 @@ jobs:
           # Allowlist, not cleanup: archive only the expected top-level
           # entries, so stray state (e.g. a .cortex/ dir written by some
           # future step) can never ship regardless of what touches $STAGE.
-          tar -czf "$NAME" -C "$STAGE" package.json dist src node_modules bin
+          # skills/hooks/plugin.json are the Mesh-embedded plugin surface —
+          # see the "Assemble staging tree" step above.
+          tar -czf "$NAME" -C "$STAGE" package.json dist src node_modules bin skills hooks plugin.json
           shasum -a 256 "$NAME" > "$NAME.sha256"
           cat "$NAME.sha256"
           gh release upload "$TAG" "$NAME" "$NAME.sha256" --clobber

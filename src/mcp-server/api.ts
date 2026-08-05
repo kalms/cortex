@@ -42,6 +42,8 @@ import { TodoLinksRepository } from "../todos/links-repository.js";
 import { StoriesRepository, StoryStepsRepository } from "../stories/repository.js";
 import { parseRef } from "../ids/short-id.js";
 import { canonicalRepoPath } from "../db/git-root.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createMcpHttpHandler } from "./mcp-http.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -345,6 +347,7 @@ export function startViewerServer(
     emitFocus: (p: ShowFocusPost) => void;
     emitAdvance: (p: ShowAdvancePost) => void;
   },
+  mcpFactory?: () => McpServer,
 ): Promise<ViewerServerHandle> {
   return new Promise((resolve) => {
     // Master registry, opened once for the server's lifetime. Seed it on first
@@ -353,6 +356,8 @@ export function startViewerServer(
     const registry = new Registry();
     try { importLegacyRegistry(registry); } catch { /* best-effort */ }
     try { migrateCacheToRegistry(registry); } catch { /* best-effort; idempotent */ }
+
+    const mcpHandler = mcpFactory ? createMcpHttpHandler(mcpFactory) : null;
 
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || "/";
@@ -376,7 +381,21 @@ export function startViewerServer(
       const isPresencePost = req.method === "POST" && pathname === "/api/presence";
       const isShowFocusPost = req.method === "POST" && pathname === "/api/show-focus";
       const isShowAdvancePost = req.method === "POST" && pathname === "/api/show-advance";
-      if (!methodAllowed(req.method) && !isPresencePost && !isShowFocusPost && !isShowAdvancePost) { respondError(res, 405, "method not allowed", cors); return; }
+      if (pathname !== "/mcp" && !methodAllowed(req.method) && !isPresencePost && !isShowFocusPost && !isShowAdvancePost) { respondError(res, 405, "method not allowed", cors); return; }
+
+      // ── /mcp (stateless streamable-HTTP MCP transport) ──
+      // Checked before the method gate above would otherwise 405 its POSTs, and
+      // before the /api/ auth gate below (which wouldn't match this path).
+      if (pathname === "/mcp") {
+        if (!mcpHandler) { respondError(res, 404, "not found", cors); return; }
+        if (!checkAuth(pathname, req.headers["authorization"], process.env)) {
+          respondError(res, 401, "unauthorized", cors);
+          return;
+        }
+        await mcpHandler(req, res);
+        return;
+      }
+
       // Auth (API paths only; static viewer is public).
       if (pathname.startsWith("/api/") && !checkAuth(pathname, req.headers["authorization"], process.env)) {
         respondError(res, 401, "unauthorized", cors);
