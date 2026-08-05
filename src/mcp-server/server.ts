@@ -45,6 +45,15 @@ export function createServer(
   // Per-call repo context resolver — every tool routes through this.
   const resolver = new RepoContextResolver({ poolCapacity: 8 });
 
+  // Cascade resolver teardown from the SDK's close(). The stdio entrypoint
+  // never calls this (the resolver's pooled handles are process-lifetime,
+  // like its sibling resources — see index.ts) but the per-POST /mcp HTTP
+  // handler (mcp-http.ts) does call `server.close()` on every request/response
+  // cycle, since each POST gets a fresh McpServer via `mcpFactory`. Without
+  // this hook, every tool call that resolves a real `repo_path` would leak
+  // the resolver's pooled better-sqlite3 handles once the POST completes.
+  server.server.onclose = () => resolver.shutdown();
+
   registerCodeTools(server, resolver);
   registerTodoTools(server, resolver, indexerProject, bus);
   registerDecisionDispatcher(server, resolver, indexerProject, bus);

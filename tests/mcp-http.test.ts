@@ -1,4 +1,4 @@
-import { describe, expect, test, afterAll } from "vitest";
+import { describe, expect, test, afterAll, vi } from "vitest";
 import { createServer as createHttpServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -7,6 +7,7 @@ import { createMcpHttpHandler } from "../src/mcp-server/mcp-http.js";
 import { createServer } from "../src/mcp-server/server.js";
 import { startViewerServer } from "../src/mcp-server/api.js";
 import { GraphStore } from "../src/graph/store.js";
+import { RepoContextResolver } from "../src/mcp-server/repo-context.js";
 
 const handler = createMcpHttpHandler(() => createServer(null));
 const http = createHttpServer((req, res) => { void handler(req, res); });
@@ -111,6 +112,25 @@ describe("/mcp mounted on the viewer server", () => {
       store.close();
       if (prevPort === undefined) delete process.env.CORTEX_VIEWER_PORT; else process.env.CORTEX_VIEWER_PORT = prevPort;
       if (prevToken === undefined) delete process.env.CORTEX_API_TOKEN; else process.env.CORTEX_API_TOKEN = prevToken;
+    }
+  });
+});
+
+describe("RepoContextResolver disposal", () => {
+  test("closing the per-POST MCP server disposes its RepoContextResolver", async () => {
+    const spy = vi.spyOn(RepoContextResolver.prototype, "shutdown");
+    const disposeHandler = createMcpHttpHandler(() => createServer(null));
+    const disposeHttp = createHttpServer((req, res) => { void disposeHandler(req, res); });
+    await new Promise<void>((r) => disposeHttp.listen(0, "127.0.0.1", r));
+    const disposePort = (disposeHttp.address() as { port: number }).port;
+    try {
+      const client = new Client({ name: "dispose-test", version: "0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${disposePort}/`)));
+      await client.close();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled(), { timeout: 2000 });
+    } finally {
+      spy.mockRestore();
+      await new Promise<void>((r) => disposeHttp.close(() => r()));
     }
   });
 });
