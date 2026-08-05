@@ -238,6 +238,7 @@ const { port, httpServer } = await startViewerServer(
       payload: { story_id: p.story_id, step: p.step },
     }),
   },
+  () => createServer(indexerProject, bus),
 );
 if (port > 0 && httpServer) {
   wsHandle = startWsServer({
