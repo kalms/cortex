@@ -18,6 +18,39 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.9.0] — 2026-08-05
+
+Transport release: the sidecar now serves its MCP tool surface over HTTP, and
+the sidecar tarball carries the plugin assets Mesh injects into its spawned
+agents (mesh spec `2026-08-04-agent-cortex-injection-design.md`).
+
+### Added
+
+- **Streamable-HTTP `/mcp` endpoint on the viewer server.** The full MCP tool
+  surface is now reachable over HTTP: stateless (a fresh server + transport
+  per POST — tools are `repo_path`-parameterized per call), POST-only, and
+  auth-gated exactly like `/api/*` when `CORTEX_API_TOKEN` is set. The stdio
+  transport is unchanged; the sidecar entry serves both.
+- **Sidecar tarball ships the plugin assets.** `skills/`, `hooks/`, and a
+  staged `plugin.json` named `mesh-cortex` that declares skills + hooks only —
+  MCP transport is injected by the host over HTTP, so the variant deliberately
+  carries no `mcpServers`. The tarball smoke test now proves `/mcp` answers
+  `initialize` from the staged tree and asserts the plugin assets' shape.
+- **Guard test for the presence-hook matchers**: `mcp__.*cortex.*__…` must keep
+  matching `mcp__mesh-cortex__*` tool names — Mesh's injected server name makes
+  that matcher load-bearing.
+
+### Fixed
+
+- **`RepoContextResolver` disposal.** `createServer()` now wires the MCP
+  server's `onclose` to `resolver.shutdown()`, so per-request servers (the
+  `/mcp` stateless path) release their pooled `better-sqlite3` handles instead
+  of leaking one per `repo_path` tool call. Process-lifetime stdio behavior is
+  unchanged.
+- **`/mcp` handler rejection guard.** `server.connect` / `handleRequest`
+  failures answer a JSON-RPC 500 instead of becoming an unhandled rejection
+  that would take down the sidecar.
+
 ## [1.8.2] — 2026-08-03
 
 Packaging release: makes Cortex embeddable as the Mesh app's sidecar. No
@@ -1654,6 +1687,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
 [1.8.1]: https://github.com/ruevu/cortex/releases/tag/v1.8.1
 [1.8.0]: https://github.com/ruevu/cortex/releases/tag/v1.8.0
