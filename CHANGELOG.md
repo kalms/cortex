@@ -18,6 +18,25 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.9.1] — 2026-08-10
+
+### Fixed
+
+- **`cortex --version` reported the wrong version — usually another project's.**
+  The CLI read `package.json` from `process.cwd()` rather than from its install
+  root. Since `cortex` lives on `PATH` and is normally invoked from some other
+  repo, it printed `cortex 0.0.0` from any directory without a `package.json`,
+  and, worse, printed *that directory's* version when one was present (running
+  it inside an unrelated repo at `1.0.0` reported `cortex 1.0.0`). Version
+  resolution now goes through `repoRoot()` — the same `CORTEX_REPO_ROOT`-first
+  resolution the indexer path already used — as `cliVersion()` in
+  `src/cli/paths.ts`, covered by a cwd-independence regression test.
+- **Plugin manifest versions had drifted from `package.json`.** The `1.9.0`
+  release bumped only `package.json`, leaving `plugin.json` and
+  `.claude-plugin/marketplace.json` pinned at `1.8.1`, so plugin installs
+  advertised a version two releases behind the code. All three fields are
+  realigned at `1.9.1`.
+
 ## [1.9.0] — 2026-08-05
 
 Transport release: the sidecar now serves its MCP tool surface over HTTP, and
@@ -1687,6 +1706,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
 [1.8.1]: https://github.com/ruevu/cortex/releases/tag/v1.8.1
