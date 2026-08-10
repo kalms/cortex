@@ -1,6 +1,5 @@
 #!/usr/bin/env tsx
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { cliVersion } from "./paths.js";
 import { parseArgv, findSuggestion } from "./router.js";
 import { loadContext } from "./context.js";
 import { tryCommand, UsageError } from "./errors.js";
@@ -24,15 +23,6 @@ import { runDoctorCommand } from "./commands/doctor.js";
 const NAMESPACES = ["code", "decision", "graph", "index", "eval", "todo"];
 const META_COMMANDS = ["tour", "help", "install", "setup", "freshness", "reconcile", "brief", "doctor"];
 
-function getVersion(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf-8"));
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-
 async function main(): Promise<void> {
   const argv = parseArgv(process.argv.slice(1)); // strip node arg too; arg 0 is the tsx/script
 
@@ -46,7 +36,7 @@ async function main(): Promise<void> {
 
   // Meta flags
   if (argv.flags.version || argv.flags.v) {
-    process.stdout.write(`cortex ${getVersion()}\n`);
+    process.stdout.write(`cortex ${cliVersion()}\n`);
     return;
   }
 
