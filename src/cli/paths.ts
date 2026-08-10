@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -17,4 +18,21 @@ export function repoRoot(): string {
 
 export function indexerBinPath(): string {
   return resolve(repoRoot(), "bin", "cortex-indexer");
+}
+
+/**
+ * The CLI's own version, read from the install root's package.json.
+ *
+ * Must resolve against `repoRoot()`, never `process.cwd()` — the CLI is on
+ * PATH and is normally invoked from some *other* repo. A cwd-relative read
+ * reports that repo's version as Cortex's (or "0.0.0" where no package.json
+ * exists), which is why this lives here beside the root resolution.
+ */
+export function cliVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(repoRoot(), "package.json"), "utf-8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }
