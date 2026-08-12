@@ -18,6 +18,34 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.9.2] — 2026-08-12
+
+### Fixed
+
+- **Addressing a decision by its sequence form returned a silently degraded
+  record.** `decision({action:"get", id:"D-40"})` resolved the decision itself
+  but came back with empty `governs`, `references`, `related_decisions`,
+  `depends_on`, and all four PR link kinds, plus null reconciliation state —
+  while the same decision addressed as `D-sq61` returned everything. The tool
+  handler passed the caller's *raw* ref to `decisionsRepo.get` and
+  `findByDecision`, which key on the canonical id only; a seq-form ref matched
+  nothing and returned empty rather than erroring. Composition now happens once
+  in `DecisionService.getWithRefs()`, keyed on the resolved canonical id —
+  mirroring the pattern `TodoService` already used, which is why the todo path
+  never had this bug. Canonical-form responses are byte-identical to before.
+- **`decision({action:"reconcile"})` rejected the sequence form outright**,
+  falling through to the not-found guard, so a decision could not be reconciled
+  by that ref.
+- **`changes_since(since:"D-40")` reported `unresolvable since`** for decisions
+  that exist.
+- **`GET /api/decisions/D-40` returned 404.** The route now resolves the
+  sequence form; the response schema is unchanged and the HTTP contract stays
+  at v1.
+
+A new parity sweep (`tests/mcp-server/decision-ref-parity.test.ts`) pins the
+invariant by asserting byte-identical output for both ref forms, and
+`docs/architecture/decisions-storage.md` documents the resolve-before-use rule.
+
 ## [1.9.1] — 2026-08-10
 
 ### Fixed
@@ -1706,6 +1734,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.9.2]: https://github.com/ruevu/cortex/releases/tag/v1.9.2
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
