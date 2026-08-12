@@ -40,6 +40,18 @@ describe("resolveSinceWindow", () => {
     expect(w.window_start).toBe("2026-07-01T10:00:00.000Z");
   });
 
+  it("resolves a seq-form decision ref through a resolving lookup", () => {
+    // Mirrors the wiring at changes-since.ts after the fix: the injected lookup
+    // resolves ANY accepted ref form to a record, not just canonical ids.
+    const rec = { created_at: "2026-07-01T10:00:00.000Z" };
+    const resolvingLookup = (ref: string) =>
+      ref === "D-ab12" || ref === "D-1" ? rec : null;
+
+    const w = resolveSinceWindow(repo, "D-1", resolvingLookup);
+    expect(w.kind).toBe("decision");
+    expect(w.window_start).toBe("2026-07-01T10:00:00.000Z");
+  });
+
   it("throws for an unknown decision id", () => {
     expect(() => resolveSinceWindow(repo, "D-none", () => null))
       .toThrow(/unresolvable since/);
