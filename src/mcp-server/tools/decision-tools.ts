@@ -1,3 +1,13 @@
+/**
+ * INVARIANT — resolve before use. `ctx.decisionsRepo` and `ctx.decisionLinksRepo`
+ * accept CANONICAL ids only (`D-<token>`). A ref arriving from a caller may be
+ * canonical, `D-<seq>`, or a bare seq. Handlers must therefore resolve through
+ * `DecisionService` — `getWithRefs()` for reads, `resolveId()` when a canonical
+ * id is needed for a direct repository call — and must never pass a raw caller
+ * ref to a repository or links lookup. Doing so does not error: it silently
+ * returns an empty/degraded record. Enforced by
+ * tests/mcp-server/decision-ref-parity.test.ts.
+ */
 import { z } from "zod";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";

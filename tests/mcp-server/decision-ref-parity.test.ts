@@ -74,3 +74,27 @@ describe("decision get — ref parity", () => {
     expect(text(await getDecisionAction(ctx, { id: "D-zzzz" }))).toMatch(/^No results:/);
   });
 });
+
+describe("ref parity — sweep", () => {
+  it("every read action returns identical output for both ref forms", async () => {
+    const root = indexedGitRepo();
+    const ctx = new RepoContextResolver({ poolCapacity: 4 }).resolve(root);
+    const created = serviceFor(ctx).create({
+      title: "sweep",
+      rationale: "r",
+      governs: ["src/a.ts"],
+    });
+
+    // Each entry: [label, action invoked with a ref]. Add a row here whenever a
+    // new decision action accepts a ref — that is the point of this test.
+    const actions: Array<[string, (ref: string) => Promise<{ content: Array<{ text: string }> }>]> = [
+      ["get", (ref) => getDecisionAction(ctx, { id: ref })],
+    ];
+
+    for (const [label, run] of actions) {
+      const a = text(await run(created.id));
+      const b = text(await run("D-1"));
+      expect(b, `action "${label}" diverges between ref forms`).toBe(a);
+    }
+  });
+});
