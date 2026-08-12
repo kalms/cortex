@@ -140,7 +140,7 @@ const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 // ---------------------------------------------------------------------------
 
 /** Build a per-call DecisionService anchored to the repo addressed by `ctx`. */
-function serviceForCtx(
+export function serviceForCtx(
   ctx: RepoContext,
   bus?: EventBus,
   indexerProject?: string | null,
