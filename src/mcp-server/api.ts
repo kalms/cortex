@@ -11,9 +11,20 @@ import { GraphStore } from "../graph/store.js";
 import { listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
 import { Registry } from "../db/registry.js";
 import { migrateCacheToRegistry, importLegacyRegistry } from "../db/registry-migration.js";
-import { DecisionsRepository } from "../decisions/repository.js";
+import { DecisionsRepository, type DecisionRecord } from "../decisions/repository.js";
 import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { openDecisionsDb } from "../decisions/db.js";
+
+/** Second-chance resolution for the decision-detail route: `decisions.get`
+ *  handles canonical ids; this covers `D-<seq>` and a bare seq. Returns null
+ *  when the ref is neither. */
+function resolveDecisionRef(
+  decisions: { getBySeq(seq: number): DecisionRecord | null },
+  ref: string,
+): DecisionRecord | null {
+  const parsed = parseRef("decision", ref);
+  return parsed?.kind === "seq" ? decisions.getBySeq(parsed.seq) : null;
+}
 import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { buildAdaptedDecision, buildAdaptedDecisions, type FrameInfo } from "./api-decisions.js";
 import { buildAdaptedTodos } from "./api-todos.js";
@@ -510,9 +521,12 @@ export function startViewerServer(
         if (!idParsed.success) { respondError(res, 400, "invalid decision id", cors); return; }
         const pd = openProjectDecisions(decisionsRepo, decisionLinksRepo, indexerProject, project, registry);
         try {
-          const rec = pd.decisions.get(idParsed.data);
+          // `pd.decisions.get` is canonical-only; fall back to seq resolution
+          // so the route accepts `D-<seq>` too, then key the link lookup on
+          // the record's canonical id rather than the raw path segment.
+          const rec = pd.decisions.get(idParsed.data) ?? resolveDecisionRef(pd.decisions, idParsed.data);
           if (!rec) { respondError(res, 404, "decision not found", cors); return; }
-          const links = pd.links.findByDecision(idParsed.data);
+          const links = pd.links.findByDecision(rec.id);
           const resolved = openProjectStore(store, indexerProject, project, { registry });
           const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
           try {
