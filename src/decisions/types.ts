@@ -41,6 +41,34 @@ export interface Decision {
   provenance: ProvenanceMeta | null;
 }
 
+/** A ref row on a decision link — the sidecar model surfaces target refs
+ *  (qns/paths/decision-ids/pr-numbers), not full node rows. */
+export interface DecisionRefRow {
+  target_kind: string;
+  target_ref: string;
+}
+
+/** Composed read shape for a single decision: the decision, its sidecar link
+ *  refs, and the reconciliation columns that `toDecision()` strips. Mirrors
+ *  `TodoWithRefs`. `display_state` is NOT included — it needs a RepoContext,
+ *  so the tool layer adds it. */
+export interface DecisionWithRefs extends Decision {
+  reconciliation_verdict: string | null;
+  reconciled_at: string | null;
+  reconciled_source_hash: string | null;
+  reconciled_by: string | null;
+  nonconformant_nodes: unknown | null;
+  reconciliation_note: string | null;
+  governs: DecisionRefRow[];
+  references: DecisionRefRow[];
+  related_decisions: Decision[];
+  depends_on: Decision[];
+  introduced_in: { pr_number: number } | null;
+  implemented_by: Array<{ pr_number: number }>;
+  challenged_by: Array<{ pr_number: number }>;
+  discussed_in: Array<{ pr_number: number }>;
+}
+
 export interface CreateDecisionInput {
   title: string;
   description?: string;
@@ -100,17 +128,6 @@ export interface PRRef {
   number: number;
   title: string;
   state: PRState;
-}
-
-export interface DecisionWithRefs extends Decision {
-  governs: NodeRow[];           // preserved from legacy get_decision shape
-  references: NodeRow[];        // preserved from legacy get_decision shape
-  related_decisions: Decision[];
-  depends_on: Decision[];
-  introduced_in: PRRef | null;
-  implemented_by: PRRef[];
-  challenged_by: PRRef[];
-  discussed_in: PRRef[];
 }
 
 export function nodeToDecision(node: NodeRow): Decision {
