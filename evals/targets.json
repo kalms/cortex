@@ -13,6 +13,12 @@
       "default_branch": "main"
     },
     {
+      "name": "elk",
+      "repo_url": "https://github.com/elk-zone/elk.git",
+      "sha": "main",
+      "default_branch": "main"
+    },
+    {
       "name": "anthill-cloud",
       "local_path": "/Users/rka/Development/anthill-cloud"
     }

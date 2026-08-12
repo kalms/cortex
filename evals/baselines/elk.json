@@ -1,0 +1,59 @@
+{
+  "target": "elk",
+  "captured_at": "2026-08-12T08:49:54.358Z",
+  "nodes_by_label": {
+    "class": 12,
+    "file": 470,
+    "folder": 88,
+    "function": 510,
+    "interface": 87,
+    "method": 2,
+    "module": 476,
+    "project": 1,
+    "route": 12,
+    "section": 132,
+    "type": 49,
+    "variable": 18366
+  },
+  "edges_by_type": {
+    "CALLS": 1047,
+    "CONFIGURES": 976,
+    "CONTAINS_FILE": 476,
+    "CONTAINS_FOLDER": 91,
+    "DEFINES": 19634,
+    "DEFINES_METHOD": 2,
+    "HANDLES": 7,
+    "IMPORTS": 48,
+    "SEMANTICALLY_RELATED": 14,
+    "SIMILAR_TO": 10,
+    "USAGE": 141,
+    "WRITES": 2
+  },
+  "per_assertion": {
+    "http_calls_edge_count_nonzero": 0,
+    "http_calls_to_api_route": 0,
+    "route_node_named_api_path": 0,
+    "composable_has_callers": 42,
+    "pinia_store_node_exists": 0,
+    "vue_function_node_count_nonzero": 211,
+    "vue_function_has_high_degree": 24,
+    "sfc_qn_well_formed": [
+      "Users-rka-Development-cortex-evals-cache-elk-src.app.components.status.StatusActionsMore.getPermalinkUrl",
+      "Users-rka-Development-cortex-evals-cache-elk-src.app.components.status.StatusActionsMore.copyLink",
+      "Users-rka-Development-cortex-evals-cache-elk-src.app.components.status.StatusActionsMore.copyOriginalLink",
+      "Users-rka-Development-cortex-evals-cache-elk-src.app.components.status.StatusActionsMore.shareLink",
+      "Users-rka-Development-cortex-evals-cache-elk-src.app.components.status.StatusActionsMore.deleteStatus"
+    ],
+    "vue_file_is_module_node": 264,
+    "get_code_snippet_returns_vue_content": "Node found: app.vue",
+    "governs_link_to_vue_path_persists": "governs persisted: 1",
+    "search_graph_finds_vue_component": "Found 600 matches",
+    "nitro_handler_function_exists": 4,
+    "nitro_route_handles_edge": 7,
+    "no_tarball_routes": [],
+    "no_codeartifact_routes": [],
+    "decision_node_count_nonzero": 0,
+    "decision_governs_edges_exist": 0,
+    "decision_rationale_no_xml_leakage": []
+  }
+}
