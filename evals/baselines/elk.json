@@ -1,6 +1,7 @@
 {
   "target": "elk",
-  "captured_at": "2026-08-12T08:49:54.358Z",
+  "captured_at": "2026-08-12T09:21:22.357Z",
+  "source_sha": "8aa2b4650760eeba4ea1fdd9dc18d8a88ca5d7f0",
   "nodes_by_label": {
     "class": 12,
     "file": 470,

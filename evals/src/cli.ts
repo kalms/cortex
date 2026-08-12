@@ -74,7 +74,7 @@ function runTarget(target: Target, pathOverride?: string): TargetReport {
   }
 
   const baseline = loadBaseline(acquired.name);
-  return { target: acquired.name, scorecard, results, baseline };
+  return { target: acquired.name, scorecard, results, baseline, source_sha: acquired.source_sha };
 }
 
 function captureBaseline(target: Target, pathOverride?: string): void {
@@ -82,7 +82,7 @@ function captureBaseline(target: Target, pathOverride?: string): void {
   const baseline: Baseline = {
     target: target.name,
     captured_at: new Date().toISOString(),
-    source_sha: undefined,
+    source_sha: report.source_sha,
     nodes_by_label: report.scorecard.nodes_by_label,
     edges_by_type: report.scorecard.edges_by_type,
     per_assertion: Object.fromEntries(

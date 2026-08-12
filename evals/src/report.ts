@@ -11,6 +11,11 @@ export type TargetReport = {
   scorecard: Scorecard;
   results: AssertionResult[];
   baseline: Baseline | null;
+  /** HEAD of the acquired source tree; undefined for local_path targets, which
+   * have no pinned revision. Carried so a captured baseline records which
+   * commit it describes — targets track a moving branch, so without it a
+   * baseline drifts against upstream silently and a diff cannot be trusted. */
+  source_sha?: string;
 };
 
 export function renderSummary(reports: TargetReport[]): string {
