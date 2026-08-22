@@ -930,7 +930,12 @@ export function registerCodeTools(
         }
         if (outcome.kind === "invalid_path") return errorResponse("malformed_input", outcome.detail);
         if (outcome.kind === "error") return errorResponse("internal_error", outcome.detail);
-        if (outcome.kind === "files") return ok(outcome.files.map((f) => `./${f}`).join("\n"));
+        if (outcome.kind === "files") {
+          const body = outcome.files.map((f) => `./${f}`).join("\n");
+          return ok(outcome.truncated
+            ? `${body}\n… truncated at ${outcome.files.length} files; narrow with path/glob for the full set.`
+            : body);
+        }
         const text = outcome.hits
           .map((h) => {
             const base = `./${h.file}:${h.line}:${h.text}`;

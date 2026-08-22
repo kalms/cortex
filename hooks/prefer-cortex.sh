@@ -14,9 +14,10 @@
 #
 # Escape hatches (so a genuine code grep is never permanently wedged):
 #   - scope the search to non-code files (a non-code glob / file arg), or
-#   - add the token `cortex:grep-ok` to a Bash grep/rg command for a one-off
-#     deliberate code grep (a regex feature search_code lacks, or Cortex has
-#     already returned empty on a current index).
+#   - add the token `cortex:grep-ok` to a Bash grep/rg command. This does NOT
+#     authorize the grep: it converts the denial into `ask`, so the USER
+#     approves it. The token is written by the model, so auto-allowing it made
+#     this gate advisory rather than enforcing (decision D-7ca7).
 #
 # Degrade-safe by construction: ANY failure, missing jq, empty payload, or
 # unindexed repo → exit 0 with no output (allow). A hook bug must never block
@@ -246,7 +247,7 @@ READ_RE="(^|[^a-zA-Z_])(open|readFileSync|readFile|read_text)[[:space:]]*\\("
 # Writing a source file is codegen, not discovery — never redirect it.
 WRITE_RE="(writeFileSync|writeFile|appendFile|write_text|write_bytes|\\.write\\(|open\\([^)]*,[[:space:]]*$_Q[wa])"
 
-GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep, same regex syntax, your pattern passed through verbatim, but each hit annotated with its enclosing function/class. It searches code and non-code files alike (including dotfile dirs like .github/), and takes path="subdir", glob="*.md", files_only=true, multiline=true, max_count=N — so scoping no longer needs a raw grep. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read code around a hit use get_code_snippet. Grep remains fine for genuinely non-code targets \u2014 scope it to those and it passes.'
+GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep, same regex syntax, your pattern passed through verbatim, but each hit annotated with its enclosing function/class. It searches code and non-code files alike (including dotfile dirs like .github/), and takes path="subdir", glob="*.md", files_only=true, multiline=true, max_count=N — so scoping no longer needs a raw grep. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read code around a hit use get_code_snippet. Grep remains fine for genuinely non-code targets — scope it to those and it passes.'
 
 GLOB_MSG='This repo is indexed by Cortex. To find code by name use search_graph(name_pattern="…"), or get_architecture for structure — not Glob over source files. Glob is fine for non-code files: scope the pattern to those (e.g. **/*.md, **/*.json) and it passes.'
 

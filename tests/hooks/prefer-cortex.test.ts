@@ -484,5 +484,6 @@ describe("prefer-cortex.sh — review regressions", () => {
     const reason = JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
     expect(reason).not.toContain("ALL files");
     expect(reason).toContain("non-code"); // the fallback sentence is restored
+    expect(reason).not.toContain("\\u"); // literal escape must not reach the model
   });
 });

@@ -183,3 +183,37 @@ describe("runCodeSearch — path validation and caps", () => {
     expect(out.files).toHaveLength(2);
   });
 });
+
+describe("runCodeSearch — single-file path and empty path", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-code-single-"));
+    mkdirSync(join(dir, "src"));
+    // Line 2 is adversarial: colons in the text would be misread as file:line
+    // if rg omitted the filename for a single-file target.
+    writeFileSync(join(dir, "src", "a.ts"),
+      'const ribbon = 1;\nconst url = "http://h:8080:x"; // ribbon\n');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("parses hits correctly when path names a single FILE", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, path: "src/a.ts" });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.map((h) => h.file)).toEqual(["src/a.ts", "src/a.ts"]);
+    expect(out.hits.map((h) => h.line)).toEqual([1, 2]);
+  });
+
+  it("rejects an empty path instead of answering 'no results'", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, path: "" });
+    expect(out.kind).toBe("invalid_path");
+  });
+
+  it("flags a truncated files_only list", async () => {
+    for (let i = 0; i < 4; i++) writeFileSync(join(dir, "src", `f${i}.ts`), "ribbon\n");
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, filesOnly: true, maxHits: 2 });
+    expect(out.kind).toBe("files");
+    if (out.kind !== "files") return;
+    expect(out.truncated).toBe(true);
+  });
+});

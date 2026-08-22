@@ -46,6 +46,7 @@ export type SearchScope = {
  * Returns null when the path is acceptable, else a reason.
  */
 export function validateSearchPath(repoRoot: string, path: string): string | null {
+  if (path === "") return "path must not be empty; omit it to search the whole repo";
   if (isAbsolute(path)) return `path must be relative to the repo root, got '${path}'`;
   const resolved = resolvePath(repoRoot, path);
   const root = resolvePath(repoRoot);
@@ -60,13 +61,16 @@ export function buildRgArgs(pattern: string, scope: SearchScope = {}): string[] 
   const args = [
     "--no-heading",
     "--line-number",
+    // Without this, a single-FILE path makes rg omit the filename ("12:text"),
+    // which HIT_LINE_RE then misreads as file="12", line=<next colon field>.
+    "--with-filename",
     "--color=never",
     "--max-count", String(scope.maxCount ?? 200),
     // Without --hidden, rg skips dotfile dirs -- .github/, .claude/, .husky/
     // were invisible, so search_code silently missed CI workflows. .git/ is
     // re-excluded because --hidden would otherwise descend into object storage.
     // .gitignore is still honored: build output stays out by design.
-    "--hidden", "--glob", "!.git/",
+    "--hidden", "--glob", "!.git/", "--glob", "!.venv/", "--glob", "!.next/",
   ];
   if (scope.glob) args.push("--glob", scope.glob);
   if (scope.filesOnly) args.push("--files-with-matches");
@@ -81,6 +85,8 @@ export function buildGrepFallbackArgs(pattern: string, scope: SearchScope = {}):
   if (scope.filesOnly) extra.push("-l");
   return [
     "-rn",
+    "-H", // same reason as rg's --with-filename: single-file targets
+
     "-I", // skip binary files (sqlite DBs, compiled objects)
     "--exclude-dir=node_modules",
     "--exclude-dir=.git",
@@ -229,7 +235,7 @@ export type SearchHit = {
 
 export type SearchOutcome =
   | { kind: "hits"; hits: SearchHit[] }
-  | { kind: "files"; files: string[] }
+  | { kind: "files"; files: string[]; truncated: boolean }
   | { kind: "invalid_path"; detail: string }
   | { kind: "empty" }
   | { kind: "invalid_pattern"; detail: string }
@@ -251,7 +257,7 @@ export async function runCodeSearch(opts: {
     path: opts.path, glob: opts.glob, filesOnly: opts.filesOnly,
     multiline: opts.multiline, maxCount: opts.maxCount,
   };
-  if (scope.path) {
+  if (scope.path !== undefined) {
     const bad = validateSearchPath(opts.repoRoot, scope.path);
     // Without this, a typo'd path makes rg exit 2 with no stdout, which
     // classifies as "empty" -- the tool would answer "no results" for a path
@@ -293,9 +299,11 @@ export async function runCodeSearch(opts: {
   if (scope.filesOnly) {
     const files = stdout.split("\n")
       .map((l) => l.trim().replace(/^\.\//, ""))
-      .filter(Boolean)
-      .slice(0, maxHits); // filesOnly ignored the cap: an unbounded response
-    return files.length ? { kind: "files", files } : { kind: "empty" };
+      .filter(Boolean);
+    const capped = files.slice(0, maxHits);
+    return capped.length
+      ? { kind: "files", files: capped, truncated: files.length > capped.length }
+      : { kind: "empty" };
   }
 
   const hits: SearchHit[] = [];
