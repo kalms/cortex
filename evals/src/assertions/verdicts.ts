@@ -56,9 +56,13 @@ export function applyRatchet(
       return { ...r, ratchet: outcomes, passed, surprised: passed === false };
     }
 
-    if (r.observed === null) {
-      // Nothing to measure. Do not fall through to the numeric path: NaN
-      // compares false against everything, which would silently read as a pass.
+    if (typeof r.observed !== "number") {
+      // Nothing to measure (null), or not a number and not a map (a string[]
+      // or tool-call { text } observation on a universal assertion). Never
+      // fall through to a NaN fallback: NaN compares false against
+      // everything, so the ratchet would report a pass and an unmeasurable
+      // metric would silently read as healthy — the same failure mode the
+      // null case exists to close, entering through a second door.
       return {
         ...r,
         ratchet: { status: "not_measured", observed: null },
@@ -67,9 +71,8 @@ export function applyRatchet(
       };
     }
 
-    const observedNum = typeof r.observed === "number" ? r.observed : Number.NaN;
     const outcome = ratchet(
-      observedNum,
+      r.observed,
       typeof baseValue === "number" ? baseValue : undefined,
       direction,
       epsilon,

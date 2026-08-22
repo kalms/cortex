@@ -98,11 +98,24 @@ describe("universal metric rendering", () => {
     baseline: null,
   };
 
-  function report(name: string, observed: unknown, ratchet: unknown): any {
+  // renderUniversalSection now discriminates the per-language branch on the
+  // assertion's own query kind rather than the shape of `ratchet` (repo data
+  // can forge a map key called "status" and must not be able to pick the
+  // branch). Callers that exercise the map-valued metric pass
+  // queryKind: "language_density"; everything else defaults to a scalar "sql".
+  function report(name: string, observed: unknown, ratchet: unknown, queryKind: "sql" | "language_density" = "sql"): any {
     return {
       ...base,
       results: [{
-        assertion: { fix_id: "universal", name, description: "", query: { kind: "sql", sql: "" }, baseline_expected: "pass", scope: "universal", direction: "lower_is_better" },
+        assertion: {
+          fix_id: "universal",
+          name,
+          description: "",
+          query: queryKind === "language_density" ? { kind: "language_density" } : { kind: "sql", sql: "" },
+          baseline_expected: "pass",
+          scope: "universal",
+          direction: "lower_is_better",
+        },
         observed,
         passed: null,
         surprised: false,
@@ -146,9 +159,18 @@ describe("universal metric rendering", () => {
       report("per_language_function_density", { ts: 4.2 }, {
         ts: { status: "pass", observed: 4.2, baseline: 4.2, delta: 0, improved: false },
         rb: { status: "fail", observed: 0, baseline: 2, delta: -2, improved: false },
-      }),
+      }, "language_density"),
     ).join("\n");
     expect(lines).toContain("rb");
     expect(lines).toContain("DISAPPEARED");
+  });
+
+  it("does not mistake a language key named 'status' for a scalar outcome", () => {
+    const lines = renderUniversalSection(
+      report("per_language_function_density", { status: 1.5 }, {
+        status: { status: "pass", observed: 1.5, baseline: 1.5, delta: 0, improved: false },
+      }, "language_density"),
+    ).join("\n");
+    expect(lines).toContain("status: 1.50");
   });
 });

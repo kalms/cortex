@@ -129,12 +129,18 @@ export function renderUniversalSection(report: TargetReport): string[] {
   const lines: string[] = ["  Universal metrics:"];
   for (const r of universal) {
     const outcome = r.ratchet;
-    if (outcome && !("status" in outcome)) {
+    if (r.assertion.query.kind === "language_density") {
+      // Discriminate on the assertion, not on the shape of the value: map
+      // keys are file extensions harvested from arbitrary repos, so a file
+      // named "*.status" would otherwise forge the scalar branch below (its
+      // per-language outcome object has a `status` key of its own) and crash
+      // the render on `undefined.toFixed()`.
+      const byKey = (outcome ?? {}) as Record<string, RatchetOutcome>;
       const observedMap = isMetricMap(r.observed) ? r.observed : {};
       lines.push(`    ${r.assertion.name}:`);
-      for (const key of Object.keys(outcome).sort()) {
+      for (const key of Object.keys(byKey).sort()) {
         const gone = key in observedMap ? "" : " DISAPPEARED";
-        lines.push(`      ${key}: ${renderOutcome(outcome[key])}${gone}`);
+        lines.push(`      ${key}: ${renderOutcome(byKey[key])}${gone}`);
       }
       continue;
     }
