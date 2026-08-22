@@ -45,9 +45,15 @@ All notable changes to Cortex are documented here. The format follows
   [the workflow rules](.claude/rules/workflow.md) mandate that feature work
   happen. The hook now canonicalizes its target through `--git-common-dir`
   before the index check, degrading to the previous behavior whenever git
-  can't answer. The redirect it prints is sound in a worktree because the MCP
-  read path canonicalizes the same way — a Cortex tool called with a worktree
-  path resolves and returns results. This also stops `maybe_bg_index` from
+  can't answer. Gating worktrees exposed a second defect that had to be
+  fixed for the redirect to be honest: `search_code` anchored ripgrep at
+  `ctx.repoPath`, the *canonical* root, so called from a feature worktree it
+  answered about `main`'s files. The gate would have denied `rg` and pointed at
+  a tool reporting on a different branch. Text search needs no index — only the
+  enclosing-symbol annotation does — so ripgrep now runs in the checkout the
+  caller named (which is what the tool's docs already claimed), while annotation
+  stays on the canonical graph; symbols new on a branch simply come back
+  unannotated. This also stops `maybe_bg_index` from
   repeatedly re-indexing worktrees that could never look indexed.
 
 ### Added
@@ -63,7 +69,11 @@ All notable changes to Cortex are documented here. The format follows
   relative-and-inside-the-repo and must exist, so a typo reports a bad path
   instead of answering "no results"; `files_only` honors the hit cap; and the
   search now passes `--hidden` (excluding `.git/`) so dotfile directories like
-  `.github/` are no longer invisible. `.gitignore` is still honored.
+  `.github/` are no longer invisible. `.gitignore` is still honored, and
+  `.cortex/` and `.env*` are always excluded — a search tool must never be the
+  thing that lifts credentials or the decisions store into an agent's context.
+  In multiline mode a contiguous run of lines from one match counts as one hit,
+  so a single large match cannot exhaust the result budget for other files.
 
 - **Two greps-in-disguise now redirect like a plain `grep`.** `find … -name
   '*.ts'` is a Glob spelled in Bash, and an interpreter that opens a source

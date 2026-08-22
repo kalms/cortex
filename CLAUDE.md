@@ -52,7 +52,9 @@ scoping never requires a raw grep either. To read code around a hit use
 authorizes: it now returns `ask`, so **the user** approves a raw grep, never the
 agent itself.
 
-**Worktrees count as indexed.** The gate resolves its target through
+**Worktrees count as indexed**, and `search_code` runs ripgrep in the checkout
+you name (annotating from the canonical graph), so the redirect answers about
+*your* branch. The gate resolves its target through
 `--git-common-dir` (the shell mirror of `mainWorktreeRoot`), so a linked
 worktree collapses onto the main checkout exactly as every other root
 derivation does under `D-b248`. This is load-bearing: a worktree never has its

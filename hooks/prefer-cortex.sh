@@ -237,7 +237,7 @@ NAME_FLAG_RE='[[:space:]]-i?name([[:space:]]|$)'
 # `find -name '*.ts' -delete` / `-exec prettier --write {} +` DO work, they do not
 # find work. Redirecting them to search_graph would be nonsense -- it cannot
 # delete or format anything.
-FIND_ACTION_RE='[[:space:]]-(delete|exec|execdir|ok|okdir)([[:space:]]|$)'
+FIND_ACTION_RE='([[:space:]]-(delete|exec|execdir|ok|okdir|print0)([[:space:]]|$)|\|[[:space:]]*xargs)'
 # An interpreter that opens a source file and scans it is a grep with extra
 # steps (observed shape: `python3 - <<PY … open('src/x.ts').read() … PY`).
 # Quote char class built inline so both quote styles survive shell quoting.

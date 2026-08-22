@@ -70,7 +70,12 @@ export function buildRgArgs(pattern: string, scope: SearchScope = {}): string[] 
     // were invisible, so search_code silently missed CI workflows. .git/ is
     // re-excluded because --hidden would otherwise descend into object storage.
     // .gitignore is still honored: build output stays out by design.
-    "--hidden", "--glob", "!.git/", "--glob", "!.venv/", "--glob", "!.next/",
+    "--hidden",
+    "--glob", "!.git/", "--glob", "!.venv/", "--glob", "!.next/",
+    // .cortex holds the graph + decisions stores; .env* holds secrets. Both were
+    // invisible before --hidden and must stay so -- a search tool should never
+    // be the thing that lifts credentials into an agent's context.
+    "--glob", "!.cortex/", "--glob", "!.env*",
   ];
   if (scope.glob) args.push("--glob", scope.glob);
   if (scope.filesOnly) args.push("--files-with-matches");
@@ -307,10 +312,23 @@ export async function runCodeSearch(opts: {
   }
 
   const hits: SearchHit[] = [];
+  let prevFile = "";
+  let prevLine = -1;
   for (const line of stdout.split("\n")) {
     const m = line.match(HIT_LINE_RE);
     if (!m) continue;
-    hits.push({ file: m[1], line: parseInt(m[2], 10), text: m[3].replace(/\r$/, "") });
+    const file = m[1];
+    const lineNo = parseInt(m[2], 10);
+    // In multiline mode every line of a single match is emitted separately.
+    // Collapse a contiguous run in one file to its first line so one match
+    // counts as one hit and cannot exhaust the budget for other files.
+    if (scope.multiline && file === prevFile && lineNo === prevLine + 1) {
+      prevLine = lineNo;
+      continue;
+    }
+    prevFile = file;
+    prevLine = lineNo;
+    hits.push({ file, line: lineNo, text: m[3].replace(/\r$/, "") });
     if (hits.length >= maxHits) break;
   }
   if (hits.length === 0) return { kind: "empty" };

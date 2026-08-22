@@ -217,3 +217,34 @@ describe("runCodeSearch — single-file path and empty path", () => {
     expect(out.truncated).toBe(true);
   });
 });
+
+describe("runCodeSearch — multiline budget and secret exclusions", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-code-budget-"));
+    mkdirSync(join(dir, "src"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("one multiline match does not exhaust the hit budget for other files", async () => {
+    writeFileSync(join(dir, "src", "a.ts"), "START\n" + "x\n".repeat(80) + "END\n");
+    writeFileSync(join(dir, "src", "b.ts"), "START and END on one line\n");
+    const out = await runCodeSearch({
+      pattern: "START.*END", repoRoot: dir, multiline: true, maxHits: 50,
+    });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.some((h) => h.file === "src/b.ts")).toBe(true);
+  });
+
+  it("never searches .cortex/ or .env — a search tool must not surface secrets", async () => {
+    writeFileSync(join(dir, ".env"), "SECRET_RIBBON=abc\n");
+    mkdirSync(join(dir, ".cortex"));
+    writeFileSync(join(dir, ".cortex", "auto-index.log"), "ribbon\n");
+    writeFileSync(join(dir, "src", "a.ts"), "const ribbon = 1;\n");
+    const out = await runCodeSearch({ pattern: "ribbon|SECRET_RIBBON", repoRoot: dir });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.map((h) => h.file)).toEqual(["src/a.ts"]);
+  });
+});

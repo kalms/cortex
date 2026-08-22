@@ -911,9 +911,17 @@ export function registerCodeTools(
       async (ctx, args) => {
         const { pattern, path, glob, files_only, multiline, max_count } = args;
         const project = projectFromCtx(ctx);
+        // ctx.repoPath is the CANONICAL main-worktree root (D-b248). Anchoring
+        // rg there made search_code answer about main's files when called from
+        // a feature worktree -- so the grep gate would deny rg and redirect to
+        // a tool reporting on a different branch. Text search needs no index;
+        // only the enclosing-symbol lookup below does. So search the caller's
+        // actual checkout and annotate from the canonical graph (symbols new on
+        // the branch simply come back unannotated).
+        const searchRoot = args.repo_path && existsSync(args.repo_path) ? args.repo_path : ctx.repoPath;
         const outcome = await runCodeSearch({
           pattern,
-          repoRoot: ctx.repoPath,
+          repoRoot: searchRoot,
           store: ctx.store,
           project: project ?? undefined,
           maxHits: 50,
