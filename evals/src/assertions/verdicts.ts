@@ -1,13 +1,18 @@
 import { ratchet, RATE_EPSILON, COUNT_EPSILON } from "./ratchet.js";
 import type { AssertionResult, Baseline, RatchetOutcome } from "./types.js";
 
-/** Metrics expressed as percentages 0-100, which tolerate epsilon drift.
- *  Everything else is a count and compares exactly. */
-export const RATE_METRICS = new Set([
-  "call_attribution_rate",
-  "orphan_definition_rate",
-  "per_language_function_density",
-]);
+/** Metrics expressed as percentages 0-100, which tolerate RATE_EPSILON
+ *  percentage-point drift. Density is NOT in this set: it is callables-per-file,
+ *  not a percentage, and needs a proportional tolerance instead — see
+ *  DENSITY_TOLERANCE. Everything else not listed here is a count and
+ *  compares exactly. */
+export const RATE_METRICS = new Set(["call_attribution_rate", "orphan_definition_rate"]);
+
+/** Density is callables-per-file, not a percentage, so a fixed tolerance is
+ *  meaningless across languages: 0.5 is half of a typical density and would let
+ *  a sparse language vanish entirely without failing. Each language is instead
+ *  compared against 10% of its own baseline. */
+export const DENSITY_TOLERANCE = 0.10;
 
 /** True for a per-language metric value: a plain object of numbers, as
  *  distinct from an array of rows or a tool-call `{ text }` result. */
@@ -40,15 +45,24 @@ export function applyRatchet(
     if (isMetricMap(r.observed)) {
       const observedMap = r.observed;
       const baseMap = isMetricMap(baseValue) ? baseValue : undefined;
+      const isDensity = r.assertion.query.kind === "language_density";
+      // A fixed epsilon is meaningless across languages of very different
+      // magnitude, so density compares each language against 10% of that
+      // language's own baseline instead of the shared RATE/COUNT epsilon.
+      // A baseline of exactly 0 yields a tolerance of 0: any movement away
+      // from 0 is judged exactly, which is correct — 0 -> something is an
+      // improvement, and 0 -> 0 is stable.
+      const epsilonFor = (base: number | undefined) =>
+        isDensity && base !== undefined ? Math.abs(base) * DENSITY_TOLERANCE : epsilon;
       const outcomes: Record<string, RatchetOutcome> = {};
       for (const key of Object.keys(observedMap)) {
-        outcomes[key] = ratchet(observedMap[key]!, baseMap?.[key], direction, epsilon);
+        outcomes[key] = ratchet(observedMap[key]!, baseMap?.[key], direction, epsilonFor(baseMap?.[key]));
       }
       for (const key of Object.keys(baseMap ?? {})) {
         // A language the baseline saw and this run did not is extraction
         // collapsing to zero for that language, not an absent comparison.
         if (!(key in observedMap)) {
-          outcomes[key] = ratchet(0, baseMap![key], direction, epsilon);
+          outcomes[key] = ratchet(0, baseMap![key], direction, epsilonFor(baseMap![key]));
         }
       }
       const judged = Object.values(outcomes).filter((o) => o.status !== "no_baseline");

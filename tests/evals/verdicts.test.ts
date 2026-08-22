@@ -20,6 +20,21 @@ function universal(name: string, direction: RatchetDirection): Assertion {
   };
 }
 
+// applyRatchet's map branch keys the proportional density tolerance off the
+// assertion's query kind, not off the metric name, so a density test needs
+// query: { kind: "language_density" } rather than universal()'s sql stub.
+function density(): Assertion {
+  return {
+    fix_id: "universal",
+    name: "per_language_function_density",
+    description: "",
+    query: { kind: "language_density" },
+    baseline_expected: "pass",
+    scope: "universal",
+    direction: "higher_is_better",
+  };
+}
+
 function result(a: Assertion, observed: AssertionResult["observed"]): AssertionResult {
   return { assertion: a, observed, passed: null, surprised: false };
 }
@@ -105,5 +120,30 @@ describe("applyRatchet", () => {
     const [r] = applyRatchet([input], baseline({ nitro_handlers: 0 }));
     expect(r!.passed).toBe(true);
     expect(r!.ratchet).toBeUndefined();
+  });
+
+  it("tolerates density drift within 10% of that language's baseline", () => {
+    const [r] = applyRatchet(
+      [result(density(), { ts: 1.1 })],
+      baseline({ per_language_function_density: { ts: 1.2 } }),
+    );
+    expect(r!.passed).toBe(true);
+  });
+
+  it("fails a density drop beyond 10% of that language's baseline", () => {
+    const [r] = applyRatchet(
+      [result(density(), { ts: 1.0 })],
+      baseline({ per_language_function_density: { ts: 1.2 } }),
+    );
+    expect(r!.passed).toBe(false);
+  });
+
+  it("fails a sparse language that vanished, which a fixed 0.5 epsilon would have passed", () => {
+    const [r] = applyRatchet(
+      [result(density(), { ts: 1.2 })],
+      baseline({ per_language_function_density: { ts: 1.2, rb: 0.4 } }),
+    );
+    expect(r!.passed).toBe(false);
+    expect((r!.ratchet as Record<string, { status: string }>).rb!.status).toBe("fail");
   });
 });
