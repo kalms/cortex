@@ -8,7 +8,7 @@ export type RunnerContext = {
 export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult {
   const store = new GraphStore(ctx.dbPath);
 
-  let observed: number | string[];
+  let observed: number | string[] | null;
   switch (a.query.kind) {
     case "count_label": {
       const row = store.queryRaw<{ n: number }>(
@@ -36,9 +36,15 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
         // fall back to row count.
         const first = rows[0];
         const firstVal = first ? Object.values(first)[0] : undefined;
-        observed = typeof firstVal === "number" && rows.length === 1
-          ? firstVal
-          : rows.length;
+        if (rows.length === 1 && firstVal === null) {
+          // An aggregate over zero rows. Falling through to rows.length would
+          // report 1 — a number, and on a lower-is-better metric a flattering one.
+          observed = null;
+        } else {
+          observed = typeof firstVal === "number" && rows.length === 1
+            ? firstVal
+            : rows.length;
+        }
       }
       break;
     }
@@ -58,7 +64,7 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
   return { assertion: a, observed, passed, surprised };
 }
 
-function evaluatePredicate(p: Predicate, observed: number | string[]): boolean {
+function evaluatePredicate(p: Predicate, observed: number | string[] | null): boolean {
   switch (p.op) {
     case "gt":
       return typeof observed === "number" && observed > p.value;

@@ -57,6 +57,9 @@ export const UNIVERSAL_ASSERTIONS: Assertion[] = [
       "qualified names held by nodes in more than one file — two source files folding to one identity",
     query: {
       kind: "sql",
+      // COUNT(DISTINCT file_path) treats NULL as contributing nothing, so two
+      // nodes sharing a qualified_name with no file_path on either do NOT
+      // count as a collision here — a cross-file claim needs file info.
       sql: `
         SELECT COUNT(*) AS n FROM (
           SELECT qualified_name

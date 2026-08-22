@@ -66,6 +66,17 @@ describe("universal metrics", () => {
     expect(r.observed).toBe(0);
   });
 
+  // COUNT(DISTINCT file_path) treats NULL file_path values as indistinct from
+  // each other (COUNT(DISTINCT NULL) contributes nothing), so two nodes that
+  // share a qualified name but both lack a file_path are NOT counted as a
+  // collision. Defensible — you cannot claim a cross-file collision without
+  // file information — but worth pinning explicitly.
+  it("does not count a shared qualified name when neither node has a file path", () => {
+    store.createNode({ kind: "function", name: "x", qualified_name: "p.x" });
+    store.createNode({ kind: "function", name: "x", qualified_name: "p.x" });
+    expect(runAssertion(metric("qn_collisions"), { dbPath }).observed).toBe(0);
+  });
+
   it("orphan_definition_rate is the percentage of definition nodes with no edges", () => {
     const a = store.createNode({ kind: "function", name: "wired", qualified_name: "p.a.wired", file_path: "a.ts" });
     const b = store.createNode({ kind: "function", name: "alsoWired", qualified_name: "p.a.also", file_path: "a.ts" });
@@ -87,5 +98,18 @@ describe("universal metrics", () => {
 
     const r = runAssertion(metric("orphan_definition_rate"), { dbPath });
     expect(Number(r.observed)).toBe(0);
+  });
+
+  it("reports a rate over zero rows as not measured, not as a number", () => {
+    // An empty graph must not yield a flattering score: orphan_definition_rate
+    // is lower_is_better, so a bogus low value would read as excellent and
+    // could be adopted into a baseline as an improvement.
+    expect(runAssertion(metric("call_attribution_rate"), { dbPath }).observed).toBeNull();
+    expect(runAssertion(metric("orphan_definition_rate"), { dbPath }).observed).toBeNull();
+  });
+
+  it("still reports counts as zero on an empty graph", () => {
+    expect(runAssertion(metric("file_sourced_calls"), { dbPath }).observed).toBe(0);
+    expect(runAssertion(metric("qn_collisions"), { dbPath }).observed).toBe(0);
   });
 });

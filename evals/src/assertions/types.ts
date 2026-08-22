@@ -21,8 +21,12 @@ export type RatchetDirection = "lower_is_better" | "higher_is_better" | "exact";
 
 /** The verdict of comparing one observed value against its baseline.
  *  Defined here rather than in ratchet.ts so `types.ts` stays the leaf of the
- *  import graph — ratchet.ts already imports `RatchetDirection` from here. */
+ *  import graph — ratchet.ts already imports `RatchetDirection` from here.
+ *  `not_measured` is distinct from a zero: a rate over zero rows has
+ *  nothing to measure, and reporting it as a number would make a total
+ *  extraction failure read as a healthy score. */
 export type RatchetOutcome =
+  | { status: "not_measured"; observed: null }
   | { status: "no_baseline"; observed: number }
   | { status: "pass"; observed: number; baseline: number; delta: number; improved: boolean }
   | { status: "fail"; observed: number; baseline: number; delta: number; improved: false };
@@ -62,7 +66,9 @@ export type Assertion = {
 
 export type AssertionResult = {
   assertion: Assertion;
-  observed: number | string[] | Record<string, number> | { text: string; isError?: boolean };
+  /** null = the query had nothing to measure (a rate over zero rows). Distinct
+   *  from 0, which is a real measurement. */
+  observed: number | string[] | Record<string, number> | { text: string; isError?: boolean } | null;
   /** null = not judged. A universal metric with no baseline has nothing to
    *  compare against; reporting `false` would invent a failure and `true`
    *  would invent a pass. */

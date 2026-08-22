@@ -69,6 +69,7 @@ export function renderSummary(reports: TargetReport[]): string {
 }
 
 function formatObserved(obs: AssertionResult["observed"]): string {
+  if (obs === null) return "not measured";
   if (typeof obs === "number") return `now ${obs}`;
   if (Array.isArray(obs)) return `${obs.length} rows`;
   if ("text" in obs && typeof obs.text === "string") return obs.text || "(empty)";
