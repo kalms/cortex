@@ -328,3 +328,99 @@ describe("prefer-cortex.sh — sibling auto-index", () => {
     expect(out).toBe("");
   });
 });
+
+// --- Real git repos, for worktree canonicalization ---------------------------
+// The fake-`.git`-dir helpers above are enough for the path/index gates, but a
+// worktree test needs git to actually answer `--git-common-dir`.
+function gitInit(root: string): void {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+  git("init", "-q");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "T");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+}
+
+/** An indexed MAIN checkout plus a linked worktree that has no .cortex/ of its own. */
+function indexedRepoWithWorktree(): { main: string; worktree: string } {
+  const main = mkdtempSync(join(tmpdir(), "cortex-wt-main-"));
+  gitInit(main);
+  mkdirSync(join(main, ".cortex"), { recursive: true });
+  writeFileSync(join(main, ".cortex", "db"), "SQLite format 3\0");
+  const worktree = join(mkdtempSync(join(tmpdir(), "cortex-wt-link-")), "wt");
+  execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", "wt", worktree], {
+    stdio: "pipe",
+  });
+  return { main, worktree };
+}
+
+describe("prefer-cortex.sh — worktrees canonicalize to the main checkout (D-b248)", () => {
+  const { main, worktree } = indexedRepoWithWorktree();
+
+  it("sanity: the linked worktree has no .cortex/db of its own", () => {
+    expect(existsSync(join(worktree, ".cortex", "db"))).toBe(false);
+    expect(existsSync(join(main, ".cortex", "db"))).toBe(true);
+  });
+
+  it("DENIES a Bash code grep run from inside a linked worktree", () => {
+    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: "rg foo src/" } })).toBe(
+      "deny",
+    );
+  });
+
+  it("DENIES a Grep from inside a linked worktree", () => {
+    expect(run({ tool_name: "Grep", cwd: worktree, tool_input: { pattern: "foo", type: "ts" } })).toBe(
+      "deny",
+    );
+  });
+
+  it("DENIES a code grep whose PATH ARG points into a linked worktree", () => {
+    expect(
+      run({ tool_name: "Bash", cwd: main, tool_input: { command: `rg foo ${worktree}/src/` } }),
+    ).toBe("deny");
+  });
+
+  it("still allows non-code searches inside a worktree", () => {
+    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: "grep -n x README.md" } })).toBe(
+      "allow",
+    );
+  });
+});
+
+describe("prefer-cortex.sh — non-grep code-discovery shapes", () => {
+  const repo = indexedRepo();
+  const bash = (command: string) => run({ tool_name: "Bash", cwd: repo, tool_input: { command } });
+
+  it("denies `find -name` over code files (a Glob in disguise)", () => {
+    expect(bash("find . -name '*.ts'")).toBe("deny");
+    expect(bash("find src -iname '*.tsx' -print")).toBe("deny");
+  });
+
+  it("allows `find` for non-code / arbitrary file discovery", () => {
+    expect(bash("find . -iname '*corpus*' -print")).toBe("allow");
+    expect(bash("find . -name '*.md'")).toBe("allow");
+    expect(bash("find . -type d -name node_modules -prune")).toBe("allow");
+  });
+
+  it("denies an interpreter heredoc that reads and scans a source file", () => {
+    expect(bash("python3 - <<'PY'\nimport re\nsrc=open('src/assertions/types.ts').read()\nPY")).toBe(
+      "deny",
+    );
+    expect(bash("node -e \"const s=require('fs').readFileSync('src/index.ts','utf8')\"")).toBe("deny");
+  });
+
+  it("does not flag ordinary interpreter use", () => {
+    expect(bash("node scripts/build.js")).toBe("allow");
+    expect(bash("python3 -c 'print(1+1)'")).toBe("allow");
+    expect(bash("npm test")).toBe("allow");
+  });
+
+  it("does not flag an interpreter WRITING a source file", () => {
+    expect(bash("python3 - <<'PY'\nopen('src/gen.ts','w').write(x)\nPY")).toBe("allow");
+  });
+
+  it("honors cortex:grep-ok for both new shapes", () => {
+    expect(bash("find . -name '*.ts' # cortex:grep-ok")).toBe("allow");
+    expect(bash("python3 -c \"open('src/a.ts').read()\" # cortex:grep-ok")).toBe("allow");
+  });
+});

@@ -82,8 +82,40 @@ git_root_of() {
   return 1
 }
 
+# Collapse a linked worktree (or subdir) onto the repo's MAIN worktree root --
+# the shell mirror of src/db/git-root.ts::mainWorktreeRoot. Decision D-b248
+# ("one index per repo, shared across all worktrees") makes the canonical root
+# the ONLY place a graph store lives: `cortex index` run from a worktree writes
+# the main checkout's .cortex/db, never the worktree's. A gate that tests the
+# literal directory therefore reads every worktree as unindexed and switches
+# itself off -- in exactly the place the workflow rules mandate feature work.
+# `--git-common-dir` is what collapses worktrees correctly (`--show-toplevel`
+# returns the worktree checkout dir; D-b248 rejected it for that reason).
+# Degrade-safe: any git failure (old git without --path-format, a fake .git
+# dir, no repo) returns the input unchanged, preserving prior behavior.
+canonical_root() {
+  local common
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  case "$common" in
+    */.git) printf '%s' "${common%/.git}"; return 0 ;;
+  esac
+  printf '%s' "$1"
+}
+
 # `-s`: exists AND non-empty, so a 0-byte degraded DB reads as not-indexed.
-repo_indexed() { [ -s "$1/.cortex/db" ] || [ -s "$1/.cortex/graph.db" ]; }
+# Literal checkout FIRST, canonical root second. Today only the canonical root
+# ever holds a store, so the first pair never hits -- but per-worktree indexing
+# is explicitly left open by D-b248 ("future per-worktree diffing stays open"),
+# and checking the literal path first means such a store would be honored the
+# day it exists instead of being silently ignored by the gate.
+repo_indexed() {
+  [ -s "$1/.cortex/db" ] && return 0
+  [ -s "$1/.cortex/graph.db" ] && return 0
+  local c
+  c="$(canonical_root "$1")"
+  [ "$c" = "$1" ] && return 1
+  [ -s "$c/.cortex/db" ] || [ -s "$c/.cortex/graph.db" ]
+}
 
 # First path-like token in a Bash command: starts with / ./ ../ ~ or contains
 # a slash; not a -flag; not an =assignment. Quoted literals already stripped by
@@ -114,6 +146,11 @@ AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)
 maybe_bg_index() {
   local root="$1"
   [ -n "$root" ] || return 0
+  # Index the canonical root, never the worktree: `cortex index` collapses to
+  # it anyway (D-b248), so targeting the literal worktree wrote a sentinel that
+  # could never be satisfied -- the observed symptom was a worktree re-indexing
+  # every 60 minutes forever while still reading as unindexed.
+  root="$(canonical_root "$root")"
   [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
   printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
 
@@ -169,6 +206,11 @@ fi
 if [ -z "$TARGET_ROOT" ]; then
   TARGET_ROOT="$(git_root_of "$CWD")"
 fi
+# TARGET_ROOT stays the LITERAL checkout; repo_indexed and maybe_bg_index each
+# canonicalize as their own semantics require. A worktree therefore answers the
+# same "is this repo indexed?" question the MCP read path answers -- verified: a
+# Cortex read tool called with a worktree path resolves and returns results, so
+# the redirect below always names a repo_path that actually works.
 
 # Index gate, now anchored to the TARGET repo. Unindexed → kick off a detached
 # index for next time (if it's a real git root), then allow immediately.
@@ -188,9 +230,25 @@ NONCODE_RE='\.(md|markdown|mdx|txt|rst|json|jsonc|ya?ml|toml|lock|ini|cfg|conf|e
 CODE_RE='\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|h|cc|cpp|hpp|cxx|rb|php|swift|kt|kts|scala|vue|svelte|cs|mm|sh|bash|zsh)([^a-zA-Z0-9]|$)'
 CODE_TYPE_RE='^(ts|tsx|typescript|js|jsx|javascript|py|python|go|rust|rs|java|c|cpp|cxx|ruby|rb|php|swift|kotlin|kt|scala|vue|svelte|cs|csharp)$'
 
+# `find -name '*.ts'` is a Glob spelled in Bash — same intent, same redirect.
+FIND_RE='(^|[[:space:];&(/])find([[:space:]]|$)'
+NAME_FLAG_RE='[[:space:]]-i?name([[:space:]]|$)'
+# An interpreter that opens a source file and scans it is a grep with extra
+# steps (observed shape: `python3 - <<PY … open('src/x.ts').read() … PY`).
+# Quote char class built inline so both quote styles survive shell quoting.
+_Q="[\"']"
+INTERP_RE='(^|[[:space:];&(/])(python3?|node|deno|bun|ruby|perl)([[:space:]]|$)'
+READ_RE="(^|[^a-zA-Z_])(open|readFileSync|readFile|read_text)[[:space:]]*\\("
+# Writing a source file is codegen, not discovery — never redirect it.
+WRITE_RE="(writeFileSync|\\.write\\(|open\\([^)]*,[[:space:]]*$_Q[wa])"
+
 GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep search, but each hit is annotated with its enclosing function/class. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path. Grep is fine for NON-code files (configs/docs/JSON) — scope it to those (a non-code glob/path) and it passes. For a genuine code grep Cortex cannot do (a regex feature search_code lacks, or Cortex already returned empty on a current index), run it as a Bash grep/rg command containing the token cortex:grep-ok.'
 
 GLOB_MSG='This repo is indexed by Cortex. To find code by name use search_graph(name_pattern="…"), or get_architecture for structure — not Glob over source files. Glob is fine for non-code files: scope the pattern to those (e.g. **/*.md, **/*.json) and it passes.'
+
+FIND_MSG='This repo is indexed by Cortex. `find -name` over source files is a Glob in disguise — use search_graph(name_pattern="…") to find code by name, or get_architecture for structure. Non-code file discovery passes (drop the code extension). For a genuine code-file find Cortex cannot do, add the token cortex:grep-ok.'
+
+INTERP_MSG='This repo is indexed by Cortex. Opening a source file in an interpreter to scan it is a grep with extra steps — use search_code(pattern="…") for text, get_code_snippet(qualified_name="…") to read a symbol, or trace_path for callers/callees. Writing/generating a source file is unaffected. To read source in an interpreter anyway, add the token cortex:grep-ok.'
 
 emit_deny() {
   jq -n --arg r "$1" \
@@ -227,35 +285,57 @@ case "$TOOL" in
   Bash)
     CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
     [ -n "$CMD" ] || exit 0
-    # Does the command run a search tool against FILES (vs. merely filtering a
-    # pipe)? First delete pipe-fed search invocations (`… | grep …`): a grep
-    # reading stdin is filtering output, not searching the tree, so it is not in
-    # scope. Then look for any remaining search token at a command position —
-    # start, or after whitespace/;/&/(// — which catches `grep`, `rg`,
-    # `git grep`, `xargs grep`, `command grep`, `/usr/bin/grep`, env-prefixed
-    # greps, and `find … -exec grep`. (Heuristic, not a shell parser: a code
-    # extension inside the search PATTERN can still over-trigger a deny — use the
-    # cortex:grep-ok escape for those.)
-    # NB: BSD/macOS sed has no \b — bound the tool with whitespace/end instead.
-    # First strip quoted string literals so a search word inside an argument
-    # (e.g. `git commit -m "…grep…"`, `echo "rg …"`) is not mistaken for a
-    # command-position search invocation; a real code grep has the tool word
-    # UNQUOTED at a command position, so it survives the strip. (Scope detection
-    # below still runs against the original $CMD, so a quoted non-code glob like
-    # `--glob '*.md'` is preserved.) Then delete pipe-fed search invocations.
-    STRIPPED="$(printf '%s' "$CMD" \
-      | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" \
-      | sed -E 's/\|[[:space:]]*(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)/ /g')"
-    printf '%s' "$STRIPPED" \
-      | grep -Eq '(^|[[:space:];&(/])(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)' \
-      || exit 0
-    # Deliberate-code-grep escape.
+    # Deliberate-escape FIRST: one token disarms every rule below, so an escape
+    # never depends on which rule would have fired.
     printf '%s' "$CMD" | grep -q 'cortex:grep-ok' && exit 0
-    # Allow when clearly scoped to non-code and not to code.
+
+    # Scope signals, computed once against the ORIGINAL command: a quoted glob
+    # (`--glob '*.md'`, `-name '*.ts'`) must survive the literal-strip below.
     targets_code=0
     targets_noncode=0
     printf '%s' "$CMD" | grep -Eiq "$CODE_RE" && targets_code=1
     printf '%s' "$CMD" | grep -Eiq "$NONCODE_RE" && targets_noncode=1
+
+    # Does the command RUN a search tool against FILES (vs. merely filtering a
+    # pipe)? First strip quoted string literals so a search word inside an
+    # argument (`git commit -m "…grep…"`, `echo "rg …"`) is not mistaken for a
+    # command-position invocation; a real code grep has the tool word UNQUOTED
+    # at a command position, so it survives the strip. Then delete pipe-fed
+    # search invocations (`… | grep …`): a grep reading stdin is filtering
+    # output, not searching the tree, so it is out of scope.
+    # NB: BSD/macOS sed has no \b — bound tokens with whitespace/end instead.
+    STRIPPED="$(printf '%s' "$CMD" \
+      | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g" \
+      | sed -E 's/\|[[:space:]]*(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)/ /g')"
+
+    # (a) `find … -name '*.ts'` — code-targeted file discovery. Mirrors the Glob
+    # policy: only CODE-scoped patterns redirect; arbitrary discovery passes.
+    if [ "$targets_code" = "1" ] \
+      && printf '%s' "$STRIPPED" | grep -Eq "$FIND_RE" \
+      && printf '%s' "$CMD" | grep -Eq "$NAME_FLAG_RE"; then
+      emit_deny "$FIND_MSG"
+    fi
+
+    # (b) Interpreter reading a source file. Requires all three signals —
+    # interpreter at a command position, a read-shaped call, a code extension —
+    # and bails on any write signal, so codegen and file-writing scripts pass.
+    # (Heuristic, not a parser: the cortex:grep-ok escape above covers misses.)
+    if [ "$targets_code" = "1" ] \
+      && printf '%s' "$STRIPPED" | grep -Eq "$INTERP_RE" \
+      && printf '%s' "$CMD" | grep -Eq "$READ_RE" \
+      && ! printf '%s' "$CMD" | grep -Eq "$WRITE_RE"; then
+      emit_deny "$INTERP_MSG"
+    fi
+
+    # (c) grep/rg proper. Any remaining search token at a command position —
+    # start, or after whitespace/;/&/(// — catches `grep`, `rg`, `git grep`,
+    # `xargs grep`, `command grep`, `/usr/bin/grep`, env-prefixed greps, and
+    # `find … -exec grep`. (Heuristic: a code extension inside the search
+    # PATTERN can still over-trigger a deny — use cortex:grep-ok for those.)
+    printf '%s' "$STRIPPED" \
+      | grep -Eq '(^|[[:space:];&(/])(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)' \
+      || exit 0
+    # Allow when clearly scoped to non-code and not to code.
     if [ "$targets_noncode" = "1" ] && [ "$targets_code" = "0" ]; then exit 0; fi
     emit_deny "$GREP_MSG"
     ;;

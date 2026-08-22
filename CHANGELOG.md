@@ -18,6 +18,38 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.9.2] — 2026-08-21
+
+### Fixed
+
+- **The prefer-cortex gate silently switched itself off inside every git
+  worktree.** `repo_indexed()` tested the literal `<dir>/.cortex/db`, but under
+  `D-b248` a linked worktree never has one: every root derivation — index write
+  path, read resolver, registry — canonicalizes through `mainWorktreeRoot`
+  (`git --git-common-dir`), so `cortex index` run from a worktree writes the
+  *main checkout's* store. The hook was the one code path still re-deriving its
+  own notion of root, contradicting D-b248's "no code path re-derives its own
+  notion of root". Result: on an indexed repo the gate denied code greps in the
+  main checkout while allowing them in every worktree — precisely where
+  [the workflow rules](.claude/rules/workflow.md) mandate that feature work
+  happen. The hook now canonicalizes its target through `--git-common-dir`
+  before the index check, degrading to the previous behavior whenever git
+  can't answer. The redirect it prints is sound in a worktree because the MCP
+  read path canonicalizes the same way — a Cortex tool called with a worktree
+  path resolves and returns results. This also stops `maybe_bg_index` from
+  repeatedly re-indexing worktrees that could never look indexed.
+
+### Added
+
+- **Two greps-in-disguise now redirect like a plain `grep`.** `find … -name
+  '*.ts'` is a Glob spelled in Bash, and an interpreter that opens a source
+  file to scan it (`python3 - <<PY … open('src/x.ts').read()`) is a grep with
+  extra steps; both were observed bypassing the gate in a real session. Only
+  code-scoped `find` redirects — arbitrary non-code discovery still passes —
+  and the interpreter rule requires an interpreter at a command position, a
+  read-shaped call, and a code extension, bailing on any write signal so
+  codegen scripts are untouched. Both honor `cortex:grep-ok`.
+
 ## [1.9.1] — 2026-08-10
 
 ### Fixed
@@ -1706,6 +1738,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.9.2]: https://github.com/ruevu/cortex/releases/tag/v1.9.2
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
