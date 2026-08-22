@@ -5,6 +5,8 @@ import type {
   AssertionResult,
   Baseline,
 } from "./assertions/types.js";
+import { isMetricMap } from "./assertions/verdicts.js";
+import type { RatchetOutcome } from "./assertions/types.js";
 
 export type TargetReport = {
   target: string;
@@ -64,6 +66,7 @@ export function renderSummary(reports: TargetReport[]): string {
       }
       lines.push("");
     }
+    lines.push(...renderUniversalSection(r));
   }
   return lines.join("\n");
 }
@@ -113,4 +116,45 @@ function renderPerTarget(r: TargetReport): string {
     );
   }
   return lines.join("\n");
+}
+
+/** Render the universal metrics for one target: absolute value first, then
+ *  the ratchet verdict. The absolute value is deliberately kept even when the
+ *  metric passes — a repo sitting at 40% call attribution must read as bad
+ *  even while it is stable, which a delta-only view would hide. */
+export function renderUniversalSection(report: TargetReport): string[] {
+  const universal = report.results.filter((r) => r.assertion.scope === "universal");
+  if (universal.length === 0) return [];
+
+  const lines: string[] = ["  Universal metrics:"];
+  for (const r of universal) {
+    const outcome = r.ratchet;
+    if (outcome && !("status" in outcome)) {
+      const observedMap = isMetricMap(r.observed) ? r.observed : {};
+      lines.push(`    ${r.assertion.name}:`);
+      for (const key of Object.keys(outcome).sort()) {
+        const gone = key in observedMap ? "" : " DISAPPEARED";
+        lines.push(`      ${key}: ${renderOutcome(outcome[key])}${gone}`);
+      }
+      continue;
+    }
+    lines.push(`    ${r.assertion.name}: ${renderOutcome(outcome as RatchetOutcome | undefined)}`);
+  }
+  return lines;
+}
+
+function renderOutcome(o: RatchetOutcome | undefined): string {
+  if (!o) return "(not ratcheted)";
+  if (o.status === "not_measured") return "not measured";
+  if (o.status === "no_baseline") return `${fmtMetric(o.observed)} (no baseline)`;
+  const sign = o.delta > 0 ? `+${fmtMetric(o.delta)}` : fmtMetric(o.delta);
+  if (o.status === "fail") return `${fmtMetric(o.observed)} (${sign}) REGRESSED`;
+  if (o.improved) return `${fmtMetric(o.observed)} (${sign}) IMPROVED — baseline stale`;
+  return `${fmtMetric(o.observed)} (${sign})`;
+}
+
+/** Note the name: `fmt` already exists in this file and thousands-separates
+ *  scorecard counts. Metrics need fixed decimals instead. */
+function fmtMetric(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }

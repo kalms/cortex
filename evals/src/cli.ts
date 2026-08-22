@@ -6,6 +6,7 @@ import { computeScorecard } from "./scorecard.js";
 import { runAssertion } from "./assertions/runner.js";
 import { runToolAssertion } from "./assertions/tool-runner.js";
 import { ALL_ASSERTIONS, selectAssertions } from "./assertions/registry.js";
+import { applyRatchet } from "./assertions/verdicts.js";
 import { writeReportArtifacts, type TargetReport } from "./report.js";
 import type {
   Targets,
@@ -75,7 +76,13 @@ function runTarget(target: Target, pathOverride?: string): TargetReport {
   }
 
   const baseline = loadBaseline(acquired.name);
-  return { target: acquired.name, scorecard, results, baseline, source_sha: acquired.source_sha };
+  return {
+    target: acquired.name,
+    scorecard,
+    results: applyRatchet(results, baseline),
+    baseline,
+    source_sha: acquired.source_sha,
+  };
 }
 
 function captureBaseline(target: Target, pathOverride?: string): void {
@@ -87,12 +94,18 @@ function captureBaseline(target: Target, pathOverride?: string): void {
     nodes_by_label: report.scorecard.nodes_by_label,
     edges_by_type: report.scorecard.edges_by_type,
     per_assertion: Object.fromEntries(
-      report.results.map((r) => {
-        const obs = typeof r.observed === "object" && r.observed !== null && "text" in r.observed
-          ? (r.observed as { text: string }).text
-          : (r.observed as number | string[]);
-        return [r.assertion.name, obs];
-      }),
+      report.results
+        // A metric that measured nothing has no value to record. Writing null
+        // would seed the baseline with a non-comparable entry; omitting the key
+        // makes the next run read it as "no baseline", which is the truth.
+        .filter((r) => r.observed !== null)
+        .map((r) => {
+          const obs =
+            typeof r.observed === "object" && r.observed !== null && "text" in r.observed
+              ? (r.observed as { text: string }).text
+              : (r.observed as number | string[] | Record<string, number>);
+          return [r.assertion.name, obs];
+        }),
     ),
   };
   mkdirSync(resolve("evals/baselines"), { recursive: true });

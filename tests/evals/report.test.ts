@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderSummary } from "../../evals/src/report.js";
 import type { Scorecard, AssertionResult, Baseline, Assertion } from "../../evals/src/assertions/types.js";
+import { renderUniversalSection } from "../../evals/src/report.js";
 
 const stubAssertion: Assertion = {
   fix_id: 2,
@@ -87,5 +88,67 @@ describe("report.renderSummary", () => {
     expect(md).toContain("Scorecard delta");
     expect(md).toMatch(/nodes\.function:\s+412 → 1,?103/);
     expect(md).toMatch(/edges\.HTTP_CALLS:\s+0 → 47/);
+  });
+});
+
+describe("universal metric rendering", () => {
+  const base = {
+    target: "demo",
+    scorecard: { target: "demo", indexer_seconds: null, nodes_by_label: {}, edges_by_type: {}, killer_queries: [] },
+    baseline: null,
+  };
+
+  function report(name: string, observed: unknown, ratchet: unknown): any {
+    return {
+      ...base,
+      results: [{
+        assertion: { fix_id: "universal", name, description: "", query: { kind: "sql", sql: "" }, baseline_expected: "pass", scope: "universal", direction: "lower_is_better" },
+        observed,
+        passed: null,
+        surprised: false,
+        ratchet,
+      }],
+    };
+  }
+
+  it("renders absolute value, delta and a regression flag", () => {
+    const lines = renderUniversalSection(
+      report("file_sourced_calls", 12, { status: "fail", observed: 12, baseline: 0, delta: 12, improved: false }),
+    ).join("\n");
+    expect(lines).toContain("file_sourced_calls: 12 (+12) REGRESSED");
+  });
+
+  it("keeps the absolute value visible when the metric merely holds steady", () => {
+    const lines = renderUniversalSection(
+      report("call_attribution_rate", 40.5, { status: "pass", observed: 40.5, baseline: 40.5, delta: 0, improved: false }),
+    ).join("\n");
+    expect(lines).toContain("40.50");
+    expect(lines).not.toContain("REGRESSED");
+  });
+
+  it("names an improvement as a stale baseline", () => {
+    const lines = renderUniversalSection(
+      report("file_sourced_calls", 0, { status: "pass", observed: 0, baseline: 147, delta: -147, improved: true }),
+    ).join("\n");
+    expect(lines).toContain("IMPROVED — baseline stale");
+  });
+
+  it("marks a metric with no baseline rather than failing it", () => {
+    const lines = renderUniversalSection(
+      report("qn_collisions", 3, { status: "no_baseline", observed: 3 }),
+    ).join("\n");
+    expect(lines).toContain("no baseline");
+    expect(lines).not.toContain("REGRESSED");
+  });
+
+  it("labels a language that disappeared since the baseline", () => {
+    const lines = renderUniversalSection(
+      report("per_language_function_density", { ts: 4.2 }, {
+        ts: { status: "pass", observed: 4.2, baseline: 4.2, delta: 0, improved: false },
+        rb: { status: "fail", observed: 0, baseline: 2, delta: -2, improved: false },
+      }),
+    ).join("\n");
+    expect(lines).toContain("rb");
+    expect(lines).toContain("DISAPPEARED");
   });
 });
