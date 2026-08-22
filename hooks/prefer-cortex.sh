@@ -233,6 +233,10 @@ CODE_TYPE_RE='^(ts|tsx|typescript|js|jsx|javascript|py|python|go|rust|rs|java|c|
 # `find -name '*.ts'` is a Glob spelled in Bash — same intent, same redirect.
 FIND_RE='(^|[[:space:];&(/])find([[:space:]]|$)'
 NAME_FLAG_RE='[[:space:]]-i?name([[:space:]]|$)'
+# `find -name '*.ts' -delete` / `-exec prettier --write {} +` DO work, they do not
+# find work. Redirecting them to search_graph would be nonsense -- it cannot
+# delete or format anything.
+FIND_ACTION_RE='[[:space:]]-(delete|exec|execdir|ok|okdir)([[:space:]]|$)'
 # An interpreter that opens a source file and scans it is a grep with extra
 # steps (observed shape: `python3 - <<PY … open('src/x.ts').read() … PY`).
 # Quote char class built inline so both quote styles survive shell quoting.
@@ -240,9 +244,9 @@ _Q="[\"']"
 INTERP_RE='(^|[[:space:];&(/])(python3?|node|deno|bun|ruby|perl)([[:space:]]|$)'
 READ_RE="(^|[^a-zA-Z_])(open|readFileSync|readFile|read_text)[[:space:]]*\\("
 # Writing a source file is codegen, not discovery — never redirect it.
-WRITE_RE="(writeFileSync|\\.write\\(|open\\([^)]*,[[:space:]]*$_Q[wa])"
+WRITE_RE="(writeFileSync|writeFile|appendFile|write_text|write_bytes|\\.write\\(|open\\([^)]*,[[:space:]]*$_Q[wa])"
 
-GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep, same regex syntax, your pattern passed through verbatim, but each hit annotated with its enclosing function/class. It searches ALL files, code and non-code alike, and takes path="subdir", glob="*.md", files_only=true, multiline=true, max_count=N — so scoping no longer needs a raw grep. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read code around a hit use get_code_snippet.'
+GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep, same regex syntax, your pattern passed through verbatim, but each hit annotated with its enclosing function/class. It searches code and non-code files alike (including dotfile dirs like .github/), and takes path="subdir", glob="*.md", files_only=true, multiline=true, max_count=N — so scoping no longer needs a raw grep. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read code around a hit use get_code_snippet. Grep remains fine for genuinely non-code targets \u2014 scope it to those and it passes.'
 
 GLOB_MSG='This repo is indexed by Cortex. To find code by name use search_graph(name_pattern="…"), or get_architecture for structure — not Glob over source files. Glob is fine for non-code files: scope the pattern to those (e.g. **/*.md, **/*.json) and it passes.'
 
@@ -263,6 +267,16 @@ emit_deny() {
 # a denied `grep … version.ts` re-issued verbatim with the token seconds later,
 # no Cortex call in between. Routing it to "ask" keeps the escape usable for a
 # genuine need while making the human the only party who can grant it.
+# Convert a would-be denial into a request when the token is present. Called
+# INSTEAD of emit_deny on the Bash path, never before rule evaluation: hoisting
+# the token check to the top made it fire on any command merely containing the
+# string (`git commit -m "...cortex:grep-ok..."`), and turned an outright allow
+# for a non-code grep into a needless prompt.
+deny_or_ask() {
+  if printf '%s' "$CMD" | grep -q 'cortex:grep-ok'; then emit_ask "$ASK_MSG"; fi
+  emit_deny "$1"
+}
+
 emit_ask() {
   jq -n --arg r "$1" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'
@@ -298,9 +312,6 @@ case "$TOOL" in
   Bash)
     CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
     [ -n "$CMD" ] || exit 0
-    # Deliberate-escape FIRST, so a request never depends on which rule fired.
-    # This ASKS the user; it does not self-authorize.
-    printf '%s' "$CMD" | grep -q 'cortex:grep-ok' && emit_ask "$ASK_MSG"
 
     # Scope signals, computed once against the ORIGINAL command: a quoted glob
     # (`--glob '*.md'`, `-name '*.ts'`) must survive the literal-strip below.
@@ -325,8 +336,9 @@ case "$TOOL" in
     # policy: only CODE-scoped patterns redirect; arbitrary discovery passes.
     if [ "$targets_code" = "1" ] \
       && printf '%s' "$STRIPPED" | grep -Eq "$FIND_RE" \
-      && printf '%s' "$CMD" | grep -Eq "$NAME_FLAG_RE"; then
-      emit_deny "$FIND_MSG"
+      && printf '%s' "$CMD" | grep -Eq "$NAME_FLAG_RE" \
+      && ! printf '%s' "$CMD" | grep -Eq "$FIND_ACTION_RE"; then
+      deny_or_ask "$FIND_MSG"
     fi
 
     # (b) Interpreter reading a source file. Requires all three signals —
@@ -337,7 +349,7 @@ case "$TOOL" in
       && printf '%s' "$STRIPPED" | grep -Eq "$INTERP_RE" \
       && printf '%s' "$CMD" | grep -Eq "$READ_RE" \
       && ! printf '%s' "$CMD" | grep -Eq "$WRITE_RE"; then
-      emit_deny "$INTERP_MSG"
+      deny_or_ask "$INTERP_MSG"
     fi
 
     # (c) grep/rg proper. Any remaining search token at a command position —
@@ -350,7 +362,7 @@ case "$TOOL" in
       || exit 0
     # Allow when clearly scoped to non-code and not to code.
     if [ "$targets_noncode" = "1" ] && [ "$targets_code" = "0" ]; then exit 0; fi
-    emit_deny "$GREP_MSG"
+    deny_or_ask "$GREP_MSG"
     ;;
 esac
 exit 0

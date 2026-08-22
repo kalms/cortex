@@ -105,7 +105,7 @@ const searchCodeShape = {
   path: z.string().optional()
     .describe("Restrict to a subtree or single file, relative to the repo root (e.g. 'docs', 'src/graph/store.ts')."),
   glob: z.string().optional()
-    .describe("Filename glob, e.g. '*.md' or '*.{ts,tsx}'."),
+    .describe("Filename glob, e.g. '*.md'. Brace expansion ('*.{ts,tsx}') needs ripgrep; pass one glob for portability."),
   files_only: z.boolean().optional()
     .describe("List matching file paths instead of matching lines."),
   multiline: z.boolean().optional()
@@ -928,6 +928,7 @@ export function registerCodeTools(
               "(e.g. \\( \\[ \\. \\*) to match them literally.",
           );
         }
+        if (outcome.kind === "invalid_path") return errorResponse("malformed_input", outcome.detail);
         if (outcome.kind === "error") return errorResponse("internal_error", outcome.detail);
         if (outcome.kind === "files") return ok(outcome.files.map((f) => `./${f}`).join("\n"));
         const text = outcome.hits

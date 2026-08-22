@@ -43,8 +43,10 @@ filters (`ps aux | grep node`), arbitrary non-code `find`, interpreters
 — the gate keys on the search target, not the cwd, and an unindexed sibling
 repo triggers a detached background `cortex index` for it (opt out:
 `CORTEX_AUTO_INDEX=0`). **`search_code` IS ripgrep** — same binary, your pattern passed through
-verbatim, so there is no regex it lacks — and it searches *all* files, not just
-code. It takes `path`, `glob`, `files_only`, `multiline`, and `max_count`, so
+verbatim, so there is no regex it lacks — and it searches non-code files too
+(configs, docs, JSON, and dotfile dirs like `.github/`). It honors `.gitignore`,
+so build output and ignored files stay invisible; grep is still the tool for
+those. It takes `path`, `glob`, `files_only`, `multiline`, and `max_count`, so
 scoping never requires a raw grep either. To read code around a hit use
 `get_code_snippet`, not `-A/-B`. The `cortex:grep-ok` token no longer
 authorizes: it now returns `ask`, so **the user** approves a raw grep, never the

@@ -139,3 +139,47 @@ describe("runCodeSearch — scoping options", () => {
     expect(out.kind).toBe("empty");
   });
 });
+
+describe("runCodeSearch — path validation and caps", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-code-guard-"));
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "a.ts"), "const ribbon = 1;\n");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("rejects a path that escapes the repo root", async () => {
+    const out = await runCodeSearch({ pattern: "x", repoRoot: dir, path: "../../etc" });
+    expect(out.kind).toBe("invalid_path");
+  });
+
+  it("rejects an absolute path (it also breaks hit parsing)", async () => {
+    const out = await runCodeSearch({ pattern: "x", repoRoot: dir, path: "/etc" });
+    expect(out.kind).toBe("invalid_path");
+  });
+
+  it("reports a nonexistent path instead of answering 'no results'", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, path: "nosuchdir" });
+    expect(out.kind).toBe("invalid_path");
+    if (out.kind !== "invalid_path") return;
+    expect(out.detail).toContain("does not exist");
+  });
+
+  it("searches dotfile directories like .github", async () => {
+    mkdirSync(join(dir, ".github"));
+    writeFileSync(join(dir, ".github", "ci.yml"), "name: ribbon\n");
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.some((h) => h.file === ".github/ci.yml")).toBe(true);
+  });
+
+  it("filesOnly honors maxHits", async () => {
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, "src", `f${i}.ts`), "ribbon\n");
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, filesOnly: true, maxHits: 2 });
+    expect(out.kind).toBe("files");
+    if (out.kind !== "files") return;
+    expect(out.files).toHaveLength(2);
+  });
+});

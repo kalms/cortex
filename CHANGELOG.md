@@ -59,7 +59,11 @@ All notable changes to Cortex are documented here. The format follows
   in `docs/`", "just list the files") had no expression and pushed callers to the
   raw-grep escape hatch. Context lines are deliberately excluded: reading around
   a hit is `get_code_snippet`'s job, and context output would break the
-  `path:line:text` parse every consumer depends on.
+  `path:line:text` parse every consumer depends on. `path` is validated as
+  relative-and-inside-the-repo and must exist, so a typo reports a bad path
+  instead of answering "no results"; `files_only` honors the hit cap; and the
+  search now passes `--hidden` (excluding `.git/`) so dotfile directories like
+  `.github/` are no longer invisible. `.gitignore` is still honored.
 
 - **Two greps-in-disguise now redirect like a plain `grep`.** `find … -name
   '*.ts'` is a Glob spelled in Bash, and an interpreter that opens a source

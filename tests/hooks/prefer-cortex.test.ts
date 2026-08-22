@@ -453,3 +453,36 @@ describe("prefer-cortex.sh — the denial must not teach the bypass", () => {
     expect(r).toContain("glob=");
   });
 });
+
+describe("prefer-cortex.sh — review regressions", () => {
+  const repo = indexedRepo();
+  const bash = (command: string) => run({ tool_name: "Bash", cwd: repo, tool_input: { command } });
+
+  it("the escape token only converts a DENY into an ask, never fires on its own", () => {
+    // Hoisting the check made any command containing the string ask.
+    expect(bash('git commit -m "fix: document cortex:grep-ok in the hook"')).toBe("allow");
+    expect(bash("grep -n TODO README.md # cortex:grep-ok")).toBe("allow");
+    expect(bash("rg foo src/ # cortex:grep-ok")).toBe("ask");
+  });
+
+  it("allows `find` that DOES work rather than finds it", () => {
+    expect(bash("find dist -name '*.js' -delete")).toBe("allow");
+    expect(bash("find . -name '*.ts' -exec prettier --write {} +")).toBe("allow");
+    expect(bash("find . -name '*.ts'")).toBe("deny"); // still a Glob in disguise
+  });
+
+  it("does not flag interpreters using async / pathlib write forms", () => {
+    expect(bash("node -e \"require('fs').promises.writeFile('src/a.ts', out)\"")).toBe("allow");
+    expect(bash("python3 -c \"import pathlib; pathlib.Path('src/a.ts').write_text(s)\"")).toBe("allow");
+  });
+
+  it("denial text no longer claims search_code covers ALL files", () => {
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Bash", cwd: repo, tool_input: { command: "rg foo src/" } }),
+      encoding: "utf-8",
+    }).trim();
+    const reason = JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
+    expect(reason).not.toContain("ALL files");
+    expect(reason).toContain("non-code"); // the fallback sentence is restored
+  });
+});

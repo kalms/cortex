@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, existsSync, constants as fsConstants } from "node:fs";
+import { isAbsolute, resolve as resolvePath, sep } from "node:path";
 import type { GraphStore } from "./store.js";
 import type { IndexerNode } from "./code-queries.js";
 import { KIND_WEIGHT } from "./node-ranker.js";
@@ -36,12 +37,36 @@ export type SearchScope = {
   maxCount?: number;
 };
 
+/**
+ * Validate a caller-supplied `path` scope against the repo root.
+ *
+ * `cwd: repoRoot` anchors rg's *process*, not its target: a relative
+ * `../../etc` still escapes, and an absolute path both escapes and makes rg
+ * emit absolute hit lines, which silently breaks the enclosing-symbol lookup.
+ * Returns null when the path is acceptable, else a reason.
+ */
+export function validateSearchPath(repoRoot: string, path: string): string | null {
+  if (isAbsolute(path)) return `path must be relative to the repo root, got '${path}'`;
+  const resolved = resolvePath(repoRoot, path);
+  const root = resolvePath(repoRoot);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    return `path '${path}' escapes the repository root`;
+  }
+  if (!existsSync(resolved)) return `path '${path}' does not exist in this repo`;
+  return null;
+}
+
 export function buildRgArgs(pattern: string, scope: SearchScope = {}): string[] {
   const args = [
     "--no-heading",
     "--line-number",
     "--color=never",
     "--max-count", String(scope.maxCount ?? 200),
+    // Without --hidden, rg skips dotfile dirs -- .github/, .claude/, .husky/
+    // were invisible, so search_code silently missed CI workflows. .git/ is
+    // re-excluded because --hidden would otherwise descend into object storage.
+    // .gitignore is still honored: build output stays out by design.
+    "--hidden", "--glob", "!.git/",
   ];
   if (scope.glob) args.push("--glob", scope.glob);
   if (scope.filesOnly) args.push("--files-with-matches");
@@ -205,6 +230,7 @@ export type SearchHit = {
 export type SearchOutcome =
   | { kind: "hits"; hits: SearchHit[] }
   | { kind: "files"; files: string[] }
+  | { kind: "invalid_path"; detail: string }
   | { kind: "empty" }
   | { kind: "invalid_pattern"; detail: string }
   | { kind: "error"; detail: string };
@@ -225,6 +251,13 @@ export async function runCodeSearch(opts: {
     path: opts.path, glob: opts.glob, filesOnly: opts.filesOnly,
     multiline: opts.multiline, maxCount: opts.maxCount,
   };
+  if (scope.path) {
+    const bad = validateSearchPath(opts.repoRoot, scope.path);
+    // Without this, a typo'd path makes rg exit 2 with no stdout, which
+    // classifies as "empty" -- the tool would answer "no results" for a path
+    // that does not exist, which reads as a fact about the code.
+    if (bad) return { kind: "invalid_path", detail: bad };
+  }
   const maxHits = opts.maxHits ?? 50;
   const execOpts = { timeout: 10_000, maxBuffer: RG_MAX_BUFFER, cwd: opts.repoRoot };
 
@@ -238,6 +271,9 @@ export async function runCodeSearch(opts: {
     else if (outcome.kind === "empty") return { kind: "empty" };
     else if (outcome.kind === "invalid_pattern") return { kind: "invalid_pattern", detail: outcome.detail };
     else if (outcome.kind === "missing") {
+      if (scope.multiline) {
+        return { kind: "error", detail: "multiline search needs ripgrep, which is unavailable; grep fallback cannot match across lines." };
+      }
       try {
         const r2 = await execFileAsync("grep", buildGrepFallbackArgs(opts.pattern, scope), execOpts);
         stdout = r2.stdout;
@@ -257,7 +293,8 @@ export async function runCodeSearch(opts: {
   if (scope.filesOnly) {
     const files = stdout.split("\n")
       .map((l) => l.trim().replace(/^\.\//, ""))
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, maxHits); // filesOnly ignored the cap: an unbounded response
     return files.length ? { kind: "files", files } : { kind: "empty" };
   }
 

@@ -201,10 +201,15 @@ Graph-enriched text search.
   bundled `@vscode/ripgrep` binary (falls back to `grep`) so a stripped server
   PATH can't hide it.
 - **It *is* ripgrep.** The pattern is handed to the same `rg` binary verbatim —
-  there is no regex feature it lacks — and the search covers **all** files, code
-  and non-code alike (configs, docs, JSON, Markdown). Both facts are frequently
-  mis-stated in agent guidance as reasons to reach for a raw `rg`; neither is
-  true.
+  there is no regex feature it lacks — and the search covers non-code files too
+  (configs, docs, JSON, Markdown, and dotfile dirs like `.github/`). Both facts
+  are frequently mis-stated in agent guidance as reasons to reach for a raw
+  `rg`; neither is true.
+- **Blind spot:** `.gitignore` is honored, so build output and ignored files are
+  not searched. A raw grep is the right tool for those.
+- **`path` is validated:** it must be relative and inside the repo; an absolute
+  or escaping path is rejected, as is one that does not exist (rather than
+  silently answering "no results").
 - **Scoping:** `path` restricts to a subtree or single file, `glob` filters by
   filename, `files_only` lists files rather than lines, `multiline` lets a
   pattern cross line boundaries, `max_count` overrides the 200-match per-file

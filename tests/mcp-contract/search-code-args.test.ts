@@ -96,10 +96,18 @@ describe("search_code argv builders — scoping options", () => {
   });
 
   it("buildRgArgs: glob maps to --glob", () => {
+    // Two --glob flags exist: the built-in "!.git/" exclusion and the caller's.
+    // Assert the caller's pair, not merely the first occurrence.
     const args = buildRgArgs("ribbon", { glob: "*.md" });
-    const i = args.indexOf("--glob");
+    const i = args.lastIndexOf("--glob");
     expect(i).toBeGreaterThan(-1);
     expect(args[i + 1]).toBe("*.md");
+  });
+
+  it("buildRgArgs: searches dotfile dirs but never descends into .git", () => {
+    const args = buildRgArgs("ribbon");
+    expect(args).toContain("--hidden");
+    expect(args[args.indexOf("--glob") + 1]).toBe("!.git/");
   });
 
   it("buildRgArgs: filesOnly maps to --files-with-matches", () => {
