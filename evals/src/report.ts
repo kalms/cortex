@@ -106,8 +106,9 @@ function renderPerTarget(r: TargetReport): string {
   ];
   for (const x of r.results) {
     const observed = formatObserved(x.observed).replace(/\|/g, "\\|");
+    const verdict = x.passed === null ? "—" : x.passed ? "✓" : "✗";
     lines.push(
-      `| ${x.assertion.fix_id} | ${x.assertion.name} | ${x.passed ? "✓" : "✗"} | ${x.surprised ? "*" : ""} | ${observed} |`,
+      `| ${x.assertion.fix_id} | ${x.assertion.name} | ${verdict} | ${x.surprised ? "*" : ""} | ${observed} |`,
     );
   }
   return lines.join("\n");
