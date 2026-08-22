@@ -102,6 +102,16 @@ const getGraphSchemaSchema = z.object(getGraphSchemaShape);
 const searchCodeShape = {
   repo_path: RepoPathField,
   pattern: z.string(),
+  path: z.string().optional()
+    .describe("Restrict to a subtree or single file, relative to the repo root (e.g. 'docs', 'src/graph/store.ts')."),
+  glob: z.string().optional()
+    .describe("Filename glob, e.g. '*.md' or '*.{ts,tsx}'."),
+  files_only: z.boolean().optional()
+    .describe("List matching file paths instead of matching lines."),
+  multiline: z.boolean().optional()
+    .describe("Let the pattern match across line boundaries (dot matches newline)."),
+  max_count: z.number().int().positive().optional()
+    .describe("Per-file match cap (default 200)."),
 } as const;
 const searchCodeSchema = z.object(searchCodeShape);
 
@@ -899,7 +909,7 @@ export function registerCodeTools(
       "search_code",
       searchCodeSchema,
       async (ctx, args) => {
-        const { pattern } = args;
+        const { pattern, path, glob, files_only, multiline, max_count } = args;
         const project = projectFromCtx(ctx);
         const outcome = await runCodeSearch({
           pattern,
@@ -907,6 +917,7 @@ export function registerCodeTools(
           store: ctx.store,
           project: project ?? undefined,
           maxHits: 50,
+          path, glob, filesOnly: files_only, multiline, maxCount: max_count,
         });
         if (outcome.kind === "empty") return empty(`search_code(${pattern})`);
         if (outcome.kind === "invalid_pattern") {
@@ -918,6 +929,7 @@ export function registerCodeTools(
           );
         }
         if (outcome.kind === "error") return errorResponse("internal_error", outcome.detail);
+        if (outcome.kind === "files") return ok(outcome.files.map((f) => `./${f}`).join("\n"));
         const text = outcome.hits
           .map((h) => {
             const base = `./${h.file}:${h.line}:${h.text}`;

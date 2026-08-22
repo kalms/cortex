@@ -10,22 +10,53 @@ const execFileAsync = promisify(execFile);
 
 export const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
-export function buildRgArgs(pattern: string): string[] {
-  return [
+/**
+ * Scoping options for a code search.
+ *
+ * These exist so that raw `rg` is never the *only* way to run a search on an
+ * indexed repo. `search_code` has always been ripgrep with the caller's pattern
+ * passed through verbatim, so regex power was never the gap -- the gap was that
+ * the wrapper accepted nothing but a pattern, which pushed callers to the
+ * `cortex:grep-ok` escape for ordinary needs like "only look in docs/".
+ *
+ * Deliberately NOT included: context lines (`-A/-B/-C`). Reading the code
+ * around a hit is `get_code_snippet`'s job, and context output would break the
+ * `path:line:text` parse that every consumer depends on.
+ */
+export type SearchScope = {
+  /** Restrict to a subtree or single file, relative to the repo root. */
+  path?: string;
+  /** Filename glob, e.g. "*.md". */
+  glob?: string;
+  /** List matching files instead of matching lines (rg --files-with-matches). */
+  filesOnly?: boolean;
+  /** Let a pattern match across line boundaries (rg -U --multiline-dotall). */
+  multiline?: boolean;
+  /** Per-file match cap; defaults to 200. */
+  maxCount?: number;
+};
+
+export function buildRgArgs(pattern: string, scope: SearchScope = {}): string[] {
+  const args = [
     "--no-heading",
     "--line-number",
     "--color=never",
-    "--max-count", "200",
-    pattern,
-    ".",
+    "--max-count", String(scope.maxCount ?? 200),
   ];
+  if (scope.glob) args.push("--glob", scope.glob);
+  if (scope.filesOnly) args.push("--files-with-matches");
+  if (scope.multiline) args.push("--multiline", "--multiline-dotall");
+  args.push(pattern, scope.path ?? ".");
+  return args;
 }
 
-export function buildGrepFallbackArgs(pattern: string): string[] {
+export function buildGrepFallbackArgs(pattern: string, scope: SearchScope = {}): string[] {
+  const extra: string[] = [];
+  if (scope.glob) extra.push(`--include=${scope.glob}`);
+  if (scope.filesOnly) extra.push("-l");
   return [
     "-rn",
     "-I", // skip binary files (sqlite DBs, compiled objects)
-    "-m", "200", // cap matches per file, mirroring rg's --max-count
     "--exclude-dir=node_modules",
     "--exclude-dir=.git",
     "--exclude-dir=dist",
@@ -38,8 +69,10 @@ export function buildGrepFallbackArgs(pattern: string): string[] {
     "--exclude-dir=.tmp",
     "--exclude-dir=.cortex",
     "--exclude-dir=.venv",
+    "-m", String(scope.maxCount ?? 200),
+    ...extra,
     pattern,
-    ".",
+    scope.path ?? ".",
   ];
 }
 
@@ -171,11 +204,15 @@ export type SearchHit = {
 
 export type SearchOutcome =
   | { kind: "hits"; hits: SearchHit[] }
+  | { kind: "files"; files: string[] }
   | { kind: "empty" }
   | { kind: "invalid_pattern"; detail: string }
   | { kind: "error"; detail: string };
 
-const HIT_LINE_RE = /^\.\/(.+?):(\d+):(.*)$/;
+// rg prints paths relative to cwd: "./x.ts" when the target is ".", but
+// "docs/guide.md" when the target is an explicit path. Accept both so a scoped
+// search parses identically to an unscoped one.
+const HIT_LINE_RE = /^(?:\.\/)?(.+?):(\d+):(.*)$/;
 
 export async function runCodeSearch(opts: {
   pattern: string;
@@ -183,13 +220,17 @@ export async function runCodeSearch(opts: {
   store?: GraphStore;
   project?: string;
   maxHits?: number;
-}): Promise<SearchOutcome> {
+} & SearchScope): Promise<SearchOutcome> {
+  const scope: SearchScope = {
+    path: opts.path, glob: opts.glob, filesOnly: opts.filesOnly,
+    multiline: opts.multiline, maxCount: opts.maxCount,
+  };
   const maxHits = opts.maxHits ?? 50;
   const execOpts = { timeout: 10_000, maxBuffer: RG_MAX_BUFFER, cwd: opts.repoRoot };
 
   let stdout = "";
   try {
-    const r = await execFileAsync(resolveRgBinary(), buildRgArgs(opts.pattern), execOpts);
+    const r = await execFileAsync(resolveRgBinary(), buildRgArgs(opts.pattern, scope), execOpts);
     stdout = r.stdout;
   } catch (rgErr) {
     const outcome = classifySearchExec(rgErr as SearchExecError);
@@ -198,7 +239,7 @@ export async function runCodeSearch(opts: {
     else if (outcome.kind === "invalid_pattern") return { kind: "invalid_pattern", detail: outcome.detail };
     else if (outcome.kind === "missing") {
       try {
-        const r2 = await execFileAsync("grep", buildGrepFallbackArgs(opts.pattern), execOpts);
+        const r2 = await execFileAsync("grep", buildGrepFallbackArgs(opts.pattern, scope), execOpts);
         stdout = r2.stdout;
       } catch (grepErr) {
         const o2 = classifySearchExec(grepErr as SearchExecError);
@@ -212,6 +253,13 @@ export async function runCodeSearch(opts: {
   }
 
   if (!stdout.trim()) return { kind: "empty" };
+
+  if (scope.filesOnly) {
+    const files = stdout.split("\n")
+      .map((l) => l.trim().replace(/^\.\//, ""))
+      .filter(Boolean);
+    return files.length ? { kind: "files", files } : { kind: "empty" };
+  }
 
   const hits: SearchHit[] = [];
   for (const line of stdout.split("\n")) {

@@ -20,7 +20,7 @@ state and the repo path; act on it.
 | Get full context for a symbol (code + callers + callees + decisions + commits) | `context_pack(qualified_name="…")` | 3–4 separate calls |
 | Find who calls X / what X calls | `trace_path(function_name, mode="callers"\|"calls")` | `Grep` for call sites |
 | Understand project shape | `get_architecture(aspects=…)` | manual `ls`/`find` |
-| Text search across code with structural annotation | `search_code(pattern="…")` | `Grep` |
+| Text search across code with structural annotation | `search_code(pattern="…", path=…, glob=…, files_only=…, multiline=…)` | `Grep`, `rg` |
 | Complex graph query | `query_graph(query=Cypher)` | grep + manual joins |
 | Check why code looks the way it does | `decision({action:"why", qualified_name:"…"})` | guessing |
 | What changed since a ref/date/decision | `changes_since(since="…")` | git spelunking |
@@ -42,8 +42,13 @@ filters (`ps aux | grep node`), arbitrary non-code `find`, interpreters
 *writing* source, and searches whose **target repo** is unindexed pass through
 — the gate keys on the search target, not the cwd, and an unindexed sibling
 repo triggers a detached background `cortex index` for it (opt out:
-`CORTEX_AUTO_INDEX=0`). Escape hatch for a genuine code grep Cortex can't do:
-include the token `cortex:grep-ok` in the Bash command.
+`CORTEX_AUTO_INDEX=0`). **`search_code` IS ripgrep** — same binary, your pattern passed through
+verbatim, so there is no regex it lacks — and it searches *all* files, not just
+code. It takes `path`, `glob`, `files_only`, `multiline`, and `max_count`, so
+scoping never requires a raw grep either. To read code around a hit use
+`get_code_snippet`, not `-A/-B`. The `cortex:grep-ok` token no longer
+authorizes: it now returns `ask`, so **the user** approves a raw grep, never the
+agent itself.
 
 **Worktrees count as indexed.** The gate resolves its target through
 `--git-common-dir` (the shell mirror of `mainWorktreeRoot`), so a linked

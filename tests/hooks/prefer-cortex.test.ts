@@ -22,7 +22,7 @@ function unindexedRepo(): string {
   return root;
 }
 
-type Decision = "deny" | "allow";
+type Decision = "deny" | "allow" | "ask";
 
 /** Run the hook with a PreToolUse payload; return whether it denied. */
 function run(payload: object): Decision {
@@ -32,7 +32,8 @@ function run(payload: object): Decision {
   }).trim();
   if (out === "") return "allow";
   const parsed = JSON.parse(out);
-  return parsed.hookSpecificOutput?.permissionDecision === "deny" ? "deny" : "allow";
+  const d = parsed.hookSpecificOutput?.permissionDecision;
+  return d === "deny" ? "deny" : d === "ask" ? "ask" : "allow";
 }
 
 describe("prefer-cortex.sh — block code, allow non-code", () => {
@@ -85,8 +86,10 @@ describe("prefer-cortex.sh — block code, allow non-code", () => {
     expect(bash("rg foo --glob '*.md'")).toBe("allow");
   });
 
-  it("honors the cortex:grep-ok escape token", () => {
-    expect(bash("rg 'lookahead(?=x)' src/ # cortex:grep-ok")).toBe("allow");
+  it("routes the cortex:grep-ok escape to the USER, never self-authorizing", () => {
+    // The model writes this token itself, so auto-allowing it made the gate
+    // advisory. It must ask, not allow.
+    expect(bash("rg 'lookahead(?=x)' src/ # cortex:grep-ok")).toBe("ask");
   });
 
   it("ignores non-search Bash commands", () => {
@@ -124,9 +127,9 @@ describe("prefer-cortex.sh — quoted search words are not invocations", () => {
     expect(bash('rg "searchGraph" src/')).toBe("deny");
   });
 
-  it("still honors a quoted non-code scope and the escape token", () => {
+  it("still honors a quoted non-code scope; the escape token asks", () => {
     expect(bash("rg foo --glob '*.md'")).toBe("allow");
-    expect(bash("rg 'lookahead(?=x)' src/ # cortex:grep-ok")).toBe("allow");
+    expect(bash("rg 'lookahead(?=x)' src/ # cortex:grep-ok")).toBe("ask");
   });
 });
 
@@ -419,8 +422,34 @@ describe("prefer-cortex.sh — non-grep code-discovery shapes", () => {
     expect(bash("python3 - <<'PY'\nopen('src/gen.ts','w').write(x)\nPY")).toBe("allow");
   });
 
-  it("honors cortex:grep-ok for both new shapes", () => {
-    expect(bash("find . -name '*.ts' # cortex:grep-ok")).toBe("allow");
-    expect(bash("python3 -c \"open('src/a.ts').read()\" # cortex:grep-ok")).toBe("allow");
+  it("routes cortex:grep-ok to the user for both new shapes", () => {
+    expect(bash("find . -name '*.ts' # cortex:grep-ok")).toBe("ask");
+    expect(bash("python3 -c \"open('src/a.ts').read()\" # cortex:grep-ok")).toBe("ask");
+  });
+});
+
+describe("prefer-cortex.sh — the denial must not teach the bypass", () => {
+  const repo = indexedRepo();
+  function reason(command: string): string {
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Bash", cwd: repo, tool_input: { command } }),
+      encoding: "utf-8",
+    }).trim();
+    return JSON.parse(out).hookSpecificOutput?.permissionDecisionReason ?? "";
+  }
+
+  it("no denial text mentions the escape token", () => {
+    // Advertising the escape at the moment of denial is what taught the model
+    // to re-issue a denied grep with the token instead of using Cortex.
+    for (const cmd of ["rg foo src/", "find . -name '*.ts'", "python3 -c \"open('src/a.ts').read()\""]) {
+      expect(reason(cmd)).not.toContain("cortex:grep-ok");
+    }
+  });
+
+  it("denials name the scoping parameters that replace a raw grep", () => {
+    const r = reason("rg foo src/");
+    expect(r).toContain("search_code");
+    expect(r).toContain("path=");
+    expect(r).toContain("glob=");
   });
 });

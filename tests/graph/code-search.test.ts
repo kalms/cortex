@@ -92,3 +92,50 @@ describe("rankSearchHits", () => {
     expect(hits.map((h) => h.file)).toEqual(before);
   });
 });
+
+describe("runCodeSearch — scoping options", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cortex-code-scope-"));
+    mkdirSync(join(dir, "src"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "src", "a.ts"), "const ribbon = 1;\n");
+    writeFileSync(join(dir, "docs", "guide.md"), "the ribbon is described here\n");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("path scopes results to a subtree", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, path: "docs" });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.map((h) => h.file)).toEqual(["docs/guide.md"]);
+  });
+
+  it("glob scopes results by filename pattern", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, glob: "*.ts" });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.map((h) => h.file)).toEqual(["src/a.ts"]);
+  });
+
+  it("filesOnly returns a files outcome, not hits", async () => {
+    const out = await runCodeSearch({ pattern: "ribbon", repoRoot: dir, filesOnly: true });
+    expect(out.kind).toBe("files");
+    if (out.kind !== "files") return;
+    expect(out.files.sort()).toEqual(["docs/guide.md", "src/a.ts"]);
+  });
+
+  it("multiline matches a pattern spanning two lines", async () => {
+    writeFileSync(join(dir, "src", "b.ts"), "function open() {\n  return close();\n}\n");
+    const out = await runCodeSearch({ pattern: "open\\(\\).*close", repoRoot: dir, multiline: true });
+    expect(out.kind).toBe("hits");
+    if (out.kind !== "hits") return;
+    expect(out.hits.some((h) => h.file === "src/b.ts")).toBe(true);
+  });
+
+  it("without multiline the same pattern does not match", async () => {
+    writeFileSync(join(dir, "src", "b.ts"), "function open() {\n  return close();\n}\n");
+    const out = await runCodeSearch({ pattern: "open\\(\\).*close", repoRoot: dir });
+    expect(out.kind).toBe("empty");
+  });
+});

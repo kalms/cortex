@@ -20,6 +20,17 @@ All notable changes to Cortex are documented here. The format follows
 
 ## [1.9.2] — 2026-08-21
 
+### Changed
+
+- **`cortex:grep-ok` requests a raw grep; it no longer grants one.** The token is
+  written by the model, so auto-allowing it made the gate advisory rather than
+  enforcing: in an observed session a denied `grep … version.ts` was re-issued
+  verbatim with the token seconds later, with no Cortex call in between. It now
+  returns `permissionDecision: "ask"`, so the user is the only party who can
+  authorize it. Relatedly, denial texts no longer mention the token at all —
+  advertising the bypass at the moment of denial is what taught the habit — and
+  instead name the `search_code` parameters that removed the reason for one.
+
 ### Fixed
 
 - **The prefer-cortex gate silently switched itself off inside every git
@@ -40,6 +51,15 @@ All notable changes to Cortex are documented here. The format follows
   repeatedly re-indexing worktrees that could never look indexed.
 
 ### Added
+
+- **`search_code` gained scoping parameters: `path`, `glob`, `files_only`,
+  `multiline`, `max_count`.** The tool has always been ripgrep with the caller's
+  pattern passed through verbatim — regex power was never the gap. The gap was
+  that the wrapper accepted nothing but a pattern, so ordinary needs ("only look
+  in `docs/`", "just list the files") had no expression and pushed callers to the
+  raw-grep escape hatch. Context lines are deliberately excluded: reading around
+  a hit is `get_code_snippet`'s job, and context output would break the
+  `path:line:text` parse every consumer depends on.
 
 - **Two greps-in-disguise now redirect like a plain `grep`.** `find … -name
   '*.ts'` is a Glob spelled in Bash, and an interpreter that opens a source

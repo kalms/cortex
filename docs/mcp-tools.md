@@ -192,12 +192,26 @@ orienting on an unfamiliar symbol.
 
 ### `search_code`
 Graph-enriched text search.
-- **Params:** `repo_path`, `pattern`.
+- **Params:** `repo_path`, `pattern`, `path?`, `glob?`, `files_only?`,
+  `multiline?`, `max_count?`.
 - **Returns:** ripgrep-style `file:line:` hits, each annotated with the
   enclosing function/class. Anchored to `repo_path` (not the server cwd).
+  With `files_only`, returns matching file paths instead of lines.
 - **Why:** `Grep` that tells you *which symbol* each match belongs to. Uses the
   bundled `@vscode/ripgrep` binary (falls back to `grep`) so a stripped server
   PATH can't hide it.
+- **It *is* ripgrep.** The pattern is handed to the same `rg` binary verbatim —
+  there is no regex feature it lacks — and the search covers **all** files, code
+  and non-code alike (configs, docs, JSON, Markdown). Both facts are frequently
+  mis-stated in agent guidance as reasons to reach for a raw `rg`; neither is
+  true.
+- **Scoping:** `path` restricts to a subtree or single file, `glob` filters by
+  filename, `files_only` lists files rather than lines, `multiline` lets a
+  pattern cross line boundaries, `max_count` overrides the 200-match per-file
+  cap.
+- **No context lines.** `-A/-B/-C` is deliberately absent: reading the code
+  around a hit is `get_code_snippet`'s job, and context output would break the
+  `path:line:text` parse every consumer depends on.
 
 ### `query_graph`
 Run a Cypher-style query against the graph.

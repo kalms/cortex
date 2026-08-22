@@ -242,17 +242,30 @@ READ_RE="(^|[^a-zA-Z_])(open|readFileSync|readFile|read_text)[[:space:]]*\\("
 # Writing a source file is codegen, not discovery — never redirect it.
 WRITE_RE="(writeFileSync|\\.write\\(|open\\([^)]*,[[:space:]]*$_Q[wa])"
 
-GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep search, but each hit is annotated with its enclosing function/class. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path. Grep is fine for NON-code files (configs/docs/JSON) — scope it to those (a non-code glob/path) and it passes. For a genuine code grep Cortex cannot do (a regex feature search_code lacks, or Cortex already returned empty on a current index), run it as a Bash grep/rg command containing the token cortex:grep-ok.'
+GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep, same regex syntax, your pattern passed through verbatim, but each hit annotated with its enclosing function/class. It searches ALL files, code and non-code alike, and takes path="subdir", glob="*.md", files_only=true, multiline=true, max_count=N — so scoping no longer needs a raw grep. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read code around a hit use get_code_snippet.'
 
 GLOB_MSG='This repo is indexed by Cortex. To find code by name use search_graph(name_pattern="…"), or get_architecture for structure — not Glob over source files. Glob is fine for non-code files: scope the pattern to those (e.g. **/*.md, **/*.json) and it passes.'
 
-FIND_MSG='This repo is indexed by Cortex. `find -name` over source files is a Glob in disguise — use search_graph(name_pattern="…") to find code by name, or get_architecture for structure. Non-code file discovery passes (drop the code extension). For a genuine code-file find Cortex cannot do, add the token cortex:grep-ok.'
+FIND_MSG='This repo is indexed by Cortex. `find -name` over source files is a Glob in disguise — use search_graph(name_pattern="…") to find code by name, get_architecture for structure, or search_code(pattern="…", files_only=true, glob="…") to list files by content. Non-code file discovery passes unchanged.'
 
-INTERP_MSG='This repo is indexed by Cortex. Opening a source file in an interpreter to scan it is a grep with extra steps — use search_code(pattern="…") for text, get_code_snippet(qualified_name="…") to read a symbol, or trace_path for callers/callees. Writing/generating a source file is unaffected. To read source in an interpreter anyway, add the token cortex:grep-ok.'
+INTERP_MSG='This repo is indexed by Cortex. Opening a source file in an interpreter to scan it is a grep with extra steps — use search_code(pattern="…", path="…") for text, get_code_snippet(qualified_name="…") to read a symbol (it returns the full definition, so no regex extraction is needed), or trace_path for callers/callees. Writing or generating a source file is unaffected.'
+
+ASK_MSG='cortex:grep-ok present — this needs your approval, not the agent'"'"'s. Before approving, note that search_code IS ripgrep with the pattern passed through verbatim, covers non-code files too, and now takes path/glob/files_only/multiline/max_count. A raw grep is warranted only for something that genuinely cannot express: context lines (-A/-B/-C, better served by get_code_snippet), or a target outside this repo.'
 
 emit_deny() {
   jq -n --arg r "$1" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  exit 0
+}
+
+# `cortex:grep-ok` no longer AUTHORIZES -- it REQUESTS. The token is written by
+# the model, so auto-allowing it made the gate advisory: an observed session had
+# a denied `grep … version.ts` re-issued verbatim with the token seconds later,
+# no Cortex call in between. Routing it to "ask" keeps the escape usable for a
+# genuine need while making the human the only party who can grant it.
+emit_ask() {
+  jq -n --arg r "$1" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'
   exit 0
 }
 
@@ -285,9 +298,9 @@ case "$TOOL" in
   Bash)
     CMD="$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)"
     [ -n "$CMD" ] || exit 0
-    # Deliberate-escape FIRST: one token disarms every rule below, so an escape
-    # never depends on which rule would have fired.
-    printf '%s' "$CMD" | grep -q 'cortex:grep-ok' && exit 0
+    # Deliberate-escape FIRST, so a request never depends on which rule fired.
+    # This ASKS the user; it does not self-authorize.
+    printf '%s' "$CMD" | grep -q 'cortex:grep-ok' && emit_ask "$ASK_MSG"
 
     # Scope signals, computed once against the ORIGINAL command: a quoted glob
     # (`--glob '*.md'`, `-name '*.ts'`) must survive the literal-strip below.

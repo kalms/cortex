@@ -86,3 +86,49 @@ describe("resolveRgBinary", () => {
     }
   });
 });
+
+// --- Scoping options (added so raw `rg` is not needed for code) -------------
+describe("search_code argv builders — scoping options", () => {
+  it("buildRgArgs: path scopes the search target, replacing '.'", () => {
+    const args = buildRgArgs("ribbon", { path: "src/graph" });
+    expect(args).toContain("src/graph");
+    expect(args).not.toContain(".");
+  });
+
+  it("buildRgArgs: glob maps to --glob", () => {
+    const args = buildRgArgs("ribbon", { glob: "*.md" });
+    const i = args.indexOf("--glob");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("*.md");
+  });
+
+  it("buildRgArgs: filesOnly maps to --files-with-matches", () => {
+    expect(buildRgArgs("ribbon", { filesOnly: true })).toContain("--files-with-matches");
+  });
+
+  it("buildRgArgs: multiline maps to -U --multiline-dotall", () => {
+    const args = buildRgArgs("a.*b", { multiline: true });
+    expect(args).toContain("--multiline");
+    expect(args).toContain("--multiline-dotall");
+  });
+
+  it("buildRgArgs: maxCount overrides the per-file cap", () => {
+    const args = buildRgArgs("ribbon", { maxCount: 5 });
+    expect(args[args.indexOf("--max-count") + 1]).toBe("5");
+  });
+
+  it("buildRgArgs: no options is byte-identical to the old call", () => {
+    expect(buildRgArgs("ribbon", {})).toEqual(buildRgArgs("ribbon"));
+  });
+
+  it("buildGrepFallbackArgs: path/glob/filesOnly map to grep equivalents", () => {
+    expect(buildGrepFallbackArgs("ribbon", { path: "src" })).toContain("src");
+    expect(buildGrepFallbackArgs("ribbon", { glob: "*.md" })).toContain("--include=*.md");
+    expect(buildGrepFallbackArgs("ribbon", { filesOnly: true })).toContain("-l");
+  });
+
+  it("buildGrepFallbackArgs: keeps its exclude-dirs when a glob is set", () => {
+    const args = buildGrepFallbackArgs("ribbon", { glob: "*.ts" });
+    expect(args).toContain("--exclude-dir=node_modules");
+  });
+});
