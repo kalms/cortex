@@ -61,6 +61,21 @@ describe("ratchet", () => {
     });
   });
 
+  // The two tests below pin delta == epsilon exactly. Both comparisons are
+  // strict `>`, so a movement of exactly epsilon is neither a regression nor an
+  // improvement. Without these, changing `>` to `>=` would flip the gate's
+  // boundary in both directions and no test would notice.
+  it("treats movement of exactly epsilon in the bad direction as a pass", () => {
+    expect(ratchet(91.5, 92, "higher_is_better", RATE_EPSILON).status).toBe("pass");
+  });
+
+  it("treats movement of exactly epsilon in the good direction as not improved", () => {
+    expect(ratchet(92.5, 92, "higher_is_better", RATE_EPSILON)).toMatchObject({
+      status: "pass",
+      improved: false,
+    });
+  });
+
   it("reports delta as observed minus baseline", () => {
     expect(ratchet(5, 3, "lower_is_better", COUNT_EPSILON).delta).toBe(2);
   });
