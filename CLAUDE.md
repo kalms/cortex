@@ -39,9 +39,19 @@ re-issue with. Non-code-scoped searches, pipe filters (`ps aux | grep node`),
 and searches whose **target repo** is unindexed pass through — the gate keys
 on the search target, not the cwd, and an unindexed sibling repo triggers a
 detached background `cortex index` for it (opt out: `CORTEX_AUTO_INDEX=0`).
-Escape hatch for a genuine code grep Cortex can't do: include the token
-`cortex:grep-ok` in the Bash command. Degrade-safe (any hook failure allows);
-loads at session start. Rationale: decisions `D-sq61`, `D-mmtb`.
+The `cortex:grep-ok` token no longer authorizes: it returns `ask`, so **the
+user** approves a raw grep, never the agent itself. Denial text never mentions
+the token — advertising the bypass at the moment of denial is what taught the
+habit.
+
+**Worktrees count as indexed.** The gate resolves its target through
+`--git-common-dir` (the shell mirror of `mainWorktreeRoot`), so a linked
+worktree collapses onto the main checkout exactly as every other root
+derivation does under `D-b248`. This is load-bearing: a worktree never has its
+own `.cortex/db` by design, so a gate testing the literal directory switched
+itself off in precisely the place [the workflow rules](.claude/rules/workflow.md)
+mandate feature work happens. Degrade-safe (any hook failure allows); loads at
+session start. Rationale: decisions `D-sq61`, `D-mmtb`, `D-b248`, `D-7ca7`.
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
