@@ -9,6 +9,7 @@ const stubAssertion: Assertion = {
   query: { kind: "count_edge", type: "HTTP_CALLS" },
   predicate: { op: "gt", value: 0 },
   baseline_expected: "fail",
+  scope: "nuxt",
 };
 
 describe("report.renderSummary", () => {
@@ -47,6 +48,7 @@ describe("report.renderSummary", () => {
       ...stubAssertion,
       name: "no_tarball_routes",
       baseline_expected: "pass",
+      scope: "nuxt",
     };
     const results: AssertionResult[] = [
       { assertion: regressionAssertion, observed: 4, passed: false, surprised: true },

@@ -4,23 +4,31 @@
       "name": "nuxt-ui",
       "repo_url": "https://github.com/nuxt/ui.git",
       "sha": "main",
-      "default_branch": "main"
+      "default_branch": "main",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
     },
     {
       "name": "nuxthub-starter",
       "repo_url": "https://github.com/nuxt-hub/starter.git",
       "sha": "main",
-      "default_branch": "main"
+      "default_branch": "main",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
     },
     {
       "name": "elk",
       "repo_url": "https://github.com/elk-zone/elk.git",
       "sha": "main",
-      "default_branch": "main"
+      "default_branch": "main",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
     },
     {
       "name": "anthill-cloud",
-      "local_path": "/Users/rka/Development/anthill-cloud"
+      "local_path": "/Users/rka/Development/anthill-cloud",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
     }
   ]
 }

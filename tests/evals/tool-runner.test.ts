@@ -31,6 +31,7 @@ describe("tool-runner — in-process MCP tool assertions", () => {
       },
       predicate: { op: "gt", value: 0 },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     // vue_file_is_module_node is SQL-only — runToolAssertion delegates to runAssertion.
     const result = runToolAssertion(a, {
@@ -53,6 +54,7 @@ describe("tool-runner — in-process MCP tool assertions", () => {
       },
       predicate: { op: "tool_text_nonempty" },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runToolAssertion(a, {
       dbPath,
@@ -75,6 +77,7 @@ describe("tool-runner — in-process MCP tool assertions", () => {
       },
       predicate: { op: "tool_text_nonempty" },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runToolAssertion(a, {
       dbPath,
@@ -95,6 +98,7 @@ describe("tool-runner — in-process MCP tool assertions", () => {
       query: { kind: "tool_call", tool: "__governs_link_vue_path__", args: {} },
       predicate: { op: "tool_text_nonempty" },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runToolAssertion(a, {
       dbPath,

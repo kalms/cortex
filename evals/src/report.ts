@@ -71,7 +71,8 @@ export function renderSummary(reports: TargetReport[]): string {
 function formatObserved(obs: AssertionResult["observed"]): string {
   if (typeof obs === "number") return `now ${obs}`;
   if (Array.isArray(obs)) return `${obs.length} rows`;
-  return obs.text || "(empty)";
+  if ("text" in obs && typeof obs.text === "string") return obs.text || "(empty)";
+  return JSON.stringify(obs);
 }
 
 function fmt(n: number): string {

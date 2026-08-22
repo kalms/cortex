@@ -5,7 +5,7 @@ import { acquireTarget } from "./target.js";
 import { computeScorecard } from "./scorecard.js";
 import { runAssertion } from "./assertions/runner.js";
 import { runToolAssertion } from "./assertions/tool-runner.js";
-import { ALL_ASSERTIONS } from "./assertions/registry.js";
+import { ALL_ASSERTIONS, selectAssertions } from "./assertions/registry.js";
 import { writeReportArtifacts, type TargetReport } from "./report.js";
 import type {
   Targets,
@@ -56,7 +56,8 @@ function runTarget(target: Target, pathOverride?: string): TargetReport {
   const decisionsDbPath = join(resolve("evals/cache"), acquired.name, "decisions.db");
 
   const results: AssertionResult[] = [];
-  for (const a of ALL_ASSERTIONS) {
+  const packs = target.packs ?? ["universal"];
+  for (const a of selectAssertions(ALL_ASSERTIONS, packs)) {
     if (a.query.kind === "tool_call") {
       if (!fixture) {
         // Skip tool-behavior assertions when no fixture file exists for the target.

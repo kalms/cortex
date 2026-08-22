@@ -91,8 +91,8 @@ function result(
   _predicateHint: { kind: "tool_text_nonempty" },
 ): AssertionResult {
   const passed = (() => {
-    if (a.predicate.op === "tool_text_nonempty") return text.length > 0;
-    if (a.predicate.op === "tool_text_contains") return text.includes((a.predicate as { needle: string }).needle);
+    if (a.predicate?.op === "tool_text_nonempty") return text.length > 0;
+    if (a.predicate?.op === "tool_text_contains") return text.includes((a.predicate as { needle: string }).needle);
     return false;
   })();
   const surprised =

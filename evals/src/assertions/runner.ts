@@ -28,7 +28,7 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
     }
     case "sql": {
       const rows = store.queryRaw<Record<string, unknown>>(a.query.sql);
-      if (a.predicate.op === "matches" || a.predicate.op === "no_match") {
+      if (a.predicate?.op === "matches" || a.predicate?.op === "no_match") {
         observed = rows.map((r) => String(Object.values(r)[0] ?? ""));
       } else {
         // Numeric predicate. If the SQL returns a single row whose first column
@@ -48,10 +48,12 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
       );
   }
 
-  const passed = evaluatePredicate(a.predicate, observed);
+  const passed = a.predicate ? evaluatePredicate(a.predicate, observed) : null;
   const surprised =
-    (a.baseline_expected === "pass" && !passed) ||
-    (a.baseline_expected === "fail" && passed);
+    passed === null
+      ? false
+      : (a.baseline_expected === "pass" && !passed) ||
+        (a.baseline_expected === "fail" && passed);
 
   return { assertion: a, observed, passed, surprised };
 }

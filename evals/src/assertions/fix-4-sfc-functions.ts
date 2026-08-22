@@ -13,6 +13,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 10 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 4,
@@ -28,6 +29,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gte", value: 1 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 4,
@@ -43,6 +45,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "no_match", regex: "<script setup>|^$" },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   // Tool-behavior assertions — must be run by runToolAssertion.
   {
@@ -55,6 +58,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 4,
@@ -67,6 +71,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "tool_text_nonempty" },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 4,
@@ -79,6 +84,7 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "tool_text_nonempty" },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 4,
@@ -91,5 +97,6 @@ export const FIX_4_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "tool_text_nonempty" },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
 ];

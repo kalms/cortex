@@ -8,6 +8,7 @@ export const FIX_8_ASSERTIONS: Assertion[] = [
     query: { kind: "count_label", label: "Decision" },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 8,
@@ -23,6 +24,7 @@ export const FIX_8_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 8,
@@ -38,5 +40,6 @@ export const FIX_8_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "no_match", regex: "</rationale>|<problem>|</invoke>" },
     baseline_expected: "pass",
+    scope: "nuxt",
   },
 ];
