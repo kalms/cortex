@@ -1,5 +1,6 @@
 import { GraphStore } from "../../../src/graph/store.js";
 import type { Assertion, AssertionResult, Predicate } from "./types.js";
+import { computeLanguageDensity } from "./universal.js";
 
 export type RunnerContext = {
   dbPath: string;
@@ -8,7 +9,7 @@ export type RunnerContext = {
 export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult {
   const store = new GraphStore(ctx.dbPath);
 
-  let observed: number | string[] | null;
+  let observed: number | string[] | Record<string, number> | null;
   switch (a.query.kind) {
     case "count_label": {
       const row = store.queryRaw<{ n: number }>(
@@ -48,6 +49,10 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
       }
       break;
     }
+    case "language_density": {
+      observed = computeLanguageDensity(store);
+      break;
+    }
     case "tool_call":
       throw new Error(
         `runAssertion: tool_call query kind not supported here — use runToolAssertion from tool-runner.ts`,
@@ -64,7 +69,10 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
   return { assertion: a, observed, passed, surprised };
 }
 
-function evaluatePredicate(p: Predicate, observed: number | string[] | null): boolean {
+function evaluatePredicate(
+  p: Predicate,
+  observed: number | string[] | Record<string, number> | null,
+): boolean {
   switch (p.op) {
     case "gt":
       return typeof observed === "number" && observed > p.value;

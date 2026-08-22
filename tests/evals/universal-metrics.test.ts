@@ -112,4 +112,26 @@ describe("universal metrics", () => {
     expect(runAssertion(metric("file_sourced_calls"), { dbPath }).observed).toBe(0);
     expect(runAssertion(metric("qn_collisions"), { dbPath }).observed).toBe(0);
   });
+
+  it("per_language_function_density reports callables per file, per language", () => {
+    // 2 Go files, 3 callables -> 1.5 ; 1 Python file, 0 callables -> 0
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.a.__file__", file_path: "a.go" });
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.b.__file__", file_path: "b.go" });
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.c.__file__", file_path: "c.py" });
+    store.createNode({ kind: "function", name: "f1", qualified_name: "p.a.f1", file_path: "a.go" });
+    store.createNode({ kind: "function", name: "f2", qualified_name: "p.a.f2", file_path: "a.go" });
+    store.createNode({ kind: "method", name: "m1", qualified_name: "p.b.K.m1", file_path: "b.go" });
+
+    const r = runAssertion(metric("per_language_function_density"), { dbPath });
+    expect(r.observed).toEqual({ go: 1.5, py: 0 });
+  });
+
+  it("per_language_function_density ignores files with no extension", () => {
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.m.__file__", file_path: "Makefile" });
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.a.__file__", file_path: "a.rs" });
+    store.createNode({ kind: "function", name: "f", qualified_name: "p.a.f", file_path: "a.rs" });
+
+    const r = runAssertion(metric("per_language_function_density"), { dbPath });
+    expect(r.observed).toEqual({ rs: 1 });
+  });
 });

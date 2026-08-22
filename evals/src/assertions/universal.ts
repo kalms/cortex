@@ -1,4 +1,5 @@
 import type { Assertion } from "./types.js";
+import type { GraphStore } from "../../../src/graph/store.js";
 
 /** Nodes that represent a symbol the indexer extracted from source.
  *  `variable` is deliberately excluded: it is the highest-count kind in most
@@ -97,4 +98,49 @@ export const UNIVERSAL_ASSERTIONS: Assertion[] = [
     scope: "universal",
     direction: "lower_is_better",
   },
+  {
+    fix_id: "universal",
+    name: "per_language_function_density",
+    description: "callables per file for each language present, keyed by file extension",
+    query: { kind: "language_density" },
+    baseline_expected: "pass",
+    scope: "universal",
+    direction: "higher_is_better",
+  },
 ];
+
+/** Callables per file, keyed by file extension. The question this answers is
+ *  blunt on purpose: if a language's density is 0, extraction for it is
+ *  broken, however healthy the rest of the graph looks. Extension is the same
+ *  heuristic the corpus survey uses. */
+export function computeLanguageDensity(store: GraphStore): Record<string, number> {
+  const rows = store.queryRaw<{ kind: string; file_path: string | null }>(
+    `SELECT kind, file_path FROM nodes WHERE file_path IS NOT NULL`,
+  );
+
+  const files = new Map<string, Set<string>>();
+  const callables = new Map<string, number>();
+
+  for (const row of rows) {
+    const path = row.file_path;
+    if (!path) continue;
+    const dot = path.lastIndexOf(".");
+    const slash = path.lastIndexOf("/");
+    if (dot <= 0 || dot < slash) continue;            // no extension, or a dotted directory
+    const ext = path.slice(dot + 1).toLowerCase();
+    if (!ext) continue;
+
+    if (row.kind === "file") {
+      if (!files.has(ext)) files.set(ext, new Set());
+      files.get(ext)!.add(path);
+    } else if (row.kind === "function" || row.kind === "method") {
+      callables.set(ext, (callables.get(ext) ?? 0) + 1);
+    }
+  }
+
+  const out: Record<string, number> = {};
+  for (const [ext, paths] of files) {
+    out[ext] = paths.size === 0 ? 0 : (callables.get(ext) ?? 0) / paths.size;
+  }
+  return out;
+}

@@ -36,6 +36,7 @@ export type AssertionQuery =
   | { kind: "sql"; sql: string }
   | { kind: "count_label"; label: string }                // nodes WHERE kind = ?
   | { kind: "count_edge"; type: string }                  // edges WHERE relation = ?
+  | { kind: "language_density" }                          // NEW — one value per file extension
   | { kind: "tool_call"; tool: string; args: Record<string, unknown> };
 
 export type Predicate =
@@ -67,7 +68,8 @@ export type Assertion = {
 export type AssertionResult = {
   assertion: Assertion;
   /** null = the query had nothing to measure (a rate over zero rows). Distinct
-   *  from 0, which is a real measurement. */
+   *  from 0, which is a real measurement. A map-valued metric with nothing to
+   *  measure reports `{}`, not `null` — an empty map is still a map. */
   observed: number | string[] | Record<string, number> | { text: string; isError?: boolean } | null;
   /** null = not judged. A universal metric with no baseline has nothing to
    *  compare against; reporting `false` would invent a failure and `true`
