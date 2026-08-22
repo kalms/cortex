@@ -111,8 +111,10 @@ export const UNIVERSAL_ASSERTIONS: Assertion[] = [
 
 /** Callables per file, keyed by file extension. The question this answers is
  *  blunt on purpose: if a language's density is 0, extraction for it is
- *  broken, however healthy the rest of the graph looks. Extension is the same
- *  heuristic the corpus survey uses. */
+ *  broken, however healthy the rest of the graph looks. The extension key
+ *  follows node's path.extname() semantics; only `function` and `method`
+ *  count as callables, deliberately narrower than DEFINITION_KINDS, which
+ *  also holds class/interface/type. */
 export function computeLanguageDensity(store: GraphStore): Record<string, number> {
   const rows = store.queryRaw<{ kind: string; file_path: string | null }>(
     `SELECT kind, file_path FROM nodes WHERE file_path IS NOT NULL`,
@@ -126,7 +128,13 @@ export function computeLanguageDensity(store: GraphStore): Record<string, number
     if (!path) continue;
     const dot = path.lastIndexOf(".");
     const slash = path.lastIndexOf("/");
-    if (dot <= 0 || dot < slash) continue;            // no extension, or a dotted directory
+    // Skip when there is no extension to speak of:
+    //   dot <= 0          -> no dot at all, or a top-level dotfile (".gitignore")
+    //   dot <= slash + 1  -> the only dot is inside a directory name
+    //                        ("pkg.name/file"), or the basename is itself a
+    //                        dotfile with no extension ("src/.gitignore")
+    // This matches node's path.extname(), which reports "" for all of these.
+    if (dot <= 0 || dot <= slash + 1) continue;
     const ext = path.slice(dot + 1).toLowerCase();
     if (!ext) continue;
 

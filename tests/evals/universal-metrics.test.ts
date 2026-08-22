@@ -126,6 +126,24 @@ describe("universal metrics", () => {
     expect(r.observed).toEqual({ go: 1.5, py: 0 });
   });
 
+  it("per_language_function_density does not mint a key for a nested dotfile", () => {
+    // "src/.gitignore" has no extension — node's path.extname() agrees. Treating
+    // it as a language named "gitignore" would put a junk key in the baseline,
+    // and these keys are a long-lived contract.
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.gi", file_path: "src/.gitignore" });
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.a", file_path: "src/a.ts" });
+    store.createNode({ kind: "function", name: "f", qualified_name: "p.a.f", file_path: "src/a.ts" });
+
+    const r = runAssertion(metric("per_language_function_density"), { dbPath });
+    expect(Object.keys(r.observed as Record<string, number>)).toEqual(["ts"]);
+  });
+
+  it("per_language_function_density still reads a dotfile that has an extension", () => {
+    store.createNode({ kind: "file", name: "__file__", qualified_name: "p.es", file_path: "src/.eslintrc.js" });
+    const r = runAssertion(metric("per_language_function_density"), { dbPath });
+    expect(Object.keys(r.observed as Record<string, number>)).toEqual(["js"]);
+  });
+
   it("per_language_function_density ignores files with no extension", () => {
     store.createNode({ kind: "file", name: "__file__", qualified_name: "p.m.__file__", file_path: "Makefile" });
     store.createNode({ kind: "file", name: "__file__", qualified_name: "p.a.__file__", file_path: "a.rs" });
