@@ -18,6 +18,39 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.10.0] — 2026-08-23
+
+### Fixed
+
+- **The prefer-cortex gate silently switched itself off inside every git
+  worktree.** `repo_indexed()` tested the literal `<dir>/.cortex/db`, but under
+  `D-b248` a linked worktree never has one: every root derivation — index write
+  path, read resolver, registry — canonicalizes through `mainWorktreeRoot`
+  (`git --git-common-dir`), so `cortex index` run from a worktree writes the
+  *main checkout's* store. The hook was the one code path still re-deriving its
+  own notion of root, contradicting D-b248's "no code path re-derives its own
+  notion of root". Result: on an indexed repo the gate denied code greps in the
+  main checkout while allowing them in every worktree — precisely where
+  [the workflow rules](.claude/rules/workflow.md) mandate that feature work
+  happen. Reproduced across three repos, including Mesh's own thread worktrees
+  under `~/.mesh/worktrees/`. The gate now checks the literal checkout first,
+  then the canonical root, degrading to previous behavior whenever git cannot
+  answer. This also stops `maybe_bg_index` re-indexing worktrees that could
+  never look indexed — the observed symptom was an hourly reindex that never
+  changed the verdict.
+
+### Changed
+
+- **`cortex:grep-ok` requests a raw grep; it no longer grants one.** The token is
+  written by the model, so auto-allowing it made the gate advisory rather than
+  enforcing: in an observed session a denied `grep … version.ts` was re-issued
+  verbatim with the token seconds later, with no Cortex call in between. It now
+  returns `permissionDecision: "ask"`, so the user is the only party who can
+  authorize it, and it only ever converts a would-be denial — a command merely
+  containing the string is untouched. Denial text no longer mentions the token
+  at all; advertising the bypass at the moment of denial is what taught the
+  habit.
+
 ## [1.9.1] — 2026-08-10
 
 ### Fixed
@@ -1706,6 +1739,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2
