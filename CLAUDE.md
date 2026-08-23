@@ -35,9 +35,10 @@ next call. Fall back to `Grep`/`Glob`/`Read` only when the target is a
 non-code file (config, JSON, Markdown, log) or you need a regex feature
 `search_code` doesn't support.
 
-An empty result is **not** a staleness signal — staleness has its own
-(see below). An empty response on a fresh index cannot be fixed by
-reindexing.
+An empty result is **not** a staleness signal — staleness has its own, the
+`⚠ cortex freshness` line (see below), which `CORTEX_FRESHNESS=0` switches
+off. With the signal live and no such line, the index is current and an
+empty response cannot be fixed by reindexing.
 
 ### Hook-enforced, not advisory
 

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { clampLimit, clampOffset, renderNodeSearch } from "../../src/mcp-server/tools/search-format.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { clampLimit, clampOffset, renderNodeSearch, symbolMissHint } from "../../src/mcp-server/tools/search-format.js";
 import type { IndexerNode } from "../../src/graph/code-queries.js";
 
 function node(name: string, kind = "function"): IndexerNode {
@@ -52,5 +52,37 @@ describe("renderNodeSearch", () => {
   it("renders a header-only opt-in hint when only sections matched (no code rows)", () => {
     const text = renderNodeSearch([], { query: "Usage", limit: 30, offset: 0, suppressedSections: 2 });
     expect(text).toBe('showing 0 of 0 · offset 0 · 2 section nodes suppressed (pass kinds=["section"])');
+  });
+});
+
+describe("symbolMissHint", () => {
+  const prev = process.env.CORTEX_FRESHNESS;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.CORTEX_FRESHNESS;
+    else process.env.CORTEX_FRESHNESS = prev;
+  });
+
+  it("names search_code as the next call", () => {
+    delete process.env.CORTEX_FRESHNESS;
+    expect(symbolMissHint()).toContain('search_code(pattern="…")');
+  });
+
+  it("points at the freshness line while the signal is live", () => {
+    delete process.env.CORTEX_FRESHNESS;
+    const h = symbolMissHint();
+    expect(h).toContain("⚠ cortex freshness");
+    expect(h).toContain("re-indexing cannot change this result");
+  });
+
+  it("drops the currency claim under CORTEX_FRESHNESS=0", () => {
+    // The gate makes freshnessForContext() return `fresh` unconditionally, so
+    // no ⚠ line is ever emitted and "no line" says nothing about the index.
+    // Claiming currency there would misdiagnose a genuinely stale graph —
+    // exactly the failure this hint exists to prevent.
+    process.env.CORTEX_FRESHNESS = "0";
+    const h = symbolMissHint();
+    expect(h).not.toContain("cortex freshness");
+    expect(h).not.toContain("re-indexing cannot change this result");
+    expect(h).toContain('search_code(pattern="…")');   // routing survives
   });
 });

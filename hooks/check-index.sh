@@ -173,8 +173,9 @@ came back empty:
 
 An empty result is NOT a staleness signal. Staleness has its own signal:
 a "⚠ cortex freshness" line on the response. Without one the index is
-current, re-indexing cannot change the answer, and the fix is the next
-rung — not index_repository.
+current (unless CORTEX_FRESHNESS=0 has switched the signal off), so
+re-indexing cannot change the answer and the fix is the next rung — not
+index_repository.
 
 After any non-trivial commit, consider:
   - decision({action:"propose"}) / decision({action:"create"}) if an architectural choice was made

@@ -11,7 +11,7 @@ import {
   getGraphSchema,
 } from "../../graph/code-queries.js";
 import { groupCheckouts } from "../../graph/group-checkouts.js";
-import { clampLimit, clampOffset, renderNodeSearch, SYMBOL_MISS_HINT } from "./search-format.js";
+import { clampLimit, clampOffset, renderNodeSearch, symbolMissHint } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
@@ -659,7 +659,7 @@ export function registerCodeTools(
         // Genuinely empty only when no code rows AND no sections were hidden.
         // If sections matched, render the header-only opt-in hint instead of a
         // bare "no results" (which would hide retrievable matches).
-        if (rows.length === 0 && suppressedSections === 0) return empty(queryDesc, SYMBOL_MISS_HINT);
+        if (rows.length === 0 && suppressedSections === 0) return empty(queryDesc, symbolMissHint());
         const text = renderNodeSearch(rows, {
           // qn is a structural identifier, not a name to match — only a
           // name_pattern drives name-relevance; qn-only searches rank by kind.
@@ -697,7 +697,7 @@ export function registerCodeTools(
         const resolved = resolveInput(params.function_name, project, graphDbPath);
         if (resolved.kind === "none") {
           // Name never resolved to a node — a symbol miss, so route sideways.
-          return empty(`trace_path(${JSON.stringify(params)})`, SYMBOL_MISS_HINT);
+          return empty(`trace_path(${JSON.stringify(params)})`, symbolMissHint());
         }
         if (resolved.kind === "multi") {
           const candidatesList = resolved.candidates
@@ -712,7 +712,7 @@ export function registerCodeTools(
         fnName = resolved.symbol.qn.split(".").pop() ?? params.function_name;
         const results = tracePath(ctx.store, project, { ...params, function_name: fnName });
         // No hint here: the symbol resolved, so this is the graph reporting
-        // "no edges", not failing to carry the shape (see SYMBOL_MISS_HINT).
+        // "no edges", not failing to carry the shape (see symbolMissHint).
         if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
         const lines = results.map((r) =>
           `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
@@ -743,7 +743,7 @@ export function registerCodeTools(
         if (!qualified_name.includes("::")) {
           const resolved = resolveInput(qualified_name, project, graphDbPath);
           if (resolved.kind === "none") {
-            return empty(`get_code_snippet(${qualified_name})`, SYMBOL_MISS_HINT);
+            return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
           }
           if (resolved.kind === "multi") {
             const candidatesList = resolved.candidates
@@ -756,7 +756,7 @@ export function registerCodeTools(
           }
           const nodes = searchGraph(ctx.store, project, { qn_pattern: resolved.symbol.qn });
           if (nodes.length === 0) {
-            return empty(`get_code_snippet(${qualified_name})`, SYMBOL_MISS_HINT);
+            return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
           }
           const node = nodes[0];
           return readSnippet(ctx, project, node);
@@ -764,7 +764,7 @@ export function registerCodeTools(
         // qn-shaped input (contains '::') — skip the resolver and pattern-match directly.
         const qn = normalize(qualified_name, project);
         const nodes = searchGraph(ctx.store, project, { qn_pattern: qn });
-        if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`, SYMBOL_MISS_HINT);
+        if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
         const node = nodes[0];
         return readSnippet(ctx, project, node);
       },

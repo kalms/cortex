@@ -12,28 +12,41 @@ import { denormalize } from "../qualified-name.js";
 export { clampLimit, clampOffset } from "../../graph/search-params.js";
 
 /**
- * Routing prose appended to a *symbol-lookup* miss (search_graph,
- * get_code_snippet, context_pack, and trace_path's name-resolution step).
+ * Routing prose for a *symbol-lookup* miss (search_graph, get_code_snippet,
+ * context_pack, and trace_path's name-resolution step).
  *
  * A bare "No results" is ambiguous between "no such symbol", "the graph holds
  * no node for this shape", and "the index is behind" — and agents resolve that
  * ambiguity the expensive way. Observed twice on 2026-08-10: both read the miss
  * as a stale index, offered to re-run index_repository (which could not have
  * changed the result), and fell back to grep, when search_code answered
- * directly. So the hint disclaims staleness explicitly and names the next call.
+ * directly. So the hint names the next call, and points at the freshness line
+ * as the actual staleness signal.
+ *
+ * A function, not a const, because the disclaimer is only sound while the
+ * freshness signal is live. Under CORTEX_FRESHNESS=0 freshnessForContext()
+ * returns `fresh` unconditionally and no ⚠ line is ever emitted, so "no line"
+ * says nothing about the index — asserting currency there would manufacture
+ * the very misdiagnosis this exists to prevent, on a genuinely stale graph.
  *
  * Deliberately NOT attached to a miss where the symbol resolved and only the
  * edges came back empty (e.g. trace_path finding no callers) — there the graph
- * is answering, not failing, and search_code cannot substitute for it.
+ * is answering, not failing, and search_code is no substitute for it.
  */
-export const SYMBOL_MISS_HINT =
-  'This is not a staleness signal: a "⚠ cortex freshness" line is printed below ' +
-  "whenever the index is behind the working tree, and without one the index is " +
-  "current — re-indexing cannot change this result.\n" +
-  "The graph holds named definitions, so a shape it carries no node for reads " +
-  "exactly like a symbol that does not exist. To tell those apart, call " +
-  'search_code(pattern="…") — the same indexed tree searched as text, with each ' +
-  "hit annotated by its enclosing function or class.";
+export function symbolMissHint(): string {
+  const routing =
+    "The graph holds named definitions, so a shape it carries no node for reads " +
+    "exactly like a symbol that does not exist. To tell those apart, call " +
+    'search_code(pattern="…") — the same indexed tree searched as text, with ' +
+    "each hit annotated by its enclosing function or class.";
+  if (process.env.CORTEX_FRESHNESS === "0") return routing;
+  return (
+    'Before concluding the index is stale, look for a "⚠ cortex freshness" line ' +
+    "below — that is where staleness is reported, and it is printed whenever the " +
+    "graph is behind the working tree. If none appears, the index is current and " +
+    "re-indexing cannot change this result.\n" + routing
+  );
+}
 
 function formatLine(n: IndexerNode): string {
   return `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`;

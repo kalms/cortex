@@ -112,9 +112,9 @@ See [graph-storage.md](architecture/graph-storage.md) for the freshness model.
 
 A **symbol lookup** that resolves nothing — `search_graph`, `get_code_snippet`,
 `context_pack`, and `trace_path`'s name-resolution step — appends
-`SYMBOL_MISS_HINT` ([`search-format.ts`](../src/mcp-server/tools/search-format.ts))
-pointing the caller at `search_code`, and says outright that the miss is not a
-staleness signal.
+`symbolMissHint()` ([`search-format.ts`](../src/mcp-server/tools/search-format.ts)),
+which points the caller at `search_code` and at the `⚠ cortex freshness` line as
+the actual staleness signal.
 
 A bare `No results` is ambiguous between *no such symbol*, *the graph holds no
 node for this shape*, and *the index is behind* — and that ambiguity has a
@@ -125,6 +125,11 @@ result), and fell back to grep, when `search_code` answered directly.
 The hint is deliberately **not** attached where the symbol resolved and only the
 edges came back empty (`trace_path` finding no callers). There the graph is
 answering, not failing, and `search_code` is no substitute for it.
+
+Under `CORTEX_FRESHNESS=0` the hint drops its currency claim and keeps only the
+routing half: the gate makes `freshnessForContext()` return `fresh`
+unconditionally, so no `⚠` line is ever emitted and the absence of one says
+nothing about the index.
 
 ---
 

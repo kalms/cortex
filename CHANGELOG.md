@@ -26,10 +26,13 @@ A `search_graph` miss no longer reads as "the index is stale".
 
 - **Symbol-lookup misses route to `search_code`** — `search_graph`,
   `get_code_snippet`, `context_pack`, and `trace_path`'s name-resolution step
-  now append `SYMBOL_MISS_HINT`
+  now append `symbolMissHint()`
   (`src/mcp-server/tools/search-format.ts`) to their empty response: it names
-  `search_code` as the next call and states outright that an empty result is
-  not a staleness signal. A bare `No results` was ambiguous between *no such
+  `search_code` as the next call and points at the `⚠ cortex freshness` line as
+  the actual staleness signal. Under `CORTEX_FRESHNESS=0` the currency claim is
+  dropped and only the routing half is emitted — the gate makes freshness
+  report `fresh` unconditionally, so the absence of a `⚠` line says nothing
+  about the index there. A bare `No results` was ambiguous between *no such
   symbol*, *the graph carries no node for this shape*, and *the index is
   behind* — and agents resolved that ambiguity the expensive way. Observed
   twice on 2026-08-10: both read the miss as a stale index, offered to re-run
