@@ -62,9 +62,15 @@ function runTarget(
   scorecard.indexer_seconds = acquired.indexer_seconds;
 
   if (opts.determinism) {
+    // Both passes must be fresh builds from the SAME binary. Reusing whatever
+    // graph.db happens to be cached would compare an unknown earlier build —
+    // possibly from a different indexer version — against this one, and report
+    // a version difference as nondeterminism.
+    forceReindex(acquired.workdir, acquired.graphDbPath);
+    const first = computeScorecard(acquired.graphDbPath, acquired.name);
     forceReindex(acquired.workdir, acquired.graphDbPath);
     const second = computeScorecard(acquired.graphDbPath, acquired.name);
-    const cmp = compareGraphShape(scorecard, second);
+    const cmp = compareGraphShape(first, second);
     if (!cmp.stable) {
       console.error(`[${acquired.name}] NONDETERMINISTIC: ${cmp.differences.join("; ")}`);
     } else {
