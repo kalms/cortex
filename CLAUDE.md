@@ -44,13 +44,19 @@ user** approves a raw grep, never the agent itself. Denial text never mentions
 the token — advertising the bypass at the moment of denial is what taught the
 habit.
 
-**Worktrees count as indexed.** The gate resolves its target through
-`--git-common-dir` (the shell mirror of `mainWorktreeRoot`), so a linked
-worktree collapses onto the main checkout exactly as every other root
-derivation does under `D-b248`. This is load-bearing: a worktree never has its
-own `.cortex/db` by design, so a gate testing the literal directory switched
-itself off in precisely the place [the workflow rules](.claude/rules/workflow.md)
-mandate feature work happens. Degrade-safe (any hook failure allows); loads at
+**Worktrees count as indexed — but that's now the hook's own reading, not the
+graph's.** The gate still resolves its target through `--git-common-dir` (the
+shell mirror of `mainWorktreeRoot`), so a linked worktree still collapses onto
+the main checkout for gate purposes, unchanged this stage. What changed
+underneath it: a linked worktree can now hold its own `.cortex/db` (per-worktree
+indexing landed in the checkout-axis work — see
+[graph-storage.md](docs/architecture/graph-storage.md#two-axes)), so "a
+worktree never has its own `.cortex/db` by design" is no longer true of the
+graph. The hook's collapse-onto-main behavior is a **deliberate, temporary
+asymmetry**, not a bug: it still means the gate can pass in a worktree even
+when that worktree's own index is stale or absent, because it's checking the
+main checkout's index instead. A later stage moves the hook onto the checkout
+axis to close that gap. Degrade-safe (any hook failure allows); loads at
 session start. Rationale: decisions `D-sq61`, `D-mmtb`, `D-b248`, `D-7ca7`.
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
@@ -153,6 +159,11 @@ replaceable by reindex; decisions survive every indexing operation). Repo
 enumeration lives in a machine-wide registry under the XDG data home.
 Details + read/write path resolution:
 [docs/architecture/graph-storage.md](docs/architecture/graph-storage.md).
+Root derivation is two independent axes — a checkout axis (`worktreeRoot`,
+which graph paths use) and a repo-identity axis (`mainWorktreeRoot`, which
+decisions use); a linked worktree now gets its own graph store instead of
+collapsing onto the main checkout. See
+[graph-storage.md#two-axes](docs/architecture/graph-storage.md#two-axes).
 
 The native **indexer** is a prebuilt binary fetched at `npm install` from
 the separate cortex-indexer repo (pinned by `CORTEX_INDEXER_VERSION` in
