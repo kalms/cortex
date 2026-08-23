@@ -69,7 +69,12 @@ describe("resolveCortexDbPath", () => {
   });
 
   it("falls back to startDir-relative when no .git found", () => {
-    const noGit = mkdtempSync(join(tmpdir(), "cortex-nogit-"));
+    // realpathSync: matches the discipline the newer worktree-axis test
+    // files already use — resolveCortexDbPath's non-git fallback now routes
+    // through worktreeRoot → canonicalRepoPath, which realpaths symlinked
+    // tmpdirs (e.g. macOS /var → /private/var). A raw mkdtempSync() result
+    // would spuriously mismatch even though it names the same directory.
+    const noGit = realpathSync(mkdtempSync(join(tmpdir(), "cortex-nogit-")));
     expect(resolveCortexDbPath(noGit)).toBe(join(noGit, ".cortex", "db"));
     rmSync(noGit, { recursive: true, force: true });
   });
@@ -79,7 +84,12 @@ describe("resolveGraphDbForRead", () => {
   let repo: string;
 
   beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), "cortex-read-"));
+    // realpathSync: this fixture's ".git" is a bare stub dir, not a real
+    // repo, so resolveGraphDbForRead's root derivation takes the same
+    // non-git fallback as the "no .git found" case above and now realpaths
+    // (see the comment there) — match it or a symlinked tmpdir spuriously
+    // mismatches.
+    repo = realpathSync(mkdtempSync(join(tmpdir(), "cortex-read-")));
     mkdirSync(join(repo, ".git"));
     mkdirSync(join(repo, ".cortex"));
   });
