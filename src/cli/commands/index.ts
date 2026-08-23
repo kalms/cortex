@@ -18,7 +18,7 @@ import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
-import { canonicalRepoPath } from "../../db/git-root.js";
+import { worktreeRoot } from "../../db/git-root.js";
 import { reapRepoSlugCache, sweepCurrentRepo } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
@@ -70,7 +70,10 @@ export function runSweep(repoRoot: string): void {
 export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): Promise<void> {
   // 'cortex index' with no subcommand → index the cwd (or given path)
   if (cmd.command === null || cmd.command === undefined || cmd.command === ".") {
-    const repoPath = canonicalRepoPath(resolve(cmd.positionals[0] ?? ctx.cwd));
+    // Checkout axis: index the working tree the caller named. A linked worktree
+    // gets its own store and its own lock, so worktrees index concurrently
+    // without contending with the main checkout.
+    const repoPath = worktreeRoot(resolve(cmd.positionals[0] ?? ctx.cwd));
     const mode = resolveIndexMode(cmd.flags);
     const dbPath = resolveCortexDbPath(repoPath); // <repo>/.cortex/db — canonical READ/PUBLISH target
 
