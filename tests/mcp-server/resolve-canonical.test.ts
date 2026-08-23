@@ -34,14 +34,23 @@ describe("resolve() — canonical routing", () => {
     expect(resolver.resolve(sub).repoPath).toBe(root);
   });
 
-  it("collapses a worktree to the canonical root", () => {
+  it("resolves a worktree to itself (checkout axis), not the canonical root", () => {
+    // Two-axis model: the graph/store side no longer collapses a linked
+    // worktree onto the canonical repo. `worktreeOf` still exposes the
+    // canonical root for callers that need repo identity. The worktree here
+    // has no `.cortex/` of its own, so the Stage 1 transitional fallback in
+    // resolveGraphDbForRead serves the canonical repo's store — surfaced via
+    // servedFrom: "canonical".
     const root = indexedGitRepo();
     cleanupPaths.push(root);
     const wt = realpathSync(mkdtempSync(join(tmpdir(), "cortex-resolve-wt-")));
     cleanupPaths.push(wt);
     execSync(`git -C "${root}" worktree add -q "${wt}"`);
     const resolver = new RepoContextResolver({ poolCapacity: 4 });
-    expect(resolver.resolve(wt).repoPath).toBe(root);
+    const ctx = resolver.resolve(wt);
+    expect(ctx.repoPath).toBe(wt);
+    expect(ctx.worktreeOf).toBe(root);
+    expect(ctx.servedFrom).toBe("canonical");
   });
 
   it("serves an indexed non-git directory (no NotAGitRepoError)", () => {
