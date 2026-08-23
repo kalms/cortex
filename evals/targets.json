@@ -41,7 +41,7 @@
     { "name": "rubygems-org",    "repo_url": "https://github.com/rubygems/rubygems.org.git",   "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
     { "name": "ripgrep",         "repo_url": "https://github.com/BurntSushi/ripgrep.git",      "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
     { "name": "gson",            "repo_url": "https://github.com/google/gson.git",             "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
-    { "name": "fmt",             "repo_url": "https://github.com/fmtlib/fmt.git",              "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "fmt",             "repo_url": "https://github.com/fmtlib/fmt.git",              "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
     { "name": "guzzle",          "repo_url": "https://github.com/guzzle/guzzle.git",           "sha": "8.0", "packs": ["universal"], "suites": ["corpus"] },
     { "name": "jq",              "repo_url": "https://github.com/jqlang/jq.git",               "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
     { "name": "vapor",           "repo_url": "https://github.com/vapor/vapor.git",             "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
