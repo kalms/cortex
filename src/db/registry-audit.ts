@@ -10,7 +10,7 @@ export interface OrphanEntry {
   canonical: string;
 }
 
-type Entry = Pick<RegistryRepo, "name" | "root_path" | "worktree_of">;
+type Entry = Pick<RegistryRepo, "name" | "root_path"> & { worktree_of?: string | null };
 
 /** The canonical root an entry SHOULD live at, or null when it is already
  *  canonical (a real git root, or a supported non-git project). A non-null
