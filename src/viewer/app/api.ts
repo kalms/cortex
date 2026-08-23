@@ -2,7 +2,14 @@
 /** Network helpers used by the React shell on load + on project switch.
  *  Ported verbatim from the vanilla viewer's data-fetch.js. */
 
-export type ProjectInfo = { name: string; indexed_at: string; root_path: string };
+export type ProjectInfo = {
+  name: string;
+  indexed_at: string;
+  root_path: string;
+  worktree_of?: string | null;
+  branch?: string | null;
+  worktrees?: ProjectInfo[];
+};
 
 export async function fetchProjects(): Promise<{ projects: ProjectInfo[]; active: string | null }> {
   const r = await fetch("/api/projects");

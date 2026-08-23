@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { projectDisplayName, formatRelativeDate } from "../../src/viewer/app/display.ts";
+import { projectDisplayName, formatRelativeDate, checkoutLabel } from "../../src/viewer/app/display.ts";
+
+describe("checkoutLabel", () => {
+  it("appends the branch for a worktree project", () => {
+    expect(checkoutLabel({ name: "cortex", branch: "mesh/composer" })).toBe("cortex @ mesh/composer");
+  });
+  it("leaves a main checkout bare", () => {
+    expect(checkoutLabel({ name: "cortex", branch: null })).toBe("cortex");
+  });
+});
 
 describe("projectDisplayName", () => {
   it("uses the basename of root_path", () =>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useUiStore } from "../ui-store";
-import { projectDisplayName } from "../display";
+import { projectDisplayName, checkoutLabel } from "../display";
 
 export function ProjectSelect() {
   const projects = useUiStore((s) => s.projects);
@@ -49,7 +49,9 @@ export function ProjectSelect() {
         aria-controls="project-select-listbox"
         aria-activedescendant={open && projects[focusIdx] ? `ps-opt-${focusIdx}` : undefined}
         onClick={() => (open ? setOpen(false) : openMenu())}>
-        <span className="ps-btn-label">{active ? projectDisplayName(active) : "(no projects)"}</span>
+        <span className="ps-btn-label">
+          {active ? checkoutLabel({ name: projectDisplayName(active), branch: active.branch }) : "(no projects)"}
+        </span>
         <span className="ps-caret">▾</span>
       </button>
       {open && (
