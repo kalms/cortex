@@ -61,23 +61,6 @@ function runTarget(
   const scorecard = computeScorecard(acquired.graphDbPath, acquired.name);
   scorecard.indexer_seconds = acquired.indexer_seconds;
 
-  if (opts.determinism) {
-    // Both passes must be fresh builds from the SAME binary. Reusing whatever
-    // graph.db happens to be cached would compare an unknown earlier build —
-    // possibly from a different indexer version — against this one, and report
-    // a version difference as nondeterminism.
-    forceReindex(acquired.workdir, acquired.graphDbPath);
-    const first = computeScorecard(acquired.graphDbPath, acquired.name);
-    forceReindex(acquired.workdir, acquired.graphDbPath);
-    const second = computeScorecard(acquired.graphDbPath, acquired.name);
-    const cmp = compareGraphShape(first, second);
-    if (!cmp.stable) {
-      console.error(`[${acquired.name}] NONDETERMINISTIC: ${cmp.differences.join("; ")}`);
-    } else {
-      console.log(`[${acquired.name}] determinism: stable`);
-    }
-  }
-
   const fixture = loadFixture(acquired.name);
   const decisionsDbPath = join(resolve("evals/cache"), acquired.name, "decisions.db");
 
@@ -97,6 +80,33 @@ function runTarget(
       }));
     } else {
       results.push(runAssertion(a, { dbPath: acquired.graphDbPath }));
+    }
+  }
+
+  // Determinism runs LAST, and deliberately so: each forced pass replaces
+  // graph.db, so running it earlier would leave the assertions above reading a
+  // different index build than the scorecard describes — one report describing
+  // two builds, which is the very inconsistency this metric exists to detect.
+  // Wrapped so an indexer failure here cannot discard assertions that already
+  // succeeded.
+  if (opts.determinism) {
+    try {
+      // Both passes must be fresh builds from the SAME binary. Reusing whatever
+      // graph.db happens to be cached would compare an unknown earlier build —
+      // possibly from a different indexer version — against this one, and report
+      // a version difference as nondeterminism.
+      forceReindex(acquired.workdir, acquired.graphDbPath);
+      const first = computeScorecard(acquired.graphDbPath, acquired.name);
+      forceReindex(acquired.workdir, acquired.graphDbPath);
+      const second = computeScorecard(acquired.graphDbPath, acquired.name);
+      const cmp = compareGraphShape(first, second);
+      if (!cmp.stable) {
+        console.error(`[${acquired.name}] NONDETERMINISTIC: ${cmp.differences.join("; ")}`);
+      } else {
+        console.log(`[${acquired.name}] determinism: stable`);
+      }
+    } catch (e) {
+      console.error(`[${acquired.name}] determinism check failed:`, e instanceof Error ? e.message : e);
     }
   }
 

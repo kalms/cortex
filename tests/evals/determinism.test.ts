@@ -34,4 +34,13 @@ describe("compareGraphShape", () => {
     expect(r.stable).toBe(false);
     expect(r.differences.join(" ")).toContain("CALLS");
   });
+
+  it("reports a label present in one scorecard and absent from the other", () => {
+    // Pins the union-of-keys symmetry in both directions. An implementation
+    // that iterated only Object.keys(a) would silently miss a whole label or
+    // edge type appearing or vanishing between runs.
+    expect(compareGraphShape(card({ function: 10 }, {}), card({}, {})).stable).toBe(false);
+    expect(compareGraphShape(card({}, {}), card({ function: 10 }, {})).stable).toBe(false);
+    expect(compareGraphShape(card({}, { CALLS: 3 }), card({}, {})).stable).toBe(false);
+  });
 });
