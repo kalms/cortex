@@ -19,6 +19,7 @@ type Args = {
   target?: string;
   path?: string;
   captureBaseline?: string;
+  suite?: string;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -27,6 +28,7 @@ function parseArgs(argv: string[]): Args {
     if (a.startsWith("--target=")) args.target = a.slice("--target=".length);
     else if (a.startsWith("--path=")) args.path = a.slice("--path=".length);
     else if (a.startsWith("--capture-baseline=")) args.captureBaseline = a.slice("--capture-baseline=".length);
+    else if (a.startsWith("--suite=")) args.suite = a.slice("--suite=".length);
   }
   return args;
 }
@@ -113,6 +115,13 @@ function captureBaseline(target: Target, pathOverride?: string): void {
   console.log(`Baseline captured for ${target.name}.`);
 }
 
+/** Targets in a suite. A target with no `suites` defaults to ["nuxt"], so the
+ *  pre-existing targets keep their current behaviour without edits. */
+export function selectTargets(targets: Target[], suite: string): Target[] {
+  if (suite === "all") return targets;
+  return targets.filter((t) => (t.suites ?? ["nuxt"]).includes(suite));
+}
+
 function main(): void {
   const args = parseArgs(process.argv);
   const { targets } = loadTargets();
@@ -127,7 +136,9 @@ function main(): void {
     return;
   }
 
-  const selected = args.target ? targets.filter((x) => x.name === args.target) : targets;
+  const selected = args.target
+    ? targets.filter((x) => x.name === args.target)
+    : selectTargets(targets, args.suite ?? "nuxt");
   if (selected.length === 0) {
     console.error(`No matching targets`);
     process.exit(1);
@@ -148,4 +159,6 @@ function main(): void {
   console.log(`Eval complete. Summary: ${summaryPath}`);
 }
 
-main();
+const isDirect = import.meta.url === `file://${process.argv[1]}` ||
+                 process.argv[1]?.endsWith("cli.ts");
+if (isDirect) main();
