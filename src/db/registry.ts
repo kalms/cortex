@@ -74,10 +74,21 @@ export class Registry {
    * the caller has no more-precise value.
    *
    * `meta.worktree_of` names the canonical repo root when this row is a
-   * linked worktree (null/omitted for a main checkout); `meta.branch` is the
-   * branch at index time (null/omitted when detached or unknown). Both
-   * default to `null` so every pre-existing call site keeps compiling and
-   * behaving unchanged.
+   * linked worktree; `meta.branch` is the branch at index time. On INSERT both
+   * default to `null`.
+   *
+   * On UPDATE, omitting a key PRESERVES whatever the row already holds, while
+   * passing it explicitly (including as `null`) overwrites — the distinction
+   * matters because callers that know nothing about checkouts re-register
+   * existing rows routinely. `importLegacyRegistry` and `migrateCacheToRegistry`
+   * both use the 3-arg form, and `startViewerServer` runs both on EVERY server
+   * start; when a legacy `_registry.db` row or a leftover
+   * `~/.cache/cortex-indexer/<slug>.db` collides on `name`, an unconditional
+   * `worktree_of = excluded.worktree_of` silently NULLed it. That is data loss
+   * with teeth: `worktree_of` is what earns a row `cortex doctor`'s carve-out,
+   * so clearing it makes `doctor --fix` prune the deliberate per-checkout
+   * entries. Pass `{ worktree_of: null }` explicitly to clear (e.g. a worktree
+   * promoted to a main checkout).
    *
    * `root_path` carries a UNIQUE constraint. Registering a *different* `name`
    * that points at a `root_path` already owned by another name will throw a
@@ -93,11 +104,16 @@ export class Registry {
     meta: { worktree_of?: string | null; branch?: string | null } = {},
   ): void {
     if (isTmpPath(root_path)) return;
+    // Omitted key => keep the stored value; explicitly-passed key (even null)
+    // => overwrite. `"x" in meta` is the only way to tell the two apart once
+    // the value has been defaulted to null for the INSERT arm.
+    const keep = (col: "worktree_of" | "branch") =>
+      col in meta ? `excluded.${col}` : `COALESCE(excluded.${col}, repos.${col})`;
     this.db
       .prepare(
         `INSERT INTO repos (name, root_path, indexed_at, worktree_of, branch) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET root_path = excluded.root_path, indexed_at = excluded.indexed_at,
-           worktree_of = excluded.worktree_of, branch = excluded.branch`,
+           worktree_of = ${keep("worktree_of")}, branch = ${keep("branch")}`,
       )
       .run(name, root_path, indexed_at, meta.worktree_of ?? null, meta.branch ?? null);
   }
