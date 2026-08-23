@@ -4,7 +4,8 @@ import { resolve, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { runIndexCommand } from "../../../src/cli/commands/index.js";
-import { loadContext } from "../../../src/cli/context.js";
+import { loadContext, deriveProjectName } from "../../../src/cli/context.js";
+import { Registry } from "../../../src/db/registry.js";
 
 const CORTEX = resolve(process.cwd(), "bin/cortex");
 
@@ -59,9 +60,10 @@ function git(cwd: string, ...args: string[]) {
 }
 
 // Real-indexer integration: exercises the checkout-axis change end to end
-// (worktreeRoot in runIndexCommand's entry). Fixture matches
-// tests/db/worktree-root.test.ts (main checkout + a linked worktree on
-// branch "feature/x").
+// (worktreeRoot in runIndexCommand's entry + the registry meta it records).
+// Fixture matches tests/db/worktree-root.test.ts (main checkout + a linked
+// worktree on branch "feature/x") so both tests can assert the same
+// worktree_of/branch values a reader would expect from that reference fixture.
 describe("cli integration — checkout-axis indexing", () => {
   let base: string, main: string, wt: string;
   let origIndexerPath: string | undefined;
@@ -108,5 +110,20 @@ describe("cli integration — checkout-axis indexing", () => {
     );
     expect(existsSync(join(wt, ".cortex", "db"))).toBe(true);
     expect(existsSync(join(main, ".cortex", "db"))).toBe(false);
+  }, 30_000);
+
+  it("registers a worktree with its parent and branch", async () => {
+    const regPath = join(base, "registry.db");
+    process.env.CORTEX_REGISTRY_DB = regPath;
+    try {
+      await runIndexCommand({ command: ".", positionals: [wt], flags: {} }, loadContext(wt));
+      const reg = new Registry(regPath);
+      const row = reg.findByName(deriveProjectName(wt))!;
+      expect(row.worktree_of).toBe(main);
+      expect(row.branch).toBe("feature/x");
+      reg.close();
+    } finally {
+      process.env.CORTEX_REGISTRY_DB = origRegistryDb ?? join(base, "registry.db");
+    }
   }, 30_000);
 });

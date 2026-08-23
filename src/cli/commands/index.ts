@@ -18,7 +18,8 @@ import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
-import { worktreeRoot } from "../../db/git-root.js";
+import { worktreeRoot, mainWorktreeRoot } from "../../db/git-root.js";
+import { gitBranch } from "../../git/worktree-state.js";
 import { reapRepoSlugCache, sweepCurrentRepo } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
@@ -133,7 +134,13 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
         // Register in the master registry (best-effort; never fail the index).
         try {
           const reg = new Registry();
-          try { reg.register(project, repoPath); } finally { reg.close(); }
+          try {
+            const canonicalRoot = mainWorktreeRoot(repoPath);
+            reg.register(project, repoPath, undefined, {
+              worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+              branch: gitBranch(repoPath),
+            });
+          } finally { reg.close(); }
         } catch { /* non-fatal */ }
 
         // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
