@@ -381,8 +381,15 @@ export async function searchDecisionsAction(
  * repo-identity axis, in the committed `cortex.json`). Fanning out over rows
  * naively therefore searches the same store once per checkout and reports the
  * same decision under N different names. Two guards, one per direction:
- *   - a row that carries `worktree_of` is skipped — it is a linked checkout of
- *     a repo already covered by its canonical row;
+ *   - a row that carries `worktree_of` is skipped ONLY when its canonical
+ *     parent is covered elsewhere — already `seen`, or itself present among
+ *     the registry's known paths. Per-worktree indexing means a repo's ONLY
+ *     registered checkout can be a linked worktree (main checkout never
+ *     indexed at all), so skipping every `worktree_of` row unconditionally
+ *     would silently drop that repo from cross-repo search instead of just
+ *     deduping it. The known-paths set is computed once, before the loop, so
+ *     the skip decision does not depend on registry row iteration order (a
+ *     worktree row can be seen before its canonical row);
  *   - when the ADDRESSED repo is itself a worktree, its canonical root is
  *     pre-seeded into `seen`, because the home search already covered that
  *     repo's shared store.
@@ -408,10 +415,26 @@ function crossRepoSearch(
     repos.push({ repo: deriveProjectName(ctx.repoPath), path: ctx.repoPath, decisions: home });
   }
 
-  for (const known of resolver?.listKnownRepos() ?? []) {
-    // A linked checkout of a repo the canonical row already covers — same
-    // decisions store, so searching it again only duplicates hits.
-    if (known.worktree_of) continue;
+  const knownRepos = resolver?.listKnownRepos() ?? [];
+  // Precomputed up front so the worktree skip-check below is independent of
+  // registry row order (a worktree row can arrive before its canonical row).
+  const knownPaths = new Set(knownRepos.map((r) => r.path));
+
+  for (const known of knownRepos) {
+    if (known.worktree_of) {
+      // A linked checkout of a repo whose canonical row is covered
+      // elsewhere — same decisions store, so searching it again only
+      // duplicates hits. "Covered elsewhere" means: already searched
+      // (`seen`), or itself registered (`knownPaths`) — NOT "carries
+      // worktree_of", which would drop a repo whose only registered
+      // checkout is this worktree.
+      if (seen.has(known.worktree_of) || knownPaths.has(known.worktree_of)) continue;
+      // No row anywhere covers the canonical parent — this worktree row is
+      // the sole route to this repo's shared store. Claim the parent's
+      // identity in `seen` so a sibling worktree of the same (unregistered)
+      // parent doesn't search the same store again.
+      seen.add(known.worktree_of);
+    }
     if (seen.has(known.path)) continue;
     seen.add(known.path);
     try {
