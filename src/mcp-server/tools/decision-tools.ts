@@ -374,6 +374,18 @@ export async function searchDecisionsAction(
  * comparable across databases, so no merged ranking), and reconciliation
  * attach is single-repo-only (verdict hashing walks a working tree; doing
  * that across N repos per search is not worth the read cost).
+ *
+ * Checkouts, not repos. The registry now carries one row per CHECKOUT — a
+ * linked worktree gets its own graph index and its own row — but every
+ * worktree of a repo shares ONE decisions store (repoId lives on the
+ * repo-identity axis, in the committed `cortex.json`). Fanning out over rows
+ * naively therefore searches the same store once per checkout and reports the
+ * same decision under N different names. Two guards, one per direction:
+ *   - a row that carries `worktree_of` is skipped — it is a linked checkout of
+ *     a repo already covered by its canonical row;
+ *   - when the ADDRESSED repo is itself a worktree, its canonical root is
+ *     pre-seeded into `seen`, because the home search already covered that
+ *     repo's shared store.
  */
 function crossRepoSearch(
   ctx: RepoContext,
@@ -386,6 +398,9 @@ function crossRepoSearch(
   const skipped: Array<{ repo: string; path: string; reason: string }> = [];
 
   const seen = new Set<string>([ctx.repoPath]);
+  // Addressed repo is itself a linked worktree: the home search already read
+  // the repo's shared decisions store, so its canonical row must not fan out.
+  if (ctx.worktreeOf) seen.add(ctx.worktreeOf);
   const home = serviceForCtx(ctx, bus, indexerProject).search(query);
   if (home.length > 0) {
     // Same naming convention as the fan-out entries (registry rows use
@@ -394,6 +409,9 @@ function crossRepoSearch(
   }
 
   for (const known of resolver?.listKnownRepos() ?? []) {
+    // A linked checkout of a repo the canonical row already covers — same
+    // decisions store, so searching it again only duplicates hits.
+    if (known.worktree_of) continue;
     if (seen.has(known.path)) continue;
     seen.add(known.path);
     try {
