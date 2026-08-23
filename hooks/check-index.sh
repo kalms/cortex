@@ -18,6 +18,24 @@
 
 REPO="$PWD"
 
+# Resolve the checkout root ONCE, up front, so every downstream consumer —
+# index-state detection, the sentinel, the auto-index log path, and the
+# spawned index target — agrees on the same directory. This used to happen
+# only inside index-state detection's own fallback, and only when a store was
+# actually FOUND there: a session starting in an UNINDEXED subdirectory left
+# REPO pointing at the subdirectory for the rest of the script. The auto-index
+# branch below would still spawn `cortex index` correctly (`runIndexCommand`
+# re-roots to the checkout via `worktreeRoot()`), but INDEX_STATE kept
+# checking `<subdir>/.cortex/db` — which can never exist — so the banner never
+# flipped to "indexed" and the hook re-indexed every session, forever: the
+# same "re-indexing every 60 minutes forever while reading as unindexed"
+# pathology `maybe_bg_index`'s old comment (retired in prefer-cortex.sh)
+# described, reintroduced through a different door.
+# Degrade-safe: outside a git repo (or an ancient git lacking rev-parse), this
+# fails silently and REPO simply stays $PWD, unchanged from before.
+GIT_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$GIT_ROOT" ] && REPO="$GIT_ROOT"
+
 # SessionStart passes a JSON payload on stdin ({session_id, source, cwd, ...}).
 # Capture it once; degrade to empty on missing jq. Guard on `[ ! -t 0 ]` so a
 # developer running this hook by hand in a terminal (no piped stdin) never
@@ -46,20 +64,9 @@ elif [ -s "$REPO/.cortex/db" ]; then
 elif [ -s "$REPO/.cortex/graph.db" ]; then
     DB_PATH="$REPO/.cortex/graph.db"
     INDEX_STATE="indexed"
-else
-    # Walk up to the git root and check there too — handles cases where
-    # the hook fires in a subdirectory of the repo.
-    GIT_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"
-    if [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/db" ]; then
-        DB_PATH="$GIT_ROOT/.cortex/db"
-        REPO="$GIT_ROOT"
-        INDEX_STATE="indexed"
-    elif [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/graph.db" ]; then
-        DB_PATH="$GIT_ROOT/.cortex/graph.db"
-        REPO="$GIT_ROOT"
-        INDEX_STATE="indexed"
-    fi
 fi
+# (REPO is already resolved to the git root above when inside a git repo, so
+# no separate subdirectory walk-up is needed here anymore.)
 
 # Locate a cortex CLI for best-effort freshness / decision-count probes.
 CORTEX_BIN=""
@@ -72,13 +79,18 @@ fi
 # Unindexed checkout: kick a detached first index so strict reads have a store
 # to answer from. Uses the same sentinel discipline as prefer-cortex.sh's
 # maybe_bg_index — a bounded retry that self-ends once the index succeeds.
-# REPO is already the checkout root (--show-toplevel above), so a linked
-# worktree indexes ITSELF, not the main checkout.
-if [ "$INDEX_STATE" = "not-indexed" ] && [ -n "$CORTEX_BIN" ] && [ "${CORTEX_AUTO_INDEX:-1}" != "0" ]; then
-    if git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1; then
-        SENTINEL="$REPO/.cortex/.auto-index-attempted"
-        if ! { [ -f "$SENTINEL" ] && find "$SENTINEL" -mmin -60 2>/dev/null | grep -q .; }; then
-            mkdir -p "$REPO/.cortex" 2>/dev/null && : > "$SENTINEL" 2>/dev/null || true
+# REPO is already the checkout root (resolved up front, above), so a linked
+# worktree indexes ITSELF, not the main checkout. Reuses $GIT_ROOT from that
+# same resolution instead of re-running rev-parse.
+if [ "$INDEX_STATE" = "not-indexed" ] && [ -n "$CORTEX_BIN" ] && [ "${CORTEX_AUTO_INDEX:-1}" != "0" ] && [ -n "$GIT_ROOT" ]; then
+    SENTINEL="$REPO/.cortex/.auto-index-attempted"
+    if ! { [ -f "$SENTINEL" ] && find "$SENTINEL" -mmin -60 2>/dev/null | grep -q .; }; then
+        # Gate the spawn on the sentinel actually being written (mirrors
+        # maybe_bg_index's `mkdir -p ... || return 0`): if `.cortex/` can't be
+        # created or the sentinel can't be touched, don't spawn either — an
+        # unrecorded attempt would just retry every session forever instead of
+        # backing off for 60 minutes.
+        if mkdir -p "$REPO/.cortex" 2>/dev/null && : > "$SENTINEL" 2>/dev/null; then
             echo "Cortex: checkout not indexed — indexing in background…" >&2
             ( nohup "$CORTEX_BIN" index . "$REPO" >"$REPO/.cortex/auto-index.log" 2>&1 </dev/null & ) 2>/dev/null || true
         fi

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -124,15 +124,17 @@ function gitRepoWithoutIndex(): string {
 }
 
 /** Install a `bin/cortex` stub inside the repo (no CLAUDE_PLUGIN_ROOT needed —
- *  check-index.sh falls back to `$REPO/bin/cortex`). Records the `index …`
- *  invocation to `${markerPath}.args` and touches `markerPath`. */
+ *  check-index.sh falls back to `$REPO/bin/cortex`). Records the auto-index
+ *  invocation (`index . <path>` — distinct from the unconditional `index
+ *  sweep` GC call the script also makes, which must NOT clobber the same
+ *  marker) to `${markerPath}.args` and touches `markerPath`. */
 function installIndexStub(repo: string, markerPath: string): void {
   mkdirSync(join(repo, "bin"), { recursive: true });
   const bin = join(repo, "bin", "cortex");
   writeFileSync(
     bin,
     `#!/usr/bin/env bash
-if [ "$1" = "index" ]; then
+if [ "$1" = "index" ] && [ "$2" = "." ]; then
   printf '%s\\n' "$@" > "${markerPath}.args"
   touch "${markerPath}"
   exit 0
@@ -159,6 +161,17 @@ function runCheckIndexHook(repo: string, envOverrides: Record<string, string> = 
   return { stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
+/** Poll for a file up to timeoutMs (the auto-index spawn is a detached
+ *  background process, so its marker write races the test's own return). */
+function waitForFile(p: string, timeoutMs = 3000): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(p)) return true;
+    execFileSync("sleep", ["0.05"]);
+  }
+  return existsSync(p);
+}
+
 describe("check-index.sh — auto-index an unindexed checkout", () => {
   it("kicks a detached index for an unindexed git root", () => {
     const repo = gitRepoWithoutIndex();
@@ -180,5 +193,38 @@ describe("check-index.sh — auto-index an unindexed checkout", () => {
 
     expect(out.stderr).not.toMatch(/indexing/i);
     expect(existsSync(join(repo, ".cortex", ".auto-index-attempted"))).toBe(false);
+  });
+
+  // Regression: REPO is set to $PWD at the top of the script and, on a
+  // genuinely unindexed checkout, was never reassigned to the git root before
+  // this point — only the (now-removed) INDEX_STATE fallback reassigned it,
+  // and only when a store was actually FOUND there. So a session starting in
+  // a subdirectory left REPO pointing at the subdirectory for the rest of the
+  // script: the sentinel/log/index-target would land under the subdirectory,
+  // and INDEX_STATE would keep checking `<subdir>/.cortex/db` — which can
+  // never exist — forever, so the hook would re-index every session in
+  // perpetuity despite the index actually existing at the real root.
+  it("resolves the checkout root (not the subdirectory) when cwd is nested", () => {
+    const repo = gitRepoWithoutIndex();
+    const subdir = join(repo, "pkg", "sub");
+    mkdirSync(subdir, { recursive: true });
+    const marker = join(repo, ".index-fired");
+    installIndexStub(repo, marker);
+
+    const out = runCheckIndexHook(subdir);
+
+    expect(out.stderr).toMatch(/indexing/i);
+    // Sentinel lands at the checkout root, not the subdirectory.
+    expect(existsSync(join(repo, ".cortex", ".auto-index-attempted"))).toBe(true);
+    expect(existsSync(join(subdir, ".cortex"))).toBe(false);
+    // The banner's "Repo path" must be the checkout root too.
+    expect(out.stdout).toContain(`Repo path: ${realpathSync(repo)}`);
+    // The spawned index target is the checkout root, not the subdirectory.
+    // Compare via realpath: git's `--show-toplevel` resolves symlinks (e.g.
+    // macOS /tmp -> /private/tmp); `repo` here is the pre-resolution path.
+    // The spawn is detached (nohup'd background), so poll for its marker.
+    expect(waitForFile(`${marker}.args`)).toBe(true);
+    const recordedArgs = readFileSync(`${marker}.args`, "utf-8").trim().split("\n");
+    expect(recordedArgs).toEqual(["index", ".", realpathSync(repo)]);
   });
 });
