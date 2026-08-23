@@ -37,3 +37,11 @@ export function gitCommitsBehind(repo: string, base: string): number | null {
   const n = parseInt(out.trim(), 10);
   return Number.isFinite(n) ? n : null;
 }
+
+/** Current branch name, or null when detached / not a git repo. */
+export function gitBranch(repoPath: string): string | null {
+  const out = git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!out) return null;
+  const name = out.trim();
+  return name && name !== "HEAD" ? name : null;
+}
