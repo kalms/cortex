@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { acquireTarget } from "./target.js";
+import { acquireTarget, compareGraphShape, forceReindex } from "./target.js";
 import { computeScorecard } from "./scorecard.js";
 import { runAssertion } from "./assertions/runner.js";
 import { runToolAssertion } from "./assertions/tool-runner.js";
@@ -20,6 +20,7 @@ type Args = {
   path?: string;
   captureBaseline?: string;
   suite?: string;
+  determinism?: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -29,6 +30,7 @@ function parseArgs(argv: string[]): Args {
     else if (a.startsWith("--path=")) args.path = a.slice("--path=".length);
     else if (a.startsWith("--capture-baseline=")) args.captureBaseline = a.slice("--capture-baseline=".length);
     else if (a.startsWith("--suite=")) args.suite = a.slice("--suite=".length);
+    else if (a === "--determinism") args.determinism = true;
   }
   return args;
 }
@@ -50,10 +52,25 @@ function loadFixture(target: string): { vue_file_path: string; vue_component_nam
   return JSON.parse(readFileSync(p, "utf-8"));
 }
 
-function runTarget(target: Target, pathOverride?: string): TargetReport {
+function runTarget(
+  target: Target,
+  pathOverride?: string,
+  opts: { determinism?: boolean } = {},
+): TargetReport {
   const acquired = acquireTarget(target, pathOverride);
   const scorecard = computeScorecard(acquired.graphDbPath, acquired.name);
   scorecard.indexer_seconds = acquired.indexer_seconds;
+
+  if (opts.determinism) {
+    forceReindex(acquired.workdir, acquired.graphDbPath);
+    const second = computeScorecard(acquired.graphDbPath, acquired.name);
+    const cmp = compareGraphShape(scorecard, second);
+    if (!cmp.stable) {
+      console.error(`[${acquired.name}] NONDETERMINISTIC: ${cmp.differences.join("; ")}`);
+    } else {
+      console.log(`[${acquired.name}] determinism: stable`);
+    }
+  }
 
   const fixture = loadFixture(acquired.name);
   const decisionsDbPath = join(resolve("evals/cache"), acquired.name, "decisions.db");
@@ -147,7 +164,7 @@ function main(): void {
   const reports: TargetReport[] = [];
   for (const t of selected) {
     try {
-      reports.push(runTarget(t, args.path));
+      reports.push(runTarget(t, args.path, { determinism: args.determinism }));
     } catch (e) {
       console.error(`[${t.name}] failed:`, e instanceof Error ? e.message : e);
     }
