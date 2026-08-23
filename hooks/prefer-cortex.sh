@@ -147,11 +147,17 @@ AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)
 maybe_bg_index() {
   local root="$1"
   [ -n "$root" ] || return 0
-  # Index the canonical root, never the worktree: `cortex index` collapses to
-  # it anyway (D-b248), so targeting the literal worktree wrote a sentinel that
-  # could never be satisfied -- the observed symptom was a worktree re-indexing
-  # every 60 minutes forever while still reading as unindexed.
-  root="$(canonical_root "$root")"
+  # Index the checkout it was given (root is already `--show-toplevel`, via
+  # git_root_of), NOT the canonical (main-worktree) root. `cortex index` used
+  # to collapse onto the main checkout regardless of what path you pointed it
+  # at (D-b248), so this used to canonicalize first to avoid writing a
+  # sentinel the index could never satisfy. Since the checkout-axis work
+  # (v1.11.0, see graph-storage.md#two-axes), `cortex index` indexes the
+  # literal checkout it's pointed at -- a linked worktree genuinely gets its
+  # own `.cortex/db` -- so collapsing here would misfile the sentinel onto the
+  # main checkout while the worktree (the thing actually being searched)
+  # stays unindexed forever. `canonical_root` stays defined: `repo_indexed()`
+  # below still reads through it until a later stage removes that fallback.
   [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
   printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
 

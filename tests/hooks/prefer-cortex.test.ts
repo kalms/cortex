@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -376,6 +376,48 @@ describe("prefer-cortex.sh — worktrees canonicalize to the main checkout (D-b2
 
   it("still allows non-code searches inside a worktree", () => {
     expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: "grep -n x README.md" } })).toBe("allow");
+  });
+});
+
+/** A linked worktree whose MAIN checkout is ALSO unindexed (neither has a
+ *  `.cortex/db`). Used to test maybe_bg_index's checkout-axis targeting: with
+ *  the main checkout indexed (indexedRepoWithWorktree), repo_indexed() falls
+ *  back to canonical and reads the worktree as indexed, so the gate denies
+ *  and maybe_bg_index is never reached — unreachable for this test. */
+function unindexedRepoWithWorktree(): { main: string; worktree: string } {
+  const main = mkdtempSync(join(tmpdir(), "cortex-wt-uidx-main-"));
+  gitInit(main);
+  const worktree = join(mkdtempSync(join(tmpdir(), "cortex-wt-uidx-link-")), "wt");
+  execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", "wt-uidx", worktree], { stdio: "pipe" });
+  return { main, worktree };
+}
+
+describe("prefer-cortex.sh — maybe_bg_index targets the checkout, not the canonical root", () => {
+  it("background-indexes the WORKTREE, not its main checkout, when both are unindexed", () => {
+    const { main, worktree } = unindexedRepoWithWorktree();
+    mkdirSync(join(worktree, "src"), { recursive: true });
+    writeFileSync(join(worktree, "src", "a.ts"), "// test\n");
+    const marker = join(worktree, ".index-fired");
+    const bin = stubCortex(marker);
+    const out = execFileSync("bash", [HOOK], {
+      input: JSON.stringify({
+        tool_name: "Bash",
+        cwd: worktree,
+        tool_input: { command: `rg needle ${worktree}/src/a.ts` },
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    }).trim();
+    expect(out).toBe("");
+    expect(waitForFile(marker)).toBe(true);
+    expect(existsSync(join(worktree, ".cortex", ".auto-index-attempted"))).toBe(true);
+    expect(existsSync(join(main, ".cortex", ".auto-index-attempted"))).toBe(false);
+    // The invocation must target the literal worktree checkout, not main.
+    // Compare via realpath: git's `--show-toplevel` resolves symlinks (e.g.
+    // macOS /tmp -> /private/tmp), while `worktree` here is the pre-resolution
+    // path handed to `git worktree add`.
+    const recordedArgs = readFileSync(`${marker}.args`, "utf-8").trim().split("\n");
+    expect(recordedArgs).toEqual(["index", ".", realpathSync(worktree)]);
   });
 });
 
