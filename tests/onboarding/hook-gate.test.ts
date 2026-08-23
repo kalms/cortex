@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -100,5 +100,85 @@ describe("check-index onboarding sentinel gate", () => {
 
     expect(out).toContain("Cortex routing for this session");
     expect(out).not.toContain("HEADLINE_MARKER");
+  });
+});
+
+// --- Real git repos, for the unindexed-checkout auto-index branch -----------
+// The `.cortex/db`-only helpers above suffice for the sentinel/briefing tests,
+// but the new branch guards on `git -C "$REPO" rev-parse --show-toplevel`
+// succeeding, which requires an actual git repository (a bare `mkdir .git`
+// is not recognized by real git).
+function gitInit(root: string): void {
+  const git = (...args: string[]) => execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+  git("init", "-q");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "T");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+}
+
+function gitRepoWithoutIndex(): string {
+  const repo = mkdtempSync(join(tmpdir(), "cortex-hook-noidx-"));
+  tempRepos.push(repo);
+  gitInit(repo);
+  return repo;
+}
+
+/** Install a `bin/cortex` stub inside the repo (no CLAUDE_PLUGIN_ROOT needed —
+ *  check-index.sh falls back to `$REPO/bin/cortex`). Records the `index …`
+ *  invocation to `${markerPath}.args` and touches `markerPath`. */
+function installIndexStub(repo: string, markerPath: string): void {
+  mkdirSync(join(repo, "bin"), { recursive: true });
+  const bin = join(repo, "bin", "cortex");
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env bash
+if [ "$1" = "index" ]; then
+  printf '%s\\n' "$@" > "${markerPath}.args"
+  touch "${markerPath}"
+  exit 0
+fi
+case "$1 $2 $3" in
+  "code arch --headline") echo "HEADLINE_MARKER" ;;
+  "freshness "*|"freshness") echo "fresh" ;;
+  "decision count"*) echo "5" ;;
+  *) : ;;
+esac
+`,
+  );
+  chmodSync(bin, 0o755);
+}
+
+/** Run the hook via spawnSync so stderr is inspectable (execFileSync discards
+ *  it on success). */
+function runCheckIndexHook(repo: string, envOverrides: Record<string, string> = {}) {
+  const res = spawnSync("bash", [HOOK], {
+    cwd: repo,
+    encoding: "utf-8",
+    env: { ...process.env, CORTEX_AUTO_REFRESH: "0", CORTEX_BRIEF: "1", CORTEX_ONBOARD: "1", ...envOverrides },
+  });
+  return { stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
+}
+
+describe("check-index.sh — auto-index an unindexed checkout", () => {
+  it("kicks a detached index for an unindexed git root", () => {
+    const repo = gitRepoWithoutIndex();
+    const marker = join(repo, ".index-fired");
+    installIndexStub(repo, marker);
+
+    const out = runCheckIndexHook(repo);
+
+    expect(out.stderr).toMatch(/indexing/i);
+    expect(existsSync(join(repo, ".cortex", ".auto-index-attempted"))).toBe(true);
+  });
+
+  it("does nothing when CORTEX_AUTO_INDEX=0", () => {
+    const repo = gitRepoWithoutIndex();
+    const marker = join(repo, ".index-fired");
+    installIndexStub(repo, marker);
+
+    const out = runCheckIndexHook(repo, { CORTEX_AUTO_INDEX: "0" });
+
+    expect(out.stderr).not.toMatch(/indexing/i);
+    expect(existsSync(join(repo, ".cortex", ".auto-index-attempted"))).toBe(false);
   });
 });

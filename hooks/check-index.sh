@@ -69,6 +69,22 @@ elif [ -x "$REPO/bin/cortex" ]; then
     CORTEX_BIN="$REPO/bin/cortex"
 fi
 
+# Unindexed checkout: kick a detached first index so strict reads have a store
+# to answer from. Uses the same sentinel discipline as prefer-cortex.sh's
+# maybe_bg_index — a bounded retry that self-ends once the index succeeds.
+# REPO is already the checkout root (--show-toplevel above), so a linked
+# worktree indexes ITSELF, not the main checkout.
+if [ "$INDEX_STATE" = "not-indexed" ] && [ -n "$CORTEX_BIN" ] && [ "${CORTEX_AUTO_INDEX:-1}" != "0" ]; then
+    if git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1; then
+        SENTINEL="$REPO/.cortex/.auto-index-attempted"
+        if ! { [ -f "$SENTINEL" ] && find "$SENTINEL" -mmin -60 2>/dev/null | grep -q .; }; then
+            mkdir -p "$REPO/.cortex" 2>/dev/null && : > "$SENTINEL" 2>/dev/null || true
+            echo "Cortex: checkout not indexed — indexing in background…" >&2
+            ( nohup "$CORTEX_BIN" index . "$REPO" >"$REPO/.cortex/auto-index.log" 2>&1 </dev/null & ) 2>/dev/null || true
+        fi
+    fi
+fi
+
 # Compute the freshness verdict, optionally auto-refresh out-of-band (this runs
 # at SessionStart, BEFORE the agent reads — a clean boundary), then fold the
 # verdict into the banner so a stale/degraded graph is loud.
