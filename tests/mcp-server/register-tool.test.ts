@@ -27,9 +27,10 @@ describe("registerTool — default (per-repo) mode", () => {
     }, { resolver });
 
     await wrapped({ repo_path: repo, name: "hello" });
-    // ctx.repoPath is realpath-normalized (worktree collapse path), so on
-    // macOS `repo` (/tmp/...) becomes `/private/tmp/...`. Compare via
-    // realpath.
+    // ctx.repoPath is realpath-normalized to the checkout axis (worktreeRoot),
+    // so on macOS `repo` (/tmp/...) becomes `/private/tmp/...`. Compare via
+    // realpath. This repo has no linked worktree, so the checkout and
+    // repo-identity axes coincide.
     expect(received).toEqual({ ctxPath: realpathSync(repo), name: "hello" });
   });
 

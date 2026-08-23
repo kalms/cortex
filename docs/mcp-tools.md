@@ -252,10 +252,17 @@ Manage the `.cortex/db` graph store and the machine-wide project registry.
 Build (or incrementally update) the knowledge graph for a repo.
 - **Params:** `repo_path`, `mode?` (`fast` | `moderate` | `full`, default
   `full`).
-- **Behavior:** canonicalizes `repo_path` to the repo's main-worktree root
-  before deriving name/db/staging/registry, so indexing a subdirectory or a
-  linked worktree collapses onto the one canonical index instead of creating
-  an orphan sub-project (T-119); builds into a private staging DB
+- **Behavior:** resolves `repo_path` to its **checkout root**
+  (`git rev-parse --show-toplevel`) before deriving name/db/staging/registry.
+  A subdirectory still collapses onto its enclosing checkout, so indexing
+  `<repo>/src` never creates an orphan sub-project (T-119) — but a **linked
+  worktree indexes itself**: it gets its own `<worktree>/.cortex/db` and its own
+  registry row, tagged with `worktree_of` (the main checkout it belongs to) and
+  the `branch` it was on at index time. This is the checkout axis; the
+  repo-identity axis is unchanged, so decisions/todos/stories still live in one
+  store shared by every worktree of the repo. Until a worktree has been indexed
+  once, reads against it fall back to the main checkout's graph and say so via
+  `servedFrom: "canonical"`. Builds into a private staging DB
   (`.cortex/db.stage-<pid>`), runs frame + contract extraction against it,
   then **atomically publishes** into `.cortex/db` via a single WAL
   transaction (`publishStagedDb`) so the live file is never truncated under

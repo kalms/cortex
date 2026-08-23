@@ -85,6 +85,55 @@ register concurrently.
   segment, so eval-corpus clones under `cortex/.tmp/…` can never enter
   enumeration.
 
+## Two axes
+
+Root derivation splits into two independent axes — which tree on disk you're
+standing in, versus which logical repo it belongs to:
+
+| | Checkout axis | Repo-identity axis |
+|---|---|---|
+| Derived by | `worktreeRoot()` (`src/db/git-root.ts`) — `git rev-parse --show-toplevel` | `mainWorktreeRoot()` (`src/db/git-root.ts`) — `git --git-common-dir` |
+| A linked worktree | is its own root | collapses to the main checkout |
+| Carries | graph store, staging, index lock, freshness baseline, registry row, project name, **and every `hashGovernedSource` anchor** | `repoId`, the shared decisions/todos/stories store, the `worktree_of` back-pointer |
+
+In a main checkout the two are byte-identical; only linked worktrees diverge.
+
+**Rule of thumb:** graph paths — `resolveCortexDbPath`, `resolveGraphDbForRead`,
+staging, the index lock, the freshness baseline, the registry row — resolve on
+`worktreeRoot`. Decisions/todos/stories (`repoId`, the decisions sidecar)
+resolve on `mainWorktreeRoot`, so every worktree of a repo still shares one
+durable knowledge store. `RepoContextResolver.resolve`
+(`src/mcp-server/repo-context.ts`) sets `ctx.repoPath` from the checkout axis,
+which means **every** `hashGovernedSource` call (decision reconciliation
+drift-hashing) anchors to the checkout the caller is actually standing in, not
+the main checkout — a governed file edited only in a worktree now flips that
+worktree's reconciliation state, not the main checkout's.
+
+Both index write paths (CLI `cortex index` and the MCP `index_repository`
+tool) now build and publish into the *checkout's own* `.cortex/db`, and both
+write a `worktree_of` + `branch` column on the registry row so a linked
+checkout can be told apart from — and grouped under — its canonical parent
+(`list_projects`, `/api/projects`, the viewer's `"<name> @ <branch>"` label).
+`cortex doctor`'s orphan audit (`src/db/registry-audit.ts`) carves out a
+worktree row that holds a real store of its own so it survives as a
+legitimate registry entry rather than being pruned as a stale collapse
+target.
+
+**Transitional and deliberate:** a checkout with no store of its own still
+falls back to reading the canonical repo's graph, annotated
+`servedFrom: "canonical"` on `RepoContext` — this keeps a not-yet-indexed
+worktree usable rather than empty. A later stage makes reads strict and
+removes both the fallback and the annotation; until then, treat
+`servedFrom: "canonical"` as "this checkout hasn't been indexed on its own
+yet," not as a bug.
+
+This replaces the prior model, where every root derivation — index write
+path, read resolver, registry — canonicalized through `mainWorktreeRoot`
+alone (decision `D-b248`): a linked worktree had no index of its own, so
+`search_code` run from inside it silently read the main checkout's graph on
+the wrong branch, and a worktree's freshness verdict described the main
+checkout's HEAD, never its own.
+
 ## Write path: staging build + transactional publish
 
 Both `cortex index` (CLI, `src/cli/commands/index.ts`) and the `index_repository`
@@ -177,14 +226,18 @@ modes (default / `crossRepo` / `allowUnindexed`), and error shapes
 (`MissingRepoPathError`, `RepoNotIndexedError`, `PathNotFoundError`,
 `NotAGitRepoError`) are documented in [mcp-tools.md](../mcp-tools.md).
 
-Both the index write paths and this read resolver canonicalize through the
-same helper: `mainWorktreeRoot` (`src/db/git-root.ts`) collapses a
-subdirectory or linked worktree to the canonical main-worktree root before
-any name/db/registry derivation, so a subdir or worktree passed to indexing
-or to a read tool never creates an orphan sub-project — it resolves onto the
-one canonical repo. A path outside any git repo is not rejected — it
-canonicalizes to its own realpath and is served as a literal-path (non-git)
-project.
+Both the index write paths and this read resolver canonicalize through
+`worktreeRoot` (`src/db/git-root.ts`) — the **checkout axis** of the
+[two-axis model](#two-axes) above — before any name/db/registry derivation.
+A subdirectory still collapses to its enclosing checkout's root, so a subdir
+passed to indexing or to a read tool never creates an orphan sub-project. A
+linked worktree, however, no longer collapses onto the main checkout for
+graph purposes: as of Stage 1 it resolves to itself and gets its own
+registry row and store. (Decisions still canonicalize through
+`mainWorktreeRoot`, the repo-identity axis, so a worktree's decisions still
+land in the one shared durable store.) A path outside any git repo is not
+rejected — it canonicalizes to its own realpath and is served as a
+literal-path (non-git) project.
 
 ## Freshness (is the read current?)
 

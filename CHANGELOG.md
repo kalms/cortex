@@ -18,6 +18,61 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.11.0] — 2026-08-23
+
+Stage 1 of per-worktree indexing: root derivation splits into a **checkout
+axis** and a **repo-identity axis** instead of collapsing every path through
+one canonicalizer. See
+[graph-storage.md#two-axes](docs/architecture/graph-storage.md#two-axes).
+
+### Added
+
+- **`worktreeRoot()`** (`src/db/git-root.ts`) — the checkout axis of root
+  derivation (`git rev-parse --show-toplevel`). A linked worktree resolves to
+  itself; a subdirectory still collapses to its enclosing checkout. Graph
+  paths (`resolveCortexDbPath`, `resolveGraphDbForRead`, staging, the index
+  lock, the freshness baseline, the registry row) now resolve on this axis.
+  `mainWorktreeRoot()` (`--git-common-dir`) remains the repo-identity axis:
+  `repoId` and the shared decisions/todos/stories store still collapse a
+  worktree onto its main checkout, so one repo keeps one durable knowledge
+  store across all its worktrees.
+- **Both index write paths build and publish into the checkout's own
+  `.cortex/db`.** `cortex index` (CLI) and the MCP `index_repository` tool
+  each index the checkout they're run from, not the canonical main-worktree
+  root — a linked worktree gets a real store of its own for the first time.
+- **Registry `worktree_of` + `branch` columns**, written by both index paths,
+  so a linked checkout's registry row can be told apart from — and grouped
+  under — its canonical parent.
+- **`cortex doctor` orphan-audit carve-out**: a worktree row that holds its
+  own populated `.cortex/db` is kept as a legitimate registry entry instead of
+  being pruned as a stale collapse target (`src/db/registry-audit.ts`).
+- **`list_projects` / `/api/projects` group linked checkouts under their
+  parent** (`src/graph/group-checkouts.ts`), so the project switcher shows one
+  entry per repo — with its worktrees nested — instead of one row per
+  worktree slug.
+- **Viewer label reads `"<name> @ <branch>"`** for a served checkout.
+
+### Changed
+
+- `RepoContextResolver.resolve` (`src/mcp-server/repo-context.ts`) now resolves
+  `ctx.repoPath` on the checkout axis, so **every** `hashGovernedSource` anchor
+  (decision reconciliation drift-hashing) rides the checkout the caller is
+  actually standing in, not the main checkout.
+- **Transitional fallback, called out explicitly:** a checkout with no store of
+  its own is still served from the canonical repo's graph, annotated
+  `servedFrom: "canonical"` on `RepoContext`. This is deliberate — it keeps a
+  not-yet-indexed worktree usable — and temporary: a later stage makes reads
+  strict and removes both the fallback and the annotation.
+
+### Fixed
+
+- **A linked worktree's `search_code` and freshness results no longer come
+  from the main checkout's graph.** Before this stage, every root derivation
+  collapsed through `mainWorktreeRoot` alone, so a worktree had no index of
+  its own: `search_code` run from inside it silently returned results from
+  the main checkout's branch, and its freshness verdict described the main
+  checkout's HEAD rather than the worktree's own.
+
 ## [1.10.0] — 2026-08-23
 
 ### Fixed
@@ -1739,6 +1794,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
 [1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0

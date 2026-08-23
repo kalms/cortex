@@ -63,11 +63,22 @@ export const GraphResponseSchema = z.object({
 export type GraphResponse = z.infer<typeof GraphResponseSchema>;
 
 // ── Projects ───────────────────────────────────────────────────────────────
-/** Mirrors IndexerProject (src/graph/code-queries.ts). */
-export const ProjectSchema = z.object({
+/** Mirrors IndexerProject (src/graph/code-queries.ts). `worktree_of` and
+ *  `branch` are optional so CONTRACT_VERSION stays 1 — they're new fields,
+ *  not a retype of an existing one. The viewer reads `branch` to label the
+ *  served checkout (`"<name> @ <branch>"`). */
+const ProjectFieldsSchema = z.object({
   name: z.string(),
   indexed_at: z.string(),
   root_path: z.string(),
+  worktree_of: z.string().nullable().optional(),
+  branch: z.string().nullable().optional(),
+});
+/** A worktree never nests further (a checkout is grouped at most one level
+ *  deep — see `groupCheckouts`), so `worktrees` holds the same fields without
+ *  a further-nested `worktrees` of its own. */
+export const ProjectSchema = ProjectFieldsSchema.extend({
+  worktrees: z.array(ProjectFieldsSchema).optional(),
 });
 export const ProjectsResponseSchema = z.object({
   version: Version,

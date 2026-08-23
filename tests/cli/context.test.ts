@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GraphStore } from "../../src/graph/store.js";
@@ -8,7 +8,13 @@ import { detectProjectState, deriveProjectName, loadContext } from "../../src/cl
 describe("context — project state detection", () => {
   let tmp: string;
 
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cortex-ctx-")); });
+  // realpathSync: these fixtures build a bare ".git" stub (not a real repo),
+  // so loadContext's graph-path resolution takes the non-git fallback, which
+  // now realpaths (worktreeRoot → canonicalRepoPath) to converge write/read
+  // path derivation for symlinked dirs (e.g. macOS /var → /private/var, per
+  // D-b248's "genuinely non-git directory routes by its own realpath"). A raw
+  // mkdtempSync() result would spuriously mismatch the resolved graphDbPath.
+  beforeEach(() => { tmp = realpathSync(mkdtempSync(join(tmpdir(), "cortex-ctx-"))); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("detects 'no-project' when cwd has no .git", () => {

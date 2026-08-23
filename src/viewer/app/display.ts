@@ -45,3 +45,12 @@ export function projectDisplayName(p: { name: string; root_path?: string | null 
   const parts = p.root_path.replace(/\/+$/, "").split("/");
   return parts[parts.length - 1] || p.name;
 }
+
+/**
+ * Label for the checkout currently being served. A worktree-backed project
+ * MUST name its branch — an always-on viewer that does not say which branch it
+ * is showing is the untruthfulness this whole change exists to remove.
+ */
+export function checkoutLabel(project: { name: string; branch?: string | null }): string {
+  return project.branch ? `${project.name} @ ${project.branch}` : project.name;
+}

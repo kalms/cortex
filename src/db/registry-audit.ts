@@ -1,4 +1,5 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { mainWorktreeRoot } from "./git-root.js";
 import type { Registry, RegistryRepo } from "./registry.js";
 
@@ -9,12 +10,24 @@ export interface OrphanEntry {
   canonical: string;
 }
 
-type Entry = Pick<RegistryRepo, "name" | "root_path">;
+type Entry = Pick<RegistryRepo, "name" | "root_path"> & { worktree_of?: string | null };
 
 /** The canonical root an entry SHOULD live at, or null when it is already
  *  canonical (a real git root, or a supported non-git project). A non-null
  *  return means the entry is an orphan — a subdir or worktree that collapses
- *  elsewhere under the canonical-rooting model. */
+ *  elsewhere under the canonical-rooting model.
+ *
+ *  Carve-out (anticipated by D-b248): a linked worktree is now a legitimate,
+ *  first-class registry entry, not an orphan collapse target — but only when
+ *  it actually holds its own store. A worktree row that declares
+ *  `worktree_of` but has no (or an empty/aborted) `.cortex/db` is still a
+ *  stale collapse target and must stay an orphan. As of the current registry
+ *  writer, a subdirectory never qualifies for the carve-out: `worktreeRoot()`
+ *  collapses subdirs to their enclosing checkout, so nothing ever indexes a
+ *  subdir in its own right and nothing ever writes it a `worktree_of` pointer.
+ *  That's caller discipline, not a guarantee `orphanCanonical` itself enforces
+ *  — a future writer that indexed a subdir with a `worktree_of` pointer would
+ *  hit this same carve-out branch. */
 function orphanCanonical(entry: Entry): string | null {
   const root = mainWorktreeRoot(entry.root_path);
   if (root === null) return null; // non-git project — supported, keep
@@ -24,7 +37,19 @@ function orphanCanonical(entry: Entry): string | null {
   } catch {
     return null; // path gone — handled by findDeadEntries, not here
   }
-  return real === root ? null : root;
+  if (real === root) return null;
+
+  if (entry.worktree_of && statSize(join(entry.root_path, ".cortex", "db")) > 0) return null;
+
+  return root;
+}
+
+function statSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
 }
 
 export function isOrphanEntry(entry: Entry): boolean {

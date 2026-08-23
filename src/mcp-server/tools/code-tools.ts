@@ -10,6 +10,7 @@ import {
   tracePath,
   getGraphSchema,
 } from "../../graph/code-queries.js";
+import { groupCheckouts } from "../../graph/group-checkouts.js";
 import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
@@ -18,7 +19,8 @@ import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
 import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
-import { canonicalRepoPath } from "../../db/git-root.js";
+import { worktreeRoot, mainWorktreeRoot } from "../../db/git-root.js";
+import { gitBranch } from "../../git/worktree-state.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -307,17 +309,24 @@ export function registerCodeTools(
       "index_repository",
       indexRepositorySchema,
       async (_resolver, args) => {
-        // Canonicalize BEFORE any name/db/staging/registry derivation so a
-        // subdir or worktree path collapses to the one canonical repo root
-        // (T-119). Non-git dirs canonicalize to their own realpath.
-        const repoPath = canonicalRepoPath(args.repo_path!);
+        // Checkout axis BEFORE any name/db/staging/registry derivation: a
+        // subdir still collapses to its enclosing checkout, but a linked
+        // worktree no longer collapses — it gets its own root (and so its own
+        // store). Non-git dirs canonicalize to their own realpath.
+        const repoPath = worktreeRoot(args.repo_path!);
         const mode = args.mode ?? "full";
         const dbPath = resolveCortexDbPath(repoPath);
 
         const registerRepo = () => {
           try {
             const reg = new Registry();
-            try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
+            try {
+              const canonicalRoot = mainWorktreeRoot(repoPath);
+              reg.register(deriveProjectName(repoPath), repoPath, undefined, {
+                worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+                branch: gitBranch(repoPath),
+              });
+            } finally { reg.close(); }
           } catch { /* non-fatal: registration must never fail the index */ }
 
           // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
@@ -803,8 +812,18 @@ export function registerCodeTools(
       async (resolver, _args) => {
         const repos = resolver.listKnownRepos();
         if (repos.length === 0) return empty("list_projects()");
-        const text = repos
-          .map((p) => `${p.name} — ${p.path}${p.indexed ? "" : " (not indexed)"}`)
+        // Fold linked worktrees under their canonical parent so a repo with
+        // several worktrees doesn't bury the parent under N top-level rows.
+        // groupCheckouts keys on `root_path`; AvailableProject calls it `path`.
+        const grouped = groupCheckouts(repos.map((p) => ({ ...p, root_path: p.path })));
+        const text = grouped
+          .map((p) => {
+            const line = `${p.name} — ${p.root_path}${p.indexed ? "" : " (not indexed)"}`;
+            const worktreeLines = p.worktrees.map(
+              (w) => `  worktree: ${w.name} — ${w.root_path}${w.branch ? ` (${w.branch})` : ""}`,
+            );
+            return [line, ...worktreeLines].join("\n");
+          })
           .join("\n");
         return ok(text);
       },
