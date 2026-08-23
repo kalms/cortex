@@ -18,7 +18,8 @@ import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
 import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
-import { worktreeRoot } from "../../db/git-root.js";
+import { worktreeRoot, mainWorktreeRoot } from "../../db/git-root.js";
+import { gitBranch } from "../../git/worktree-state.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -318,7 +319,13 @@ export function registerCodeTools(
         const registerRepo = () => {
           try {
             const reg = new Registry();
-            try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
+            try {
+              const canonicalRoot = mainWorktreeRoot(repoPath);
+              reg.register(deriveProjectName(repoPath), repoPath, undefined, {
+                worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+                branch: gitBranch(repoPath),
+              });
+            } finally { reg.close(); }
           } catch { /* non-fatal: registration must never fail the index */ }
 
           // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
