@@ -1794,6 +1794,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
 [1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
@@ -1818,7 +1819,6 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 [1.3.0]: https://github.com/ruevu/cortex/releases/tag/v1.3.0
 [1.2.6]: https://github.com/ruevu/cortex/releases/tag/v1.2.6
 [1.2.5]: https://github.com/ruevu/cortex/releases/tag/v1.2.5
-[1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
 [1.2.4]: https://github.com/ruevu/cortex/releases/tag/v1.2.4
 [1.2.3]: https://github.com/ruevu/cortex/releases/tag/v1.2.3
 [1.2.2]: https://github.com/ruevu/cortex/releases/tag/v1.2.2
