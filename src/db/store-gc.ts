@@ -4,6 +4,8 @@ import BetterSqlite3 from "better-sqlite3";
 import { readRepoId } from "./repo-id.js";
 import { durableStoreRoot } from "./resolve-path.js";
 import { archiveRoot, indexerCacheDir, slugCachePath } from "./store-paths.js";
+import { findDeadEntries, pruneEntries } from "./registry-audit.js";
+import { Registry } from "./registry.js";
 
 export { readRepoId };
 
@@ -110,11 +112,12 @@ export function reapRepoSlugCache(repoRoot: string): number {
 }
 
 /** Current-repo SessionStart sweep: reap this repo's slug cache (guarded) + its
- *  db.stage-* siblings + stale tmp-ctx_incr_* files in the shared cache dir. */
+ *  db.stage-* siblings + stale tmp-ctx_incr_* files in the shared cache dir,
+ *  plus dead registry rows (see below). */
 export function sweepCurrentRepo(
   repoRoot: string,
-  opts: { maxStagingAgeMs?: number } = {},
-): { bytes: number; removed: string[] } {
+  opts: { maxStagingAgeMs?: number; registryPath?: string } = {},
+): { bytes: number; removed: string[]; prunedRows: string[] } {
   const maxAge = opts.maxStagingAgeMs ?? 86_400_000;
   const now = Date.now();
   let bytes = 0;
@@ -148,5 +151,26 @@ export function sweepCurrentRepo(
     }
   } catch { /* no cache dir — fine */ }
 
-  return { bytes, removed };
+  // Dead-row reclamation. `git worktree remove` takes the directory and its
+  // .cortex/db with it but leaves the registry row; worktrees are short-lived,
+  // so this must happen on the SessionStart sweep rather than waiting for a
+  // manual `cortex doctor --fix`. Best-effort: a registry failure never fails
+  // the sweep.
+  const prunedRows: string[] = [];
+  try {
+    // `Registry`'s constructor defaults to `defaultRegistryPath()` when its
+    // arg is `undefined`, so the production call path (`runSweep`, which
+    // calls `sweepCurrentRepo(repoRoot)` with no `opts` at all) resolves to
+    // the real registry — not a no-op.
+    const reg = new Registry(opts.registryPath);
+    try {
+      const dead = findDeadEntries(reg.list());
+      if (dead.length > 0) {
+        pruneEntries(reg, dead.map((d) => d.name));
+        prunedRows.push(...dead.map((d) => d.name));
+      }
+    } finally { reg.close(); }
+  } catch { /* best-effort */ }
+
+  return { bytes, removed, prunedRows };
 }
