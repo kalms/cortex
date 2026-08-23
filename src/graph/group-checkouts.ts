@@ -7,6 +7,13 @@
  *
  * A row whose parent is absent from `rows` stays top-level — never drop a row
  * just because its parent was not registered.
+ *
+ * Assumes non-chained `worktree_of`: every row's `worktree_of` is expected to
+ * name a canonical root directly, never another worktree's row. A chained
+ * pointer (a worktree-of-a-worktree) would be silently dropped by the
+ * `continue` below, since its parent is itself skipped from `out`/`index` on
+ * the first pass. Not reachable today — `worktree_of` is always written as
+ * the canonical root — but this function does not defend against it.
  */
 export function groupCheckouts<T extends { root_path: string; worktree_of?: string | null }>(
   rows: T[],

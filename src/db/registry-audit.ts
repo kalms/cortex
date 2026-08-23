@@ -21,11 +21,13 @@ type Entry = Pick<RegistryRepo, "name" | "root_path"> & { worktree_of?: string |
  *  first-class registry entry, not an orphan collapse target — but only when
  *  it actually holds its own store. A worktree row that declares
  *  `worktree_of` but has no (or an empty/aborted) `.cortex/db` is still a
- *  stale collapse target and must stay an orphan. A subdirectory can never
- *  qualify for the carve-out: `worktreeRoot()` collapses subdirs to their
- *  enclosing checkout, so nothing ever indexes a subdir in its own right and
- *  nothing ever writes it a `worktree_of` pointer — the check below is
- *  structurally unreachable for a subdir, not a special case bolted on top. */
+ *  stale collapse target and must stay an orphan. As of the current registry
+ *  writer, a subdirectory never qualifies for the carve-out: `worktreeRoot()`
+ *  collapses subdirs to their enclosing checkout, so nothing ever indexes a
+ *  subdir in its own right and nothing ever writes it a `worktree_of` pointer.
+ *  That's caller discipline, not a guarantee `orphanCanonical` itself enforces
+ *  — a future writer that indexed a subdir with a `worktree_of` pointer would
+ *  hit this same carve-out branch. */
 function orphanCanonical(entry: Entry): string | null {
   const root = mainWorktreeRoot(entry.root_path);
   if (root === null) return null; // non-git project — supported, keep

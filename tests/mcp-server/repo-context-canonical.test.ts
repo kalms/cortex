@@ -33,9 +33,10 @@ describe("RepoContext.canonical", () => {
   it("reports canonical=true when reading the .cortex/db", () => {
     const r = new RepoContextResolver({ poolCapacity: 4 });
     const ctx = r.resolve(repo);
-    // Use ctx.repoPath (realpath'd canonical root) on both sides — macOS
-    // tmpdir lives under /var → /private/var, so comparing to the raw `repo`
-    // path would mismatch on the symlink prefix.
+    // Use ctx.repoPath (realpath'd checkout root — worktreeRoot; this plain
+    // repo has no linked worktree, so it coincides with the canonical root)
+    // on both sides — macOS tmpdir lives under /var → /private/var, so
+    // comparing to the raw `repo` path would mismatch on the symlink prefix.
     expect(ctx.graphDbPath).toBe(resolveCortexDbPath(ctx.repoPath));
     expect(ctx.canonical).toBe(true);
   });
