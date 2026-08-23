@@ -134,6 +134,13 @@ export interface AvailableProject {
   readonly name: string;
   readonly path: string;
   readonly indexed: boolean;
+  /** Canonical repo root when this project is a linked worktree; null/absent
+   *  for a main checkout. Lets `list_projects` fold worktrees under their
+   *  parent instead of listing every checkout as a top-level project. */
+  readonly worktree_of?: string | null;
+  /** Branch at index time; null/absent when detached, unknown, or (for a
+   *  pooled in-process context) not tracked. */
+  readonly branch?: string | null;
 }
 
 /** Thrown when a non-crossRepo tool was called without `repo_path`. */
@@ -340,6 +347,7 @@ export class RepoContextResolver {
         name: deriveProjectName(ctx.repoPath),
         path: ctx.repoPath,
         indexed: true,
+        worktree_of: ctx.worktreeOf,
       });
     }
 
@@ -350,7 +358,13 @@ export class RepoContextResolver {
       try {
         for (const r of registry.list()) {
           if (byPath.has(r.root_path)) continue;
-          byPath.set(r.root_path, { name: r.name, path: r.root_path, indexed: true });
+          byPath.set(r.root_path, {
+            name: r.name,
+            path: r.root_path,
+            indexed: true,
+            worktree_of: r.worktree_of,
+            branch: r.branch,
+          });
         }
       } finally {
         registry.close();

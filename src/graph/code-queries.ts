@@ -35,6 +35,14 @@ export interface IndexerProject {
   name: string;
   indexed_at: string;
   root_path: string;
+  /** Canonical repo root when this row is a linked worktree; null/absent for
+   *  a main checkout. Only populated for rows folded in from the registry
+   *  (see `listProjectsUnified`); optional so the bound store's ctx_projects
+   *  rows (which predate the two-axis model) keep compiling unchanged. */
+  worktree_of?: string | null;
+  /** Branch at index time; null/absent when detached, unknown, or the row
+   *  predates branch tracking. */
+  branch?: string | null;
 }
 
 const CODE_KIND_FILTER = "kind NOT IN ('decision', 'pr', 'todo')";
@@ -185,9 +193,17 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
     try {
       for (const r of registry.list()) {
         if (out.has(r.name)) continue;
-        // RegistryRepo is a structural subset of IndexerProject; /api/projects
-        // consumers only read `name`. No nodes/edges counts here by design.
-        out.set(r.name, { name: r.name, indexed_at: r.indexed_at, root_path: r.root_path } as IndexerProject);
+        // RegistryRepo is a structural subset of IndexerProject; carry
+        // worktree_of/branch through so callers (list_projects grouping,
+        // the viewer's checkout label) have something to key on. No
+        // nodes/edges counts here by design.
+        out.set(r.name, {
+          name: r.name,
+          indexed_at: r.indexed_at,
+          root_path: r.root_path,
+          worktree_of: r.worktree_of,
+          branch: r.branch,
+        });
       }
     } finally {
       registry.close();

@@ -10,6 +10,7 @@ import {
   tracePath,
   getGraphSchema,
 } from "../../graph/code-queries.js";
+import { groupCheckouts } from "../../graph/group-checkouts.js";
 import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
@@ -811,8 +812,18 @@ export function registerCodeTools(
       async (resolver, _args) => {
         const repos = resolver.listKnownRepos();
         if (repos.length === 0) return empty("list_projects()");
-        const text = repos
-          .map((p) => `${p.name} — ${p.path}${p.indexed ? "" : " (not indexed)"}`)
+        // Fold linked worktrees under their canonical parent so a repo with
+        // several worktrees doesn't bury the parent under N top-level rows.
+        // groupCheckouts keys on `root_path`; AvailableProject calls it `path`.
+        const grouped = groupCheckouts(repos.map((p) => ({ ...p, root_path: p.path })));
+        const text = grouped
+          .map((p) => {
+            const line = `${p.name} — ${p.root_path}${p.indexed ? "" : " (not indexed)"}`;
+            const worktreeLines = p.worktrees.map(
+              (w) => `  worktree: ${w.name} — ${w.root_path}${w.branch ? ` (${w.branch})` : ""}`,
+            );
+            return [line, ...worktreeLines].join("\n");
+          })
           .join("\n");
         return ok(text);
       },
