@@ -172,10 +172,11 @@ came back empty:
      regex feature search_code lacks.
 
 An empty result is NOT a staleness signal. Staleness has its own signal:
-a "⚠ cortex freshness" line on the response. Without one the index is
-current (unless CORTEX_FRESHNESS=0 has switched the signal off), so
-re-indexing cannot change the answer and the fix is the next rung — not
-index_repository.
+a "⚠ cortex freshness" line on the response. Without one the graph
+considers itself current, so re-indexing is unlikely to change the answer
+and the fix is the next rung — not index_repository. (Best-effort, not a
+guarantee: CORTEX_FRESHNESS=0 switches the signal off entirely, and the
+dirty-tree check cannot see a re-edit of an already-modified file.)
 
 After any non-trivial commit, consider:
   - decision({action:"propose"}) / decision({action:"create"}) if an architectural choice was made

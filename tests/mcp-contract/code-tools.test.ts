@@ -33,6 +33,21 @@ describe("code-tools contract", () => {
       expect(res.content[0].text).toMatch(/freshness/i);
     });
 
+    it("an enumeration miss (kinds/label only) does not route to search_code", async () => {
+      // No name or qn to re-search as text, so search_code has no pattern to
+      // take and cannot answer "what Interfaces exist" — same reason the hint
+      // stays off trace_path's no-edges case.
+      const res = await callTool(h, "search_graph", { label: "zzzNoSuchLabel" });
+      expect(res.content[0].text).toMatch(/^No results: /);
+      expect(res.content[0].text).not.toContain("search_code(");
+    });
+
+    it("a qn_pattern miss is targeted, so it does route to search_code", async () => {
+      const res = await callTool(h, "search_graph", { qn_pattern: "src/server.ts::zzzNope" });
+      expect(res.content[0].text).toMatch(/^No results: /);
+      expect(res.content[0].text).toContain("search_code(");
+    });
+
     it("happy: colon-form qn_pattern normalizes correctly", async () => {
       const res = await callTool(h, "search_graph", { qn_pattern: "src/server.ts::handleRequest" });
       expect(res.content[0].text).toContain("src/server.ts::handleRequest");

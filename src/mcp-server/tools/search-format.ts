@@ -29,6 +29,12 @@ export { clampLimit, clampOffset } from "../../graph/search-params.js";
  * says nothing about the index — asserting currency there would manufacture
  * the very misdiagnosis this exists to prevent, on a genuinely stale graph.
  *
+ * Even with the signal live the verdict is best-effort, not a guarantee, so the
+ * wording stays hedged ("considers itself current", "unlikely"): gitDirtySig
+ * hashes `git status --porcelain`, which is byte-identical when an
+ * already-modified file is edited again, and freshnessForContext memoizes for
+ * 2s — either can report `fresh` on a graph that is genuinely behind.
+ *
  * Deliberately NOT attached to a miss where the symbol resolved and only the
  * edges came back empty (e.g. trace_path finding no callers) — there the graph
  * is answering, not failing, and search_code is no substitute for it.
@@ -42,9 +48,9 @@ export function symbolMissHint(): string {
   if (process.env.CORTEX_FRESHNESS === "0") return routing;
   return (
     'Before concluding the index is stale, look for a "⚠ cortex freshness" line ' +
-    "below — that is where staleness is reported, and it is printed whenever the " +
-    "graph is behind the working tree. If none appears, the index is current and " +
-    "re-indexing cannot change this result.\n" + routing
+    "below — that is where staleness is reported. If none appears the graph " +
+    "considers itself current, so re-indexing is unlikely to change this result; " +
+    "try the next rung first.\n" + routing
   );
 }
 

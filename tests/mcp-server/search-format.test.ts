@@ -71,7 +71,7 @@ describe("symbolMissHint", () => {
     delete process.env.CORTEX_FRESHNESS;
     const h = symbolMissHint();
     expect(h).toContain("⚠ cortex freshness");
-    expect(h).toContain("re-indexing cannot change this result");
+    expect(h).toContain("re-indexing is unlikely to change this result");
   });
 
   it("drops the currency claim under CORTEX_FRESHNESS=0", () => {
@@ -82,7 +82,7 @@ describe("symbolMissHint", () => {
     process.env.CORTEX_FRESHNESS = "0";
     const h = symbolMissHint();
     expect(h).not.toContain("cortex freshness");
-    expect(h).not.toContain("re-indexing cannot change this result");
+    expect(h).not.toContain("re-indexing is unlikely to change this result");
     expect(h).toContain('search_code(pattern="…")');   // routing survives
   });
 });

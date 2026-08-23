@@ -29,10 +29,14 @@ A `search_graph` miss no longer reads as "the index is stale".
   now append `symbolMissHint()`
   (`src/mcp-server/tools/search-format.ts`) to their empty response: it names
   `search_code` as the next call and points at the `⚠ cortex freshness` line as
-  the actual staleness signal. Under `CORTEX_FRESHNESS=0` the currency claim is
-  dropped and only the routing half is emitted — the gate makes freshness
-  report `fresh` unconditionally, so the absence of a `⚠` line says nothing
-  about the index there. A bare `No results` was ambiguous between *no such
+  the actual staleness signal. Attached only to a *targeted* lookup — a
+  `kinds`/`label`-only enumeration gives `search_code` no pattern to take.
+  Under `CORTEX_FRESHNESS=0` the currency claim is dropped and only the routing
+  half is emitted, since the gate makes freshness report `fresh`
+  unconditionally; and because the verdict is best-effort even when live
+  (`git status --porcelain` is byte-identical when an already-modified file is
+  re-edited, and it is memoized for 2s), the claim is hedged rather than
+  absolute. A bare `No results` was ambiguous between *no such
   symbol*, *the graph carries no node for this shape*, and *the index is
   behind* — and agents resolved that ambiguity the expensive way. Observed
   twice on 2026-08-10: both read the miss as a stale index, offered to re-run

@@ -36,9 +36,11 @@ non-code file (config, JSON, Markdown, log) or you need a regex feature
 `search_code` doesn't support.
 
 An empty result is **not** a staleness signal — staleness has its own, the
-`⚠ cortex freshness` line (see below), which `CORTEX_FRESHNESS=0` switches
-off. With the signal live and no such line, the index is current and an
-empty response cannot be fixed by reindexing.
+`⚠ cortex freshness` line (see below). With no such line the graph considers
+itself current, so an empty response is unlikely to be fixed by reindexing.
+Treat that as best-effort rather than a guarantee: `CORTEX_FRESHNESS=0`
+switches the signal off, and the dirty-tree check cannot see a re-edit of an
+already-modified file.
 
 ### Hook-enforced, not advisory
 

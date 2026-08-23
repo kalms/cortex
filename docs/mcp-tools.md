@@ -126,10 +126,18 @@ The hint is deliberately **not** attached where the symbol resolved and only the
 edges came back empty (`trace_path` finding no callers). There the graph is
 answering, not failing, and `search_code` is no substitute for it.
 
+The hint is attached only to a **targeted** lookup. A `search_graph` query
+filtered by `kinds`/`label` alone is an enumeration with no symbol to re-search
+as text, so `search_code` has no pattern to take — the same objection that keeps
+the hint off `trace_path`'s no-edges case.
+
 Under `CORTEX_FRESHNESS=0` the hint drops its currency claim and keeps only the
 routing half: the gate makes `freshnessForContext()` return `fresh`
 unconditionally, so no `⚠` line is ever emitted and the absence of one says
-nothing about the index.
+nothing about the index. Even with the signal live the verdict is best-effort —
+`gitDirtySig` hashes `git status --porcelain`, which is byte-identical when an
+already-modified file is edited again, and the verdict is memoized for 2s — so
+the hint says "considers itself current" and "unlikely", never "cannot".
 
 ---
 

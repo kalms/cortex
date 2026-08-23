@@ -659,7 +659,14 @@ export function registerCodeTools(
         // Genuinely empty only when no code rows AND no sections were hidden.
         // If sections matched, render the header-only opt-in hint instead of a
         // bare "no results" (which would hide retrievable matches).
-        if (rows.length === 0 && suppressedSections === 0) return empty(queryDesc, symbolMissHint());
+        // Hint only on a TARGETED lookup. A kinds/label-only query is an
+        // enumeration with no symbol to re-search as text, so search_code has
+        // no pattern to take — the same objection that keeps the hint off
+        // trace_path's no-edges case.
+        const targeted = Boolean(params.name_pattern || params.qn_pattern);
+        if (rows.length === 0 && suppressedSections === 0) {
+          return empty(queryDesc, targeted ? symbolMissHint() : undefined);
+        }
         const text = renderNodeSearch(rows, {
           // qn is a structural identifier, not a name to match — only a
           // name_pattern drives name-relevance; qn-only searches rank by kind.
