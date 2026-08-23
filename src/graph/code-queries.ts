@@ -176,7 +176,15 @@ export function listProjects(store: GraphStore): IndexerProject[] {
 /* Union of (a) the bound store's ctx_projects (Cortex-Vue's local .cortex/db)
  * and (b) the master Registry (~/.local/share/cortex-indexer/registry.db), which
  * records every repo indexed via the CLI or another MCP session. The bound
- * store wins on name conflict so embedder-fresher data takes precedence. */
+ * store wins on name conflict so embedder-fresher data takes precedence.
+ *
+ * Name conflicts MERGE rather than skip. The registry is the only source of
+ * `worktree_of`/`branch`, and the bound store's ctx_projects always lists the
+ * served checkout — so dropping the conflicting registry row outright meant
+ * the ACTIVE project could never carry checkout metadata, and the viewer's
+ * "<name> @ <branch>" label could never render for the checkout being served.
+ * Store-derived fields the registry lacks (root_path, indexed_at, node/edge
+ * counts) are left untouched; only the registry-exclusive fields fill in. */
 export function listProjectsUnified(store: GraphStore): IndexerProject[] {
   const out = new Map<string, IndexerProject>();
 
@@ -192,11 +200,23 @@ export function listProjectsUnified(store: GraphStore): IndexerProject[] {
     const registry = new Registry();
     try {
       for (const r of registry.list()) {
-        if (out.has(r.name)) continue;
         // RegistryRepo is a structural subset of IndexerProject; carry
         // worktree_of/branch through so callers (list_projects grouping,
         // the viewer's checkout label) have something to key on. No
         // nodes/edges counts here by design.
+        const existing = out.get(r.name);
+        if (existing) {
+          // Merge, don't skip — see the header comment. Spreading `existing`
+          // last would re-clobber with its absent metadata, so the two
+          // registry-exclusive fields are applied on top explicitly, and only
+          // when the store row hasn't already supplied them.
+          out.set(r.name, {
+            ...existing,
+            worktree_of: existing.worktree_of ?? r.worktree_of,
+            branch: existing.branch ?? r.branch,
+          });
+          continue;
+        }
         out.set(r.name, {
           name: r.name,
           indexed_at: r.indexed_at,
