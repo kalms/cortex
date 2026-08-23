@@ -1,7 +1,7 @@
 /**
- * Pure presentation helpers for the search_graph tool: input clamping and
- * result rendering (rank via node-ranker, slice the window, format lines).
- * No I/O, fully unit-testable.
+ * Pure presentation helpers for the graph-lookup tools: input clamping, result
+ * rendering (rank via node-ranker, slice the window, format lines), and the
+ * shared miss hint. No I/O, fully unit-testable.
  */
 import type { IndexerNode } from "../../graph/code-queries.js";
 import { rankNodes } from "../../graph/node-ranker.js";
@@ -10,6 +10,30 @@ import { denormalize } from "../qualified-name.js";
 // Re-exported for existing importers; the canonical home is the graph layer so
 // the CLI can use them without depending on mcp-server.
 export { clampLimit, clampOffset } from "../../graph/search-params.js";
+
+/**
+ * Routing prose appended to a *symbol-lookup* miss (search_graph,
+ * get_code_snippet, context_pack, and trace_path's name-resolution step).
+ *
+ * A bare "No results" is ambiguous between "no such symbol", "the graph holds
+ * no node for this shape", and "the index is behind" — and agents resolve that
+ * ambiguity the expensive way. Observed twice on 2026-08-10: both read the miss
+ * as a stale index, offered to re-run index_repository (which could not have
+ * changed the result), and fell back to grep, when search_code answered
+ * directly. So the hint disclaims staleness explicitly and names the next call.
+ *
+ * Deliberately NOT attached to a miss where the symbol resolved and only the
+ * edges came back empty (e.g. trace_path finding no callers) — there the graph
+ * is answering, not failing, and search_code cannot substitute for it.
+ */
+export const SYMBOL_MISS_HINT =
+  'This is not a staleness signal: a "⚠ cortex freshness" line is printed below ' +
+  "whenever the index is behind the working tree, and without one the index is " +
+  "current — re-indexing cannot change this result.\n" +
+  "The graph holds named definitions, so a shape it carries no node for reads " +
+  "exactly like a symbol that does not exist. To tell those apart, call " +
+  'search_code(pattern="…") — the same indexed tree searched as text, with each ' +
+  "hit annotated by its enclosing function or class.";
 
 function formatLine(n: IndexerNode): string {
   return `${n.kind} ${denormalize(n.qualified_name, n.file_path)} (${n.file_path}:${n.start_line}-${n.end_line})`;

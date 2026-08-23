@@ -18,6 +18,39 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.11.1] — 2026-08-23
+
+A `search_graph` miss no longer reads as "the index is stale".
+
+### Fixed
+
+- **Symbol-lookup misses route to `search_code`** — `search_graph`,
+  `get_code_snippet`, `context_pack`, and `trace_path`'s name-resolution step
+  now append `SYMBOL_MISS_HINT`
+  (`src/mcp-server/tools/search-format.ts`) to their empty response: it names
+  `search_code` as the next call and states outright that an empty result is
+  not a staleness signal. A bare `No results` was ambiguous between *no such
+  symbol*, *the graph carries no node for this shape*, and *the index is
+  behind* — and agents resolved that ambiguity the expensive way. Observed
+  twice on 2026-08-10: both read the miss as a stale index, offered to re-run
+  `index_repository` (which could not have changed the result), and fell back
+  to grep, when `search_code` answered directly. The hint is deliberately not
+  attached where the symbol resolved and only the edges came back empty
+  (`trace_path` finding no callers) — there the graph is answering, not
+  failing. (T-ghza)
+- **SessionStart routing text is a ladder, not a flat list** —
+  `hooks/check-index.sh` and the `CLAUDE.md` routing section now spell out
+  `search_graph`/`trace_path`/`get_code_snippet` → `search_code` →
+  `Grep`/`Glob`/`Read`, and drop the old "fall back to Grep when Cortex returns
+  no results on a current index" line that licensed the grep detour. (T-ghza)
+
+### Changed
+
+- **`empty(queryDesc, hint?)`** (`src/mcp-server/response.ts`) takes optional
+  routing prose, appended below the stable `No results: <queryDesc>` line. The
+  prefix contract — and so `NoResultsResponse` — is unchanged, and every
+  existing call site is byte-identical.
+
 ## [1.11.0] — 2026-08-23
 
 Stage 1 of per-worktree indexing: root derivation splits into a **checkout
@@ -1794,6 +1827,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.11.1]: https://github.com/ruevu/cortex/releases/tag/v1.11.1
 [1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
 [1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1

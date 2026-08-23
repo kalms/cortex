@@ -88,8 +88,10 @@ All tools return MCP content blocks via three helpers
 ([`src/mcp-server/response.ts`](../src/mcp-server/response.ts)):
 
 - **`ok(text)`** — success with payload.
-- **`empty(queryDesc)`** — no results (not an error; e.g. a search that matched
-  nothing).
+- **`empty(queryDesc, hint?)`** — no results (not an error; e.g. a search that
+  matched nothing). The optional `hint` is routing prose appended below the
+  stable `No results: <queryDesc>` line; the prefix contract is unchanged
+  either way.
 - **`error(code, message)`** — a structured failure (e.g. `ambiguous_input`,
   `internal_error`, `project_not_found`).
 
@@ -105,6 +107,24 @@ no longer matches HEAD + working tree:
 - `unknown` — indexed before freshness tracking, or not a git repo.
 
 See [graph-storage.md](architecture/graph-storage.md) for the freshness model.
+
+### Symbol-miss routing
+
+A **symbol lookup** that resolves nothing — `search_graph`, `get_code_snippet`,
+`context_pack`, and `trace_path`'s name-resolution step — appends
+`SYMBOL_MISS_HINT` ([`search-format.ts`](../src/mcp-server/tools/search-format.ts))
+pointing the caller at `search_code`, and says outright that the miss is not a
+staleness signal.
+
+A bare `No results` is ambiguous between *no such symbol*, *the graph holds no
+node for this shape*, and *the index is behind* — and that ambiguity has a
+measured cost: on 2026-08-10 two agents read a `search_graph` miss as a stale
+index, offered to re-run `index_repository` (which could not have changed the
+result), and fell back to grep, when `search_code` answered directly.
+
+The hint is deliberately **not** attached where the symbol resolved and only the
+edges came back empty (`trace_path` finding no callers). There the graph is
+answering, not failing, and `search_code` is no substitute for it.
 
 ---
 

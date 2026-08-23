@@ -24,6 +24,15 @@ describe("code-tools contract", () => {
       expect(res.content[0].text).toMatch(/^No results: /);
     });
 
+    it("empty: a symbol miss routes the caller to search_code, not to reindexing", async () => {
+      // Regression guard for T-ghza: a bare "No results" read as "the index is
+      // stale" and sent two agents off to re-run index_repository. The miss must
+      // name the tool that would actually answer, and disclaim staleness.
+      const res = await callTool(h, "search_graph", { name_pattern: "zzzNonexistent" });
+      expect(res.content[0].text).toContain("search_code(");
+      expect(res.content[0].text).toMatch(/freshness/i);
+    });
+
     it("happy: colon-form qn_pattern normalizes correctly", async () => {
       const res = await callTool(h, "search_graph", { qn_pattern: "src/server.ts::handleRequest" });
       expect(res.content[0].text).toContain("src/server.ts::handleRequest");
@@ -68,6 +77,11 @@ describe("code-tools contract", () => {
       const res = await callTool(h, "get_code_snippet", { qualified_name: "src/server.ts::zzz" });
       expect(res.content[0].text).toMatch(/^No results: /);
     });
+
+    it("empty: unknown symbol routes to search_code", async () => {
+      const res = await callTool(h, "get_code_snippet", { qualified_name: "src/server.ts::zzz" });
+      expect(res.content[0].text).toContain("search_code(");
+    });
   });
 
   describe("trace_path", () => {
@@ -87,6 +101,20 @@ describe("code-tools contract", () => {
     it("empty: unknown function", async () => {
       const res = await callTool(h, "trace_path", { function_name: "zzzNonexistent", mode: "calls" });
       expect(res.content[0].text).toMatch(/^No results: /);
+    });
+
+    it("empty: an unresolvable function name routes to search_code", async () => {
+      const res = await callTool(h, "trace_path", { function_name: "zzzNonexistent", mode: "calls" });
+      expect(res.content[0].text).toContain("search_code(");
+    });
+
+    it("a resolved symbol with no edges does not route to search_code", async () => {
+      // The symbol WAS found; "the graph carries no node for this shape" is the
+      // wrong diagnosis, and search_code cannot answer "who calls this" anyway.
+      // parseBody is a leaf in the fixture, so calls-mode returns nothing.
+      const res = await callTool(h, "trace_path", { function_name: "parseBody", mode: "calls" });
+      expect(res.content[0].text).toMatch(/^No results: /);
+      expect(res.content[0].text).not.toContain("search_code(");
     });
   });
 

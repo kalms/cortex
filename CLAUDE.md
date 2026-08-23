@@ -26,9 +26,18 @@ state and the repo path; act on it.
 | What changed since a ref/date/decision | `changes_since(since="…")` | git spelunking |
 | Find decisions across ALL repos | `decision({action:"search", cross_repo:true})` | per-repo searches |
 
-Fall back to `Grep`/`Glob`/`Read` only when the target is a non-code file
-(config, JSON, Markdown, log), you need a regex feature `search_code`
-doesn't support, or the Cortex tool returned empty on a current index.
+Finding a symbol is a **ladder** — descend only when the rung above came
+back empty: `search_graph`/`trace_path`/`get_code_snippet` → `search_code`
+→ `Grep`/`Glob`/`Read`. A `search_graph` miss is not proof the symbol is
+absent: the graph holds named definitions, and a shape it carries no node
+for reads exactly like one that does not exist, so `search_code` is the
+next call. Fall back to `Grep`/`Glob`/`Read` only when the target is a
+non-code file (config, JSON, Markdown, log) or you need a regex feature
+`search_code` doesn't support.
+
+An empty result is **not** a staleness signal — staleness has its own
+(see below). An empty response on a fresh index cannot be fixed by
+reindexing.
 
 ### Hook-enforced, not advisory
 

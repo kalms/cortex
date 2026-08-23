@@ -6,6 +6,7 @@ import { searchGraph, tracePath, IndexerNode } from "../../graph/code-queries.js
 import { resolveInput } from "../../shared/resolve-input.js";
 import { normalize, denormalize } from "../qualified-name.js";
 import { ok, empty, error as errorResponse } from "../response.js";
+import { SYMBOL_MISS_HINT } from "./search-format.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
@@ -76,7 +77,7 @@ export async function buildContextPack(ctx: RepoContext, qualified_name: string)
   }
 
   const resolved = resolveNode(ctx, project, qualified_name);
-  if (resolved.kind === "none") return empty(`context_pack(${qualified_name})`);
+  if (resolved.kind === "none") return empty(`context_pack(${qualified_name})`, SYMBOL_MISS_HINT);
   if (resolved.kind === "multi") {
     const candidatesList = resolved.candidates
       .map((c, i) => `  ${i + 1}. ${c.qn}  (${c.kind}, ${c.file_path})`)
