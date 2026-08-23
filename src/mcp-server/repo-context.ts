@@ -1,7 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
 import { existsSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
 import { mainWorktreeRoot, worktreeRoot } from "../db/git-root.js";
@@ -266,13 +266,15 @@ export class RepoContextResolver {
       throw new RepoNotIndexedError(checkout, this.listKnownRepos());
     }
     // "canonical" here means "the Stage 1 cross-checkout fallback fired" —
-    // graphDbPath actually lives under the canonical repo's parent directory,
-    // not this checkout's own tree. A checkout-prefix test would wrongly
-    // mislabel the checkout's own legacy slug cache (derived from the
-    // checkout's own path, e.g. ~/.cache/cortex-indexer/<slug>.db) as
-    // "canonical"; testing against worktreeOf avoids that.
+    // graphDbPath is the canonical repo's OWN `.cortex/db`, not anything under
+    // this checkout. Match that one path EXACTLY: a checkout-prefix test would
+    // wrongly mislabel the checkout's own legacy slug cache (derived from the
+    // checkout's own path, e.g. ~/.cache/cortex-indexer/<slug>.db), and a
+    // `worktreeOf + "/"` PREFIX test wrongly mislabels a worktree created
+    // inside its main checkout (`/repo/wt/.cortex/db` starts with `/repo/`)
+    // even when it is serving its own store.
     const servedFrom: "checkout" | "canonical" =
-      worktreeOf && graphDbPath.startsWith(worktreeOf + "/") ? "canonical" : "checkout";
+      worktreeOf && graphDbPath === join(worktreeOf, ".cortex", "db") ? "canonical" : "checkout";
 
     // Identity axis — unchanged. Passing the checkout is safe because
     // resolveDecisionsDbPath canonicalizes internally via mainWorktreeRoot,

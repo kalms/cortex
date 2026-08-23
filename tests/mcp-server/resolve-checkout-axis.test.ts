@@ -68,3 +68,50 @@ describe("resolve() on the checkout axis", () => {
     seedDb(wt);
   });
 });
+
+/**
+ * Regression — finding 5: `servedFrom` must not mislabel a worktree that lives
+ * INSIDE its main checkout. A prefix test (`graphDbPath.startsWith(worktreeOf
+ * + "/")`) is true for `/repo/wt/.cortex/db` simply because the parent's path
+ * is a prefix, so a nested worktree serving its OWN store was reported as
+ * `servedFrom: "canonical"` — telling the caller the answer describes another
+ * branch when it does not.
+ */
+describe("servedFrom with a worktree nested inside its main checkout", () => {
+  let nestBase: string, nestMain: string, nestWt: string;
+
+  beforeAll(() => {
+    nestBase = realpathSync(mkdtempSync(join(tmpdir(), "cortex-nested-")));
+    nestMain = join(nestBase, "main");
+    mkdirSync(nestMain);
+    git(nestMain, "init", "-b", "main");
+    git(nestMain, "config", "user.email", "t@t.t");
+    git(nestMain, "config", "user.name", "t");
+    writeFileSync(join(nestMain, "a.txt"), "a");
+    git(nestMain, "add", "-A");
+    git(nestMain, "commit", "-m", "init");
+    nestWt = join(nestMain, "wt"); // INSIDE the main checkout
+    git(nestMain, "worktree", "add", "-b", "feature/nested", nestWt);
+    seedDb(nestMain);
+    seedDb(nestWt);
+  });
+
+  afterAll(() => rmSync(nestBase, { recursive: true, force: true }));
+
+  it("reports servedFrom=checkout when the nested worktree serves its own store", () => {
+    const r = new RepoContextResolver({ poolCapacity: 4 });
+    const ctx = r.resolve(nestWt);
+    expect(ctx.graphDbPath).toBe(join(nestWt, ".cortex", "db"));
+    expect(ctx.worktreeOf).toBe(nestMain);
+    expect(ctx.servedFrom).toBe("checkout");
+  });
+
+  it("still reports servedFrom=canonical when the nested worktree has no store", () => {
+    rmSync(join(nestWt, ".cortex"), { recursive: true, force: true });
+    const r = new RepoContextResolver({ poolCapacity: 4 });
+    const ctx = r.resolve(nestWt);
+    expect(ctx.graphDbPath).toBe(join(nestMain, ".cortex", "db"));
+    expect(ctx.servedFrom).toBe("canonical");
+    seedDb(nestWt);
+  });
+});
