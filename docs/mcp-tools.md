@@ -88,8 +88,10 @@ All tools return MCP content blocks via three helpers
 ([`src/mcp-server/response.ts`](../src/mcp-server/response.ts)):
 
 - **`ok(text)`** — success with payload.
-- **`empty(queryDesc)`** — no results (not an error; e.g. a search that matched
-  nothing).
+- **`empty(queryDesc, hint?)`** — no results (not an error; e.g. a search that
+  matched nothing). The optional `hint` is routing prose appended below the
+  stable `No results: <queryDesc>` line; the prefix contract is unchanged
+  either way.
 - **`error(code, message)`** — a structured failure (e.g. `ambiguous_input`,
   `internal_error`, `project_not_found`).
 
@@ -105,6 +107,37 @@ no longer matches HEAD + working tree:
 - `unknown` — indexed before freshness tracking, or not a git repo.
 
 See [graph-storage.md](architecture/graph-storage.md) for the freshness model.
+
+### Symbol-miss routing
+
+A **symbol lookup** that resolves nothing — `search_graph`, `get_code_snippet`,
+`context_pack`, and `trace_path`'s name-resolution step — appends
+`symbolMissHint()` ([`search-format.ts`](../src/mcp-server/tools/search-format.ts)),
+which points the caller at `search_code` and at the `⚠ cortex freshness` line as
+the actual staleness signal.
+
+A bare `No results` is ambiguous between *no such symbol*, *the graph holds no
+node for this shape*, and *the index is behind* — and that ambiguity has a
+measured cost: on 2026-08-10 two agents read a `search_graph` miss as a stale
+index, offered to re-run `index_repository` (which could not have changed the
+result), and fell back to grep, when `search_code` answered directly.
+
+The hint is deliberately **not** attached where the symbol resolved and only the
+edges came back empty (`trace_path` finding no callers). There the graph is
+answering, not failing, and `search_code` is no substitute for it.
+
+The hint is attached only to a **targeted** lookup. A `search_graph` query
+filtered by `kinds`/`label` alone is an enumeration with no symbol to re-search
+as text, so `search_code` has no pattern to take — the same objection that keeps
+the hint off `trace_path`'s no-edges case.
+
+Under `CORTEX_FRESHNESS=0` the hint drops its currency claim and keeps only the
+routing half: the gate makes `freshnessForContext()` return `fresh`
+unconditionally, so no `⚠` line is ever emitted and the absence of one says
+nothing about the index. Even with the signal live the verdict is best-effort —
+`gitDirtySig` hashes `git status --porcelain`, which is byte-identical when an
+already-modified file is edited again, and the verdict is memoized for 2s — so
+the hint says "considers itself current" and "unlikely", never "cannot".
 
 ---
 
@@ -252,10 +285,17 @@ Manage the `.cortex/db` graph store and the machine-wide project registry.
 Build (or incrementally update) the knowledge graph for a repo.
 - **Params:** `repo_path`, `mode?` (`fast` | `moderate` | `full`, default
   `full`).
-- **Behavior:** canonicalizes `repo_path` to the repo's main-worktree root
-  before deriving name/db/staging/registry, so indexing a subdirectory or a
-  linked worktree collapses onto the one canonical index instead of creating
-  an orphan sub-project (T-119); builds into a private staging DB
+- **Behavior:** resolves `repo_path` to its **checkout root**
+  (`git rev-parse --show-toplevel`) before deriving name/db/staging/registry.
+  A subdirectory still collapses onto its enclosing checkout, so indexing
+  `<repo>/src` never creates an orphan sub-project (T-119) — but a **linked
+  worktree indexes itself**: it gets its own `<worktree>/.cortex/db` and its own
+  registry row, tagged with `worktree_of` (the main checkout it belongs to) and
+  the `branch` it was on at index time. This is the checkout axis; the
+  repo-identity axis is unchanged, so decisions/todos/stories still live in one
+  store shared by every worktree of the repo. Until a worktree has been indexed
+  once, reads against it fall back to the main checkout's graph and say so via
+  `servedFrom: "canonical"`. Builds into a private staging DB
   (`.cortex/db.stage-<pid>`), runs frame + contract extraction against it,
   then **atomically publishes** into `.cortex/db` via a single WAL
   transaction (`publishStagedDb`) so the live file is never truncated under

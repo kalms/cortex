@@ -18,7 +18,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [1.9.2] — 2026-08-12
+## [1.12.1] — 2026-08-24
 
 ### Fixed
 
@@ -45,6 +45,248 @@ All notable changes to Cortex are documented here. The format follows
 A new parity sweep (`tests/mcp-server/decision-ref-parity.test.ts`) pins the
 invariant by asserting byte-identical output for both ref forms, and
 `docs/architecture/decisions-storage.md` documents the resolve-before-use rule.
+
+## [1.12.0] — 2026-08-24
+
+Stage 2 of per-worktree indexing: a fresh checkout becomes usable **without a
+manual indexing step**. Stage 1 gave every checkout its own store; this stage
+fills that store automatically and reclaims the registry row when the checkout
+goes away.
+
+### Added
+
+- **SessionStart indexes an unindexed checkout.** `hooks/check-index.sh` starts
+  a first index for a checkout that has no `.cortex/db`, instead of reporting
+  `not-indexed` and waiting for the agent to run `index_repository`. A sentinel
+  (`<checkout>/.cortex/.auto-index-attempted`) gives a ~60-minute backoff, and
+  the spawn is skipped entirely when the sentinel cannot be written — an
+  unrecorded spawn has nothing to back off against and would re-fire every
+  session. Opt out with `CORTEX_AUTO_INDEX=0`, which now covers **both**
+  auto-index points (this one and the retrieval gate's).
+- **Automatic reclamation of registry rows for removed checkouts.** The
+  SessionStart sweep (`cortex index sweep`) prunes registry rows whose
+  `root_path` no longer exists, so `git worktree remove` no longer strands a row
+  that outlives the directory. Scoped to the **current repo family** — this
+  checkout's own row plus rows whose `worktree_of` points at this repo's
+  main-worktree root. Other repos' rows are never touched: a repo sitting on an
+  unmounted volume or a detached share must not lose its registry entry because
+  a session happened to start somewhere else. `cortex doctor --fix` remains the
+  machine-wide backstop and is still dry-run by default. Inherits the
+  `CORTEX_GC=0` opt-out, now checked inside `sweepCurrentRepo` itself rather
+  than only by its caller, so the destructive step sits behind the gate for
+  every caller.
+- **Shared auto-index denylist** (`hooks/lib/auto-index-denylist.sh`), sourced
+  by both hooks so the two auto-index enforcement points cannot drift apart.
+  Fail-closed by construction: if the file cannot be loaded the pattern is
+  empty, an empty `grep -E` matches every path, and auto-index skips rather
+  than indexing everything.
+
+### Fixed
+
+- **The retrieval gate's background indexer targets the checkout**, not its
+  canonical main-worktree root (`maybe_bg_index` in `hooks/prefer-cortex.sh`).
+  Before the checkout-axis work an index collapsed onto the main checkout
+  regardless, so pointing it at a worktree wrote a sentinel that could never be
+  satisfied; now that `cortex index` indexes the checkout it is pointed at, the
+  sentinel is satisfied and the worktree genuinely gets its own store.
+- **SessionStart resolves the checkout root before index-state detection.**
+  `REPO` was only reassigned to the git root inside the branches where a store
+  was *found*, so a session started in a **subdirectory** of an unindexed repo
+  left `REPO` as that subdirectory: the index landed correctly, but the state
+  check kept reading a `.cortex/db` path that would never exist — so the banner
+  reported `not-indexed` forever and the hook re-indexed every 60 minutes in
+  perpetuity.
+- **The SessionStart auto-index honors the denylist.** It previously had no
+  guard of its own, so opening a session with cwd inside `.tmp/`,
+  `node_modules/`, `vendor/`, `dist/`, `build/` or `.cache/` spawned a full
+  index and wrote a `.cortex/` into a tree that should never be indexed. The
+  retrieval gate already refused those paths; both now read one shared
+  definition.
+- **`maybe_bg_index` no longer spawns an index it cannot record.** It wrote its
+  sentinel best-effort and spawned regardless, so an unwritable sentinel meant
+  no backoff at all — measured at 3 spawns over 3 searches. It now matches
+  `check-index.sh`'s stricter discipline.
+- **The registry prune re-checks each path immediately before removing its
+  row.** `Registry.list()` and a batched prune are not atomic; a path that goes
+  absent then present in that window (a worktree re-created, a flaky mount
+  returning) now survives on its current state instead of being removed on a
+  stale snapshot.
+## [1.11.2] — 2026-08-24
+
+Pins [cortex-indexer v0.3.2](https://github.com/ruevu/cortex-indexer/releases/tag/v0.3.2),
+which indexes definitions nested inside function and method bodies.
+
+**This bump forces one full reindex.** The indexer stores an `extract_schema` in
+`ctx_projects` and rebuilds rather than incrementally patching when it changes,
+so the first `index_repository` after upgrading is a full pass. `ensureIndexer`
+(`src/indexer/binary.ts`) also refetches the binary, since a cached `0.3.1`
+reports a version the pin no longer matches.
+
+### Changed
+
+- **`CORTEX_INDEXER_VERSION` 0.3.1 → 0.3.2** (`src/indexer/version.ts`, mirrored
+  in `scripts/fetch-indexer.mjs`).
+
+### Fixed
+
+- **Definitions nested in function and method bodies are now indexed** (all
+  languages). `walk_defs` called `extract_func_def` then `continue`d, so the AST
+  walk never entered a function body — and class methods survived only because
+  `extract_class_methods` pulls them out separately, which meant method bodies
+  went unwalked too.
+
+  Missing nodes were the visible half. The worse half: `push_boundary_scopes`
+  models nesting correctly at any depth, so a call inside a *named* closure got
+  a qualified name no node matched, and `calls_find_source` silently fell back
+  to the `__file__` node — making `trace_path(X, mode="callers")` answer with a
+  **file**. A wrong answer, not an empty one, on ~4.5–4.8% of all CALLS edges.
+  Counterintuitively, *naming* a closure is what broke it: anonymous callbacks
+  push no scope and correctly inherit the enclosing function.
+
+  Nested definitions get a dotted QN chain (`proj.file.outer.inner`), a
+  `parent_function` field, and a new `ENCLOSES` edge, and are kept out of the
+  project-wide symbol registry — a closure is never callable cross-file, so
+  registering one only adds wrong resolution candidates.
+
+  Verified against a fresh index of this repo on the published binary:
+  file-sourced CALLS **0**, `ENCLOSES` **252**, 252 nodes carrying
+  `parent_function`, and `search_graph(name_pattern="broadcast")` now resolves
+  `startWsServer.broadcast` — a closure that 0.3.1 could not see at all.
+
+  Known limitation, tracked upstream: calls inside a named closure still
+  attribute to the enclosing named function for languages whose
+  anonymous-closure node type is conventionally named by assignment (Go
+  `func_literal`, PHP anonymous/arrow functions, C# lambdas, Kotlin
+  `anonymous_function`, Rust `closure_expression`) — `resolve_func_name_node`
+  only special-cases JS/TS `arrow_function`.
+
+## [1.11.1] — 2026-08-23
+
+A `search_graph` miss no longer reads as "the index is stale".
+
+### Fixed
+
+- **Symbol-lookup misses route to `search_code`** — `search_graph`,
+  `get_code_snippet`, `context_pack`, and `trace_path`'s name-resolution step
+  now append `symbolMissHint()`
+  (`src/mcp-server/tools/search-format.ts`) to their empty response: it names
+  `search_code` as the next call and points at the `⚠ cortex freshness` line as
+  the actual staleness signal. Attached only to a *targeted* lookup — a
+  `kinds`/`label`-only enumeration gives `search_code` no pattern to take.
+  Under `CORTEX_FRESHNESS=0` the currency claim is dropped and only the routing
+  half is emitted, since the gate makes freshness report `fresh`
+  unconditionally; and because the verdict is best-effort even when live
+  (`git status --porcelain` is byte-identical when an already-modified file is
+  re-edited, and it is memoized for 2s), the claim is hedged rather than
+  absolute. A bare `No results` was ambiguous between *no such
+  symbol*, *the graph carries no node for this shape*, and *the index is
+  behind* — and agents resolved that ambiguity the expensive way. Observed
+  twice on 2026-08-10: both read the miss as a stale index, offered to re-run
+  `index_repository` (which could not have changed the result), and fell back
+  to grep, when `search_code` answered directly. The hint is deliberately not
+  attached where the symbol resolved and only the edges came back empty
+  (`trace_path` finding no callers) — there the graph is answering, not
+  failing. (T-ghza)
+- **SessionStart routing text is a ladder, not a flat list** —
+  `hooks/check-index.sh` and the `CLAUDE.md` routing section now spell out
+  `search_graph`/`trace_path`/`get_code_snippet` → `search_code` →
+  `Grep`/`Glob`/`Read`, and drop the old "fall back to Grep when Cortex returns
+  no results on a current index" line that licensed the grep detour. (T-ghza)
+
+### Changed
+
+- **`empty(queryDesc, hint?)`** (`src/mcp-server/response.ts`) takes optional
+  routing prose, appended below the stable `No results: <queryDesc>` line. The
+  prefix contract — and so `NoResultsResponse` — is unchanged, and every
+  existing call site is byte-identical.
+
+## [1.11.0] — 2026-08-23
+
+Stage 1 of per-worktree indexing: root derivation splits into a **checkout
+axis** and a **repo-identity axis** instead of collapsing every path through
+one canonicalizer. See
+[graph-storage.md#two-axes](docs/architecture/graph-storage.md#two-axes).
+
+### Added
+
+- **`worktreeRoot()`** (`src/db/git-root.ts`) — the checkout axis of root
+  derivation (`git rev-parse --show-toplevel`). A linked worktree resolves to
+  itself; a subdirectory still collapses to its enclosing checkout. Graph
+  paths (`resolveCortexDbPath`, `resolveGraphDbForRead`, staging, the index
+  lock, the freshness baseline, the registry row) now resolve on this axis.
+  `mainWorktreeRoot()` (`--git-common-dir`) remains the repo-identity axis:
+  `repoId` and the shared decisions/todos/stories store still collapse a
+  worktree onto its main checkout, so one repo keeps one durable knowledge
+  store across all its worktrees.
+- **Both index write paths build and publish into the checkout's own
+  `.cortex/db`.** `cortex index` (CLI) and the MCP `index_repository` tool
+  each index the checkout they're run from, not the canonical main-worktree
+  root — a linked worktree gets a real store of its own for the first time.
+- **Registry `worktree_of` + `branch` columns**, written by both index paths,
+  so a linked checkout's registry row can be told apart from — and grouped
+  under — its canonical parent.
+- **`cortex doctor` orphan-audit carve-out**: a worktree row that holds its
+  own populated `.cortex/db` is kept as a legitimate registry entry instead of
+  being pruned as a stale collapse target (`src/db/registry-audit.ts`).
+- **`list_projects` / `/api/projects` group linked checkouts under their
+  parent** (`src/graph/group-checkouts.ts`), so the project switcher shows one
+  entry per repo — with its worktrees nested — instead of one row per
+  worktree slug.
+- **Viewer label reads `"<name> @ <branch>"`** for a served checkout.
+
+### Changed
+
+- `RepoContextResolver.resolve` (`src/mcp-server/repo-context.ts`) now resolves
+  `ctx.repoPath` on the checkout axis, so **every** `hashGovernedSource` anchor
+  (decision reconciliation drift-hashing) rides the checkout the caller is
+  actually standing in, not the main checkout.
+- **Transitional fallback, called out explicitly:** a checkout with no store of
+  its own is still served from the canonical repo's graph, annotated
+  `servedFrom: "canonical"` on `RepoContext`. This is deliberate — it keeps a
+  not-yet-indexed worktree usable — and temporary: a later stage makes reads
+  strict and removes both the fallback and the annotation.
+
+### Fixed
+
+- **A linked worktree's `search_code` and freshness results no longer come
+  from the main checkout's graph.** Before this stage, every root derivation
+  collapsed through `mainWorktreeRoot` alone, so a worktree had no index of
+  its own: `search_code` run from inside it silently returned results from
+  the main checkout's branch, and its freshness verdict described the main
+  checkout's HEAD rather than the worktree's own.
+
+## [1.10.0] — 2026-08-23
+
+### Fixed
+
+- **The prefer-cortex gate silently switched itself off inside every git
+  worktree.** `repo_indexed()` tested the literal `<dir>/.cortex/db`, but under
+  `D-b248` a linked worktree never has one: every root derivation — index write
+  path, read resolver, registry — canonicalizes through `mainWorktreeRoot`
+  (`git --git-common-dir`), so `cortex index` run from a worktree writes the
+  *main checkout's* store. The hook was the one code path still re-deriving its
+  own notion of root, contradicting D-b248's "no code path re-derives its own
+  notion of root". Result: on an indexed repo the gate denied code greps in the
+  main checkout while allowing them in every worktree — precisely where
+  [the workflow rules](.claude/rules/workflow.md) mandate that feature work
+  happen. Reproduced across three repos, including Mesh's own thread worktrees
+  under `~/.mesh/worktrees/`. The gate now checks the literal checkout first,
+  then the canonical root, degrading to previous behavior whenever git cannot
+  answer. This also stops `maybe_bg_index` re-indexing worktrees that could
+  never look indexed — the observed symptom was an hourly reindex that never
+  changed the verdict.
+
+### Changed
+
+- **`cortex:grep-ok` requests a raw grep; it no longer grants one.** The token is
+  written by the model, so auto-allowing it made the gate advisory rather than
+  enforcing: in an observed session a denied `grep … version.ts` was re-issued
+  verbatim with the token seconds later, with no Cortex call in between. It now
+  returns `permissionDecision: "ask"`, so the user is the only party who can
+  authorize it, and it only ever converts a would-be denial — a command merely
+  containing the string is untouched. Denial text no longer mentions the token
+  at all; advertising the bypass at the moment of denial is what taught the
+  habit.
 
 ## [1.9.1] — 2026-08-10
 
@@ -1734,7 +1976,12 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
-[1.9.2]: https://github.com/ruevu/cortex/releases/tag/v1.9.2
+[1.12.1]: https://github.com/ruevu/cortex/releases/tag/v1.12.1
+[1.12.0]: https://github.com/ruevu/cortex/releases/tag/v1.12.0
+[1.11.2]: https://github.com/ruevu/cortex/releases/tag/v1.11.2
+[1.11.1]: https://github.com/ruevu/cortex/releases/tag/v1.11.1
+[1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
+[1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
 [1.9.1]: https://github.com/ruevu/cortex/releases/tag/v1.9.1
 [1.9.0]: https://github.com/ruevu/cortex/releases/tag/v1.9.0
 [1.8.2]: https://github.com/ruevu/cortex/releases/tag/v1.8.2

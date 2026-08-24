@@ -9,6 +9,7 @@ import { join, extname, sep } from "node:path";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { GraphStore } from "../graph/store.js";
 import { listProjectsUnified, openProjectStore } from "../graph/code-queries.js";
+import { groupCheckouts } from "../graph/group-checkouts.js";
 import { Registry } from "../db/registry.js";
 import { migrateCacheToRegistry, importLegacyRegistry } from "../db/registry-migration.js";
 import { DecisionsRepository, type DecisionRecord } from "../decisions/repository.js";
@@ -509,7 +510,10 @@ export function startViewerServer(
       if (pathname === "/api/projects") {
         let projects: ReturnType<typeof listProjectsUnified> = [];
         try { projects = listProjectsUnified(store); } catch { /* no ctx_projects yet */ }
-        respond(res, ProjectsResponseSchema, { version: CONTRACT_VERSION, projects, active: indexerProject ?? null }, freshCtx());
+        // Fold linked worktrees under their canonical parent — same grouping
+        // as the list_projects MCP tool — so the viewer doesn't have to.
+        const grouped = groupCheckouts(projects);
+        respond(res, ProjectsResponseSchema, { version: CONTRACT_VERSION, projects: grouped, active: indexerProject ?? null }, freshCtx());
         return;
       }
 

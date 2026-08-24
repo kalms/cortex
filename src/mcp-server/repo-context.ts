@@ -1,10 +1,10 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
-import { existsSync, realpathSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
 import { resolveDecisionsDbPath, resolveGraphDbForRead, resolveCortexDbPath, legacyDecisionsDbPath } from "../db/resolve-path.js";
-import { mainWorktreeRoot } from "../db/git-root.js";
+import { mainWorktreeRoot, worktreeRoot } from "../db/git-root.js";
 import { Registry } from "../db/registry.js";
 import { openDecisionsDb } from "../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../decisions/migration.js";
@@ -31,6 +31,13 @@ export interface RepoContext {
   /** True when graphDbPath is the canonical <repo>/.cortex/db; false when the
    *  resolver fell back to a legacy graph.db / cache slot (a degraded read). */
   readonly canonical: boolean;
+  /** Canonical repo root when this context is a linked worktree; null for a
+   *  main checkout or a non-git project. The repo-identity axis. */
+  readonly worktreeOf: string | null;
+  /** "canonical" when this checkout has no store of its own and the Stage 1
+   *  fallback served the canonical repo's graph instead. Callers surfacing
+   *  results MUST say so — the answer describes another branch. */
+  readonly servedFrom: "checkout" | "canonical";
   readonly graphDb: Database.Database;
   readonly decisionsDb: Database.Database;
   readonly store: GraphStore;
@@ -127,6 +134,13 @@ export interface AvailableProject {
   readonly name: string;
   readonly path: string;
   readonly indexed: boolean;
+  /** Canonical repo root when this project is a linked worktree; null/absent
+   *  for a main checkout. Lets `list_projects` fold worktrees under their
+   *  parent instead of listing every checkout as a top-level project. */
+  readonly worktree_of?: string | null;
+  /** Branch at index time; null/absent when detached, unknown, or (for a
+   *  pooled in-process context) not tracked. */
+  readonly branch?: string | null;
 }
 
 /** Thrown when a non-crossRepo tool was called without `repo_path`. */
@@ -192,60 +206,80 @@ export class RepoContextResolver {
    * Resolve a repo by path. Throws one of:
    * {@link PathNotFoundError}, {@link RepoNotIndexedError}.
    *
-   * The supplied path is canonicalized to one repo identity: a subdirectory or
-   * a linked worktree collapses to the canonical main-worktree root via
-   * `git --git-common-dir`. A path outside any git repo routes by its own
-   * realpath, so genuinely-non-git projects resolve to their own `.cortex/db`.
-   * `RepoNotIndexedError` is raised only when the resolved root has no store.
+   * The supplied path is canonicalized to the **checkout axis**
+   * (`worktreeRoot`, `git rev-parse --show-toplevel`): a subdirectory
+   * collapses to its enclosing checkout root, but a linked worktree resolves
+   * to ITSELF, not to the main checkout. A path outside any git repo routes
+   * by its own realpath, so genuinely-non-git projects resolve to their own
+   * `.cortex/db`. `RepoNotIndexedError` is raised only when neither the
+   * checkout nor (transitionally) the canonical repo has a store.
    *
-   * Worktree collapse
-   * -----------------
-   * If the supplied path is a `git worktree add` worktree (or the canonical
-   * repo itself), the resolver routes to the **canonical repo's `.cortex/`**
-   * — every worktree of the same repo shares one `RepoContext`, one pair of
-   * DB handles, and one pool entry. Mechanism (now performed by
-   * `mainWorktreeRoot` in `src/db/git-root.ts`, not inline here): `git
-   * rev-parse --path-format=absolute --git-common-dir` returns the absolute
-   * shared `.git` directory; its `dirname` is the canonical root.
-   * `ctx.repoPath` always reports the canonical root, never the worktree
-   * path the caller passed.
+   * Two-axis model — no more worktree collapse
+   * -------------------------------------------
+   * Earlier, every worktree of a repo collapsed onto the canonical
+   * main-worktree root (`mainWorktreeRoot`, `git --git-common-dir`) and
+   * shared one `RepoContext`, one pair of DB handles, and one pool entry.
+   * That collapse is gone for the graph/store side: `ctx.repoPath` is now
+   * the checkout itself, keyed in the pool by checkout, and each worktree
+   * gets its own `.cortex/db`, staging, index lock, and freshness baseline.
+   * `ctx.worktreeOf` still exposes the canonical root — non-null only when
+   * this checkout is a linked worktree — for callers that need repo
+   * identity rather than checkout identity.
    *
-   * Why: cortex's invariant is "one index per repo, shared across all
-   * worktrees." Worktrees model in-flight branches/PRs against the same
-   * logical codebase (see HANDOFF.md "Worktrees as in-flight PRs"); their
-   * changes will eventually be captured as PR touches against the canonical
-   * graph rather than as a separate index. Routing every worktree to
-   * canonical means decisions captured in any worktree are immediately
-   * visible from every other worktree of the same repo.
+   * The repo-identity axis has NOT moved: `resolveDecisionsDbPath` and
+   * `legacyDecisionsDbPath` still canonicalize internally via
+   * `mainWorktreeRoot`, so every worktree of a repo continues to share one
+   * decisions/todos store even though it no longer shares a graph store.
+   *
+   * Why split them: cortex's new invariant is "one graph index per
+   * checkout" (so in-flight branch/PR work indexes and reads back
+   * independently) alongside the older invariant "one decisions store per
+   * repo" (so a decision captured in any worktree is visible from every
+   * other worktree of the same repo). `servedFrom` on the returned context
+   * flags the transitional case where a checkout has no store of its own yet
+   * and a read was served from the canonical repo's store instead (Stage 1
+   * fallback in `resolveGraphDbForRead`; removed in Stage 3).
    */
   resolve(repoPath: string): RepoContext {
     const abs = resolvePath(repoPath);
     if (!existsSync(abs)) throw new PathNotFoundError(abs);
 
-    // Canonicalize to one repo identity. mainWorktreeRoot uses
-    // `git --git-common-dir`, so a worktree OR a subdir of a repo collapses to
-    // the canonical main-worktree root (the "one index per repo" invariant).
-    // A non-git path routes by its own realpath — genuinely-non-git projects
-    // are supported and read back through their own .cortex/db. This replaces
-    // the former show-toplevel + subdir-reject preamble (T-119): subdirs no
-    // longer throw NotAGitRepoError, they resolve to their repo.
-    const canonical = mainWorktreeRoot(abs) ?? realpathSync(abs);
+    // Checkout axis: a linked worktree is its own root and gets its own store.
+    // A subdir still collapses to its enclosing checkout, preserving the
+    // anti-orphan property T-119 bought. The identity axis (decisions store,
+    // repoId) still routes through mainWorktreeRoot below.
+    const checkout = worktreeRoot(abs);
+    const canonicalRoot = mainWorktreeRoot(abs);
+    const worktreeOf = canonicalRoot && canonicalRoot !== checkout ? canonicalRoot : null;
 
-    // Pool is keyed by canonical so every worktree of the same repo dedupes
-    // to one cached entry. Fast path when the canonical is already pooled
-    // (incl. via a sibling worktree's earlier resolve).
-    const cached = this.pool.get(canonical);
+    // Pool is keyed by checkout so a worktree and its main checkout no longer
+    // share a cached entry — each gets its own DB handles.
+    const cached = this.pool.get(checkout);
     if (cached) return cached;
 
     // Read-path resolution: find the repo's POPULATED graph store across the
     // .cortex/db, .cortex/graph.db, and ~/.cache slot conventions — repo-scoped
     // and independent of any global CORTEX_DB_PATH override (which previously
     // collapsed every repo to one relative DB and defeated routing).
-    const graphDbPath = resolveGraphDbForRead(canonical);
+    const graphDbPath = resolveGraphDbForRead(checkout);
     if (!graphDbPath) {
-      throw new RepoNotIndexedError(canonical, this.listKnownRepos());
+      throw new RepoNotIndexedError(checkout, this.listKnownRepos());
     }
-    const decisionsDbPath = resolveDecisionsDbPath(canonical);
+    // "canonical" here means "the Stage 1 cross-checkout fallback fired" —
+    // graphDbPath is the canonical repo's OWN `.cortex/db`, not anything under
+    // this checkout. Match that one path EXACTLY: a checkout-prefix test would
+    // wrongly mislabel the checkout's own legacy slug cache (derived from the
+    // checkout's own path, e.g. ~/.cache/cortex-indexer/<slug>.db), and a
+    // `worktreeOf + "/"` PREFIX test wrongly mislabels a worktree created
+    // inside its main checkout (`/repo/wt/.cortex/db` starts with `/repo/`)
+    // even when it is serving its own store.
+    const servedFrom: "checkout" | "canonical" =
+      worktreeOf && graphDbPath === join(worktreeOf, ".cortex", "db") ? "canonical" : "checkout";
+
+    // Identity axis — unchanged. Passing the checkout is safe because
+    // resolveDecisionsDbPath canonicalizes internally via mainWorktreeRoot,
+    // so every worktree of a repo still shares one decisions store.
+    const decisionsDbPath = resolveDecisionsDbPath(checkout);
 
     // GraphStore opens its own handle to graphDbPath and runs schema
     // migration (idempotent CREATE TABLE IF NOT EXISTS). Constructing it
@@ -257,7 +291,7 @@ export class RepoContextResolver {
     // file, WAL-safe across handles in the same process.
     const graphDb = new BetterSqlite3(graphDbPath);
     graphDb.pragma("busy_timeout = 5000");
-    const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(canonical));
+    const decisionsDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(checkout));
     const graphImport = migrateDecisionsFromGraphDb(decisionsDb, graphDbPath);
     if (graphImport.decisions > 0) {
       // migrateDecisionsFromGraphDb inserts UUID-keyed rows AFTER openDecisionsDb's
@@ -273,16 +307,18 @@ export class RepoContextResolver {
     const decisionLinksRepo = new DecisionLinksRepository(decisionsDb);
 
     const ctx: RepoContext = Object.freeze({
-      repoPath: canonical,
+      repoPath: checkout,
       graphDbPath,
-      canonical: graphDbPath === resolveCortexDbPath(canonical),
+      canonical: graphDbPath === resolveCortexDbPath(checkout),
+      worktreeOf,
+      servedFrom,
       graphDb,
       decisionsDb,
       store,
       decisionsRepo,
       decisionLinksRepo,
     });
-    this.pool.set(canonical, ctx);
+    this.pool.set(checkout, ctx);
     return ctx;
   }
 
@@ -313,6 +349,7 @@ export class RepoContextResolver {
         name: deriveProjectName(ctx.repoPath),
         path: ctx.repoPath,
         indexed: true,
+        worktree_of: ctx.worktreeOf,
       });
     }
 
@@ -323,7 +360,13 @@ export class RepoContextResolver {
       try {
         for (const r of registry.list()) {
           if (byPath.has(r.root_path)) continue;
-          byPath.set(r.root_path, { name: r.name, path: r.root_path, indexed: true });
+          byPath.set(r.root_path, {
+            name: r.name,
+            path: r.root_path,
+            indexed: true,
+            worktree_of: r.worktree_of,
+            branch: r.branch,
+          });
         }
       } finally {
         registry.close();

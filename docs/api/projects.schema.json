@@ -21,6 +21,47 @@
               },
               "root_path": {
                 "type": "string"
+              },
+              "worktree_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "branch": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "worktrees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "$ref": "#/definitions/projects/properties/projects/items/properties/name"
+                    },
+                    "indexed_at": {
+                      "$ref": "#/definitions/projects/properties/projects/items/properties/indexed_at"
+                    },
+                    "root_path": {
+                      "$ref": "#/definitions/projects/properties/projects/items/properties/root_path"
+                    },
+                    "worktree_of": {
+                      "$ref": "#/definitions/projects/properties/projects/items/properties/worktree_of"
+                    },
+                    "branch": {
+                      "$ref": "#/definitions/projects/properties/projects/items/properties/branch"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "indexed_at",
+                    "root_path"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [

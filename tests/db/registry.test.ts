@@ -20,7 +20,13 @@ describe("Registry", () => {
   it("registers and lists a repo", () => {
     reg.register("a-b-c", "/a/b/c", "2026-06-05T00:00:00.000Z");
     expect(reg.list()).toEqual([
-      { name: "a-b-c", root_path: "/a/b/c", indexed_at: "2026-06-05T00:00:00.000Z" },
+      {
+        name: "a-b-c",
+        root_path: "/a/b/c",
+        indexed_at: "2026-06-05T00:00:00.000Z",
+        worktree_of: null,
+        branch: null,
+      },
     ]);
   });
 

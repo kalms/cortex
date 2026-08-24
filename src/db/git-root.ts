@@ -44,3 +44,36 @@ export function canonicalRepoPath(path: string): string {
     return resolve(path);
   }
 }
+
+/**
+ * Resolve the CHECKOUT root for `startDir` — the working tree the caller is
+ * actually standing in. A linked worktree resolves to ITSELF (unlike
+ * {@link mainWorktreeRoot}, which collapses it to the main checkout); a
+ * subdirectory collapses to its own checkout root.
+ *
+ * This is the "checkout axis" of the two-axis model: graph store, staging,
+ * index lock, freshness baseline, registry row, and every governed-source hash
+ * anchor derive from it. The "repo-identity axis" (repoId, decisions store)
+ * stays on {@link mainWorktreeRoot}.
+ *
+ * In a main checkout the two axes are byte-identical. Never throws; outside a
+ * git repo it degrades to {@link canonicalRepoPath}.
+ */
+export function worktreeRoot(startDir: string): string {
+  try {
+    const top = execFileSync(
+      "git", ["rev-parse", "--show-toplevel"],
+      { cwd: startDir, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    if (top) {
+      try {
+        return realpathSync(top);
+      } catch {
+        return resolve(top);
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return canonicalRepoPath(startDir);
+}

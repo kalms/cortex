@@ -221,12 +221,13 @@ describe("RepoContextResolver.listKnownRepos", () => {
   });
 });
 
-describe("RepoContextResolver.resolve — worktree collapse", () => {
-  // Cortex's invariant: one index per repo, shared across all worktrees.
-  // Worktrees represent in-flight branches/PRs against the same logical
-  // codebase; they should route to the canonical repo's .cortex/ rather
-  // than maintaining a per-worktree index. See HANDOFF.md "Worktrees as
-  // in-flight PRs" and src/mcp-server/repo-context.ts JSDoc on resolve().
+describe("RepoContextResolver.resolve — checkout axis (worktrees no longer collapse)", () => {
+  // Two-axis model: the graph/store side keys on the CHECKOUT
+  // (`worktreeRoot`, `git rev-parse --show-toplevel`) — a linked worktree
+  // resolves to itself and gets its own pooled RepoContext, not the
+  // canonical repo's. The repo-identity axis (decisions store, repoId)
+  // still routes through `mainWorktreeRoot` and is exposed here via
+  // `ctx.worktreeOf`. See src/mcp-server/repo-context.ts JSDoc on resolve().
 
   function makeCanonicalRepoWithCommit(): string {
     const root = mkdtempSync(join(tmpdir(), "cortex-canonical-"));
@@ -239,7 +240,7 @@ describe("RepoContextResolver.resolve — worktree collapse", () => {
     return root;
   }
 
-  it("routes a worktree path to the canonical repo root", () => {
+  it("resolves a worktree path to its OWN checkout root, not the canonical repo", () => {
     const canonical = makeCanonicalRepoWithCommit();
     const wtParent = mkdtempSync(join(tmpdir(), "cortex-wt-"));
     const wtDir = join(wtParent, "wt");
@@ -250,9 +251,11 @@ describe("RepoContextResolver.resolve — worktree collapse", () => {
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
       const ctx = resolver.resolve(wtDir);
-      // ctx.repoPath reflects the canonical repo, not the worktree path
-      // the caller passed in. realpath compare to tolerate /private/tmp.
-      expect(realpathSync(ctx.repoPath)).toBe(realpathSync(canonical));
+      // ctx.repoPath reflects the checkout the caller passed in — realpath
+      // compare to tolerate /private/tmp. worktreeOf still surfaces the
+      // canonical repo root (repo-identity axis).
+      expect(realpathSync(ctx.repoPath)).toBe(realpathSync(wtDir));
+      expect(realpathSync(ctx.worktreeOf!)).toBe(realpathSync(canonical));
     } finally {
       resolver.shutdown();
       try {
@@ -263,7 +266,7 @@ describe("RepoContextResolver.resolve — worktree collapse", () => {
     }
   });
 
-  it("dedupes worktree and canonical to the same pooled RepoContext", () => {
+  it("does NOT dedupe worktree and canonical — each gets its own pooled RepoContext", () => {
     const canonical = makeCanonicalRepoWithCommit();
     const wtParent = mkdtempSync(join(tmpdir(), "cortex-wt-"));
     const wtDir = join(wtParent, "wt");
@@ -275,9 +278,11 @@ describe("RepoContextResolver.resolve — worktree collapse", () => {
     try {
       const ctxFromWorktree = resolver.resolve(wtDir);
       const ctxFromCanonical = resolver.resolve(canonical);
-      // Same RepoContext object — only one entry in the pool, both DB
-      // handles shared across the worktree and the canonical view.
-      expect(ctxFromWorktree).toBe(ctxFromCanonical);
+      // Different RepoContext objects — separate pool entries keyed by
+      // checkout, each with its own DB handles (even though the worktree,
+      // having no `.cortex/` of its own, reads back through the Stage 1
+      // fallback to the canonical repo's store).
+      expect(ctxFromWorktree).not.toBe(ctxFromCanonical);
     } finally {
       resolver.shutdown();
       try {

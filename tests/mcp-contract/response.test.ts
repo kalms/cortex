@@ -16,6 +16,17 @@ describe("response helpers", () => {
     expect(r.content[0].text).toContain("search_graph(name_pattern=foo)");
   });
 
+  it("empty() appends an optional hint after the stable prefix", () => {
+    const r = empty("search_graph(name_pattern=foo)", "try search_code(pattern=\"foo\")");
+    expect(NoResultsResponse.safeParse(r).success).toBe(true);
+    expect(r.content[0].text).toMatch(/^No results: search_graph\(name_pattern=foo\)/);
+    expect(r.content[0].text).toContain('try search_code(pattern="foo")');
+  });
+
+  it("empty() without a hint is byte-identical to the bare form", () => {
+    expect(empty("q").content[0].text).toBe("No results: q");
+  });
+
   it("error() produces a valid ErrorResponse with reason slug", () => {
     const r = error("project_not_found", "no project registered at /tmp/x");
     expect(ErrorResponse.safeParse(r).success).toBe(true);

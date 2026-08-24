@@ -10,7 +10,8 @@ import {
   tracePath,
   getGraphSchema,
 } from "../../graph/code-queries.js";
-import { clampLimit, clampOffset, renderNodeSearch } from "./search-format.js";
+import { groupCheckouts } from "../../graph/group-checkouts.js";
+import { clampLimit, clampOffset, renderNodeSearch, symbolMissHint } from "./search-format.js";
 // 5A: response helpers and qualified-name normalizer
 import { ok, empty, error as errorResponse } from "../response.js";
 import { normalize, denormalize } from "../qualified-name.js";
@@ -18,7 +19,8 @@ import { projectFromCtx, readSnippet } from "./code-tools-shared.js";
 import { registerContextPackTool } from "./context-pack.js";
 import { resolveInput } from "../../shared/resolve-input.js";
 import { resolveCortexDbPath, resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-path.js";
-import { canonicalRepoPath } from "../../db/git-root.js";
+import { worktreeRoot, mainWorktreeRoot } from "../../db/git-root.js";
+import { gitBranch } from "../../git/worktree-state.js";
 import { openDecisionsDb } from "../../decisions/db.js";
 import { migrateDecisionsFromGraphDb } from "../../decisions/migration.js";
 import { computeCacheKey, hasCacheEntry, readCacheEntry, writeCacheEntry } from "../../db/cache.js";
@@ -307,17 +309,24 @@ export function registerCodeTools(
       "index_repository",
       indexRepositorySchema,
       async (_resolver, args) => {
-        // Canonicalize BEFORE any name/db/staging/registry derivation so a
-        // subdir or worktree path collapses to the one canonical repo root
-        // (T-119). Non-git dirs canonicalize to their own realpath.
-        const repoPath = canonicalRepoPath(args.repo_path!);
+        // Checkout axis BEFORE any name/db/staging/registry derivation: a
+        // subdir still collapses to its enclosing checkout, but a linked
+        // worktree no longer collapses — it gets its own root (and so its own
+        // store). Non-git dirs canonicalize to their own realpath.
+        const repoPath = worktreeRoot(args.repo_path!);
         const mode = args.mode ?? "full";
         const dbPath = resolveCortexDbPath(repoPath);
 
         const registerRepo = () => {
           try {
             const reg = new Registry();
-            try { reg.register(deriveProjectName(repoPath), repoPath); } finally { reg.close(); }
+            try {
+              const canonicalRoot = mainWorktreeRoot(repoPath);
+              reg.register(deriveProjectName(repoPath), repoPath, undefined, {
+                worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+                branch: gitBranch(repoPath),
+              });
+            } finally { reg.close(); }
           } catch { /* non-fatal: registration must never fail the index */ }
 
           // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
@@ -650,7 +659,14 @@ export function registerCodeTools(
         // Genuinely empty only when no code rows AND no sections were hidden.
         // If sections matched, render the header-only opt-in hint instead of a
         // bare "no results" (which would hide retrievable matches).
-        if (rows.length === 0 && suppressedSections === 0) return empty(queryDesc);
+        // Hint only on a TARGETED lookup. A kinds/label-only query is an
+        // enumeration with no symbol to re-search as text, so search_code has
+        // no pattern to take — the same objection that keeps the hint off
+        // trace_path's no-edges case.
+        const targeted = Boolean(params.name_pattern || params.qn_pattern);
+        if (rows.length === 0 && suppressedSections === 0) {
+          return empty(queryDesc, targeted ? symbolMissHint() : undefined);
+        }
         const text = renderNodeSearch(rows, {
           // qn is a structural identifier, not a name to match — only a
           // name_pattern drives name-relevance; qn-only searches rank by kind.
@@ -687,7 +703,8 @@ export function registerCodeTools(
         let fnName = params.function_name;
         const resolved = resolveInput(params.function_name, project, graphDbPath);
         if (resolved.kind === "none") {
-          return empty(`trace_path(${JSON.stringify(params)})`);
+          // Name never resolved to a node — a symbol miss, so route sideways.
+          return empty(`trace_path(${JSON.stringify(params)})`, symbolMissHint());
         }
         if (resolved.kind === "multi") {
           const candidatesList = resolved.candidates
@@ -701,6 +718,8 @@ export function registerCodeTools(
         // tracePath wants the bare name; pull it from the resolved qn
         fnName = resolved.symbol.qn.split(".").pop() ?? params.function_name;
         const results = tracePath(ctx.store, project, { ...params, function_name: fnName });
+        // No hint here: the symbol resolved, so this is the graph reporting
+        // "no edges", not failing to carry the shape (see symbolMissHint).
         if (results.length === 0) return empty(`trace_path(${JSON.stringify(params)})`);
         const lines = results.map((r) =>
           `[d=${r.depth}] ${r.node.kind} ${denormalize(r.node.qualified_name, r.node.file_path)} (${r.node.file_path}:${r.node.start_line}-${r.node.end_line})`
@@ -731,7 +750,7 @@ export function registerCodeTools(
         if (!qualified_name.includes("::")) {
           const resolved = resolveInput(qualified_name, project, graphDbPath);
           if (resolved.kind === "none") {
-            return empty(`get_code_snippet(${qualified_name})`);
+            return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
           }
           if (resolved.kind === "multi") {
             const candidatesList = resolved.candidates
@@ -744,7 +763,7 @@ export function registerCodeTools(
           }
           const nodes = searchGraph(ctx.store, project, { qn_pattern: resolved.symbol.qn });
           if (nodes.length === 0) {
-            return empty(`get_code_snippet(${qualified_name})`);
+            return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
           }
           const node = nodes[0];
           return readSnippet(ctx, project, node);
@@ -752,7 +771,7 @@ export function registerCodeTools(
         // qn-shaped input (contains '::') — skip the resolver and pattern-match directly.
         const qn = normalize(qualified_name, project);
         const nodes = searchGraph(ctx.store, project, { qn_pattern: qn });
-        if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`);
+        if (nodes.length === 0) return empty(`get_code_snippet(${qualified_name})`, symbolMissHint());
         const node = nodes[0];
         return readSnippet(ctx, project, node);
       },
@@ -803,8 +822,18 @@ export function registerCodeTools(
       async (resolver, _args) => {
         const repos = resolver.listKnownRepos();
         if (repos.length === 0) return empty("list_projects()");
-        const text = repos
-          .map((p) => `${p.name} — ${p.path}${p.indexed ? "" : " (not indexed)"}`)
+        // Fold linked worktrees under their canonical parent so a repo with
+        // several worktrees doesn't bury the parent under N top-level rows.
+        // groupCheckouts keys on `root_path`; AvailableProject calls it `path`.
+        const grouped = groupCheckouts(repos.map((p) => ({ ...p, root_path: p.path })));
+        const text = grouped
+          .map((p) => {
+            const line = `${p.name} — ${p.root_path}${p.indexed ? "" : " (not indexed)"}`;
+            const worktreeLines = p.worktrees.map(
+              (w) => `  worktree: ${w.name} — ${w.root_path}${w.branch ? ` (${w.branch})` : ""}`,
+            );
+            return [line, ...worktreeLines].join("\n");
+          })
           .join("\n");
         return ok(text);
       },

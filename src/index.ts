@@ -21,6 +21,7 @@ import { StoriesRepository, StoryStepsRepository } from "./stories/repository.js
 import type { WireNode } from "./events/types.js";
 import { newUlid } from "./events/ulid.js";
 import { canonicalRepoPath } from "./db/git-root.js";
+import { resolveBoundProject } from "./mcp-server/bound-project.js";
 
 const dbPath = resolveCortexDbPath();
 const eventsDbPath = process.env.CORTEX_EVENTS_DB_PATH || ".cortex/events.db";
@@ -42,36 +43,26 @@ if (!existsSync(gitignorePath)) {
 const store = new GraphStore(dbPath);
 
 const cwd = process.cwd();
-// Canonicalize before the ctx_projects lookup: launched from a linked worktree,
-// raw cwd != the indexed root_path, which left indexerProject null ("(no
-// projects)" dropdown, empty hello.project_id) even on an indexed repo (T-a1kg).
-let lookupRoot = cwd;
-try { lookupRoot = canonicalRepoPath(cwd); } catch { /* not a git repo — raw cwd */ }
 
-let indexerProject: string | null = null;
-
-// Resolve the indexed project for this repo. The indexer (bin/cortex-indexer)
+// Resolve the indexed project for this checkout. The indexer (bin/cortex-indexer)
 // writes to the same cortex.db file when CORTEX_DB env var is set; once it has
-// run at least once for this repo, ctx_projects has a row keyed by absolute
-// repo path. Until then, indexerProject is null and code-tools surface a clear
+// run at least once for this checkout, ctx_projects has a row keyed by absolute
+// checkout path. Until then, indexerProject is null and code-tools surface a clear
 // "not indexed" error.
-try {
-  const row = store
-    .queryRaw<{ name: string }>(
-      "SELECT name FROM ctx_projects WHERE root_path = ? LIMIT 1",
-      [lookupRoot],
-    )[0];
-  if (row) {
-    indexerProject = row.name;
-    process.stderr.write(`Cortex: indexed project '${indexerProject}' (root: ${lookupRoot})\n`);
-  } else {
-    process.stderr.write(`Cortex: no indexed project for ${lookupRoot} — run index_repository\n`);
-  }
-} catch (e) {
-  // ctx_projects table doesn't exist yet — first run, indexer hasn't created it.
-  // That's fine: index_repository will create it on first call.
-  if (!(e instanceof Error && /no such table/i.test(e.message))) throw e;
+//
+// The lookup key rides the CHECKOUT axis — the same axis `dbPath` above is
+// derived on. Keying it on the identity axis instead would query a linked
+// worktree's own store with the MAIN checkout's path, which never matches
+// ("(no projects)" dropdown, null /api/projects.active, empty
+// hello.project_id) — the mirror image of the mismatch T-a1kg fixed.
+const bound = resolveBoundProject(store, cwd);
+const indexerProject: string | null = bound.project;
+if (bound.project) {
+  process.stderr.write(`Cortex: indexed project '${bound.project}' (root: ${bound.root})\n`);
+} else if (bound.noIndexerState) {
   process.stderr.write(`Cortex: no indexer state in cortex.db — run index_repository\n`);
+} else {
+  process.stderr.write(`Cortex: no indexed project for ${bound.root} — run index_repository\n`);
 }
 
 // Main-thread persister for WS backfill reads only.

@@ -9,7 +9,13 @@
    incremental `index_repository` to keep the graph current.
 
 The SessionStart hook (`hooks/check-index.sh`) prints the current index
-state and the repo path; act on it.
+state and the repo path; act on it. If the checkout is unindexed, this same
+hook also kicks off a detached first `cortex index` for it automatically —
+this is the more visible of the plugin's two auto-index points (the other is
+the retrieval gate below); both share one opt-out (`CORTEX_AUTO_INDEX=0`) and
+one denylist (`hooks/lib/auto-index-denylist.sh`) that skips junk/vendored/
+eval-clone trees (`.tmp`, `node_modules`, `vendor`, `dist`, `build`, `.cache`)
+so a session started inside one of those never spawns an index there.
 
 ## Tool routing — READ THIS BEFORE REACHING FOR GREP OR READ
 
@@ -26,9 +32,21 @@ state and the repo path; act on it.
 | What changed since a ref/date/decision | `changes_since(since="…")` | git spelunking |
 | Find decisions across ALL repos | `decision({action:"search", cross_repo:true})` | per-repo searches |
 
-Fall back to `Grep`/`Glob`/`Read` only when the target is a non-code file
-(config, JSON, Markdown, log), you need a regex feature `search_code`
-doesn't support, or the Cortex tool returned empty on a current index.
+Finding a symbol is a **ladder** — descend only when the rung above came
+back empty: `search_graph`/`trace_path`/`get_code_snippet` → `search_code`
+→ `Grep`/`Glob`/`Read`. A `search_graph` miss is not proof the symbol is
+absent: the graph holds named definitions, and a shape it carries no node
+for reads exactly like one that does not exist, so `search_code` is the
+next call. Fall back to `Grep`/`Glob`/`Read` only when the target is a
+non-code file (config, JSON, Markdown, log) or you need a regex feature
+`search_code` doesn't support.
+
+An empty result is **not** a staleness signal — staleness has its own, the
+`⚠ cortex freshness` line (see below). With no such line the graph considers
+itself current, so an empty response is unlikely to be fixed by reindexing.
+Treat that as best-effort rather than a guarantee: `CORTEX_FRESHNESS=0`
+switches the signal off, and the dirty-tree check cannot see a re-edit of an
+already-modified file.
 
 ### Hook-enforced, not advisory
 
@@ -39,9 +57,25 @@ re-issue with. Non-code-scoped searches, pipe filters (`ps aux | grep node`),
 and searches whose **target repo** is unindexed pass through — the gate keys
 on the search target, not the cwd, and an unindexed sibling repo triggers a
 detached background `cortex index` for it (opt out: `CORTEX_AUTO_INDEX=0`).
-Escape hatch for a genuine code grep Cortex can't do: include the token
-`cortex:grep-ok` in the Bash command. Degrade-safe (any hook failure allows);
-loads at session start. Rationale: decisions `D-sq61`, `D-mmtb`.
+The `cortex:grep-ok` token no longer authorizes: it returns `ask`, so **the
+user** approves a raw grep, never the agent itself. Denial text never mentions
+the token — advertising the bypass at the moment of denial is what taught the
+habit.
+
+**Worktrees count as indexed — but that's now the hook's own reading, not the
+graph's.** The gate still resolves its target through `--git-common-dir` (the
+shell mirror of `mainWorktreeRoot`), so a linked worktree still collapses onto
+the main checkout for gate purposes, unchanged this stage. What changed
+underneath it: a linked worktree can now hold its own `.cortex/db` (per-worktree
+indexing landed in the checkout-axis work — see
+[graph-storage.md](docs/architecture/graph-storage.md#two-axes)), so "a
+worktree never has its own `.cortex/db` by design" is no longer true of the
+graph. The hook's collapse-onto-main behavior is a **deliberate, temporary
+asymmetry**, not a bug: it still means the gate can pass in a worktree even
+when that worktree's own index is stale or absent, because it's checking the
+main checkout's index instead. A later stage moves the hook onto the checkout
+axis to close that gap. Degrade-safe (any hook failure allows); loads at
+session start. Rationale: decisions `D-sq61`, `D-mmtb`, `D-b248`, `D-7ca7`.
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
@@ -143,6 +177,11 @@ replaceable by reindex; decisions survive every indexing operation). Repo
 enumeration lives in a machine-wide registry under the XDG data home.
 Details + read/write path resolution:
 [docs/architecture/graph-storage.md](docs/architecture/graph-storage.md).
+Root derivation is two independent axes — a checkout axis (`worktreeRoot`,
+which graph paths use) and a repo-identity axis (`mainWorktreeRoot`, which
+decisions use); a linked worktree now gets its own graph store instead of
+collapsing onto the main checkout. See
+[graph-storage.md#two-axes](docs/architecture/graph-storage.md#two-axes).
 
 The native **indexer** is a prebuilt binary fetched at `npm install` from
 the separate cortex-indexer repo (pinned by `CORTEX_INDEXER_VERSION` in

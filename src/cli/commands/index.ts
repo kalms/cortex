@@ -18,7 +18,8 @@ import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
 import { withIndexLock } from "../../db/index-lock.js";
-import { canonicalRepoPath } from "../../db/git-root.js";
+import { worktreeRoot, mainWorktreeRoot } from "../../db/git-root.js";
+import { gitBranch } from "../../git/worktree-state.js";
 import { reapRepoSlugCache, sweepCurrentRepo } from "../../db/store-gc.js";
 
 const execFileAsync = promisify(execFile);
@@ -61,8 +62,10 @@ export function runSweep(repoRoot: string): void {
   if (process.env.CORTEX_GC === "0") return;
   try {
     const res = sweepCurrentRepo(repoRoot);
-    if (res.bytes > 0 && process.env.CORTEX_CLI_DEBUG === "1") {
-      process.stderr.write(`cortex gc: reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)\n`);
+    if (process.env.CORTEX_CLI_DEBUG === "1" && (res.bytes > 0 || res.prunedRows.length > 0)) {
+      const parts = [`reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)`];
+      if (res.prunedRows.length > 0) parts.push(`pruned ${res.prunedRows.length} dead registry row(s)`);
+      process.stderr.write(`cortex gc: ${parts.join(", ")}\n`);
     }
   } catch { /* best-effort */ }
 }
@@ -70,7 +73,10 @@ export function runSweep(repoRoot: string): void {
 export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): Promise<void> {
   // 'cortex index' with no subcommand → index the cwd (or given path)
   if (cmd.command === null || cmd.command === undefined || cmd.command === ".") {
-    const repoPath = canonicalRepoPath(resolve(cmd.positionals[0] ?? ctx.cwd));
+    // Checkout axis: index the working tree the caller named. A linked worktree
+    // gets its own store and its own lock, so worktrees index concurrently
+    // without contending with the main checkout.
+    const repoPath = worktreeRoot(resolve(cmd.positionals[0] ?? ctx.cwd));
     const mode = resolveIndexMode(cmd.flags);
     const dbPath = resolveCortexDbPath(repoPath); // <repo>/.cortex/db — canonical READ/PUBLISH target
 
@@ -130,7 +136,13 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
         // Register in the master registry (best-effort; never fail the index).
         try {
           const reg = new Registry();
-          try { reg.register(project, repoPath); } finally { reg.close(); }
+          try {
+            const canonicalRoot = mainWorktreeRoot(repoPath);
+            reg.register(project, repoPath, undefined, {
+              worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+              branch: gitBranch(repoPath),
+            });
+          } finally { reg.close(); }
         } catch { /* non-fatal */ }
 
         // Reap the now-consumed indexer slug cache (best-effort; never fail the index).

@@ -14,9 +14,10 @@
 #
 # Escape hatches (so a genuine code grep is never permanently wedged):
 #   - scope the search to non-code files (a non-code glob / file arg), or
-#   - add the token `cortex:grep-ok` to a Bash grep/rg command for a one-off
-#     deliberate code grep (a regex feature search_code lacks, or Cortex has
-#     already returned empty on a current index).
+#   - add the token `cortex:grep-ok` to a Bash grep/rg command. This does NOT
+#     authorize the grep: it converts the denial into `ask`, so the USER
+#     approves it. The token is written by the model, so auto-allowing it made
+#     this gate advisory rather than enforcing (decision D-7ca7).
 #
 # Degrade-safe by construction: ANY failure, missing jq, empty payload, or
 # unindexed repo → exit 0 with no output (allow). A hook bug must never block
@@ -82,8 +83,40 @@ git_root_of() {
   return 1
 }
 
+# Collapse a linked worktree (or subdir) onto the repo's MAIN worktree root --
+# the shell mirror of src/db/git-root.ts::mainWorktreeRoot. Decision D-b248
+# ("one index per repo, shared across all worktrees") makes the canonical root
+# the ONLY place a graph store lives: `cortex index` run from a worktree writes
+# the main checkout's .cortex/db, never the worktree's. A gate that tests the
+# literal directory therefore reads every worktree as unindexed and switches
+# itself off -- in exactly the place the workflow rules mandate feature work.
+# `--git-common-dir` is what collapses worktrees correctly (`--show-toplevel`
+# returns the worktree checkout dir; D-b248 rejected it for that reason).
+# Degrade-safe: any git failure (old git without --path-format, a fake .git
+# dir, no repo) returns the input unchanged, preserving prior behavior.
+canonical_root() {
+  local common
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  case "$common" in
+    */.git) printf '%s' "${common%/.git}"; return 0 ;;
+  esac
+  printf '%s' "$1"
+}
+
 # `-s`: exists AND non-empty, so a 0-byte degraded DB reads as not-indexed.
-repo_indexed() { [ -s "$1/.cortex/db" ] || [ -s "$1/.cortex/graph.db" ]; }
+# Literal checkout FIRST, canonical root second. Today only the canonical root
+# ever holds a store, so the first pair never hits -- but per-worktree indexing
+# is explicitly left open by D-b248 ("future per-worktree diffing stays open"),
+# and checking the literal path first means such a store would be honored the
+# day it exists instead of being silently ignored by the gate.
+repo_indexed() {
+  [ -s "$1/.cortex/db" ] && return 0
+  [ -s "$1/.cortex/graph.db" ] && return 0
+  local c
+  c="$(canonical_root "$1")"
+  [ "$c" = "$1" ] && return 1
+  [ -s "$c/.cortex/db" ] || [ -s "$c/.cortex/graph.db" ]
+}
 
 # First path-like token in a Bash command: starts with / ./ ../ ~ or contains
 # a slash; not a -flag; not an =assignment. Quoted literals already stripped by
@@ -101,19 +134,34 @@ first_path_token() {
   return 0
 }
 
-# Denylist: never auto-index junk/vendored/eval-clone trees. `.tmp` is cortex's
-# eval-corpus clone convention (the real pollution source); the others are
-# build/dependency dirs that aren't real project roots. Bare system `/tmp` is
-# intentionally NOT denylisted — a git repo a user actively greps there is a
-# legitimate index target (and `os.tmpdir()` is `/tmp` on Linux, so denylisting
-# it would also wrongly exclude every Linux temp-dir repo).
-AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+# Denylist: never auto-index junk/vendored/eval-clone trees. Shared with
+# hooks/check-index.sh via hooks/lib/auto-index-denylist.sh — a single
+# definition sourced by both hooks — so the SessionStart auto-index and this
+# gate's sibling auto-index can't drift apart. See that file for the rationale
+# and the degrade-safe (fail-closed) contract when it can't be loaded.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+AUTO_INDEX_DENYLIST_RE=""
+if [ -n "$HOOK_DIR" ] && [ -r "$HOOK_DIR/lib/auto-index-denylist.sh" ]; then
+  # shellcheck source=lib/auto-index-denylist.sh
+  . "$HOOK_DIR/lib/auto-index-denylist.sh"
+fi
 
 # Best-effort detached index of an unindexed, high-certainty git root.
 # Degrade-safe: any failure simply skips indexing — the grep is already allowed.
 maybe_bg_index() {
   local root="$1"
   [ -n "$root" ] || return 0
+  # Index the checkout it was given (root is already `--show-toplevel`, via
+  # git_root_of), NOT the canonical (main-worktree) root. `cortex index` used
+  # to collapse onto the main checkout regardless of what path you pointed it
+  # at (D-b248), so this used to canonicalize first to avoid writing a
+  # sentinel the index could never satisfy. Since the checkout-axis work
+  # (v1.11.0, see graph-storage.md#two-axes), `cortex index` indexes the
+  # literal checkout it's pointed at -- a linked worktree genuinely gets its
+  # own `.cortex/db` -- so collapsing here would misfile the sentinel onto the
+  # main checkout while the worktree (the thing actually being searched)
+  # stays unindexed forever. `canonical_root` stays defined: `repo_indexed()`
+  # below still reads through it until a later stage removes that fallback.
   [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
   printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
 
@@ -130,8 +178,14 @@ maybe_bg_index() {
   if [ -f "$sentinel" ] && find "$sentinel" -mmin -60 2>/dev/null | grep -q .; then
     return 0   # fresh attempt (<60 min) — skip
   fi
+  # Gate the spawn on the sentinel actually being written (matches
+  # check-index.sh's SessionStart discipline): if `.cortex/` can't be created
+  # or the sentinel can't be touched, don't spawn either. An unrecorded spawn
+  # has no recorded attempt to back off against, so it would re-fire on every
+  # subsequent grep instead of backing off for 60 minutes — measured at 3
+  # spawns over 3 greps with no backoff before this fix.
   mkdir -p "$root/.cortex" 2>/dev/null || return 0
-  : > "$sentinel" 2>/dev/null || true
+  : > "$sentinel" 2>/dev/null || return 0
 
   local log="$root/.cortex/auto-index.log"
   # Detached subshell so the index survives this hook's exit (recipe verified
@@ -188,7 +242,7 @@ NONCODE_RE='\.(md|markdown|mdx|txt|rst|json|jsonc|ya?ml|toml|lock|ini|cfg|conf|e
 CODE_RE='\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|h|cc|cpp|hpp|cxx|rb|php|swift|kt|kts|scala|vue|svelte|cs|mm|sh|bash|zsh)([^a-zA-Z0-9]|$)'
 CODE_TYPE_RE='^(ts|tsx|typescript|js|jsx|javascript|py|python|go|rust|rs|java|c|cpp|cxx|ruby|rb|php|swift|kotlin|kt|scala|vue|svelte|cs|csharp)$'
 
-GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep search, but each hit is annotated with its enclosing function/class. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path. Grep is fine for NON-code files (configs/docs/JSON) — scope it to those (a non-code glob/path) and it passes. For a genuine code grep Cortex cannot do (a regex feature search_code lacks, or Cortex already returned empty on a current index), run it as a Bash grep/rg command containing the token cortex:grep-ok.'
+GREP_MSG='This repo is indexed by Cortex. Use search_code(pattern="…") — the same ripgrep search, but each hit is annotated with its enclosing function/class. For a symbol by name use search_graph(name_pattern="…"); for callers/callees use trace_path; to read the code around a hit use get_code_snippet. Grep is fine for NON-code files (configs/docs/JSON) — scope it to those (a non-code glob/path) and it passes.'
 
 GLOB_MSG='This repo is indexed by Cortex. To find code by name use search_graph(name_pattern="…"), or get_architecture for structure — not Glob over source files. Glob is fine for non-code files: scope the pattern to those (e.g. **/*.md, **/*.json) and it passes.'
 
@@ -196,6 +250,27 @@ emit_deny() {
   jq -n --arg r "$1" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
+}
+
+# `cortex:grep-ok` no longer AUTHORIZES -- it REQUESTS. The token is written by
+# the model, so auto-allowing it made the gate advisory: an observed session had
+# a denied `grep … version.ts` re-issued verbatim with the token seconds later,
+# no Cortex call in between. Routing it to "ask" keeps the escape usable for a
+# genuine need while making the human the only party who can grant it.
+emit_ask() {
+  jq -n --arg r "$1" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'
+  exit 0
+}
+
+ASK_MSG='cortex:grep-ok present — this needs your approval, not the agent'"'"'s. search_code is the same ripgrep with graph annotation, and covers non-code files too; a raw grep is warranted only for something it genuinely cannot express.'
+
+# Convert a would-be denial into a request. Called INSTEAD of emit_deny on the
+# Bash path, never before rule evaluation -- checking the token first would make
+# it fire on any command merely containing the string.
+deny_or_ask() {
+  if printf '%s' "$CMD" | grep -q 'cortex:grep-ok'; then emit_ask "$ASK_MSG"; fi
+  emit_deny "$1"
 }
 
 case "$TOOL" in
@@ -249,15 +324,13 @@ case "$TOOL" in
     printf '%s' "$STRIPPED" \
       | grep -Eq '(^|[[:space:];&(/])(grep|egrep|fgrep|rg|ag|ack)([[:space:]]|$)' \
       || exit 0
-    # Deliberate-code-grep escape.
-    printf '%s' "$CMD" | grep -q 'cortex:grep-ok' && exit 0
     # Allow when clearly scoped to non-code and not to code.
     targets_code=0
     targets_noncode=0
     printf '%s' "$CMD" | grep -Eiq "$CODE_RE" && targets_code=1
     printf '%s' "$CMD" | grep -Eiq "$NONCODE_RE" && targets_noncode=1
     if [ "$targets_noncode" = "1" ] && [ "$targets_code" = "0" ]; then exit 0; fi
-    emit_deny "$GREP_MSG"
+    deny_or_ask "$GREP_MSG"
     ;;
 esac
 exit 0
