@@ -134,13 +134,17 @@ first_path_token() {
   return 0
 }
 
-# Denylist: never auto-index junk/vendored/eval-clone trees. `.tmp` is cortex's
-# eval-corpus clone convention (the real pollution source); the others are
-# build/dependency dirs that aren't real project roots. Bare system `/tmp` is
-# intentionally NOT denylisted — a git repo a user actively greps there is a
-# legitimate index target (and `os.tmpdir()` is `/tmp` on Linux, so denylisting
-# it would also wrongly exclude every Linux temp-dir repo).
-AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+# Denylist: never auto-index junk/vendored/eval-clone trees. Shared with
+# hooks/check-index.sh via hooks/lib/auto-index-denylist.sh — a single
+# definition sourced by both hooks — so the SessionStart auto-index and this
+# gate's sibling auto-index can't drift apart. See that file for the rationale
+# and the degrade-safe (fail-closed) contract when it can't be loaded.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+AUTO_INDEX_DENYLIST_RE=""
+if [ -n "$HOOK_DIR" ] && [ -r "$HOOK_DIR/lib/auto-index-denylist.sh" ]; then
+  # shellcheck source=lib/auto-index-denylist.sh
+  . "$HOOK_DIR/lib/auto-index-denylist.sh"
+fi
 
 # Best-effort detached index of an unindexed, high-certainty git root.
 # Degrade-safe: any failure simply skips indexing — the grep is already allowed.
@@ -174,8 +178,14 @@ maybe_bg_index() {
   if [ -f "$sentinel" ] && find "$sentinel" -mmin -60 2>/dev/null | grep -q .; then
     return 0   # fresh attempt (<60 min) — skip
   fi
+  # Gate the spawn on the sentinel actually being written (matches
+  # check-index.sh's SessionStart discipline): if `.cortex/` can't be created
+  # or the sentinel can't be touched, don't spawn either. An unrecorded spawn
+  # has no recorded attempt to back off against, so it would re-fire on every
+  # subsequent grep instead of backing off for 60 minutes — measured at 3
+  # spawns over 3 greps with no backoff before this fix.
   mkdir -p "$root/.cortex" 2>/dev/null || return 0
-  : > "$sentinel" 2>/dev/null || true
+  : > "$sentinel" 2>/dev/null || return 0
 
   local log="$root/.cortex/auto-index.log"
   # Detached subshell so the index survives this hook's exit (recipe verified

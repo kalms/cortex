@@ -320,6 +320,34 @@ describe("prefer-cortex.sh — sibling auto-index", () => {
     expect(waitForFile(marker, 600)).toBe(false);
   });
 
+  it("does NOT spawn when the sentinel cannot be written (sentinel path unwritable, .cortex/ writable)", () => {
+    // Regression: a prior version wrote the sentinel `: > "$sentinel" 2>/dev/null || true`
+    // (swallowing the failure) and spawned the index regardless — an
+    // unrecorded attempt has no recorded attempt to back off against, so it
+    // re-fired on every subsequent grep instead of backing off for 60 minutes
+    // (measured: 3 spawns over 3 greps with no backoff). check-index.sh has
+    // always gated the spawn on the write succeeding; this asserts
+    // maybe_bg_index now matches that discipline.
+    //
+    // "Sentinel unwritable" is reproduced by making the sentinel PATH itself
+    // a directory (so `: > "$sentinel"` fails with "Is a directory") while
+    // `.cortex/` stays a normal writable dir — chmod'ing `.cortex/` itself
+    // read-only also blocks `mkdir -p "$root/.cortex"` (a no-op, since it
+    // already exists, so that alone doesn't reproduce the bug) but more
+    // importantly isn't the scenario the review measured.
+    const cwd = indexedRepo();
+    const sibling = unindexedRepo();
+    mkdirSync(join(sibling, ".cortex", ".auto-index-attempted"), { recursive: true });
+    const marker = join(sibling, ".should-not-fire");
+    const bin = stubCortex(marker);
+    execFileSync("bash", [HOOK], {
+      input: JSON.stringify({ tool_name: "Grep", cwd, tool_input: { pattern: "foo", type: "ts", path: sibling } }),
+      encoding: "utf-8",
+      env: { ...process.env, CORTEX_BIN: bin, CORTEX_AUTO_INDEX: "1" },
+    });
+    expect(waitForFile(marker, 600)).toBe(false);
+  });
+
   it("does NOT spawn when no cortex CLI is resolvable (degrade-safe allow)", () => {
     const cwd = indexedRepo();
     const sibling = unindexedRepo();
