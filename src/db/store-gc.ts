@@ -4,8 +4,8 @@ import BetterSqlite3 from "better-sqlite3";
 import { readRepoId } from "./repo-id.js";
 import { durableStoreRoot } from "./resolve-path.js";
 import { archiveRoot, indexerCacheDir, slugCachePath } from "./store-paths.js";
-import { findDeadEntries, pruneEntries } from "./registry-audit.js";
-import { Registry } from "./registry.js";
+import { Registry, type RegistryRepo } from "./registry.js";
+import { mainWorktreeRoot } from "./git-root.js";
 
 export { readRepoId };
 
@@ -111,13 +111,61 @@ export function reapRepoSlugCache(repoRoot: string): number {
   return reapFile(slugCachePath(repoRoot));
 }
 
+/** True iff `entry` belongs to the CURRENT repo's family for registry-prune
+ *  purposes: this checkout's own row (`root_path === repoRoot`), or any row
+ *  whose `worktree_of` points at this repo's main-worktree root (a removed
+ *  worktree of the SAME repo). Every other repo's rows are out of family.
+ *
+ *  This is what keeps the SessionStart sweep — which runs in EVERY repo, on
+ *  every session start, with output discarded — from silently dropping an
+ *  unrelated repo's registry row just because that repo happens to be on an
+ *  unmounted volume or a detached network share at the moment this session's
+ *  sweep runs. `cortex doctor --fix` remains the machine-wide backstop: it is
+ *  dry-run by default and prints every row before removing anything. */
+function isSameRepoFamily(
+  entry: Pick<RegistryRepo, "root_path" | "worktree_of">,
+  repoRoot: string,
+  mainRoot: string | null,
+): boolean {
+  if (entry.root_path === repoRoot) return true;
+  return mainRoot !== null && entry.worktree_of === mainRoot;
+}
+
+/** Remove registry rows whose path is confirmed gone AT THE MOMENT OF
+ *  REMOVAL — `existsCheck` is re-run immediately before each individual
+ *  `remove`, rather than computing a "dead" snapshot once and pruning the
+ *  whole batch from it afterward. `reg.list()` and a batched prune are not
+ *  atomic; a path that goes absent → present in that window (a worktree
+ *  re-created, a flaky mount coming back) must survive on its current state,
+ *  not be deleted on stale information. `existsCheck` defaults to the real
+ *  `existsSync` and is only overridden by tests. Returns the names actually
+ *  removed. */
+export function pruneVanishedRows(
+  reg: Registry,
+  candidates: Pick<RegistryRepo, "name" | "root_path">[],
+  existsCheck: (p: string) => boolean = existsSync,
+): string[] {
+  const pruned: string[] = [];
+  for (const c of candidates) {
+    if (!existsCheck(c.root_path)) {
+      reg.remove(c.name);
+      pruned.push(c.name);
+    }
+  }
+  return pruned;
+}
+
 /** Current-repo SessionStart sweep: reap this repo's slug cache (guarded) + its
  *  db.stage-* siblings + stale tmp-ctx_incr_* files in the shared cache dir,
- *  plus dead registry rows (see below). */
+ *  plus dead registry rows scoped to this repo's family (see below). No-op
+ *  (returns an empty result) when `CORTEX_GC=0` — checked here, not just by
+ *  `runSweep`, so the destructive registry mutation stays behind the gate for
+ *  every caller, not only the one that happens to check the env var today. */
 export function sweepCurrentRepo(
   repoRoot: string,
   opts: { maxStagingAgeMs?: number; registryPath?: string } = {},
 ): { bytes: number; removed: string[]; prunedRows: string[] } {
+  if (process.env.CORTEX_GC === "0") return { bytes: 0, removed: [], prunedRows: [] };
   const maxAge = opts.maxStagingAgeMs ?? 86_400_000;
   const now = Date.now();
   let bytes = 0;
@@ -151,11 +199,14 @@ export function sweepCurrentRepo(
     }
   } catch { /* no cache dir — fine */ }
 
-  // Dead-row reclamation. `git worktree remove` takes the directory and its
-  // .cortex/db with it but leaves the registry row; worktrees are short-lived,
-  // so this must happen on the SessionStart sweep rather than waiting for a
-  // manual `cortex doctor --fix`. Best-effort: a registry failure never fails
-  // the sweep.
+  // Dead-row reclamation, SCOPED TO THIS REPO'S FAMILY (isSameRepoFamily,
+  // above). `git worktree remove` takes the directory and its .cortex/db
+  // with it but leaves the registry row; worktrees are short-lived, so THIS
+  // repo's dead worktree rows must be reclaimed on the SessionStart sweep
+  // rather than waiting for a manual `cortex doctor --fix` — but every other
+  // repo's rows are left strictly alone; only `cortex doctor --fix` (the
+  // machine-wide, dry-run-first backstop) touches those. Best-effort: a
+  // registry failure never fails the sweep.
   const prunedRows: string[] = [];
   try {
     // `Registry`'s constructor defaults to `defaultRegistryPath()` when its
@@ -164,11 +215,14 @@ export function sweepCurrentRepo(
     // the real registry — not a no-op.
     const reg = new Registry(opts.registryPath);
     try {
-      const dead = findDeadEntries(reg.list());
-      if (dead.length > 0) {
-        pruneEntries(reg, dead.map((d) => d.name));
-        prunedRows.push(...dead.map((d) => d.name));
-      }
+      // Repo-identity axis, not the checkout axis: `worktree_of` is written
+      // against `mainWorktreeRoot`, so family membership must be tested
+      // against it too. Degrades to `null` outside a git repo / on any git
+      // failure — never throws — which narrows family to just this
+      // checkout's own row.
+      const mainRoot = mainWorktreeRoot(repoRoot);
+      const family = reg.list().filter((e) => isSameRepoFamily(e, repoRoot, mainRoot));
+      prunedRows.push(...pruneVanishedRows(reg, family));
     } finally { reg.close(); }
   } catch { /* best-effort */ }
 
