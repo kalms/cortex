@@ -6,7 +6,7 @@
  * NOTE: mirror any change in scripts/fetch-indexer.mjs (drift-guard test in
  * tests/indexer/fetch-indexer.test.ts enforces equality).
  */
-export const CORTEX_INDEXER_VERSION = "0.3.1";
+export const CORTEX_INDEXER_VERSION = "0.3.2";
 
 /**
  * Supported (platform, arch) targets → release asset basename, else null.

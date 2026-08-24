@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 
 // MUST equal CORTEX_INDEXER_VERSION in src/indexer/version.ts (drift-guard test).
-export const FETCH_INDEXER_VERSION = "0.3.1";
+export const FETCH_INDEXER_VERSION = "0.3.2";
 
 // Mirror of SUPPORTED in src/indexer/version.ts (drift-guard test enforces it).
 // darwin-x64 intentionally absent — no prebuilt is published (macos-13 runners

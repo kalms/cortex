@@ -43,8 +43,16 @@ export function ok(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-export function empty(query: string) {
-  return { content: [{ type: "text" as const, text: `No results: ${query}` }] };
+/**
+ * A "nothing matched" result. `hint` is optional routing prose appended below
+ * the stable `No results: <query>` line — use it where an empty result is
+ * plausibly a *retrieval* miss the caller can fix by reaching for a different
+ * tool, not a statement that the thing does not exist. The prefix contract
+ * (and so `NoResultsResponse`) is unaffected either way.
+ */
+export function empty(query: string, hint?: string) {
+  const text = hint ? `No results: ${query}\n\n${hint}` : `No results: ${query}`;
+  return { content: [{ type: "text" as const, text }] };
 }
 
 export function error(reason: ErrorReason, detail: string) {

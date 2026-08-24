@@ -32,9 +32,21 @@ so a session started inside one of those never spawns an index there.
 | What changed since a ref/date/decision | `changes_since(since="…")` | git spelunking |
 | Find decisions across ALL repos | `decision({action:"search", cross_repo:true})` | per-repo searches |
 
-Fall back to `Grep`/`Glob`/`Read` only when the target is a non-code file
-(config, JSON, Markdown, log), you need a regex feature `search_code`
-doesn't support, or the Cortex tool returned empty on a current index.
+Finding a symbol is a **ladder** — descend only when the rung above came
+back empty: `search_graph`/`trace_path`/`get_code_snippet` → `search_code`
+→ `Grep`/`Glob`/`Read`. A `search_graph` miss is not proof the symbol is
+absent: the graph holds named definitions, and a shape it carries no node
+for reads exactly like one that does not exist, so `search_code` is the
+next call. Fall back to `Grep`/`Glob`/`Read` only when the target is a
+non-code file (config, JSON, Markdown, log) or you need a regex feature
+`search_code` doesn't support.
+
+An empty result is **not** a staleness signal — staleness has its own, the
+`⚠ cortex freshness` line (see below). With no such line the graph considers
+itself current, so an empty response is unlikely to be fixed by reindexing.
+Treat that as best-effort rather than a guarantee: `CORTEX_FRESHNESS=0`
+switches the signal off, and the dirty-tree check cannot see a re-edit of an
+already-modified file.
 
 ### Hook-enforced, not advisory
 
