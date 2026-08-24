@@ -160,9 +160,23 @@ over grep/Read:
   - search_code(pattern)              → graph-augmented grep
   - get_architecture(aspects)         → project structure overview
 
-Fall back to Grep/Glob/Read only for:
-  - Configs, docs, JSON, plain-text files
-  - Cases where Cortex returns no results AND the index is current
+Finding a symbol is a ladder. Go down a rung only when the rung above
+came back empty:
+
+  1. search_graph / trace_path / get_code_snippet — structure, by name.
+  2. search_code(pattern="…") when (1) is empty. The graph holds named
+     definitions, so a shape it carries no node for reads exactly like a
+     symbol that does not exist. search_code searches the same indexed
+     tree as text and still annotates each hit with its enclosing symbol.
+  3. Grep/Glob/Read only for non-code files (configs, docs, JSON), or a
+     regex feature search_code lacks.
+
+An empty result is NOT a staleness signal. Staleness has its own signal:
+a "⚠ cortex freshness" line on the response. Without one the graph
+considers itself current, so re-indexing is unlikely to change the answer
+and the fix is the next rung — not index_repository. (Best-effort, not a
+guarantee: CORTEX_FRESHNESS=0 switches the signal off entirely, and the
+dirty-tree check cannot see a re-edit of an already-modified file.)
 
 After any non-trivial commit, consider:
   - decision({action:"propose"}) / decision({action:"create"}) if an architectural choice was made
