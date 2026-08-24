@@ -134,24 +134,34 @@ first_path_token() {
   return 0
 }
 
-# Denylist: never auto-index junk/vendored/eval-clone trees. `.tmp` is cortex's
-# eval-corpus clone convention (the real pollution source); the others are
-# build/dependency dirs that aren't real project roots. Bare system `/tmp` is
-# intentionally NOT denylisted — a git repo a user actively greps there is a
-# legitimate index target (and `os.tmpdir()` is `/tmp` on Linux, so denylisting
-# it would also wrongly exclude every Linux temp-dir repo).
-AUTO_INDEX_DENYLIST_RE='(^|/)(\.tmp|node_modules|vendor|dist|build|\.cache)(/|$)'
+# Denylist: never auto-index junk/vendored/eval-clone trees. Shared with
+# hooks/check-index.sh via hooks/lib/auto-index-denylist.sh — a single
+# definition sourced by both hooks — so the SessionStart auto-index and this
+# gate's sibling auto-index can't drift apart. See that file for the rationale
+# and the degrade-safe (fail-closed) contract when it can't be loaded.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+AUTO_INDEX_DENYLIST_RE=""
+if [ -n "$HOOK_DIR" ] && [ -r "$HOOK_DIR/lib/auto-index-denylist.sh" ]; then
+  # shellcheck source=lib/auto-index-denylist.sh
+  . "$HOOK_DIR/lib/auto-index-denylist.sh"
+fi
 
 # Best-effort detached index of an unindexed, high-certainty git root.
 # Degrade-safe: any failure simply skips indexing — the grep is already allowed.
 maybe_bg_index() {
   local root="$1"
   [ -n "$root" ] || return 0
-  # Index the canonical root, never the worktree: `cortex index` collapses to
-  # it anyway (D-b248), so targeting the literal worktree wrote a sentinel that
-  # could never be satisfied -- the observed symptom was a worktree re-indexing
-  # every 60 minutes forever while still reading as unindexed.
-  root="$(canonical_root "$root")"
+  # Index the checkout it was given (root is already `--show-toplevel`, via
+  # git_root_of), NOT the canonical (main-worktree) root. `cortex index` used
+  # to collapse onto the main checkout regardless of what path you pointed it
+  # at (D-b248), so this used to canonicalize first to avoid writing a
+  # sentinel the index could never satisfy. Since the checkout-axis work
+  # (v1.11.0, see graph-storage.md#two-axes), `cortex index` indexes the
+  # literal checkout it's pointed at -- a linked worktree genuinely gets its
+  # own `.cortex/db` -- so collapsing here would misfile the sentinel onto the
+  # main checkout while the worktree (the thing actually being searched)
+  # stays unindexed forever. `canonical_root` stays defined: `repo_indexed()`
+  # below still reads through it until a later stage removes that fallback.
   [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
   printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
 
@@ -168,8 +178,14 @@ maybe_bg_index() {
   if [ -f "$sentinel" ] && find "$sentinel" -mmin -60 2>/dev/null | grep -q .; then
     return 0   # fresh attempt (<60 min) — skip
   fi
+  # Gate the spawn on the sentinel actually being written (matches
+  # check-index.sh's SessionStart discipline): if `.cortex/` can't be created
+  # or the sentinel can't be touched, don't spawn either. An unrecorded spawn
+  # has no recorded attempt to back off against, so it would re-fire on every
+  # subsequent grep instead of backing off for 60 minutes — measured at 3
+  # spawns over 3 greps with no backoff before this fix.
   mkdir -p "$root/.cortex" 2>/dev/null || return 0
-  : > "$sentinel" 2>/dev/null || true
+  : > "$sentinel" 2>/dev/null || return 0
 
   local log="$root/.cortex/auto-index.log"
   # Detached subshell so the index survives this hook's exit (recipe verified

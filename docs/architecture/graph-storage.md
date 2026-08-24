@@ -335,6 +335,27 @@ all three) and built on shared classification predicates in
    24h by default) so an in-flight index's own staging file is never raced.
    This is deliberately scoped to the *current* repo only — cheap enough to
    run unconditionally at every session start without a machine-wide scan.
+
+   The same sweep also reclaims dead **registry rows** — but scoped to the
+   *current repo's family*, not the whole machine-wide registry. `git worktree
+   remove` (or a manual `rm -rf`) takes the worktree directory and its
+   `.cortex/db` with it but leaves the registry row behind; worktrees are
+   short-lived, so that row needs reclaiming on the SessionStart sweep rather
+   than waiting for a manual `cortex doctor --fix`. `sweepCurrentRepo` derives
+   this repo's main-worktree root (`mainWorktreeRoot` — the repo-identity
+   axis `worktree_of` is written against) and prunes only the current
+   checkout's own row plus any row whose `worktree_of` points at that main
+   root; `pruneVanishedRows` re-checks each candidate's existence immediately
+   before removing it (closing the `reg.list()` → prune TOCTOU) rather than
+   pruning a batch computed from a stale snapshot. Every *other* repo's rows
+   are left untouched — a repo on an unmounted volume or a detached network
+   share must never be dropped from the registry just because an unrelated
+   session's sweep happened to run while it was unreachable. `CORTEX_GC=0`
+   disables this (and the rest of the sweep) from inside `sweepCurrentRepo`
+   itself, so the gate holds regardless of which caller reaches it.
+   `cortex doctor --fix` remains the machine-wide backstop for registry rows
+   outside this repo's family — dry-run by default, printing every row before
+   removing anything.
 3. **`cortex doctor` all-stores audit.** The machine-wide backstop.
    `auditStores(registry)` (`src/db/store-gc-audit.ts`) walks every durable
    decision dir (`~/.cortex/<repoId>/`) and the whole shared indexer cache dir,

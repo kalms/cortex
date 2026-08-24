@@ -62,8 +62,10 @@ export function runSweep(repoRoot: string): void {
   if (process.env.CORTEX_GC === "0") return;
   try {
     const res = sweepCurrentRepo(repoRoot);
-    if (res.bytes > 0 && process.env.CORTEX_CLI_DEBUG === "1") {
-      process.stderr.write(`cortex gc: reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)\n`);
+    if (process.env.CORTEX_CLI_DEBUG === "1" && (res.bytes > 0 || res.prunedRows.length > 0)) {
+      const parts = [`reclaimed ${(res.bytes / 1e6).toFixed(1)}MB (${res.removed.length} files)`];
+      if (res.prunedRows.length > 0) parts.push(`pruned ${res.prunedRows.length} dead registry row(s)`);
+      process.stderr.write(`cortex gc: ${parts.join(", ")}\n`);
     }
   } catch { /* best-effort */ }
 }

@@ -18,6 +18,71 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.12.0] — 2026-08-24
+
+Stage 2 of per-worktree indexing: a fresh checkout becomes usable **without a
+manual indexing step**. Stage 1 gave every checkout its own store; this stage
+fills that store automatically and reclaims the registry row when the checkout
+goes away.
+
+### Added
+
+- **SessionStart indexes an unindexed checkout.** `hooks/check-index.sh` starts
+  a first index for a checkout that has no `.cortex/db`, instead of reporting
+  `not-indexed` and waiting for the agent to run `index_repository`. A sentinel
+  (`<checkout>/.cortex/.auto-index-attempted`) gives a ~60-minute backoff, and
+  the spawn is skipped entirely when the sentinel cannot be written — an
+  unrecorded spawn has nothing to back off against and would re-fire every
+  session. Opt out with `CORTEX_AUTO_INDEX=0`, which now covers **both**
+  auto-index points (this one and the retrieval gate's).
+- **Automatic reclamation of registry rows for removed checkouts.** The
+  SessionStart sweep (`cortex index sweep`) prunes registry rows whose
+  `root_path` no longer exists, so `git worktree remove` no longer strands a row
+  that outlives the directory. Scoped to the **current repo family** — this
+  checkout's own row plus rows whose `worktree_of` points at this repo's
+  main-worktree root. Other repos' rows are never touched: a repo sitting on an
+  unmounted volume or a detached share must not lose its registry entry because
+  a session happened to start somewhere else. `cortex doctor --fix` remains the
+  machine-wide backstop and is still dry-run by default. Inherits the
+  `CORTEX_GC=0` opt-out, now checked inside `sweepCurrentRepo` itself rather
+  than only by its caller, so the destructive step sits behind the gate for
+  every caller.
+- **Shared auto-index denylist** (`hooks/lib/auto-index-denylist.sh`), sourced
+  by both hooks so the two auto-index enforcement points cannot drift apart.
+  Fail-closed by construction: if the file cannot be loaded the pattern is
+  empty, an empty `grep -E` matches every path, and auto-index skips rather
+  than indexing everything.
+
+### Fixed
+
+- **The retrieval gate's background indexer targets the checkout**, not its
+  canonical main-worktree root (`maybe_bg_index` in `hooks/prefer-cortex.sh`).
+  Before the checkout-axis work an index collapsed onto the main checkout
+  regardless, so pointing it at a worktree wrote a sentinel that could never be
+  satisfied; now that `cortex index` indexes the checkout it is pointed at, the
+  sentinel is satisfied and the worktree genuinely gets its own store.
+- **SessionStart resolves the checkout root before index-state detection.**
+  `REPO` was only reassigned to the git root inside the branches where a store
+  was *found*, so a session started in a **subdirectory** of an unindexed repo
+  left `REPO` as that subdirectory: the index landed correctly, but the state
+  check kept reading a `.cortex/db` path that would never exist — so the banner
+  reported `not-indexed` forever and the hook re-indexed every 60 minutes in
+  perpetuity.
+- **The SessionStart auto-index honors the denylist.** It previously had no
+  guard of its own, so opening a session with cwd inside `.tmp/`,
+  `node_modules/`, `vendor/`, `dist/`, `build/` or `.cache/` spawned a full
+  index and wrote a `.cortex/` into a tree that should never be indexed. The
+  retrieval gate already refused those paths; both now read one shared
+  definition.
+- **`maybe_bg_index` no longer spawns an index it cannot record.** It wrote its
+  sentinel best-effort and spawned regardless, so an unwritable sentinel meant
+  no backoff at all — measured at 3 spawns over 3 searches. It now matches
+  `check-index.sh`'s stricter discipline.
+- **The registry prune re-checks each path immediately before removing its
+  row.** `Registry.list()` and a batched prune are not atomic; a path that goes
+  absent then present in that window (a worktree re-created, a flaky mount
+  returning) now survives on its current state instead of being removed on a
+  stale snapshot.
 ## [1.11.2] — 2026-08-24
 
 Pins [cortex-indexer v0.3.2](https://github.com/ruevu/cortex-indexer/releases/tag/v0.3.2),
@@ -1883,6 +1948,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.12.0]: https://github.com/ruevu/cortex/releases/tag/v1.12.0
 [1.11.2]: https://github.com/ruevu/cortex/releases/tag/v1.11.2
 [1.11.1]: https://github.com/ruevu/cortex/releases/tag/v1.11.1
 [1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0

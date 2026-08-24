@@ -18,6 +18,37 @@
 
 REPO="$PWD"
 
+# Resolve the checkout root ONCE, up front, so every downstream consumer —
+# index-state detection, the sentinel, the auto-index log path, and the
+# spawned index target — agrees on the same directory. This used to happen
+# only inside index-state detection's own fallback, and only when a store was
+# actually FOUND there: a session starting in an UNINDEXED subdirectory left
+# REPO pointing at the subdirectory for the rest of the script. The auto-index
+# branch below would still spawn `cortex index` correctly (`runIndexCommand`
+# re-roots to the checkout via `worktreeRoot()`), but INDEX_STATE kept
+# checking `<subdir>/.cortex/db` — which can never exist — so the banner never
+# flipped to "indexed" and the hook re-indexed every session, forever: the
+# same "re-indexing every 60 minutes forever while reading as unindexed"
+# pathology `maybe_bg_index`'s old comment (retired in prefer-cortex.sh)
+# described, reintroduced through a different door.
+# Degrade-safe: outside a git repo (or an ancient git lacking rev-parse), this
+# fails silently and REPO simply stays $PWD, unchanged from before.
+GIT_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$GIT_ROOT" ] && REPO="$GIT_ROOT"
+
+# Shared auto-index denylist (never auto-index junk/vendored/eval-clone
+# trees) — sourced from hooks/lib/auto-index-denylist.sh so this hook and
+# prefer-cortex.sh's maybe_bg_index enforce the identical rule instead of two
+# copies that can drift. Degrade-safe: if unreadable, AUTO_INDEX_DENYLIST_RE
+# stays empty and the auto-index branch below's `grep -Eq ""` guard matches
+# unconditionally, so auto-index fails CLOSED (skipped) rather than open.
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+AUTO_INDEX_DENYLIST_RE=""
+if [ -n "$HOOK_DIR" ] && [ -r "$HOOK_DIR/lib/auto-index-denylist.sh" ]; then
+    # shellcheck source=lib/auto-index-denylist.sh
+    . "$HOOK_DIR/lib/auto-index-denylist.sh"
+fi
+
 # SessionStart passes a JSON payload on stdin ({session_id, source, cwd, ...}).
 # Capture it once; degrade to empty on missing jq. Guard on `[ ! -t 0 ]` so a
 # developer running this hook by hand in a terminal (no piped stdin) never
@@ -46,20 +77,9 @@ elif [ -s "$REPO/.cortex/db" ]; then
 elif [ -s "$REPO/.cortex/graph.db" ]; then
     DB_PATH="$REPO/.cortex/graph.db"
     INDEX_STATE="indexed"
-else
-    # Walk up to the git root and check there too — handles cases where
-    # the hook fires in a subdirectory of the repo.
-    GIT_ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"
-    if [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/db" ]; then
-        DB_PATH="$GIT_ROOT/.cortex/db"
-        REPO="$GIT_ROOT"
-        INDEX_STATE="indexed"
-    elif [ -n "$GIT_ROOT" ] && [ -s "$GIT_ROOT/.cortex/graph.db" ]; then
-        DB_PATH="$GIT_ROOT/.cortex/graph.db"
-        REPO="$GIT_ROOT"
-        INDEX_STATE="indexed"
-    fi
 fi
+# (REPO is already resolved to the git root above when inside a git repo, so
+# no separate subdirectory walk-up is needed here anymore.)
 
 # Locate a cortex CLI for best-effort freshness / decision-count probes.
 CORTEX_BIN=""
@@ -67,6 +87,36 @@ if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/cortex" ]; then
     CORTEX_BIN="$CLAUDE_PLUGIN_ROOT/bin/cortex"
 elif [ -x "$REPO/bin/cortex" ]; then
     CORTEX_BIN="$REPO/bin/cortex"
+fi
+
+# Unindexed checkout: kick a detached first index so strict reads have a store
+# to answer from. Uses the same sentinel discipline as prefer-cortex.sh's
+# maybe_bg_index — a bounded retry that self-ends once the index succeeds.
+# REPO is already the checkout root (resolved up front, above), so a linked
+# worktree indexes ITSELF, not the main checkout. Reuses $GIT_ROOT from that
+# same resolution instead of re-running rev-parse.
+# Denylisted: never auto-index junk/vendored/eval-clone trees (`.tmp`,
+# node_modules, vendor, dist, build, .cache — see
+# hooks/lib/auto-index-denylist.sh). An empty $AUTO_INDEX_DENYLIST_RE (shared
+# file unreadable) makes `grep -Eq ""` match unconditionally, so this reads as
+# denylisted and auto-index fails CLOSED rather than open.
+REPO_DENYLISTED=0
+printf '%s' "$REPO" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && REPO_DENYLISTED=1
+if [ "$INDEX_STATE" = "not-indexed" ] && [ -n "$CORTEX_BIN" ] && [ "${CORTEX_AUTO_INDEX:-1}" != "0" ] && [ -n "$GIT_ROOT" ] && [ "$REPO_DENYLISTED" != "1" ]; then
+    SENTINEL="$REPO/.cortex/.auto-index-attempted"
+    if ! { [ -f "$SENTINEL" ] && find "$SENTINEL" -mmin -60 2>/dev/null | grep -q .; }; then
+        # Gate the spawn on the sentinel actually being written: if `.cortex/`
+        # can't be created or the sentinel can't be touched, don't spawn
+        # either — an unrecorded attempt would just retry every session
+        # forever instead of backing off for 60 minutes. This hook has always
+        # had this discipline; prefer-cortex.sh's maybe_bg_index is tightened
+        # to match it (a prior version there wrote the sentinel `|| true` and
+        # spawned regardless of whether the write actually landed).
+        if mkdir -p "$REPO/.cortex" 2>/dev/null && : > "$SENTINEL" 2>/dev/null; then
+            echo "Cortex: checkout not indexed — indexing in background…" >&2
+            ( nohup "$CORTEX_BIN" index . "$REPO" >"$REPO/.cortex/auto-index.log" 2>&1 </dev/null & ) 2>/dev/null || true
+        fi
+    fi
 fi
 
 # Compute the freshness verdict, optionally auto-refresh out-of-band (this runs
