@@ -9,7 +9,13 @@
    incremental `index_repository` to keep the graph current.
 
 The SessionStart hook (`hooks/check-index.sh`) prints the current index
-state and the repo path; act on it.
+state and the repo path; act on it. If the checkout is unindexed, this same
+hook also kicks off a detached first `cortex index` for it automatically —
+this is the more visible of the plugin's two auto-index points (the other is
+the retrieval gate below); both share one opt-out (`CORTEX_AUTO_INDEX=0`) and
+one denylist (`hooks/lib/auto-index-denylist.sh`) that skips junk/vendored/
+eval-clone trees (`.tmp`, `node_modules`, `vendor`, `dist`, `build`, `.cache`)
+so a session started inside one of those never spawns an index there.
 
 ## Tool routing — READ THIS BEFORE REACHING FOR GREP OR READ
 
