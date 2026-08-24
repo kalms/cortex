@@ -49,8 +49,8 @@ export function symbolMissHint(): string {
   return (
     'Before concluding the index is stale, look for a "⚠ cortex freshness" line ' +
     "below — that is where staleness is reported. If none appears the graph " +
-    "considers itself current, so re-indexing is unlikely to change this result; " +
-    "try the next rung first.\n" + routing
+    "considers itself current, so re-indexing is unlikely to change this " +
+    "result.\n" + routing
   );
 }
 
