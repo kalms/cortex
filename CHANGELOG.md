@@ -18,6 +18,55 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [1.11.2] — 2026-08-24
+
+Pins [cortex-indexer v0.3.2](https://github.com/ruevu/cortex-indexer/releases/tag/v0.3.2),
+which indexes definitions nested inside function and method bodies.
+
+**This bump forces one full reindex.** The indexer stores an `extract_schema` in
+`ctx_projects` and rebuilds rather than incrementally patching when it changes,
+so the first `index_repository` after upgrading is a full pass. `ensureIndexer`
+(`src/indexer/binary.ts`) also refetches the binary, since a cached `0.3.1`
+reports a version the pin no longer matches.
+
+### Changed
+
+- **`CORTEX_INDEXER_VERSION` 0.3.1 → 0.3.2** (`src/indexer/version.ts`, mirrored
+  in `scripts/fetch-indexer.mjs`).
+
+### Fixed
+
+- **Definitions nested in function and method bodies are now indexed** (all
+  languages). `walk_defs` called `extract_func_def` then `continue`d, so the AST
+  walk never entered a function body — and class methods survived only because
+  `extract_class_methods` pulls them out separately, which meant method bodies
+  went unwalked too.
+
+  Missing nodes were the visible half. The worse half: `push_boundary_scopes`
+  models nesting correctly at any depth, so a call inside a *named* closure got
+  a qualified name no node matched, and `calls_find_source` silently fell back
+  to the `__file__` node — making `trace_path(X, mode="callers")` answer with a
+  **file**. A wrong answer, not an empty one, on ~4.5–4.8% of all CALLS edges.
+  Counterintuitively, *naming* a closure is what broke it: anonymous callbacks
+  push no scope and correctly inherit the enclosing function.
+
+  Nested definitions get a dotted QN chain (`proj.file.outer.inner`), a
+  `parent_function` field, and a new `ENCLOSES` edge, and are kept out of the
+  project-wide symbol registry — a closure is never callable cross-file, so
+  registering one only adds wrong resolution candidates.
+
+  Verified against a fresh index of this repo on the published binary:
+  file-sourced CALLS **0**, `ENCLOSES` **252**, 252 nodes carrying
+  `parent_function`, and `search_graph(name_pattern="broadcast")` now resolves
+  `startWsServer.broadcast` — a closure that 0.3.1 could not see at all.
+
+  Known limitation, tracked upstream: calls inside a named closure still
+  attribute to the enclosing named function for languages whose
+  anonymous-closure node type is conventionally named by assignment (Go
+  `func_literal`, PHP anonymous/arrow functions, C# lambdas, Kotlin
+  `anonymous_function`, Rust `closure_expression`) — `resolve_func_name_node`
+  only special-cases JS/TS `arrow_function`.
+
 ## [1.11.1] — 2026-08-23
 
 A `search_graph` miss no longer reads as "the index is stale".
@@ -1834,6 +1883,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[1.11.2]: https://github.com/ruevu/cortex/releases/tag/v1.11.2
 [1.11.1]: https://github.com/ruevu/cortex/releases/tag/v1.11.1
 [1.11.0]: https://github.com/ruevu/cortex/releases/tag/v1.11.0
 [1.10.0]: https://github.com/ruevu/cortex/releases/tag/v1.10.0
