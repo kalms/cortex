@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs } from "./types.js";
+import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs, DecisionRefRow } from "./types.js";
 import type { EventBus } from "../events/bus.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
@@ -91,6 +91,64 @@ export class DecisionService {
   get(id: string): Decision | null {
     const rec = this.resolveRecord(id);
     return rec ? toDecision(rec) : null;
+  }
+
+  /** Canonical id for any accepted ref form (canonical, `D-<seq>`, bare seq),
+   *  or null when nothing matches. Callers that must touch the repositories
+   *  directly resolve through this FIRST — the repos are canonical-id-only. */
+  resolveId(idOrSeq: string): string | null {
+    return this.resolveRecord(idOrSeq)?.id ?? null;
+  }
+
+  /** Decision + sidecar link refs + reconciliation columns, composed once.
+   *  Resolves the ref a single time and keys every link lookup on the
+   *  resolved canonical id — passing the caller's raw ref to `findByDecision`
+   *  silently yields empty refs for the seq form. Mirrors
+   *  `TodoService.getWithRefs`. */
+  getWithRefs(idOrSeq: string): DecisionWithRefs | null {
+    const rec = this.resolveRecord(idOrSeq);
+    if (!rec) return null;
+
+    const all = this.links.findByDecision(rec.id);
+    const pick = (relation: string): DecisionRefRow[] =>
+      all
+        .filter((l) => l.relation === relation)
+        .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
+
+    // Decision-typed back-refs resolve to full Decision objects so callers can
+    // read `.id`, `.title` directly (legacy contract).
+    const pickDecisions = (relation: string) =>
+      all
+        .filter((l) => l.relation === relation && l.target_kind === "decision")
+        .map((l) => this.get(l.target_ref))
+        .filter((d): d is NonNullable<typeof d> => d !== null);
+
+    // PR back-refs live on decision_links with target_kind="pr"
+    // (target_ref = PR number as a string).
+    const prLinks = (relation: string) =>
+      all
+        .filter((l) => l.relation === relation && l.target_kind === "pr")
+        .map((l) => ({ pr_number: Number(l.target_ref) }));
+
+    return {
+      ...toDecision(rec),
+      reconciliation_verdict: rec.reconciliation_verdict ?? null,
+      reconciled_at: rec.reconciled_at ?? null,
+      reconciled_source_hash: rec.reconciled_source_hash ?? null,
+      reconciled_by: rec.reconciled_by ?? null,
+      nonconformant_nodes: rec.nonconformant_nodes
+        ? JSON.parse(rec.nonconformant_nodes)
+        : null,
+      reconciliation_note: rec.reconciliation_note ?? null,
+      governs: pick("GOVERNS"),
+      references: pick("REFERENCES"),
+      related_decisions: pickDecisions("DECISION_RELATED_TO"),
+      depends_on: pickDecisions("DECISION_DEPENDS_ON"),
+      introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
+      implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
+      challenged_by: prLinks("PR_CHALLENGES_DECISION"),
+      discussed_in: prLinks("PR_DISCUSSES_DECISION"),
+    };
   }
 
   update(id: string, input: UpdateDecisionInput, opts: { emit?: boolean } = { emit: true }): Decision {

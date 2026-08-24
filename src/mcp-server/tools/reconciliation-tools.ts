@@ -5,6 +5,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
+import { serviceForCtx } from "./decision-tools.js";
 import { RepoPathField } from "./shared-fields.js";
 
 const recordReconciliationShape = {
@@ -48,18 +49,21 @@ export async function recordReconciliationAction(
   ctx: RepoContext,
   args: z.infer<typeof recordReconciliationSchema>,
 ) {
-  const dec = ctx.decisionsRepo.get(args.decision_id);
-  if (!dec) return empty(`record_reconciliation(${args.decision_id})`);
-  const refs = governedRefs(ctx, args.decision_id);
+  // Resolve the caller's ref ONCE. Everything downstream — the governed-refs
+  // lookup, the reconciliation write, the response — keys on the canonical id,
+  // because those paths are canonical-only and would silently miss `D-<seq>`.
+  const canonicalId = serviceForCtx(ctx).resolveId(args.decision_id);
+  if (!canonicalId) return empty(`record_reconciliation(${args.decision_id})`);
+  const refs = governedRefs(ctx, canonicalId);
   if (refs.length === 0) {
     return errorResponse(
       "not_reconcilable",
-      `Decision ${args.decision_id} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
+      `Decision ${canonicalId} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
     );
   }
   const hash = hashGovernedSource(ctx.repoPath, refs);
   const nowIso = new Date().toISOString();
-  ctx.decisionsRepo.recordReconciliation(args.decision_id, {
+  ctx.decisionsRepo.recordReconciliation(canonicalId, {
     reconciliation_verdict: args.verdict,
     reconciled_at: nowIso,
     reconciled_source_hash: hash,
@@ -67,7 +71,7 @@ export async function recordReconciliationAction(
     nonconformant_nodes: args.nonconformant ? JSON.stringify(args.nonconformant) : null,
     reconciliation_note: args.note ?? null,
   });
-  return ok(JSON.stringify({ decision_id: args.decision_id, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
+  return ok(JSON.stringify({ decision_id: canonicalId, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
 }
 
 /**

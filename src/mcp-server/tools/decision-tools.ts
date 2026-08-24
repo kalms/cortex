@@ -1,3 +1,13 @@
+/**
+ * INVARIANT — resolve before use. `ctx.decisionsRepo` and `ctx.decisionLinksRepo`
+ * accept CANONICAL ids only (`D-<token>`). A ref arriving from a caller may be
+ * canonical, `D-<seq>`, or a bare seq. Handlers must therefore resolve through
+ * `DecisionService` — `getWithRefs()` for reads, `resolveId()` when a canonical
+ * id is needed for a direct repository call — and must never pass a raw caller
+ * ref to a repository or links lookup. Doing so does not error: it silently
+ * returns an empty/degraded record. Enforced by
+ * tests/mcp-server/decision-ref-parity.test.ts.
+ */
 import { z } from "zod";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
@@ -140,7 +150,7 @@ const decisionCandidatesSchema = z.object(decisionCandidatesShape);
 // ---------------------------------------------------------------------------
 
 /** Build a per-call DecisionService anchored to the repo addressed by `ctx`. */
-function serviceForCtx(
+export function serviceForCtx(
   ctx: RepoContext,
   bus?: EventBus,
   indexerProject?: string | null,
@@ -262,67 +272,38 @@ export async function getDecisionAction(
   indexerProject?: string | null,
 ) {
   const { id } = args;
-  // Per-call repo-scoped service + links — read from the repo addressed
-  // by ctx.repo_path, not the server's startup-bound handles.
-  const scopedService = serviceForCtx(ctx, bus, indexerProject);
-  const scopedLinks = ctx.decisionLinksRepo;
-
-  const dec = scopedService.get(id);
+  // Per-call repo-scoped service — reads the repo addressed by ctx.repo_path,
+  // not the server's startup-bound handles. The service resolves the ref ONCE
+  // and keys its link lookups on the resolved canonical id; this handler must
+  // NOT touch ctx.decisionsRepo / ctx.decisionLinksRepo with the raw `id`,
+  // which is canonical-only and silently returns empty refs for `D-<seq>`.
+  const dec = serviceForCtx(ctx, bus, indexerProject).getWithRefs(id);
   if (!dec) return empty(`get_decision(${id})`);
 
-  // Raw record carries reconciliation columns (verdict, hash, etc.) that
-  // toDecision() strips. Fetch it so we can merge those into the response.
-  const rawRec = ctx.decisionsRepo.get(id);
-
-  // Compose the "with refs" shape from the sidecar links table. The legacy
-  // shape included full NodeRow objects for governs/references and full
-  // Decision objects for related_decisions/depends_on; in the sidecar model
-  // we only have target refs (qns/paths/decision-ids/pr-numbers), so we
-  // surface those as `{ target_kind, target_ref }` and let the caller
-  // resolve full node info via search_graph / get_decision as needed.
-  const all = scopedLinks.findByDecision(id);
-  const pick = (relation: string) =>
-    all
-      .filter((l) => l.relation === relation)
-      .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
-
-  // Decision-typed back-refs resolve to full Decision objects so callers
-  // can read `.id`, `.title`, etc. directly (legacy contract).
-  const pickDecisions = (relation: string) =>
-    all
-      .filter((l) => l.relation === relation && l.target_kind === "decision")
-      .map((l) => scopedService.get(l.target_ref))
-      .filter((d): d is NonNullable<typeof d> => d !== null);
-
-  // PR back-refs: in the sidecar model, PR <-> decision relations live on
-  // decision_links where target_kind="pr" (target_ref = PR number as string).
-  const prLinks = (relation: string) =>
-    all
-      .filter((l) => l.relation === relation && l.target_kind === "pr")
-      .map((l) => ({ pr_number: Number(l.target_ref) }));
-
-  const withRefs = {
-    ...dec,
-    // Reconciliation fields — null until first judged (Task 4 onwards).
-    reconciliation_verdict: rawRec?.reconciliation_verdict ?? null,
-    reconciled_at: rawRec?.reconciled_at ?? null,
-    reconciled_source_hash: rawRec?.reconciled_source_hash ?? null,
-    reconciled_by: rawRec?.reconciled_by ?? null,
-    nonconformant_nodes: rawRec?.nonconformant_nodes
-      ? JSON.parse(rawRec.nonconformant_nodes)
-      : null,
-    reconciliation_note: rawRec?.reconciliation_note ?? null,
-    display_state: rawRec ? decisionDisplayState(ctx, rawRec) : dec.status,
-    governs: pick("GOVERNS"),
-    references: pick("REFERENCES"),
-    related_decisions: pickDecisions("DECISION_RELATED_TO"),
-    depends_on: pickDecisions("DECISION_DEPENDS_ON"),
-    introduced_in: prLinks("PR_INTRODUCES_DECISION")[0] ?? null,
-    implemented_by: prLinks("PR_IMPLEMENTS_DECISION"),
-    challenged_by: prLinks("PR_CHALLENGES_DECISION"),
-    discussed_in: prLinks("PR_DISCUSSES_DECISION"),
+  // Rebuild in the original key order: display_state sits between the
+  // reconciliation columns and the link refs, so the emitted JSON stays
+  // byte-identical to what this handler produced before.
+  const {
+    governs, references, related_decisions, depends_on,
+    introduced_in, implemented_by, challenged_by, discussed_in,
+    ...head
+  } = dec;
+  // Both reconciliation helpers take the RECORD shape (alternatives as raw
+  // JSON), while DecisionWithRefs carries the parsed domain shape — so hand
+  // them exactly the four columns they read rather than casting.
+  const recView = {
+    id: dec.id,
+    status: dec.status,
+    reconciled_source_hash: dec.reconciled_source_hash,
+    reconciliation_verdict: dec.reconciliation_verdict,
   };
-  return attachDecisionReconciliation(ctx, rawRec ? [rawRec] : [], ok(JSON.stringify(withRefs, null, 2)));
+  const withRefs = {
+    ...head,
+    display_state: decisionDisplayState(ctx, recView),
+    governs, references, related_decisions, depends_on,
+    introduced_in, implemented_by, challenged_by, discussed_in,
+  };
+  return attachDecisionReconciliation(ctx, [recView], ok(JSON.stringify(withRefs, null, 2)));
 }
 
 export async function searchDecisionsAction(

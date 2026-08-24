@@ -100,6 +100,26 @@ otherwise as canonical — unambiguous precisely because canonical tokens always
 carry a letter. PRs are the exception: they stay keyed on the real GitHub PR
 number (no canonical, no seq).
 
+### Ref resolution — resolve before use
+
+The repositories are **canonical-only**: `DecisionsRepository.get`,
+`DecisionLinksRepository.findByDecision`, and `recordReconciliation` all key on
+the PK. Any code holding a caller-supplied ref must resolve it through the
+service layer first — `DecisionService.getWithRefs()` / `resolveId()`,
+`TodoService.getWithRefs()` — and key every subsequent repository and links call
+on the resolved canonical id.
+
+Passing a raw ref to `findByDecision` does **not** throw. It returns an empty
+result, which surfaces as a decision with no governs, no references, and no
+reconciliation state — a silent, plausible-looking wrong answer. That was a real
+bug in `get_decision`, `record_reconciliation`, `changes_since`, and the
+`/api/decisions/:id` route; `tests/mcp-server/decision-ref-parity.test.ts` now
+pins the invariant by asserting byte-identical output for both ref forms.
+
+The write path was already correct: `linkGoverns` / `linkRelatedTo` /
+`linkDependsOn` resolve both owner and target before inserting, so
+`decision_links` never stores a seq-form ref.
+
 ### Reconciliation
 
 Reconciliation splits into two orthogonal axes:

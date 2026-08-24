@@ -27,6 +27,7 @@ import type { DecisionRecord } from "../../decisions/repository.js";
 import { type RepoContext } from "../repo-context.js";
 import { ok, error as errorResponse } from "../response.js";
 import { execAction } from "./exec-action.js";
+import { serviceForCtx } from "./decision-tools.js";
 import { RepoPathField } from "./shared-fields.js";
 
 export const changesSinceShape = {
@@ -97,7 +98,12 @@ export async function changesSinceAction(
   return execAction(null, () => {
     let window: SinceWindow;
     try {
-      window = resolveSinceWindow(ctx.repoPath, args.since, (id) => ctx.decisionsRepo.get(id));
+      // `decisionsRepo.get` is canonical-only — injecting it directly makes
+      // `since="D-40"` unresolvable. Resolve the ref first, then fetch.
+      window = resolveSinceWindow(ctx.repoPath, args.since, (ref) => {
+        const canonicalId = serviceForCtx(ctx).resolveId(ref);
+        return canonicalId ? ctx.decisionsRepo.get(canonicalId) : null;
+      });
     } catch (e) {
       if (e instanceof Error && e.message.startsWith("unresolvable since")) {
         return errorResponse("malformed_input", e.message);
