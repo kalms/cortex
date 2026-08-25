@@ -72,4 +72,27 @@ describe("decision reconcile — ref parity", () => {
     });
     expect(result.content[0].text).toMatch(/^No results:/);
   });
+
+  it("stamps reconciled_branch/commit and last_touched_* from the checkout, leaving origin_* alone", async () => {
+    const { ctx, service } = setup();
+    const created = service.create({ title: "t", rationale: "r", governs: ["a.ts"] });
+
+    await recordReconciliationAction(ctx, { decision_id: created.id, verdict: "match" });
+
+    // DecisionsRepository.get()'s READ_COLS doesn't project the git-identity
+    // columns (a pre-existing gap predating this task) — query the raw row.
+    const row = ctx.decisionsDb.prepare(
+      "SELECT origin_branch, reconciled_branch, reconciled_commit, last_touched_branch, last_touched_commit FROM decisions WHERE id=?",
+    ).get(created.id) as Record<string, unknown>;
+    // repoWithGovernedFile() commits on git's default branch — real git
+    // identity, not a null degrade — so this also proves captureOrigin is
+    // actually wired into the handler, not just defaulting to null.
+    expect(typeof row.reconciled_branch).toBe("string");
+    expect(typeof row.reconciled_commit).toBe("string");
+    expect(row.last_touched_branch).toBe(row.reconciled_branch);
+    expect(row.last_touched_commit).toBe(row.reconciled_commit);
+    // origin_* was never stamped by this create() call (no origin passed) —
+    // recording a verdict must not have invented one.
+    expect(row.origin_branch ?? null).toBeNull();
+  });
 });

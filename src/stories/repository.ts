@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { StoryRecord, StoryStepRecord } from "./types.js";
+import type { OriginFields } from "../git/origin.js";
 
 const STORY_COLS = "id, seq, title, description, status, created_by, created_at, updated_at";
 const STEP_COLS = "story_id, step_index, caption, refs, emphasis_edges, layout_hint";
@@ -41,11 +42,23 @@ export class StoriesRepository {
     return this.db.prepare(`SELECT ${STORY_COLS} FROM stories ORDER BY created_at DESC, seq DESC`).all() as StoryRecord[];
   }
 
-  setStatus(id: string, status: string, updatedAt: string): void {
-    this.db.prepare("UPDATE stories SET status = @status, updated_at = @updated_at WHERE id = @id").run({
+  /** Closing a story is a mutation like any other — last_touched_* rewrites
+   *  from the checkout `origin` was captured on; origin_* is never touched. */
+  setStatus(id: string, status: string, updatedAt: string, origin?: OriginFields | null): void {
+    this.db.prepare(
+      `UPDATE stories SET
+         status = @status, updated_at = @updated_at,
+         last_touched_branch = @last_touched_branch,
+         last_touched_commit = @last_touched_commit,
+         last_touched_thread = @last_touched_thread
+       WHERE id = @id`,
+    ).run({
       id,
       status,
       updated_at: updatedAt,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     });
   }
 

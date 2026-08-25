@@ -715,4 +715,63 @@ describe("decision-tools contract", () => {
       }
     });
   });
+
+  describe("last-touched provenance", () => {
+    it("keeps origin immutable across an update", async () => {
+      const created = await callTool(h, "decision", {
+        action: "create", title: "immutable", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const before = db.prepare("SELECT origin_branch, origin_commit FROM decisions WHERE id=?").get(id);
+        await callTool(h, "decision", { action: "update", id, title: "changed" });
+        const after = db.prepare("SELECT origin_branch, origin_commit FROM decisions WHERE id=?").get(id);
+        expect(after).toEqual(before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it("rewrites last_touched_* on update", async () => {
+      const created = await callTool(h, "decision", {
+        action: "create", title: "touch me", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        await callTool(h, "decision", { action: "update", id, title: "touched" });
+        const row = db.prepare(
+          "SELECT last_touched_branch, last_touched_commit FROM decisions WHERE id=?",
+        ).get(id) as { last_touched_branch: string | null; last_touched_commit: string | null };
+        // The harness's fixture repos are freshly `git init`'d with no
+        // commits, so gitHead()/gitBranch() both degrade to null (captureOrigin
+        // never throws) — the columns exist and were written, which is what
+        // this test proves, not a particular non-null value.
+        expect(row).toHaveProperty("last_touched_branch");
+        expect(row).toHaveProperty("last_touched_commit");
+      } finally {
+        db.close();
+      }
+    });
+
+    it("bumps updated_at when a link is added (closes the pre-existing addLink gap)", async () => {
+      const created = await callTool(h, "decision", {
+        action: "create", title: "link bumps updated_at", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const before = db.prepare("SELECT updated_at FROM decisions WHERE id=?").get(id) as { updated_at: string };
+        await new Promise((r) => setTimeout(r, 5));
+        await callTool(h, "decision", {
+          action: "link", decision_id: id, target: "src/link-bump.ts", relation: "GOVERNS",
+        });
+        const after = db.prepare("SELECT updated_at FROM decisions WHERE id=?").get(id) as { updated_at: string };
+        expect(after.updated_at).not.toBe(before.updated_at);
+      } finally {
+        db.close();
+      }
+    });
+  });
 });

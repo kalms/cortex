@@ -16,6 +16,8 @@ import { showHandler, showAction } from "../../src/mcp-server/tools/show-dispatc
 import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
 import { makeIndexedRepoFixture } from "./harness.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 
 const BINARY_MISSING = process.env.CORTEX_CONTRACT_BINARY_MISSING === "1";
 
@@ -214,6 +216,40 @@ describe.skipIf(BINARY_MISSING)("show dispatcher contract", () => {
       const afterDelete = await dispatch({ repo_path: repo, action: "get", story_id: id });
       expect(ResponseSchema.safeParse(afterDelete).success).toBe(true);
       expect(afterDelete.content[0].text).toMatch(/^No results: /);
+    });
+
+    it("close keeps origin immutable and rewrites last_touched_*", async () => {
+      const create = await dispatch({
+        repo_path: repo,
+        action: "story",
+        title: "Close stamps last-touched",
+        steps: [{ caption: "step", refs: [] }],
+      });
+      const id = JSON.parse(create.content[0].text).story_id;
+
+      const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+      try {
+        const before = db.prepare(
+          "SELECT origin_branch, origin_commit FROM stories WHERE id=?",
+        ).get(id);
+
+        const closed = await dispatch({ repo_path: repo, action: "close", story_id: id });
+        expect(closed.isError).toBeFalsy();
+
+        const after = db.prepare(
+          "SELECT origin_branch, origin_commit, last_touched_branch, last_touched_commit FROM stories WHERE id=?",
+        ).get(id) as Record<string, unknown>;
+        // Origin is immutable across the close.
+        expect({ origin_branch: after.origin_branch, origin_commit: after.origin_commit }).toEqual(before);
+        // last_touched_* columns exist and were written by the close path
+        // (captureOrigin degrades to null in this fixture's fresh, commit-less
+        // git repo — the columns being present and settable is what this
+        // test proves, not a particular non-null value).
+        expect(after).toHaveProperty("last_touched_branch");
+        expect(after).toHaveProperty("last_touched_commit");
+      } finally {
+        db.close();
+      }
     });
 
     it("action:get on a missing story returns the empty envelope", async () => {

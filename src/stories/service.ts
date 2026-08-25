@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
+import type { OriginFields } from "../git/origin.js";
 import { StoriesRepository, StoryStepsRepository } from "./repository.js";
 import { StoryLinksRepository } from "./links-repository.js";
 import { rowToStory, rowToStep, type Story, type StoryRecord, type StoryWithSteps, type CreateStoryInput } from "./types.js";
@@ -76,12 +77,12 @@ export class StoryService {
     return this.stories.list().map((rec) => rowToStory(rec, counts.get(rec.id) ?? 0));
   }
 
-  close(idOrSeq: string): Story {
+  close(idOrSeq: string, origin?: OriginFields | null): Story {
     const existing = this.resolveRecord(idOrSeq);
     if (!existing) throw new Error(`Story not found: ${idOrSeq}`);
     if (existing.status !== "closed") {
       const now = new Date().toISOString();
-      this.stories.setStatus(existing.id, "closed", now);
+      this.stories.setStatus(existing.id, "closed", now, origin);
       existing.status = "closed";
       existing.updated_at = now;
     }

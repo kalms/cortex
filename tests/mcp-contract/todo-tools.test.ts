@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, type HarnessContext, callTool } from "./harness.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 
 describe("todo tool contract — lifecycle", () => {
   let h: HarnessContext;
@@ -58,6 +60,41 @@ describe("todo tool contract — lifecycle", () => {
     const isErrorEnvelope = res.isError === true || text.startsWith("ERROR reason=");
     const isMissingField = text.includes("requires 'summary'") || text.includes("summary") || isErrorEnvelope;
     expect(isMissingField).toBe(true);
+  });
+});
+
+describe("todo tool last-touched provenance", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  it("keeps origin immutable across an update", async () => {
+    const created = await callTool(h, "todo", { action: "propose", summary: "immutable origin" });
+    const id = JSON.parse(created.content[0].text).id as string;
+    const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+    try {
+      const before = db.prepare("SELECT origin_branch, origin_commit FROM todos WHERE id=?").get(id);
+      await callTool(h, "todo", { action: "update", id, summary: "changed" });
+      const after = db.prepare("SELECT origin_branch, origin_commit FROM todos WHERE id=?").get(id);
+      expect(after).toEqual(before);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("bumps updated_at when a link is added (closes the pre-existing addLink gap)", async () => {
+    const created = await callTool(h, "todo", { action: "propose", summary: "link bumps updated_at" });
+    const id = JSON.parse(created.content[0].text).id as string;
+    const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+    try {
+      const before = db.prepare("SELECT updated_at FROM todos WHERE id=?").get(id) as { updated_at: string };
+      await new Promise((r) => setTimeout(r, 5));
+      await callTool(h, "todo", { action: "link", id, target: "src/link-bump.ts", relation: "GOVERNS" });
+      const after = db.prepare("SELECT updated_at FROM todos WHERE id=?").get(id) as { updated_at: string };
+      expect(after.updated_at).not.toBe(before.updated_at);
+    } finally {
+      db.close();
+    }
   });
 });
 

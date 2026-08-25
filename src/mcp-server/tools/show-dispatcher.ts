@@ -160,7 +160,10 @@ export async function showAction(ctx: RepoContext, args: ShowArgs) {
       case "close": {
         const svc = new StoryService({ db: ctx.decisionsDb });
         const storyId = need(args.story_id, "close", "story_id");
-        return ok(JSON.stringify(svc.close(storyId)));
+        // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+        // checkout root) — never in the service. Closing a story rewrites
+        // last_touched_* only; origin is immutable.
+        return ok(JSON.stringify(svc.close(storyId, captureOrigin(ctx.repoPath))));
       }
       case "delete": {
         const svc = new StoryService({ db: ctx.decisionsDb });

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { ok, empty, error as errorResponse } from "../response.js";
+import { captureOrigin } from "../../git/origin.js";
 import { type RepoContext } from "../repo-context.js";
 import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
@@ -63,6 +64,10 @@ export async function recordReconciliationAction(
   }
   const hash = hashGovernedSource(ctx.repoPath, refs);
   const nowIso = new Date().toISOString();
+  // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+  // checkout root) — never in the repository, which stays free of git
+  // dependencies (same rule Task 3 established for the service layer).
+  const origin = captureOrigin(ctx.repoPath);
   ctx.decisionsRepo.recordReconciliation(canonicalId, {
     reconciliation_verdict: args.verdict,
     reconciled_at: nowIso,
@@ -70,6 +75,11 @@ export async function recordReconciliationAction(
     reconciled_by: process.env.CORTEX_AGENT_ID ?? "agent",
     nonconformant_nodes: args.nonconformant ? JSON.stringify(args.nonconformant) : null,
     reconciliation_note: args.note ?? null,
+    reconciled_branch: origin.branch,
+    reconciled_commit: origin.commit,
+    last_touched_branch: origin.branch,
+    last_touched_commit: origin.commit,
+    last_touched_thread: origin.thread,
   });
   return ok(JSON.stringify({ decision_id: canonicalId, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
 }

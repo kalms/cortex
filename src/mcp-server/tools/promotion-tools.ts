@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DecisionPromotion } from "../../decisions/promotion.js";
+import { captureOrigin } from "../../git/origin.js";
 import { ok } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
@@ -37,7 +38,11 @@ export async function promoteDecisionAction(
       ctx.decisionsRepo,
       bus ? { bus, project_id: indexerProject ?? "" } : {},
     );
-    const decision = promotion.promote(id, tier);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in DecisionPromotion, which stays free of git
+    // dependencies (same rule Task 3 established for the service layer).
+    const origin = captureOrigin(ctx.repoPath);
+    const decision = promotion.promote(id, tier, origin);
     return ok(JSON.stringify(decision, null, 2));
   });
 }

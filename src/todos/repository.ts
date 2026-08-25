@@ -2,6 +2,14 @@ import type Database from "better-sqlite3";
 import { toFtsMatch } from "../decisions/repository.js";
 import type { TodoRecord } from "./types.js";
 
+// origin_* is stamped once at create and is immutable thereafter — excluded
+// here (mirrors DecisionUpdate in ../decisions/repository.ts) so a spread of
+// a full TodoRecord can never silently rewrite it. last_touched_* is
+// deliberately NOT excluded: rewriting it on every mutation is the point.
+export type TodoRecordUpdate = Partial<
+  Omit<TodoRecord, "id" | "seq" | "created_at" | "origin_branch" | "origin_commit" | "origin_thread">
+>;
+
 const COLS =
   "id, seq, summary, description, state, state_reason, proposed_by, proposed_at, started_at, closed_at, assignee, created_at, updated_at";
 
@@ -43,7 +51,7 @@ export class TodosRepository {
     return (this.db.prepare(`SELECT ${COLS} FROM todos WHERE seq = ?`).get(seq) as TodoRecord | undefined) ?? null;
   }
 
-  update(id: string, patch: Partial<TodoRecord>): void {
+  update(id: string, patch: TodoRecordUpdate): void {
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
     const setClause = keys.map((k) => `${k} = @${k}`).join(", ");

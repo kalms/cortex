@@ -126,20 +126,26 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
                   description: args.description,
                   assignee: args.assignee,
                   governs: args.governs,
+                  // captureOrigin is called HERE, in the handler, on
+                  // ctx.repoPath (the checkout root) — never in the
+                  // service. Rewrites last_touched_* only.
+                  origin: captureOrigin(ctx.repoPath),
                 }),
                 null,
                 2,
               ),
             );
-          case "link":
+          case "link": {
+            const origin = captureOrigin(ctx.repoPath);
             svc.service.link({
               todo_id: need(args.id, "link", "id"),
               target: need(args.target, "link", "target"),
               relation: need(args.relation, "link", "relation"),
-            });
+            }, origin);
             return ok(
               JSON.stringify({ linked: true, todo_id: args.id, target: args.target, relation: args.relation }),
             );
+          }
           case "transition":
             return ok(
               JSON.stringify(
@@ -148,6 +154,7 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
                   reason: args.reason,
                   resolved_by: args.resolved_by,
                   blocked_by: args.blocked_by,
+                  origin: captureOrigin(ctx.repoPath),
                 }),
                 null,
                 2,

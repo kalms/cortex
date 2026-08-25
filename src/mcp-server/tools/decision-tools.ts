@@ -270,7 +270,11 @@ export async function updateDecisionAction(
   }
   const { repo_path: _repoPath, id, ...updates } = args;
   return execAction(`update_decision(${id})`, () => {
-    const decision = serviceForCtx(ctx, bus, indexerProject).update(id, updates);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service, which stays free of git
+    // dependencies. Rewrites last_touched_* only — origin is immutable.
+    const origin = captureOrigin(ctx.repoPath);
+    const decision = serviceForCtx(ctx, bus, indexerProject).update(id, { ...updates, origin });
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -564,10 +568,14 @@ export async function linkDecisionAction(
   return execAction(`link_decision(${decision_id})`, () => {
     const rel = relation ?? "GOVERNS";
     const scopedService = serviceForCtx(ctx, bus, indexerProject);
-    if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target);
-    else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target);
-    else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target);
-    else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service. Adding a link is a mutation of
+    // the owning decision, so it bumps last_touched_* like any other write.
+    const origin = captureOrigin(ctx.repoPath);
+    if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target, origin);
+    else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target, origin);
+    else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target, origin);
+    else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target, origin);
     return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
   });
 }

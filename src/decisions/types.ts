@@ -99,6 +99,12 @@ export interface UpdateDecisionInput {
   governs?: string[];
   // NEW — full-replacement semantics for REFERENCES edges
   references?: string[];
+  // Git identity captured by the tool handler, describing the checkout this
+  // update was made from. Rewrites last_touched_* only — origin is immutable.
+  // undefined (not called) leaves last_touched_* untouched; a present
+  // OriginFields (even one whose fields are all null, e.g. non-git dir)
+  // always overwrites last_touched_* with that snapshot.
+  origin?: OriginFields;
 }
 
 export interface ProposeDecisionInput {

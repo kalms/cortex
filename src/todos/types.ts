@@ -63,6 +63,10 @@ export interface UpdateTodoInput {
   description?: string;
   assignee?: string | null;
   governs?: string[];        // full-set replacement when provided
+  // Git identity captured by the tool handler, describing the checkout this
+  // update was made from. Rewrites last_touched_* only — origin is immutable.
+  // undefined (not called) leaves last_touched_* untouched.
+  origin?: OriginFields;
 }
 
 export interface TransitionTodoInput {
@@ -70,6 +74,9 @@ export interface TransitionTodoInput {
   reason?: string;           // recorded as state_reason on blocked/cancelled
   resolved_by?: string[];    // pr numbers, recorded as RESOLVED_BY on → done
   blocked_by?: string[];     // todo ids, recorded as BLOCKED_BY on → blocked
+  // Git identity captured by the tool handler — same semantics as
+  // UpdateTodoInput.origin.
+  origin?: OriginFields;
 }
 
 export interface LinkTodoInput {

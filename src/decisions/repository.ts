@@ -37,13 +37,22 @@ export interface DecisionRecord {
   last_touched_commit?: string | null;
   last_touched_thread?: string | null;
   basis_hash?: string | null;
+  // Reconciliation identity — the checkout the verdict was recorded from.
+  // Written only by recordReconciliation(); same write-once-per-verdict
+  // shape as the reconciliation columns above.
+  reconciled_branch?: string | null;
+  reconciled_commit?: string | null;
 }
 
 // provenance is machine-derived and write-once: excluded from updates so it
 // cannot be silently overwritten by a spread of a full DecisionRecord. seq is
-// assigned once at mint time and is likewise never patched.
+// assigned once at mint time and is likewise never patched. origin_* is
+// stamped once at create and is immutable thereafter (same rationale as
+// provenance) — excluded here so a spread of a full DecisionRecord can never
+// silently rewrite it; last_touched_* is deliberately NOT excluded, since
+// rewriting last_touched_* on every mutation is the entire point of this type.
 export type DecisionUpdate = Partial<
-  Omit<DecisionRecord, "id" | "seq" | "created_at" | "provenance">
+  Omit<DecisionRecord, "id" | "seq" | "created_at" | "provenance" | "origin_branch" | "origin_commit" | "origin_thread">
 >;
 
 const SELECT_COLS =
@@ -80,6 +89,14 @@ export interface ReconciliationFields {
   reconciled_by: string;
   nonconformant_nodes: string | null;
   reconciliation_note: string | null;
+  // Git identity of the checkout the verdict was recorded from. Optional so
+  // pre-existing callers (tests that predate this task) keep typechecking;
+  // recordReconciliation() defaults every one to null when omitted.
+  reconciled_branch?: string | null;
+  reconciled_commit?: string | null;
+  last_touched_branch?: string | null;
+  last_touched_commit?: string | null;
+  last_touched_thread?: string | null;
 }
 
 export class DecisionsRepository {
@@ -168,7 +185,10 @@ export class DecisionsRepository {
 
   /** Stamp the latest reconciliation verdict. The caller (record_reconciliation
    *  tool) is responsible for computing reconciled_source_hash against the
-   *  current working tree, so the verdict is always bound to real source. */
+   *  current working tree, so the verdict is always bound to real source.
+   *  Also stamps reconciled_branch/reconciled_commit (the checkout the
+   *  verdict was recorded from) and last_touched_* (recording a verdict is a
+   *  mutation of the decision row like any other). */
   recordReconciliation(id: string, f: ReconciliationFields): void {
     this.db
       .prepare(
@@ -178,9 +198,22 @@ export class DecisionsRepository {
            reconciled_source_hash = @reconciled_source_hash,
            reconciled_by          = @reconciled_by,
            nonconformant_nodes    = @nonconformant_nodes,
-           reconciliation_note    = @reconciliation_note
+           reconciliation_note    = @reconciliation_note,
+           reconciled_branch      = @reconciled_branch,
+           reconciled_commit      = @reconciled_commit,
+           last_touched_branch    = @last_touched_branch,
+           last_touched_commit    = @last_touched_commit,
+           last_touched_thread    = @last_touched_thread
          WHERE id = @id`,
       )
-      .run({ ...f, id });
+      .run({
+        ...f,
+        id,
+        reconciled_branch: f.reconciled_branch ?? null,
+        reconciled_commit: f.reconciled_commit ?? null,
+        last_touched_branch: f.last_touched_branch ?? null,
+        last_touched_commit: f.last_touched_commit ?? null,
+        last_touched_thread: f.last_touched_thread ?? null,
+      });
   }
 }
