@@ -18,6 +18,28 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.0.4] — 2026-08-26
+
+### Fixed
+
+- **The SessionStart routing text named the ladder but never the reason its top
+  rung goes unused.** Cortex's MCP tools arrive *deferred* — name only, no
+  parameter schema — so reaching the first rung costs a `ToolSearch` call
+  before the first real call, while the text-search fallback it exists to
+  displace costs none. An agent does not weigh that trade-off and choose
+  wrongly; it follows the cheaper path, and `prefer-cortex` then fires *after*
+  the reach, which is what an operator experiences as an agent fighting its own
+  routing. Advisory prose cannot beat a structural gradient, so the indexed
+  branch now opens with the one call that closes it, paid at session start
+  instead of remembered mid-task. The directive is keyword-form
+  (`ToolSearch(query="+cortex …")`), never an exact-name `select:` — this
+  plugin registers the server as `cortex`, but an embedding host may register
+  it under another name (Mesh injects its bundled sidecar as `mesh-cortex`)
+  and an exact-name select would silently match nothing there. It self-cancels
+  when the schemas are already loaded. This *narrows* the gradient rather than
+  removing it: the directive is still context text competing with harness
+  instructions that point the other way.
+
 ## [2.0.3] — 2026-08-25
 
 ### Fixed
@@ -2149,6 +2171,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.0.4]: https://github.com/ruevu/cortex/releases/tag/v2.0.4
 [2.0.3]: https://github.com/ruevu/cortex/releases/tag/v2.0.3
 [2.0.2]: https://github.com/ruevu/cortex/releases/tag/v2.0.2
 [2.0.1]: https://github.com/ruevu/cortex/releases/tag/v2.0.1
