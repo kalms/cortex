@@ -160,15 +160,14 @@ export class TodoService {
     if (input.summary !== undefined) { patch.summary = input.summary; changedFields.push("summary"); }
     if (input.description !== undefined) { patch.description = input.description; changedFields.push("description"); }
     if (input.assignee !== undefined) { patch.assignee = input.assignee; changedFields.push("assignee"); }
-    // Rewrite last-touched to the checkout this update came from. undefined
-    // (caller didn't thread origin through) leaves last_touched_* untouched
-    // rather than nulling out a previously-good value. Origin itself is
-    // never touched — TodoRecordUpdate excludes it entirely.
-    if (input.origin !== undefined) {
-      patch.last_touched_branch = input.origin?.branch ?? null;
-      patch.last_touched_commit = input.origin?.commit ?? null;
-      patch.last_touched_thread = input.origin?.thread ?? null;
-    }
+    // Rewrite last-touched to the checkout this update came from —
+    // unconditionally (mirrors DecisionService.update). Every real caller
+    // (tool handlers, the CLI) now threads origin through; omitting it
+    // stamps null, the same honest value a non-git checkout would produce.
+    // Origin itself is never touched — TodoRecordUpdate excludes it entirely.
+    patch.last_touched_branch = input.origin?.branch ?? null;
+    patch.last_touched_commit = input.origin?.commit ?? null;
+    patch.last_touched_thread = input.origin?.thread ?? null;
     // Record patch + governance replacement land atomically — same guarantee
     // as DecisionService.update. The replaceLinks transaction nests as a savepoint.
     if (input.governs !== undefined) changedFields.push("governs");
@@ -193,11 +192,10 @@ export class TodoService {
     if (input.to === "in_progress" && !existing.started_at) patch.started_at = now;
     if (input.to === "done" || input.to === "cancelled") patch.closed_at = now;
     if (input.to === "blocked" || input.to === "cancelled") patch.state_reason = input.reason ?? null;
-    if (input.origin !== undefined) {
-      patch.last_touched_branch = input.origin?.branch ?? null;
-      patch.last_touched_commit = input.origin?.commit ?? null;
-      patch.last_touched_thread = input.origin?.thread ?? null;
-    }
+    // Unconditional — see the comment on the same lines in update() above.
+    patch.last_touched_branch = input.origin?.branch ?? null;
+    patch.last_touched_commit = input.origin?.commit ?? null;
+    patch.last_touched_thread = input.origin?.thread ?? null;
     this.todos.update(existing.id, patch);
     if (input.to === "done") for (const pr of input.resolved_by ?? []) this.addLink(existing.id, pr, "RESOLVED_BY", now, input.origin);
     if (input.to === "blocked") for (const b of input.blocked_by ?? []) this.addLink(existing.id, b, "BLOCKED_BY", now, input.origin);

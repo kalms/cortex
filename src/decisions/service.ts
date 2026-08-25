@@ -184,16 +184,17 @@ export class DecisionService {
     if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
     if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
-    // Rewrite last-touched to the checkout this update came from. undefined
-    // (caller didn't thread origin through, e.g. an internal ratify()/
-    // supersede() call) leaves last_touched_* untouched rather than nulling
-    // out a previously-good value; a present OriginFields always overwrites.
+    // Rewrite last-touched to the checkout this update came from —
+    // unconditionally. Every real caller (tool handlers, the CLI, ratify(),
+    // supersede()) now threads origin through; omitting it stamps null, the
+    // same honest "no git identity" value a non-git checkout produces. A
+    // conditional guard here previously left last_touched_* stale on
+    // origin-less callers while addLink (below, via replaceLinks) NULLed it
+    // anyway two lines later — two contradictory policies for one call.
     // Origin itself is never touched — DecisionUpdate excludes it entirely.
-    if (input.origin !== undefined) {
-      patch.last_touched_branch = input.origin?.branch ?? null;
-      patch.last_touched_commit = input.origin?.commit ?? null;
-      patch.last_touched_thread = input.origin?.thread ?? null;
-    }
+    patch.last_touched_branch = input.origin?.branch ?? null;
+    patch.last_touched_commit = input.origin?.commit ?? null;
+    patch.last_touched_thread = input.origin?.thread ?? null;
     // Record patch + governance replacement (full set semantics) land
     // atomically — a failed link write must not leave the record updated.
     // The replaceLinks transactions nest as savepoints.
@@ -290,6 +291,10 @@ export class DecisionService {
       status: "superseded",
       superseded_by: replacement.id,
       author: input.author,
+      // Refreshes last_touched_* on the OLD decision this call actually
+      // mutates. Deliberately not threaded into the `create()` call above —
+      // see the origin field's comment on SupersedeDecisionInput.
+      origin: input.origin,
     }, { emit: false });
     this.links.add({
       decision_id: replacement.id,
@@ -366,10 +371,10 @@ export class DecisionService {
    * when a PR that introduced the decision is merged. Idempotent: no-op if
    * the decision doesn't exist or isn't currently 'proposed'.
    */
-  ratify(decisionId: string, viaPrNumber: number): void {
+  ratify(decisionId: string, viaPrNumber: number, origin?: OriginFields | null): void {
     const existing = this.decisions.get(decisionId);
     if (!existing || existing.status !== "proposed") return;
-    this.update(decisionId, { status: "active" }, { emit: false });
+    this.update(decisionId, { status: "active", origin: origin ?? undefined }, { emit: false });
     this.emit({
       id: newUlid(),
       kind: "decision.ratified",

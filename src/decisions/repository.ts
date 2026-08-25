@@ -55,6 +55,18 @@ export type DecisionUpdate = Partial<
   Omit<DecisionRecord, "id" | "seq" | "created_at" | "provenance" | "origin_branch" | "origin_commit" | "origin_thread">
 >;
 
+/** Runtime backstop for the same write-once set `DecisionUpdate` excludes at
+ *  compile time. The TS exclusion is walkable with `as never` (this repo's
+ *  own tests do exactly that against this API), so it cannot be the actual
+ *  enforcement of "origin is immutable after create" — this allow-list is.
+ *  `update()` silently drops any of these keys from the patch rather than
+ *  throwing: dropping can never break a caller (the write-once column simply
+ *  keeps its existing value), where throwing would turn an ignorable mistake
+ *  into an outage. */
+const WRITE_ONCE_KEYS = new Set<string>([
+  "id", "seq", "created_at", "provenance", "origin_branch", "origin_commit", "origin_thread",
+]);
+
 const SELECT_COLS =
   "id, seq, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
 
@@ -143,12 +155,14 @@ export class DecisionsRepository {
   }
 
   update(id: string, patch: DecisionUpdate): void {
-    const keys = Object.keys(patch);
+    const keys = Object.keys(patch).filter((k) => !WRITE_ONCE_KEYS.has(k));
     if (keys.length === 0) return;
     const setClause = keys.map((k) => `${k} = @${k}`).join(", ");
+    const params: Record<string, unknown> = { id };
+    for (const k of keys) params[k] = (patch as Record<string, unknown>)[k];
     this.db
       .prepare(`UPDATE decisions SET ${setClause} WHERE id = @id`)
-      .run({ ...patch, id });
+      .run(params);
   }
 
   delete(id: string): boolean {

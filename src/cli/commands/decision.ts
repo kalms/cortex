@@ -8,6 +8,7 @@ import { DecisionLinksRepository } from "../../decisions/links-repository.js";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
+import { captureOrigin, type OriginFields } from "../../git/origin.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { writeRows, chooseFormat } from "../format.js";
@@ -37,7 +38,11 @@ function openService(ctx: ProjectContext) {
     decisions: new DecisionsRepository(db),
     links,
   });
-  return { db, svc, links };
+  // captureOrigin is called HERE, once, in the CLI command layer (never in
+  // DecisionService, which stays free of git imports) — every mutating CLI
+  // call below threads this same capture into its service call.
+  const origin: OriginFields = captureOrigin(root);
+  return { db, svc, links, origin };
 }
 
 function requireFlag(name: string, flags: Record<string, unknown>): string {
@@ -292,9 +297,9 @@ function cmdUpdate(cmd: DecisionCommand, ctx: ProjectContext): void {
   if (!id) {
     throw new UsageError("missing <id>", "Usage: cortex decision update <id> --field=value ...");
   }
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
-    const patch: Record<string, unknown> = {};
+    const patch: Record<string, unknown> = { origin };
     for (const k of ["title", "description", "rationale", "problem", "resolution"]) {
       if (typeof cmd.flags[k] === "string") patch[k] = cmd.flags[k];
     }
@@ -326,10 +331,10 @@ function cmdLink(cmd: DecisionCommand, ctx: ProjectContext): void {
     );
   }
   const relation = (cmd.flags.relation as string) ?? "GOVERNS";
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
-    if (relation === "GOVERNS") svc.linkGoverns(id, target);
-    else if (relation === "REFERENCES") svc.linkReference(id, target);
+    if (relation === "GOVERNS") svc.linkGoverns(id, target, origin);
+    else if (relation === "REFERENCES") svc.linkReference(id, target, origin);
     else throw new UsageError(`unknown --relation '${relation}'`, "Allowed: GOVERNS, REFERENCES");
     process.stdout.write(`linked ${id} -[${relation}]-> ${target}\n`);
   } finally {
@@ -363,9 +368,9 @@ function cmdSupersede(cmd: DecisionCommand, ctx: ProjectContext): void {
   const problem = requireFlag("problem", cmd.flags);
   const resolution = requireFlag("resolution", cmd.flags);
   const rationale = requireFlag("rationale", cmd.flags);
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
-    const d = svc.supersede({ old_decision_id: oldId, title, problem, resolution, rationale });
+    const d = svc.supersede({ old_decision_id: oldId, title, problem, resolution, rationale, origin });
     process.stdout.write(JSON.stringify(d, null, 2) + "\n");
   } finally {
     db.close();

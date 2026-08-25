@@ -65,7 +65,11 @@ export interface UpdateTodoInput {
   governs?: string[];        // full-set replacement when provided
   // Git identity captured by the tool handler, describing the checkout this
   // update was made from. Rewrites last_touched_* only — origin is immutable.
-  // undefined (not called) leaves last_touched_* untouched.
+  // Every real caller (tool handlers, the CLI) now threads this through, so
+  // it is stamped UNCONDITIONALLY: `origin?.field ?? null`. Omitting it (as
+  // some direct unit-test call sites still do) stamps null, same as a
+  // non-git checkout would — an honest "no git identity was captured here",
+  // never a stale leftover from a previous mutation.
   origin?: OriginFields;
 }
 

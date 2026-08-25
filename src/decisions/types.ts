@@ -101,9 +101,11 @@ export interface UpdateDecisionInput {
   references?: string[];
   // Git identity captured by the tool handler, describing the checkout this
   // update was made from. Rewrites last_touched_* only — origin is immutable.
-  // undefined (not called) leaves last_touched_* untouched; a present
-  // OriginFields (even one whose fields are all null, e.g. non-git dir)
-  // always overwrites last_touched_* with that snapshot.
+  // Every real caller (tool handlers, the CLI) now threads this through, so
+  // it is stamped UNCONDITIONALLY: `origin?.field ?? null`. Omitting it (as
+  // some direct unit-test call sites still do) stamps null, same as a
+  // non-git checkout would — an honest "no git identity was captured here",
+  // never a stale leftover from a previous mutation.
   origin?: OriginFields;
 }
 
@@ -131,6 +133,14 @@ export interface SupersedeDecisionInput {
   governs?: string[];
   references?: string[];
   author?: string;
+  // Git identity captured by the tool handler. supersede() mutates the OLD
+  // decision's status in place (superseded/superseded_by) — that mutation's
+  // last_touched_* is refreshed from this. Deliberately NOT threaded into the
+  // replacement decision's own create() call: origin-at-create for a
+  // supersede-created decision was declared out of scope by Task 3 (only
+  // create()/propose() capture origin at mint time); last-touched refresh on
+  // the row this call actually mutates is Task 5's obligation, not that gap.
+  origin?: OriginFields;
 }
 
 export interface PRRef {

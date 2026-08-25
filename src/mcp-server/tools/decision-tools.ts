@@ -250,7 +250,11 @@ export async function supersedeDecisionAction(
   }
   return execAction(`supersede_decision(${args.old_decision_id})`, () => {
     const { repo_path: _repoPath, ...supersedeArgs } = args;
-    const d = serviceForCtx(ctx, bus, indexerProject).supersede(supersedeArgs);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service. supersede() mutates the OLD
+    // decision's status; this refreshes its last_touched_*.
+    const origin = captureOrigin(ctx.repoPath);
+    const d = serviceForCtx(ctx, bus, indexerProject).supersede({ ...supersedeArgs, origin });
     return ok(JSON.stringify(d, null, 2));
   });
 }

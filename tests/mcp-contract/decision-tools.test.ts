@@ -1,9 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, callTool, makeIndexedRepoFixture, countDecisions, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { join } from "node:path";
 import { openDecisionsDb } from "../../src/decisions/db.js";
 import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
+
+/** A fixture repo with a real commit, so captureOrigin's gitBranch/gitHead
+ *  produce real values instead of the null degrade a commit-less `git init`
+ *  repo gives — needed to assert actual last_touched_* values, not just
+ *  column presence. Mirrors repoWithGovernedFile() in
+ *  tests/mcp-server/reconciliation-ref-parity.test.ts. */
+function makeCommittedRepoFixture(): string {
+  const root = makeIndexedRepoFixture();
+  writeFileSync(join(root, "committed.ts"), "export const x = 1;\n");
+  execSync(`git -C "${root}" add .`, { stdio: "ignore" });
+  execSync(`git -C "${root}" commit -q --no-gpg-sign -m seed`, { stdio: "ignore" });
+  return root;
+}
 
 describe("decision-tools contract", () => {
   let h: HarnessContext;
@@ -733,25 +748,32 @@ describe("decision-tools contract", () => {
       }
     });
 
-    it("rewrites last_touched_* on update", async () => {
-      const created = await callTool(h, "decision", {
-        action: "create", title: "touch me", description: "d", rationale: "r",
-      });
-      const id = JSON.parse(created.content[0].text as string).id as string;
-      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+    it("rewrites last_touched_* on update to the checkout's real branch/commit", async () => {
+      const repo = makeCommittedRepoFixture();
       try {
-        await callTool(h, "decision", { action: "update", id, title: "touched" });
-        const row = db.prepare(
-          "SELECT last_touched_branch, last_touched_commit FROM decisions WHERE id=?",
-        ).get(id) as { last_touched_branch: string | null; last_touched_commit: string | null };
-        // The harness's fixture repos are freshly `git init`'d with no
-        // commits, so gitHead()/gitBranch() both degrade to null (captureOrigin
-        // never throws) — the columns exist and were written, which is what
-        // this test proves, not a particular non-null value.
-        expect(row).toHaveProperty("last_touched_branch");
-        expect(row).toHaveProperty("last_touched_commit");
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "touch me", description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+        const realCommit = execSync(`git -C "${repo}" rev-parse HEAD`).toString().trim();
+
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          await callTool(h, "decision", { repo_path: repo, action: "update", id, title: "touched" });
+          const row = db.prepare(
+            "SELECT last_touched_branch, last_touched_commit FROM decisions WHERE id=?",
+          ).get(id) as { last_touched_branch: string | null; last_touched_commit: string | null };
+          // Real values, not just "the column exists" — a deleted stamping
+          // implementation would leave these null (or whatever create()
+          // wrote) rather than the checkout's actual current branch/commit.
+          expect(row.last_touched_branch).toBe(realBranch);
+          expect(row.last_touched_commit).toBe(realCommit);
+        } finally {
+          db.close();
+        }
       } finally {
-        db.close();
+        rmSync(repo, { recursive: true, force: true });
       }
     });
 

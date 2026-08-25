@@ -10,6 +10,15 @@ export type TodoRecordUpdate = Partial<
   Omit<TodoRecord, "id" | "seq" | "created_at" | "origin_branch" | "origin_commit" | "origin_thread">
 >;
 
+/** Runtime backstop for the same write-once set `TodoRecordUpdate` excludes
+ *  at compile time — mirrors `WRITE_ONCE_KEYS` in ../decisions/repository.ts.
+ *  The TS exclusion is walkable with `as never`, so it cannot be the actual
+ *  enforcement of "origin is immutable after create"; this allow-list is.
+ *  `update()` silently drops any of these keys rather than throwing. */
+const WRITE_ONCE_KEYS = new Set<string>([
+  "id", "seq", "created_at", "origin_branch", "origin_commit", "origin_thread",
+]);
+
 const COLS =
   "id, seq, summary, description, state, state_reason, proposed_by, proposed_at, started_at, closed_at, assignee, created_at, updated_at";
 
@@ -52,10 +61,12 @@ export class TodosRepository {
   }
 
   update(id: string, patch: TodoRecordUpdate): void {
-    const keys = Object.keys(patch);
+    const keys = Object.keys(patch).filter((k) => !WRITE_ONCE_KEYS.has(k));
     if (keys.length === 0) return;
     const setClause = keys.map((k) => `${k} = @${k}`).join(", ");
-    this.db.prepare(`UPDATE todos SET ${setClause} WHERE id = @id`).run({ ...patch, id });
+    const params: Record<string, unknown> = { id };
+    for (const k of keys) params[k] = (patch as Record<string, unknown>)[k];
+    this.db.prepare(`UPDATE todos SET ${setClause} WHERE id = @id`).run(params);
   }
 
   delete(id: string): boolean {

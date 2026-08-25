@@ -3,6 +3,7 @@ import { resolveDecisionsDbPath, legacyDecisionsDbPath } from "../../db/resolve-
 import { TodoService } from "../../todos/service.js";
 import { TodosRepository } from "../../todos/repository.js";
 import { TodoLinksRepository } from "../../todos/links-repository.js";
+import { captureOrigin, type OriginFields } from "../../git/origin.js";
 import type { ProjectContext } from "../context.js";
 import { UsageError, DomainError, EnvironmentError } from "../errors.js";
 import { writeRows, chooseFormat } from "../format.js";
@@ -28,7 +29,11 @@ function openService(ctx: ProjectContext) {
     todos: new TodosRepository(db),
     links: new TodoLinksRepository(db),
   });
-  return { db, svc };
+  // captureOrigin is called HERE, once, in the CLI command layer (never in
+  // TodoService, which stays free of git imports) — every mutating CLI call
+  // below threads this same capture into its service call.
+  const origin: OriginFields = captureOrigin(root);
+  return { db, svc, origin };
 }
 
 const VALID_RELATIONS = ["GOVERNS", "BLOCKED_BY", "RELATED_TO", "SPAWNS_FROM", "RESOLVED_BY"] as const;
@@ -150,9 +155,12 @@ function cmdUpdate(cmd: TodoCommand, ctx: ProjectContext): void {
     typeof cmd.flags.assignee === "string" ||
     typeof cmd.flags.governs === "string";
 
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
-    const patch: { summary?: string; description?: string; assignee?: string | null; governs?: string[] } = {};
+    const patch: {
+      summary?: string; description?: string; assignee?: string | null; governs?: string[];
+      origin?: OriginFields;
+    } = { origin };
 
     if (!hasFieldFlag) {
       ensureInteractive("update");
@@ -184,13 +192,14 @@ function cmdTransition(cmd: TodoCommand, ctx: ProjectContext): void {
   const id = cmd.positionals[0];
   const to = cmd.positionals[1];
   if (!id || !to) throw new UsageError("missing args", "Usage: cortex todo transition <id> <state> [--reason=...]");
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
     const t = svc.transition(id, {
       to: to as "open" | "in_progress" | "blocked" | "done" | "cancelled",
       reason: typeof cmd.flags.reason === "string" ? cmd.flags.reason : undefined,
       resolved_by: parseList(cmd.flags["resolved-by"]),
       blocked_by: parseList(cmd.flags["blocked-by"]),
+      origin,
     });
     process.stdout.write(JSON.stringify(t, null, 2) + "\n");
   } catch (e) {
@@ -208,9 +217,9 @@ function cmdLink(cmd: TodoCommand, ctx: ProjectContext): void {
   if (!VALID_RELATIONS.includes(relation as (typeof VALID_RELATIONS)[number])) {
     throw new UsageError(`unknown --relation '${relation}'`, `Allowed: ${VALID_RELATIONS.join(", ")}`);
   }
-  const { db, svc } = openService(ctx);
+  const { db, svc, origin } = openService(ctx);
   try {
-    svc.link({ todo_id: id, target, relation });
+    svc.link({ todo_id: id, target, relation }, origin);
     process.stdout.write(`linked ${id} -[${relation}]-> ${target}\n`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
