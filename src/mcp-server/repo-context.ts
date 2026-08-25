@@ -238,9 +238,15 @@ function kickBackgroundIndex(checkout: string): boolean {
     // 60-minute sentinel window. Opening the log is best-effort — if it
     // fails, fall back to the prior silent-but-safe "ignore" behavior
     // rather than letting a logging problem fail the read.
+    //
+    // Truncate ("w"), not append — the shell twin uses `>"$log" 2>&1`, so the
+    // log always describes the LATEST attempt. Appending would accumulate the
+    // full stdout of every index run this checkout ever performs, growing
+    // without bound on a long-lived checkout, and "the last run failed" is
+    // the question this file exists to answer.
     let logFd: number | undefined;
     try {
-      logFd = openSync(logPath, "a");
+      logFd = openSync(logPath, "w");
     } catch {
       logFd = undefined;
     }
