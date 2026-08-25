@@ -39,10 +39,17 @@ function runHook(
   payload: object,
   opts: { env?: Record<string, string>; cortexBinDir?: string } = {},
 ): RunResult {
-  const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
-    ...(opts.env ?? {}),
-  };
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  // Scrub the three variables the hook reads from the environment before
+  // layering on what the test asked for. CORTEX_BIN matters most: the hook
+  // resolves it *ahead* of PATH, so an inherited one silently beats the fake
+  // `cortex` these tests put on PATH — the hook then briefs a throwaway temp
+  // repo with the real CLI, gets nothing back, and allows. Every deny-expecting
+  // case degrades to allow, and nothing else in the file notices. Mesh exports
+  // CORTEX_BIN into every agent session it spawns, so this suite failed there
+  // and nowhere else, CI included.
+  for (const k of ["CORTEX_BIN", "CORTEX_BRIEF", "CORTEX_BRIEF_BLOCK"]) delete env[k];
+  Object.assign(env, opts.env ?? {});
   if (opts.cortexBinDir) {
     env.PATH = `${opts.cortexBinDir}:${env.PATH ?? "/usr/bin:/bin"}`;
   }
