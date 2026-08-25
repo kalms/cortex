@@ -4,7 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { ok, empty, error as errorResponse } from "../response.js";
 import { captureOrigin } from "../../git/origin.js";
 import { type RepoContext } from "../repo-context.js";
-import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
+import { hashGovernedSource, refToFile, resolveGovernedRefs, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
 import { serviceForCtx } from "./decision-tools.js";
 import { RepoPathField } from "./shared-fields.js";
@@ -61,6 +61,20 @@ export async function recordReconciliationAction(
       "not_reconcilable",
       `Decision ${canonicalId} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
     );
+  }
+  if (args.verdict === "match") {
+    const unresolved = resolveGovernedRefs(ctx.repoPath, refs).filter((r) => r.state !== "resolved");
+    if (unresolved.length > 0) {
+      // A `match` here would freeze the <missing> sentinel into the stored hash:
+      // the row would compare equal forever and go permanently quiet, even
+      // though it governs code that does not exist. `partial` and `drift` stay open.
+      return errorResponse(
+        "not_reconcilable",
+        `Cannot record 'match': ${unresolved.length} governed ref(s) do not resolve — ` +
+          unresolved.map((r) => `${r.ref.target_ref} (${r.state})`).join(", ") +
+          `. Use 'partial' or 'drift', or correct the decision's governs list.`,
+      );
+    }
   }
   const hash = hashGovernedSource(ctx.repoPath, refs);
   const nowIso = new Date().toISOString();

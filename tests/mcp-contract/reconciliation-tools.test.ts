@@ -110,4 +110,26 @@ describe("record_reconciliation", () => {
     await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "match" });
     expect((await parse(id)).display_state).toBe("active");
   });
+
+  it("refuses a match verdict while a governed ref is unresolved", async () => {
+    const created = await callTool(h, "decision", {
+      action: "create", title: "governs a ghost", description: "d", rationale: "r",
+      governs: ["src/does-not-exist.ts"],
+    });
+    const id = JSON.parse(created.content[0].text as string).id as string;
+
+    const res = await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "match" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("src/does-not-exist.ts");
+  });
+
+  it("still allows drift while a governed ref is unresolved", async () => {
+    const created = await callTool(h, "decision", {
+      action: "create", title: "governs a ghost too", description: "d", rationale: "r",
+      governs: ["src/also-missing.ts"],
+    });
+    const id = JSON.parse(created.content[0].text as string).id as string;
+    const res = await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "drift" });
+    expect(res.isError).toBeFalsy();
+  });
 });
