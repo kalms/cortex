@@ -184,3 +184,46 @@ describe("check-index.sh — auto-index denylist", () => {
     }
   });
 });
+
+// --- ToolSearch preload directive -----------------------------------------
+// The routing text is advisory and gets skipped; what actually decides
+// grep-vs-Cortex is that the Cortex MCP tools arrive DEFERRED (name only, no
+// schema), so rung 1 costs a ToolSearch call before the first real call while
+// grep costs none. On an indexed repo the hook must open by spending that call
+// up front, at session start, instead of leaving it to be remembered mid-task.
+
+function notIndexedRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "cortex-hook-bare-"));
+  mkdirSync(join(root, ".git"), { recursive: true });
+  return root; // no .cortex/graph.db => not indexed
+}
+
+describe("check-index.sh — ToolSearch preload", () => {
+  it("tells the agent to load the Cortex tool schemas first when indexed", () => {
+    const repo = indexedRepo();
+    const plugin = fakeCortexBin(mkdtempSync(join(tmpdir(), "cortex-plugin-")), "7");
+    try {
+      const out = runHook(repo, plugin);
+      expect(out).toMatch(/ToolSearch\(query="\+cortex /);
+      // Keyword form, never select:<exact-name> — this plugin registers the
+      // server as `cortex`, but embedding hosts register it under other names
+      // (Mesh injects its bundled sidecar as `mesh-cortex`), and an exact-name
+      // select matches nothing there.
+      expect(out).not.toMatch(/select:mcp__/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(plugin, { recursive: true, force: true });
+    }
+  });
+
+  it("does NOT emit the preload directive when the repo is not indexed", () => {
+    const repo = notIndexedRepo();
+    const plugin = fakeCortexBin(mkdtempSync(join(tmpdir(), "cortex-plugin-")), "0");
+    try {
+      expect(runHook(repo, plugin)).not.toMatch(/ToolSearch\(/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(plugin, { recursive: true, force: true });
+    }
+  });
+});
