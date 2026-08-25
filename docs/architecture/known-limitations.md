@@ -99,14 +99,31 @@ keyed by the numeric suffix of the node id to satisfy the C BM25 handler's
 the FTS index, so this path is shadowed today; the repopulation keeps the C BM25
 capability functional regardless.
 
-## Swap publish fails-fast on a C-writer column *addition*
+## Swap publish fails-fast on a C-writer column *addition* — RESOLVED (2026-08-25)
 
-**Behaviour:** If a future C-indexer schema upgrade ADDS a column to a table,
-the first publish sees a staging table with a column the live table lacks;
-`INSERT INTO live.t (cols) SELECT cols FROM stage.t` throws and the transaction
-rolls back — **non-corrupting (old state intact), but the index does not
-publish** until the live schema is migrated. A future migration step should
-`ALTER TABLE … ADD COLUMN` (from staging's schema) before the row copy.
+**Was:** If a C-indexer schema upgrade ADDED a column to a table, the first
+publish saw a staging table with a column the live table lacked;
+`INSERT INTO live.t (cols) SELECT cols FROM stage.t` threw and the transaction
+rolled back — non-corrupting (old state intact), but the index did not publish
+until the live schema was migrated. It bit for real when the indexer grew
+`ctx_projects.extract_schema`
+([#81](https://github.com/ruevu/cortex/issues/81)): the run built a complete
+index, printed its node and frame counts, and *then* failed at publish — so the
+counts described a database that was discarded while the stale graph stayed
+live, with nothing on the read path to say so.
+
+**Resolved by `reconcileSchema`** in
+[`swap-graph-db.ts`](../../src/db/swap-graph-db.ts), which runs per table before
+the row copy — the `ALTER TABLE … ADD COLUMN` step this section called for. It
+is additive by default, so the live table keeps both its indexes and any
+live-only column a lazy migration added. SQLite refuses `ADD COLUMN` for a
+PRIMARY KEY or for `NOT NULL` with no default; for those — and for the mirror
+case, a live-only `NOT NULL` column with no default that the copy could never
+fill — the table is rebuilt from staging's DDL and its index DDL replayed.
+
+Separately, `runIndexCommand` now holds the whole report (indexer payload,
+frames line, contracts line) until the publish commits, so a discarded index can
+no longer read as a delivered one.
 
 ## Swap WAL can stay ~1× DB size under a continuously-busy reader
 
