@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { captureOrigin } from "../../git/origin.js";
 import { TodoService } from "../../todos/service.js";
 import { TodosRepository } from "../../todos/repository.js";
 import { TodoLinksRepository } from "../../todos/links-repository.js";
@@ -32,6 +33,8 @@ const todoShape = {
   to: z.enum(["open", "in_progress", "blocked", "done", "cancelled"]).optional(),
   reason: z.string().optional(),
   resolved_by: z.array(z.string()).optional(),
+  // propose
+  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
 } as const;
 
 const todoSchema = z.object(todoShape);
@@ -76,6 +79,10 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
                   governs: args.governs,
                   spawns_from: args.spawns_from,
                   blocked_by: args.blocked_by,
+                  // captureOrigin is called HERE, in the handler, on
+                  // ctx.repoPath (the checkout root) — never in the
+                  // service, which stays free of git dependencies.
+                  origin: captureOrigin(ctx.repoPath, args.thread ?? null),
                 }),
                 null,
                 2,

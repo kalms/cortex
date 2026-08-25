@@ -36,6 +36,7 @@ export class DecisionService {
   create(input: CreateDecisionInput): Decision {
     const now = new Date().toISOString();
     const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
+    const origin = input.origin ?? null;
     const rec: DecisionRecord = {
       id,
       seq,
@@ -52,6 +53,15 @@ export class DecisionService {
       provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
+      // Origin is stamped once, here, and never rewritten. Last-touched
+      // starts equal to origin — a freshly created row hasn't been touched
+      // since. Later tasks rewrite last-touched on mutation.
+      origin_branch: origin?.branch ?? null,
+      origin_commit: origin?.commit ?? null,
+      origin_thread: origin?.thread ?? null,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     };
     this.decisions.insert(rec);
 
@@ -291,6 +301,7 @@ export class DecisionService {
   propose(input: ProposeDecisionInput): Decision {
     const now = new Date().toISOString();
     const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
+    const origin = input.origin ?? null;
     const rec: DecisionRecord = {
       id,
       seq,
@@ -307,6 +318,14 @@ export class DecisionService {
       provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
+      // Origin is stamped once, here, and never rewritten. Last-touched
+      // starts equal to origin.
+      origin_branch: origin?.branch ?? null,
+      origin_commit: origin?.commit ?? null,
+      origin_thread: origin?.thread ?? null,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     };
     this.decisions.insert(rec);
     for (const target of input.governs ?? []) this.linkGoverns(id, target);

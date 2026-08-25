@@ -1,3 +1,5 @@
+import type { OriginFields } from "../git/origin.js";
+
 export type TodoState = "open" | "in_progress" | "blocked" | "done" | "cancelled";
 
 /** Link relations TODOs can hold. `blocks` is DERIVED (reverse of blockedBy),
@@ -33,6 +35,17 @@ export interface TodoRecord {
   state: string; state_reason: string | null; proposed_by: string | null;
   proposed_at: string; started_at: string | null; closed_at: string | null;
   assignee: string | null; created_at: string; updated_at: string;
+  // Git identity columns (authored-content provenance). Origin is stamped
+  // once at create and never rewritten; last-touched is rewritten by every
+  // mutating path. Optional so pre-existing inline literals typecheck — DB
+  // rows always carry the columns (NULL until stamped).
+  origin_branch?: string | null;
+  origin_commit?: string | null;
+  origin_thread?: string | null;
+  last_touched_branch?: string | null;
+  last_touched_commit?: string | null;
+  last_touched_thread?: string | null;
+  basis_hash?: string | null;
 }
 
 export interface ProposeTodoInput {
@@ -42,6 +55,7 @@ export interface ProposeTodoInput {
   governs?: string[];        // code refs / frames
   spawns_from?: string;      // decision id
   blocked_by?: string[];     // todo ids
+  origin?: OriginFields;     // git identity captured by the tool handler
 }
 
 export interface UpdateTodoInput {

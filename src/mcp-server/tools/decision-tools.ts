@@ -9,6 +9,7 @@
  * tests/mcp-server/decision-ref-parity.test.ts.
  */
 import { z } from "zod";
+import { captureOrigin } from "../../git/origin.js";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { ok, empty, error as errorResponse } from "../response.js";
@@ -45,6 +46,7 @@ const createDecisionShape = {
   references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
   problem: z.string().optional().describe("Narrative: what question this decision answers"),
   resolution: z.string().optional().describe("Narrative: what was decided"),
+  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
@@ -120,6 +122,7 @@ const proposeDecisionShape = {
   pr_number: z.number().int().optional(),
   author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
   provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
+  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
 } as const;
 const proposeDecisionSchema = z.object(proposeDecisionShape);
 
@@ -183,11 +186,14 @@ export async function createDecisionAction(
     );
   }
   return execAction(null, () => {
-    // Strip repo_path before forwarding to the service — it's a routing
-    // concern, not a decision field. The remaining args shape is the
-    // legacy CreateDecisionInput contract.
-    const { repo_path: _repoPath, ...createArgs } = args;
-    const decision = serviceForCtx(ctx, bus, indexerProject).create(createArgs);
+    // Strip repo_path (routing concern) and thread (folded into origin
+    // below) before forwarding to the service — the remaining args shape is
+    // the legacy CreateDecisionInput contract. captureOrigin is called HERE,
+    // in the handler, on ctx.repoPath (the checkout root) — never in the
+    // service, which stays free of git dependencies.
+    const { repo_path: _repoPath, thread, ...createArgs } = args;
+    const origin = captureOrigin(ctx.repoPath, thread ?? null);
+    const decision = serviceForCtx(ctx, bus, indexerProject).create({ ...createArgs, origin });
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -206,8 +212,9 @@ export async function proposeDecisionAction(
     );
   }
   return execAction(null, () => {
-    const { repo_path: _repoPath, ...proposeArgs } = args;
-    const d = serviceForCtx(ctx, bus, indexerProject).propose(proposeArgs);
+    const { repo_path: _repoPath, thread, ...proposeArgs } = args;
+    const origin = captureOrigin(ctx.repoPath, thread ?? null);
+    const d = serviceForCtx(ctx, bus, indexerProject).propose({ ...proposeArgs, origin });
     return ok(JSON.stringify(d, null, 2));
   });
 }

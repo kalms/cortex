@@ -9,9 +9,24 @@ export class StoriesRepository {
 
   insert(rec: StoryRecord): void {
     this.db.prepare(
-      `INSERT INTO stories (${STORY_COLS}) VALUES
-       (@id, @seq, @title, @description, @status, @created_by, @created_at, @updated_at)`,
-    ).run(rec);
+      `INSERT INTO stories (
+         ${STORY_COLS},
+         origin_branch, origin_commit, origin_thread,
+         last_touched_branch, last_touched_commit, last_touched_thread
+       ) VALUES (
+         @id, @seq, @title, @description, @status, @created_by, @created_at, @updated_at,
+         @origin_branch, @origin_commit, @origin_thread,
+         @last_touched_branch, @last_touched_commit, @last_touched_thread
+       )`,
+    ).run({
+      ...rec,
+      origin_branch: rec.origin_branch ?? null,
+      origin_commit: rec.origin_commit ?? null,
+      origin_thread: rec.origin_thread ?? null,
+      last_touched_branch: rec.last_touched_branch ?? null,
+      last_touched_commit: rec.last_touched_commit ?? null,
+      last_touched_thread: rec.last_touched_thread ?? null,
+    });
   }
 
   get(id: string): StoryRecord | null {

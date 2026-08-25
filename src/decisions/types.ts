@@ -1,5 +1,6 @@
 import type { NodeRow } from "../graph/store.js";
 import type { PRState } from "../prs/types.js";
+import type { OriginFields } from "../git/origin.js";
 
 /**
  * Structured provenance for machine-authored decisions (e.g. those proposed by
@@ -80,6 +81,7 @@ export interface CreateDecisionInput {
   problem?: string | null;
   resolution?: string | null;
   provenance?: ProvenanceMeta;
+  origin?: OriginFields; // git identity captured by the tool handler
 }
 
 export interface UpdateDecisionInput {
@@ -110,6 +112,7 @@ export interface ProposeDecisionInput {
   author?: string;
   provenance?: ProvenanceMeta;
   pr_number?: number;
+  origin?: OriginFields; // git identity captured by the tool handler
 }
 
 export interface SupersedeDecisionInput {

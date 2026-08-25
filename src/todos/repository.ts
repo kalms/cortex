@@ -11,10 +11,28 @@ export class TodosRepository {
 
   insert(rec: TodoRecord): void {
     this.db.prepare(
-      `INSERT INTO todos (${COLS}) VALUES
-       (@id, @seq, @summary, @description, @state, @state_reason, @proposed_by,
-        @proposed_at, @started_at, @closed_at, @assignee, @created_at, @updated_at)`,
-    ).run(rec);
+      `INSERT INTO todos (
+         ${COLS},
+         origin_branch, origin_commit, origin_thread,
+         last_touched_branch, last_touched_commit, last_touched_thread,
+         basis_hash
+       ) VALUES (
+         @id, @seq, @summary, @description, @state, @state_reason, @proposed_by,
+         @proposed_at, @started_at, @closed_at, @assignee, @created_at, @updated_at,
+         @origin_branch, @origin_commit, @origin_thread,
+         @last_touched_branch, @last_touched_commit, @last_touched_thread,
+         @basis_hash
+       )`,
+    ).run({
+      ...rec,
+      origin_branch: rec.origin_branch ?? null,
+      origin_commit: rec.origin_commit ?? null,
+      origin_thread: rec.origin_thread ?? null,
+      last_touched_branch: rec.last_touched_branch ?? null,
+      last_touched_commit: rec.last_touched_commit ?? null,
+      last_touched_thread: rec.last_touched_thread ?? null,
+      basis_hash: rec.basis_hash ?? null,
+    });
   }
 
   get(id: string): TodoRecord | null {

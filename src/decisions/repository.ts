@@ -26,6 +26,17 @@ export interface DecisionRecord {
   reconciled_by?: string | null;
   nonconformant_nodes?: string | null; // JSON array of { ref, note }
   reconciliation_note?: string | null;
+  // Git identity columns (authored-content provenance). Origin is stamped
+  // once at create and never rewritten; last-touched is rewritten by every
+  // mutating path. All optional so pre-existing inline literals typecheck —
+  // DB rows always carry the columns (NULL until stamped).
+  origin_branch?: string | null;
+  origin_commit?: string | null;
+  origin_thread?: string | null;
+  last_touched_branch?: string | null;
+  last_touched_commit?: string | null;
+  last_touched_thread?: string | null;
+  basis_hash?: string | null;
 }
 
 // provenance is machine-derived and write-once: excluded from updates so it
@@ -80,11 +91,31 @@ export class DecisionsRepository {
   insert(rec: DecisionRecord): void {
     this.db
       .prepare(
-        `INSERT INTO decisions (${SELECT_COLS}) VALUES
-         (@id, @seq, @title, @description, @rationale, @problem, @resolution, @alternatives,
-          @tier, @status, @superseded_by, @author, @provenance, @created_at, @updated_at)`,
+        `INSERT INTO decisions (
+           ${SELECT_COLS},
+           origin_branch, origin_commit, origin_thread,
+           last_touched_branch, last_touched_commit, last_touched_thread,
+           basis_hash
+         ) VALUES (
+           @id, @seq, @title, @description, @rationale, @problem, @resolution, @alternatives,
+           @tier, @status, @superseded_by, @author, @provenance, @created_at, @updated_at,
+           @origin_branch, @origin_commit, @origin_thread,
+           @last_touched_branch, @last_touched_commit, @last_touched_thread,
+           @basis_hash
+         )`,
       )
-      .run({ ...rec, provenance: rec.provenance ?? null });
+      .run({
+        ...rec,
+        seq: rec.seq ?? null,
+        provenance: rec.provenance ?? null,
+        origin_branch: rec.origin_branch ?? null,
+        origin_commit: rec.origin_commit ?? null,
+        origin_thread: rec.origin_thread ?? null,
+        last_touched_branch: rec.last_touched_branch ?? null,
+        last_touched_commit: rec.last_touched_commit ?? null,
+        last_touched_thread: rec.last_touched_thread ?? null,
+        basis_hash: rec.basis_hash ?? null,
+      });
   }
 
   getBySeq(seq: number): DecisionRecord | null {

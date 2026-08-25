@@ -88,11 +88,20 @@ export class TodoService {
   propose(input: ProposeTodoInput): Todo {
     const now = new Date().toISOString();
     const { id, seq } = mintId(this.db, "todo", (cand) => this.todos.get(cand) != null);
+    const origin = input.origin ?? null;
     const rec: TodoRecord = {
       id, seq, summary: input.summary, description: input.description ?? null,
       state: "open", state_reason: null, proposed_by: input.proposed_by ?? "claude",
       proposed_at: now, started_at: null, closed_at: null, assignee: null,
       created_at: now, updated_at: now,
+      // Origin is stamped once, here, and never rewritten. Last-touched
+      // starts equal to origin.
+      origin_branch: origin?.branch ?? null,
+      origin_commit: origin?.commit ?? null,
+      origin_thread: origin?.thread ?? null,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     };
     this.todos.insert(rec);
     for (const g of input.governs ?? []) this.addLink(id, g, "GOVERNS", now);

@@ -35,10 +35,19 @@ export class StoryService {
     const now = new Date().toISOString();
     return this.db.transaction((): StoryWithSteps => {
       const { id, seq } = mintId(this.db, "story", (cand) => this.stories.get(cand) != null);
+      const origin = input.origin ?? null;
       const rec: StoryRecord = {
         id, seq, title: input.title, description: input.description ?? null,
         status: input.closed ? "closed" : "open", created_by: input.created_by ?? "claude",
         created_at: now, updated_at: now,
+        // Origin is stamped once, here, and never rewritten. Last-touched
+        // starts equal to origin.
+        origin_branch: origin?.branch ?? null,
+        origin_commit: origin?.commit ?? null,
+        origin_thread: origin?.thread ?? null,
+        last_touched_branch: origin?.branch ?? null,
+        last_touched_commit: origin?.commit ?? null,
+        last_touched_thread: origin?.thread ?? null,
       };
       this.stories.insert(rec);
       this.steps.insertAll(input.steps.map((s, i) => ({

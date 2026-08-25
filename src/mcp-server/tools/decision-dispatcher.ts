@@ -79,6 +79,7 @@ const decisionShape = {
   pr_number: z.number().int().optional(),
   author: z.string().optional(),
   provenance: ProvenanceSchema.optional(),
+  thread: z.string().optional().describe("create/propose: caller-supplied thread/session id for origin provenance"),
   // search
   query: z.string().optional(),
   scope: z.string().optional(),
