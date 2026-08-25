@@ -24,11 +24,17 @@ function unindexedRepo(): string {
 
 type Decision = "deny" | "allow" | "ask";
 
-/** Run the hook with a PreToolUse payload; return whether it denied. */
+/** Run the hook with a PreToolUse payload; return whether it denied.
+ *  CORTEX_AUTO_INDEX=0 by default: an ALLOW on an unindexed target now kicks
+ *  maybe_bg_index, which would otherwise spawn a REAL detached `cortex index`
+ *  against whatever scratch fixture the payload targets. None of the tests
+ *  that use this helper assert on that spawn (those use raw execFileSync
+ *  with their own stubbed CORTEX_BIN) — only on the permission decision. */
 function run(payload: object): Decision {
   const out = execFileSync("bash", [HOOK], {
     input: JSON.stringify(payload),
     encoding: "utf-8",
+    env: { ...process.env, CORTEX_AUTO_INDEX: "0" },
   }).trim();
   if (out === "") return "allow";
   const parsed = JSON.parse(out);
@@ -371,18 +377,35 @@ function gitInit(root: string): void {
   git("commit", "-q", "--allow-empty", "-m", "init");
 }
 
-/** An indexed MAIN checkout plus a linked worktree with no .cortex/ of its own. */
-function indexedRepoWithWorktree(): { main: string; worktree: string } {
+/** An indexed MAIN checkout plus a linked worktree with no .cortex/ of its
+ *  own — unless `indexWorktree` is set, in which case the worktree gets its
+ *  own populated `.cortex/db` too. */
+function indexedRepoWithWorktree(opts: { indexWorktree?: boolean } = {}): { main: string; worktree: string } {
   const main = mkdtempSync(join(tmpdir(), "cortex-wt-main-"));
   gitInit(main);
   mkdirSync(join(main, ".cortex"), { recursive: true });
   writeFileSync(join(main, ".cortex", "db"), "SQLite format 3\0");
   const worktree = join(mkdtempSync(join(tmpdir(), "cortex-wt-link-")), "wt");
   execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", "wt", worktree], { stdio: "pipe" });
+  if (opts.indexWorktree) {
+    mkdirSync(join(worktree, ".cortex"), { recursive: true });
+    writeFileSync(join(worktree, ".cortex", "db"), "SQLite format 3\0");
+  }
   return { main, worktree };
 }
 
-describe("prefer-cortex.sh — worktrees canonicalize to the main checkout (D-b248)", () => {
+/**
+ * Strict per-worktree indexing closed the "worktrees canonicalize to the
+ * main checkout" behavior (D-b248) that this suite used to assert: with the
+ * canonical fallback gone from BOTH `resolveGraphDbForRead` (Task 16) and
+ * this hook's `repo_indexed()` (this task), a linked worktree with no store
+ * of its own is a genuinely unindexed repo from the gate's point of view —
+ * it must ALLOW (and kick a background index), not deny on the strength of
+ * its main checkout being indexed. Denying here would leave an agent with
+ * neither a working Cortex read (which now refuses to serve the canonical
+ * checkout's graph) nor a permitted grep: no retrieval path at all.
+ */
+describe("prefer-cortex.sh — the index gate is checkout-scoped (no canonical fallback)", () => {
   const { main, worktree } = indexedRepoWithWorktree();
 
   it("sanity: the linked worktree has no .cortex/db of its own", () => {
@@ -390,16 +413,16 @@ describe("prefer-cortex.sh — worktrees canonicalize to the main checkout (D-b2
     expect(existsSync(join(main, ".cortex", "db"))).toBe(true);
   });
 
-  it("DENIES a Bash code grep run from inside a linked worktree", () => {
-    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: "rg foo src/" } })).toBe("deny");
+  it("ALLOWS a Bash code grep run from inside a linked worktree with no index of its own", () => {
+    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: "rg foo src/" } })).toBe("allow");
   });
 
-  it("DENIES a Grep from inside a linked worktree", () => {
-    expect(run({ tool_name: "Grep", cwd: worktree, tool_input: { pattern: "foo", type: "ts" } })).toBe("deny");
+  it("ALLOWS a Grep from inside a linked worktree with no index of its own", () => {
+    expect(run({ tool_name: "Grep", cwd: worktree, tool_input: { pattern: "foo", type: "ts" } })).toBe("allow");
   });
 
-  it("DENIES a code grep whose PATH ARG points into a linked worktree", () => {
-    expect(run({ tool_name: "Bash", cwd: main, tool_input: { command: `rg foo ${worktree}/src/` } })).toBe("deny");
+  it("ALLOWS a code grep whose PATH ARG points into a linked worktree with no index of its own", () => {
+    expect(run({ tool_name: "Bash", cwd: main, tool_input: { command: `rg foo ${worktree}/src/` } })).toBe("allow");
   });
 
   it("still allows non-code searches inside a worktree", () => {
@@ -407,11 +430,35 @@ describe("prefer-cortex.sh — worktrees canonicalize to the main checkout (D-b2
   });
 });
 
+/**
+ * The two cases the strict-reads deadlock hinges on: with main indexed and
+ * the worktree not, the gate must ALLOW (closing the deadlock — Cortex reads
+ * refuse, so the gate must let a plain grep through); once the worktree gets
+ * its OWN index, the gate goes back to denying it, same as any indexed repo.
+ */
+describe("prefer-cortex.sh — index gate is checkout-scoped, closing the strict-read deadlock", () => {
+  it("allows a code search from a worktree that has no index of its own (main is indexed)", () => {
+    const { worktree } = indexedRepoWithWorktree();
+    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: `rg needle ${worktree}/src/a.ts` } })).toBe(
+      "allow",
+    );
+  });
+
+  it("still denies a code search in an indexed worktree", () => {
+    const { worktree } = indexedRepoWithWorktree({ indexWorktree: true });
+    expect(run({ tool_name: "Bash", cwd: worktree, tool_input: { command: `rg needle ${worktree}/src/a.ts` } })).toBe(
+      "deny",
+    );
+  });
+});
+
 /** A linked worktree whose MAIN checkout is ALSO unindexed (neither has a
- *  `.cortex/db`). Used to test maybe_bg_index's checkout-axis targeting: with
- *  the main checkout indexed (indexedRepoWithWorktree), repo_indexed() falls
- *  back to canonical and reads the worktree as indexed, so the gate denies
- *  and maybe_bg_index is never reached — unreachable for this test. */
+ *  `.cortex/db`). Used to test maybe_bg_index's checkout-axis targeting —
+ *  kept as its own fixture (rather than reusing indexedRepoWithWorktree)
+ *  since it predates the strict-reads gate change and nothing about that
+ *  change requires touching it: both checkouts being unindexed was always
+ *  the scenario that exercises maybe_bg_index regardless of whether
+ *  repo_indexed() reads through to canonical. */
 function unindexedRepoWithWorktree(): { main: string; worktree: string } {
   const main = mkdtempSync(join(tmpdir(), "cortex-wt-uidx-main-"));
   gitInit(main);
