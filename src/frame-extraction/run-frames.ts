@@ -7,13 +7,14 @@
  * returns a discriminated FrameResult the caller surfaces.
  *
  * Reclusters on every call (frames are a global property; see the design
- * doc). Gates: CORTEX_FRAMES≠0 and a present venv.
+ * doc). Gates: CORTEX_FRAMES≠0, file nodes present, and a venv — which is
+ * provisioned on demand (ensureVenv) rather than assumed.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { hasVenv } from "./venv.js";
+import { ensureVenv, hasVenv } from "./venv.js";
 import { collectCoChange, writeCoChangeJsonl } from "./co-change.js";
 import { collectHierarchyPairs, writeHierarchyJsonl } from "./hierarchy-affinity.js";
 import { runTfIdfHdbscan } from "./cluster-tfidf-hdbscan.js";
@@ -49,8 +50,17 @@ function hasFileNodes(dbPath: string, project: string): boolean {
 
 export async function runFrameExtraction(opts: RunFrameOptions): Promise<FrameResult> {
   if (process.env.CORTEX_FRAMES === "0") return { status: "skipped", reason: "disabled" };
-  if (!hasVenv()) return { status: "skipped", reason: "venv_missing" };
+  // Cheapest gate first, and the one that must precede the venv: provisioning
+  // costs minutes and a network, and a repo with nothing to cluster would pay
+  // it to produce no frames either way.
   if (!hasFileNodes(opts.dbPath, opts.project)) return { status: "skipped", reason: "no_files" };
+  if (!hasVenv() && !ensureVenv({ onProvision: () => {
+    // stderr, not the FrameResult: this is progress for a wait the caller did
+    // not ask for, and the result still has to describe the outcome alone.
+    process.stderr.write("[frames] provisioning the Python venv (one-time, 1-3 min)…\n");
+  } })) {
+    return { status: "skipped", reason: "venv_missing" };
+  }
 
   const start = Date.now();
   // `work` is created inside the try so even mkdtempSync failing (unwritable
