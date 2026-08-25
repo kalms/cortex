@@ -74,6 +74,31 @@ function hashDir(h: ReturnType<typeof createHash>, root: string, dir: string): v
   }
 }
 
+/** Whether one governed ref points at something that exists right now. */
+export type RefResolution = "resolved" | "missing" | "unresolvable";
+
+export interface ResolvedRef {
+  ref: GovernedRef;
+  state: RefResolution;
+  /** Repo-relative path when one could be derived, else null. */
+  path: string | null;
+}
+
+/**
+ * Per-ref resolution state — the information `hashGovernedSource` computes and
+ * discards. It folds each ref into a `<missing>`/`<unresolved>` sentinel and
+ * returns one opaque digest; callers that need to explain a verdict need to
+ * know WHICH refs failed. Same traversal, same `refToFile`, no hashing.
+ */
+export function resolveGovernedRefs(repoPath: string, refs: GovernedRef[]): ResolvedRef[] {
+  return refs.map((ref) => {
+    const rel = refToFile(ref);
+    if (rel == null) return { ref, state: "unresolvable" as const, path: null };
+    const abs = isAbsolute(rel) ? rel : join(repoPath, rel);
+    return { ref, state: existsSync(abs) ? ("resolved" as const) : ("missing" as const), path: rel };
+  });
+}
+
 /**
  * Project the two stored axes (status, reconciliation verdict) into a single
  * human-facing display state. "stale" is active ∧ drift — never stored.
