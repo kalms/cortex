@@ -10,12 +10,25 @@ import { hasVenv } from "../../src/frame-extraction/venv.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
+/** A DB shaped just enough for hasFileNodes() to see one file node. */
+function dbWithFileNode(project: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "frames-gate-"));
+  const path = join(dir, "graph.db");
+  const db = new Database(path);
+  db.exec("CREATE TABLE nodes (id TEXT PRIMARY KEY, kind TEXT, project TEXT, data TEXT)");
+  db.prepare("INSERT INTO nodes VALUES ('ctx-1','file',?,'{}')").run(project);
+  db.close();
+  return path;
+}
+
 describe("runFrameExtraction gating", () => {
   const origFrames = process.env.CORTEX_FRAMES;
   const origVenv = process.env.CORTEX_VENV;
+  const origSetup = process.env.CORTEX_FRAMES_SETUP;
   afterEach(() => {
     if (origFrames === undefined) delete process.env.CORTEX_FRAMES; else process.env.CORTEX_FRAMES = origFrames;
     if (origVenv === undefined) delete process.env.CORTEX_VENV; else process.env.CORTEX_VENV = origVenv;
+    if (origSetup === undefined) delete process.env.CORTEX_FRAMES_SETUP; else process.env.CORTEX_FRAMES_SETUP = origSetup;
   });
 
   it("skips with reason 'disabled' when CORTEX_FRAMES=0", async () => {
@@ -24,14 +37,29 @@ describe("runFrameExtraction gating", () => {
     expect(r).toEqual({ status: "skipped", reason: "disabled" });
   });
 
-  it("skips with reason 'venv_missing' when venv absent", async () => {
+  it("skips with reason 'venv_missing' when the venv is absent and setup is declined", async () => {
     delete process.env.CORTEX_FRAMES;
-    process.env.CORTEX_VENV = "/tmp/no-venv-here-98765";
-    const r = await runFrameExtraction({ repoPath: "/tmp", project: "P", dbPath: "/tmp/x.db" });
+    process.env.CORTEX_VENV = join(mkdtempSync(join(tmpdir(), "no-venv-")), "python-venv");
+    // Without this the gate would try to PROVISION the venv — minutes and a
+    // network. CORTEX_FRAMES_SETUP=0 is the documented opt-out, and it is what
+    // a machine that genuinely does not want frames sets.
+    process.env.CORTEX_FRAMES_SETUP = "0";
+    const r = await runFrameExtraction({ repoPath: "/tmp", project: "P", dbPath: dbWithFileNode("P") });
     expect(r).toEqual({ status: "skipped", reason: "venv_missing" });
   });
 
-  it("skips with reason 'no_files' when the DB has no file nodes (past the venv gate)", async () => {
+  it("checks for file nodes BEFORE the venv, so an empty repo never provisions one", async () => {
+    delete process.env.CORTEX_FRAMES;
+    // No venv, and setup NOT opted out: reaching the venv gate here would
+    // start a real pip install. It must not — there is nothing to cluster.
+    process.env.CORTEX_VENV = join(mkdtempSync(join(tmpdir(), "no-venv-")), "python-venv");
+    const r = await runFrameExtraction({
+      repoPath: "/tmp", project: "P", dbPath: join(tmpdir(), "does-not-exist-frames.db"),
+    });
+    expect(r).toEqual({ status: "skipped", reason: "no_files" });
+  });
+
+  it("skips with reason 'no_files' when the DB has no file nodes", async () => {
     delete process.env.CORTEX_FRAMES;
     // Stub a venv so hasVenv() passes deterministically regardless of the host.
     const fakeVenv = mkdtempSync(join(tmpdir(), "fake-venv-"));

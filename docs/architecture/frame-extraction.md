@@ -99,10 +99,21 @@ or replace one without recomputing the rest.
 | ML (TF-IDF, HDBSCAN, silhouette) | Python | mature ecosystem; sklearn + hdbscan are best-in-class |
 
 The Python venv lives at `~/.cache/cortex-indexer/python-venv/`
-(override with `CORTEX_VENV`). It is created at install time by
-`cortex install` (or on demand via `cortex setup frames`), which calls
-`scripts/frame-extraction/python/setup-venv.sh` and bootstraps it
-idempotently from `requirements.txt`. Moving it out of the repo (it
+(override with `CORTEX_VENV`). It is created by `cortex install`, by
+`cortex setup frames`, or — since 2.0.3 — **on demand by the first index
+that needs it** (`ensureVenv`), all of which call
+`scripts/frame-extraction/python/setup-venv.sh` and bootstrap it
+idempotently from `requirements.txt`. On-demand creation is what makes a
+*bundled* sidecar work: an embedding host unpacks the tarball and never
+runs `cortex install`, so before this the venv was never created and
+every index returned `{skipped, venv_missing}` forever — invisibly, to a
+host whose only surface is a viewer. It is guarded, since it spends
+minutes and a network: `CORTEX_FRAMES_SETUP=0` opts out, a failure is
+marked and not retried for 24h, and a lock file keeps two concurrent
+indexes from pip-installing into one venv. `CORTEX_PYTHON` pins the
+interpreter; otherwise it is resolved from `PATH` and then from the usual
+absolute locations, because a sidecar spawned by a GUI app inherits that
+app's environment rather than a login shell's. Moving it out of the repo (it
 historically lived at `scripts/frame-extraction/python/.venv/`) lets
 frame extraction work when Cortex is installed as a plugin, where the
 repo tree may be read-only. The TS orchestrator's integration test in
@@ -117,7 +128,9 @@ It reclusters on every index (frames are a global property: changing a few
 files can shift cluster boundaries). The C indexer is untouched; frames are
 an additive TypeScript post-step that reads the just-written graph DB and
 updates `nodes.data` in place. Gated by `CORTEX_FRAMES` (set `0` to opt
-out) and venv presence; never blocks or fails the index. The importable
+out), then by the presence of file nodes, then by the venv — in that
+order, so a repo with nothing to cluster never pays for provisioning one;
+never blocks or fails the index. The importable
 core (`co-change`, `cluster-tfidf-hdbscan`, `inject-frames`, `text-blob`,
 `path-tokenize`, `types`) now lives under `src/frame-extraction/` (promoted
 from `scripts/` since it is production code on the index path); the

@@ -250,8 +250,11 @@ function renderFramesLine(r: FrameResult): string {
     case "ok":
       return `frames: ${r.framesAssigned} assigned across ${r.clusters} clusters (${(r.elapsedMs / 1000).toFixed(1)}s)`;
     case "skipped":
+      // venv_missing now means the on-demand setup did not succeed — it is
+      // attempted automatically, so "not set up yet" is no longer a state a
+      // user can be in without something having gone wrong or been declined.
       return r.reason === "venv_missing"
-        ? "frames: skipped (python venv not set up — run 'cortex setup frames')"
+        ? "frames: skipped (python venv unavailable — run 'cortex setup frames' to see why)"
         : `frames: skipped (${r.reason})`;
     case "failed":
       return `frames: failed (${r.reason})`;
