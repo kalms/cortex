@@ -60,6 +60,15 @@ jobs:
           chmod 755 "$STAGE/bin/cortex-indexer"
           cp -R skills "$STAGE/skills"
           cp -R hooks "$STAGE/hooks"
+          # Frame extraction's clusterer is a Python script the runtime opens
+          # by path (cluster-tfidf-hdbscan.ts's PYTHON_SCRIPT, resolved under
+          # the package root). Leaving it out broke nothing loudly: python
+          # exits 2, runFrameExtraction is contractually never-throws and
+          # reports "failed", and the index still returns success — so every
+          # packaged sidecar shipped a canvas that could not draw a frame.
+          # setup-venv.sh rides along; venv.ts execs it by the same path.
+          mkdir -p "$STAGE/scripts/frame-extraction"
+          cp -R scripts/frame-extraction/python "$STAGE/scripts/frame-extraction/python"
           # Sidecar-variant plugin manifest: skills + hooks ONLY. Mesh injects
           # the MCP transport itself (--mcp-config, HTTP); a mcpServers key here
           # would double-spawn a server the packaged tree cannot run (no tsx).
@@ -117,6 +126,12 @@ jobs:
           # Plugin assets staged and shaped right.
           test -d "$STAGE/skills/capture-decision" || { echo "skills/ missing" >&2; exit 1; }
           test -f "$STAGE/hooks/hooks.json" || { echo "hooks/ missing" >&2; exit 1; }
+          # Frame-extraction assets. Presence is the only cheap signal: a
+          # missing clusterer degrades silently at index time, never here.
+          for f in scripts/frame-extraction/python/tfidf_hdbscan.py \
+                   scripts/frame-extraction/python/setup-venv.sh; do
+            test -f "$STAGE/$f" || { echo "$f missing" >&2; exit 1; }
+          done
           node -e '
             const p = require(process.argv[1] + "/plugin.json");
             if (p.name !== "mesh-cortex" || !p.skills || !p.hooks || "mcpServers" in p) process.exit(1);
@@ -134,8 +149,9 @@ jobs:
           # entries, so stray state (e.g. a .cortex/ dir written by some
           # future step) can never ship regardless of what touches $STAGE.
           # skills/hooks/plugin.json are the Mesh-embedded plugin surface —
-          # see the "Assemble staging tree" step above.
-          tar -czf "$NAME" -C "$STAGE" package.json dist src node_modules bin skills hooks plugin.json
+          # see the "Assemble staging tree" step above. scripts/ carries the
+          # frame-extraction Python the canvas depends on, and nothing else.
+          tar -czf "$NAME" -C "$STAGE" package.json dist src node_modules bin skills hooks scripts plugin.json
           shasum -a 256 "$NAME" > "$NAME.sha256"
           cat "$NAME.sha256"
           gh release upload "$TAG" "$NAME" "$NAME.sha256" --clobber
