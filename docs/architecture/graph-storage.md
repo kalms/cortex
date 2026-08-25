@@ -119,13 +119,33 @@ worktree row that holds a real store of its own so it survives as a
 legitimate registry entry rather than being pruned as a stale collapse
 target.
 
-**Transitional and deliberate:** a checkout with no store of its own still
-falls back to reading the canonical repo's graph, annotated
-`servedFrom: "canonical"` on `RepoContext` — this keeps a not-yet-indexed
-worktree usable rather than empty. A later stage makes reads strict and
-removes both the fallback and the annotation; until then, treat
-`servedFrom: "canonical"` as "this checkout hasn't been indexed on its own
-yet," not as a bug.
+**Reads are strict: a checkout is served its own graph or none.** A checkout
+with no store of its own does **not** fall back to the canonical repo's
+graph — `RepoContextResolver.resolve` refuses. The transitional
+`servedFrom: "canonical"` annotation that marked such reads through 1.11–1.12
+was removed in 2.0.0 along with the fallback itself.
+
+The refusal is actionable rather than flat. `resolve` first calls
+`kickBackgroundIndex`, which mirrors `hooks/prefer-cortex.sh`'s
+`maybe_bg_index` exactly — same `<checkout>/.cortex/.auto-index-attempted`
+sentinel, same 60-minute backoff, same `CORTEX_AUTO_INDEX=0` opt-out — and
+never throws. Which error you get says whether waiting will help:
+
+| Condition | Error | What the agent should do |
+|---|---|---|
+| No store, index now in flight (just kicked, or kicked <60 min ago) | `WorktreeIndexPendingError` | Retry in a few seconds; or pass `repo_path` = the canonical root to read the main checkout deliberately |
+| No store, no index in flight (kick disabled or failed) | `RepoNotIndexedError` | Run `cortex index . <path>` |
+
+Both carry `path`, `branch` and `canonical`, so a caller can name the
+checkout, its branch, and the main checkout it could fall back to *by
+explicit choice* rather than silently.
+
+**This is paired with the retrieval gate and must stay paired.** The gate
+(`repo_indexed` in `hooks/prefer-cortex.sh`) resolves on the checkout axis
+too, so an unindexed worktree lets plain `grep` through. Scope reads strictly
+while the gate still reads through to the canonical root and an agent in a
+fresh worktree has neither a working Cortex read nor a permitted search —
+a deadlock. Changing one side requires changing the other.
 
 This replaces the prior model, where every root derivation — index write
 path, read resolver, registry — canonicalized through `mainWorktreeRoot`

@@ -294,8 +294,10 @@ Build (or incrementally update) the knowledge graph for a repo.
   the `branch` it was on at index time. This is the checkout axis; the
   repo-identity axis is unchanged, so decisions/todos/stories still live in one
   store shared by every worktree of the repo. Until a worktree has been indexed
-  once, reads against it fall back to the main checkout's graph and say so via
-  `servedFrom: "canonical"`. Builds into a private staging DB
+  once, reads against it **refuse** rather than falling back to the main
+  checkout's graph — `WorktreeIndexPendingError` while a background index is in
+  flight, `RepoNotIndexedError` otherwise (2.0.0; the former
+  `servedFrom: "canonical"` fallback was removed). Builds into a private staging DB
   (`.cortex/db.stage-<pid>`), runs frame + contract extraction against it,
   then **atomically publishes** into `.cortex/db` via a single WAL
   transaction (`publishStagedDb`) so the live file is never truncated under

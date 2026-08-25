@@ -62,20 +62,26 @@ user** approves a raw grep, never the agent itself. Denial text never mentions
 the token — advertising the bypass at the moment of denial is what taught the
 habit.
 
-**Worktrees count as indexed — but that's now the hook's own reading, not the
-graph's.** The gate still resolves its target through `--git-common-dir` (the
-shell mirror of `mainWorktreeRoot`), so a linked worktree still collapses onto
-the main checkout for gate purposes, unchanged this stage. What changed
-underneath it: a linked worktree can now hold its own `.cortex/db` (per-worktree
-indexing landed in the checkout-axis work — see
-[graph-storage.md](docs/architecture/graph-storage.md#two-axes)), so "a
-worktree never has its own `.cortex/db` by design" is no longer true of the
-graph. The hook's collapse-onto-main behavior is a **deliberate, temporary
-asymmetry**, not a bug: it still means the gate can pass in a worktree even
-when that worktree's own index is stale or absent, because it's checking the
-main checkout's index instead. A later stage moves the hook onto the checkout
-axis to close that gap. Degrade-safe (any hook failure allows); loads at
-session start. Rationale: decisions `D-sq61`, `D-mmtb`, `D-b248`, `D-7ca7`.
+**A worktree is judged on its own index — gate and reads agree.** The gate
+resolves its target on the **checkout axis** (`--show-toplevel`, the shell
+mirror of `worktreeRoot`), so a linked worktree with no `.cortex/db` of its
+own reads as *unindexed* and the grep **passes through**. It no longer
+collapses onto the main checkout, and the earlier asymmetry — where the gate
+could deny a grep on the strength of the main checkout's index while the
+worktree itself had none — is gone.
+
+That pairing is load-bearing, not incidental. Reads in an unindexed checkout
+**refuse** (`WorktreeIndexPendingError` while a background index is in flight,
+`RepoNotIndexedError` otherwise) rather than quietly serving another
+checkout's graph. If the gate still blocked greps on the main checkout's
+index, an agent in a fresh worktree would have *neither* a working read nor a
+permitted search. Gate scoping and strict reads must therefore stay on the
+same axis: change one and you must change the other.
+
+Degrade-safe (any hook failure allows); loads at session start. Rationale:
+decisions `D-sq61`, `D-mmtb`, `D-7ca7` (and `D-b248`, superseded by the
+two-axis model — see
+[graph-storage.md](docs/architecture/graph-storage.md#two-axes)).
 
 ### Freshness signal — trust the graph, don't pre-emptively grep
 
