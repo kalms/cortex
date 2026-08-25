@@ -18,6 +18,48 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.0.3] — 2026-08-25
+
+### Fixed
+
+- **Nothing ever created the Python venv that frame extraction needs, so a
+  bundled sidecar could not produce frames at all.** `cortex install` creates
+  it and `cortex setup frames` creates it — and an embedding host unpacks the
+  tarball and runs neither, so every index returned `{skipped, venv_missing}`
+  forever while a host whose only surface is a viewer drew an empty canvas
+  with nothing anywhere to say why. This is the third defect in the same
+  blank-canvas investigation, after the missing clusterer (2.0.1) and the
+  discarded publish (2.0.2); it outlived both because it fails the same silent
+  way. `ensureVenv` now provisions on demand from `runFrameExtraction`, guarded
+  because it spends minutes and a network: `CORTEX_FRAMES_SETUP=0` opts out, a
+  failure is marked and not retried for 24h (`cortex setup frames` bypasses the
+  marker and clears it), and a lock file stops two concurrent indexes from
+  pip-installing into one venv.
+- **`python3` was resolved from `PATH` alone.** A sidecar spawned by a GUI app
+  inherits that app's environment rather than a login shell's, so the lookup
+  could fail on a machine with a perfectly good interpreter — which would have
+  made the change above a no-op in exactly the case it exists for. Resolution
+  is now `CORTEX_PYTHON`, then `PATH`, then the usual absolute locations, and
+  the resolved interpreter's directory is prepended to the setup script's own
+  `PATH`.
+
+- **A half-built venv read as a working one.** `python3 -m venv` writes
+  `bin/python` before pip installs anything, so a creation that died partway
+  left a venv that existed and could not cluster: `hasVenv()` returned true
+  forever, the on-demand guard was short-circuited, and every index failed with
+  `ModuleNotFoundError` rather than skipping and being retried. `setup-venv.sh`
+  now removes the venv if creation fails (creation only — a failed *upgrade*
+  still leaves a working venv alone), and `hasVenv()` requires
+  `site-packages/numpy` rather than just the interpreter, so a half-venv from
+  any source reads as absent and is rebuilt.
+
+### Changed
+
+- **Frame extraction checks for file nodes before it checks for the venv.**
+  Provisioning one only to discover the repo has nothing to cluster is pure
+  cost, and `no_files` is the honest answer for an empty repo — which it was
+  not while a missing venv could mask it.
+
 ## [2.0.2] — 2026-08-25
 
 ### Fixed
@@ -2107,6 +2149,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.0.3]: https://github.com/ruevu/cortex/releases/tag/v2.0.3
 [2.0.2]: https://github.com/ruevu/cortex/releases/tag/v2.0.2
 [2.0.1]: https://github.com/ruevu/cortex/releases/tag/v2.0.1
 [2.0.0]: https://github.com/ruevu/cortex/releases/tag/v2.0.0
